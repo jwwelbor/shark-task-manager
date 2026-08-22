@@ -76,14 +76,24 @@
 #   5. `retention_root_digest` is a digest of digests, not a full-tree
 #      content hash: sha256 over the canonical JSON of `batch.json`'s own
 #      raw-byte digest plus the sorted list of every retained pair's
-#      `manifest.json` raw-byte digest. Every retained artifact's own byte
-#      integrity is already covered by that pair's `manifest.json` sha256
-#      entries (verify-retention-root.sh is the dedicated byte-preservation
-#      checker); re-hashing the full evidence/transcripts payloads here
-#      would cost O(retention root size) for no additional integrity
-#      signal and would work against REQ-NF-004's streaming/scale
-#      requirement for no benefit -- this aggregator does not otherwise
-#      need to touch a single byte of evidence/ or transcripts/ content.
+#      `manifest.json` raw-byte digest. UAT round 5 (T-E40-F10-008) found
+#      that this comment previously OVERSTATED what that gave us: a
+#      `manifest.json` sha256 ENTRY is a claim, not proof, until something
+#      recomputes it against the actual retained bytes -- verify-
+#      retention-root.sh is still the dedicated, offline, exhaustive
+#      byte-preservation checker for the full retention layout. What THIS
+#      script now does, inline, is narrower but real: for the three
+#      artifacts it reads raw bytes for anyway (package.yaml,
+#      lifecycle.jsonl, evaluation.jsonl) it independently recomputes each
+#      digest and refuses the pair on mismatch (see the source_digests loop
+#      below) -- so those three ARE verified here, not merely trusted.
+#      Evidence/ and transcripts/ payloads are still never re-hashed here:
+#      this aggregator does not otherwise touch a single byte of their
+#      content, re-hashing them would cost O(retention root size) for a
+#      block this task does not build, and would work against
+#      REQ-NF-004's streaming/scale requirement for no benefit to
+#      identity/scenarios/time/cost. Their own byte integrity remains
+#      verify-retention-root.sh's job.
 #
 #   6. No per-scenario `time`/`cost` breakdown array. The `aggregate.json`
 #      blocks table describes `time`/`cost` as "per scenario and rolled
@@ -511,10 +521,22 @@ def sha256_file(path):
         return sha256_bytes(fh.read())
 
 
-def require(d, key, ctx):
+def require(d, key, ctx, expected_type=None):
     if not isinstance(d, dict) or key not in d or d[key] in (None, ""):
         fail(f"{ctx}: missing required field {key!r}")
-    return d[key]
+    value = d[key]
+    # UAT round 5 (T-E40-F10-008, defect class: "validating schema fixtures
+    # in tests while accepting structurally invalid nested values at the
+    # production boundary"). Presence/non-empty alone is not "valid" --
+    # `expected_type`, when given, is checked so a wrong-typed value (e.g. a
+    # string where the schema-required shape is a boolean or array) fails
+    # closed here rather than rendering into aggregate.json, where only the
+    # separate Go contract validator's hand-crafted fixtures would ever have
+    # caught the wrong shape.
+    if expected_type is not None and not isinstance(value, expected_type):
+        type_name = getattr(expected_type, "__name__", str(expected_type))
+        fail(f"{ctx}: field {key!r} has wrong type: expected {type_name}, got {type(value).__name__}")
+    return value
 
 
 def read_one_line_json(path, ctx):
@@ -687,10 +709,27 @@ for scenario_id, rep, rep_dir in pair_dirs:
         )
 
     outcome = require(lc, "outcome", f"{pair_label} lifecycle.jsonl")
-    eligibility = require(ev, "eligibility", f"{pair_label} evaluation.jsonl")
-    for key in ("aggregate_eligible", "publication_eligible", "invalidity_reasons"):
+    eligibility = require(ev, "eligibility", f"{pair_label} evaluation.jsonl", expected_type=dict)
+    # UAT round 5 (T-E40-F10-008 MEDIUM finding): each subfield's TYPE is
+    # checked, not just its presence -- mirrors the exact shapes the
+    # tests/contracts aggregate.json contract validator's own
+    # subfield-eligibility-*-wrong-type fixtures already assert against at
+    # the output boundary. A wrong-typed value here would otherwise render
+    # verbatim (ADR-F10-04 "copy verbatim" governs VALUE, never SHAPE) into
+    # a schema-invalid aggregate.json.
+    for key, expected_type in (
+        ("aggregate_eligible", bool),
+        ("publication_eligible", bool),
+        ("invalidity_reasons", list),
+    ):
         if key not in eligibility:
             fail(f"{pair_label}: evaluation.jsonl eligibility.{key} missing")
+        value = eligibility[key]
+        if not isinstance(value, expected_type):
+            fail(
+                f"{pair_label}: evaluation.jsonl eligibility.{key} has wrong type: "
+                f"expected {expected_type.__name__}, got {type(value).__name__}"
+            )
 
     try:
         with open(manifest_path, encoding="utf-8") as fh:
@@ -698,10 +737,46 @@ for scenario_id, rep, rep_dir in pair_dirs:
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"{pair_label}: manifest.json is not valid JSON: {exc}")
     artifacts_manifest = manifest.get("artifacts") or {}
+
+    # UAT round 5 (T-E40-F10-008, defect class: "treating a present file,
+    # digest field, or non-empty provenance string as proof of verified
+    # source derivation" -- same class as T-E40-F10-004's
+    # lib/verify_pair_retention and T-E40-F10-007's verify-retention-root.sh,
+    # coordinated with both). Design decision 5 above already establishes
+    # that this aggregator never re-hashes the full evidence/transcripts
+    # payloads it does not otherwise read; that boundary is unchanged. But
+    # for the three artifacts this script DOES read raw bytes for --
+    # package.yaml, lifecycle.jsonl, evaluation.jsonl -- manifest.json's own
+    # recorded sha256 is NEVER trusted as proof by itself: it is only ever
+    # compared AGAINST an independently recomputed digest of the actual
+    # retained bytes (sha256_file, the same algorithm/encoding
+    # bench/reports/lifecycle-baseline-schema.yaml digest_rules requires,
+    # and the one lib/verify_pair_retention and verify-retention-root.sh
+    # both use for flat-file artifacts). A stale or fabricated manifest
+    # digest -- or a required artifact with no recorded source_path at all,
+    # per UAT-R3-01 -- refuses the pair by name rather than silently
+    # propagating an unverified digest into the published aggregate.
     source_digests = {}
-    for name, entry in sorted(artifacts_manifest.items()):
-        if isinstance(entry, dict) and entry.get("sha256"):
-            source_digests[name] = entry["sha256"]
+    for name, path in (
+        ("package.yaml", package_path),
+        ("lifecycle.jsonl", lifecycle_path),
+        ("evaluation.jsonl", evaluation_path),
+    ):
+        entry = artifacts_manifest.get(name)
+        if not isinstance(entry, dict):
+            fail(f"{pair_label}: manifest.json has no artifacts entry for required artifact {name!r}")
+        source_path = entry.get("source_path") or ""
+        if not source_path:
+            fail(f"{pair_label}: manifest.json artifacts.{name!r}.source_path is missing or empty")
+        recorded_digest = entry.get("sha256")
+        current_digest = sha256_file(path)
+        if current_digest != recorded_digest:
+            fail(
+                f"{pair_label}: {name}: recomputed digest {current_digest} does not match "
+                f"manifest-recorded digest {recorded_digest!r} -- refusing a retained artifact "
+                f"whose bytes disagree with its own manifest"
+            )
+        source_digests[name] = current_digest
     manifest_digest_entries.append(
         {"scenario_id": scenario_id, "rep": rep, "manifest_sha256": sha256_file(manifest_path)}
     )

@@ -21,8 +21,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 COMPARISON="$SCRIPTS_DIR/run-review-comparison.sh"
 COMPARATOR="$SCRIPTS_DIR/compare-lifecycle-evaluations.sh"
+RETAIN_PAIR="$SCRIPTS_DIR/lib/retain_pair"
+VERIFY_PAIR_RETENTION="$SCRIPTS_DIR/lib/verify_pair_retention"
+I07_FIXTURE="$REPO_ROOT/tests/contracts/testdata/e40_i07/valid/complete.jsonl"
 SCENARIO_ID="py-bug-due-date-boundary"
 # Mirrors run-review-comparison.sh's gate_rep() (GATE_REP_BASE=900000,
 # qa=BASE+1, deep_review=BASE+2) -- code-review-2026-08-21T0330-E40-F10.md
@@ -39,9 +43,48 @@ fail() {
 
 [[ -x "$COMPARISON" ]] || fail "bench/scripts/run-review-comparison.sh missing or not executable"
 [[ -x "$COMPARATOR" ]] || fail "bench/scripts/compare-lifecycle-evaluations.sh missing or not executable"
+[[ -x "$RETAIN_PAIR" ]] || fail "bench/scripts/lib/retain_pair missing or not executable"
+[[ -f "$VERIFY_PAIR_RETENTION" ]] || fail "bench/scripts/lib/verify_pair_retention missing"
+[[ -f "$I07_FIXTURE" ]] || fail "committed valid I-07 fixture missing: $I07_FIXTURE"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
+
+# ---------------------------------------------------------------------------
+# Real, non-evaluation retention sources (UAT round-6 fix,
+# uat-2026-08-21T233606Z-E40-F10.md, defect class: "treating a present
+# file, digest field, or non-empty provenance string as proof of verified
+# source derivation"): retain_pair_fixtures below now drives the REAL
+# bench/scripts/lib/retain_pair for both gate directories -- the SAME
+# shared manifest builder run-review-comparison.sh's own retain_gate()
+# calls -- so every "already retained, skip" case in this file exercises a
+# genuinely complete, byte-preserved pair (mirroring tc082's build_golden()
+# precedent) rather than the old hand-rolled two-key manifest.json
+# (`{"scenario_id", "rep", "gate", "artifacts": {}}`) that the strengthened
+# gate_dest_provenance_ok() now correctly refuses as incomplete. Only
+# evaluation.jsonl varies per case (that's the file this test's comparator
+# fixtures actually exercise); package.yaml/lifecycle.jsonl/
+# entity-history.json/the i05 bundle are fixed, real, shared sources.
+# ---------------------------------------------------------------------------
+SOURCES="$WORKDIR/sources"
+I05_BUNDLE="$SOURCES/i05-bundle"
+mkdir -p "$I05_BUNDLE/transcripts"
+cat >"$SOURCES/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$SCENARIO_ID"
+scenario_version: "1"
+entity_family: "family-tc087"
+EOF
+echo '{"stage": "code", "note": "tc087 fixture evidence"}' >"$I05_BUNDLE/stage.json"
+echo "tc087 fixture transcript" >"$I05_BUNDLE/transcripts/stage.txt"
+cp "$I07_FIXTURE" "$SOURCES/lifecycle.jsonl"
+ENTITY_HISTORY_SOURCE="$SOURCES/entity-history.json"
+python3 -c '
+import json
+obj = {"entity_type": "task", "entity_key": "ROOT-TC087", "history": [{"timestamp": "2026-01-01T00:00:00Z", "old_status": "todo", "new_status": "in_progress", "agent": "tc087-fixture"}], "total": 1}
+with open("'"$ENTITY_HISTORY_SOURCE"'", "w", encoding="utf-8") as f:
+    f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
+'
 
 # ---------------------------------------------------------------------------
 # Fixture builder: writes independent/sequential/divergent I-08 evaluation
@@ -108,6 +151,15 @@ def base_record(evaluation_id, candidate_snapshots, policy=None, findings=None):
 def write(name, record):
     path = root / f"{name}.jsonl"
     path.write_text(json.dumps(record) + "\n")
+    # UAT round-6 (uat-2026-08-21T233606Z-E40-F10.md): retain_pair_fixtures
+    # now passes this file directly as lib/retain_pair's evaluation_jsonl
+    # source argument, and retain_pair requires a real
+    # "<evaluation_jsonl>.oracle.json" sidecar for the oracle.json required
+    # artifact (its own copy_artifact("oracle.json", evaluation_jsonl +
+    # ".oracle.json") call) -- write one alongside every fixture file so no
+    # case refuses with required_artifact_source_unavailable.
+    oracle_path = root / f"{name}.jsonl.oracle.json"
+    oracle_path.write_text(json.dumps({"held_back": True, "observed_result": "pass"}) + "\n")
     return path
 
 # --- Pair A: identity-compatible independent_frozen_candidate pair -------
@@ -167,28 +219,31 @@ PY
 # a manifest.json carrying scenario_id/rep/gate -- not a gate-named
 # directory. gate_rep() in run-review-comparison.sh maps qa/deep_review to
 # QA_REP/DR_REP (round-3 rework: a reserved band, not the low 1/2 range --
-# code-review-2026-08-21T0330-E40-F10.md finding 1). The fixture below
-# writes minimal-but-real manifest.json files at those two paths so
-# gate_dest_provenance_ok()'s provenance check (manifest.json's "gate"
-# field) accepts them as already-retained by THIS driver for THIS gate,
-# not an unrelated batch pair -- proving the skip path against the real
-# provenance check, not just against a bare evaluation.jsonl existence
-# check.
+# code-review-2026-08-21T0330-E40-F10.md finding 1).
+#
+# UAT round-6 rework (uat-2026-08-21T233606Z-E40-F10.md): the fixture below
+# used to hand-write a two-key manifest.json (`{"scenario_id", "rep",
+# "gate", "artifacts": {}}`) with no other retained artifacts on disk at
+# all -- content that passed the OLD gate_dest_provenance_ok's
+# identity-only check but is exactly the kind of superficially-valid,
+# actually-incomplete pair the strengthened check (lib/verify_pair_
+# retention) now correctly refuses. It now drives the REAL
+# bench/scripts/lib/retain_pair for both gate directories -- the SAME
+# shared manifest builder run-review-comparison.sh's own retain_gate()
+# calls, with the case's own qa_fixture/dr_fixture file passed directly as
+# retain_pair's evaluation_jsonl source argument -- so every artifact is
+# genuinely present, byte-preserved, and digest-correct, and the "already
+# retained, skip" cases below prove the skip path against a REAL complete
+# pair, not a manifest-only stand-in.
 # ---------------------------------------------------------------------------
 retain_pair_fixtures() {
 	local root="$1" qa_fixture="$2" dr_fixture="$3"
 	local qa_dir="$root/scenarios/$SCENARIO_ID/$QA_REP" dr_dir="$root/scenarios/$SCENARIO_ID/$DR_REP"
 	mkdir -p "$qa_dir" "$dr_dir"
-	cp "$WORKDIR/${qa_fixture}.jsonl" "$qa_dir/evaluation.jsonl"
-	cp "$WORKDIR/${dr_fixture}.jsonl" "$dr_dir/evaluation.jsonl"
-	python3 -c 'import json,sys
-scenario_id, rep, gate, dest = sys.argv[1:5]
-manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
-open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$QA_REP" qa "$qa_dir/manifest.json"
-	python3 -c 'import json,sys
-scenario_id, rep, gate, dest = sys.argv[1:5]
-manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
-open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$DR_REP" deep_review "$dr_dir/manifest.json"
+	python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$QA_REP" "$SOURCES/package.yaml" \
+		"$SOURCES/lifecycle.jsonl" "$WORKDIR/${qa_fixture}.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$qa_dir" "qa"
+	python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$DR_REP" "$SOURCES/package.yaml" \
+		"$SOURCES/lifecycle.jsonl" "$WORKDIR/${dr_fixture}.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$dr_dir" "deep_review"
 }
 
 CANDIDATE_YAML="$WORKDIR/candidate.yaml"
@@ -556,11 +611,13 @@ ROOT_K="$WORKDIR/root-k"
 mkdir -p "$ROOT_K"
 QA_ONLY_DIR_K="$ROOT_K/scenarios/$SCENARIO_ID/$QA_REP"
 mkdir -p "$QA_ONLY_DIR_K"
-cp "$WORKDIR/indep-compatible-qa.jsonl" "$QA_ONLY_DIR_K/evaluation.jsonl"
-python3 -c 'import json,sys
-scenario_id, rep, gate, dest = sys.argv[1:5]
-manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
-open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$QA_REP" qa "$QA_ONLY_DIR_K/manifest.json"
+# UAT round-6: a REAL, complete retained pair (not a two-key forged
+# manifest) -- the strengthened gate_dest_provenance_ok() now verifies
+# completeness/digests, so the qa gate's "already retained, skip" path must
+# be genuinely satisfiable here for this case to still isolate the
+# TOP-LEVEL scratch_root symlink question at the deep_review gate alone.
+python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$QA_REP" "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$WORKDIR/indep-compatible-qa.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$QA_ONLY_DIR_K" "qa"
 
 SCRATCH_REAL_TEMPLATE_K="$WORKDIR/scratch-real-template-k"
 mkdir -p "$SCRATCH_REAL_TEMPLATE_K"
@@ -639,11 +696,10 @@ ROOT_L="$WORKDIR/root-l"
 mkdir -p "$ROOT_L"
 QA_ONLY_DIR_L="$ROOT_L/scenarios/$SCENARIO_ID/$QA_REP"
 mkdir -p "$QA_ONLY_DIR_L"
-cp "$WORKDIR/indep-compatible-qa.jsonl" "$QA_ONLY_DIR_L/evaluation.jsonl"
-python3 -c 'import json,sys
-scenario_id, rep, gate, dest = sys.argv[1:5]
-manifest = {"scenario_id": scenario_id, "rep": int(rep), "gate": gate, "artifacts": {}}
-open(dest, "w").write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")' "$SCENARIO_ID" "$QA_REP" qa "$QA_ONLY_DIR_L/manifest.json"
+# UAT round-6: a REAL, complete retained pair (not a two-key forged
+# manifest) -- see case K's identical rationale above.
+python3 "$RETAIN_PAIR" "$SCENARIO_ID" "$QA_REP" "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$WORKDIR/indep-compatible-qa.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$QA_ONLY_DIR_L" "qa"
 
 SCRATCH_NESTED_EXTERNAL_L="$WORKDIR/scratch-nested-external-l"
 mkdir -p "$SCRATCH_NESTED_EXTERNAL_L"
@@ -710,6 +766,63 @@ SCRATCH_NESTED_EXTERNAL_L_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL_L/marker.
 [[ ! -f "$ROOT_L/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case L (round-6 finding 1): a comparison must never be published when the deep_review gate's evaluation failed"
 
 echo "TC-087(case L, round-6 finding 1): dispatch_gate dispatches (does not refuse) a real scratch_root containing a nested symlink -- the stub lifecycle worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched"
+
+# ===========================================================================
+# Case M / N (UAT round-6 fix, uat-2026-08-21T233606Z-E40-F10.md, HIGH
+# finding "fabricated or unverifiable provenance can enter pilot approval
+# and aggregates", defect class: "treating a present file, digest field, or
+# non-empty provenance string as proof of verified source derivation"):
+# gate_dest_provenance_ok() used to accept a rep directory as
+# already-retained/skip once manifest.json's own gate/scenario_id/rep
+# fields matched -- it never checked that every retention_required_artifacts
+# entry was actually present, and never recomputed a single digest. Both
+# cases below build a REAL golden pair for both gates with
+# retain_pair_fixtures (the same shared manifest builder a real dispatch
+# uses), damage ONLY the deep_review side in a way the OLD identity-only
+# check could not detect (gate/scenario_id/rep fields untouched throughout),
+# then drive the REAL "$COMPARISON" end to end and assert the damaged gate
+# is refused rather than silently reused -- never entering a published
+# comparison.
+# ===========================================================================
+
+# --- (M) missing required artifact: deep_review's evaluation.jsonl and
+# manifest.json (the OLD check's only two touchpoints) are both present and
+# identity-correct; the "evidence" directory artifact is removed after
+# retention. --------------------------------------------------------------
+ROOT_M="$WORKDIR/root-m"
+mkdir -p "$ROOT_M"
+retain_pair_fixtures "$ROOT_M" "indep-compatible-qa" "indep-compatible-dr"
+DR_DIR_M="$ROOT_M/scenarios/$SCENARIO_ID/$DR_REP"
+rm -rf "$DR_DIR_M/evidence"
+[[ -f "$DR_DIR_M/evaluation.jsonl" && -f "$DR_DIR_M/manifest.json" ]] \
+	|| fail "(M) fixture setup: expected evaluation.jsonl and manifest.json to still be present after removing evidence/"
+
+RC_M="$(run_case "case-m" "$ROOT_M" "independent_frozen_candidate")"
+[[ "$RC_M" -eq 4 ]] || fail "(M) missing required artifact: expected exit 4 (deep_review gate refused, comparison never attempted), got $RC_M: $(cat "$ROOT_M.out")"
+grep -q "missing:evidence" "$ROOT_M.out" || fail "(M) missing required artifact: expected a diagnostic naming the missing evidence artifact: $(cat "$ROOT_M.out")"
+grep -q "failed verification" "$ROOT_M.out" || fail "(M) missing required artifact: expected the failed-verification diagnostic wording: $(cat "$ROOT_M.out")"
+[[ ! -f "$DR_DIR_M/comparison.json" ]] || fail "(M) missing required artifact: a comparison must never be published when the deep_review gate's reuse fails verification"
+[[ -f "$DR_DIR_M/manifest.json" ]] || fail "(M) missing required artifact: the pre-existing manifest.json was unexpectedly removed"
+
+echo "TC-087(case M, UAT round-6): gate_dest_provenance_ok refuses to treat the deep_review gate as already-retained/skip when a required artifact is absent, even though evaluation.jsonl and an identity-matching manifest.json are both present"
+
+# --- (N) digest mismatch: every required artifact is present and
+# manifest.json's identity matches, but one artifact's bytes were changed
+# without updating the manifest's recorded sha256. -------------------------
+ROOT_N="$WORKDIR/root-n"
+mkdir -p "$ROOT_N"
+retain_pair_fixtures "$ROOT_N" "indep-compatible-qa" "indep-compatible-dr"
+DR_DIR_N="$ROOT_N/scenarios/$SCENARIO_ID/$DR_REP"
+echo "tampered after retention, manifest.json not updated" >"$DR_DIR_N/entity-history.json"
+
+RC_N="$(run_case "case-n" "$ROOT_N" "independent_frozen_candidate")"
+[[ "$RC_N" -eq 4 ]] || fail "(N) digest mismatch: expected exit 4 (deep_review gate refused, comparison never attempted), got $RC_N: $(cat "$ROOT_N.out")"
+grep -q "digest_mismatch:entity-history.json" "$ROOT_N.out" || fail "(N) digest mismatch: expected a diagnostic naming the digest-mismatched artifact: $(cat "$ROOT_N.out")"
+[[ ! -f "$DR_DIR_N/comparison.json" ]] || fail "(N) digest mismatch: a comparison must never be published when the deep_review gate's reuse fails verification"
+[[ "$(cat "$DR_DIR_N/entity-history.json")" == "tampered after retention, manifest.json not updated" ]] \
+	|| fail "(N) digest mismatch: the tampered artifact was unexpectedly overwritten by the refused reuse attempt"
+
+echo "TC-087(case N, UAT round-6): gate_dest_provenance_ok refuses to treat the deep_review gate as already-retained/skip when a retained artifact's recomputed digest disagrees with manifest.json's recorded value, never trusting the manifest's own sha256 field as proof"
 
 # ---------------------------------------------------------------------------
 # AC-T3 (T-E40-F10-014's future static-grep target, proven here too):

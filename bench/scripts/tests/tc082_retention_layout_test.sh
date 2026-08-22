@@ -451,6 +451,103 @@ done
 echo "TC-082(UAT-R3-01 counterfactual: all seven required-with-source artifacts fail as missing_source_provenance when their manifest source_path is empty, even though their digest still matches) PASS"
 
 # ===========================================================================
+# UAT round 6 (2026-08-21T233606Z, uat-2026-08-21T233606Z-E40-F10.md,
+# T-E40-F10-007) sweep site 1: each of the seven required-with-source
+# artifacts, with its manifest.json `artifacts` ENTRY REMOVED ENTIRELY (not
+# merely blanked to source_path=="" the way the UAT-R3-01 counterfactual
+# above does), while the artifact itself is left present on disk with
+# fabricated content, fails distinctly naming that artifact -- never
+# silently accepted just because a present file exists.
+#
+# Before this fix, phase 3's per-artifact loop iterated
+# `manifest.get("artifacts").items()` -- driven by whatever keys the
+# manifest happened to declare, not by the schema's required list. An
+# artifact absent from that map entirely was therefore invisible to the
+# loop: neither the missing_source_provenance check (UAT-R3-01) nor the
+# digest-equality fast path (:417-428, the exact lines this round's UAT
+# names) ever ran for it, so a fabricated file with no manifest record at
+# all silently verified as verdict:pass, failures:[] (live repro during
+# this task's rework: a hand-crafted entity-history.json with its manifest
+# entry deleted and replaced with arbitrary content). Reason "missing"
+# deliberately reuses lib/verify_pair_retention's own vocabulary for this
+# exact case (its own `refuse("missing", name, "manifest.json has no
+# artifacts entry for this required artifact")`) -- UAT fix requirement 3:
+# "both...apply the same provenance standard."
+# ===========================================================================
+for artifact in "${REQUIRED_WITH_SOURCE[@]}"; do
+	root="$(damaged_root "no-manifest-entry-$artifact")"
+	dir="$(pair_dir "$root")"
+	python3 -c '
+import json, sys
+manifest_path, artifact = sys.argv[1:3]
+with open(manifest_path, encoding="utf-8") as f:
+    manifest = json.load(f)
+del manifest["artifacts"][artifact]
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+' "$dir/manifest.json" "$artifact"
+	# Fabricate the artifact's own on-disk content so a pass verdict here
+	# could only come from the manifest-entry gap itself, never from a
+	# coincidental digest match against a since-deleted manifest entry.
+	if [[ -d "$dir/$artifact" ]]; then
+		echo "FABRICATED FILE NEVER FROM A REAL SOURCE (round-6 sweep)" >"$dir/$artifact/fabricated-round6.txt"
+	else
+		echo "FABRICATED CONTENT NEVER FROM A REAL SOURCE (round-6 sweep)" >"$dir/$artifact"
+	fi
+
+	out=""
+	rc=0
+	out="$("$VERIFIER" --retention-root "$root" --schema "$SCHEMA" 2>"$WORKDIR/no-manifest-entry-$artifact.err")" || rc=$?
+	[[ "$rc" -ne 0 ]] || fail "no manifest entry $artifact (UAT round 6 sweep site 1): expected nonzero exit for a fabricated artifact with no manifest.json record, got 0: $out"
+	grep -q "$artifact: missing" "$WORKDIR/no-manifest-entry-$artifact.err" || fail "no manifest entry $artifact (UAT round 6 sweep site 1): stderr did not name the artifact and 'missing': $(cat "$WORKDIR/no-manifest-entry-$artifact.err")"
+	echo "$out" | grep -q '"verdict":"fail"' || fail "no manifest entry $artifact (UAT round 6 sweep site 1): expected a fail verdict, got: $out"
+done
+
+echo "TC-082(UAT round 6 sweep site 1: all seven required-with-source artifacts fail distinctly when their manifest.json artifacts entry is removed entirely, even though the fabricated file itself is present on disk) PASS"
+
+# ===========================================================================
+# UAT round 6 sweep site 2 / fix requirement 2-3 (coordinate with
+# T-E40-F10-006): verify-retention-root.sh must delegate to the SAME
+# lib/verify_pair_retention authority pilot-ledger.sh's --record/--verify
+# and run-lifecycle-batch.sh's classify_pair already delegate to, so the
+# three never silently disagree about whether a retained pair's provenance
+# is honest ("a root that passes one must not silently fail the standard
+# the other enforces"). Proven two ways: (1) a pair lib/verify_pair_retention
+# itself would refuse (a manifest.json lineage mismatch -- an existing
+# reason this validator already detects on its own, chosen here so the
+# assertion is about delegation coverage, not a novel detection) must still
+# fail when driven through the full verify-retention-root.sh binary, naming
+# the SAME artifact and an equivalent reason; (2) the reverse direction is
+# already covered end-to-end by test (a)/(a2)/coexistence above -- a pair
+# lib/verify_pair_retention accepts (a real golden root) must still pass
+# verify-retention-root.sh.
+# ===========================================================================
+root_parity="$(damaged_root "verify-pair-retention-parity-lineage")"
+dir_parity="$(pair_dir "$root_parity")"
+python3 -c '
+import json
+path = "'"$dir_parity"'/manifest.json"
+manifest = json.load(open(path, encoding="utf-8"))
+manifest["rep"] = 99
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+    f.write("\n")
+'
+lib_rc=0
+lib_out="$(python3 "$SCRIPTS_DIR/lib/verify_pair_retention" "$SCENARIO_ID" "$REP" "$dir_parity" "$SCHEMA" 2>/dev/null)" || lib_rc=$?
+[[ "$lib_rc" -ne 0 ]] || fail "parity fixture setup: expected lib/verify_pair_retention to refuse this manifest.json rep mismatch, got exit 0"
+echo "$lib_out" | grep -q "^lineage_mismatch:manifest.json$" || fail "parity fixture setup: expected lib/verify_pair_retention's own lineage_mismatch:manifest.json token, got: $lib_out"
+
+out_parity=""
+rc_parity=0
+out_parity="$("$VERIFIER" --retention-root "$root_parity" --schema "$SCHEMA" 2>"$WORKDIR/parity.err")" || rc_parity=$?
+[[ "$rc_parity" -ne 0 ]] || fail "verify_pair_retention parity (UAT round 6 sweep site 2): expected verify-retention-root.sh to also refuse a pair lib/verify_pair_retention refuses, got exit 0"
+grep -q "manifest.json: lineage_mismatch" "$WORKDIR/parity.err" || fail "verify_pair_retention parity (UAT round 6 sweep site 2): stderr did not name manifest.json and lineage_mismatch: $(cat "$WORKDIR/parity.err")"
+echo "$out_parity" | grep -q '"verdict":"fail"' || fail "verify_pair_retention parity (UAT round 6 sweep site 2): expected a fail verdict, got: $out_parity"
+
+echo "TC-082(UAT round 6 sweep site 2: verify-retention-root.sh's verdict never diverges from lib/verify_pair_retention's own refusal for the same pair) PASS"
+
+# ===========================================================================
 # (j) One artifact's bytes mutated (not valid JSON) -> digest_mismatch,
 # naming the artifact and reason.
 # ===========================================================================
@@ -842,6 +939,178 @@ grep -q "provenance_mismatch" "$PROVENANCE_ROOT/invalid/index.jsonl" \
 	|| fail "classify_pair provenance mismatch: the pre-existing (wrong-owner) evaluation.jsonl was modified"
 
 echo "TC-082(classify_pair provenance mismatch, finding 2 round-4): classify_pair refuses to treat a rep directory as skipped_complete when its manifest.json scenario_id/rep does not match, even though it is a real (non-symlink) directory"
+
+# ===========================================================================
+# classify_pair / pair_retention_verified: UAT round-6 fix (uat-2026-08-21T
+# 233606Z-E40-F10.md, T-E40-F10-004 defect class "treating a present file,
+# digest field, or non-empty provenance string as proof of verified source
+# derivation"). Before this round, classify_pair's "already retained, skip"
+# fast path (pair_provenance_ok) accepted a pair as skipped_complete once
+# manifest.json's own scenario_id/rep matched -- it never checked that every
+# retention_required_artifacts entry was actually present on disk, and never
+# recomputed a single digest against the manifest's recorded value. Both
+# cases below build a REAL golden retention with $RETAIN_PAIR (the same
+# shared manifest builder a real batch run uses), damage it in a way the
+# OLD fast path could not detect (identity fields still correct throughout),
+# then drive the REAL "$BATCH" end to end and assert it is refused, not
+# silently reused.
+# ===========================================================================
+provenance_incomplete_index() {
+	# provenance_incomplete_index <scenario_id> <index_dir> <policy_path>
+	local sid="$1" idx="$2" policy="$3"
+	mkdir -p "$idx/packages/$sid"
+	cat >"$idx/scenarios.yaml" <<EOF
+schema_version: "1.0"
+scenarios:
+  - packages/$sid
+EOF
+	cp "$SOURCES/package.yaml" "$idx/packages/$sid/package.yaml"
+	python3 -c 'import sys,yaml
+path, sid = sys.argv[1:3]
+doc = yaml.safe_load(open(path))
+doc["scenario_id"] = sid
+yaml.safe_dump(doc, open(path, "w"))' "$idx/packages/$sid/package.yaml" "$sid"
+	cat >"$policy" <<EOF
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$idx/scenarios.yaml"
+EOF
+}
+
+# --- (D1) missing required artifact: evaluation.jsonl and manifest.json
+# (the OLD fast path's only two checks) are both present and identity-
+# correct; the "evidence" directory artifact is removed afterward. -------
+MISSING_SCENARIO="scenario-tc082-incomplete-missing"
+MISSING_ROOT="$WORKDIR/incomplete-missing"
+MISSING_DEST="$MISSING_ROOT/scenarios/$MISSING_SCENARIO/1"
+mkdir -p "$MISSING_DEST"
+python3 "$RETAIN_PAIR" "$MISSING_SCENARIO" "1" "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$MISSING_DEST"
+rm -rf "$MISSING_DEST/evidence"
+[[ -f "$MISSING_DEST/evaluation.jsonl" && -f "$MISSING_DEST/manifest.json" ]] \
+	|| fail "(D1) fixture setup: expected evaluation.jsonl and manifest.json to still be present after removing evidence/"
+
+MISSING_INDEX="$WORKDIR/incomplete-missing-index"
+provenance_incomplete_index "$MISSING_SCENARIO" "$MISSING_INDEX" "$WORKDIR/incomplete-missing-policy.yaml"
+
+missing_rc=0
+"$BATCH" --batch "$WORKDIR/incomplete-missing-policy.yaml" --retention-root "$MISSING_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" >"$WORKDIR/incomplete-missing.out" 2>&1 || missing_rc=$?
+[[ "$missing_rc" -eq 4 ]] || fail "(D1) missing required artifact: expected exit 4 (pair recorded failed, never treated as complete), got $missing_rc: $(cat "$WORKDIR/incomplete-missing.out")"
+grep -q '"classification": *"skipped_complete"' "$WORKDIR/incomplete-missing.out" && fail "(D1) missing required artifact: the incomplete pair was classified skipped_complete: $(cat "$WORKDIR/incomplete-missing.out")"
+grep -q "missing:evidence" "$WORKDIR/incomplete-missing.out" || fail "(D1) missing required artifact: expected a diagnostic naming the missing evidence artifact: $(cat "$WORKDIR/incomplete-missing.out")"
+grep -q "provenance_incomplete:missing:evidence" "$MISSING_ROOT/invalid/index.jsonl" \
+	|| fail "(D1) missing required artifact: invalid/index.jsonl did not record the provenance_incomplete/missing reason: $(cat "$MISSING_ROOT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+[[ -f "$MISSING_DEST/manifest.json" ]] || fail "(D1) missing required artifact: the pre-existing manifest.json was unexpectedly removed"
+
+echo "TC-082(pair_retention_verified missing artifact, UAT round-6): classify_pair refuses to treat a pair as skipped_complete when a required artifact is absent, even though evaluation.jsonl and an identity-matching manifest.json are both present"
+
+# --- (D2) digest mismatch: every required artifact is present and
+# manifest.json's identity matches, but one artifact's bytes were changed
+# without updating the manifest's recorded sha256. ------------------------
+DIGEST_SCENARIO="scenario-tc082-incomplete-digest"
+DIGEST_ROOT="$WORKDIR/incomplete-digest"
+DIGEST_DEST="$DIGEST_ROOT/scenarios/$DIGEST_SCENARIO/1"
+mkdir -p "$DIGEST_DEST"
+python3 "$RETAIN_PAIR" "$DIGEST_SCENARIO" "1" "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$I05_BUNDLE" "$DIGEST_DEST"
+echo "tampered after retention, manifest.json not updated" >"$DIGEST_DEST/entity-history.json"
+
+DIGEST_INDEX="$WORKDIR/incomplete-digest-index"
+provenance_incomplete_index "$DIGEST_SCENARIO" "$DIGEST_INDEX" "$WORKDIR/incomplete-digest-policy.yaml"
+
+digest_rc=0
+"$BATCH" --batch "$WORKDIR/incomplete-digest-policy.yaml" --retention-root "$DIGEST_ROOT" --mode pilot \
+	"${GOOD_CEILINGS[@]}" >"$WORKDIR/incomplete-digest.out" 2>&1 || digest_rc=$?
+[[ "$digest_rc" -eq 4 ]] || fail "(D2) digest mismatch: expected exit 4 (pair recorded failed, never treated as complete), got $digest_rc: $(cat "$WORKDIR/incomplete-digest.out")"
+grep -q '"classification": *"skipped_complete"' "$WORKDIR/incomplete-digest.out" && fail "(D2) digest mismatch: the tampered pair was classified skipped_complete: $(cat "$WORKDIR/incomplete-digest.out")"
+grep -q "digest_mismatch:entity-history.json" "$WORKDIR/incomplete-digest.out" || fail "(D2) digest mismatch: expected a diagnostic naming the digest-mismatched artifact: $(cat "$WORKDIR/incomplete-digest.out")"
+grep -q "provenance_incomplete:digest_mismatch:entity-history.json" "$DIGEST_ROOT/invalid/index.jsonl" \
+	|| fail "(D2) digest mismatch: invalid/index.jsonl did not record the provenance_incomplete/digest_mismatch reason: $(cat "$DIGEST_ROOT/invalid/index.jsonl" 2>/dev/null || echo MISSING)"
+[[ "$(cat "$DIGEST_DEST/entity-history.json")" == "tampered after retention, manifest.json not updated" ]] \
+	|| fail "(D2) digest mismatch: the tampered artifact was unexpectedly overwritten by the refused reuse attempt"
+
+echo "TC-082(pair_retention_verified digest mismatch, UAT round-6): classify_pair refuses to treat a pair as skipped_complete when a retained artifact's recomputed digest disagrees with manifest.json's recorded value, never trusting the manifest's own sha256 field as proof"
+
+# ===========================================================================
+# lib/retain_pair: source-tree symlink containment (UAT round-6 fix, uat-
+# 2026-08-21T233606Z-E40-F10.md MEDIUM finding: "a file symlink inside
+# i05_bundle_dir can copy content from outside the declared evidence tree
+# into retention"). copy_dir_artifact's populate() walks source_path with
+# os.walk/shutil.copyfile; a symlinked FILE nested inside the walked tree
+# used to be indistinguishable from a real one, so shutil.copyfile followed
+# it and copied bytes from wherever it pointed -- even a file entirely
+# outside the declared i05_bundle_dir. Plants a symlink inside the evidence
+# tree pointing at a real "secret" file elsewhere in $WORKDIR (never inside
+# any declared source), and asserts retain_pair refuses the whole artifact
+# rather than silently copying the secret's content into retention.
+# ===========================================================================
+SYMLINK_SRC_WORK="$WORKDIR/symlink-source-containment"
+SYMLINK_SRC_I05="$SYMLINK_SRC_WORK/i05-bundle"
+mkdir -p "$SYMLINK_SRC_I05/transcripts"
+echo '{"stage": "code"}' >"$SYMLINK_SRC_I05/stage.json"
+echo "tc082 transcript" >"$SYMLINK_SRC_I05/transcripts/stage.txt"
+SECRET_FILE="$SYMLINK_SRC_WORK/secret-outside-tree.txt"
+echo "SECRET CONTENT NEVER DECLARED AS A SOURCE" >"$SECRET_FILE"
+ln -s "$SECRET_FILE" "$SYMLINK_SRC_I05/leaked.json"
+
+SYMLINK_SRC_DEST="$WORKDIR/symlink-source-dest"
+mkdir -p "$SYMLINK_SRC_DEST"
+symlink_src_rc=0
+python3 "$RETAIN_PAIR" "scenario-tc082-symlink-source" "1" "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$SYMLINK_SRC_I05" "$SYMLINK_SRC_DEST" \
+	>"$WORKDIR/symlink-source.out" 2>&1 || symlink_src_rc=$?
+[[ "$symlink_src_rc" -ne 0 ]] || fail "(D3) retain_pair source-tree containment: expected a nonzero exit refusing the symlinked source, got 0: $(cat "$WORKDIR/symlink-source.out")"
+grep -q "symlink_in_source_tree" "$WORKDIR/symlink-source.out" || fail "(D3) retain_pair source-tree containment: expected the symlink_in_source_tree reason: $(cat "$WORKDIR/symlink-source.out")"
+grep -q "evidence" "$WORKDIR/symlink-source.out" || fail "(D3) retain_pair source-tree containment: expected the diagnostic to name the evidence artifact: $(cat "$WORKDIR/symlink-source.out")"
+[[ ! -f "$SYMLINK_SRC_DEST/manifest.json" ]] || fail "(D3) retain_pair source-tree containment: manifest.json was written despite the refused symlink"
+! grep -rq "SECRET CONTENT NEVER DECLARED AS A SOURCE" "$SYMLINK_SRC_DEST" 2>/dev/null \
+	|| fail "(D3) retain_pair source-tree containment: the secret file's content was copied into the retention destination"
+
+echo "TC-082(retain_pair source-tree symlink containment, UAT round-6 MEDIUM finding): copy_dir_artifact refuses a directory artifact whose source tree contains a nested symlink rather than following it, so content from outside the declared source can never be copied into retention"
+
+# ===========================================================================
+# lib/retain_pair: source-tree symlink containment, TOP-LEVEL argument case
+# (advisor-caught gap in the D3 fix above): copy_dir_artifact is called
+# TWICE against the same i05_bundle_dir -- once for "evidence" (which
+# excludes "transcripts" from its own os.walk via exclude_top_level, so an
+# os.walk-yielded-entry check inside THAT call never sees it) and once for
+# "transcripts" with source_dir == i05_bundle_dir/transcripts itself. If
+# i05_bundle_dir/transcripts is a symlink to a directory, D3's is_symlink()
+# checks on os.walk's YIELDED entries never fire for either call: the
+# "evidence" walk excludes it before ever reaching it, and the "transcripts"
+# call's own os.walk dereferences its TOP-LEVEL source_path argument and
+# walks the TARGET directory's real (non-symlink) files -- every entry that
+# walk yields legitimately passes an is_symlink() check, while the whole
+# artifact's actual bytes came from wherever the symlink points, entirely
+# outside i05_bundle_dir. Plants i05_bundle_dir/transcripts itself as a
+# symlink to an "outside" directory holding a real secret file, and asserts
+# retain_pair refuses rather than silently retaining the secret's content
+# under the "transcripts" artifact.
+# ===========================================================================
+SYMLINK_TOP_WORK="$WORKDIR/symlink-source-containment-top-level"
+SYMLINK_TOP_I05="$SYMLINK_TOP_WORK/i05-bundle"
+mkdir -p "$SYMLINK_TOP_I05"
+echo '{"stage": "code"}' >"$SYMLINK_TOP_I05/stage.json"
+SYMLINK_TOP_OUTSIDE="$SYMLINK_TOP_WORK/outside-transcripts"
+mkdir -p "$SYMLINK_TOP_OUTSIDE"
+echo "SECRET CONTENT NEVER DECLARED AS A SOURCE (top-level transcripts symlink)" >"$SYMLINK_TOP_OUTSIDE/leak.txt"
+ln -s "$SYMLINK_TOP_OUTSIDE" "$SYMLINK_TOP_I05/transcripts"
+
+SYMLINK_TOP_DEST="$WORKDIR/symlink-source-dest-top-level"
+mkdir -p "$SYMLINK_TOP_DEST"
+symlink_top_rc=0
+python3 "$RETAIN_PAIR" "scenario-tc082-symlink-source-top" "1" "$SOURCES/package.yaml" \
+	"$SOURCES/lifecycle.jsonl" "$SOURCES/evaluation.jsonl" "$ENTITY_HISTORY_SOURCE" "$SYMLINK_TOP_I05" "$SYMLINK_TOP_DEST" \
+	>"$WORKDIR/symlink-source-top.out" 2>&1 || symlink_top_rc=$?
+[[ "$symlink_top_rc" -ne 0 ]] || fail "(D4) retain_pair source-tree containment (top-level transcripts symlink): expected a nonzero exit, got 0: $(cat "$WORKDIR/symlink-source-top.out")"
+grep -q "symlink_in_source_tree" "$WORKDIR/symlink-source-top.out" || fail "(D4) retain_pair source-tree containment (top-level transcripts symlink): expected the symlink_in_source_tree reason: $(cat "$WORKDIR/symlink-source-top.out")"
+grep -q "transcripts" "$WORKDIR/symlink-source-top.out" || fail "(D4) retain_pair source-tree containment (top-level transcripts symlink): expected the diagnostic to name the transcripts artifact: $(cat "$WORKDIR/symlink-source-top.out")"
+[[ ! -f "$SYMLINK_TOP_DEST/manifest.json" ]] || fail "(D4) retain_pair source-tree containment (top-level transcripts symlink): manifest.json was written despite the refused symlink"
+! grep -rq "SECRET CONTENT NEVER DECLARED AS A SOURCE" "$SYMLINK_TOP_DEST" 2>/dev/null \
+	|| fail "(D4) retain_pair source-tree containment (top-level transcripts symlink): the secret directory's content was copied into the retention destination"
+
+echo "TC-082(retain_pair source-tree symlink containment, top-level transcripts argument, advisor-caught round-6 gap): copy_dir_artifact refuses when its OWN source_dir argument is itself a symlink, closing the gap where exclude_top_level shields one call's walk while the sibling call dereferences that same path as its top-level argument"
 
 # ===========================================================================
 # batch.json / invalid/index.jsonl symlink write-through (code-review-

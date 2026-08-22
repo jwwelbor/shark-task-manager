@@ -527,4 +527,83 @@ set -e
 [[ -z "$EMPTY_OUT" ]] || fail "(f) stage_diagnostic must print nothing to stdout on refusal, got: $EMPTY_OUT"
 echo "TC-084(f): stage_diagnostic refuses when the aggregate has zero scenarios (nothing to carry a headline verdict for)"
 
-echo "TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, both aggregator-half negative cases, the stage_diagnostic report half (headline-verdict carry, explicit unattributed lines), and both AC-T1 refusal cases pass"
+# ===========================================================================
+# (g) UAT round 5 (T-E40-F10-008): a retained artifact whose actual on-disk
+# bytes no longer match manifest.json's own recorded sha256 must be refused
+# by name -- the aggregator recomputes each retained artifact's digest
+# rather than trusting the manifest's own claim (same defect class, and
+# same digest-recomputation discipline, as T-E40-F10-004's
+# lib/verify_pair_retention and T-E40-F10-007's verify-retention-root.sh).
+# ===========================================================================
+ROOT_G="$WORKDIR/root-g"
+mkdir -p "$ROOT_G"
+build_root "$ROOT_G" "auto" "0" >/dev/null
+# Corrupt the retained lifecycle.jsonl artifact's bytes AFTER manifest.json
+# was already written with the (now-stale) correct digest -- a trailing
+# newline is invisible to read_one_line_json's line-strip/filter, so this
+# exercises the digest check in isolation, not a JSON-parse failure.
+printf '\n' >>"$ROOT_G/scenarios/scenario-tc084/1/lifecycle.jsonl"
+
+set +e
+OUT_G="$("$AGGREGATOR" --retention-root "$ROOT_G" 2>"$WORKDIR/g.err")"
+RC_G=$?
+set -e
+[[ "$RC_G" -ne 0 ]] || fail "(g) stale digest: expected non-zero exit when a retained artifact's bytes no longer match its manifest-recorded sha256, got 0"
+[[ -z "$OUT_G" ]] || fail "(g) stale digest: expected empty stdout on refusal, got: $OUT_G"
+grep -q "lifecycle.jsonl" "$WORKDIR/g.err" || fail "(g) stale digest: stderr did not name the affected artifact: $(cat "$WORKDIR/g.err")"
+grep -qi "digest" "$WORKDIR/g.err" || fail "(g) stale digest: stderr did not name a digest-mismatch reason: $(cat "$WORKDIR/g.err")"
+grep -q "scenario-tc084" "$WORKDIR/g.err" || fail "(g) stale digest: stderr did not name the affected scenario/pair: $(cat "$WORKDIR/g.err")"
+echo "TC-084(g): a retained artifact whose actual bytes no longer match manifest.json's recorded sha256 is refused, naming the artifact and pair (recomputed, never trusted)"
+
+# ===========================================================================
+# (h) UAT round 5 (T-E40-F10-008): a wrong-typed nested eligibility value
+# (a string where the schema requires a boolean) must fail closed at the
+# PRODUCER boundary -- not just be caught later by the aggregate.json
+# contract validator (tests/contracts' e40_f10_operator_baseline_contract
+# test's subfield-eligibility-publication-eligible-wrong-type fixture).
+# require()'s presence/non-empty check alone would let this render.
+# ===========================================================================
+ROOT_H="$WORKDIR/root-h"
+mkdir -p "$ROOT_H"
+build_root "$ROOT_H" "auto" "0" >/dev/null
+python3 - "$ROOT_H" <<'PYEOF'
+import hashlib
+import json
+import os
+import sys
+
+root = sys.argv[1]
+pair_dir = os.path.join(root, "scenarios", "scenario-tc084", "1")
+eval_path = os.path.join(pair_dir, "evaluation.jsonl")
+manifest_path = os.path.join(pair_dir, "manifest.json")
+
+with open(eval_path, encoding="utf-8") as f:
+    ev = json.loads(f.readline())
+# Wrong type, not merely a wrong value: a string instead of the schema's
+# boolean.
+ev["eligibility"]["publication_eligible"] = "true"
+with open(eval_path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(ev, sort_keys=True, separators=(",", ":")) + "\n")
+
+# Re-point manifest.json's recorded digest at the mutated bytes so this
+# case isolates the TYPE check from the (g) digest-mismatch check above.
+with open(manifest_path, encoding="utf-8") as f:
+    manifest = json.load(f)
+with open(eval_path, "rb") as f:
+    manifest["artifacts"]["evaluation.jsonl"]["sha256"] = hashlib.sha256(f.read()).hexdigest()
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+    f.write("\n")
+PYEOF
+
+set +e
+OUT_H="$("$AGGREGATOR" --retention-root "$ROOT_H" 2>"$WORKDIR/h.err")"
+RC_H=$?
+set -e
+[[ "$RC_H" -ne 0 ]] || fail "(h) wrong-typed eligibility: expected non-zero exit when eligibility.publication_eligible is a string instead of a boolean, got 0"
+[[ -z "$OUT_H" ]] || fail "(h) wrong-typed eligibility: expected empty stdout on refusal, got: $OUT_H"
+grep -q "publication_eligible" "$WORKDIR/h.err" || fail "(h) wrong-typed eligibility: stderr did not name the affected field: $(cat "$WORKDIR/h.err")"
+grep -qi "type" "$WORKDIR/h.err" || fail "(h) wrong-typed eligibility: stderr did not name a type-validation reason: $(cat "$WORKDIR/h.err")"
+echo "TC-084(h): a wrong-typed nested eligibility value (string instead of boolean) fails closed at the producer boundary, matching the aggregate.json contract's own wrong-type rejection"
+
+echo "TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, both aggregator-half negative cases, the stage_diagnostic report half (headline-verdict carry, explicit unattributed lines), both AC-T1 refusal cases, and the UAT round 5 digest-recomputation/type-validation refusal cases pass"

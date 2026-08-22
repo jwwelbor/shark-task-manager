@@ -69,6 +69,11 @@ import tempfile
 from pathlib import Path
 
 REQUIRED_ARTIFACT_SOURCE_UNAVAILABLE = "required_artifact_source_unavailable"
+# UAT round-6 fix (T-E40-F10-004, defect class: "treating a present file,
+# digest field, or non-empty provenance string as proof of verified source
+# derivation" -- the symlink-containment half): source-tree containment
+# breach for a directory artifact -- see refuse_symlink_containment below.
+SYMLINK_IN_SOURCE_TREE = "symlink_in_source_tree"
 
 (
     scenario_id,
@@ -94,6 +99,28 @@ def refuse_missing_source(name, source_desc):
     print(
         f"retain_pair: refusing to retain {name} -- no real source found "
         f"({source_desc}); reason={REQUIRED_ARTIFACT_SOURCE_UNAVAILABLE}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def refuse_symlink_containment(name, path):
+    # UAT round-6 fix: a symlink found ANYWHERE inside a directory artifact's
+    # source tree (file or directory, any depth) is refused outright rather
+    # than followed. See copy_dir_artifact's populate() for why this is
+    # necessary even though the TOP-LEVEL source_dir argument was already
+    # proven safe (round-5 sweep): os.walk's default followlinks=False only
+    # stops it from RECURSING into a symlinked subdirectory -- it still
+    # yields that symlink itself in `dirs`, and yields a symlinked FILE in
+    # `files` exactly like a real one. shutil.copyfile on a symlinked file
+    # follows it and copies whatever bytes its target holds, even when that
+    # target sits entirely outside the declared source directory (e.g.
+    # i05_bundle_dir) -- silently pulling in content the operator never
+    # declared as part of this artifact's real source. Refuse loudly instead
+    # (never manifest.json, never a partial copy of this artifact).
+    print(
+        f"retain_pair: refusing to retain {name} -- a symlink was found "
+        f"inside its declared source tree at {path}; reason={SYMLINK_IN_SOURCE_TREE}",
         file=sys.stderr,
     )
     raise SystemExit(1)
@@ -153,6 +180,17 @@ def install_atomic_dir(target: Path, populate):
     try:
         populate(temp_dir)
         os.replace(temp_dir, target)
+    except SystemExit:
+        # UAT round-6 fix: populate() itself (refuse_symlink_containment)
+        # already printed its own named-artifact diagnostic and raised
+        # SystemExit directly -- SystemExit is not an OSError, so it would
+        # otherwise skip the temp_dir cleanup below entirely, abandoning a
+        # partially-populated hidden temp sibling under dest. Clean up and
+        # propagate the SAME refusal verbatim; never print the generic
+        # "destination is occupied" message below, which does not describe
+        # this failure.
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
     except OSError as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
         print(
@@ -230,17 +268,56 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     # scratch_root ephemeral` (a directory-level copy that preserves a
     # top-level symlink SOURCE argument as a symlink at the destination),
     # this walks source_path file-by-file via os.walk + shutil.copyfile into
-    # a FRESH temp_dir, never copying source_path itself as a unit.
-    # Empirically verified for this fix: a symlinked i05_bundle_dir produces
-    # independent byte copies at `target`, and a write into `target`
-    # afterward does not touch the source. Different, already-safe
-    # primitive -- no additional guard needed.
+    # a FRESH temp_dir, never copying source_path itself as a unit. Round-5
+    # verified this empirically for the WRITE-THROUGH property only (a write
+    # into `target` afterward does not touch the source) -- it did not, and
+    # could not, establish anything about what gets READ IN.
+    #
+    # UAT round-6 (2026-08-21T233606Z, defect class: "treating a present
+    # file, digest field, or non-empty provenance string as proof of
+    # verified source derivation"): the READ-IN property is a different
+    # question the round-5 verification never answered, and it fails for a
+    # TOP-LEVEL symlinked source_dir exactly like it does for a nested one --
+    # e.g. copy_dir_artifact("transcripts", i05_bundle_dir + "/transcripts")
+    # is called with source_dir itself already being a symlink whenever
+    # i05_bundle_dir/transcripts is one (and copy_dir_artifact("evidence",
+    # ...)'s own exclude_top_level=("transcripts",) filter deliberately
+    # excludes that same path from ITS OWN walk, so no os.walk-level check
+    # inside either call ever sees it as an entry to inspect). os.walk then
+    # dereferences that top-level symlinked argument and walks the TARGET
+    # directory's real files, so every entry it yields passes an is_symlink()
+    # check -- while the whole artifact's bytes came from wherever the
+    # symlink actually points, outside any directory this script's caller
+    # ever declared as a source. source_path itself is therefore checked
+    # here, BEFORE the walk, refusing the artifact outright rather than
+    # dereferencing an operator-supplied top-level symlink implicitly.
+    if source_path.is_symlink():
+        refuse_symlink_containment(name, source_path)
+
+    # Nested symlink safety: a symlink found ANYWHERE inside the walked tree
+    # (not the top-level source_path itself, checked above) is refused the
+    # same way -- os.walk's default followlinks=False only stops it from
+    # RECURSING into a symlinked subdirectory; it still yields that symlink
+    # in `dirs`, and yields a symlinked FILE in `files` indistinguishable
+    # from a real one. shutil.copyfile on a symlinked file follows it,
+    # reading and copying whatever bytes its target holds even when that
+    # target sits entirely outside the declared source directory. Every
+    # dir/file entry os.walk yields is checked with .is_symlink() (which
+    # does NOT follow the link -- it inspects the directory-entry type
+    # itself) before it is trusted as real content, and the whole artifact
+    # is refused (never a partial copy) the moment one is found.
     def populate(temp_dir: Path):
         for root, dirs, files in os.walk(source_path):
             if Path(root) == source_path:
                 dirs[:] = [d for d in dirs if d not in exclude_top_level]
+            for dname in dirs:
+                dpath = Path(root) / dname
+                if dpath.is_symlink():
+                    refuse_symlink_containment(name, dpath)
             for fname in files:
                 fpath = Path(root) / fname
+                if fpath.is_symlink():
+                    refuse_symlink_containment(name, fpath)
                 rel = fpath.relative_to(source_path)
                 dest_file = temp_dir / rel
                 dest_file.parent.mkdir(parents=True, exist_ok=True)

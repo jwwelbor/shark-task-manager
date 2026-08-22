@@ -47,6 +47,25 @@
 # real source WAS checked and found empty) remains a distinct, separately
 # reported defect: `empty_source_artifact`.
 #
+# UAT round 6 (2026-08-21T233606Z, defect class: "treating a present file,
+# digest field, or non-empty provenance string as proof of verified source
+# derivation"): a non-empty `source_path` string, by itself, is not proof the
+# retained bytes were legitimately derived from anything -- a forged or
+# hand-planted manifest.json can carry a fabricated `source_path` and still
+# pass every check described above. Both `--record` and `--verify`
+# additionally delegate to `lib/verify_pair_retention` (T-E40-F10-004's
+# shared completeness/lineage/digest authority), which independently
+# recomputes each required artifact's digest and compares it against
+# manifest.json's OWN recorded `sha256` claim -- the retention producer's
+# own recorded provenance, not just pilot-ledger's own freshly-computed
+# digest. Literal `source_path` *reachability* (the path still resolving on
+# disk) is deliberately NOT re-checked: several source_path values point
+# into run-lifecycle-batch.sh dispatch_pair's ephemeral `pair_work`
+# (mktemp -d), which is `rm -rf`'d immediately after retain_pair returns --
+# by the time an operator runs --record, that path is routinely already gone
+# even for a fully legitimate retention, so requiring it to exist would
+# refuse every real attestation.
+#
 # Ledger row fields match the schema's `pilot_attestation_required_fields`:
 # /run_reference, /checklist_results, /operator_identity,
 # /inspected_artifact_digests (plus this script's own `family` and
@@ -166,6 +185,25 @@ out_root_canon="$(realpath -m -- "$RETENTION_ROOT_CANON")"
 # shellcheck source=lib/path-safety.sh
 source "$SCRIPT_DIR/lib/path-safety.sh"
 
+# T-E40-F10-006 UAT round 6 (2026-08-21T233606Z, defect class: "treating a
+# present file, digest field, or non-empty provenance string as proof of
+# verified source derivation"): BENCH_DIR/LIFECYCLE_SCHEMA follow the exact
+# convention run-lifecycle-batch.sh/run-review-comparison.sh already use
+# (never a private hardcoded copy), so this script's own
+# lib/verify_pair_retention invocation below resolves the SAME schema file
+# those two drivers already validate retention pairs against.
+BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIFECYCLE_SCHEMA="${LIFECYCLE_SCHEMA:-$BENCH_DIR/reports/lifecycle-baseline-schema.yaml}"
+VERIFY_PAIR_RETENTION="$SCRIPT_DIR/lib/verify_pair_retention"
+[[ -f "$VERIFY_PAIR_RETENTION" ]] || {
+	echo "pilot-ledger: lib/verify_pair_retention not found at $VERIFY_PAIR_RETENTION" >&2
+	exit 2
+}
+[[ -f "$LIFECYCLE_SCHEMA" ]] || {
+	echo "pilot-ledger: lifecycle-baseline-schema.yaml not found at $LIFECYCLE_SCHEMA" >&2
+	exit 2
+}
+
 # REQ-F-002's scenario_id grammar (bench/scenarios/packages/<scenario_id>/
 # package.yaml identity block: "unique lowercase-kebab identity"), the same
 # closed grammar the I-04 scenario contract test (tests/contracts,
@@ -204,10 +242,12 @@ record)
 	scenario_dir_precheck="$RETENTION_ROOT_CANON/scenarios/$scenario/$rep"
 	assert_within_out_root "$scenario_dir_precheck" || exit 2
 
-	python3 - "$RETENTION_ROOT_CANON" "$scenario" "$rep" "$operator" "$checklist" "$LEDGER_PATH" <<'PYEOF'
+	python3 - "$RETENTION_ROOT_CANON" "$scenario" "$rep" "$operator" "$checklist" "$LEDGER_PATH" \
+		"$VERIFY_PAIR_RETENTION" "$LIFECYCLE_SCHEMA" <<'PYEOF'
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -217,7 +257,10 @@ except ImportError:
     print("pilot-ledger: PyYAML not available", file=sys.stderr)
     raise SystemExit(2)
 
-retention_root, scenario_id, rep_str, operator, checklist_path, ledger_path = sys.argv[1:7]
+(
+    retention_root, scenario_id, rep_str, operator, checklist_path, ledger_path,
+    verify_pair_retention_bin, lifecycle_schema,
+) = sys.argv[1:9]
 rep = int(rep_str)
 
 # The eight canonical retained artifacts (bench/reports/
@@ -347,6 +390,49 @@ if missing_source_provenance:
     )
     raise SystemExit(2)
 
+# UAT round 6 (2026-08-21T233606Z, defect class: "treating a present file,
+# digest field, or non-empty provenance string as proof of verified source
+# derivation"): the checks above establish that every required artifact's
+# manifest.json entry NAMES a non-empty source_path -- they never confirm
+# that claim is honest. A forged manifest.json can carry a fabricated
+# source_path alongside a `sha256` value that happens to agree with the
+# retained bytes; nothing above would ever catch that, because nothing
+# above ever reads manifest.json's own per-artifact `sha256` field. Delegate
+# to lib/verify_pair_retention (T-E40-F10-004's single shared authority for
+# "is this (scenario, rep) pair really complete, lineage-correct, and
+# byte-preserved") to independently recompute each artifact's digest and
+# compare it against manifest.json's OWN recorded claim, rather than
+# re-implementing that check a second time here.
+#
+# Deliberately NOT re-checked here: whether source_path itself still
+# resolves on disk. lifecycle.jsonl/evaluation.jsonl/entity-history.json's
+# source_path values point into run-lifecycle-batch.sh dispatch_pair's
+# ephemeral `pair_work` (mktemp -d), which that driver rm -rf's
+# (run-lifecycle-batch.sh:823) immediately after retain_pair returns --by
+# the time an operator runs --record (a separate, later, offline pilot-
+# inspection step), that path is routinely already gone even for a fully
+# legitimate retention. Requiring it to still exist would refuse every real
+# attestation, not just forged ones. Cross-checking manifest.json's own
+# recorded digest against the artifact's CURRENT retained bytes (below) is
+# the strongest independent verification achievable without depending on an
+# ephemeral source surviving to inspection time.
+verify_result = subprocess.run(
+    [sys.executable, verify_pair_retention_bin, scenario_id, str(rep), scenario_dir, lifecycle_schema],
+    capture_output=True,
+    text=True,
+)
+if verify_result.returncode != 0:
+    token = (verify_result.stdout or "").strip().splitlines()[-1] if verify_result.stdout.strip() else "verification_failed:unknown"
+    print(
+        f"pilot-ledger: cannot record attestation, retained pair at {scenario_dir} failed independent "
+        f"provenance verification ({token}) -- manifest.json's own recorded per-artifact digest could not "
+        f"be confirmed against the currently retained bytes",
+        file=sys.stderr,
+    )
+    if verify_result.stderr:
+        print(verify_result.stderr, file=sys.stderr, end="")
+    raise SystemExit(2)
+
 with open(checklist_path) as f:
     checklist_results = json.load(f)
 
@@ -370,14 +456,16 @@ PYEOF
 	exit $?
 	;;
 verify)
-	python3 - "$RETENTION_ROOT_CANON" "$LEDGER_PATH" "$family" <<'PYEOF'
+	python3 - "$RETENTION_ROOT_CANON" "$LEDGER_PATH" "$family" \
+		"$VERIFY_PAIR_RETENTION" "$LIFECYCLE_SCHEMA" <<'PYEOF'
 import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 
-retention_root, ledger_path, family_filter = sys.argv[1:4]
+retention_root, ledger_path, family_filter, verify_pair_retention_bin, lifecycle_schema = sys.argv[1:6]
 
 RETAINED_ARTIFACTS = [
     "package.yaml", "evidence", "transcripts", "entity-history.json",
@@ -525,16 +613,24 @@ for fam in targets:
     # signal, reported distinctly) -- both digest identically. manifest.json
     # (itself one of the eight retained artifacts, written by
     # retain_pair/retain_gate) is where that provenance lives; read it here.
-    # Best-effort: a missing/malformed manifest.json is already caught by
-    # the staleness loop below (its own digest_of_path/recorded-digest
-    # comparison), so this cross-check simply has no provenance to consult
-    # in that case and stays silent rather than raising.
+    # A missing/malformed manifest.json is ALSO caught by the staleness loop
+    # below (its own digest_of_path/recorded-digest comparison) whenever the
+    # corruption happened AFTER --record ran. UAT round 6 sweep site: when it
+    # happened BEFORE --record (the ledger's own recorded digest already
+    # reflects the broken file, so it is not "stale"), silently degrading to
+    # an empty dict here used to let every non-manifest artifact's source_path
+    # lookup return None and fall through the missing_source_provenance branch
+    # below with no explanation of WHY -- correct in effect, but it buries an
+    # unreadable-manifest condition inside a differently-named reason instead
+    # of reporting it directly. Track the read failure explicitly so it is
+    # named, not just implied.
     manifest_artifacts = {}
+    manifest_read_error = None
     try:
         with open(os.path.join(scenario_dir, "manifest.json"), encoding="utf-8") as f:
             manifest_artifacts = (json.load(f) or {}).get("artifacts") or {}
-    except (OSError, ValueError):
-        manifest_artifacts = {}
+    except (OSError, ValueError) as exc:
+        manifest_read_error = str(exc)
 
     stale = []
     missing_source_provenance = []
@@ -565,6 +661,37 @@ for fam in targets:
         failure_reasons.append(f"missing_source_provenance: {', '.join(missing_source_provenance)}")
     if empty_source_defect:
         failure_reasons.append(f"empty_source_artifact: {', '.join(empty_source_defect)}")
+    if manifest_read_error is not None:
+        failure_reasons.append(f"unreadable_manifest: manifest.json ({manifest_read_error})")
+
+    # UAT round 6 (2026-08-21T233606Z, defect class: "treating a present
+    # file, digest field, or non-empty provenance string as proof of
+    # verified source derivation"): everything above checks pilot-ledger's
+    # OWN recorded digest against the current bytes (staleness) and whether
+    # manifest.json NAMES a source_path -- neither ever reads manifest.json's
+    # own per-artifact `sha256` claim (the retention producer's own recorded
+    # provenance) and compares it against the CURRENT retained bytes. A
+    # forged manifest.json with a fabricated-but-non-empty source_path and a
+    # `sha256` value crafted to agree with the retained bytes sails through
+    # every check above undetected. Delegate to lib/verify_pair_retention
+    # (T-E40-F10-004's shared completeness/lineage/digest authority) rather
+    # than re-implementing that comparison a second time here -- it is run
+    # unconditionally, independent of whatever the checks above already
+    # found, so a manifest that is internally self-consistent with the
+    # retained bytes but was never really produced by retain_pair (e.g. a
+    # lineage mismatch, or a missing artifact this loop's own None-vs-None
+    # guard already defends against) is caught here too.
+    verify_result = subprocess.run(
+        [sys.executable, verify_pair_retention_bin, scenario_id, str(rep), scenario_dir, lifecycle_schema],
+        capture_output=True,
+        text=True,
+    )
+    if verify_result.returncode != 0:
+        stdout = (verify_result.stdout or "").strip()
+        token = stdout.splitlines()[-1] if stdout else "verification_failed:unknown"
+        vr_reason, _, vr_artifact = token.partition(":")
+        failure_reasons.append(f"{vr_reason or 'verification_failed'}: {vr_artifact or 'unknown'}")
+
     if failure_reasons:
         print(f"family={fam}: FAILED ({'; '.join(failure_reasons)})")
         any_fail = True

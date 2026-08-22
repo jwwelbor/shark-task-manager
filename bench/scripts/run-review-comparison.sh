@@ -83,6 +83,13 @@ COMPARATOR_BIN="${COMPARATOR_BIN:-$SCRIPT_DIR/compare-lifecycle-evaluations.sh}"
 # UAT-R3-01 fix (T-E40-F10-005): the real producer for retain_pair's
 # entity-history.json artifact -- see export-entity-history.sh's own header.
 ENTITY_HISTORY_EXPORT_BIN="${ENTITY_HISTORY_EXPORT_BIN:-$SCRIPT_DIR/export-entity-history.sh}"
+# UAT round-6 fix (T-E40-F10-005, coordinated with T-E40-F10-004's
+# identical addition to run-lifecycle-batch.sh): the schema driving
+# lib/verify_pair_retention's own retention_required_artifacts
+# enumeration -- same override convention aggregate-lifecycle.sh's own
+# LIFECYCLE_SCHEMA already establishes, never a private hardcoded copy of
+# the schema path.
+LIFECYCLE_SCHEMA="${LIFECYCLE_SCHEMA:-$BENCH_DIR/reports/lifecycle-baseline-schema.yaml}"
 
 usage() {
 	cat >&2 <<'EOF'
@@ -178,6 +185,20 @@ command -v python3 >/dev/null 2>&1 || {
 # no candidate-declaration parse, no retention-root creation, no gate
 # dispatch. A refusal therefore costs zero subprocesses (REQ-F-002,
 # REQ-F-003).
+#
+# UAT round-6 fix (uat-2026-08-21T233606Z-E40-F10.md, HIGH finding
+# "comparison baseline can proceed without a verified family attestation"):
+# this driver never passes --batch (it has no such flag; --candidate is its
+# only matrix-shape declaration) -- ORIGINAL_ARGV therefore always carries
+# --candidate. spend_gate_check_pilot_ledger_families (lib/spend-gate.sh,
+# T-E40-F10-003's fix) now derives the requested family set from EITHER
+# --batch OR --candidate and runs the real per-family pilot-ledger.sh
+# --verify check unconditionally for both real driver shapes -- there is no
+# separate --batch flag for this driver to add, and adding a redundant one
+# would be meaningless since this file never enumerates a batch matrix.
+# Sweep result: spend_gate_check_all is called exactly once, here, with the
+# full untouched ORIGINAL_ARGV (including --candidate); no other call site
+# in this file invokes any spend-gate function.
 # ---------------------------------------------------------------------------
 OPERATOR_LIMITS_FILE=""
 if [[ "$mode" == "pilot" || "$mode" == "baseline" ]]; then
@@ -585,6 +606,13 @@ retain_gate() {
 	python3 "$SCRIPT_DIR/lib/retain_pair" "$scenario_id" "$rep" "$package_path" "$lifecycle_jsonl" "$evaluation_jsonl" "$entity_history_json" "$i05_bundle_dir" "$dest" "$gate"
 }
 
+# Set by gate_dest_provenance_ok on a completeness/digest refusal only (the
+# `<reason>:<artifact>` token lib/verify_pair_retention writes to its own
+# stdout); left unset/empty for an identity-mismatch refusal (the
+# gate/scenario_id/rep check below), which already has its own named
+# diagnostic at the call site.
+GATE_DEST_PROVENANCE_REASON=""
+
 gate_dest_provenance_ok() {
 	# gate_dest_provenance_ok <dest> <gate> <scenario_id> <rep> -- REQ-NF-007
 	# (append-and-verify, never a silent overwrite/reuse): a bare
@@ -601,9 +629,25 @@ gate_dest_provenance_ok() {
 	# by lib/retain_pair) are therefore checked together; any mismatch or
 	# absence refuses loudly instead of silently adopting someone else's
 	# retained evaluation.jsonl as this gate's comparator input.
+	#
+	# UAT round-6 fix (uat-2026-08-21T233606Z-E40-F10.md, HIGH finding
+	# "fabricated or unverifiable provenance can enter pilot approval and
+	# aggregates", defect class: "treating a present file, digest field, or
+	# non-empty provenance string as proof of verified source derivation"):
+	# an identity-matching manifest.json (gate/scenario_id/rep all correct)
+	# is necessary but NOT sufficient -- it never checked that every
+	# retention_required_artifacts entry was actually present, and never
+	# recomputed a single digest, so a pair with a superficially valid
+	# manifest.json but missing, truncated, or tampered artifacts was
+	# indistinguishable from a real, fully byte-preserved retention. Once
+	# the identity check below passes, this delegates to the SAME shared
+	# lib/verify_pair_retention T-E40-F10-004's run-lifecycle-batch.sh
+	# pair_retention_verified() uses, so both drivers enforce IDENTICAL
+	# reuse-completeness semantics rather than two divergent
+	# reimplementations of "is this pair actually complete."
 	local dest="$1" gate="$2" scenario_id="$3" rep="$4"
 	[[ -f "$dest/manifest.json" ]] || return 1
-	python3 -c '
+	if ! python3 -c '
 import json, sys
 gate, scenario_id, rep, path = sys.argv[1:5]
 try:
@@ -616,7 +660,20 @@ ok = (
     and str(manifest.get("rep", "")) == rep
 )
 sys.exit(0 if ok else 1)
-' "$gate" "$scenario_id" "$rep" "$dest/manifest.json"
+' "$gate" "$scenario_id" "$rep" "$dest/manifest.json"; then
+		return 1
+	fi
+
+	GATE_DEST_PROVENANCE_REASON=""
+	set +e
+	GATE_DEST_PROVENANCE_REASON="$(python3 "$SCRIPT_DIR/lib/verify_pair_retention" "$scenario_id" "$rep" "$dest" "$LIFECYCLE_SCHEMA")"
+	local rc=$?
+	set -e
+	if [[ "$rc" -ne 0 ]]; then
+		[[ -n "$GATE_DEST_PROVENANCE_REASON" ]] || GATE_DEST_PROVENANCE_REASON="verification_failed:unknown"
+		return 1
+	fi
+	return 0
 }
 
 dispatch_gate() {
@@ -649,8 +706,22 @@ dispatch_gate() {
 	fi
 
 	if [[ -f "$dest/evaluation.jsonl" ]]; then
+		GATE_DEST_PROVENANCE_REASON=""
 		if ! gate_dest_provenance_ok "$dest" "$gate" "$scenario_id" "$rep"; then
-			echo "run-review-comparison: $gate gate: retention path $dest is already occupied by a retained pair this driver did not produce for gate '$gate'/scenario '$scenario_id'/rep '$rep' (missing/mismatched manifest.json provenance) -- refusing to reuse or overwrite" >&2
+			if [[ -n "$GATE_DEST_PROVENANCE_REASON" ]]; then
+				# UAT round-6 fix: identity matched (gate/scenario_id/rep),
+				# but lib/verify_pair_retention found the retained pair
+				# itself is not actually complete/byte-identical -- a
+				# required artifact is absent, has no recorded source_path,
+				# or its recomputed digest disagrees with the
+				# manifest-recorded value. Never silently treated as
+				# complete: fails closed with the named artifact:reason,
+				# same discipline run-lifecycle-batch.sh's
+				# provenance_incomplete classification applies.
+				echo "run-review-comparison: $gate gate: retention path $dest is already occupied but failed verification ($GATE_DEST_PROVENANCE_REASON) -- refusing to reuse or overwrite" >&2
+			else
+				echo "run-review-comparison: $gate gate: retention path $dest is already occupied by a retained pair this driver did not produce for gate '$gate'/scenario '$scenario_id'/rep '$rep' (missing/mismatched manifest.json provenance) -- refusing to reuse or overwrite" >&2
+			fi
 			return 1
 		fi
 		echo "run-review-comparison: $gate gate already retained under $dest; skipped_complete" >&2

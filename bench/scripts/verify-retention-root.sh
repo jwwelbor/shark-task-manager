@@ -85,7 +85,17 @@
 # bench/reports/lifecycle-baseline-schema.yaml -- TC-078's contract test
 # owns that schema's exact required-key shape and this task's exit gate
 # forbids unrelated changes, so the codes are documented here instead):
-#   missing                    -- required artifact absent (phase 1)
+#   missing                    -- required artifact absent (phase 1), OR
+#                                 (UAT round 6, 2026-08-21T233606Z sweep
+#                                 site 1) present on disk but with NO
+#                                 corresponding entry at all in manifest
+#                                 .json's own `artifacts` map -- reusing
+#                                 lib/verify_pair_retention's own "missing"
+#                                 token for this case (fix requirement 3:
+#                                 "both...apply the same provenance
+#                                 standard") since a manifest that never
+#                                 declared the artifact is exactly as
+#                                 unverifiable as one that omits its bytes
 #   lineage_mismatch           -- manifest.json /scenario_id or /rep
 #                                 disagrees with its own directory location
 #   missing_source_provenance  -- (UAT-R3-01) a required artifact's manifest
@@ -109,7 +119,16 @@
 #   upstream_evaluation_invalid -- verify-lifecycle-evaluation.sh rejected
 #                                 evaluation.jsonl (malformed, not merely
 #                                 ineligible)
+#   verification_failed         -- (UAT round 6 sweep site 2) the
+#                                 lib/verify_pair_retention delegate refused
+#                                 the pair but its stdout carried no
+#                                 parseable `<reason>:<artifact>` token
+#                                 (should not occur in practice -- that
+#                                 script's own contract always writes one on
+#                                 a refusal; this is a defensive fallback,
+#                                 not a reason that script itself emits)
 #
+
 # Emits a bounded verdict: one JSON line per (scenario, rep) pair on
 # stdout (`{"scenario_id":...,"rep":...,"verdict":"pass"|"fail",
 # "failures":[{"artifact":...,"reason":...,"detail":...}, ...]}`), plus one
@@ -126,6 +145,17 @@ BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # and lib/spend-gate.sh's PILOT_LEDGER_BIN).
 VERIFY_LIFECYCLE_RUN_BIN="${VERIFY_LIFECYCLE_RUN_BIN:-$SCRIPT_DIR/verify-lifecycle-run.sh}"
 VERIFY_LIFECYCLE_EVALUATION_BIN="${VERIFY_LIFECYCLE_EVALUATION_BIN:-$SCRIPT_DIR/verify-lifecycle-evaluation.sh}"
+# UAT round 6 (2026-08-21T233606Z, defect class: "treating a present file,
+# digest field, or non-empty provenance string as proof of verified source
+# derivation"; fix requirement 3: "coordinate with T-E40-F10-006 so both...
+# apply the same provenance standard"). lib/verify_pair_retention is
+# T-E40-F10-004's single shared authority for "is this (scenario, rep) pair
+# really complete, lineage-correct, and byte-preserved" -- the SAME
+# authority pilot-ledger.sh's --record/--verify and run-lifecycle-batch.sh's
+# classify_pair already delegate to. This validator delegates to it too
+# (below) as an independent, unconditional per-pair cross-check, so a root
+# that passes one can never silently fail the standard the other enforces.
+VERIFY_PAIR_RETENTION_BIN="${VERIFY_PAIR_RETENTION_BIN:-$SCRIPT_DIR/lib/verify_pair_retention}"
 I07_SCHEMA="${I07_SCHEMA:-$BENCH_DIR/runs/i07-schema.yaml}"
 I08_SCHEMA="${I08_SCHEMA:-$BENCH_DIR/evaluation/i08-schema.yaml}"
 
@@ -172,6 +202,10 @@ done
 }
 [[ -x "$VERIFY_LIFECYCLE_EVALUATION_BIN" ]] || {
 	echo "verify-retention-root: verify-lifecycle-evaluation.sh not found or not executable: $VERIFY_LIFECYCLE_EVALUATION_BIN" >&2
+	exit 2
+}
+[[ -f "$VERIFY_PAIR_RETENTION_BIN" ]] || {
+	echo "verify-retention-root: lib/verify_pair_retention not found: $VERIFY_PAIR_RETENTION_BIN" >&2
 	exit 2
 }
 [[ -f "$I07_SCHEMA" ]] || {
@@ -247,7 +281,7 @@ done
 # pair-level lineage, then delegated upstream schema validity.
 if [[ -s "$PENDING" ]]; then
 	set +e
-	python3 - "$PENDING" "$I07_SCHEMA" "$I08_SCHEMA" "$VERIFY_LIFECYCLE_RUN_BIN" "$VERIFY_LIFECYCLE_EVALUATION_BIN" "$schema_path" <<'PYEOF'
+	python3 - "$PENDING" "$I07_SCHEMA" "$I08_SCHEMA" "$VERIFY_LIFECYCLE_RUN_BIN" "$VERIFY_LIFECYCLE_EVALUATION_BIN" "$schema_path" "$VERIFY_PAIR_RETENTION_BIN" <<'PYEOF'
 import hashlib
 import json
 import os
@@ -256,7 +290,7 @@ import sys
 
 import yaml
 
-pending_path, i07_schema, i08_schema, verify_run_bin, verify_eval_bin, f10_schema_path = sys.argv[1:7]
+pending_path, i07_schema, i08_schema, verify_run_bin, verify_eval_bin, f10_schema_path, verify_pair_retention_bin = sys.argv[1:8]
 
 JSON_ARTIFACTS = {"entity-history.json", "lifecycle.jsonl", "evaluation.jsonl", "oracle.json"}
 
@@ -387,6 +421,34 @@ for scenario_id, rep, rep_dir in pairs:
             })
 
         artifacts = manifest.get("artifacts") or {}
+
+        # UAT round 6 (2026-08-21T233606Z) sweep site 1, fix requirement 1
+        # ("sweep every manifest-field check that stops at digest/presence
+        # equality without an independent provenance cross-check"): the
+        # per-artifact loop just below is driven entirely by whatever keys
+        # `artifacts` happens to declare -- a required-with-source artifact
+        # with NO corresponding manifest entry at all (as opposed to an
+        # entry present but with an empty source_path, UAT-R3-01's case) is
+        # invisible to that loop, so a fabricated file sitting at that path
+        # on disk was silently accepted as verdict:pass with zero checks
+        # ever run against it. Exhaustively enumerate the schema's own
+        # required-with-source list (never the manifest's own possibly-
+        # incomplete key set) so this can never again depend on the
+        # manifest declaring the artifact it is itself supposed to attest.
+        for name in REQUIRED_ARTIFACTS_WITH_SOURCE:
+            # Only a KEY ENTIRELY ABSENT from `artifacts` is this sweep
+            # site's target. An entry that IS present but malformed (not an
+            # object) is a distinct, already-handled case -- the per-name
+            # loop below reports it as digest_mismatch ("manifest artifact
+            # entry is not an object") -- and must not also be double-
+            # reported here under a second, different reason.
+            if name not in artifacts:
+                failures.append({
+                    "artifact": name,
+                    "reason": "missing",
+                    "detail": "manifest.json has no artifacts entry for this required artifact -- a present file with no manifest record is never proof of a verified source",
+                })
+
         for name, entry in sorted(artifacts.items()):
             if not isinstance(entry, dict):
                 failures.append({"artifact": name, "reason": "digest_mismatch", "detail": "manifest artifact entry is not an object"})
@@ -468,6 +530,41 @@ for scenario_id, rep, rep_dir in pairs:
                 # `raise SystemExit(0 if aggregate_eligible else 1)`), which
                 # is a normal retained outcome, not a retention defect.
                 failures.append({"artifact": "evaluation.jsonl", "reason": "upstream_evaluation_invalid", "detail": (err or out).strip()[:400]})
+
+        # UAT round 6 sweep site 2, fix requirement 2-3 ("extend the check
+        # at :417-428 to validate provenance consistency ... per
+        # T-E40-F10-006's coordinated fix"; "coordinate with T-E40-F10-006
+        # so both...apply the same provenance standard"). Delegate to
+        # lib/verify_pair_retention -- the SAME shared authority pilot-
+        # ledger.sh's --record/--verify and run-lifecycle-batch.sh's
+        # classify_pair already delegate to -- as an independent,
+        # unconditional cross-check, run regardless of what the checks
+        # above already found. This is deliberately NOT a replacement for
+        # the exhaustive per-artifact loop above: lib/verify_pair_retention
+        # reports only the FIRST failure it finds (its own contract, tuned
+        # for a cheap reuse-decision, not AC-T1's "each of the eight
+        # retained artifacts fails distinctly"), so it cannot alone satisfy
+        # this validator's own exhaustiveness requirement. Run alongside it
+        # instead so the two implementations can never silently drift back
+        # apart -- a pair lib/verify_pair_retention would refuse must also
+        # be refused here, never accepted just because this validator's own
+        # from-scratch checks happened to miss the same gap.
+        vpr_proc = subprocess.run(
+            [sys.executable, verify_pair_retention_bin, scenario_id, str(int(rep)), rep_dir, f10_schema_path],
+            capture_output=True, text=True, check=False,
+        )
+        rc, out, err = vpr_proc.returncode, vpr_proc.stdout, vpr_proc.stderr
+        if rc != 0:
+            token = out.strip().splitlines()[-1] if out.strip() else ""
+            vr_reason, sep, vr_artifact = token.partition(":")
+            if not sep:
+                vr_reason, vr_artifact = "verification_failed", "unknown"
+            if not any(f["artifact"] == vr_artifact for f in failures):
+                failures.append({
+                    "artifact": vr_artifact,
+                    "reason": vr_reason,
+                    "detail": f"lib/verify_pair_retention independently refused this pair: {(err or out).strip()[:400]}",
+                })
 
     verdict = "fail" if failures else "pass"
     if failures:

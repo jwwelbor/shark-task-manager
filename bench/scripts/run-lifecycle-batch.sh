@@ -86,6 +86,11 @@ EVALUATE_LIFECYCLE_BIN="${EVALUATE_LIFECYCLE_BIN:-$SCRIPT_DIR/evaluate-lifecycle
 # UAT-R3-01 fix (T-E40-F10-004): the real producer for retain_pair's
 # entity-history.json artifact -- see export-entity-history.sh's own header.
 ENTITY_HISTORY_EXPORT_BIN="${ENTITY_HISTORY_EXPORT_BIN:-$SCRIPT_DIR/export-entity-history.sh}"
+# UAT round-6 fix (T-E40-F10-004): the schema driving lib/verify_pair_
+# retention's own retention_required_artifacts enumeration -- same override
+# convention aggregate-lifecycle.sh's own LIFECYCLE_SCHEMA already
+# establishes, never a private hardcoded copy of the schema path.
+LIFECYCLE_SCHEMA="${LIFECYCLE_SCHEMA:-$BENCH_DIR/reports/lifecycle-baseline-schema.yaml}"
 
 usage() {
 	cat >&2 <<'EOF'
@@ -845,12 +850,47 @@ sys.exit(0 if (str(manifest.get("scenario_id", "")) == scenario_id and str(manif
 ' "$scenario_id" "$rep" "$dir/manifest.json"
 }
 
+# pair_retention_verified <scenario_id> <rep> <dir> -- UAT round-6 fix (T-E40-
+# F10-004, defect class: "treating a present file, digest field, or non-empty
+# provenance string as proof of verified source derivation"). Called ONLY
+# after pair_provenance_ok already confirmed manifest.json's own identity
+# matches -- this is the completeness half of the reuse-fast-path gap:
+# pair_provenance_ok alone never checked that every retention_required_
+# artifacts entry was actually present, and never recomputed a single
+# digest, so a pair with a superficially valid manifest.json but missing,
+# truncated, or tampered artifacts was indistinguishable from a real,
+# fully byte-preserved retention. Delegates to the shared lib/verify_pair_
+# retention (same "single owner" precedent as lib/retain_pair itself) so
+# run-review-comparison.sh's own gate_dest_provenance_ok (T-E40-F10-005)
+# can apply the IDENTICAL completeness+digest strengthening rather than a
+# second, potentially divergent reimplementation. On refusal, prints the
+# `<reason>:<artifact>` token verify_pair_retention writes to its own
+# stdout (captured here, NOT printed to this function's stdout, so the
+# caller can fold it into classify_pair's own single-line classification)
+# and returns nonzero; the human diagnostic already went to stderr from
+# verify_pair_retention itself.
+pair_retention_verified() {
+	local scenario_id="$1" rep="$2" dir="$3"
+	set +e
+	PAIR_RETENTION_VERIFIED_REASON="$(python3 "$SCRIPT_DIR/lib/verify_pair_retention" "$scenario_id" "$rep" "$dir" "$LIFECYCLE_SCHEMA")"
+	local rc=$?
+	set -e
+	if [[ "$rc" -ne 0 && -z "$PAIR_RETENTION_VERIFIED_REASON" ]]; then
+		PAIR_RETENTION_VERIFIED_REASON="verification_failed:unknown"
+	fi
+	return "$rc"
+}
+
 # classify_pair <scenario_id> <rep> -- prints symlinked_dest /
-# provenance_mismatch / skipped_complete / incomplete_prior_attempt /
-# pending, mirroring run-batch.sh classify_pair (extended with the two new
-# read-side provenance classifications, round-4 finding 2; STRUCTURALLY
-# extended round-5, code-review-2026-08-21T1335-E40-F10.md finding 1, to
-# walk the whole chain rather than the leaf-level directory alone).
+# provenance_mismatch / provenance_incomplete:<reason> / skipped_complete /
+# incomplete_prior_attempt / pending, mirroring run-batch.sh classify_pair
+# (extended with the two new read-side provenance classifications, round-4
+# finding 2; STRUCTURALLY extended round-5, code-review-2026-08-21T1335-
+# E40-F10.md finding 1, to walk the whole chain rather than the leaf-level
+# directory alone; extended round-6, UAT-2026-08-21T233606Z, with
+# provenance_incomplete -- an identity-matching manifest.json is no longer
+# sufficient on its own, every required artifact must be present with a
+# matching digest).
 classify_pair() {
 	local scenario_id="$1" rep="$2"
 	local dir="$out_root_canon/scenarios/$scenario_id/$rep"
@@ -872,6 +912,14 @@ classify_pair() {
 	if [[ -f "$dir/evaluation.jsonl" ]]; then
 		if ! pair_provenance_ok "$scenario_id" "$rep" "$dir"; then
 			echo "provenance_mismatch"
+			return 0
+		fi
+		# UAT round-6 fix: identity-matching manifest.json is necessary but
+		# not sufficient -- verify every required artifact is present with a
+		# manifest-recorded source_path AND a digest that recomputes to the
+		# manifest-recorded value before ever trusting this pair as complete.
+		if ! pair_retention_verified "$scenario_id" "$rep" "$dir"; then
+			echo "provenance_incomplete:$PAIR_RETENTION_VERIFIED_REASON"
 			return 0
 		fi
 		echo "skipped_complete"
@@ -976,6 +1024,26 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 			echo "run-lifecycle-batch: $scenario_id rep $rep: retention path $dir is already occupied by a retained pair whose manifest.json scenario_id/rep does not match this pair -- refusing to reuse or overwrite" >&2
 			append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 			record_invalid "$scenario_id" "$rep" "provenance_mismatch"
+			overall_bad="true"
+			;;
+		provenance_incomplete:*)
+			# UAT round-6 fix (defect class: "treating a present file, digest
+			# field, or non-empty provenance string as proof of verified
+			# source derivation"): manifest.json's own identity matched
+			# (scenario_id/rep), but lib/verify_pair_retention found the
+			# retained pair itself is not actually complete/byte-identical --
+			# a required artifact is absent, has no recorded source_path, or
+			# its recomputed digest disagrees with the manifest-recorded
+			# value. Never silently treated as complete: fails closed with
+			# the named artifact:reason, same discipline as
+			# provenance_mismatch above (an operator must inspect and
+			# --reclaim-incomplete or otherwise repair the retention path;
+			# this driver never overwrites a pre-existing, occupied
+			# destination on its own).
+			pir_reason="${classification#provenance_incomplete:}"
+			echo "run-lifecycle-batch: $scenario_id rep $rep: retention path $dir is already occupied but failed verification ($pir_reason) -- refusing to reuse or overwrite" >&2
+			append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+			record_invalid "$scenario_id" "$rep" "provenance_incomplete:$pir_reason"
 			overall_bad="true"
 			;;
 		incomplete_prior_attempt)

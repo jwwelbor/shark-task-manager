@@ -347,9 +347,66 @@ EOF
 	# oracle.json carry a real non-empty source_path unconditionally --
 	# these cases are specifically about evidence/transcripts, not about
 	# re-testing the other five artifacts' source provenance.
-	cat >"$dest/manifest.json" <<EOF
-{"scenario_id": "$scenario_id", "rep": 1, "artifacts": {"package.yaml": {"source_path": "/fixture-source/package.yaml", "sha256": "placeholder"}, "entity-history.json": {"source_path": "/fixture-source/entity-history.json", "sha256": "placeholder"}, "lifecycle.jsonl": {"source_path": "/fixture-source/lifecycle.jsonl", "sha256": "placeholder"}, "evaluation.jsonl": {"source_path": "/fixture-source/evaluation.jsonl", "sha256": "placeholder"}, "oracle.json": {"source_path": "/fixture-source/oracle.json", "sha256": "placeholder"}, "evidence": {"source_path": "$evidence_source_path", "sha256": "placeholder"}, "transcripts": {"source_path": "$transcripts_source_path", "sha256": "placeholder"}}}
-EOF
+	#
+	# T-E40-F10-006 UAT round 6 (2026-08-21T233606Z): pilot-ledger.sh's
+	# --record/--verify now delegate to lib/verify_pair_retention, which
+	# independently recomputes each artifact's digest and compares it
+	# against manifest.json's OWN recorded `sha256` claim -- a literal
+	# "placeholder" string (this fixture's pre-fix shape) would now be
+	# flagged as digest_mismatch for every artifact, contaminating the
+	# evidence/transcripts-specific axis these two cases exist to test.
+	# Real digests, computed the same way retain_pair/pilot-ledger.sh
+	# themselves compute them, keep this fixture's manifest self-consistent
+	# so only the evidence/transcripts source_path axis is under test.
+	python3 - "$dest" "$evidence_source_path" "$transcripts_source_path" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+dest, evidence_source_path, transcripts_source_path = sys.argv[1:4]
+
+
+def digest_of_path(path):
+    if os.path.isdir(path):
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
+                with open(fpath, "rb") as fh:
+                    entries.append({"path": relpath, "sha256": hashlib.sha256(fh.read()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+artifacts = {}
+for name in ("package.yaml", "entity-history.json", "lifecycle.jsonl", "evaluation.jsonl", "oracle.json"):
+    artifacts[name] = {
+        "source_path": f"/fixture-source/{name}",
+        "sha256": digest_of_path(os.path.join(dest, name)),
+    }
+artifacts["evidence"] = {
+    "source_path": evidence_source_path,
+    "sha256": digest_of_path(os.path.join(dest, "evidence")),
+}
+artifacts["transcripts"] = {
+    "source_path": transcripts_source_path,
+    "sha256": digest_of_path(os.path.join(dest, "transcripts")),
+}
+
+manifest = {
+    "scenario_id": os.path.basename(os.path.dirname(dest)),
+    "rep": 1,
+    "artifacts": artifacts,
+}
+with open(os.path.join(dest, "manifest.json"), "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+PY
 }
 
 # Case (i), UAT-R3-01 counterfactual (was "honest gap" before this fix):
@@ -589,3 +646,195 @@ echo "$out" | grep -q "family=$family: FAILED" || fail "defect 3 (incomplete att
 echo "$out" | grep -q "incomplete_attestation" || fail "defect 3 (incomplete attestation): expected the incomplete_attestation reason, got: $out"
 
 echo "TC-081 (rework, defect 3): pass (a ledger row missing recorded digests for required artifacts is never treated as verified via a None == None comparison)"
+
+# ===========================================================================
+# T-E40-F10-006 UAT round 6 (2026-08-21T233606Z, defect class: "treating a
+# present file, digest field, or non-empty provenance string as proof of
+# verified source derivation"): before this fix, pilot-ledger.sh's own
+# `source_path` checks (--record's requirement-1 loop and --verify's
+# missing_source_provenance loop) only ever asked "is source_path a
+# non-empty string" -- neither ever read manifest.json's own per-artifact
+# `sha256` claim and compared it against the actual retained bytes. A
+# manifest.json carrying a fabricated, non-existent source_path alongside a
+# `sha256` value forged to agree with the real retained bytes therefore
+# passed both --record and --verify undetected. These two cases build such
+# a manifest directly (bypassing lib/retain_pair entirely, exactly as a
+# hand-crafted or forged manifest would) and prove the new
+# lib/verify_pair_retention delegation closes the gap on both the record
+# side and the verify side.
+# ===========================================================================
+
+build_forged_manifest_fixture() {
+	# build_forged_manifest_fixture <scenario_id> <family> -- real byte
+	# content for all eight required artifacts, but manifest.json's `sha256`
+	# field for oracle.json is a FORGED value that does not match
+	# oracle.json's real bytes, while source_path is a fabricated, non-empty,
+	# non-existent path -- the exact shape the UAT rejection describes.
+	local scenario_id="$1" family="$2"
+	local dest="$ROOT/scenarios/$scenario_id/1"
+	mkdir -p "$dest/evidence" "$dest/transcripts"
+	cat >"$dest/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$scenario_id"
+scenario_version: "1"
+entity_family: "$family"
+EOF
+	echo '{"stage": "code", "note": "fixture evidence"}' >"$dest/evidence/stage.json"
+	echo "fixture transcript for $scenario_id" >"$dest/transcripts/stage.txt"
+	echo '{"root_key": "ROOT-001", "entries": []}' >"$dest/entity-history.json"
+	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/lifecycle.jsonl"
+	echo "{\"scenario_id\": \"$scenario_id\", \"rep\": 1}" >"$dest/evaluation.jsonl"
+	echo '{"held_back": true}' >"$dest/oracle.json"
+	python3 - "$dest" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+dest = sys.argv[1]
+
+
+def digest_of_path(path):
+    if os.path.isdir(path):
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
+                with open(fpath, "rb") as fh:
+                    entries.append({"path": relpath, "sha256": hashlib.sha256(fh.read()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+artifacts = {}
+for name in ("package.yaml", "entity-history.json", "lifecycle.jsonl", "evaluation.jsonl", "evidence", "transcripts"):
+    artifacts[name] = {
+        "source_path": f"/fixture-source/{name}",
+        "sha256": digest_of_path(os.path.join(dest, name)),
+    }
+# The forgery: a non-empty, plausible-looking, but entirely fabricated
+# source_path that was never a real derivation source, paired with a
+# `sha256` claim that does NOT match oracle.json's real bytes -- exactly
+# what pilot-ledger.sh's pre-fix "source_path is a non-empty string" check
+# could never distinguish from a legitimate retain_pair-written entry.
+artifacts["oracle.json"] = {
+    "source_path": "/totally/fabricated/never-real/oracle.json",
+    "sha256": "0" * 64,
+}
+
+manifest = {
+    "scenario_id": os.path.basename(os.path.dirname(dest)),
+    "rep": 1,
+    "artifacts": artifacts,
+}
+with open(os.path.join(dest, "manifest.json"), "w", encoding="utf-8") as f:
+    json.dump(manifest, f, sort_keys=True, separators=(",", ":"))
+PY
+}
+
+# ---------------------------------------------------------------------------
+# Case A: --record must refuse over a forged manifest.json at record time --
+# every artifact is genuinely present and every source_path is a non-empty
+# string, but oracle.json's manifest-recorded `sha256` disagrees with its
+# real retained bytes. The pre-fix check (non-emptiness only) would have
+# recorded this attestation; the fix must refuse it.
+# ---------------------------------------------------------------------------
+build_forged_manifest_fixture scenario-forged-manifest-record family-forged-manifest-record
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --record --scenario scenario-forged-manifest-record --rep 1 \
+	--operator "operator-6@example.com" --checklist "$CHECKLIST" 2>&1)" || rc=$?
+[[ "$rc" -eq 2 ]] || fail "UAT round 6 (forged manifest, --record): expected --record to refuse (exit 2) over a manifest.json whose recorded digest disagrees with the actual retained bytes, got rc=$rc: $out"
+echo "$out" | grep -q "digest_mismatch" || fail "UAT round 6 (forged manifest, --record): refusal did not name digest_mismatch: $out"
+echo "$out" | grep -q "oracle.json" || fail "UAT round 6 (forged manifest, --record): refusal did not name oracle.json: $out"
+grep -q "family-forged-manifest-record" "$ROOT/pilot-ledger.jsonl" && fail "UAT round 6 (forged manifest, --record): a refused --record appended to pilot-ledger.jsonl anyway"
+
+echo "TC-081 (UAT round 6, forged manifest at --record): pass (--record refuses a manifest whose per-artifact digest claim disagrees with the actual retained bytes, not just a non-empty source_path string)"
+
+# ---------------------------------------------------------------------------
+# Case B: a HAND-FORGED ledger row (never produced by a real --record call,
+# same "append-only, hand-editable" attack class already exercised by defect
+# 13(c) and defect 3 above) whose `inspected_artifact_digests` are set to the
+# REAL, CURRENT bytes on disk -- so pilot-ledger's own pre-existing staleness
+# check (ledger digest vs. current bytes) passes cleanly for every one of the
+# eight artifacts, INCLUDING manifest.json itself (its bytes are never
+# mutated after the forged row is planted, so `stale_digest: manifest.json`
+# never fires either). source_path is a non-empty string for every artifact,
+# so the pre-fix `missing_source_provenance` check also never fires. The one
+# thing wrong is that manifest.json's OWN recorded `sha256` claim for
+# oracle.json does not match oracle.json's real bytes -- exactly the "manifest
+# was never legitimately produced by lib/retain_pair" shape a hand-planted
+# retention directory (or a --record gate that only checked non-emptiness)
+# could never distinguish from a real one. Before this fix, --verify never
+# read manifest.json's own `sha256` field at all, so this family would have
+# reported "verified" despite the demonstrably self-inconsistent manifest.
+# ---------------------------------------------------------------------------
+build_forged_manifest_fixture scenario-forged-manifest-verify family-forged-manifest-verify
+
+python3 - "$ROOT/pilot-ledger.jsonl" "$ROOT/scenarios/scenario-forged-manifest-verify/1" <<'PYEOF'
+import hashlib
+import json
+import os
+import sys
+
+ledger_path, scenario_dir = sys.argv[1:3]
+
+
+def digest_of_path(path):
+    if os.path.isdir(path):
+        entries = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
+                with open(fpath, "rb") as fh:
+                    entries.append({"path": relpath, "sha256": hashlib.sha256(fh.read()).hexdigest()})
+        entries.sort(key=lambda e: e["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+# The forger reads the REAL current bytes and reports honest digests for
+# every artifact -- defeating pilot-ledger's own staleness check entirely --
+# without ever running --record (so lib/verify_pair_retention's manifest
+# self-consistency gate was never applied to this retention directory).
+digests = {
+    name: digest_of_path(os.path.join(scenario_dir, name))
+    for name in (
+        "package.yaml", "evidence", "transcripts", "entity-history.json",
+        "lifecycle.jsonl", "evaluation.jsonl", "oracle.json", "manifest.json",
+    )
+}
+row = {
+    "family": "family-forged-manifest-verify",
+    "run_reference": {
+        "scenario_id": "scenario-forged-manifest-verify",
+        "rep": 1,
+        "retention_path": "scenarios/scenario-forged-manifest-verify/1",
+    },
+    "operator_identity": "attacker@example.com",
+    "checklist_results": {"items": []},
+    "inspected_artifact_digests": digests,
+    "recorded_at": "2026-08-21T00:00:00Z",
+}
+with open(ledger_path, "a", encoding="utf-8") as f:
+    f.write(json.dumps(row, sort_keys=True) + "\n")
+PYEOF
+
+rc=0
+out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-forged-manifest-verify 2>&1)" || rc=$?
+[[ "$rc" -ne 0 ]] || fail "UAT round 6 (forged manifest, --verify): --verify should fail for a hand-forged ledger row backed by a self-inconsistent manifest.json, got rc=0: $out"
+echo "$out" | grep -q "family=family-forged-manifest-verify: FAILED" || fail "UAT round 6 (forged manifest, --verify): expected a FAILED verdict, got: $out"
+echo "$out" | grep -q "digest_mismatch" || fail "UAT round 6 (forged manifest, --verify): expected digest_mismatch (manifest's own recorded provenance disagrees with the actual bytes), got: $out"
+echo "$out" | grep -q "oracle.json" || fail "UAT round 6 (forged manifest, --verify): reason did not name oracle.json, got: $out"
+echo "$out" | grep -q "stale_digest" && fail "UAT round 6 (forged manifest, --verify): should not ALSO report stale_digest (the forged ledger row's digests were set to match the real current bytes exactly): $out"
+echo "$out" | grep -q "missing_source_provenance" && fail "UAT round 6 (forged manifest, --verify): should not ALSO report missing_source_provenance (every source_path is a non-empty string): $out"
+
+echo "TC-081 (UAT round 6, forged manifest at --verify): pass (a hand-forged ledger row whose digests match the real current bytes -- defeating pilot-ledger's own staleness check -- is still caught by cross-checking manifest.json's own recorded per-artifact digest against those same bytes)"
