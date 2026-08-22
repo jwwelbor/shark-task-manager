@@ -1911,3 +1911,21 @@ set -e
 [[ "$RC_ROOT_SHAPE" -ne 0 ]] || fail "round-13 non-object manifest: expected verifier refusal, got 0"
 grep -q "JSON object" "$WORKDIR/root-shape.err" || fail "round-13 non-object manifest: missing named shape refusal"
 echo "TC-082 (round 13): parseable non-object manifest roots refuse cleanly"
+
+# The same counterfactual must fail closed through the production reuse helper,
+# not only through the standalone retention-root verifier.
+PAIR_ROOT_SHAPE="$WORKDIR/pair-root-shape"
+cp -a "$root_l" "$PAIR_ROOT_SHAPE"
+printf '%s\n' '[]' >"$PAIR_ROOT_SHAPE/scenarios/scenario-tc082/1/manifest.json"
+set +e
+PAIR_ROOT_SHAPE_OUT="$WORKDIR/pair-root-shape.out"
+PAIR_ROOT_SHAPE_ERR="$WORKDIR/pair-root-shape.err"
+"$SCRIPTS_DIR/lib/verify_pair_retention" scenario-tc082 1 \
+    "$PAIR_ROOT_SHAPE/scenarios/scenario-tc082/1" "$SCHEMA" \
+    >"$PAIR_ROOT_SHAPE_OUT" 2>"$PAIR_ROOT_SHAPE_ERR"
+RC_PAIR_ROOT_SHAPE=$?
+set -e
+[[ "$RC_PAIR_ROOT_SHAPE" -ne 0 ]] || fail "round-14 non-object pair manifest: expected reuse-helper refusal, got 0"
+grep -q "schema_invalid:manifest.json" "$PAIR_ROOT_SHAPE_OUT" || fail "round-14 non-object pair manifest: missing machine-readable schema refusal: $(cat "$PAIR_ROOT_SHAPE_OUT")"
+grep -q "JSON object" "$PAIR_ROOT_SHAPE_ERR" || fail "round-14 non-object pair manifest: missing named shape refusal: $(cat "$PAIR_ROOT_SHAPE_ERR")"
+echo "TC-082 (round 14): production pair-reuse helper refuses parseable non-object manifest roots"

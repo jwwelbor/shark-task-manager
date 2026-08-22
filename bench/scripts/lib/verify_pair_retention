@@ -146,6 +146,9 @@ try:
 except (OSError, json.JSONDecodeError) as exc:
     refuse("lineage_mismatch", "manifest.json", f"manifest.json is not valid JSON: {exc}")
 
+if not isinstance(manifest, dict):
+    refuse("schema_invalid", "manifest.json", "manifest.json must contain a JSON object")
+
 if str(manifest.get("scenario_id", "")) != scenario_id or str(manifest.get("rep", "")) != str(int(rep)):
     refuse(
         "lineage_mismatch",
