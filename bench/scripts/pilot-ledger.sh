@@ -287,7 +287,11 @@ except ImportError:
     retention_root, scenario_id, rep_str, operator, checklist_path, ledger_path,
     verify_pair_retention_bin, lifecycle_schema,
 ) = sys.argv[1:9]
-rep = int(rep_str)
+try:
+    rep = int(rep_str)
+except (TypeError, ValueError, OverflowError) as exc:
+    print(f"pilot-ledger: invalid --rep value: {exc}", file=sys.stderr)
+    raise SystemExit(2)
 
 # The eight canonical retained artifacts (bench/reports/
 # lifecycle-baseline-schema.yaml retention_required_artifacts).
@@ -609,6 +613,7 @@ for fam in targets:
         not isinstance(scenario_id, str)
         or not SCENARIO_ID_PATTERN.match(scenario_id)
         or not isinstance(rep, int)
+        or isinstance(rep, bool)
         or rep < 0
     ):
         print(f"family={fam}: FAILED (unsafe_scenario_reference)")
