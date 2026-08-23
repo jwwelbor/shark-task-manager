@@ -30,6 +30,9 @@
 #                                 outcome "completed" (no spawn_agent stage,
 #                                 so no transcript fixture is needed).
 #   STUB_SHARK_RUN_EXIT           exit code for `run` (default 0)
+#   STUB_SHARK_RUN_DELAY_SECONDS  optional delay before the successful result;
+#                                 lets TC-014 prove watchdog cancellation cannot
+#                                 run the parent-only scratch cleanup.
 #   STUB_SHARK_RUN_HANG           "1": ignore SIGTERM and sleep long,
 #                                 emitting only the liveness announce line +
 #                                 an open stage_start (never a RunResult) --
@@ -171,6 +174,10 @@ if [[ "${1:-}" == "run" ]]; then
 		fi
 		sleep 3600
 		exit 0
+	fi
+
+	if [[ -n "${STUB_SHARK_RUN_DELAY_SECONDS:-}" ]]; then
+		sleep "$STUB_SHARK_RUN_DELAY_SECONDS"
 	fi
 
 	ts_end="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

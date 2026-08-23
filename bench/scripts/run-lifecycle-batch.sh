@@ -95,6 +95,7 @@ LIFECYCLE_SCHEMA="${LIFECYCLE_SCHEMA:-$BENCH_DIR/reports/lifecycle-baseline-sche
 usage() {
 	cat >&2 <<'EOF'
 usage: run-lifecycle-batch.sh --batch <policy.yaml> --retention-root <root>
+                               [--retention-root-fd <inherited-fd>]
                                --mode preview|pilot|baseline [--dry-run]
                                [--acknowledge-provider-spend]
                                [--max-cost-usd <n>]
@@ -116,6 +117,7 @@ ORIGINAL_ARGV=("$@")
 
 batch_policy=""
 retention_root=""
+retention_root_fd=""
 mode=""
 dry_run="false"
 reps_flag=""
@@ -132,6 +134,11 @@ while [[ $# -gt 0 ]]; do
 	--retention-root)
 		[[ $# -ge 2 ]] || usage
 		retention_root="$2"
+		shift 2
+		;;
+	--retention-root-fd)
+		[[ $# -ge 2 ]] || usage
+		retention_root_fd="$2"
 		shift 2
 		;;
 	--mode)
@@ -196,6 +203,18 @@ esac
 if [[ "$mode" == "preview" ]]; then
 	[[ -n "$retention_root" ]] || usage
 fi
+assert_retention_root_identity() {
+	[[ -z "$retention_root_fd" ]] && return 0
+	[[ "$retention_root_fd" =~ ^[0-9]+$ && -d "/proc/self/fd/$retention_root_fd" ]] || {
+		echo "run-lifecycle-batch: --retention-root-fd is not an inherited directory descriptor" >&2
+		exit 2
+	}
+	[[ -n "$retention_root" && "/proc/self/fd/$retention_root_fd" -ef "$retention_root" ]] || {
+		echo "run-lifecycle-batch: retention root identity changed before execution" >&2
+		exit 2
+	}
+}
+assert_retention_root_identity
 # GATE_REP_BASE mirrors run-review-comparison.sh's own reserved gate-rep
 # band (code-review-2026-08-21T0330-E40-F10.md finding 1: gate reps live at
 # GATE_REP_BASE+1/+2 precisely so this driver's sequential rep allocation
@@ -285,6 +304,7 @@ if [[ "$mode" == "pilot" || "$mode" == "baseline" ]]; then
 fi
 
 out_root_canon="$(realpath -m -- "$retention_root")"
+assert_retention_root_identity
 # shellcheck source=lib/path-safety.sh
 source "$SCRIPT_DIR/lib/path-safety.sh"
 
@@ -733,6 +753,7 @@ retain_pair() {
 
 dispatch_pair() {
 	# dispatch_pair <scenario_id> <scenario_version> <family> <rep> <package_path> <root_key> <scratch_root> <i05_bundle_dir> <success_label>
+	assert_retention_root_identity
 	local scenario_id="$1" scenario_version="$2" family="$3" rep="$4" package_path="$5"
 	local root_key="$6" scratch_root="$7" i05_bundle_dir="$8" success_label="$9"
 
@@ -1120,6 +1141,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 	done
 done
 
+assert_retention_root_identity
 python3 - "$SUMMARY_TMP" "$INVALID_TMP" "$mode" "$out_root_canon" "$batch_policy" "$reclaim_incomplete" \
 	"${ORIGINAL_ARGV[*]}" <<'PYEOF'
 import hashlib
