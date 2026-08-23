@@ -1,0 +1,34 @@
+{
+  "scenario_id": "lifecycle-e01-crud-api",
+  "rep": 1,
+  "artifacts": {
+    "package.yaml": {
+      "source_path": "bench/scenarios/packages/lifecycle-e01-crud-api/package.yaml",
+      "sha256": "ecc9e040dcb0cdba5601e04965af34422daccf51141a6a9dd8459d9d5f79d031"
+    },
+    "evidence": {
+      "source_path": "bench/runs/lifecycle-e01-crud-api/1/evidence",
+      "sha256": "254426316956da0e64bfbd3f33462693dbf84c48bb06800db036ffe6e7337745"
+    },
+    "transcripts": {
+      "source_path": "bench/runs/lifecycle-e01-crud-api/1/transcripts",
+      "sha256": "6d455cc376394fadbd4194fc7cd4ae44196766af6b2dc481d8e81b508c01c30e"
+    },
+    "entity-history.json": {
+      "source_path": "bench/runs/lifecycle-e01-crud-api/1/entity-history.json",
+      "sha256": "6f9d00ca72b054f1e2d4110d1766201a5bf2046c5cb58541f55f373904c1528a"
+    },
+    "lifecycle.jsonl": {
+      "source_path": "bench/runs/lifecycle-e01-crud-api/1/lifecycle.jsonl",
+      "sha256": "54e74303718a149e7a3b00b978f9f07fab941ac6e689ac8378050bc8c688bf64"
+    },
+    "evaluation.jsonl": {
+      "source_path": "bench/runs/lifecycle-e01-crud-api/1/evaluation.jsonl",
+      "sha256": "8d9abbf1a9e9e4f13f12141949a5974b743f30e44c6605a52b206a220a30ec50"
+    },
+    "oracle.json": {
+      "source_path": "bench/runs/lifecycle-e01-crud-api/1/oracle.json",
+      "sha256": "not-a-digest"
+    }
+  }
+}

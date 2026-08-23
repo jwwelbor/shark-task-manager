@@ -22,6 +22,8 @@ fi
 diff_path=$(mktemp /tmp/code-review-diff-XXXXXX.txt)
 git diff "${base_branch}...HEAD" > "$diff_path"
 
+base_commit=$(git rev-parse "${base_branch}")
+
 if [ ! -s "$diff_path" ]; then
   echo '{"error": "Diff is empty — nothing to review. Is this branch ahead of '"$base_branch"'?"}' >&2
   exit 1
@@ -97,6 +99,7 @@ CHANGED_FILES="$changed_files_raw" \
 CHANGED_FILE_COUNT="$changed_file_count" \
 DIFF_SHORTSTAT="$diff_shortstat" \
 BRANCH="$branch" \
+BASE_COMMIT="$base_commit" \
 REVIEW_OUTPUT_PATH="$review_output_path" \
 python3 - <<'PYEOF'
 import os, json
@@ -113,6 +116,7 @@ print(json.dumps({
   "project_root": project_root,
   "coding_standards_path": coding_standards_path or None,
   "branch": os.environ.get("BRANCH") or None,
+  "base_commit": os.environ.get("BASE_COMMIT") or None,
   "review_output_path": os.environ.get("REVIEW_OUTPUT_PATH") or None,
 }))
 PYEOF

@@ -1,0 +1,8 @@
+TC-092: AC-T2 pass (62 pre-F10 tests present in run-all.sh, relative order unchanged)
+TC-092: every pre-F10 test still declares a discoverable pass marker
+TC-092: AC-T3 FAIL - tc061_lifecycle_runner_loop_test.sh's own pass marker not found in captured run output: TC-061: pass (canonical claim/heartbeat/transition/release and exact prompt handoff)
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc061_lifecycle_runner_loop_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc062_lifecycle_runner_limits_test.sh's own pass marker not found in captured run output: TC-062: pass (first exceeded ceiling stops scenario and retains partial evidence)
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc062_lifecycle_runner_limits_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc066_lifecycle_worker_question_handoff_test.sh's own pass marker not found in captured run output: TC-066: pass (question worker result creates, configures, links, and pauses the parent-owned lifecycle)
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc066_lifecycle_worker_question_handoff_test.sh' not found in captured run output

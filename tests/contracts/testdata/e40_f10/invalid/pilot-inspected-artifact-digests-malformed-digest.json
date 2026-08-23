@@ -1,0 +1,22 @@
+{
+  "run_reference": "scenarios/lifecycle-e01-crud-api/1",
+  "checklist_results": [
+    {
+      "item": "stage_evidence_reviewed",
+      "result": "pass"
+    },
+    {
+      "item": "transcripts_reviewed",
+      "result": "pass"
+    },
+    {
+      "item": "held_back_oracle_reviewed",
+      "result": "pass"
+    }
+  ],
+  "operator_identity": "jwwelbor@hotmail.com",
+  "inspected_artifact_digests": {
+    "lifecycle.jsonl": "not-a-digest",
+    "evaluation.jsonl": "8d9abbf1a9e9e4f13f12141949a5974b743f30e44c6605a52b206a220a30ec50"
+  }
+}

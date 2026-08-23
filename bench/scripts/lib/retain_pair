@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""bench/scripts/lib/retain_pair
+
+Shared retention-manifest builder (code-review-2026-08-20T2138-E40-F10.md
+findings 1, 2, and 7): the SINGLE owner of "how one (scenario, rep) pair's
+eight required artifacts get byte-preserved-copied and digested into
+manifest.json", per bench/reports/lifecycle-baseline-schema.yaml's
+digest_rules (algorithm/encoding/canonicalization/file_encoding) and
+digest_rules.empty_artifact_semantics.
+
+Previously this logic was embedded twice as near-identical bash heredocs:
+run-lifecycle-batch.sh's retain_pair() (real batch pairs) and
+run-review-comparison.sh's retain_gate() (a gate-named, 3-artifact, no-rep
+layout finding 2 diagnosed as structurally incompatible with every real
+consumer: aggregate-lifecycle.sh's int(rep) pair loop and
+verify-retention-root.sh's eight-artifact layout check). Both callers now
+invoke this ONE script so a future change to the digest/manifest rule
+cannot diverge between them again (Section C's reuse-opportunity note,
+"digest_of_path() -- 4 near-identical copies... no existing shared
+library").
+
+Usage:
+    retain_pair <scenario_id> <rep> <package_path> <lifecycle_jsonl> \
+        <evaluation_jsonl> <entity_history_json> <i05_bundle_dir> <dest> \
+        [producer_gate]
+
+<dest> MUST already exist (callers create it via `mkdir -p` after their own
+`assert_within_out_root` containment check -- this script performs no path
+containment of its own, matching the prior heredocs' division of
+responsibility).
+
+<producer_gate> is OPTIONAL and additive only: when non-empty (T-E40-F10-005
+review-comparison usage), it is recorded as manifest.json's `gate` field --
+a provenance tag `run-review-comparison.sh` uses to refuse silently reusing
+a retention path a real batch run (or the OTHER gate) already populated,
+rather than treating bare "evaluation.jsonl exists" as sufficient proof of
+"this exact gate already retained here" (REQ-NF-007: append-and-verify,
+never a silent overwrite/reuse of someone else's retained pair). When
+omitted or empty (run-lifecycle-batch.sh's own batch-pair usage), no `gate`
+key is written at all -- manifest.json's byte content for a batch pair is
+therefore UNCHANGED from before this extraction (retention_manifest_required_fields
+does not name `gate`; it is not one of the required keys any consumer
+demands).
+
+UAT-R3-01 (round 3) fail-closed contract: every one of the seven
+non-manifest retention_required_artifacts (package.yaml, lifecycle.jsonl,
+evaluation.jsonl, entity-history.json, oracle.json, evidence/, transcripts/)
+MUST have a real, checked source on disk. When a required artifact's source
+does not exist, this script refuses to write ANY of the pair's artifacts
+that have not already been installed, prints a diagnostic naming the
+artifact and the schema-owned `required_artifact_source_unavailable`
+reason (bench/reports/lifecycle-baseline-schema.yaml
+retention_invalidity_reason), and exits nonzero WITHOUT ever writing
+manifest.json -- so a partially-written destination directory can never be
+mistaken for a completed retention (run-lifecycle-batch.sh's own
+pair_provenance_ok()/classify_pair() already treat a manifest.json-less
+directory as non-complete: incomplete_prior_attempt or provenance_mismatch
+on the next pass, never skipped_complete). This script previously
+fabricated a zero-byte/empty placeholder and recorded source_path == "" in
+that case, which UAT-R3-01 identified as a required artifact silently
+represented as retained when it never existed.
+"""
+import json
+import hashlib
+import os
+import shutil
+import sys
+import subprocess
+import tempfile
+from pathlib import Path
+
+REQUIRED_ARTIFACT_SOURCE_UNAVAILABLE = "required_artifact_source_unavailable"
+# UAT round-6 fix (T-E40-F10-004, defect class: "treating a present file,
+# digest field, or non-empty provenance string as proof of verified source
+# derivation" -- the symlink-containment half): source-tree containment
+# breach for a directory artifact -- see refuse_symlink_containment below.
+SYMLINK_IN_SOURCE_TREE = "symlink_in_source_tree"
+
+(
+    scenario_id,
+    rep,
+    package_path,
+    lifecycle_jsonl,
+    evaluation_jsonl,
+    entity_history_json,
+    i05_bundle_dir,
+    dest,
+) = sys.argv[1:9]
+producer_gate = sys.argv[9] if len(sys.argv) > 9 else ""
+dest = Path(dest)
+
+artifacts = {}
+
+
+def refuse_missing_source(name, source_desc):
+    # UAT-R3-01: never fabricate a placeholder for a required artifact with
+    # no real source. Named diagnostic on stderr (artifact + the schema-owned
+    # reason), loud nonzero exit, and manifest.json is never written -- see
+    # module docstring for why a partially-populated `dest` is still safe.
+    print(
+        f"retain_pair: refusing to retain {name} -- no real source found "
+        f"({source_desc}); reason={REQUIRED_ARTIFACT_SOURCE_UNAVAILABLE}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def refuse_symlink_containment(name, path):
+    # UAT round-6 fix: a symlink found ANYWHERE inside a directory artifact's
+    # source tree (file or directory, any depth) is refused outright rather
+    # than followed. See copy_dir_artifact's populate() for why this is
+    # necessary even though the TOP-LEVEL source_dir argument was already
+    # proven safe (round-5 sweep): os.walk's default followlinks=False only
+    # stops it from RECURSING into a symlinked subdirectory -- it still
+    # yields that symlink itself in `dirs`, and yields a symlinked FILE in
+    # `files` exactly like a real one. shutil.copyfile on a symlinked file
+    # follows it and copies whatever bytes its target holds, even when that
+    # target sits entirely outside the declared source directory (e.g.
+    # i05_bundle_dir) -- silently pulling in content the operator never
+    # declared as part of this artifact's real source. Refuse loudly instead
+    # (never manifest.json, never a partial copy of this artifact).
+    print(
+        f"retain_pair: refusing to retain {name} -- a symlink was found "
+        f"inside its declared source tree at {path}; reason={SYMLINK_IN_SOURCE_TREE}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# Symlink write-through (code-review-2026-08-21T0330-E40-F10.md finding 2):
+# neither copy_artifact nor copy_dir_artifact used to reject a pre-existing
+# symlink at a destination artifact path before writing -- shutil.copyfile
+# and Path.write_text both follow a symlink and write through it;
+# Path.mkdir(exist_ok=True) treats a pre-existing symlink-to-directory as
+# "already exists, fine" and lets the directory-walk copy real files INTO
+# whatever the symlink resolves to. The caller's assert_within_out_root
+# only ever validates the rep-level `dest` directory string, never each
+# artifact path inside it, so a symlink planted at a syntactically
+# contained artifact name (package.yaml, evidence, ...) was never checked
+# by anyone.
+#
+# Fix: every write in this file goes through install_atomic_file /
+# install_atomic_dir below -- build the new content in a fresh temp
+# sibling (never the real artifact name, so no symlink is ever opened for
+# writing), then atomically install with os.replace()/os.rename(). Per
+# POSIX rename(2) semantics (verified empirically for this fix): a
+# pre-existing symlink at the destination name is REPLACED as a directory
+# entry, never followed/written through, for the single-file case; for the
+# directory case, rename() cannot substitute a directory for a symlink (or
+# a non-empty directory) at all and raises OSError, so a directory-shaped
+# attack (or a stale non-empty destination from an interrupted prior
+# attempt) fails loudly instead of silently writing into it. This mirrors
+# the tempfile.mkstemp + os.replace atomic-install convention already
+# established elsewhere in this codebase (lifecycle-prelude.sh's
+# write_record, review-capture.sh, lifecycle-worker-adapter.sh) rather than
+# inventing a second pattern.
+# ---------------------------------------------------------------------------
+def install_atomic_file(target: Path, data: bytes):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, target)
+    except OSError:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
+def install_atomic_dir(target: Path, populate):
+    # populate(temp_dir: Path) -> None -- fills the fresh temp directory;
+    # only after it returns do we attempt the atomic install.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=str(target.parent)))
+    try:
+        populate(temp_dir)
+        os.replace(temp_dir, target)
+    except SystemExit:
+        # UAT round-6 fix: populate() itself (refuse_symlink_containment)
+        # already printed its own named-artifact diagnostic and raised
+        # SystemExit directly -- SystemExit is not an OSError, so it would
+        # otherwise skip the temp_dir cleanup below entirely, abandoning a
+        # partially-populated hidden temp sibling under dest. Clean up and
+        # propagate the SAME refusal verbatim; never print the generic
+        # "destination is occupied" message below, which does not describe
+        # this failure.
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+    except OSError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print(
+            f"retain_pair: refusing to install {target} -- destination is occupied by "
+            f"something rename() cannot atomically replace with a directory (a "
+            f"pre-existing symlink, file, or non-empty stale directory): {exc}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+
+
+def digest_of_path(path: Path):
+    helper = Path(__file__).with_name("digest_path")
+    result = subprocess.run(
+        [sys.executable, str(helper), str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    digest = result.stdout.strip()
+    return digest if result.returncode == 0 and digest else None
+
+
+def copy_artifact(name, source):
+    # UAT-R3-01 (round 3): every artifact retain_pair writes is required
+    # (retention_required_artifacts, schema), so a source that does not
+    # resolve to a real file is refused, never fabricated as an empty
+    # placeholder claiming success. `source` empty/blank is treated
+    # identically to a non-existent path -- both mean "no real source was
+    # ever supplied for this required artifact".
+    source_path = Path(source) if source else None
+    target = dest / name
+    if source_path is not None and source_path.is_file():
+        data = source_path.read_bytes()
+        install_atomic_file(target, data)
+        digest = hashlib.sha256(data).hexdigest()
+        artifacts[name] = {"source_path": str(source_path), "sha256": digest}
+    else:
+        refuse_missing_source(name, repr(source))
+
+
+def copy_dir_artifact(name, source_dir, exclude_top_level=()):
+    # Real recursive byte-for-byte copy of a directory artifact (evidence/
+    # I-05 stage-evidence bundle, transcripts/ its transcripts subtree),
+    # digested with digest_of_path() above -- the schema-owned digest_rules.
+    # UAT-R3-01 (round 3): a source directory that does not exist is
+    # refused, never fabricated as an empty directory claiming success (an
+    # unconditional `mkdir` standing in for real content while still
+    # claiming a manifest entry). Built entirely in a fresh temp sibling and
+    # atomically installed (install_atomic_dir) so a pre-existing symlink or
+    # stale content at `target` is never opened for writing (finding 2).
+    target = dest / name
+    source_path = Path(source_dir) if source_dir else None
+    has_source = source_path is not None and source_path.is_dir()
+
+    if not has_source:
+        refuse_missing_source(name, repr(source_dir))
+
+    # Source-side symlink safety (round-5 sweep, code-review-2026-08-21T1335-
+    # E40-F10.md finding 2, "any other source-side directory a driver copies
+    # FROM ... e.g. i05_bundle_dir"): unlike the two drivers' own `cp -a
+    # scratch_root ephemeral` (a directory-level copy that preserves a
+    # top-level symlink SOURCE argument as a symlink at the destination),
+    # this walks source_path file-by-file via os.walk + shutil.copyfile into
+    # a FRESH temp_dir, never copying source_path itself as a unit. Round-5
+    # verified this empirically for the WRITE-THROUGH property only (a write
+    # into `target` afterward does not touch the source) -- it did not, and
+    # could not, establish anything about what gets READ IN.
+    #
+    # UAT round-6 (2026-08-21T233606Z, defect class: "treating a present
+    # file, digest field, or non-empty provenance string as proof of
+    # verified source derivation"): the READ-IN property is a different
+    # question the round-5 verification never answered, and it fails for a
+    # TOP-LEVEL symlinked source_dir exactly like it does for a nested one --
+    # e.g. copy_dir_artifact("transcripts", i05_bundle_dir + "/transcripts")
+    # is called with source_dir itself already being a symlink whenever
+    # i05_bundle_dir/transcripts is one (and copy_dir_artifact("evidence",
+    # ...)'s own exclude_top_level=("transcripts",) filter deliberately
+    # excludes that same path from ITS OWN walk, so no os.walk-level check
+    # inside either call ever sees it as an entry to inspect). os.walk then
+    # dereferences that top-level symlinked argument and walks the TARGET
+    # directory's real files, so every entry it yields passes an is_symlink()
+    # check -- while the whole artifact's bytes came from wherever the
+    # symlink actually points, outside any directory this script's caller
+    # ever declared as a source. source_path itself is therefore checked
+    # here, BEFORE the walk, refusing the artifact outright rather than
+    # dereferencing an operator-supplied top-level symlink implicitly.
+    if source_path.is_symlink():
+        refuse_symlink_containment(name, source_path)
+
+    # Nested symlink safety: a symlink found ANYWHERE inside the walked tree
+    # (not the top-level source_path itself, checked above) is refused the
+    # same way -- os.walk's default followlinks=False only stops it from
+    # RECURSING into a symlinked subdirectory; it still yields that symlink
+    # in `dirs`, and yields a symlinked FILE in `files` indistinguishable
+    # from a real one. shutil.copyfile on a symlinked file follows it,
+    # reading and copying whatever bytes its target holds even when that
+    # target sits entirely outside the declared source directory. Every
+    # dir/file entry os.walk yields is checked with .is_symlink() (which
+    # does NOT follow the link -- it inspects the directory-entry type
+    # itself) before it is trusted as real content, and the whole artifact
+    # is refused (never a partial copy) the moment one is found.
+    def populate(temp_dir: Path):
+        for root, dirs, files in os.walk(source_path):
+            if Path(root) == source_path:
+                dirs[:] = [d for d in dirs if d not in exclude_top_level]
+            for dname in dirs:
+                dpath = Path(root) / dname
+                if dpath.is_symlink():
+                    refuse_symlink_containment(name, dpath)
+            for fname in files:
+                fpath = Path(root) / fname
+                if fpath.is_symlink():
+                    refuse_symlink_containment(name, fpath)
+                rel = fpath.relative_to(source_path)
+                dest_file = temp_dir / rel
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(fpath, dest_file)
+
+    install_atomic_dir(target, populate)
+    artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
+
+
+copy_artifact("package.yaml", package_path)
+copy_artifact("lifecycle.jsonl", lifecycle_jsonl)
+copy_artifact("evaluation.jsonl", evaluation_jsonl)
+# entity-history.json (UAT-R3-01 fix): the real producer is the caller's own
+# export of the ephemeral scratch project's entity_history -- see
+# bench/scripts/export-entity-history.sh, invoked by both drivers
+# (run-lifecycle-batch.sh dispatch_pair, run-review-comparison.sh
+# dispatch_gate) before this script is called, never hardcoded to "" here
+# anymore.
+copy_artifact("entity-history.json", entity_history_json)
+# ".oracle.json" is evaluate-lifecycle.sh's own naming convention for the
+# held-back oracle result it writes alongside --output (run_oracle():
+# `oracle_output = args.output + ".oracle.json"`) -- reused here, never
+# invented or re-derived (ADR-F10-04). When no agent fixture checkout is
+# configured for this pair, evaluate-lifecycle.sh never writes this sidecar
+# at all (run_oracle()'s own "missing_oracle" branch), and this call
+# refuses closed (UAT-R3-01) rather than fabricating a placeholder.
+copy_artifact("oracle.json", evaluation_jsonl + ".oracle.json")
+copy_dir_artifact("evidence", i05_bundle_dir, exclude_top_level=("transcripts",))
+copy_dir_artifact("transcripts", os.path.join(i05_bundle_dir, "transcripts") if i05_bundle_dir else "")
+
+manifest = {
+    "scenario_id": scenario_id,
+    "rep": int(rep),
+    "artifacts": artifacts,
+}
+if producer_gate:
+    manifest["gate"] = producer_gate
+install_atomic_file(
+    dest / "manifest.json",
+    (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"),
+)

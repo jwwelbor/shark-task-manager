@@ -1,0 +1,6 @@
+Submodule 'bench/fixture-py' (https://github.com/jwwelbor/shark-bench-fixture-py.git) registered for path 'bench/fixture-py'
+Submodule 'bench/fixture-repo' (https://github.com/jwwelbor/shark-bench-fixture.git) registered for path 'bench/fixture-repo'
+Cloning into '/tmp/e40-f10-015-clone.Pd2kZR/bench/fixture-py'...
+Cloning into '/tmp/e40-f10-015-clone.Pd2kZR/bench/fixture-repo'...
+Submodule path 'bench/fixture-py': checked out '2b030a9982a54473b023aebaaa35fe18bb5c42c6'
+Submodule path 'bench/fixture-repo': checked out '4c24986844b09122e2d516f9bc1ec470b155b441'

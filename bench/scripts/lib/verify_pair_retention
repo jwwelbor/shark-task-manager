@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""bench/scripts/lib/verify_pair_retention
+
+UAT round-6 fix (T-E40-F10-004, defect class: "treating a present file,
+digest field, or non-empty provenance string as proof of verified source
+derivation"): the SINGLE owner of "is this already-retained (scenario, rep)
+pair actually complete and byte-preserved, or only superficially present."
+
+Before this script existed, run-lifecycle-batch.sh's "already retained, skip
+dispatch" reuse fast path (classify_pair -> pair_provenance_ok) accepted a
+pair as `skipped_complete` once manifest.json's own `/scenario_id` and `/rep`
+fields matched -- it never checked that every retention_required_artifacts
+entry was actually present, and never recomputed a single digest. A forged
+or partially-copied retention directory with a superficially valid
+manifest.json (identity fields correct, `artifacts` entries missing,
+incomplete, or simply lying about their own sha256) was therefore
+indistinguishable from a real, fully byte-preserved retention -- exactly the
+gap this script closes.
+
+This is deliberately NOT a call-out to verify-retention-root.sh (T-E40-F10-
+007's offline validator): that script also delegates to
+verify-lifecycle-run.sh/verify-lifecycle-evaluation.sh for upstream I-07/I-08
+schema validity, walks an entire retention root, and is meant to be run
+standalone/offline. This script checks exactly ONE (scenario, rep) pair's
+own artifact completeness and digest equality -- the minimum a reuse
+decision needs -- so it can run cheaply and synchronously inside the batch
+driver's per-pair classification loop. It intentionally mirrors verify-
+retention-root.sh's digest_of_path/digest_rules implementation (same
+algorithm/encoding/canonicalization/file_encoding, same
+empty_artifact_semantics) so the two never disagree about what "byte-
+identical" means, per bench/reports/lifecycle-baseline-schema.yaml
+`digest_rules`.
+
+Usage:
+    verify_pair_retention <scenario_id> <rep> <dest_dir> <schema_path>
+
+Exit status:
+    0  -- every schema-required artifact is present, manifest.json's own
+          identity matches (scenario_id, rep), and every non-manifest
+          required artifact's manifest-recorded source_path is non-empty
+          AND its recomputed digest matches the manifest-recorded value.
+    1  -- refused. Exactly one failure is reported (the first encountered;
+          enough to refuse reuse -- this is not a full diagnostic report,
+          that is verify-retention-root.sh's job): a single line on stdout
+          `<reason>:<artifact>` for the caller to capture programmatically,
+          plus a human-readable diagnostic on stderr naming the artifact and
+          the reason.
+    2  -- usage error.
+
+Reason vocabulary (intentionally reuses verify-retention-root.sh's own
+local, non-schema-owned codes -- see that script's header -- rather than
+inventing a second, divergent vocabulary for the same concepts):
+    missing                    -- required artifact absent from dest_dir
+    lineage_mismatch           -- manifest.json's own scenario_id/rep does
+                                   not match the (scenario_id, rep) this
+                                   call was asked to verify
+    missing_source_provenance  -- (UAT-R3-01) a required artifact's manifest
+                                   entry has an empty/missing source_path
+    digest_mismatch            -- recomputed digest disagrees with the
+                                   manifest-recorded value
+"""
+import json
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+import yaml
+
+if len(sys.argv) != 5:
+    print(
+        "usage: verify_pair_retention <scenario_id> <rep> <dest_dir> <schema_path>",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+scenario_id, rep, dest_dir, schema_path = sys.argv[1:5]
+dest = Path(dest_dir)
+
+try:
+    with open(schema_path, encoding="utf-8") as f:
+        schema = yaml.safe_load(f) or {}
+except OSError as exc:
+    print(f"verify_pair_retention: cannot read schema {schema_path}: {exc}", file=sys.stderr)
+    raise SystemExit(2) from exc
+
+REQUIRED_ARTIFACTS = list(schema.get("retention_required_artifacts") or [])
+if not REQUIRED_ARTIFACTS:
+    print(f"verify_pair_retention: schema {schema_path} has no retention_required_artifacts", file=sys.stderr)
+    raise SystemExit(2)
+REQUIRED_WITH_SOURCE = [name for name in REQUIRED_ARTIFACTS if name != "manifest.json"]
+
+
+def refuse(reason: str, artifact: str, detail: str):
+    print(f"{reason}:{artifact}")
+    print(
+        f"verify_pair_retention: refusing reuse of {scenario_id} rep {rep} at {dest} "
+        f"-- {artifact}: {reason}: {detail}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def symlink_in_path(path: Path) -> bool:
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
+
+
+def digest_of_path(path: Path):
+    helper = Path(__file__).with_name("digest_path")
+    result = subprocess.run(
+        [sys.executable, str(helper), str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    digest = result.stdout.strip()
+    return digest if result.returncode == 0 and digest else None
+
+
+# Phase 1: layout completeness -- every schema-required artifact must be
+# present on disk. A manifest that merely CLAIMS an artifact (an `artifacts`
+# entry) is never sufficient on its own; the artifact must actually exist at
+# dest_dir/<name>.
+if symlink_in_path(dest):
+    refuse("schema_invalid", "retention_directory", "retention paths must not contain symlinks")
+for name in REQUIRED_ARTIFACTS:
+    if symlink_in_path(dest / name):
+        refuse("schema_invalid", name, "retained artifact paths must not contain symlinks")
+    if not (dest / name).exists():
+        refuse("missing", name, "required retained artifact is absent from the retention directory")
+
+# Phase 2: pair-level lineage -- manifest.json's own declared identity must
+# agree with the (scenario_id, rep) this call was asked to verify (not just
+# "some manifest.json is present"), mirroring verify-retention-root.sh's
+# own lineage_mismatch check.
+manifest_path = dest / "manifest.json"
+try:
+    with open(manifest_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+except (OSError, json.JSONDecodeError) as exc:
+    refuse("lineage_mismatch", "manifest.json", f"manifest.json is not valid JSON: {exc}")
+
+if not isinstance(manifest, dict):
+    refuse("schema_invalid", "manifest.json", "manifest.json must contain a JSON object")
+
+if str(manifest.get("scenario_id", "")) != scenario_id or str(manifest.get("rep", "")) != str(int(rep)):
+    refuse(
+        "lineage_mismatch",
+        "manifest.json",
+        f"manifest declares scenario_id={manifest.get('scenario_id')!r} rep={manifest.get('rep')!r}, "
+        f"expected scenario_id={scenario_id!r} rep={rep!r}",
+    )
+
+# Phase 3: per-artifact source-provenance and digest equality, for every
+# non-manifest required artifact. A manifest's own recorded `sha256` field
+# is NEVER trusted as proof by itself -- it is only ever compared AGAINST an
+# independently recomputed digest of the actual retained bytes.
+artifacts = manifest.get("artifacts") or {}
+if not isinstance(artifacts, dict):
+    refuse("schema_invalid", "manifest.json", "manifest.json artifacts must be a JSON object")
+for name in REQUIRED_WITH_SOURCE:
+    entry = artifacts.get(name)
+    if not isinstance(entry, dict):
+        refuse("missing", name, "manifest.json has no artifacts entry for this required artifact")
+
+    # UAT-R3-01 discipline, applied on the READ side here exactly as it is
+    # applied on the WRITE side in retain_pair: a required artifact with an
+    # empty/missing source_path is never accepted, even if some digest
+    # value happens to be present -- a real, deterministic empty-content
+    # digest with source_path == "" is exactly what a fabricated
+    # placeholder looks like.
+    #
+    # Code-review round-2 fix (T-E40-F10-004, sibling of aggregate-
+    # lifecycle.sh's require(expected_type=) discipline): `entry.get(...)
+    # or ""` alone is a truthy-check, not a type-check -- a non-string
+    # truthy value (a list, dict, or number) survives `not source_path`
+    # unchanged and would be accepted as "a recorded source_path" even
+    # though it can never be a real filesystem path. isinstance(str) is
+    # checked FIRST so any non-string value refuses exactly like an empty
+    # one, matching pilot-ledger.sh's own already-correct
+    # `not isinstance(source_path, str) or not source_path` pattern.
+    source_path = entry.get("source_path")
+    if not isinstance(source_path, str) or not source_path:
+        refuse("missing_source_provenance", name, "manifest.json artifact entry has no recorded source_path")
+
+    recorded_digest = entry.get("sha256")
+    current_digest = digest_of_path(dest / name)
+    if current_digest is None:
+        refuse("missing", name, "artifact listed in manifest.json is absent from the retention directory")
+    if current_digest != recorded_digest:
+        refuse(
+            "digest_mismatch",
+            name,
+            f"recomputed digest {current_digest} does not match manifest-recorded digest {recorded_digest}",
+        )
+
+raise SystemExit(0)

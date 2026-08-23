@@ -18,7 +18,7 @@ export const meta = {
 // though the caller passed them. Normalize before reading.
 const input = typeof args === 'string' ? JSON.parse(args) : args
 
-const { diff_path, changed_files, changed_file_count, diff_shortstat, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria, effort } = input ?? {}
+const { diff_path, base_commit, changed_files, changed_file_count, diff_shortstat, project_root, skill_dir, coding_standards_path, task_spec_path, feature_prd_path, acceptance_criteria, effort } = input ?? {}
 
 if (!diff_path || !skill_dir) {
   throw new Error('review_workflow.js requires args.diff_path and args.skill_dir')
@@ -129,6 +129,10 @@ log(`Collected ${allFindings.length} candidate findings across angles A–F`)
 phase('Consolidate')
 
 const consolidatorPreamble = `CONTEXT:
+- EVIDENCE_MODE: canonical-six-angle
+- SPECIALISTS_COMPLETED: 6
+- CONSOLIDATOR_COMPLETED: true
+- BASE_COMMIT: ${base_commit || '(not provided)'}
 - DIFF_PATH:      ${diff_path}
 - CHANGED_FILE_COUNT: ${changedFileCount}
 - CHANGED_FILES:

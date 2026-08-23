@@ -1,0 +1,1308 @@
+==> tc003_clean_checkout_test.sh
+TC-003: part 1 - real checkout, real verify, expect CLEAN
+CLEAN
+TC-003: part 2 - checkout-fixture.sh invokes the verifier itself
+CLEAN
+TC-003: part 3 - seeded leak is detected and named on direct re-invocation
+CLEAN
+TC-003: PASS
+PASS: tc003_clean_checkout_test.sh
+
+==> tc004_admit_full_set_test.sh
+TC-004: 10 admitted items, sorted, all five checks pass;
+        4 bug item(s) with repro_confirmed=true: cart-remove-item-last-match, inventory-reserve-boundary, pricing-discount-rounding, pricing-rounded-unit-price-truncation
+TC-004: PASS
+PASS: tc004_admit_full_set_test.sh
+
+==> tc005_admit_rejection_branches_test.sh
+TC-005: part 1 - three committed negative candidates (branches a, b, d)
+TC-005: branch (a) rejected with 'F2P-green-at-base' as expected
+TC-005: branch (b) rejected with 'P2P-red-at-base' as expected
+TC-005: branch (d) rejected with 'F2P-still-red-post-patch' as expected
+TC-005: part 2 - transient branch (c): truncated reference.patch -> git apply failure
+TC-005: branch (c) rejected with 'patch-apply-failure' as expected
+TC-005: part 3 - transient branch (e): reference.patch + one-line P2P-flipping mutation
+TC-005: branch (e) rejected with 'P2P-red-post-patch' as expected
+TC-005: part 3b - branch (e) variant: runtime package death (UAT round 2, UAT-002)
+TC-005: branch (e2) rejected with 'P2P-red-post-patch' as expected
+TC-005: part 3c - branch (e) variant: masked runtime failure behind the excluded probe (UAT round 3, UAT-005)
+TC-005: branch (e3) rejected with 'P2P-red-post-patch' as expected
+TC-005: branch (e3) unexplained_failed_packages names pkg/inventory despite the excluded probe's own failure: ['github.com/jwwelbor/shark-bench-fixture/pkg/inventory (exit code 1 despite clean, complete per-test evidence)']
+TC-005: part 3d - branch variant: masked runtime failure in the SAME package as the F2P test (UAT-005's literal reproduction)
+TC-005: branch (e4) rejected as 'F2P-still-red-post-patch' (F2P and P2P share pkg/inventory here; either is a correct, safe rejection)
+TC-005: branch (e2) unexplained_failed_packages names the runtime-dead package: ["github.com/jwwelbor/shark-bench-fixture/pkg/cart (missing terminal event for ['TestCart_ItemCountSumsQuantities', 'TestCart_RemoveItemRemovesMatchNotAtEnd', 'TestCart_RemoveItemReportsFalseWhenNoMatch', 'TestCart_SubtotalSumsPriceTimesQuantity'])"]
+TC-005: part 3e - branch (e) variant: real regression masked by TestMain{ m.Run(); os.Exit(0) } (code review round 5, finding #1)
+TC-005: finding #1 rejected with 'P2P-red-post-patch' as expected
+TC-005: finding #1 real regression correctly caught despite forged exit code 0: ["github.com/jwwelbor/shark-bench-fixture/pkg/cart (failing ['TestCart_RemoveItemRemovesMatchNotAtEnd'])"]
+TC-005: part 3f - branch (e) variant: cross-package test-name collision with the excluded probe (code review round 5, finding #2)
+TC-005: finding #2 rejected with 'P2P-red-post-patch' as expected
+TC-005: finding #2 cross-package name collision did not mask the planted pkg/cart failure: ["github.com/jwwelbor/shark-bench-fixture/pkg/cart (failing ['TestStock_PermanentlyFailingRegressionProbe'])"]
+TC-005: part 3g - code review round 6 findings 6a+6b: aliased-import test recognition + observed-not-enumerated fail
+TC-005: 6a sanity confirmed -- testenum enumerates both dot-import and renamed-import test names
+TC-005: 6a+6b rejected with 'P2P-red-post-patch' as expected
+TC-005: 6a+6b compound reproduction correctly rejected, naming both masked regressions: ["github.com/jwwelbor/shark-bench-fixture/pkg/cart (failing ['TestDotImportMaskedRegression', 'TestRenamedImportMaskedRegression'])"]
+TC-005: part 3h - 6b-only: real fail whose name testenum cannot enumerate for a reason unrelated to import spelling
+TC-005: 6b-only sanity confirmed -- testenum does NOT enumerate TestViaLocalAliasMaskedRegression (expected, documented limitation)
+TC-005: 6b-only rejected with 'P2P-red-post-patch' as expected
+TC-005: 6b-only case correctly rejected -- a real fail testenum never enumerated was still caught: ["github.com/jwwelbor/shark-bench-fixture/pkg/cart (failing ['TestViaLocalAliasMaskedRegression'])"]
+TC-005: part 4 (AC-T3) - no committed negative appears in a full admit.sh run
+TC-005: full run emitted exactly the 10 items[] ids, none of the 3 negative_items ids
+TC-005: PASS
+PASS: tc005_admit_rejection_branches_test.sh
+
+==> tc006_admit_reproducibility_test.sh
+TC-006: round 1 - independently provisioned checkouts
+TC-006: round 2 - independently provisioned checkouts
+TC-006: comparing round 1 vs round 2 for byte-identical output
+TC-006: full admitted-set run (stdout) byte-identical across both rounds
+TC-006: full admitted-set run (exit code) byte-identical across both rounds
+TC-006: negative candidate cart-new-cart-zero-subtotal (stdout) byte-identical across both rounds
+TC-006: negative candidate cart-new-cart-zero-subtotal (exit code) byte-identical across both rounds
+TC-006: negative candidate cart-add-item-rejects-negative-quantity (stdout) byte-identical across both rounds
+TC-006: negative candidate cart-add-item-rejects-negative-quantity (exit code) byte-identical across both rounds
+TC-006: negative candidate validate-sku-uppercase-only (stdout) byte-identical across both rounds
+TC-006: negative candidate validate-sku-uppercase-only (exit code) byte-identical across both rounds
+TC-006: transient branch (c) (stdout) byte-identical across both rounds
+TC-006: transient branch (c) (exit code) byte-identical across both rounds
+TC-006: transient branch (e) (stdout) byte-identical across both rounds
+TC-006: transient branch (e) (exit code) byte-identical across both rounds
+TC-006: PASS
+PASS: tc006_admit_reproducibility_test.sh
+
+==> tc007_ledger_reproducibility_test.sh
+TC-007: round 1 - independently provisioned checkout
+TC-007: round 2 - independently provisioned checkout
+TC-007: comparing round 1 vs round 2 for byte-identical ledgers
+TC-007: tests.json byte-identical across both rounds
+TC-007: lint.json byte-identical across both rounds
+TC-007: tests.json has 22 entries covering actions ['fail', 'pass', 'skip']
+TC-007: lint.json has 1 entries, toolchain block present
+TC-007: regression - version-valid golangci-lint that crashes with no report
+TC-007: crashing-linter regression correctly rejected (exit 1, no ledger written)
+TC-007: regression - go test -json build failure (TD-075)
+TC-007: build-failure regression correctly rejected (exit 1, no ledger written) -- closes TD-075
+TC-007: regression - go test -json runtime package failure (UAT-003)
+TC-007: runtime-failure regression correctly rejected (exit 1, no ledger written)
+TC-007: masked-behind-probe scenario (m.Run() called, non-zero exit forged) -- now correctly ACCEPTED
+TC-007: masked-behind-probe scenario correctly accepted -- all 6 pkg/inventory tests honestly recorded, including the probe's real failure: {'TestStock_AdjustAppliesPositiveDelta': 'pass', 'TestStock_BackorderReservation': 'skip', 'TestStock_PermanentlyFailingRegressionProbe': 'fail', 'TestStock_ReleaseRestoresAvailability': 'pass', 'TestStock_ReserveDecrementsAvailability': 'pass', 'TestStock_ReserveRejectsInsufficientStock': 'pass'}
+TC-007: regression - bare os.Exit(0) TestMain, package-level Action self-reports 'pass' (finding #3)
+TC-007: finding #3 sanity check confirmed -- pkg/cart Action='pass', zero per-test events
+TC-007: finding #3 regression correctly rejected (exit 1, no ledger written) despite Action self-reporting 'pass'
+TC-007: PASS
+PASS: tc007_ledger_reproducibility_test.sh
+
+==> tc008_lint_position_shift_test.sh
+33:	n := 1
+TC-008: line shift: new_issues_count=0 OK
+31:		n := 1
+TC-008: column shift: new_issues_count=0 OK
+TC-008: PASS
+PASS: tc008_lint_position_shift_test.sh
+
+==> tc009_lint_diff_boundary_test.sh
+TC-009: case (a) identical: new_issues_count=0 OK
+TC-009: case (b) duplicate re-occurrence: new_issues_count=1 OK
+TC-009: case (c) three new distinct issues: new_issues_count=3 OK
+TC-009: case (d) unchanged identities + 1 new: new_issues_count=1 OK
+TC-009: case (e) net-negative floored at zero: new_issues_count=0 OK
+TC-009: base fixture duplicate-identity depth confirmed at 2
+TC-009: regression: base ledger missing 'entries' array correctly rejected (exit 1): diff-ledgers: lint ledger /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/testdata/lint/malformed_missing_entries.json is missing an 'entries' array (found absent) -- structurally incomplete ledger, not a valid empty result
+TC-009: regression: base ledger entry missing required field correctly rejected (exit 1): diff-ledgers: lint ledger /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/testdata/lint/malformed_bad_entry.json entries[0] is missing required field 'text'
+TC-009: PASS
+PASS: tc009_lint_diff_boundary_test.sh
+
+==> tc010_test_diff_transitions_test.sh
+TC-010: regressions={'pkg::B'}, removed={'pkg::C'}, D (fail->fail) and E (skip->fail) correctly produce no entry
+TC-010: regression: ledger missing 'entries' array correctly rejected (exit 1): diff-ledgers: test ledger /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/testdata/test/malformed_missing_entries.json is missing an 'entries' array (found absent) -- structurally incomplete ledger, not a valid empty result
+TC-010: regression: ledger entry missing required field correctly rejected (exit 1): diff-ledgers: test ledger /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/testdata/test/malformed_bad_entry.json entries[0] is missing required field 'action'
+TC-010: PASS
+PASS: tc010_test_diff_transitions_test.sh
+
+==> tc011_toolchain_guard_test.sh
+TC-011: baseline PASS (unmodified environment agrees with the recorded ledger)
+TC-011: Go version mismatch PASS (diff-ledgers: toolchain mismatch: go_version recorded='go1.26.0' observed='go1.99.0')
+TC-011: golangci-lint version mismatch PASS (diff-ledgers: toolchain mismatch: golangci_lint_version recorded='v2.9.0' observed='v9.9.9')
+TC-011: GOOS mismatch PASS (diff-ledgers: toolchain mismatch: goos recorded='linux' observed='darwin')
+TC-011: GOARCH mismatch PASS (diff-ledgers: toolchain mismatch: goarch recorded='amd64' observed='arm64')
+TC-011: .golangci.yml hash mismatch PASS (diff-ledgers: toolchain mismatch: golangci_config_sha256 recorded='09ed800a017fc82f8ad89d274326168fec18d4ddeec58eccf9f624352200719c' observed='86c8ed1e75c7604a222e28b40d5bd7eefa15ca1b47b1d05849eee24bb642faab')
+TC-011: build-ledgers.sh does not implement --toolchain-guard (ownership confirmed)
+TC-011: PASS
+PASS: tc011_toolchain_guard_test.sh
+
+==> tc013_admit_offline_test.sh
+TC-013: network isolation mechanism: unshare --user --net (real network-namespace block)
+TC-013: case 1 - pinned golangci-lint present, network isolated
+TC-013: case 1 PASS (10 verdict line(s), offline, golangci-lint present)
+TC-013: case 2 - pinned golangci-lint absent from PATH, network isolated
+TC-013: case 2 PASS (missing-tool failure named on stderr, no fallback, no network attempt)
+TC-013: PASS
+PASS: tc013_admit_offline_test.sh
+
+==> tc014_run_one_smoke_test.sh
+TC-014a PASS
+TC-014b PASS
+TC-014c PASS
+TC-014d PASS
+TC-014e PASS
+TC-014f PASS
+TC-014g PASS
+TC-014h PASS
+TC-014i PASS
+TC-014j PASS
+TC-014k PASS
+TC-014: all sub-cases PASS
+PASS: tc014_run_one_smoke_test.sh
+
+==> tc015_collect_run_record_test.sh
+TC-015a: clean-completed -> outcome=completed PASS
+TC-015a: clean-paused-question -> outcome=paused PASS
+TC-015a: clean-already-terminal -> outcome=already_terminal PASS
+TC-015a: clean-no-action -> outcome=no_action PASS
+TC-015a: clean-failed -> outcome=failed PASS
+TC-015b: liveness sub-case PASS
+TC-015b: scratch-DB status fallback sub-case PASS
+TC-015c: modelUsage axis PASS (named error, metric absent, other fields intact)
+TC-015c: num_turns axis PASS (named error, metric absent, other fields intact)
+TC-015c: duration_api_ms axis PASS (named error, metric absent, other fields intact)
+TC-015c: negative PASS (all-fields-present transcript produces zero envelope_parse_error entries)
+TC-015d: advance_status-only positive PASS (zero envelope/transcript errors)
+TC-015d: stray-transcript negative PASS (ignored, not misattributed)
+TC-015e: count-mismatch sub-case PASS
+TC-015e: component-mismatch sub-case PASS
+TC-015f: single-candidate fallback PASS
+TC-015f: two-candidate mtime race PASS (newest wins)
+TC-015f: negative PASS (stream takes priority over a stale fallback candidate)
+TC-015g: disagree sub-case PASS
+TC-015g: zero-agreement boundary sub-case PASS
+TC-015g: unresolved-entity_key negative PASS
+TC-015h: oracle/quality byte-identical-copy PASS
+TC-015i: toolchain-guard abort sub-case PASS
+TC-015i: negative PASS (passing guard never aborts, regardless of diff findings)
+TC-015j: PASS (byte-identical across two independent invocations, exactly one line)
+TC-015l: PASS (prod/test-split arithmetic over mixed numstat lines)
+TC-015m: cap-fired timeout precedence PASS
+TC-015m: unexecutable gate reason PASS
+TC-015m: post-run abort record PASS
+TC-015m: malformed abort marker rejection PASS
+TC-015: PASS
+PASS: tc015_collect_run_record_test.sh
+
+==> tc016_canary_runsurface_test.sh
+TC-016a PASS
+TC-016a(reordered) PASS
+TC-016b PASS
+TC-016 PASS
+PASS: tc016_canary_runsurface_test.sh
+
+==> tc017_run_batch_test.sh
+TC-017a PASS
+TC-017a(negative) PASS
+TC-017b PASS
+TC-017c PASS
+TC-017d PASS
+TC-017e PASS
+TC-017e(negative, failure confirmed at the last-enumerated/last-logged position) PASS
+TC-017f PASS
+TC-017g PASS
+TC-017h PASS
+TC-017h(mix) PASS
+TC-017i PASS
+TC-017j PASS
+TC-017k PASS
+TC-017k(dry-run) PASS
+TC-017l PASS
+TC-017m(variant) PASS
+TC-017m(item) PASS
+TC-017n(dry-run) PASS
+TC-017n PASS
+TC-017o PASS
+TC-017 PASS
+PASS: tc017_run_batch_test.sh
+
+==> tc018_aggregate_report_test.sh
+TC-018 NEW-3 PASS
+TC-018a(LC_ALL=C pair byte-identical) PASS
+TC-018a(LC_ALL=en_US.UTF-8 pair byte-identical, matches C pair) PASS
+TC-018a PASS
+TC-018b PASS
+TC-018c PASS
+TC-018c(negative, partial absence still anomaly) PASS
+TC-018d PASS
+TC-018e PASS
+TC-018e(negative, whole-aggregation exit status) PASS
+TC-018f(model_ids) PASS
+TC-018f(fixture_base_sha) PASS
+TC-018f(variant_bundle_sha256) PASS
+TC-018f(corpus_schema_version) PASS
+TC-018f(shark_version) PASS
+TC-018f(negative, rep differing is not a violation) PASS
+TC-018g PASS
+TC-018h PASS
+TC-018i(aggregate-side flag) PASS
+TC-018i(report-rendering half: heading names E40-F01 verbatim) PASS
+TC-018i PASS
+TC-018j PASS
+TC-018j(negative, spread_abs == mean is not flagged) PASS
+TC-018k PASS
+TC-018l PASS
+TC-018m(a, omitted gate key within a present block zero-fills, still counted) PASS
+TC-018m(b, whole rejections block absent excludes, never zero-fills) PASS
+TC-018m PASS
+TC-018m2: per-item gate universe PASS
+TC-018m2 PASS
+TC-018q(a, oracle present with sources.oracle absent still contributes) PASS
+TC-018q(b, whole sources block absent is not itself an anomaly signal) PASS
+TC-018q PASS
+TC-018r(a, mutation sensitivity) PASS
+TC-018r(b, order independence) PASS
+TC-018r(c, location independence) PASS
+TC-018r PASS
+TC-018s PASS
+TC-018t PASS
+TC-018n(byte-identical across two invocations) PASS
+TC-018n(no fabricated timestamp -- any date/time-shaped substring traces to the aggregate itself) PASS
+TC-018n PASS
+TC-018o PASS
+TC-018p PASS
+TC-018u(a, unsupported schema_version) PASS
+TC-018u(b, unparseable JSON) PASS
+TC-018u(c, unreadable/missing aggregate) PASS
+TC-018u PASS
+TC-018v PASS
+TC-018w(a, null family classifies anomaly, not complete) PASS
+TC-018w(b, null family with explanation is explained_absence, not anomaly) PASS
+TC-018w PASS
+TC-018x(a, model_ids absent on a timeout record is exempt) PASS
+TC-018x(b, fixture_base_sha absent on a complete record is a divergence, not silently skipped) PASS
+TC-018x(c, absence shared by every record is unpinned, not agreed -- non-uniform) PASS
+TC-018x PASS
+TC-018y(a: implicit matrix derivation from observed reps) PASS
+TC-018y(b: explicit --reps reveals a hole no surviving artifact could) PASS
+TC-018y PASS
+TC-018z PASS
+TC-018aa PASS
+TC-018bb PASS
+TC-018cc PASS
+TC-018dd PASS
+TC-018ee PASS
+TC-018ff PASS
+TC-018gg PASS
+TC-018hh PASS
+TC-018ii PASS
+TC-018 R2-F-10(a, non-dict family value is a hard structural failure, nothing printed) PASS
+TC-018 R2-F-10(b, empty-dict family is anomaly, families_present agrees with excluded[]) PASS
+TC-018 R2-F-10 PASS
+TC-018 R2-F-12(a, Class B negative value excluded with out_of_domain, AC-12 invariant holds) PASS
+TC-018 R2-F-12(b, Class C non-finite value excluded with out_of_domain, JSON-decode-reachable) PASS
+TC-018 R2-F-12(c, compute_stats' own runtime invariant check fires on a direct out-of-domain call) PASS
+TC-018 R2-F-12(d, invariant check is NOT elided under PYTHONOPTIMIZE=1 -- same failure mode as normal mode) PASS
+TC-018 R2-F-12(e, full-pipeline output/exit status identical under PYTHONOPTIMIZE=1) PASS
+TC-018 R2-F-12 PASS
+TC-018 NEW-2(a, declared item with zero records: missing_run everywhere, flags.missing_items, baseline_id withheld) PASS
+TC-018 NEW-2(b, observed item outside the declared set: flags.unexpected_items, baseline_id still publishes) PASS
+TC-018 NEW-2(c, malformed --items is a usage error) PASS
+TC-018 NEW-2 PASS
+TC-018 NEW-4 PASS
+TC-018 NEW-5 PASS
+TC-018 CR5-1 PASS
+TC-018 CR6-1 PASS
+TC-018 PASS
+PASS: tc018_aggregate_report_test.sh
+
+==> tc019_replay_manifest_test.sh
+TC-019a(i, ledger dir absent) PASS
+TC-019a(i-partial, ledger dir exists but lint.json missing) PASS
+TC-019a(ii, item id unresolved) PASS
+TC-019a(iii, no band entry) PASS
+TC-019a(multi, two preconditions fail together) PASS
+TC-019a(negative, all preconditions hold) PASS
+TC-019a PASS
+TC-019b PASS
+TC-019c PASS
+TC-019d PASS
+TC-019e PASS
+TC-019f(a, every metric inside its interval) PASS
+TC-019f(b, one metric outside its interval) PASS
+TC-019f PASS
+TC-019g PASS
+TC-019h PASS
+TC-019i(a, anomaly -> invalid, never pass) PASS
+TC-019i(b, explained_absence still drops band metrics -> invalid, the trap) PASS
+TC-019i(c, 0 comparable metrics -> invalid, never a vacuous pass) PASS
+TC-019i PASS
+TC-019j PASS
+TC-019k PASS
+TC-019m PASS
+TC-019l(fixture_base_sha) PASS
+TC-019l(corpus_schema_version) PASS
+TC-019l(p2p_set) PASS
+TC-019l(shark_version) PASS
+TC-019l PASS
+TC-019n(item_id) PASS
+TC-019n(variant_id) PASS
+TC-019o PASS
+TC-019p(a, invariant check fires on a direct mismatched-length call) PASS
+TC-019p(b, invariant check is NOT elided under PYTHONOPTIMIZE=1 -- same failure mode as normal mode) PASS
+TC-019p(c, full-pipeline output/exit status identical under PYTHONOPTIMIZE=1) PASS
+TC-019p PASS
+TC-019 PASS
+PASS: tc019_replay_manifest_test.sh
+
+==> tc020_zero_go_change_test.sh
+TC-020(registration: tc017/tc018/tc019 all registered in run-all.sh) PASS
+TC-020(diff-stat: non-empty diff since baf9b021160985ecbd1945820ce1e0431f2bb521, but every contributing commit belongs to a sibling epic feature, none to e40-f03 -- skipped, logged not silently passed) SKIP
+TC-020: sibling-feature commits touching internal/, cmd/, or tests/contracts/ since baf9b021160985ecbd1945820ce1e0431f2bb521:
+c3c1547c fix(E40-F10): UAT-R3-01 -- refuse fabricated placeholder retention artifacts
+6ae76282 T-E40-F10-002: F10 schema exhaustive invalid-fixture matrix and TC-078 validator
+297459aa T-E40-F10-001: F10 schema, valid fixtures, and pinned regression baselines
+TC-020 PASS
+PASS: tc020_zero_go_change_test.sh
+
+==> tc031_adapter_conformance_test.sh
+CLEAN
+TC-031: part 1 - six capabilities x two adapters, identical assertion set (AC-010, AC-011)
+go/identity: shape OK
+python/identity: shape OK
+go/build: shape OK
+python/build: shape OK
+go/format-check: shape OK
+python/format-check: shape OK
+go/test: shape OK
+python/test: shape OK
+go/lint: shape OK
+python/lint: shape OK
+go/inject-tests: shape OK
+python/inject-tests: shape OK
+TC-031(part 1: identity/inject-tests/test/lint/build/format-check all shape-valid for both adapters) PASS
+TC-031: part 2 - undefined capability rejected by both adapters (closed six-verb set, AC-T3)
+TC-031(part 2: undefined capability rejected by both adapters) PASS
+TC-031: part 3 - REQ-F-007 leak-surface grep (AC-012 / AC-T4)
+TC-031(part 3: no forbidden-token hits or identity-branches in admit-scenario.sh/eval-predicate.sh/checkout-scenario-fixture.sh/run-all.sh) PASS
+TC-031: PASS
+PASS: tc031_adapter_conformance_test.sh
+
+==> tc032_admission_full_confirmation_test.sh
+TC-032: py-bug-due-date-boundary admitted
+TC-032: py-change-priority-scale admitted
+TC-032: py-feature-recurring-tasks admitted
+TC-032: py-techdebt-consolidate-validation admitted
+TC-032: all four seeds admitted, one per family: [('bug', 'py-bug-due-date-boundary'), ('change_card', 'py-change-priority-scale'), ('feature', 'py-feature-recurring-tasks'), ('tech_debt', 'py-techdebt-consolidate-validation')]
+TC-032: PASS
+PASS: tc032_admission_full_confirmation_test.sh
+
+==> tc033_admission_rejection_test.sh
+TC-033: (a) adapter build capability fails at base_sha
+TC-033: (a) build fails rejected naming check 'a_runnable_base_fixture' as expected
+TC-033: (b-empty) p2p_selection.include resolves to an empty entry set
+TC-033: (b-empty) p2p_selection empty at base rejected naming check 'b_p2p_selection_at_base' as expected
+TC-033: (b-fail) p2p_selection resolves to a non-empty set with a failing entry at base
+TC-033: (b-fail) p2p_selection has a failing entry at base rejected naming check 'b_p2p_selection_at_base' as expected
+TC-033: (c) stage_matrix violates the REQ-F-004 family invariant
+TC-033: (c) stage_matrix family invariant violated rejected naming check 'c_stage_matrix_invariant' as expected
+TC-033: (d) final_predicate operands loosened so the predicate is already true at base
+TC-033: (d) final_predicate already true at base rejected naming check 'd_predicate_false_at_base' as expected
+TC-033: (e) final_predicate stays false after the reference solution is applied
+TC-033: (e) final_predicate stays false after reference rejected naming check 'e_predicate_true_after_reference' as expected
+TC-033: (f) resource_policy.max_cost_usd is non-positive
+TC-033: (f) resource_policy.max_cost_usd non-positive rejected naming check 'f_resource_policy' as expected
+TC-033: (g) evaluator_only.oracle_tests[] declares an absolute path
+TC-033: (g) oracle_tests absolute path rejected as a containment violation (exit 2), stderr names it
+TC-033: (h) evaluator_only.oracle_tests[] traverses out of the package root entirely
+TC-033: (h) oracle_tests traversal escapes package root rejected as a containment violation (exit 2), stderr names it
+TC-033: (i) evaluator_only.oracle_tests[] resolves inside the package but outside evaluator/
+TC-033: (i) oracle_tests outside evaluator subtree rejected as a containment violation (exit 2), stderr names it
+TC-033: (j) evaluator_only.reference_solution declares an absolute path
+TC-033: (j) reference_solution absolute path rejected as a containment violation (exit 2), stderr names it
+TC-033: (k) evaluator_only.reference_solution traverses out of the package root entirely
+TC-033: (k) reference_solution traversal escapes package root rejected as a containment violation (exit 2), stderr names it
+TC-033: (l) evaluator_only.reference_solution resolves inside the package but outside evaluator/
+TC-033: (l) reference_solution outside evaluator subtree rejected as a containment violation (exit 2), stderr names it
+TC-033: (m) evaluator_only.oracle_tests[] names a symlink under evaluator/ that resolves outside the package
+TC-033: (m) oracle_tests symlink escapes evaluator subtree rejected as a containment violation (exit 2), stderr names it
+TC-033: (n) final_predicate.p2p_selection.include[] traverses out of the checkout root
+TC-033: (n) p2p_selection.include traversal escapes checkout root rejected as a containment violation (exit 2), stderr names it
+TC-033: (o) evaluator subtree collapses onto the package root via a same-named symlink (degenerate containment bypass)
+TC-033: (o) evaluator subtree collapses onto package root via symlink rejected as a containment violation (exit 2), stderr names it
+TC-033: positive control - an unmutated copy is admitted (proves the seven rejections above are meaningful, not a gate that always rejects)
+TC-033: positive control admitted with every check true, base_outcome=false, reference_outcome=true: {'base_outcome': False, 'checks': {'a_runnable_base_fixture': True, 'b_p2p_selection_at_base': True, 'c_stage_matrix_invariant': True, 'd_predicate_false_at_base': True, 'e_predicate_true_after_reference': True, 'f_resource_policy': True}, 'failing_check': None, 'reason': None, 'reference_outcome': True, 'scenario_id': 'py-bug-due-date-boundary', 'status': 'admitted', 'toolchain_identity': [{'key': 'python_version', 'value': '3.12.3'}, {'key': 'pytest_version', 'value': '9.1.1'}, {'key': 'ruff_version', 'value': '0.16.2'}, {'key': 'black_version', 'value': '26.5.1'}, {'key': 'pyproject_sha256', 'value': '62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c'}]}
+TC-033: positive control - admission: block written into the copy, cross-encoding matches (AC-019), and a second run is byte-identical (idempotency, REQ-NF-004)
+TC-033: positive control admission: block present, status admitted, toolchain_identity cross-encoding matches (AC-019)
+TC-033: positive control: second run produced a byte-identical package.yaml (idempotent, REQ-NF-004)
+TC-033: verify bench/fixture-py's checked-out state is unchanged by this test's scratch branches
+TC-033: PASS
+PASS: tc033_admission_rejection_test.sh
+
+==> tc034_admission_determinism_test.sh
+TC-034: round 1 - independently provisioned candidate copies and checkouts
+TC-034: round 2 - independently provisioned candidate copies and checkouts
+TC-034: comparing round 1 vs round 2 for byte-identical verdict output
+TC-034: py-bug-due-date-boundary byte-identical across both rounds
+TC-034: py-change-priority-scale byte-identical across both rounds
+TC-034: py-feature-recurring-tasks byte-identical across both rounds
+TC-034: py-techdebt-consolidate-validation byte-identical across both rounds
+TC-034: confirming adapter test/lint output carries no wall-clock/duration field (Determinism boundary normalization)
+TC-034: adapter test/lint output carries no wall-clock/duration field
+TC-034: PASS
+PASS: tc034_admission_determinism_test.sh
+
+==> tc035_toolchain_identity_test.sh
+TC-035: provisioning two real, pinned Python environments (3.11, 3.12)
+TC-035: capturing identity under environment A (Python 3.11)
+TC-035: capturing identity under environment B (Python 3.12)
+TC-035: environment A identity: [{'key': 'python_version', 'value': '3.11.14'}, {'key': 'pytest_version', 'value': '9.1.1'}, {'key': 'ruff_version', 'value': '0.16.2'}, {'key': 'black_version', 'value': '26.5.1'}, {'key': 'pyproject_sha256', 'value': '62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c'}]
+TC-035: environment B identity: [{'key': 'python_version', 'value': '3.12.3'}, {'key': 'pytest_version', 'value': '9.1.1'}, {'key': 'ruff_version', 'value': '0.16.2'}, {'key': 'black_version', 'value': '26.5.1'}, {'key': 'pyproject_sha256', 'value': '62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c'}]
+TC-035: the two real, pinned environments produced genuinely different ordered toolchain_identity lists
+TC-035: full admit-scenario.sh re-run under environment A
+TC-035: full admit-scenario.sh re-run under environment B
+TC-035: environment a: admission.toolchain_identity end-to-end matches the environment's own identity capability output
+TC-035: environment b: admission.toolchain_identity end-to-end matches the environment's own identity capability output
+TC-035: PASS
+PASS: tc035_toolchain_identity_test.sh
+
+==> tc036_final_predicate_test.sh
+TC-036: f2p_p2p (py-bug-due-date-boundary)
+TC-036: f2p_p2p - base state (repro fails, false)
+TC-036: f2p_p2p base: result=False as expected ({'kind': 'f2p_p2p', 'named_test_ids': {'tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today': 'fail'}, 'p2p_entries': {'failing': [], 'total': 14}, 'result': False})
+TC-036: f2p_p2p - reference-applied state (repro passes + p2p_selection green, true)
+TC-036: f2p_p2p reference-applied: result=True as expected ({'kind': 'f2p_p2p', 'named_test_ids': {'tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today': 'pass'}, 'p2p_entries': {'failing': [], 'total': 14}, 'result': True})
+TC-036: f2p_p2p - P2P-regression state (repro passes, one p2p_selection entry broken, false)
+TC-036: f2p_p2p P2P-regression: result=False as expected ({'kind': 'f2p_p2p', 'named_test_ids': {'tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today': 'pass'}, 'p2p_entries': {'failing': ['tests.test_manager::test_overdue_tasks_excludes_completed_tasks', 'tests.test_manager::test_overdue_tasks_includes_incomplete_past_due_task'], 'total': 14}, 'result': False})
+TC-036: f2p_p2p P2P-regression: named repro test still passes (false result is from the shared p2p_selection clause)
+TC-036: acceptance_tests (py-change-priority-scale)
+TC-036: acceptance_tests - base state (all three acceptance tests fail, false)
+TC-036: acceptance_tests base: result=False as expected ({'kind': 'acceptance_tests', 'named_test_ids': {'tests.test_priority_scale_acceptance::test_legacy_records_converted_to_new_scale': 'fail', 'tests.test_priority_scale_acceptance::test_new_scale_labels_and_range': 'fail', 'tests.test_priority_scale_acceptance::test_validate_priority_rejects_out_of_range': 'fail'}, 'p2p_entries': {'failing': [], 'total': 16}, 'result': False})
+TC-036: acceptance_tests - reference-applied state (all three acceptance tests + p2p_selection green, true)
+TC-036: acceptance_tests reference-applied: result=True as expected ({'kind': 'acceptance_tests', 'named_test_ids': {'tests.test_priority_scale_acceptance::test_legacy_records_converted_to_new_scale': 'pass', 'tests.test_priority_scale_acceptance::test_new_scale_labels_and_range': 'pass', 'tests.test_priority_scale_acceptance::test_validate_priority_rejects_out_of_range': 'pass'}, 'p2p_entries': {'failing': [], 'total': 19}, 'result': True})
+TC-036: acceptance_tests - one acceptance test still failing post-reference (false)
+TC-036: acceptance_tests one-test-failing: result=False as expected ({'kind': 'acceptance_tests', 'named_test_ids': {'tests.test_priority_scale_acceptance::test_legacy_records_converted_to_new_scale': 'fail', 'tests.test_priority_scale_acceptance::test_new_scale_labels_and_range': 'pass', 'tests.test_priority_scale_acceptance::test_validate_priority_rejects_out_of_range': 'pass'}, 'p2p_entries': {'failing': [], 'total': 19}, 'result': False})
+TC-036: acceptance_tests one-test-failing: exactly the mutated acceptance test failed, the other two still pass
+TC-036: acceptance_tests - P2P-regression state (all three acceptance tests pass, one p2p_selection entry broken, false)
+TC-036: acceptance_tests P2P-regression: result=False as expected ({'kind': 'acceptance_tests', 'named_test_ids': {'tests.test_priority_scale_acceptance::test_legacy_records_converted_to_new_scale': 'pass', 'tests.test_priority_scale_acceptance::test_new_scale_labels_and_range': 'pass', 'tests.test_priority_scale_acceptance::test_validate_priority_rejects_out_of_range': 'pass'}, 'p2p_entries': {'failing': ['tests.test_manager::test_overdue_tasks_excludes_completed_tasks', 'tests.test_manager::test_overdue_tasks_includes_incomplete_past_due_task'], 'total': 19}, 'result': False})
+TC-036: acceptance_tests P2P-regression: every acceptance test still passes (false result is from the shared p2p_selection clause)
+TC-036: child_oracles_union (py-feature-recurring-tasks)
+TC-036: child_oracles_union - all green (integration test + child oracles pass, true)
+TC-036: child_oracles_union all-green: result=True as expected ({'kind': 'child_oracles_union', 'named_test_ids': {'tests.test_recurring::test_add_task_accepts_recurrence_rule': 'pass', 'tests.test_recurring::test_completing_recurring_task_schedules_next_occurrence_into_upcoming_list': 'pass', 'tests.test_recurring::test_generate_next_occurrence_advances_by_rule_interval': 'pass', 'tests.test_recurring::test_upcoming_occurrences_filters_to_window_and_excludes_done': 'pass'}, 'p2p_entries': {'failing': [], 'total': 17}, 'result': True})
+TC-036: child_oracles_union - child-oracle-failed (weekly interval off by one day, false)
+TC-036: child_oracles_union child-oracle-failed: result=False as expected ({'kind': 'child_oracles_union', 'named_test_ids': {'tests.test_recurring::test_add_task_accepts_recurrence_rule': 'pass', 'tests.test_recurring::test_completing_recurring_task_schedules_next_occurrence_into_upcoming_list': 'pass', 'tests.test_recurring::test_generate_next_occurrence_advances_by_rule_interval': 'fail', 'tests.test_recurring::test_upcoming_occurrences_filters_to_window_and_excludes_done': 'pass'}, 'p2p_entries': {'failing': [], 'total': 17}, 'result': False})
+TC-036: child_oracles_union child-oracle-failed: integration test still passes (false result is from the one broken child oracle)
+TC-036: child_oracles_union - integration-failed (complete() wiring disabled, child oracles green, false)
+TC-036: child_oracles_union integration-failed: result=False as expected ({'kind': 'child_oracles_union', 'named_test_ids': {'tests.test_recurring::test_add_task_accepts_recurrence_rule': 'pass', 'tests.test_recurring::test_completing_recurring_task_schedules_next_occurrence_into_upcoming_list': 'fail', 'tests.test_recurring::test_generate_next_occurrence_advances_by_rule_interval': 'pass', 'tests.test_recurring::test_upcoming_occurrences_filters_to_window_and_excludes_done': 'pass'}, 'p2p_entries': {'failing': [], 'total': 17}, 'result': False})
+TC-036: child_oracles_union integration-failed: every child oracle still passes (false result is from the integration test alone)
+TC-036: child_oracles_union - P2P-regression (integration test + child oracles green, one p2p_selection entry broken, false)
+TC-036: child_oracles_union P2P-regression: result=False as expected ({'kind': 'child_oracles_union', 'named_test_ids': {'tests.test_recurring::test_add_task_accepts_recurrence_rule': 'pass', 'tests.test_recurring::test_completing_recurring_task_schedules_next_occurrence_into_upcoming_list': 'pass', 'tests.test_recurring::test_generate_next_occurrence_advances_by_rule_interval': 'pass', 'tests.test_recurring::test_upcoming_occurrences_filters_to_window_and_excludes_done': 'pass'}, 'p2p_entries': {'failing': ['tests.test_manager::test_overdue_tasks_excludes_completed_tasks', 'tests.test_manager::test_overdue_tasks_includes_incomplete_past_due_task'], 'total': 17}, 'result': False})
+TC-036: child_oracles_union P2P-regression: integration test and every child oracle still pass (false result is from the shared p2p_selection clause)
+TC-036: p2p_plus_rule_drop (py-techdebt-consolidate-validation)
+TC-036: p2p_plus_rule_drop - base state (F811 count = 1, false)
+TC-036: p2p_plus_rule_drop base: result=False as expected ({'kind': 'p2p_plus_rule_drop', 'lint_rule_count': {'count': 1, 'max_remaining': 0, 'rule': 'F811'}, 'named_test_ids': {}, 'p2p_entries': {'failing': [], 'total': 16}, 'result': False})
+TC-036: p2p_plus_rule_drop base: lint_rule_count.count=1 as expected
+TC-036: p2p_plus_rule_drop - reference-applied state (F811 count = 0, p2p_selection green, true)
+TC-036: p2p_plus_rule_drop reference-applied: result=True as expected ({'kind': 'p2p_plus_rule_drop', 'lint_rule_count': {'count': 0, 'max_remaining': 0, 'rule': 'F811'}, 'named_test_ids': {}, 'p2p_entries': {'failing': [], 'total': 16}, 'result': True})
+TC-036: p2p_plus_rule_drop reference-applied: lint_rule_count.count=0 as expected
+TC-036: p2p_plus_rule_drop - P2P-regression state (F811 count = 0, one p2p_selection entry broken, false)
+TC-036: p2p_plus_rule_drop P2P-regression: result=False as expected ({'kind': 'p2p_plus_rule_drop', 'lint_rule_count': {'count': 0, 'max_remaining': 0, 'rule': 'F811'}, 'named_test_ids': {}, 'p2p_entries': {'failing': ['tests.test_priority::test_validate_priority_rejects_unknown_level'], 'total': 16}, 'result': False})
+TC-036: p2p_plus_rule_drop P2P-regression: lint_rule_count.count=0 as expected
+TC-036: p2p_plus_rule_drop P2P-regression: ['tests.test_priority::test_validate_priority_rejects_unknown_level'] broken (false result is from the shared p2p_selection clause, lint clause alone is satisfied)
+TC-036: PASS
+PASS: tc036_final_predicate_test.sh
+
+==> tc037_repo_hygiene_test.sh
+TC-037: state 1 - submodules populated (this checkout's live state)
+TC-037: populated - make fmt && make lint && make test
+TC-037: populated - make fmt/lint/test green
+TC-037: populated - go list ./... lists no fixture or scenario package (93 package(s) total)
+TC-037: state 2 - submodules unpopulated (CI-like, actions/checkout@v4 default)
+TC-037: unpopulated - make fmt && make lint && make test
+TC-037: unpopulated - make fmt/lint/test green
+TC-037: unpopulated - go list ./... lists no fixture or scenario package (93 package(s) total)
+TC-037: PASS
+PASS: tc037_repo_hygiene_test.sh
+
+==> tc038_frozen_interface_test.sh
+TC-038: part 1 - checkout-fixture.sh byte-unchanged since pre-feature ref (AC-T2)
+TC-038(part 1: checkout-fixture.sh byte-unchanged since baf9b021160985ecbd1945820ce1e0431f2bb521) PASS
+TC-038: part 2 - checkout-scenario-fixture.sh resolves both registered fixtures (AC-T1)
+TC-038: py fixture resolved via scenarios.yaml and checked out at 2b030a9982a54473b023aebaaa35fe18bb5c42c6
+TC-038: go fixture resolved via scenarios.yaml and checked out at 4c24986844b09122e2d516f9bc1ec470b155b441
+TC-038(part 2: both registered fixtures resolve via scenarios.yaml and clone/checkout at the requested SHA) PASS
+TC-038: part 3 - F01's TC-004/TC-006/TC-007 re-run unmodified (AC-T3)
+TC-038: re-running tc004_admit_full_set_test.sh
+TC-004: 10 admitted items, sorted, all five checks pass;
+        4 bug item(s) with repro_confirmed=true: cart-remove-item-last-match, inventory-reserve-boundary, pricing-discount-rounding, pricing-rounded-unit-price-truncation
+TC-004: PASS
+TC-038: tc004_admit_full_set_test.sh PASS
+TC-038: re-running tc006_admit_reproducibility_test.sh
+TC-006: round 1 - independently provisioned checkouts
+TC-006: round 2 - independently provisioned checkouts
+TC-006: comparing round 1 vs round 2 for byte-identical output
+TC-006: full admitted-set run (stdout) byte-identical across both rounds
+TC-006: full admitted-set run (exit code) byte-identical across both rounds
+TC-006: negative candidate cart-new-cart-zero-subtotal (stdout) byte-identical across both rounds
+TC-006: negative candidate cart-new-cart-zero-subtotal (exit code) byte-identical across both rounds
+TC-006: negative candidate cart-add-item-rejects-negative-quantity (stdout) byte-identical across both rounds
+TC-006: negative candidate cart-add-item-rejects-negative-quantity (exit code) byte-identical across both rounds
+TC-006: negative candidate validate-sku-uppercase-only (stdout) byte-identical across both rounds
+TC-006: negative candidate validate-sku-uppercase-only (exit code) byte-identical across both rounds
+TC-006: transient branch (c) (stdout) byte-identical across both rounds
+TC-006: transient branch (c) (exit code) byte-identical across both rounds
+TC-006: transient branch (e) (stdout) byte-identical across both rounds
+TC-006: transient branch (e) (exit code) byte-identical across both rounds
+TC-006: PASS
+TC-038: tc006_admit_reproducibility_test.sh PASS
+TC-038: re-running tc007_ledger_reproducibility_test.sh
+TC-007: round 1 - independently provisioned checkout
+TC-007: round 2 - independently provisioned checkout
+TC-007: comparing round 1 vs round 2 for byte-identical ledgers
+TC-007: tests.json byte-identical across both rounds
+TC-007: lint.json byte-identical across both rounds
+TC-007: tests.json has 22 entries covering actions ['fail', 'pass', 'skip']
+TC-007: lint.json has 1 entries, toolchain block present
+TC-007: regression - version-valid golangci-lint that crashes with no report
+TC-007: crashing-linter regression correctly rejected (exit 1, no ledger written)
+TC-007: regression - go test -json build failure (TD-075)
+TC-007: build-failure regression correctly rejected (exit 1, no ledger written) -- closes TD-075
+TC-007: regression - go test -json runtime package failure (UAT-003)
+TC-007: runtime-failure regression correctly rejected (exit 1, no ledger written)
+TC-007: masked-behind-probe scenario (m.Run() called, non-zero exit forged) -- now correctly ACCEPTED
+TC-007: masked-behind-probe scenario correctly accepted -- all 6 pkg/inventory tests honestly recorded, including the probe's real failure: {'TestStock_AdjustAppliesPositiveDelta': 'pass', 'TestStock_BackorderReservation': 'skip', 'TestStock_PermanentlyFailingRegressionProbe': 'fail', 'TestStock_ReleaseRestoresAvailability': 'pass', 'TestStock_ReserveDecrementsAvailability': 'pass', 'TestStock_ReserveRejectsInsufficientStock': 'pass'}
+TC-007: regression - bare os.Exit(0) TestMain, package-level Action self-reports 'pass' (finding #3)
+TC-007: finding #3 sanity check confirmed -- pkg/cart Action='pass', zero per-test events
+TC-007: finding #3 regression correctly rejected (exit 1, no ledger written) despite Action self-reporting 'pass'
+TC-007: PASS
+TC-038: tc007_ledger_reproducibility_test.sh PASS
+TC-038(part 3: F01's TC-004/TC-006/TC-007 pass unmodified -- I-01 callers unaffected) PASS
+TC-038: PASS
+PASS: tc038_frozen_interface_test.sh
+
+==> tc039_offline_capability_test.sh
+TC-039: mechanism 1 - unshare --user --net (real Linux network-namespace block)
+TC-039: unshare-net: py-bug-due-date-boundary admitted offline
+TC-039: unshare-net: py-change-priority-scale admitted offline
+TC-039: unshare-net: py-feature-recurring-tasks admitted offline
+TC-039: unshare-net: py-techdebt-consolidate-validation admitted offline
+TC-039: mechanism 2 - portable GOPROXY=off/PIP_NO_INDEX=1 fallback with a poisoned proxy
+TC-039: portable-fallback: py-bug-due-date-boundary admitted offline
+TC-039: portable-fallback: py-change-priority-scale admitted offline
+TC-039: portable-fallback: py-feature-recurring-tasks admitted offline
+TC-039: portable-fallback: py-techdebt-consolidate-validation admitted offline
+TC-039: both isolation mechanisms independently completed the admission gate over all four seeds, offline
+TC-039: PASS
+PASS: tc039_offline_capability_test.sh
+
+==> tc040_fixture_base_verification_test.sh
+TC-040: (positive) the real frozen base_sha is reported CLEAN
+TC-040: positive control CLEAN with pass_count=13
+TC-040: (fail) a real commit breaking a fixture test's assertion is rejected, naming the broken test
+TC-040: (fail) case rejected, naming the broken test as expected
+TC-040: (skip) a real commit adding an undocumented new skip is rejected, naming that test
+TC-040: (skip) case rejected, naming the newly-skipped test as expected
+TC-040: verify bench/fixture-py's checked-out state is unchanged by this test's scratch branches
+TC-040: PASS
+PASS: tc040_fixture_base_verification_test.sh
+
+==> tc041_predicate_argument_trace_test.sh
+TC-041: part 1 - every open(...) call traces to $1/$2/$3
+TC-041(part 1: all 3 open() calls trace to sys.argv[1:4] via {package_yaml_path, test_output_path, lint_output_path}) PASS
+TC-041: part 2 - no cat/source/jq -f/stray redirection in the bash preamble
+TC-041(part 2: bash preamble has no cat/source/jq -f and no stray '<' redirection) PASS
+TC-041: part 3 - no ledger/baseline/snapshot naming convention in eval-predicate.sh
+TC-041(part 3: no ledger/baseline/snapshot token anywhere in eval-predicate.sh) PASS
+TC-041: part 4 - no ledger/baseline/snapshot-named file under bench/scenarios/
+TC-041(part 4: no ledger/baseline/snapshot-named file under bench/scenarios/) PASS
+TC-041: PASS
+PASS: tc041_predicate_argument_trace_test.sh
+
+==> tc043_root_policy_isolation_test.sh
+TC-043: case (0) - clean roots verified for every registered I-04 package
+TC-043(case 0: all 4 registered packages verify clean at their own base_sha) PASS
+TC-043: case (c) - clean roots exit 0
+TC-043(case c: clean roots -> exit 0, CLEAN) PASS
+TC-043: case (a) - evaluator_only.reference_solution planted in fixture checkout
+TC-043(case a: reference_solution leak in fixture checkout -> fails naming root/path/source) PASS
+TC-043: case (b) - evaluator_only.reference_solution planted in scratch project
+TC-043(case b: reference_solution leak in scratch project -> fails naming that root, not just fixture checkout) PASS
+TC-043: case (e) - evaluator_only.oracle_tests[] planted in fixture checkout
+TC-043(case e: oracle_tests[] leak in fixture checkout -> fails naming root/path/source) PASS
+TC-043: case (d) - failing path issues zero dispatcher invocations
+TC-043(case d: failing path -> zero dispatcher invocations, observed not inferred) PASS
+TC-043: AC-010 - renamed oracle_tests[] entry changes the guard's search target
+TC-043(AC-010: renamed and original oracle_tests[] entries both detected via package-derived names, filename signal only) PASS
+TC-043: committed offline fixtures (bench/scripts/testdata/evidence/root-policy/)
+TC-043(committed offline fixtures: clean/leak-in-fixture-checkout/leak-in-scratch-project/leak-reference-solution/leak-answer-keys all verify correctly) PASS
+TC-043: test_identity whole-token regression (filename mention in prose vs. real reference)
+TC-043(test_identity whole-token regression: prose mention -> CLEAN, real reference -> violation) PASS
+TC-043: round-4 UAT fix regression - renamed file carrying a held-back oracle's real test identity
+TC-043(round-4 UAT fix regression: renamed file carrying a held-back oracle's real test identity -> rejected, naming the identity) PASS
+TC-043: round-3 code-review fix regression - malicious adapter.name path escape
+TC-043(round-3 code-review fix regression: malicious adapter.name (absolute and '../' traversal) rejected without executing the planted script) PASS
+TC-043: round-3 code-review fix regression - renamed parametrized oracle test
+TC-043(round-3 code-review fix regression: renamed parametrized oracle test -> rejected, naming the base identity) PASS
+TC-043: round-4 code-review fix regression - custom parametrize id containing a space
+TC-043(round-4 code-review fix regression: custom parametrize id containing a space -> clean roots verify CLEAN, renamed leak rejected naming the identity) PASS
+TC-043: round-4 code-review fix regression - custom parametrize id containing '::'
+TC-043(round-4 code-review fix regression: custom parametrize id containing '::' -> clean roots verify CLEAN, renamed leak rejected naming the identity) PASS
+TC-043: PASS
+PASS: tc043_root_policy_isolation_test.sh
+
+==> tc044_time_ledger_reconciliation_test.sh
+TC-044: case (i) - six disjoint half-open intervals reconcile exactly -> accepted
+TC-044(case i: disjoint six-category ledger reconciles exactly -> accepted) PASS
+TC-044: case (ii) - one-nanosecond overlap across two categories -> rejected naming both
+TC-044(case ii: 1ns overlap between provider_active and tool_and_test -> rejected naming both categories) PASS
+TC-044: case (iii) - interval end exceeds stage_end -> rejected naming interval/window
+TC-044(case iii: interval end 1000001 > stage_end 1000000 -> rejected naming interval and window) PASS
+TC-044: case (iv) - residual (1000ns) > epsilon (100ns) -> rejected naming the magnitude
+TC-044(case iv: 1000ns residual > 100ns epsilon -> rejected naming the residual magnitude) PASS
+TC-044: case (v) - residual (50ns) within epsilon (100ns) -> accepted, attributed to unclassified
+TC-044(case v: 50ns residual within 100ns epsilon -> accepted, unclassified, absent from provider_active) PASS
+TC-044: AC-T5 - interval category outside i05-schema.yaml's vocabulary -> rejected
+TC-044(AC-T5: unknown category rejected naming it; vocabulary sourced from i05-schema.yaml, not hardcoded) PASS
+TC-044: AC-T4/REQ-NF-007 - dispatch-boundary check's own elapsed time categorized tool_and_test
+TC-044(AC-T4/REQ-NF-007: dispatch-boundary check's own elapsed time attributed to tool_and_test, never provider_active) PASS
+TC-044: PASS
+PASS: tc044_time_ledger_reconciliation_test.sh
+
+==> tc045_candidate_identity_test.sh
+TC-045: AC-T1 - missing-binary-diff-digest (missing candidate.binary_diff_digest) -> rejected naming that field
+TC-045(AC-T1: missing-binary-diff-digest missing candidate.binary_diff_digest -> rejected naming field=binary_diff_digest) PASS
+TC-045: AC-T1 - missing-tree-digest (missing candidate.tree_digest) -> rejected naming that field
+TC-045(AC-T1: missing-tree-digest missing candidate.tree_digest -> rejected naming field=tree_digest) PASS
+TC-045: AC-T1 - missing-dirty-untracked-manifest (missing candidate.dirty_untracked_manifest) -> rejected naming that field
+TC-045(AC-T1: missing-dirty-untracked-manifest missing candidate.dirty_untracked_manifest -> rejected naming field=dirty_untracked_manifest) PASS
+TC-045: AC-T1 - missing-changed-path-digest (missing candidate.changed_path_digest) -> rejected naming that field
+TC-045(AC-T1: missing-changed-path-digest missing candidate.changed_path_digest -> rejected naming field=changed_path_digest) PASS
+TC-045: AC-T1 - missing-test-suite-digest (missing candidate.test_suite_digest) -> rejected naming that field
+TC-045(AC-T1: missing-test-suite-digest missing candidate.test_suite_digest -> rejected naming field=test_suite_digest) PASS
+TC-045: AC-T2 - shared base_commit, differing tree_digest -> distinct candidates
+TC-045(AC-T2: distinct-a/distinct-b share base_commit, differ only in tree_digest, report distinct candidate_identity_digest values -> never merged) PASS
+TC-045: AC-T3 - verify-stage-evidence.sh contains no fixture-language branching token
+TC-045(AC-T3: verify-stage-evidence.sh contains no forbidden fixture-language token; test_suite_digest validated opaque -- repo-wide sweep is AC-019/task 011) PASS
+TC-045: PASS
+PASS: tc045_candidate_identity_test.sh
+
+==> tc046_artifact_record_test.sh
+TC-046: mixed-consumers bundle -> distinct, non-coerced verdicts per artifact
+TC-046(AC-T1: consumers: [] -> orphan; AC-T2: absent consumers key -> consumption_evidence_missing; AC-T3: neither verdict coerced into the other in either direction) PASS
+TC-046: PASS
+PASS: tc046_artifact_record_test.sh
+
+==> tc047_usage_mapping_canary_test.sh
+TC-047(agreeing) PASS
+TC-047(drifted-field) PASS
+TC-047(operator-transcript) PASS
+TC-047(envelope-unavailable) PASS
+TC-047 PASS
+PASS: tc047_usage_mapping_canary_test.sh
+
+==> tc048_evaluator_access_ordering_test.sh
+TC-048 (a): inject-tests before terminal status -> isolation_violation, nothing placed
+TC-048(AC-T1: pre-terminal inject-tests rejected as isolation_violation before any placement or event) PASS
+TC-048 (b): inject-tests after terminal status -> accepted via real adapter.sh, one evaluator_access event
+TC-048(AC-T2: post-terminal inject-tests accepted through the real adapter, one evaluator_access event appended with all fields populated) PASS
+TC-048 (c): in-place oracle read after terminal status, clean checkout -> accepted, one evaluator_access event
+TC-048(AC-T3: post-terminal in-place read accepted, digest matches the real evaluator-only file, one evaluator_access event appended, no copy left behind) PASS
+TC-048 (d): same read, but a pre-completion copy already sits in the checkout -> rejected naming the violation
+TC-048(AC-T4: pre-completion copy detected via its real backdated mtime and rejected naming the violation; no event appended) PASS
+TC-048: case (b)'s accepted inject-tests placement of a different artifact must not trip an in-place-read grant
+TC-048: case (b) placement and this in-place read coexist without a false isolation_violation PASS
+TC-048: PASS
+PASS: tc048_evaluator_access_ordering_test.sh
+
+==> tc049_snapshot_replay_test.sh
+TC-049: baseline - unmutated bundle and checkout replay clean
+TC-049(baseline: unmutated bundle/checkout -> clean, zero provider invocations) PASS
+TC-049: AC-T1(a) - tracked file edited -> tracked_file_changed
+TC-049(AC-T1(a): edited tracked file -> tracked_file_changed naming the path, zero provider invocations) PASS
+TC-049: AC-T1(b) - untracked file added -> untracked_file_changed
+TC-049(AC-T1(b): added untracked file -> untracked_file_changed naming the path, zero provider invocations) PASS
+TC-049: AC-T2(c) - adapter test-id set changed -> test_suite_changed
+TC-049(AC-T2(c): changed adapter test-id set -> test_suite_changed naming the differing id, zero provider invocations) PASS
+TC-049: AC-T2(d) - artifact consumers key deleted -> artifact_consumption_record_missing
+TC-049(AC-T2(d): deleted consumers key -> artifact_consumption_record_missing AND snapshot_mutated, zero provider invocations) PASS
+TC-049: AC-013(i) - unmodified snapshot reproduces its recorded snapshot_digest
+TC-049(AC-013(i): unmodified snapshot's recomputed digest reproduces the recorded value, zero provider invocations) PASS
+TC-049: AC-013(ii) - one-byte edit to rework_count -> snapshot_mutated
+TC-049(AC-013(ii): one-byte rework_count edit -> snapshot_mutated naming the stage, zero provider invocations) PASS
+TC-049: replay-stage-evidence.sh contains no fixture-language branching token
+TC-049(replay-stage-evidence.sh contains no forbidden fixture-language token) PASS
+TC-049: PASS
+PASS: tc049_snapshot_replay_test.sh
+
+==> tc050_partial_evidence_test.sh
+TC-050: AC-T1 - resource_limit -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: resource_limit -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - lease_loss -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: lease_loss -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - missing_outcome -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: missing_outcome -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - unresolved_gate -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: unresolved_gate -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - pause -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: pause -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - archive -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: archive -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - error -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: error -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - cancellation -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: cancellation -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - worker_failure -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: worker_failure -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T1 - timeout -> partial evidence retained, publication_eligible: false
+TC-050(AC-T1: timeout -> 2 partial snapshots present/readable, publication_eligible: false, ineligibility_reasons[] non-empty) PASS
+TC-050: AC-T2 - stop_outcome paired with publication_eligible: true -> rejected naming the contradiction
+TC-050(AC-T2: stop_outcome + publication_eligible: true -> rejected naming publication_eligible_conflict) PASS
+TC-050: PASS
+PASS: tc050_partial_evidence_test.sh
+
+==> tc051_evidence_offline_determinism_test.sh
+TC-051: mechanism 1 - unshare --user --net (real Linux network-namespace block)
+TC-051: unshare-net/verify-evidence-roots.sh - two back-to-back runs produced byte-identical stdout (exit 0)
+TC-051: unshare-net/verify-stage-evidence.sh - two back-to-back runs produced byte-identical stdout (exit 0)
+TC-051: unshare-net/replay-stage-evidence.sh - two fresh-copy runs of the same committed content produced byte-identical stdout (exit 0)
+TC-051: unshare-net/canary-usagemapping.sh - two back-to-back runs produced byte-identical stdout (exit 0)
+TC-051: unshare-net - stubbed provider invocation log empty across both runs of all four guards (AC-T2)
+TC-051: mechanism 2 - portable GOPROXY=off/PIP_NO_INDEX=1 fallback with a poisoned proxy
+TC-051: portable-fallback/verify-evidence-roots.sh - two back-to-back runs produced byte-identical stdout (exit 0)
+TC-051: portable-fallback/verify-stage-evidence.sh - two back-to-back runs produced byte-identical stdout (exit 0)
+TC-051: portable-fallback/replay-stage-evidence.sh - two fresh-copy runs of the same committed content produced byte-identical stdout (exit 0)
+TC-051: portable-fallback/canary-usagemapping.sh - two back-to-back runs produced byte-identical stdout (exit 0)
+TC-051: portable-fallback - stubbed provider invocation log empty across both runs of all four guards (AC-T2)
+TC-051: both isolation mechanisms independently completed all four guards, twice each, offline (AC-T1, AC-T2)
+TC-051: AC-T3 - repo-wide grep for forbidden generic-guard tokens
+TC-051: AC-T3 - zero forbidden-token hits outside bench/adapters/*/ and the two named legitimate exceptions (9 known-legitimate hit(s) correctly discriminated) PASS
+TC-051: PASS
+PASS: tc051_evidence_offline_determinism_test.sh
+
+==> tc053_live_egress_denial_test.sh
+TC-053: case (a1) - real constructed argv contains one denial argument per live-egress-set member
+TC-053(case a1: real argv has one --disallowedTools per live-egress-set member, no extras) PASS
+TC-053: case (a1b) - AC-T3 dispatch shape: PATH-resolved binary, non-interactive print mode, preamble + Rider action invocation prompt
+TC-053(case a1b: dispatch shape -- '-p' print mode, preamble-then-Rider-invocation prompt) PASS
+TC-053: case (a2) - removing a live-egress-tools.yaml member (scratch copy) changes the argv with no script edit
+TC-053(case a2: removing WebFetch from a scratch copy shrinks the argv accordingly, unmodified run-prelude.sh) PASS
+TC-053: case (a3) - stubbed argv missing a member fails before dispatch, naming the missing member
+TC-053(case a3: stubbed argv missing WebFetch -> argv_incomplete naming it, zero dispatcher invocations) PASS
+TC-053: case (a4) - positive control: a complete captured argv passes --verify-argv
+TC-053(case a4: complete argv -> ARGV_COMPLETE, positive control for case a3) PASS
+TC-053: case (b1) - retained transcript with a WebSearch tool-use record yields live_interaction_reached
+TC-053(case b1: WebSearch record -> live_interaction_reached naming tool=WebSearch stage=D03) PASS
+TC-053: case (b2) - a clean retained transcript passes
+TC-053(case b2: clean transcript -> exit 0, CLEAN) PASS
+TC-053: case (b3) - fail-closed regression: unrecognized transcript shape is refused, not silently CLEAN
+TC-053(case b3: unrecognized transcript shape -> refused (exit 2), never silently CLEAN) PASS
+TC-053: negative-half regression - structural pass does not imply observational pass
+TC-053(negative-half regression: structural correctness alone does not mask a live-egress transcript record) PASS
+TC-053: PASS
+PASS: tc053_live_egress_denial_test.sh
+
+==> tc054_replay_resolver_test.sh
+TC-054: case (i)+(ii) - matching supply, then unresolved_gate after exhaustion
+TC-054(case i: matching call supplies the lowest unconsumed ordinal, exactly one consumption record) PASS
+TC-054(case ii: exhausted stage -> unresolved_gate naming stage/kind/topic, no answer invented, no phantom consumption) PASS
+TC-054: case (iii) - disagreeing --topic fails replay_desync naming both topics
+TC-054(case iii: replay_desync names both expected and supplied topic, no consumption recorded) PASS
+TC-054: case (iv) - one-character near-miss --topic never supplies a response (no fuzzy match)
+TC-054(case iv: one-character near-miss topic -> no supply, proving no nearest/fuzzy-match path) PASS
+TC-054: case (v) - {path, digest} response resolves relative to the bundle directory
+TC-054(case v: {path, digest} response resolved relative to bundle directory, supplied byte-for-byte) PASS
+TC-054: case (vi)/AC-005 - two-pass reproducibility over the T-E40-F07-003 reference bundle's D02 ambiguity
+TC-054(case vi part 1: three supplied responses are byte-identical across both passes) PASS
+TC-054(case vi part 2: consumption ledgers byte-identical on entry ids/order/digests, D02's real ordinal ambiguity exercised, not assumed absent) PASS
+TC-054 PASS
+PASS: tc054_replay_resolver_test.sh
+
+==> tc055_lineage_reconciliation_test.sh
+TC-055: case (i) - claimed consumption absent from the ledger -> unattributed_artifact naming the entry
+TC-055(case i: fabricated consumption claim rejected unattributed_artifact naming the entry) PASS
+TC-055: case (ii) - artifact consumed zero required entries -> unattributed_artifact naming the stage
+TC-055(case ii: artifact with zero required consumption rejected unattributed_artifact naming the stage) PASS
+TC-055: case (iii) - genuine unresolved_gate (no artifact produced) -> accepted, reported as unresolved_gate
+TC-055(case iii: genuine gate accepted and reported as unresolved_gate, never rejected as unattributed_artifact) PASS
+TC-055: case (iv) - clean stage matching the real ledger is accepted
+TC-055(case iv: clean stage reconciling against the real ledger is accepted) PASS
+TC-055: case (v) - combined result, fixed-order output regardless of input order
+TC-055(case v: combined result accepted, output stage order fixed regardless of input order) PASS
+TC-055: case (vi) - zero-required-consumed defect laundered behind terminal_outcome: unresolved_gate is still rejected
+TC-055(case vi: laundering the defect behind terminal_outcome: unresolved_gate does not fool the guard) PASS
+TC-055: case (vii) - zero consumption against a stage with no required entries is accepted
+TC-055(case vii: zero consumption against a stage with no required entries is accepted) PASS
+TC-055 PASS
+PASS: tc055_lineage_reconciliation_test.sh
+
+==> tc056_bundle_disclosure_test.sh
+TC-056: case (a) - bundle planted in fixture checkout fails, naming root and path
+TC-056(case a: bundle planted in fixture checkout -> bundle_bulk_disclosure naming root=agent_fixture_checkout and the exact path) PASS
+TC-056: case (b) - digest-matched renamed copy planted in scratch project fails, naming root and path
+TC-056(case b: digest-matched renamed copy in scratch project -> bundle_bulk_disclosure naming root=scratch_shark_project and the exact path, despite the different filename) PASS
+TC-056: case (c) - clean roots with one supplied entry in place exit 0
+TC-056(case c: clean roots + one supplied entry in place -> exit 0, CLEAN -- entry-at-a-time disclosure permitted) PASS
+TC-056: case (d) - case (a) repeated under a PATH-stubbed dispatcher records zero invocations
+TC-056(case d: bulk-disclosure failure occurs with zero PATH-stubbed dispatcher invocations, proving the check runs before dispatch) PASS
+TC-056: case (e) - bundle reached via a symlinked directory in fixture checkout fails
+TC-056(case e: bundle reached via a symlinked directory in fixture checkout -> bundle_bulk_disclosure naming root=agent_fixture_checkout and the exact path, Code Review Kickback Round 2 Finding A) PASS
+TC-056: case (f) - bundle reached via a symlinked directory in scratch project fails
+TC-056(case f: bundle reached via a symlinked directory in scratch project -> bundle_bulk_disclosure naming root=scratch_shark_project and the exact path, Code Review Kickback Round 2 Finding A) PASS
+TC-056: case (g) - a self-referential symlinked directory does not hang the guard
+TC-056(case g: self-referential symlinked directory -> guard terminates and reports CLEAN, no infinite loop) PASS
+TC-056: case (h) - bundle hidden below .git fails closed as disclosure
+TC-056(case h: .git-hidden bundle copy -> bundle_bulk_disclosure naming exact path) PASS
+TC-056: case (i) - deep tree remains scannable without recursion failure
+TC-056(case i: deep planted copy -> bundle_bulk_disclosure without RecursionError) PASS
+TC-056: case (j) - unreadable directory fails closed instead of CLEAN
+TC-056(case j: unreadable directory -> scan error, never CLEAN) PASS
+TC-056: case (k) - unreadable file fails closed instead of CLEAN
+TC-056(case k: unreadable file -> scan error, never CLEAN) PASS
+TC-056: case (l) - inaccessible symlink target fails closed instead of CLEAN
+TC-056(case l: inaccessible symlink target -> scan error, never CLEAN) PASS
+TC-056: PASS
+PASS: tc056_bundle_disclosure_test.sh
+
+==> tc057_non_applicable_record_test.sh
+TC-057: case AC-010 (bug) - all-non-applicable package never dispatches, writes verbatim not_applicable record
+TC-057(case AC-010 bug: zero dispatch, not_applicable, verbatim reasons D01-D05) PASS
+TC-057: case AC-010 (change_card) - all-non-applicable package never dispatches, writes verbatim not_applicable record
+TC-057(case AC-010 change_card: zero dispatch, not_applicable, verbatim reasons D01-D05) PASS
+TC-057: case AC-010 (tech_debt) - all-non-applicable package never dispatches, writes verbatim not_applicable record
+TC-057(case AC-010 tech_debt: zero dispatch, not_applicable, verbatim reasons D01-D05) PASS
+TC-057: case AC-010 (iv) - absent replay result is a named failure, never an accepted absence
+TC-057(case AC-010 iv: absent result file -> named, non-zero failure) PASS
+TC-057: case AC-011 (i) - real feature package passes the consistency check
+TC-057(case AC-011 i: real feature package passes, falls through to dispatch) PASS
+TC-057: case AC-011 (ii) - scratch feature copy missing replay_reference is rejected naming the field
+TC-057(case AC-011 ii: missing replay_reference on an applicable package -> rejected naming the field, zero dispatch) PASS
+TC-057: case AC-011 (iii) - scratch bug copy with an unexpected replay_reference is rejected naming the field
+TC-057(case AC-011 iii: unexpected replay_reference on a non-applicable package -> rejected naming the field, zero dispatch) PASS
+TC-057: case AC-011 (iv) - scratch feature copy pointing at a bundle with a disagreeing scenario_id is rejected naming both ids
+TC-057(case AC-011 iv: disagreeing scenario_binding.scenario_id -> rejected naming both ids, zero dispatch) PASS
+TC-057: repo-hygiene regression - no file under bench/scenarios/ was modified
+TC-057(repo-hygiene regression: bench/scenarios/ untouched) PASS
+TC-057: PASS
+PASS: tc057_non_applicable_record_test.sh
+
+==> tc058_prelude_placement_test.sh
+TC-058: setup - real scratch Shark project, fixture-checkout/evaluator-only stand-ins, conforming D01-D05 fixtures
+ SUCCESS  Shark CLI initialized successfully!
+
+✓ Database created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-main-fTcrks/shark-tasks.db
+✓ Folder created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-main-fTcrks/docs/plan
+✓ Config file created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-main-fTcrks/.sharkconfig.json
+
+Next steps:
+1. Create your first epic with: shark epic create "Epic Title"
+2. Create your first task with: shark task create E01 F01 "Task title"
+3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data
+TC-058: setup complete
+TC-058: case AC-T1 - dispatch working directory equals the scratch project root; result records a recomputable identity digest
+TC-058(case AC-T1: dispatch cwd == scratch_shark_project root; artifact_root.path/identity_digest recorded and recomputable) PASS
+TC-058: case AC-T2 - no off-limits write in the fixture checkout or evaluator-only root
+TC-058(case AC-T2: zero D0X/progress.md writes in fixture-checkout/evaluator-only; scratch project itself genuinely carries them) PASS
+TC-058: case AC-T3 - recorded prompt contains preamble.md verbatim; preamble_digest matches the real file's sha256
+TC-058(case AC-T3: dispatched prompt carries preamble.md verbatim; preamble_digest == real file's sha256) PASS
+TC-058: case AC-T4 (positive) - every produced artifact filename matches the D0X-*.md Output Standard
+TC-058: all recorded artifact filenames conform: ['D01-vision-statement.md', 'D02-success-criteria.md', 'D03-market-research.md', 'D04-feasibility-report.md', 'D05-stakeholder-insights.md']
+TC-058(case AC-T4 positive: every recorded artifact filename matches D0X-*.md) PASS
+TC-058: case AC-T4 (negative) - a non-conforming produced filename is rejected, naming it, zero result written
+ SUCCESS  Shark CLI initialized successfully!
+
+✓ Database created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-bad-filename-VHGOjQ/shark-tasks.db
+✓ Folder created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-bad-filename-VHGOjQ/docs/plan
+✓ Config file created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-bad-filename-VHGOjQ/.sharkconfig.json
+
+Next steps:
+1. Create your first epic with: shark epic create "Epic Title"
+2. Create your first task with: shark task create E01 F01 "Task title"
+3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data
+TC-058(case AC-T4 negative: non-conforming filename rejected by name, no result written) PASS
+TC-058: case AC-T4 (containment) - a symlinked D0X-*.md artifact pointing outside artifact_root is rejected, naming the path
+ SUCCESS  Shark CLI initialized successfully!
+
+✓ Database created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-symlink-escape-yBBVsL/shark-tasks.db
+✓ Folder created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-symlink-escape-yBBVsL/docs/plan
+✓ Config file created: /tmp/e40-f10-015-runclone.QiZpg4/shark-scratch-tc058-symlink-escape-yBBVsL/.sharkconfig.json
+
+Next steps:
+1. Create your first epic with: shark epic create "Epic Title"
+2. Create your first task with: shark task create E01 F01 "Task title"
+3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data
+TC-058(case AC-T4 containment: symlinked D0X-*.md artifact escaping artifact_root rejected by real path, naming it, no result written) PASS
+TC-058: PASS
+PASS: tc058_prelude_placement_test.sh
+
+==> tc059_replay_offline_determinism_test.sh
+TC-059: mechanism 1 - unshare --user --net (real Linux network-namespace block)
+TC-059: unshare-net/replay-answer.sh - two fresh-copy runs of the same committed bundle content produced byte-identical stdout (exit 0)
+TC-059: unshare-net/verify-replay-result.sh - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: unshare-net/verify-replay-isolation.sh(transcript) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: unshare-net/verify-replay-isolation.sh(disclosure clean) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: unshare-net/verify-replay-isolation.sh(disclosure violation, duplicate-digest ordering) - two back-to-back runs produced byte-identical, non-empty stderr (exit 1)
+TC-059: unshare-net/run-prelude.sh(--verify-argv) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: unshare-net/run-prelude.sh(--package non-applicable) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: unshare-net - stubbed provider invocation log empty across both runs of every guard/script (AC-T2)
+TC-059: mechanism 2 - portable GOPROXY=off/PIP_NO_INDEX=1 fallback with a poisoned proxy
+TC-059: portable-fallback/replay-answer.sh - two fresh-copy runs of the same committed bundle content produced byte-identical stdout (exit 0)
+TC-059: portable-fallback/verify-replay-result.sh - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: portable-fallback/verify-replay-isolation.sh(transcript) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: portable-fallback/verify-replay-isolation.sh(disclosure clean) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: portable-fallback/verify-replay-isolation.sh(disclosure violation, duplicate-digest ordering) - two back-to-back runs produced byte-identical, non-empty stderr (exit 1)
+TC-059: portable-fallback/run-prelude.sh(--verify-argv) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: portable-fallback/run-prelude.sh(--package non-applicable) - two back-to-back runs produced byte-identical, non-empty stdout (exit 0)
+TC-059: portable-fallback - stubbed provider invocation log empty across both runs of every guard/script (AC-T2)
+TC-059: both isolation mechanisms independently completed all scripts, twice each, offline (AC-T1, AC-T2)
+TC-059: AC-T3/AC-019 - repo-wide grep for forbidden generic-guard tokens
+TC-059: AC-T3/AC-019 - zero forbidden-token hits across the four generic F07 scripts PASS
+TC-059: AC-T3/AC-019 - negative control: the sweep pattern catches a real violation
+TC-059: AC-T3/AC-019 - negative control confirms the sweep pattern is not vacuously blind PASS
+TC-059: PASS
+PASS: tc059_replay_offline_determinism_test.sh
+
+==> tc060_lifecycle_runner_contract_test.sh
+TC-060: TC-002 exact prompt handoff and bounded semantic result
+{"evidence":[{"path":"runs/tc060/evidence.json","size_bytes":42,"type":"artifact"},"[REDACTED]"],"kind":"final","prompt_bytes":81,"prompt_sha256":"55ea795c3d4df1da3d0bc60d7f13d22637e368eedcd941105c56aa287cdb6e84","recommended_outcome":"deep_verify","session_id":"SID-002","worker_id":"worker-canary-001"}
+TC-060(TC-002: exact prompt bytes, identity/session, outcome, bounded evidence, and no authority/leak) PASS
+TC-060: TC-002 invalid prompt provenance refuses provider dispatch
+TC-060(TC-002: prompt digest mismatch fails before provider invocation) PASS
+TC-060: TC-003 missing semantic result refuses exit-code substitution
+TC-060(TC-003: awaited provider failure never becomes a completed outcome) PASS
+TC-060: PASS
+PASS: tc060_lifecycle_runner_contract_test.sh
+
+==> tc061_lifecycle_runner_loop_test.sh
+FAIL: tc061_lifecycle_runner_loop_test.sh
+
+==> tc062_lifecycle_runner_limits_test.sh
+FAIL: tc062_lifecycle_runner_limits_test.sh
+
+==> tc063_review_finding_capture_test.sh
+TC-063(TC-006/TC-009: distinct gate states, raw finding preservation, and exact joins) PASS
+PASS: tc063_review_finding_capture_test.sh
+
+==> tc064_lifecycle_runner_offline_determinism_test.sh
+TC-064: pass (contract mode has no provider adapter and repeated verdicts are byte-identical)
+PASS: tc064_lifecycle_runner_offline_determinism_test.sh
+
+==> tc065_prelude_question_isolation_test.sh
+TC-065: pass (prelude ordering, explicit non-applicable records, Question routing, blocked replay, and isolation gate)
+PASS: tc065_prelude_question_isolation_test.sh
+
+==> tc066_lifecycle_worker_question_handoff_test.sh
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+AssertionError: [['next', 'ROOT-001', '--json', '--prompt-out', '/tmp/e40-f10-015-runclone.QiZpg4/tmp.1DkUrcfVZG/scratch/prompts/0001']]
+FAIL: tc066_lifecycle_worker_question_handoff_test.sh
+
+==> tc067_lifecycle_evaluation_truth_test.sh
+TC-067: caller-supplied --review-findings is rejected as review_findings_bypass
+TC-067: truth blocks remain independent and missing oracle evidence is retained
+PASS: tc067_lifecycle_evaluation_truth_test.sh
+
+==> tc068_heldback_oracle_isolation_test.sh
+TC-068: pre-terminal access is refused before adapter or filesystem use
+TC-068: evaluator entrypoint retains pre-terminal oracle refusal
+TC-068: terminal-but-unauthorized -- both sides agree the run is terminal but the I-05 broker cannot authorize access
+TC-068: a terminal-but-unauthorizable bundle is refused (not the pre_terminal code) with zero adapter calls
+TC-068: authorized post-terminal -- the real I-04 adapter and I-05 guard produce a clean, successful oracle result
+TC-068: an authorized post-terminal evaluation records one access event, passes, and leaves no residue
+TC-068: adapter-failure -- the registered I-04 adapter itself fails when invoked for the predicate
+TC-068: a real adapter failure during predicate invocation is recorded as a failed result, never a fabricated pass
+TC-068: hidden-test injection -- material introduced into the checkout after admission is caught as residue
+oracle_access evaluator_only_residue
+TC-068: a file introduced into the checkout after admission is named as residue and the checkout is restored
+TC-068: cleanup-failure -- the adapter-resolved injection destination collides with pre-existing checkout content
+TC-068: an adapter-resolved destination collision with pre-existing content is refused and restored byte-for-byte
+TC-068: symlink -- a symlink inside the evaluator root that escapes to outside content is refused with zero adapter calls
+TC-068: symlink escape refused
+TC-068: traversal -- a declared oracle path that escapes the evaluator root via .. is refused with zero adapter calls
+TC-068: traversal escape refused
+TC-068: broken-link -- a dangling symlink declared as an oracle test is refused as missing, never dereferenced blindly
+TC-068: broken (dangling) symlink refused
+TC-068: renamed-root -- a scenario whose declared evaluator root has been renamed/moved never falls back to another directory
+TC-068: renamed evaluator root refused as missing, not silently substituted
+TC-068: reference_solution absolute path -- an absolute reference_solution path is refused with zero adapter calls
+TC-068: reference_solution absolute path escape refused
+TC-068: reference_solution traversal -- a declared reference_solution path that escapes the evaluator root via .. is refused with zero adapter calls
+TC-068: reference_solution traversal escape refused
+TC-068: reference_solution symlink -- a symlink declared as reference_solution that escapes to outside content is refused with zero adapter calls
+TC-068: reference_solution symlink escape refused
+TC-068: PASS
+PASS: tc068_heldback_oracle_isolation_test.sh
+
+==> tc069_calibration_boundary_test.sh
+TC-069: 32 calibration mutation cases PASS
+TC-069: --judge-result omitted entirely is still named missing_judge
+TC-069: unknown judge fields are dropped, not rejected
+TC-069: caller-supplied applicability/observed_result cannot override validation
+TC-069: a non-applicable planning artifact never opens --judge-result
+TC-069: only the complete calibrated applicable case is eligible (positive control)
+TC-069: the same otherwise-eligible fixture becomes ineligible on a calibration-overlap judge mutation
+TC-069 PASS
+PASS: tc069_calibration_boundary_test.sh
+
+==> tc070_comparison_identity_test.sh
+TC-070 PASS
+PASS: tc070_comparison_identity_test.sh
+
+==> tc075_content-identity_x12_test.sh
+TC-075 AC-010 core PASS
+TC-075 X-12 inventory partitions PASS
+TC-075 PASS
+PASS: tc075_content-identity_x12_test.sh
+
+==> tc071_review_finding_normalization_test.sh
+TC-071: a genuinely complete real-evaluator run reaches eligibility.aggregate_eligible: true (QA1-002)
+TC-071 PASS
+PASS: tc071_review_finding_normalization_test.sh
+
+==> tc072_review_comparison_modes_test.sh
+TC-072 PASS
+PASS: tc072_review_comparison_modes_test.sh
+
+==> tc073_evaluation_replay_determinism_test.sh
+TC-073: deterministic offline verification and duplicate rejection pass
+PASS: tc073_evaluation_replay_determinism_test.sh
+
+==> tc074_invalid-retention-and-aggregation_test.sh
+TC-074: invalid record retained and excluded from eligibility
+PASS: tc074_invalid-retention-and-aggregation_test.sh
+
+==> tc076_static-safety-language-neutrality_test.sh
+TC-076 PASS: full-surface safety scan and 100 MB streaming boundary pass
+PASS: tc076_static-safety-language-neutrality_test.sh
+
+==> tc077_full-regression-registration_test.sh
+TC-077: F01-F08 and complete F09 registration pass
+PASS: tc077_full-regression-registration_test.sh
+
+==> tc079_operator_preview_zero_spend_test.sh
+TC-079 FAIL: expected exactly 4 shark calls (one resolved dispatch for the one configured scenario), got 1: next ROOT-001 --json --prompt-out /tmp/e40-f10-015-runclone.QiZpg4/tmp.ogGkDtqXOh/py-bug-due-date-boundary/prompts/0001
+FAIL: tc079_operator_preview_zero_spend_test.sh
+
+==> tc080_spend_gate_refusal_test.sh
+spend-gate: refused (missing_acknowledgement): --acknowledge-provider-spend was not supplied on the command line
+spend-gate: refused (missing_max_cost_usd): --max-cost-usd was not supplied or had no value
+spend-gate: refused (non_positive_max_cost_usd): --max-cost-usd value '0' is not strictly positive
+spend-gate: refused (non_positive_max_cost_usd): --max-cost-usd value '-1' is not strictly positive
+spend-gate: usage error: --max-cost-usd value 'not-a-number' is not numeric
+spend-gate: refused (missing_max_wall_clock_seconds): --max-wall-clock-seconds was not supplied or had no value
+spend-gate: refused (non_positive_max_wall_clock_seconds): --max-wall-clock-seconds value '0' is not strictly positive
+spend-gate: refused (non_positive_max_wall_clock_seconds): --max-wall-clock-seconds value '-1' is not strictly positive
+spend-gate: usage error: --max-wall-clock-seconds value 'not-a-number' is not numeric
+spend-gate: refused (missing_max_generated_tasks): --max-generated-tasks was not supplied or had no value
+spend-gate: refused (non_positive_max_generated_tasks): --max-generated-tasks value '0' is not strictly positive
+spend-gate: refused (non_positive_max_generated_tasks): --max-generated-tasks value '-1' is not strictly positive
+spend-gate: usage error: --max-generated-tasks value 'not-a-number' is not numeric
+spend-gate: refused (missing_retention_root): --retention-root was not supplied on the command line or had no value
+spend-gate: refused (missing_acknowledgement): --acknowledge-provider-spend was not supplied on the command line
+spend-gate: refused (missing_acknowledgement): --acknowledge-provider-spend was not supplied on the command line
+spend-gate: refused (missing_acknowledgement): --acknowledge-provider-spend was not supplied on the command line
+spend-gate: refused (missing_pilot_attestation): no pilot-ledger.jsonl found under retention root '/tmp/e40-f10-015-runclone.QiZpg4/tmp.uxeMYjl6QX/retention'
+spend-gate: refused (non_positive_max_cost_usd): --max-cost-usd value '0' is not strictly positive
+spend-gate: refused (non_positive_max_cost_usd): --max-cost-usd value '-1' is not strictly positive
+TC-080: pass (spend-gate.sh refuses on every missing/non-positive condition before any subprocess, ack is CLI-flag-only, ceiling positivity matches run-lifecycle.sh's own authority)
+TC-080(driver half, T-E40-F10-004): run-lifecycle-batch.sh's real CLI refuses every missing/non-positive/env-only-ack condition before any subprocess -- PASS
+TC-080(driver half, T-E40-F10-004): fully-satisfied invocation proceeds past the spend gate to real dispatch classification -- PASS
+TC-080(comparison driver half, T-E40-F10-005): run-review-comparison.sh's real CLI refuses every missing/non-positive/env-only-ack/no-retention-root condition before any subprocess -- PASS
+TC-080(comparison driver half, T-E40-F10-005): fully-satisfied invocation proceeds past the spend gate to real gate dispatch -- PASS
+TC-080 FAIL: uat-r2-01 batch: expected the pair to be classified i05_bundle_not_configured AFTER a real run-lifecycle.sh dispatch, got: {"invalidity_reasons": ["lifecycle_run_failed"], "rep": 1, "retention_path": "scenarios/scenario-uat-r2-01/1", "scenario_id": "scenario-uat-r2-01"}
+FAIL: tc080_spend_gate_refusal_test.sh
+
+==> tc081_pilot_ledger_gate_test.sh
+TC-081: pass (pilot-ledger attestation gate refuses --mode baseline as a whole command naming every failing family, verified digest-current attestations proceed, and a post-attestation mutation invalidates a previously-verified attestation)
+TC-081 (rework, findings 1/7, corrected by UAT-R3-01): pass (a required artifact with no real source provenance now refuses --record and --verify, never an accepted honest gap; a real-source-checked-but-empty artifact remains a --verify defect, distinct from staleness and from missing provenance)
+TC-081 (UAT-R3-01 counterfactual): pass (a previously-verified attestation is invalidated by a post-attestation source_path mutation, distinctly as missing_source_provenance)
+TC-081 (rework, defect 13): pass (--scenario is refused before any read/write for both an out-of-grammar value and a grammar-valid value whose path escapes the retention root via a symlink, on both --record and --verify)
+TC-081 (rework, defect 3): pass (a ledger row missing recorded digests for required artifacts is never treated as verified via a None == None comparison)
+TC-081 (UAT round 6, forged manifest at --record): pass (--record refuses a manifest whose per-artifact digest claim disagrees with the actual retained bytes, not just a non-empty source_path string)
+TC-081 (UAT round 6, forged manifest at --verify): pass (a hand-forged ledger row whose digests match the real current bytes -- defeating pilot-ledger's own staleness check -- is still caught by cross-checking manifest.json's own recorded per-artifact digest against those same bytes)
+TC-081 (round 13): parseable non-object manifest roots refuse cleanly
+PASS: tc081_pilot_ledger_gate_test.sh
+
+==> tc082_retention_layout_test.sh
+TC-082: a root produced by one real run-lifecycle-batch.sh --mode pilot retention verifies cleanly (Caller-Path Contract)
+TC-082(a3): lib/retain_pair refuses to write through a pre-existing destination symlink -- external content untouched, file case installs real content in its place, directory case fails loudly (finding 2)
+TC-082(UAT-R3-01 counterfactual: all seven required-with-source artifacts fail as missing_source_provenance when their manifest source_path is empty, even though their digest still matches) PASS
+TC-082(code-review round-2 counterfactual: all seven required-with-source artifacts fail as missing_source_provenance when their manifest source_path is a non-string truthy value (a list), both directly against lib/verify_pair_retention and through verify-retention-root.sh) PASS
+TC-082(UAT round 6 sweep site 1: all seven required-with-source artifacts fail distinctly when their manifest.json artifacts entry is removed entirely, even though the fabricated file itself is present on disk) PASS
+TC-082(UAT round 6 sweep site 2: verify-retention-root.sh's verdict never diverges from lib/verify_pair_retention's own refusal for the same pair) PASS
+TC-082: upstream schema-validity delegation (lifecycle + evaluation) fails distinctly on malformed-but-digest-matching content
+TC-082: layout completeness, digest equality, re-serialization detection, source-path/lineage checks, and AC-T2 ordering all pass
+TC-082: comparison-driven qa/deep_review pairs (with an additive manifest.json 'gate' field and an unrecorded comparison.json) coexisting with a real batch pair in the same retention root verify cleanly, not misread as broken lifecycle pairs
+TC-082: reclaim-incomplete classification (plain skip vs. quarantine-and-rerun) passes
+TC-082(classify_pair symlink, finding 2 round-4): classify_pair refuses to treat a symlinked rep directory as skipped_complete, before ever trusting evaluation.jsonl presence through it
+TC-082(classify_pair provenance mismatch, finding 2 round-4): classify_pair refuses to treat a rep directory as skipped_complete when its manifest.json scenario_id/rep does not match, even though it is a real (non-symlink) directory
+TC-082(pair_retention_verified missing artifact, UAT round-6): classify_pair refuses to treat a pair as skipped_complete when a required artifact is absent, even though evaluation.jsonl and an identity-matching manifest.json are both present
+TC-082(pair_retention_verified digest mismatch, UAT round-6): classify_pair refuses to treat a pair as skipped_complete when a retained artifact's recomputed digest disagrees with manifest.json's recorded value, never trusting the manifest's own sha256 field as proof
+TC-082(retain_pair source-tree symlink containment, UAT round-6 MEDIUM finding): copy_dir_artifact refuses a directory artifact whose source tree contains a nested symlink rather than following it, so content from outside the declared source can never be copied into retention
+TC-082(retain_pair source-tree symlink containment, top-level transcripts argument, advisor-caught round-6 gap): copy_dir_artifact refuses when its OWN source_dir argument is itself a symlink, closing the gap where exclude_top_level shields one call's walk while the sibling call dereferences that same path as its top-level argument
+TC-082(batch.json symlink, finding 3 round-4): batch.json's writer replaces a pre-existing destination symlink instead of writing through it -- external content untouched
+TC-082(invalid/ symlink, finding 3 round-4): the invalid/index.jsonl writer refuses to write through a pre-existing symlink at invalid/ -- external directory untouched
+TC-082(--reps upper bound, tech-debt item 4): --reps at or above the reserved gate-rep band is rejected as a usage error; just under it is accepted
+TC-082(min_reps upper bound, round-4 sweep): a batch policy's top-level min_reps at the reserved gate-rep band is rejected
+TC-082(per-scenario reps upper bound, round-4 sweep): a batch policy's scenarios.<id>.reps override at the reserved gate-rep band is rejected
+TC-082(quarantine_pair symlink, round-4 sweep): quarantine_pair refuses to move an incomplete prior attempt through a pre-existing symlink at .incomplete/<scenario_id> -- foreign directory untouched, original attempt left in place
+TC-082(classify_pair ancestor-level symlink, round-5 finding 1): classify_pair now refuses to treat a scenario reached through an ANCESTOR-level symlink (scenarios/<scenario_id> itself, one level above the rep directory) as skipped_complete -- structurally closed via assert_no_symlink_in_chain
+TC-082(dispatch_pair scratch_root TOP-LEVEL symlink, round-6 generalization): a symlinked scratch_root is now dereferenced (copy_tree_dereferenced) and dispatched successfully rather than refused -- the stub's write through the ephemeral copy lands only there, the real template is provably untouched
+TC-082(dispatch_pair scratch_root NESTED symlink, round-6 finding 1): a real scratch_root containing a nested symlink is dispatched successfully (not refused), the worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched
+TC-082(dispatch_pair scratch_root DANGLING nested symlink, advisor-caught round-6 regression): a scratch_root with a dangling nested symlink is recorded invalid per-pair (scratch_root_copy_failed), and the batch loop proceeds to the next scenario rather than aborting on an unguarded Python traceback
+TC-082(chokepoint enforcement, fable-advisor policy): run-lifecycle-batch.sh and run-review-comparison.sh contain no raw cp -a/-r/-R, rsync, or shutil.copytree(..., symlinks=True) invocation -- the source-side symlink-preserving-copy defect class cannot silently reappear in these two files without a test failure
+TC-082(assert_no_symlink_in_chain intermediate-component unit test, round-5 structural fix): the shared primitive rejects a symlink at an arbitrary intermediate path component (neither the leaf nor its immediate parent), and does not falsely reject an equally deep symlink-free path
+TC-082 (round 13): parseable non-object manifest roots refuse cleanly
+TC-082 (round 14): production pair-reuse helper refuses parseable non-object manifest roots
+TC-082 (round 6 UAT): offline retention verification refuses symlinked retained artifact paths
+TC-082 (round 7 UAT): offline retention verification refuses nested file symlinks inside retained directory artifacts
+PASS: tc082_retention_layout_test.sh
+
+==> tc083_failed_oracle_diagnosis_test.sh
+TC-083: a completed workflow with a failed held-back oracle renders NOT correct from I-08's own verbatim eligibility (never inferred from I-07 outcome.terminal alone); every evidence path printed resolves to a real file/dir under the retention root without rerunning the scenario; an inconsistent upstream fixture still surfaces the oracle-fail evidence and is named an upstream contract defect (REQ-F-008); a missing oracle result renders distinctly from a passed one
+TC-083: PASS
+PASS: tc083_failed_oracle_diagnosis_test.sh
+
+==> tc084_time_reconciliation_test.sh
+TC-084(a): happy path -- full 8x6 matrix reconciles for time (zero unattributed) and cost (judge-cost unattributed), REQ-F-011 shares numerically exact
+TC-084(b): rework/I-08 metrics.rework mismatch reported as an upstream contract defect (REQ-F-008), aggregation still completes
+TC-084(c): a code stage with the rework flag entirely absent fails loudly, never silently defaulted
+TC-084(d): stage_diagnostic view carries the headline verdict in its own header and prints stage/interval time-cost partitions with explicit unattributed lines
+TC-084(d): report half (stage_diagnostic view happy path) PASS
+TC-084(e): stage_diagnostic refuses to render (empty stdout) when the headline eligibility verdict is unavailable for a scenario; headline view is unaffected
+TC-084(f): stage_diagnostic refuses when the aggregate has zero scenarios (nothing to carry a headline verdict for)
+TC-084(g): a retained artifact whose actual bytes no longer match manifest.json's recorded sha256 is refused, naming the artifact and pair (recomputed, never trusted)
+TC-084(h): a wrong-typed nested eligibility value (string instead of boolean) fails closed at the producer boundary, matching the aggregate.json contract's own wrong-type rejection
+TC-084(i): a manifest.json artifact entry whose source_path is a non-string truthy value (a list) fails closed exactly like an empty one, never accepted on a truthy-check alone
+TC-084(j): parseable non-object manifest roots refuse cleanly
+TC-084: stage/interval/share time reconciliation, cost partition with a real judge-cost unattributed residual, both aggregator-half negative cases, the stage_diagnostic report half (headline-verdict carry, explicit unattributed lines), both AC-T1 refusal cases, the UAT round 5 digest-recomputation/type-validation refusal cases, and the code-review round-2 source_path type-check refusal case pass
+PASS: tc084_time_reconciliation_test.sh
+
+==> tc085_review_value_report_test.sh
+TC-085: all seven finding measures render correctly broken out by severity/defect class; zero_findings and collection_failure render as distinct never-collapsed states; precision/recall render 'unavailable' (never 0) without a seeded truth set and numeric with one; per-gate elapsed/cost render the distinct upstream-contract-defect reason (never bare 'unavailable', never 0); first_pass_yield reconciles against retained gate rounds
+TC-085 (aggregator half): PASS
+TC-085 (report half): review_value block renders all seven finding measures broken out by severity/defect class; zero_findings and collection_failure render visibly distinct; precision/recall render exactly 'unavailable' without a seeded truth set and numeric with one; per-gate elapsed/cost render the distinct upstream-contract-defect reason, never bare 'unavailable'
+TC-085 (report half): PASS
+PASS: tc085_review_value_report_test.sh
+
+==> tc086_artifact_use_and_replay_proxy_test.sh
+TC-086(a): consumed/orphan/reused/evidence-missing distinguished with typed edges; replayed_interaction_proxy carries mapped numeric values under its label
+TC-086(b): absent replayed_interaction_proxies renders every proxy field 'unavailable', never 0, while the block shape (label) stays present
+TC-086 (aggregator half): PASS
+TC-086 (report half): artifact_use block distinguishes the consumed artifact and the true orphan with typed producer/consumer edges, and renders replayed-interaction-proxy counts/sizes/revisions/unresolved gates under a visible replayed-proxy label
+TC-086 (report half): PASS
+TC-086 (static scan): zero forbidden_effort_language matches across 7 enumerated F10 files against 21 closed terms
+TC-086 (static scan): PASS
+PASS: tc086_artifact_use_and_replay_proxy_test.sh
+
+==> tc087_review_comparison_operator_test.sh
+fixtures written
+TC-087(case A, AC-010): identity-compatible independent pair accepted and published, byte-identical to the real comparator's own output -- PASS
+comparison_divergence fields=candidate/tree_digest,candidate/identity_digest
+TC-087(case B, AC-010/AC-T2): one-field-divergent independent pair rejected, never published, divergence reason preserved verbatim -- PASS
+TC-087(case C, REQ-F-015 Negative Case): a HEAD-only candidate identity is rejected by the delegated comparator, not a local F10 special-case -- PASS
+TC-087(case D, Edge Case): workflow-policy-only divergence rejected with a policy-specific reason, distinct from a candidate divergence -- PASS
+TC-087(case E, AC-010): three-candidate sequential_delivery chain accepted and published; every intervening candidate exercised; lineage rendering is distinct from independent_frozen_candidate mode -- PASS
+TC-087(case F, finding 2): the accepted-comparison publish path replaces a pre-existing destination symlink instead of writing through it -- an unrelated in-root retained artifact untouched
+TC-087(case G, finding 1 round-4): the accepted-comparison publish path replaces a pre-existing DIRECTORY-shaped destination symlink instead of moving content into it -- an unrelated in-root retained directory untouched
+TC-087(case H, finding 2 round-4): dispatch_gate refuses when the rep-level directory ITSELF is a pre-existing symlink, before ever reaching the evaluation.jsonl-presence skip check -- even when the symlinked-to content would otherwise pass provenance
+TC-087(case I, finding 2 round-4): gate_dest_provenance_ok refuses a rep directory whose manifest.json 'gate' field matches but scenario_id does not -- the confused-deputy shape a gate-only check missed
+TC-087(case J, round-5 finding 1): dispatch_gate now refuses when scenarios/<scenario_id> itself (an ANCESTOR of the rep-level directory, not the rep directory itself) is a pre-existing symlink -- structurally closed via assert_no_symlink_in_chain
+TC-087(case K, round-6 generalization): dispatch_gate dereferences (copy_tree_dereferenced) a TOP-LEVEL symlinked scratch_root and dispatches successfully rather than refusing -- the stub's write through the ephemeral copy lands only there, the real template is provably untouched
+TC-087(case L, round-6 finding 1): dispatch_gate dispatches (does not refuse) a real scratch_root containing a nested symlink -- the stub lifecycle worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched
+TC-087(case M, UAT round-6): gate_dest_provenance_ok refuses to treat the deep_review gate as already-retained/skip when a required artifact is absent, even though evaluation.jsonl and an identity-matching manifest.json are both present
+TC-087(case N, UAT round-6): gate_dest_provenance_ok refuses to treat the deep_review gate as already-retained/skip when a retained artifact's recomputed digest disagrees with manifest.json's recorded value, never trusting the manifest's own sha256 field as proof
+TC-087(AC-T3): run-review-comparison.sh contains no comparator identity field-name vocabulary -- PASS
+TC-087: pass (identity-compatible pair published byte-identical to the real comparator; divergent/branch-identity/policy-only pairs rejected and never published with verbatim reasons; sequential chain exercises every intervening candidate with a lineage distinct from independent mode)
+PASS: tc087_review_comparison_operator_test.sh
+
+==> tc088_dimension_separation_and_noise_band_test.sh
+TC-088 (aggregator half): noise_bands publishes a real min/median/max/spread_abs/acceptance_interval band per (scenario, metric) with insufficient_reps=false when reps meet the batch's declared minimum, and insufficient_reps=true (AC-T1) when a scenario's rep count falls below it; comparisons[] republishes the comparator's verdict verbatim; invalid[] carries every invalidity_reasons entry from both the batch dispatch-failure ledger and retained-but-ineligible pairs, the latter an exact verbatim copy of scenarios[].eligibility (AC-T2); the aggregate output carries no composite/weighted/blended score field
+TC-088 (schema static scan, target i): zero property-name matches against 13 forbidden_composite_fields terms across 90 required-field pointers and 24 typed properties (schema's own list declaration excluded)
+TC-088 (aggregator half): PASS
+TC-088 (report-template static scan, target ii): zero forbidden_composite_fields matches across 7 enumerated F10 files (no exclusion) against 13 closed terms
+TC-088 (report half, target ii): PASS
+TC-088 (no-detectable-effect check): an in-band quality paired delta renders exactly 'no detectable effect'; an out-of-band delta renders its value without that phrase and without an improvement/regression claim; time and cost dimensions render the schema-owned upstream-contract-defect reason, never the bare 'unavailable' string
+TC-088 (no-detectable-effect check): PASS
+T-E40-F10-005 round-3 rework: real run-lifecycle-batch.sh dispatched (not skipped_complete) reps 1 and 2 for a scenario_id already occupied by gate reps -- no collision
+T-E40-F10-005 round-3 rework: gate-retained manifests at 900001/900002 untouched by the real batch dispatch
+TC-088 (T-E40-F10-010 rework, real comparison-chain end-to-end): a real run-review-comparison.sh --mode pilot run (real retain_gate()/lib/retain_pair dispatch path, real compare-lifecycle-evaluations.sh) co-located with a batch-produced pair of the SAME scenario_id chains cleanly into a real aggregate-lifecycle.sh run -- no crash, and the published comparison.json reaches /comparisons verbatim
+TC-088 (T-E40-F10-010 rework, real comparison-chain end-to-end): PASS
+PASS: tc088_dimension_separation_and_noise_band_test.sh
+
+==> tc089_phase_separation_test.sh
+TC-089(a): pure v1 root refused with the named phase1_record_input_refused reason, no partial aggregate on stdout
+TC-089(b): mixed v1+v2 root refuses the WHOLE aggregation (ADR-F10-11), not a partial aggregate of the valid v2 pair
+TC-089(c): the unmodified Phase 1 run-batch.sh/aggregate-runs.sh/report-baseline.sh path still runs end-to-end
+TC-089(c): run-batch.sh, aggregate-runs.sh, and report-baseline.sh are byte-unmodified vs PRE_F10_BASELINE_SHA (baf9b021160985ecbd1945820ce1e0431f2bb521)
+TC-089(d): no Phase 1 (v1) output carries the lifecycle_v2 phase label
+TC-089(e): a valid v2-only aggregate carries the lifecycle_v2 phase label in /identity/phase
+TC-089: v1-only and mixed v1+v2 roots both refuse the whole aggregation with a named reason; the unmodified Phase 1 path runs end-to-end and stays byte-identical to PRE_F10_BASELINE_SHA; no v1 output is relabelled lifecycle_v2 and every v2 aggregate carries it
+PASS: tc089_phase_separation_test.sh
+
+==> tc090_offline_determinism_and_scale_test.sh
+TC-090 (AC-T1): byte-identical double run PASS (aggregate.json + headline + stage_diagnostic)
+TC-090 (negative case): fake-clock injection has no effect on output; date never invoked PASS
+TC-090 (AC-T2): zero denied calls across provider/network/DB/live-tree surfaces PASS
+TC-090 (generator determinism): same seed -> byte-identical retention tree PASS
+TC-090 (AC-T3): 100 MB fixture (104866878 bytes) aggregated in 1s, peak RSS 19444 KiB (bound 25600 KiB) PASS
+TC-090: offline determinism and 100 MB retention-fixture scale test PASS
+PASS: tc090_offline_determinism_and_scale_test.sh
+
+==> tc091_static_safety_language_neutrality_test.sh
+scan (a) write-path assignment-chain trace -- scanned files:
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-lifecycle-batch.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-review-comparison.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/pilot-ledger.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/verify-retention-root.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/aggregate-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/report-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/lib/spend-gate.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/reports/lifecycle-baseline-schema.yaml
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-lifecycle-batch.sh: 7 write-destination site(s) (4 root-anchored, 3 mktemp-scratch, 0 violation(s))
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-review-comparison.sh: 5 write-destination site(s) (4 root-anchored, 1 mktemp-scratch, 0 violation(s))
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/pilot-ledger.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/verify-retention-root.sh: 1 write-destination site(s) (0 root-anchored, 1 mktemp-scratch, 0 violation(s))
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/aggregate-lifecycle.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/report-lifecycle.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/lib/spend-gate.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /tmp/e40-f10-015-clone.Pd2kZR/bench/reports/lifecycle-baseline-schema.yaml: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+scan (a): 0 violations across 13 write-destination site(s) in 8 scanned file(s)
+
+scan (b) forbidden-path scan -- scanned files:
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-lifecycle-batch.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-review-comparison.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/pilot-ledger.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/verify-retention-root.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/aggregate-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/report-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/lib/spend-gate.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/reports/lifecycle-baseline-schema.yaml
+scan (b): 0 matches for 4 forbidden path prefixes across 8 scanned file(s)
+
+scan (c) language-branch scan -- scanned files:
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-lifecycle-batch.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-review-comparison.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/pilot-ledger.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/verify-retention-root.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/aggregate-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/report-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/lib/spend-gate.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/reports/lifecycle-baseline-schema.yaml
+scan (c): 0 fixture-language-branch matches across 8 scanned file(s) (python3 interpreter invocations exempted)
+
+scan (d) content-disclosure scan -- scanned files:
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-lifecycle-batch.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/run-review-comparison.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/pilot-ledger.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/verify-retention-root.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/aggregate-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/report-lifecycle.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/scripts/lib/spend-gate.sh
+  - /tmp/e40-f10-015-clone.Pd2kZR/bench/reports/lifecycle-baseline-schema.yaml
+scan (d): 0 credential / disclosure-directory / uncapped-transcript-read matches across 8 scanned file(s)
+
+TC-091 PASS: all four static scans report zero violations over the enumerated F10 file set (AC-T1); scan (a) correctly traces a two-statement concatenation chain both to the retention root (positive fixture) and away from it (negative fixture, AC-T2)
+PASS: tc091_static_safety_language_neutrality_test.sh
+
+==> tc092_full-regression-registration_test.sh
+TC-092: AC-T2 pass (62 pre-F10 tests present in run-all.sh, relative order unchanged)
+TC-092: every pre-F10 test still declares a discoverable pass marker
+TC-092: AC-T3 NOT EXERCISED in this invocation (no TC092_RUN_LOG supplied).
+TC-092: re-run with TC092_RUN_LOG=<captured run-all.sh output> to verify AC-T3; see bench/README.md.
+TC-092: complete F10 suite (TC-079 through TC-092) registered in run-all.sh
+TC-092: F01-F09 and complete F10 registration pass
+PASS: tc092_full-regression-registration_test.sh
+

@@ -1,0 +1,21 @@
+{
+  "checklist_results": [
+    {
+      "item": "stage_evidence_reviewed",
+      "result": "pass"
+    },
+    {
+      "item": "transcripts_reviewed",
+      "result": "pass"
+    },
+    {
+      "item": "held_back_oracle_reviewed",
+      "result": "pass"
+    }
+  ],
+  "operator_identity": "jwwelbor@hotmail.com",
+  "inspected_artifact_digests": {
+    "lifecycle.jsonl": "54e74303718a149e7a3b00b978f9f07fab941ac6e689ac8378050bc8c688bf64",
+    "evaluation.jsonl": "8d9abbf1a9e9e4f13f12141949a5974b743f30e44c6605a52b206a220a30ec50"
+  }
+}
