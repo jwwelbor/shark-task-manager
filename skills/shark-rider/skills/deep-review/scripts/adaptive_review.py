@@ -12,11 +12,12 @@ import argparse
 import json
 import os
 import re
+import selectors
 import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,53 @@ VERDICT_RE = re.compile(r"\bVERDICT\s*:\s*(PASS(?:-with-triage)?|FAIL)\b", re.I)
 FINDINGS_RE = re.compile(r"\b(FINDINGS|FINDING[S]?\s+TABLE)\b", re.I)
 SCOPE_RE = re.compile(r"\b(REVIEWED\s+SCOPE|CHANGED\s+FILES|SCOPE)\b", re.I)
 MAX_REVIEW_OUTPUT_BYTES = 8 * 1024 * 1024
+
+
+def run_bounded_reviewer(argv, cwd, timeout):
+    """Run an untrusted reviewer with bounded in-memory stdout/stderr."""
+    process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    selector = selectors.DefaultSelector()
+    buffers = {process.stdout: bytearray(), process.stderr: bytearray()}
+    for stream in buffers:
+        selector.register(stream, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout
+    exceeded = False
+    timed_out = False
+    while selector.get_map():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            timed_out = True
+            process.kill()
+            remaining = 5
+        events = selector.select(min(remaining, 0.25))
+        if not events and process.poll() is not None:
+            for stream in list(buffers):
+                selector.unregister(stream)
+            break
+        for key, _ in events:
+            chunk = os.read(key.fileobj.fileno(), 65536)
+            if not chunk:
+                selector.unregister(key.fileobj)
+                continue
+            buffer = buffers[key.fileobj]
+            if len(buffer) + len(chunk) > MAX_REVIEW_OUTPUT_BYTES:
+                buffer.extend(chunk[: MAX_REVIEW_OUTPUT_BYTES - len(buffer)])
+                exceeded = True
+                process.kill()
+            else:
+                buffer.extend(chunk)
+        if (exceeded or timed_out) and process.poll() is not None:
+            # Continue draining already-buffered pipe data, but never retain
+            # more than the fixed cap.
+            continue
+    process.wait()
+    selector.close()
+    return subprocess.CompletedProcess(
+        argv,
+        1 if exceeded or timed_out else process.returncode,
+        bytes(buffers[process.stdout]).decode("utf-8", errors="replace"),
+        bytes(buffers[process.stderr]).decode("utf-8", errors="replace"),
+    )
 
 
 @dataclass(frozen=True)
@@ -154,37 +202,7 @@ def run_cli(args: argparse.Namespace) -> int:
     override = args.claude_command if choice["adversarial_model"] == "claude" else args.codex_command
     argv = _cli_argv(str(choice["adversarial_model"]), override, prompt)
     try:
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            process = subprocess.Popen(
-                argv,
-                cwd=args.project_root,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                text=False,
-            )
-            try:
-                process.wait(timeout=args.timeout)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-                raise
-            stdout_file.seek(0)
-            stderr_file.seek(0)
-            stdout_bytes = stdout_file.read(MAX_REVIEW_OUTPUT_BYTES + 1)
-            stderr_bytes = stderr_file.read(MAX_REVIEW_OUTPUT_BYTES + 1)
-            completed = subprocess.CompletedProcess(
-                argv,
-                process.returncode,
-                stdout_bytes.decode("utf-8", errors="replace"),
-                stderr_bytes.decode("utf-8", errors="replace"),
-            )
-            if len(stdout_bytes) > MAX_REVIEW_OUTPUT_BYTES or len(stderr_bytes) > MAX_REVIEW_OUTPUT_BYTES:
-                completed = subprocess.CompletedProcess(
-                    argv,
-                    1,
-                    completed.stdout[:MAX_REVIEW_OUTPUT_BYTES],
-                    completed.stderr[:MAX_REVIEW_OUTPUT_BYTES],
-                )
+        completed = run_bounded_reviewer(argv, args.project_root, args.timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
         base["fallback_reason"] = f"{choice['fallback_reason']}; CLI failed: {type(exc).__name__}"
         body = "## Review status\n\n**INCOMPLETE** — alternate-model CLI did not produce a complete review."

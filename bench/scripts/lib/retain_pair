@@ -63,6 +63,7 @@ represented as retained when it never existed.
 import json
 import hashlib
 import os
+import stat
 import shutil
 import sys
 import subprocess
@@ -178,7 +179,15 @@ def install_atomic_file_from_source(target: Path, source: Path):
     fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
     digest = hashlib.sha256()
     try:
-        with source.open("rb") as src, os.fdopen(fd, "wb") as stream:
+        source_flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            source_flags |= os.O_NOFOLLOW
+        source_fd = os.open(source, source_flags)
+        source_stat = os.fstat(source_fd)
+        if not stat.S_ISREG(source_stat.st_mode):
+            os.close(source_fd)
+            raise OSError(f"source is not a regular file: {source}")
+        with os.fdopen(source_fd, "rb") as src, os.fdopen(fd, "wb") as stream:
             for chunk in iter(lambda: src.read(1024 * 1024), b""):
                 digest.update(chunk)
                 stream.write(chunk)

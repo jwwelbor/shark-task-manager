@@ -228,6 +228,10 @@ SCENARIOS_DIR="$RETENTION_ROOT_CANON/scenarios"
 	echo "verify-retention-root: no scenarios/ directory under retention root: $RETENTION_ROOT_CANON" >&2
 	exit 2
 }
+if [[ -L "$SCENARIOS_DIR" ]]; then
+	echo "verify-retention-root: scenarios directory must not be a symlink: $SCENARIOS_DIR" >&2
+	exit 1
+fi
 
 # Phase 1+2: layout completeness and manifest presence, driven by the
 # schema's own retention_required_artifacts list (REQ-F-018). Emits one

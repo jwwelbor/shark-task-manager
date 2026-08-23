@@ -296,8 +296,21 @@ source "$SCRIPT_DIR/lib/path-safety.sh"
 LOCK_DIR="$out_root_canon/.lifecycle-batch.lock"
 if [[ "$mode" != "preview" ]]; then
 	if ! mkdir "$LOCK_DIR"; then
-		echo "run-lifecycle-batch: retention root is already locked by another batch: $out_root_canon" >&2
-		exit 4
+		owner=""
+		[[ -f "$LOCK_DIR/pid" ]] && owner="$(<"$LOCK_DIR/pid")"
+		if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner"; then
+			echo "run-lifecycle-batch: retention root is already locked by process $owner: $out_root_canon" >&2
+			exit 4
+		fi
+		if [[ ! "$owner" =~ ^[0-9]+$ ]]; then
+			echo "run-lifecycle-batch: retention root lock has no valid owner: $out_root_canon" >&2
+			exit 4
+		fi
+		rm -f "$LOCK_DIR/pid"
+		if ! rmdir "$LOCK_DIR" || ! mkdir "$LOCK_DIR"; then
+			echo "run-lifecycle-batch: retention root lock could not be recovered: $out_root_canon" >&2
+			exit 4
+		fi
 	fi
 	printf '%s\n' "$$" >"$LOCK_DIR/pid"
 fi
@@ -324,7 +337,6 @@ import json
 import os
 import re
 import sys
-import uuid
 
 import yaml
 
