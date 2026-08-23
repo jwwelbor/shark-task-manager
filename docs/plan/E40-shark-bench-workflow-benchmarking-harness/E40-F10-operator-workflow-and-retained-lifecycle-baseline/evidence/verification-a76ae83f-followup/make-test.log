@@ -1299,7 +1299,7 @@ By Status:
 ✅ Created bug B001: all-flags-test
 ⚠️  PLACEHOLDER FILE CREATED - EDITING REQUIRED
 
-File: 
+File:
 
 Edit the file to fill in the relevant sections.
 --- PASS: TestBugCreate_DescriptionAndLinkedFlags_PassThroughToService (0.00s)
@@ -1307,7 +1307,7 @@ Edit the file to fill in the relevant sections.
 ✅ Created bug B001: Tagged bug
 ⚠️  PLACEHOLDER FILE CREATED - EDITING REQUIRED
 
-File: 
+File:
 
 Edit the file to fill in the relevant sections.
 --- PASS: TestBugCreate_TagFlag_PassesTagsToService (0.00s)
@@ -1364,12 +1364,12 @@ Edit the file to fill in the relevant sections.
 === RUN   TestRunChangeGet_Success
 
 # Change-card: CC-001
-Title    | Some change         
-Status   | proposed            
-Priority | 0                   
+Title    | Some change
+Status   | proposed
+Priority | 0
 Created  | 0001-01-01T00:00:00Z
 Updated  | 0001-01-01T00:00:00Z
-Tags     | (none)              
+Tags     | (none)
 
 --- PASS: TestRunChangeGet_Success (0.00s)
 === RUN   TestRunChangeGet_NotFound
@@ -1380,8 +1380,8 @@ Tags     | (none)
 --- PASS: TestRunChangeList_Empty (0.00s)
 === RUN   TestRunChangeList_WithResults
 Key    | Title         | Status   | Linked Entity | Created    | Size
-CC-001 | First change  | proposed | --            | 0001-01-01 | —   
-CC-002 | Second change | approved | --            | 0001-01-01 | —   
+CC-001 | First change  | proposed | --            | 0001-01-01 | —
+CC-002 | Second change | approved | --            | 0001-01-01 | —
 
 --- PASS: TestRunChangeList_WithResults (0.00s)
 === RUN   TestRunChangeList_FilterRouting_EpicKey
@@ -1415,13 +1415,13 @@ CC-002 | Second change | approved | --            | 0001-01-01 | —
 --- PASS: TestRunChangeApprove_JSONOutput (0.00s)
 === RUN   TestPrintChangeCardList_LinkedEntityHeader
 Key    | Title    | Status   | Linked Entity | Created    | Size
-CC-001 | A change | proposed | --            | 0001-01-01 | —   
+CC-001 | A change | proposed | --            | 0001-01-01 | —
 
 --- PASS: TestPrintChangeCardList_LinkedEntityHeader (0.00s)
 === RUN   TestPrintChangeCardList_NonEmpty
 Key    | Title  | Status   | Linked Entity | Created    | Size
-CC-001 | First  | proposed | --            | 0001-01-01 | —   
-CC-002 | Second | approved | --            | 0001-01-01 | —   
+CC-001 | First  | proposed | --            | 0001-01-01 | —
+CC-002 | Second | approved | --            | 0001-01-01 | —
 
 --- PASS: TestPrintChangeCardList_NonEmpty (0.00s)
 === RUN   TestBuildCreateChangeCardInput_Title
@@ -2133,12 +2133,12 @@ No change-cards found
 === RUN   TestBugGet_TagsRenderedInRichDisplay
 
 # Bug: B001
-Title    | Tagged bug          
-Status   | reported            
-Severity | low                 
+Title    | Tagged bug
+Status   | reported
+Severity | low
 Created  | 0001-01-01T00:00:00Z
 Updated  | 0001-01-01T00:00:00Z
-Tags     | auth, voice         
+Tags     | auth, voice
 
 --- PASS: TestBugGet_TagsRenderedInRichDisplay (0.00s)
 === RUN   TestBugGet_TagsRenderedInJSON
@@ -2146,12 +2146,12 @@ Tags     | auth, voice
 === RUN   TestBugGet_NoTagsRichDisplay
 
 # Bug: B001
-Title    | Untagged bug        
-Status   | reported            
-Severity | low                 
+Title    | Untagged bug
+Status   | reported
+Severity | low
 Created  | 0001-01-01T00:00:00Z
 Updated  | 0001-01-01T00:00:00Z
-Tags     | (none)              
+Tags     | (none)
 
 --- PASS: TestBugGet_NoTagsRichDisplay (0.00s)
 === RUN   TestBugGet_NoTagsJSON
@@ -2161,12 +2161,12 @@ Tags     | (none)
 === RUN   TestChangeGet_NoTagsRichDisplay
 
 # Change-card: CC-001
-Title    | Untagged change     
-Status   | proposed            
-Priority | 0                   
+Title    | Untagged change
+Status   | proposed
+Priority | 0
 Created  | 0001-01-01T00:00:00Z
 Updated  | 0001-01-01T00:00:00Z
-Tags     | (none)              
+Tags     | (none)
 
 --- PASS: TestChangeGet_NoTagsRichDisplay (0.00s)
 === RUN   TestIdeaGet_TagsRenderedInJSON
@@ -2190,21 +2190,21 @@ Tags     | (none)
 === RUN   TestTaskGet_NoTagsRichDisplay
 
 # Task: T-E07-F01-001
-Title    | Untagged task       
-Status   | todo                
-Priority | 5                   
+Title    | Untagged task
+Status   | todo
+Priority | 5
 Created  | 0001-01-01T00:00:00Z
-Tags     | (none)              
+Tags     | (none)
 
 --- PASS: TestTaskGet_NoTagsRichDisplay (0.00s)
 === RUN   TestTaskGet_WithTagsRichDisplay
 
 # Task: T-E07-F01-001
-Title    | Tagged task         
-Status   | in_progress         
-Priority | 5                   
+Title    | Tagged task
+Status   | in_progress
+Priority | 5
 Created  | 0001-01-01T00:00:00Z
-Tags     | auth, voice         
+Tags     | auth, voice
 
 --- PASS: TestTaskGet_WithTagsRichDisplay (0.00s)
 === RUN   TestTaskGet_NoTagsJSON
@@ -2511,7 +2511,7 @@ WARNING: Forced status update from ready_for_review to completed (taskID=2)
 
 # Features (1 total)
 
-Key     | Title     | Status | Tasks | Phase      
+Key     | Title     | Status | Tasks | Phase
 E07-F01 | Feature 1 | active | 5     | development
 
 === RUN   TestRenderEpicPlanningSpecific_NoPanic/TC-renderEpicPlanningSpecific-002:_No_workflow_position
@@ -2524,7 +2524,7 @@ E07-F01 | Feature 1 | active | 5     | development
 # Features (1 total)
 
 Key     | Title     | Status | Tasks | Phase
-E07-F01 | Feature 1 | draft  | 0     | -    
+E07-F01 | Feature 1 | draft  | 0     | -
 
 --- PASS: TestRenderEpicPlanningSpecific_NoPanic (0.00s)
     --- PASS: TestRenderEpicPlanningSpecific_NoPanic/TC-renderEpicPlanningSpecific-001:_With_workflow_position_and_features (0.00s)
@@ -2545,8 +2545,8 @@ COMPLETED | 2
 # Task Rollup
 
 
-TODO        | 5 
-IN_PROGRESS | 3 
+TODO        | 5
+IN_PROGRESS | 3
 COMPLETED   | 10
 
 
@@ -2563,7 +2563,7 @@ Approval Backlog: 2 task(s) waiting for review
 
 
 Key     | Title     | Status | Progress | Tasks
-E07-F01 | Feature 1 | active | 0%       | 5    
+E07-F01 | Feature 1 | active | 0%       | 5
 
 === RUN   TestRenderEpicAggregationSpecific_NoPanic/TC-renderEpicAggregationSpecific-002:_Empty_rollups
  INFO  No features found for this epic
@@ -2592,8 +2592,8 @@ Approval Backlog: 5 task(s) waiting for review
 
 
 Key     | Title                                                   | Status | Progress   | Tasks
-E07-F01 | Planning Feature                                        | draft  | (planning) | -    
-E07-F02 | Active Feature with a very long title that should be... | active | 0%         | 10   
+E07-F01 | Planning Feature                                        | draft  | (planning) | -
+E07-F02 | Active Feature with a very long title that should be... | active | 0%         | 10
 
 --- PASS: TestRenderEpicAggregationSpecific_NoPanic (0.00s)
     --- PASS: TestRenderEpicAggregationSpecific_NoPanic/TC-renderEpicAggregationSpecific-001:_All_sections_populated (0.00s)
@@ -2907,10 +2907,10 @@ WARNING: Forced status update from ready_for_review to completed (taskID=1)
 
 # Task Status Breakdown
 
-Status      | Count | Phase      
-todo        | 3     | planning   
+Status      | Count | Phase
+todo        | 3     | planning
 in_progress | 2     | development
-completed   | 5     | done       
+completed   | 5     | done
 
 --- PASS: TestRenderFeatureStatusBreakdown (0.00s)
     --- PASS: TestRenderFeatureStatusBreakdown/TC-statusBreakdown-001:_Nil_breakdown_does_nothing (0.00s)
@@ -2924,15 +2924,15 @@ completed   | 5     | done
 
 Metric            | Value | Ratio
 Weighted Progress | 65%   | 3.2/5
-Completion        | 40%   | 2/5  
+Completion        | 40%   | 2/5
 
 === RUN   TestRenderFeatureProgressBreakdown/TC-progressBreakdown-003:_Zero_values_render_without_panic
 
 # Progress Breakdown
 
 Metric            | Value | Ratio
-Weighted Progress | 0%    | 0/0  
-Completion        | 0%    | 0/0  
+Weighted Progress | 0%    | 0/0
+Completion        | 0%    | 0/0
 
 --- PASS: TestRenderFeatureProgressBreakdown (0.00s)
     --- PASS: TestRenderFeatureProgressBreakdown/TC-progressBreakdown-001:_Nil_progress_does_nothing (0.00s)
@@ -2945,7 +2945,7 @@ Completion        | 0%    | 0/0
 
 # Work Summary
 
-✅ Completed  | 3/10   
+✅ Completed  | 3/10
 🤖 Agent Work | 4 tasks
 👤 Human Work | 2 tasks
 🚫 Blocked    | 1 tasks
@@ -5322,7 +5322,7 @@ Flags:
 
 === RUN   TestRenderHeader/TC-renderHeader-004:_Empty_strings_handled_(no_panic)
 
-# : 
+# :
 
 --- PASS: TestRenderHeader (0.00s)
     --- PASS: TestRenderHeader/TC-renderHeader-001:_Epic_type_capitalizes_correctly (0.00s)
@@ -5332,8 +5332,8 @@ Flags:
 === RUN   TestRenderBasicInfo
 === RUN   TestRenderBasicInfo/TC-renderBasicInfo-001:_Multiple_rows_render_as_table
 Title    | User Authentication
-Status   | active             
-Priority | high               
+Status   | active
+Priority | high
 
 
 === RUN   TestRenderBasicInfo/TC-renderBasicInfo-002:_Single_row_renders_correctly
@@ -6905,7 +6905,7 @@ Flags:
 
 Sprint Velocity (last 1 sprints)
 KEY  | NAME     | COMPLETED | UNSIZED
-S001 | Sprint 1 | 8         | 0      
+S001 | Sprint 1 | 8         | 0
 
 Trailing Average: 8.0
 
@@ -6916,8 +6916,8 @@ Trailing Average: 8.0
 --- PASS: TestSprintVelocity_JSONSchema (0.00s)
 === RUN   TestSprintBurndown_ASCIIOnlyHumanOutput
 DAY        | IDEAL | ACTUAL | UNSIZED
-2026-03-20 | 42.0  | 42.0   | 0      
-2026-03-21 | 39.0  | 39.0   | 0      
+2026-03-20 | 42.0  | 42.0   | 0
+2026-03-21 | 39.0  | 39.0   | 0
 
 --- PASS: TestSprintBurndown_ASCIIOnlyHumanOutput (0.00s)
 === RUN   TestSprintBurndown_JSONSchema
@@ -6930,10 +6930,10 @@ DAY        | IDEAL | ACTUAL | UNSIZED
 --- PASS: TestPrintSummaryDetailed_WritesBothSections (0.00s)
 === RUN   TestPrintSummarySections
 PHASE | AVG DAYS
-done  | 2.5     
+done  | 2.5
 
 SIZE | COUNT
-M    | 3    
+M    | 3
 
 --- PASS: TestPrintSummarySections (0.00s)
 === RUN   TestSprintSummary_JSONSchemaDetailedFalse
@@ -7446,14 +7446,14 @@ null
     task_config_driven_test.go:254: Location: lines 506-530 in isValidTransition method
     task_config_driven_test.go:255: Problem: If workflow config is nil, falls back to hardcoded map of transitions
     task_config_driven_test.go:256: Solution: Always require workflow config, use default workflow if config file missing
-    task_config_driven_test.go:257: 
+    task_config_driven_test.go:257:
     task_config_driven_test.go:258: Current fallback code:
     task_config_driven_test.go:259:   validTransitions := map[models.TaskStatus][]models.TaskStatus{
     task_config_driven_test.go:260:       "todo": {"in_progress", "blocked"},
     task_config_driven_test.go:261:       "in_progress": {"ready_for_review", "blocked"},
     task_config_driven_test.go:262:       ...
     task_config_driven_test.go:263:   }
-    task_config_driven_test.go:264: 
+    task_config_driven_test.go:264:
     task_config_driven_test.go:265: This fallback should be removed because:
     task_config_driven_test.go:266:   1. Creates dual source of truth (config file + code)
     task_config_driven_test.go:267:   2. Prevents using custom workflow statuses
@@ -7948,10 +7948,10 @@ WARNING: Forced status update from todo to in_progress (taskID=157)
 === RUN   TestRunTdGet_Success
 
 # Tech Debt: TD-001
-Title    | Some tech debt      
-Status   | identified          
-Category | code-quality        
-Severity | medium              
+Title    | Some tech debt
+Status   | identified
+Category | code-quality
+Severity | medium
 Created  | 0001-01-01T00:00:00Z
 Updated  | 0001-01-01T00:00:00Z
 
@@ -7967,8 +7967,8 @@ Updated  | 0001-01-01T00:00:00Z
 --- PASS: TestRunTdList_Empty (0.00s)
 === RUN   TestRunTdList_WithResults
 KEY    | TITLE       | STATUS     | CATEGORY     | SEVERITY
-TD-001 | First debt  | identified | code-quality | medium  
-TD-002 | Second debt | triaged    | architecture | high    
+TD-001 | First debt  | identified | code-quality | medium
+TD-002 | Second debt | triaged    | architecture | high
 
 --- PASS: TestRunTdList_WithResults (0.00s)
 === RUN   TestRunTdList_ServiceError
@@ -8002,8 +8002,8 @@ TD-002 | Second debt | triaged    | architecture | high
 --- PASS: TestRunTdTriage_JSONOutput (0.00s)
 === RUN   TestPrintTechDebtTable_NonEmpty
 KEY    | TITLE  | STATUS     | CATEGORY     | SEVERITY
-TD-001 | First  | identified | code-quality | medium  
-TD-002 | Second | triaged    | architecture | high    
+TD-001 | First  | identified | code-quality | medium
+TD-002 | Second | triaged    | architecture | high
 
 --- PASS: TestPrintTechDebtTable_NonEmpty (0.00s)
 === RUN   TestUpdateDispatch_ParallelFlagRegistered
@@ -8887,7 +8887,7 @@ ok  	github.com/jwwelbor/shark-task-manager/internal/cli/scope	(cached)
     integration_test.go:151:   ✓ Filtered to 2 modified files (skipped 1 old file)
     integration_test.go:160: Step 5: Second sync completed, last_sync_time updated to 2025-12-18 11:00:00 +0000 UTC
     integration_test.go:178:   ✓ Final last_sync_time verified
-    integration_test.go:179: 
+    integration_test.go:179:
         ✓ Complete sync workflow test passed
 --- PASS: TestIntegration_SyncWorkflow (0.00s)
 === RUN   TestIntegration_ConcurrentReads
@@ -10356,7 +10356,7 @@ ok  	github.com/jwwelbor/shark-task-manager/internal/config/template	(cached)
 === RUN   TestValidateWorkflowFiles_InvalidConfigJSON
 --- PASS: TestValidateWorkflowFiles_InvalidConfigJSON (0.00s)
 === RUN   TestWorkflowWalk_TaskHappyPath
-    workflow_walk_test.go:44: 
+    workflow_walk_test.go:44:
     workflow_walk_test.go:45: ========================================================================
     workflow_walk_test.go:46:   TASK WORKFLOW  —  3 statuses in happy path
     workflow_walk_test.go:47: ========================================================================
@@ -10368,7 +10368,7 @@ ok  	github.com/jwwelbor/shark-task-manager/internal/config/template	(cached)
     workflow_walk_test.go:79:                -> instruction: After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the paren
     workflow_walk_test.go:74:   [TASK  2/3 ] development                   phase=development   ACTION: spawn_agent
     workflow_walk_test.go:77:                -> spawn developer  skills=[implementation test-driven-development]
-    workflow_walk_test.go:79:                -> instruction: 
+    workflow_walk_test.go:79:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:74:   [TASK  3/3 ] completed                     phase=done          ACTION: archive
     workflow_walk_test.go:79:                -> instruction: Task T-E07-F01-001 is completed. No further action required.
@@ -10377,7 +10377,7 @@ ok  	github.com/jwwelbor/shark-task-manager/internal/config/template	(cached)
     workflow_walk_test.go:96: ========================================================================
 --- PASS: TestWorkflowWalk_TaskHappyPath (0.01s)
 === RUN   TestWorkflowWalk_EpicHappyPath
-    workflow_walk_test.go:135: 
+    workflow_walk_test.go:135:
     workflow_walk_test.go:136: ========================================================================
     workflow_walk_test.go:137:   EPIC WORKFLOW  —  9 statuses in happy path
     workflow_walk_test.go:138: ========================================================================
@@ -10390,35 +10390,35 @@ ok  	github.com/jwwelbor/shark-task-manager/internal/config/template	(cached)
     workflow_walk_test.go:164:   [EPIC  2/9 ] assessment                    phase=triage        ACTION: spawn_agent
     workflow_walk_test.go:167:                -> spawn researcher  skills=[assessment research]
     workflow_walk_test.go:169:                -> instruction: Assess epic E07: "User Management Enhancements".
-        
+
         Check epic metadata: shark get E07 --json. If already reclassified (status is cancelled or on_hold with a reclassification note), route immediately.
-        
+
     workflow_walk_test.go:164:   [EPIC  3/9 ] refinement                    phase=refinement    ACTION: spawn_agent
     workflow_walk_test.go:167:                -> spawn business-analyst  skills=[specification-writing]
-    workflow_walk_test.go:169:                -> instruction: 
+    workflow_walk_test.go:169:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:164:   [EPIC  4/9 ] research                      phase=research      ACTION: spawn_agent
     workflow_walk_test.go:167:                -> spawn researcher  skills=[research]
-    workflow_walk_test.go:169:                -> instruction: 
+    workflow_walk_test.go:169:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:164:   [EPIC  5/9 ] design                        phase=design        ACTION: spawn_agent
     workflow_walk_test.go:167:                -> spawn architect  skills=[architecture quality]
-    workflow_walk_test.go:169:                -> instruction: 
+    workflow_walk_test.go:169:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:164:   [EPIC  6/9 ] decomposition                 phase=decomposition  ACTION: spawn_agent
     workflow_walk_test.go:167:                -> spawn product-manager  skills=[specification-writing]
-    workflow_walk_test.go:169:                -> instruction: 
+    workflow_walk_test.go:169:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:164:   [EPIC  7/9 ] feature_review                phase=review        ACTION: spawn_agent
     workflow_walk_test.go:167:                -> spawn uat-agent  skills=[quality specification-writing]
     workflow_walk_test.go:169:                -> instruction: Review features for epic E07: "User Management Enhancements".
-        
+
         Check for existing feature review report at docs/review/E07-enhancements/E07-feature-review.md. If report exists with PASS verdict, advan
     workflow_walk_test.go:164:   [EPIC  8/9 ] active                        phase=execution     ACTION: cascade
     workflow_walk_test.go:169:                -> instruction: Epic E07 ("User Management Enhancements") is ACTIVE — features are in progress.
-        
+
         ## Steps
-        
+
         1. List all features: shark list E07 --json
         2. For each feature (in execution order):
            - **completed / canc
@@ -10429,7 +10429,7 @@ ok  	github.com/jwwelbor/shark-task-manager/internal/config/template	(cached)
     workflow_walk_test.go:179: ========================================================================
 --- PASS: TestWorkflowWalk_EpicHappyPath (0.00s)
 === RUN   TestWorkflowWalk_FeatureHappyPath
-    workflow_walk_test.go:209: 
+    workflow_walk_test.go:209:
     workflow_walk_test.go:210: ========================================================================
     workflow_walk_test.go:211:   FEATURE WORKFLOW  —  11 statuses in happy path
     workflow_walk_test.go:212: ========================================================================
@@ -10442,52 +10442,52 @@ ok  	github.com/jwwelbor/shark-task-manager/internal/config/template	(cached)
     workflow_walk_test.go:238:   [FEAT  2/11] assessment                    phase=triage        ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn researcher  skills=[assessment research]
     workflow_walk_test.go:243:                -> instruction: Assess feature E07-F01: "User Authentication".
-        
+
         Check feature metadata: shark get E07-F01 --json. If complexity_tier already assigned, route to research; every tier requires validated research.
-        
+
         ---
-        
+
     workflow_walk_test.go:238:   [FEAT  3/11] research                      phase=research      ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn researcher  skills=[research]
-    workflow_walk_test.go:243:                -> instruction: 
+    workflow_walk_test.go:243:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:238:   [FEAT  4/11] specification                 phase=specification  ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn architect  skills=[architecture specification-writing]
-    workflow_walk_test.go:243:                -> instruction: 
+    workflow_walk_test.go:243:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:238:   [FEAT  5/11] test_planning                 phase=test_planning  ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn qa  skills=[quality test-driven-development]
-    workflow_walk_test.go:243:                -> instruction: 
+    workflow_walk_test.go:243:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:238:   [FEAT  6/11] task_generation               phase=decomposition  ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn product-manager  skills=[specification-writing]
-    workflow_walk_test.go:243:                -> instruction: 
+    workflow_walk_test.go:243:                -> instruction:
         After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the pare
     workflow_walk_test.go:238:   [FEAT  7/11] task_review                   phase=review        ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn uat-agent  skills=[quality specification-writing]
     workflow_walk_test.go:243:                -> instruction: Review tasks for feature E07-F01: "User Authentication".
-        
+
         Check for existing task review report at docs/review/E07-enhancements/E07-F01-auth/E07-F01-task-review.md.
         If report exists with PASS verdict,
     workflow_walk_test.go:238:   [FEAT  8/11] active                        phase=execution     ACTION: cascade
     workflow_walk_test.go:243:                -> instruction: Feature E07-F01 ("User Authentication") is ACTIVE — tasks are in progress.
-        
+
         ## Steps
-        
+
         1. List all tasks: shark list E07-F01 --json
         2. For each task (in dependency/execution order):
-           - **completed / 
+           - **completed /
     workflow_walk_test.go:238:   [FEAT  9/11] code_review                   phase=code_review   ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn tech-lead  skills=[quality]
     workflow_walk_test.go:243:                -> instruction: All tasks for feature E07-F01 ("User Authentication") have completed development.
-        
+
         Launch tech-lead with quality skill to perform the feature verification gate.
-        
+
         TIER CHECK (determines scope of this g
     workflow_walk_test.go:238:   [FEAT 10/11] approval                      phase=approval      ACTION: spawn_agent
     workflow_walk_test.go:241:                -> spawn uat-agent  skills=[quality uat]
     workflow_walk_test.go:243:                -> instruction: Verification passed for feature E07-F01 ("User Authentication"). Launch UAT red-team review.
-        
+
         This is the final automated quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not r
     workflow_walk_test.go:238:   [FEAT 11/11] completed                     phase=done          ACTION: archive
     workflow_walk_test.go:243:                -> instruction: Feature E07-F01 is completed. No further action required.
