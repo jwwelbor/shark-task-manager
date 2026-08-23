@@ -1,0 +1,68 @@
+scan (a) write-path assignment-chain trace -- scanned files:
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-lifecycle-batch.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-review-comparison.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/pilot-ledger.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/verify-retention-root.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/aggregate-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/report-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/spend-gate.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/retain_pair
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/path-safety.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/verify_pair_retention
+  - /home/jwwel/projects/shark-task-manager/bench/reports/lifecycle-baseline-schema.yaml
+  /home/jwwel/projects/shark-task-manager/bench/scripts/run-lifecycle-batch.sh: 9 write-destination site(s) (6 root-anchored, 3 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/run-review-comparison.sh: 7 write-destination site(s) (6 root-anchored, 1 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/pilot-ledger.sh: 2 write-destination site(s) (2 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/verify-retention-root.sh: 1 write-destination site(s) (0 root-anchored, 1 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/aggregate-lifecycle.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/report-lifecycle.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/lib/spend-gate.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/lib/retain_pair: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/lib/path-safety.sh: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/scripts/lib/verify_pair_retention: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+  /home/jwwel/projects/shark-task-manager/bench/reports/lifecycle-baseline-schema.yaml: 0 write-destination site(s) (0 root-anchored, 0 mktemp-scratch, 0 violation(s))
+scan (a): 0 violations across 19 write-destination site(s) in 11 scanned file(s)
+
+scan (b) forbidden-path scan -- scanned files:
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-lifecycle-batch.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-review-comparison.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/pilot-ledger.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/verify-retention-root.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/aggregate-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/report-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/spend-gate.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/retain_pair
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/path-safety.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/verify_pair_retention
+  - /home/jwwel/projects/shark-task-manager/bench/reports/lifecycle-baseline-schema.yaml
+scan (b): 0 matches for 4 forbidden path prefixes across 11 scanned file(s)
+
+scan (c) language-branch scan -- scanned files:
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-lifecycle-batch.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-review-comparison.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/pilot-ledger.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/verify-retention-root.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/aggregate-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/report-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/spend-gate.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/retain_pair
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/path-safety.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/verify_pair_retention
+  - /home/jwwel/projects/shark-task-manager/bench/reports/lifecycle-baseline-schema.yaml
+scan (c): 0 fixture-language-branch matches across 11 scanned file(s) (python3 interpreter invocations exempted)
+
+scan (d) content-disclosure scan -- scanned files:
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-lifecycle-batch.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/run-review-comparison.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/pilot-ledger.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/verify-retention-root.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/aggregate-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/report-lifecycle.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/spend-gate.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/retain_pair
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/path-safety.sh
+  - /home/jwwel/projects/shark-task-manager/bench/scripts/lib/verify_pair_retention
+  - /home/jwwel/projects/shark-task-manager/bench/reports/lifecycle-baseline-schema.yaml
+scan (d): 0 credential / disclosure-directory / uncapped-transcript-read matches across 11 scanned file(s)
+
+TC-091 PASS: all four static scans report zero violations over the complete enumerated F10 production file set (AC-T1); scan (a) correctly traces a two-statement concatenation chain both to the retention root (positive fixture) and away from it (negative fixture, AC-T2)

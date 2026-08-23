@@ -63,6 +63,7 @@ represented as retained when it never existed.
 import json
 import hashlib
 import os
+import stat
 import shutil
 import sys
 import subprocess
@@ -173,6 +174,35 @@ def install_atomic_file(target: Path, data: bytes):
         raise
 
 
+def install_atomic_file_from_source(target: Path, source: Path):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+    digest = hashlib.sha256()
+    try:
+        source_flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            source_flags |= os.O_NOFOLLOW
+        source_fd = os.open(source, source_flags)
+        source_stat = os.fstat(source_fd)
+        if not stat.S_ISREG(source_stat.st_mode):
+            os.close(source_fd)
+            raise OSError(f"source is not a regular file: {source}")
+        with os.fdopen(source_fd, "rb") as src, os.fdopen(fd, "wb") as stream:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                digest.update(chunk)
+                stream.write(chunk)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, target)
+        return digest.hexdigest()
+    except OSError:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
 def install_atomic_dir(target: Path, populate):
     # populate(temp_dir: Path) -> None -- fills the fresh temp directory;
     # only after it returns do we attempt the atomic install.
@@ -225,9 +255,7 @@ def copy_artifact(name, source):
     source_path = Path(source) if source else None
     target = dest / name
     if source_path is not None and source_path.is_file():
-        data = source_path.read_bytes()
-        install_atomic_file(target, data)
-        digest = hashlib.sha256(data).hexdigest()
+        digest = install_atomic_file_from_source(target, source_path)
         artifacts[name] = {"source_path": str(source_path), "sha256": digest}
     else:
         refuse_missing_source(name, repr(source))
@@ -295,6 +323,22 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     # itself) before it is trusted as real content, and the whole artifact
     # is refused (never a partial copy) the moment one is found.
     def populate(temp_dir: Path):
+        def copy_regular_file(source_file: Path, destination_file: Path):
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            source_fd = os.open(source_file, flags)
+            try:
+                source_stat = os.fstat(source_fd)
+                if not stat.S_ISREG(source_stat.st_mode):
+                    raise OSError(f"source is not a regular file: {source_file}")
+                with os.fdopen(source_fd, "rb") as source_stream, destination_file.open("wb") as destination_stream:
+                    shutil.copyfileobj(source_stream, destination_stream)
+                source_fd = None
+            finally:
+                if source_fd is not None:
+                    os.close(source_fd)
+
         for root, dirs, files in os.walk(source_path):
             if Path(root) == source_path:
                 dirs[:] = [d for d in dirs if d not in exclude_top_level]
@@ -309,7 +353,7 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
                 rel = fpath.relative_to(source_path)
                 dest_file = temp_dir / rel
                 dest_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(fpath, dest_file)
+                copy_regular_file(fpath, dest_file)
 
     install_atomic_dir(target, populate)
     artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}

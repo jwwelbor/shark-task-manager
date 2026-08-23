@@ -228,6 +228,10 @@ SCENARIOS_DIR="$RETENTION_ROOT_CANON/scenarios"
 	echo "verify-retention-root: no scenarios/ directory under retention root: $RETENTION_ROOT_CANON" >&2
 	exit 2
 }
+if [[ -L "$SCENARIOS_DIR" ]]; then
+	echo "verify-retention-root: scenarios directory must not be a symlink: $SCENARIOS_DIR" >&2
+	exit 1
+fi
 
 # Phase 1+2: layout completeness and manifest presence, driven by the
 # schema's own retention_required_artifacts list (REQ-F-018). Emits one
@@ -239,12 +243,26 @@ overall_status=0
 PENDING="$(mktemp)"
 trap 'rm -f "$PENDING"' EXIT
 
-for scenario_dir in "$SCENARIOS_DIR"/*/; do
-	[[ -d "$scenario_dir" ]] || continue
-	scenario_id="$(basename "$scenario_dir")"
-	for rep_dir in "$scenario_dir"*/; do
-		[[ -d "$rep_dir" ]] || continue
-		rep="$(basename "$rep_dir")"
+	for scenario_dir in "$SCENARIOS_DIR"/*/; do
+		[[ -d "$scenario_dir" ]] || continue
+		if [[ -L "${scenario_dir%/}" ]]; then
+			overall_status=1
+			scenario_id="$(basename "${scenario_dir%/}")"
+			echo "verify-retention-root: $scenario_id: retention scenario directory is a symlink" >&2
+			printf '%s\n' "{\"scenario_id\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$scenario_id"),\"rep\":null,\"verdict\":\"fail\",\"failures\":[{\"artifact\":\"retention_directory\",\"reason\":\"schema_invalid\",\"detail\":\"retention scenario directory must not be a symlink\"}]}"
+			continue
+		fi
+		scenario_id="$(basename "$scenario_dir")"
+		for rep_dir in "$scenario_dir"*/; do
+			[[ -d "$rep_dir" ]] || continue
+			if [[ -L "${rep_dir%/}" ]]; then
+				overall_status=1
+				rep="$(basename "${rep_dir%/}")"
+				echo "verify-retention-root: $scenario_id/$rep: retention rep directory is a symlink" >&2
+				printf '%s\n' "{\"scenario_id\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$scenario_id"),\"rep\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$rep"),\"verdict\":\"fail\",\"failures\":[{\"artifact\":\"retention_directory\",\"reason\":\"schema_invalid\",\"detail\":\"retention rep directory must not be a symlink\"}]}"
+				continue
+			fi
+			rep="$(basename "$rep_dir")"
 		rep_dir_canon="$(cd "$rep_dir" && pwd)"
 
 		layout_failures="$(python3 - "$rep_dir_canon" "$schema_path" <<'PYEOF'

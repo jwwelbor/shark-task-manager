@@ -394,6 +394,7 @@ RETENTION_ROOT_CANON="$(cd "$retention_root" && pwd)"
 python3 - "$RETENTION_ROOT_CANON" "$LIFECYCLE_SCHEMA" "$I05_SCHEMA" "$I07_SCHEMA" <<'PYEOF'
 import hashlib
 import json
+import math
 import os
 import statistics
 import sys
@@ -547,7 +548,10 @@ def sha256_bytes(data):
 
 def sha256_file(path):
     with open(path, "rb") as fh:
-        return sha256_bytes(fh.read())
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+        return digest.hexdigest()
 
 
 def symlink_in_path(path):
@@ -585,16 +589,22 @@ def require(d, key, ctx, expected_type=None):
 
 
 def read_one_line_json(path, ctx):
+    lines = []
     try:
         with open(path, encoding="utf-8") as fh:
-            lines = [ln for ln in (raw.strip() for raw in fh.readlines()) if ln]
+            for raw in fh:
+                line = raw.strip()
+                if line:
+                    lines.append(line)
+                    if len(lines) > 1:
+                        break
     except OSError as exc:
         fail(f"{ctx}: cannot read {path}: {exc}")
     if len(lines) != 1:
         fail(f"{ctx}: {path}: expected exactly one JSON record line, got {len(lines)}")
     try:
-        obj = json.loads(lines[0])
-    except json.JSONDecodeError as exc:
+        obj = json.loads(lines[0], parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    except (json.JSONDecodeError, ValueError) as exc:
         fail(f"{ctx}: {path}: unparseable JSON: {exc}")
     if not isinstance(obj, dict):
         fail(f"{ctx}: {path}: record is not a JSON object")
@@ -602,7 +612,12 @@ def read_one_line_json(path, ctx):
 
 
 def is_number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -638,12 +653,18 @@ def ceiling_number(raw_ceilings, name):
     value = raw_ceilings.get(name)
     if value is None:
         fail(f"batch.json ceilings.{name} is missing")
+    if isinstance(value, bool):
+        fail(f"batch.json ceilings.{name} is not numeric: {value!r}")
     try:
         text = str(value)
         if "." in text or "e" in text.lower():
-            return float(value)
-        return int(value)
-    except (TypeError, ValueError):
+            result = float(value)
+        else:
+            result = int(value)
+        if not math.isfinite(result):
+            raise ValueError("non-finite")
+        return result
+    except (TypeError, ValueError, OverflowError):
         fail(f"batch.json ceilings.{name} is not numeric: {value!r}")
 
 
@@ -661,12 +682,18 @@ ceilings = {
 scenarios_dir = os.path.join(retention_root, "scenarios")
 pair_dirs = []
 if os.path.isdir(scenarios_dir):
+    if os.path.islink(scenarios_dir):
+        fail("scenarios directory must not be a symlink")
     for scenario_id in sorted(os.listdir(scenarios_dir)):
         scenario_dir = os.path.join(scenarios_dir, scenario_id)
+        if os.path.islink(scenario_dir):
+            fail(f"{scenario_id}: scenario directory must not be a symlink")
         if not os.path.isdir(scenario_dir):
             continue
         for rep in sorted(os.listdir(scenario_dir)):
             rep_dir = os.path.join(scenario_dir, rep)
+            if os.path.islink(rep_dir):
+                fail(f"{scenario_id}/{rep}: rep directory must not be a symlink")
             if not os.path.isdir(rep_dir):
                 continue
             pair_dirs.append((scenario_id, rep, rep_dir))

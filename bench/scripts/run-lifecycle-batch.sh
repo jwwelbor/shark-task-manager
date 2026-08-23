@@ -290,6 +290,31 @@ source "$SCRIPT_DIR/lib/path-safety.sh"
 
 [[ "$mode" == "preview" ]] || mkdir -p "$out_root_canon"
 
+# A retention root is a single-writer publication boundary.  Without an
+# atomic root-scoped claim, two operators can classify the same pair as
+# pending and race its retained artifacts and batch metadata.
+LOCK_DIR="$out_root_canon/.lifecycle-batch.lock"
+if [[ "$mode" != "preview" ]]; then
+	if ! mkdir "$LOCK_DIR"; then
+		owner=""
+		[[ -f "$LOCK_DIR/pid" ]] && owner="$(<"$LOCK_DIR/pid")"
+		if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner"; then
+			echo "run-lifecycle-batch: retention root is already locked by process $owner: $out_root_canon" >&2
+			exit 4
+		fi
+		if [[ ! "$owner" =~ ^[0-9]+$ ]]; then
+			echo "run-lifecycle-batch: retention root lock has no valid owner: $out_root_canon" >&2
+			exit 4
+		fi
+		rm -f "$LOCK_DIR/pid"
+		if ! rmdir "$LOCK_DIR" || ! mkdir "$LOCK_DIR"; then
+			echo "run-lifecycle-batch: retention root lock could not be recovered: $out_root_canon" >&2
+			exit 4
+		fi
+	fi
+	printf '%s\n' "$$" >"$LOCK_DIR/pid"
+fi
+
 # ---------------------------------------------------------------------------
 # Matrix enumeration (pure computation: reads the batch policy and the I-04
 # scenario index only -- no subprocess, no Shark call). One row per
@@ -297,7 +322,13 @@ source "$SCRIPT_DIR/lib/path-safety.sh"
 # (REQ-F-001's "scenario matrix (scenario id, version, family, reps)").
 # ---------------------------------------------------------------------------
 MATRIX_TMP="$(mktemp)"
-cleanup_matrix() { rm -f "$MATRIX_TMP" "$OPERATOR_LIMITS_FILE"; }
+cleanup_matrix() {
+	rm -f "$MATRIX_TMP" "$OPERATOR_LIMITS_FILE"
+	if [[ "$mode" != "preview" ]]; then
+		rm -f "$LOCK_DIR/pid"
+		rmdir "$LOCK_DIR" 2>/dev/null || true
+	fi
+}
 trap cleanup_matrix EXIT
 
 set +e
@@ -1097,6 +1128,7 @@ import os
 import sys
 import tempfile
 import time
+import uuid
 
 import yaml
 
@@ -1198,7 +1230,7 @@ except (TypeError, ValueError):
 
 batch = {
     "phase": "lifecycle_v2",
-    "batch_id": f"batch-{int(time.time())}",
+    "batch_id": f"batch-{uuid.uuid4().hex}",
     "mode": mode,
     "retention_root": retention_root,
     "batch_policy_digest": policy_digest,

@@ -22,7 +22,21 @@ if "$HELPER" "$tmp/tree" >/dev/null 2>&1; then
 fi
 
 for consumer in "$BENCH_DIR/lib/retain_pair" "$BENCH_DIR/lib/verify_pair_retention" "$BENCH_DIR/pilot-ledger.sh" "$BENCH_DIR/verify-retention-root.sh"; do
-	grep -q 'F10_DIGEST_HELPER\|digest_path' "$consumer"
+	python3 - "$consumer" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+if "subprocess.run" not in text:
+    raise SystemExit(f"{path}: no subprocess call to the shared digest helper")
+if path.name in {"retain_pair", "verify_pair_retention"}:
+    required = 'with_name("digest_path")'
+else:
+    required = 'os.environ["F10_DIGEST_HELPER"]'
+if required not in text:
+    raise SystemExit(f"{path}: digest helper is not the executable authority")
+PY
 done
 
 echo "TC-093: shared digest authority and symlink refusal pass"

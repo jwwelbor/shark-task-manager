@@ -110,12 +110,26 @@ fi
 # TC-078 is the Go contract test (tests/contracts/e40_f10_operator_baseline_contract_test.go),
 # run under `make test`, not a bench/scripts/tests/tc0NN_*.sh entry -- REQ-F-018's schema
 # validator has no shell counterpart registered here (architecture.md Component-changes row).
+assert_executable_registration() {
+	local id="$1"
+	if [[ "$id" == "092" ]]; then
+		grep -qE 'TC092_RUN_LOG=.*tc092_full-regression-registration_test\.sh' "$RUN_ALL" || {
+			echo "TC-092: TC-${id} is not invoked as a quality-gate command" >&2
+			exit 1
+		}
+		return
+	fi
+	grep -qE "^[[:space:]]*\\\"\\\$SCRIPT_DIR/tc${id}_[A-Za-z0-9_.-]+_test\\.sh\\\"[[:space:]]*$" "$RUN_ALL" || {
+		echo "TC-092: TC-${id} has no executable test-array registration" >&2
+		exit 1
+	}
+}
 for id in 079 080 081 082 083 084 085 086 087 088 089 090 091 092 093; do
-	grep -q "tc${id}_" "$RUN_ALL" || { echo "TC-092: TC-${id} not registered in run-all.sh" >&2; exit 1; }
+	assert_executable_registration "$id"
 done
 echo "TC-092: complete F10 suite (TC-079 through TC-092) registered in run-all.sh"
 
 for id in 003 004 005 006 007 008 009 010 011 013 014 015 016 017 018 019 020 031 032 033 034 035 036 037 038 039 040 041 043 044 045 046 047 048 049 050 051 053 054 055 056 057 058 059 060 061 062 063 064 065 066 067 068 069 070 071 072 073 074 075 076 077; do
-	grep -q "tc${id}_" "$RUN_ALL" || { echo "TC-092: prior TC-${id} registration removed" >&2; exit 1; }
+	assert_executable_registration "$id"
 done
 echo "TC-092: F01-F09 and complete F10 registration pass"

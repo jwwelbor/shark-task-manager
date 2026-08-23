@@ -261,13 +261,45 @@ source "$SCRIPT_DIR/lib/path-safety.sh"
 
 [[ "$mode" == "preview" ]] || mkdir -p "$out_root_canon"
 
+# Batch and comparison share the scenarios/<id>/<rep> publication namespace;
+# use the same root-scoped single-writer lock so the two producers cannot
+# classify or publish the same pair concurrently. Recover only a lock whose
+# recorded owner is no longer alive.
+LOCK_DIR="$out_root_canon/.lifecycle-batch.lock"
+if [[ "$mode" != "preview" ]]; then
+	if ! mkdir "$LOCK_DIR"; then
+		owner=""
+		[[ -f "$LOCK_DIR/pid" ]] && owner="$(<"$LOCK_DIR/pid")"
+		if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner"; then
+			echo "run-review-comparison: retention root is already locked by process $owner: $out_root_canon" >&2
+			exit 4
+		fi
+		if [[ ! "$owner" =~ ^[0-9]+$ ]]; then
+			echo "run-review-comparison: retention root lock has no valid owner: $out_root_canon" >&2
+			exit 4
+		fi
+		rm -f "$LOCK_DIR/pid"
+		if ! rmdir "$LOCK_DIR" || ! mkdir "$LOCK_DIR"; then
+			echo "run-review-comparison: retention root lock could not be recovered: $out_root_canon" >&2
+			exit 4
+		fi
+	fi
+	printf '%s\n' "$$" >"$LOCK_DIR/pid"
+fi
+
 # ---------------------------------------------------------------------------
 # Parse candidate.yaml -> exactly two JSON rows, one per gate (qa,
 # deep_review). Pure computation: reads the candidate declaration and the
 # I-04 scenario index only -- no subprocess, no Shark call.
 # ---------------------------------------------------------------------------
 CANDIDATE_TMP="$(mktemp)"
-cleanup_candidate() { rm -f "$CANDIDATE_TMP" "$OPERATOR_LIMITS_FILE"; }
+cleanup_candidate() {
+	rm -f "$CANDIDATE_TMP" "$OPERATOR_LIMITS_FILE"
+	if [[ "$mode" != "preview" ]]; then
+		rm -f "$LOCK_DIR/pid"
+		rmdir "$LOCK_DIR" 2>/dev/null || true
+	fi
+}
 trap cleanup_candidate EXIT
 
 set +e

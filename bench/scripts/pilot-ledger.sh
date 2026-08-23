@@ -205,6 +205,31 @@ VERIFY_PAIR_RETENTION="$SCRIPT_DIR/lib/verify_pair_retention"
 	exit 2
 }
 
+# The ledger reads and appends the same retained pair namespace as the batch
+# and comparison drivers. Serialize all ledger actions with that namespace's
+# lock so an attestation cannot observe a pair while another producer replaces
+# its artifacts.
+LOCK_DIR="$out_root_canon/.lifecycle-batch.lock"
+if ! mkdir "$LOCK_DIR"; then
+	owner=""
+	[[ -f "$LOCK_DIR/pid" ]] && owner="$(<"$LOCK_DIR/pid")"
+	if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner"; then
+		echo "pilot-ledger: retention root is already locked by process $owner: $out_root_canon" >&2
+		exit 4
+	fi
+	if [[ ! "$owner" =~ ^[0-9]+$ ]]; then
+		echo "pilot-ledger: retention root lock has no valid owner: $out_root_canon" >&2
+		exit 4
+	fi
+	rm -f "$LOCK_DIR/pid"
+	if ! rmdir "$LOCK_DIR" || ! mkdir "$LOCK_DIR"; then
+		echo "pilot-ledger: retention root lock could not be recovered: $out_root_canon" >&2
+		exit 4
+	fi
+fi
+printf '%s\n' "$$" >"$LOCK_DIR/pid"
+trap 'rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+
 # REQ-F-002's scenario_id grammar (bench/scenarios/packages/<scenario_id>/
 # package.yaml identity block: "unique lowercase-kebab identity"), the same
 # closed grammar the I-04 scenario contract test (tests/contracts,
@@ -262,7 +287,11 @@ except ImportError:
     retention_root, scenario_id, rep_str, operator, checklist_path, ledger_path,
     verify_pair_retention_bin, lifecycle_schema,
 ) = sys.argv[1:9]
-rep = int(rep_str)
+try:
+    rep = int(rep_str)
+except (TypeError, ValueError, OverflowError) as exc:
+    print(f"pilot-ledger: invalid --rep value: {exc}", file=sys.stderr)
+    raise SystemExit(2)
 
 # The eight canonical retained artifacts (bench/reports/
 # lifecycle-baseline-schema.yaml retention_required_artifacts).
@@ -449,7 +478,23 @@ record = {
     "inspected_artifact_digests": digests,
     "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
 }
-with open(ledger_path, "a", encoding="utf-8") as f:
+# Open the final ledger entry with O_NOFOLLOW.  A pre-existing symlink at the
+# ledger path must never turn an attestation append into a write to an
+# operator-unrelated file.  The flag closes the final-component race between
+# an lstat-style check and the append itself; the canonical retention root
+# above remains the trusted parent anchor.
+if os.path.islink(ledger_path):
+    print(f"pilot-ledger: refusing to append through symlink: {ledger_path}", file=sys.stderr)
+    raise SystemExit(1)
+ledger_flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+if hasattr(os, "O_NOFOLLOW"):
+    ledger_flags |= os.O_NOFOLLOW
+try:
+    ledger_fd = os.open(ledger_path, ledger_flags, 0o600)
+except OSError as exc:
+    print(f"pilot-ledger: refusing to open ledger safely: {exc}", file=sys.stderr)
+    raise SystemExit(1) from exc
+with os.fdopen(ledger_fd, "a", encoding="utf-8") as f:
     f.write(json.dumps(record, sort_keys=True) + "\n")
 
 print(f"pilot-ledger: recorded attestation for family '{family}' (scenario_id={scenario_id}, rep={rep})")
@@ -568,6 +613,7 @@ for fam in targets:
         not isinstance(scenario_id, str)
         or not SCENARIO_ID_PATTERN.match(scenario_id)
         or not isinstance(rep, int)
+        or isinstance(rep, bool)
         or rep < 0
     ):
         print(f"family={fam}: FAILED (unsafe_scenario_reference)")

@@ -1006,8 +1006,11 @@ func e40F10ValidateRetentionManifestRecord(schema e40F10Schema, record map[strin
 		if !ok {
 			continue // presence already enforced by the required-pointer walk
 		}
-		digest, hasDigest := entry["sha256"].(string)
-		if hasDigest && digest != "" && !isDigest(digest) {
+		digestValue, digestPresent := entry["sha256"]
+		digest, hasDigest := digestValue.(string)
+		if !digestPresent {
+			errs = append(errs, fmt.Sprintf("/artifacts/%s/sha256: required field missing", name))
+		} else if !hasDigest || digest == "" || !isDigest(digest) {
 			errs = append(errs, fmt.Sprintf("/artifacts/%s/sha256: malformed digest", name))
 		}
 		// UAT-R3-01 (round 3), T-E40-F10-001 fix requirement 1/3: a required
@@ -1016,8 +1019,9 @@ func e40F10ValidateRetentionManifestRecord(schema e40F10Schema, record map[strin
 		// string is exactly retain_pair's pre-fix fabrication shape (a real,
 		// present, digestible placeholder with source_path=="" claiming a
 		// required artifact was retained when it never had a real source).
-		sourcePath, hasSourcePath := entry["source_path"].(string)
-		if hasSourcePath && sourcePath == "" {
+		sourceValue, sourcePresent := entry["source_path"]
+		sourcePath, hasSourcePath := sourceValue.(string)
+		if !sourcePresent || !hasSourcePath || sourcePath == "" {
 			errs = append(errs, fmt.Sprintf("/artifacts/%s/source_path: empty -- a required artifact must carry a real source", name))
 		}
 	}
