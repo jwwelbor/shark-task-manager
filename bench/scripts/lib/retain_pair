@@ -173,6 +173,27 @@ def install_atomic_file(target: Path, data: bytes):
         raise
 
 
+def install_atomic_file_from_source(target: Path, source: Path):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+    digest = hashlib.sha256()
+    try:
+        with source.open("rb") as src, os.fdopen(fd, "wb") as stream:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                digest.update(chunk)
+                stream.write(chunk)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, target)
+        return digest.hexdigest()
+    except OSError:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
 def install_atomic_dir(target: Path, populate):
     # populate(temp_dir: Path) -> None -- fills the fresh temp directory;
     # only after it returns do we attempt the atomic install.
@@ -225,9 +246,7 @@ def copy_artifact(name, source):
     source_path = Path(source) if source else None
     target = dest / name
     if source_path is not None and source_path.is_file():
-        data = source_path.read_bytes()
-        install_atomic_file(target, data)
-        digest = hashlib.sha256(data).hexdigest()
+        digest = install_atomic_file_from_source(target, source_path)
         artifacts[name] = {"source_path": str(source_path), "sha256": digest}
     else:
         refuse_missing_source(name, repr(source))

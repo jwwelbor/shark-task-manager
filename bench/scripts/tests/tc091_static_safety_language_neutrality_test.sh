@@ -135,19 +135,20 @@ base="$base/leaked.json"
 mkdir -p "$base"
 EOF
 
-if ! static_scan_write_path "$POSITIVE_FIXTURE" >/tmp/tc091-positive.out 2>&1; then
-	cat /tmp/tc091-positive.out >&2
+POSITIVE_OUT="$FIXTURE_DIR/positive.out"
+NEGATIVE_OUT="$FIXTURE_DIR/negative.out"
+NEGATIVE_ERR="$FIXTURE_DIR/negative.err"
+if ! static_scan_write_path "$POSITIVE_FIXTURE" >"$POSITIVE_OUT" 2>&1; then
+	cat "$POSITIVE_OUT" >&2
 	fail "AC-T2 positive fixture: a retention-root-anchored variable built by concatenation across two assignment statements was wrongly flagged as a violation"
 fi
-grep -q "0 violations" /tmp/tc091-positive.out || fail "AC-T2 positive fixture: scan (a) did not report 0 violations"
+grep -q "0 violations" "$POSITIVE_OUT" || fail "AC-T2 positive fixture: scan (a) did not report 0 violations"
 
-if static_scan_write_path "$NEGATIVE_FIXTURE" >/tmp/tc091-negative.out 2>/tmp/tc091-negative.err; then
-	cat /tmp/tc091-negative.out
+if static_scan_write_path "$NEGATIVE_FIXTURE" >"$NEGATIVE_OUT" 2>"$NEGATIVE_ERR"; then
+	cat "$NEGATIVE_OUT"
 	fail "AC-T2 negative fixture: an unrelated-source variable built by concatenation across two assignment statements was wrongly traced as root-anchored (scan (a) is not actually walking the chain)"
 fi
-grep -q '\$base' /tmp/tc091-negative.err || fail "AC-T2 negative fixture: scan (a) failed for the wrong reason (expected it to name the \$base destination)"
-grep -q "not the retention root" /tmp/tc091-negative.err || fail "AC-T2 negative fixture: scan (a) failed for the wrong reason (expected an 'unrelated'/not-root classification)"
-
-rm -f /tmp/tc091-positive.out /tmp/tc091-negative.out /tmp/tc091-negative.err
+grep -q '\$base' "$NEGATIVE_ERR" || fail "AC-T2 negative fixture: scan (a) failed for the wrong reason (expected it to name the \$base destination)"
+grep -q "not the retention root" "$NEGATIVE_ERR" || fail "AC-T2 negative fixture: scan (a) failed for the wrong reason (expected an 'unrelated'/not-root classification)"
 
 echo "TC-091 PASS: all four static scans report zero violations over the complete enumerated F10 production file set (AC-T1); scan (a) correctly traces a two-statement concatenation chain both to the retention root (positive fixture) and away from it (negative fixture, AC-T2)"

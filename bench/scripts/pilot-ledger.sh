@@ -449,7 +449,23 @@ record = {
     "inspected_artifact_digests": digests,
     "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
 }
-with open(ledger_path, "a", encoding="utf-8") as f:
+# Open the final ledger entry with O_NOFOLLOW.  A pre-existing symlink at the
+# ledger path must never turn an attestation append into a write to an
+# operator-unrelated file.  The flag closes the final-component race between
+# an lstat-style check and the append itself; the canonical retention root
+# above remains the trusted parent anchor.
+if os.path.islink(ledger_path):
+    print(f"pilot-ledger: refusing to append through symlink: {ledger_path}", file=sys.stderr)
+    raise SystemExit(1)
+ledger_flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+if hasattr(os, "O_NOFOLLOW"):
+    ledger_flags |= os.O_NOFOLLOW
+try:
+    ledger_fd = os.open(ledger_path, ledger_flags, 0o600)
+except OSError as exc:
+    print(f"pilot-ledger: refusing to open ledger safely: {exc}", file=sys.stderr)
+    raise SystemExit(1) from exc
+with os.fdopen(ledger_fd, "a", encoding="utf-8") as f:
     f.write(json.dumps(record, sort_keys=True) + "\n")
 
 print(f"pilot-ledger: recorded attestation for family '{family}' (scenario_id={scenario_id}, rep={rep})")

@@ -16,6 +16,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ from pathlib import Path
 VERDICT_RE = re.compile(r"\bVERDICT\s*:\s*(PASS(?:-with-triage)?|FAIL)\b", re.I)
 FINDINGS_RE = re.compile(r"\b(FINDINGS|FINDING[S]?\s+TABLE)\b", re.I)
 SCOPE_RE = re.compile(r"\b(REVIEWED\s+SCOPE|CHANGED\s+FILES|SCOPE)\b", re.I)
+MAX_REVIEW_OUTPUT_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -152,14 +154,37 @@ def run_cli(args: argparse.Namespace) -> int:
     override = args.claude_command if choice["adversarial_model"] == "claude" else args.codex_command
     argv = _cli_argv(str(choice["adversarial_model"]), override, prompt)
     try:
-        completed = subprocess.run(
-            argv,
-            cwd=args.project_root,
-            capture_output=True,
-            text=True,
-            timeout=args.timeout,
-            check=False,
-        )
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            process = subprocess.Popen(
+                argv,
+                cwd=args.project_root,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                text=False,
+            )
+            try:
+                process.wait(timeout=args.timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                raise
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout_bytes = stdout_file.read(MAX_REVIEW_OUTPUT_BYTES + 1)
+            stderr_bytes = stderr_file.read(MAX_REVIEW_OUTPUT_BYTES + 1)
+            completed = subprocess.CompletedProcess(
+                argv,
+                process.returncode,
+                stdout_bytes.decode("utf-8", errors="replace"),
+                stderr_bytes.decode("utf-8", errors="replace"),
+            )
+            if len(stdout_bytes) > MAX_REVIEW_OUTPUT_BYTES or len(stderr_bytes) > MAX_REVIEW_OUTPUT_BYTES:
+                completed = subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    completed.stdout[:MAX_REVIEW_OUTPUT_BYTES],
+                    completed.stderr[:MAX_REVIEW_OUTPUT_BYTES],
+                )
     except (OSError, subprocess.TimeoutExpired) as exc:
         base["fallback_reason"] = f"{choice['fallback_reason']}; CLI failed: {type(exc).__name__}"
         body = "## Review status\n\n**INCOMPLETE** — alternate-model CLI did not produce a complete review."
