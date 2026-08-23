@@ -205,6 +205,31 @@ VERIFY_PAIR_RETENTION="$SCRIPT_DIR/lib/verify_pair_retention"
 	exit 2
 }
 
+# The ledger reads and appends the same retained pair namespace as the batch
+# and comparison drivers. Serialize all ledger actions with that namespace's
+# lock so an attestation cannot observe a pair while another producer replaces
+# its artifacts.
+LOCK_DIR="$out_root_canon/.lifecycle-batch.lock"
+if ! mkdir "$LOCK_DIR"; then
+	owner=""
+	[[ -f "$LOCK_DIR/pid" ]] && owner="$(<"$LOCK_DIR/pid")"
+	if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner"; then
+		echo "pilot-ledger: retention root is already locked by process $owner: $out_root_canon" >&2
+		exit 4
+	fi
+	if [[ ! "$owner" =~ ^[0-9]+$ ]]; then
+		echo "pilot-ledger: retention root lock has no valid owner: $out_root_canon" >&2
+		exit 4
+	fi
+	rm -f "$LOCK_DIR/pid"
+	if ! rmdir "$LOCK_DIR" || ! mkdir "$LOCK_DIR"; then
+		echo "pilot-ledger: retention root lock could not be recovered: $out_root_canon" >&2
+		exit 4
+	fi
+fi
+printf '%s\n' "$$" >"$LOCK_DIR/pid"
+trap 'rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+
 # REQ-F-002's scenario_id grammar (bench/scenarios/packages/<scenario_id>/
 # package.yaml identity block: "unique lowercase-kebab identity"), the same
 # closed grammar the I-04 scenario contract test (tests/contracts,
