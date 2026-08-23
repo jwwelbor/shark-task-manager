@@ -13,6 +13,7 @@ import json
 import os
 import re
 import selectors
+import signal
 import shlex
 import shutil
 import subprocess
@@ -31,7 +32,13 @@ MAX_REVIEW_OUTPUT_BYTES = 8 * 1024 * 1024
 
 def run_bounded_reviewer(argv, cwd, timeout):
     """Run an untrusted reviewer with bounded in-memory stdout/stderr."""
-    process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
     selector = selectors.DefaultSelector()
     buffers = {process.stdout: bytearray(), process.stderr: bytearray()}
     for stream in buffers:
@@ -39,11 +46,28 @@ def run_bounded_reviewer(argv, cwd, timeout):
     deadline = time.monotonic() + timeout
     exceeded = False
     timed_out = False
+    kill_deadline = None
+
+    def kill_group():
+        nonlocal kill_deadline
+        if kill_deadline is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        kill_deadline = time.monotonic() + 5
+
     while selector.get_map():
+        if kill_deadline is not None and time.monotonic() >= kill_deadline:
+            for stream in list(buffers):
+                if stream in selector.get_map():
+                    selector.unregister(stream)
+            break
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             timed_out = True
-            process.kill()
+            kill_group()
             remaining = 5
         events = selector.select(min(remaining, 0.25))
         if not events and process.poll() is not None:
@@ -59,7 +83,7 @@ def run_bounded_reviewer(argv, cwd, timeout):
             if len(buffer) + len(chunk) > MAX_REVIEW_OUTPUT_BYTES:
                 buffer.extend(chunk[: MAX_REVIEW_OUTPUT_BYTES - len(buffer)])
                 exceeded = True
-                process.kill()
+                kill_group()
             else:
                 buffer.extend(chunk)
         if (exceeded or timed_out) and process.poll() is not None:

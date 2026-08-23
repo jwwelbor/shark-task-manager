@@ -323,6 +323,22 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     # itself) before it is trusted as real content, and the whole artifact
     # is refused (never a partial copy) the moment one is found.
     def populate(temp_dir: Path):
+        def copy_regular_file(source_file: Path, destination_file: Path):
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            source_fd = os.open(source_file, flags)
+            try:
+                source_stat = os.fstat(source_fd)
+                if not stat.S_ISREG(source_stat.st_mode):
+                    raise OSError(f"source is not a regular file: {source_file}")
+                with os.fdopen(source_fd, "rb") as source_stream, destination_file.open("wb") as destination_stream:
+                    shutil.copyfileobj(source_stream, destination_stream)
+                source_fd = None
+            finally:
+                if source_fd is not None:
+                    os.close(source_fd)
+
         for root, dirs, files in os.walk(source_path):
             if Path(root) == source_path:
                 dirs[:] = [d for d in dirs if d not in exclude_top_level]
@@ -337,7 +353,7 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
                 rel = fpath.relative_to(source_path)
                 dest_file = temp_dir / rel
                 dest_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(fpath, dest_file)
+                copy_regular_file(fpath, dest_file)
 
     install_atomic_dir(target, populate)
     artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
