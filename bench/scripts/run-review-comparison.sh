@@ -274,6 +274,7 @@ set +e
 python3 - "$BENCH_DIR" "$candidate_decl" >"$CANDIDATE_TMP" <<'PYEOF'
 import json
 import os
+import re
 import sys
 
 import yaml
@@ -289,6 +290,9 @@ if not isinstance(decl, dict):
 scenario_id = str(decl.get("scenario_id", ""))
 if not scenario_id:
     print("run-review-comparison: candidate declaration missing scenario_id", file=sys.stderr)
+    raise SystemExit(1)
+if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", scenario_id):
+    print(f"run-review-comparison: candidate declaration has unsafe scenario_id: {scenario_id!r}", file=sys.stderr)
     raise SystemExit(1)
 
 scenario_index_field = decl.get("scenario_index") or "scenarios/scenarios.yaml"

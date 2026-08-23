@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Compute the schema-owned digest for a retained file or directory."""
+
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def symlink_in_path(path: Path) -> bool:
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
+
+
+def digest_of_path(path: Path):
+    if symlink_in_path(path):
+        return None
+    if path.is_dir():
+        entries = []
+        for root, dirs, files in os.walk(path, followlinks=False):
+            dirs.sort()
+            if any((Path(root) / name).is_symlink() for name in dirs):
+                return None
+            for name in sorted(files):
+                candidate = Path(root) / name
+                if candidate.is_symlink():
+                    return None
+                entries.append(
+                    {
+                        "path": candidate.relative_to(path).as_posix(),
+                        "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+                    }
+                )
+        entries.sort(key=lambda entry: entry["path"])
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    if path.is_file():
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    return None
+
+
+if len(sys.argv) != 2:
+    print(f"usage: {sys.argv[0]} <file-or-directory>", file=sys.stderr)
+    raise SystemExit(2)
+digest = digest_of_path(Path(sys.argv[1]))
+if digest is None:
+    raise SystemExit(1)
+print(digest)

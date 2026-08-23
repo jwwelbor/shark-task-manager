@@ -181,6 +181,7 @@ LEDGER_PATH="$RETENTION_ROOT_CANON/pilot-ledger.jsonl"
 # for RETENTION_ROOT_CANON above, which can preserve a symlink component) --
 # followed here exactly so the two canonicalizations can never disagree.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export F10_DIGEST_HELPER="$SCRIPT_DIR/lib/digest_path"
 out_root_canon="$(realpath -m -- "$RETENTION_ROOT_CANON")"
 # shellcheck source=lib/path-safety.sh
 source "$SCRIPT_DIR/lib/path-safety.sh"
@@ -276,47 +277,12 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def digest_of_path(path):
-    # file_encoding: sha256_raw_bytes for a single file; a directory is
-    # digested as canonicalization: compact_json_sorted_keys_utf8 over the
-    # sorted {path, sha256} list of every file it contains -- both under
-    # the shared digest_rules algorithm/encoding (sha256, lowercase hex).
-    #
-    # bench/reports/lifecycle-baseline-schema.yaml digest_rules.
-    # empty_artifact_semantics (code-review-2026-08-20T2138-E40-F10.md
-    # findings 1 and 7): digest_of_path returns a REAL, non-None digest for
-    # anything that exists on disk -- file or directory -- REGARDLESS of
-    # whether it is empty. None means "path does not exist", never "exists
-    # but empty". Round-1's fix for finding 3 (returning None for a
-    # zero-file directory) diverged from run-lifecycle-batch.sh's
-    # retain_pair() and verify-retention-root.sh's own digest_of_path,
-    # neither of which special-case emptiness -- making --record
-    # unconditionally refuse every real `run-lifecycle-batch.sh --mode
-    # pilot` retention (finding 1's live repro: no committed I-05 bundle
-    # populates transcripts/). That special case is removed here so all
-    # digest_of_path implementations in this codebase agree. Whether an
-    # empty artifact is an accepted "not yet wired" gap or a genuine
-    # producer-defect signal is manifest.json's `source_path` field's job,
-    # not this function's -- see --verify's cross-check below.
-    if os.path.isdir(path):
-        entries = []
-        for root, dirs, files in os.walk(path):
-            dirs.sort()
-            if any(os.path.islink(os.path.join(root, dirname)) for dirname in dirs):
-                return None
-            for fname in sorted(files):
-                fpath = os.path.join(root, fname)
-                if os.path.islink(fpath):
-                    return None
-                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
-                with open(fpath, "rb") as fh:
-                    entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
-        entries.sort(key=lambda e: e["path"])
-        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return sha256_bytes(canonical)
-    if os.path.isfile(path):
-        with open(path, "rb") as fh:
-            return sha256_bytes(fh.read())
-    return None
+    result = subprocess.run(
+        [sys.executable, os.environ["F10_DIGEST_HELPER"], path],
+        capture_output=True, text=True, check=False,
+    )
+    digest = result.stdout.strip()
+    return digest if result.returncode == 0 and digest else None
 
 
 def symlink_in_path(path):
@@ -529,40 +495,12 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def digest_of_path(path):
-    # bench/reports/lifecycle-baseline-schema.yaml digest_rules.
-    # empty_artifact_semantics (code-review-2026-08-20T2138-E40-F10.md
-    # findings 1 and 7): a real, non-None digest for anything that exists
-    # on disk, file or directory, REGARDLESS of emptiness -- None means
-    # "does not exist", never "exists but empty". Round-1's finding-3 fix
-    # (returning None for a zero-file directory) is removed: it diverged
-    # from retain_pair()'s and this script's own record-side digest_of_path
-    # (both fixed to match, this round), and made --record refuse every
-    # real retained pair. Distinguishing an honest "no source available"
-    # gap from a real-source-checked-but-empty defect is NOT this
-    # function's job -- see the source_path cross-check below, which reads
-    # manifest.json (the retained artifact carrying that provenance) to
-    # make that distinction where None == None (missing) can no longer be
-    # relied on to catch it.
-    if os.path.isdir(path):
-        entries = []
-        for root, dirs, files in os.walk(path):
-            dirs.sort()
-            if any(os.path.islink(os.path.join(root, dirname)) for dirname in dirs):
-                return None
-            for fname in sorted(files):
-                fpath = os.path.join(root, fname)
-                if os.path.islink(fpath):
-                    return None
-                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
-                with open(fpath, "rb") as fh:
-                    entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
-        entries.sort(key=lambda e: e["path"])
-        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return sha256_bytes(canonical)
-    if os.path.isfile(path):
-        with open(path, "rb") as fh:
-            return sha256_bytes(fh.read())
-    return None
+    result = subprocess.run(
+        [sys.executable, os.environ["F10_DIGEST_HELPER"], path],
+        capture_output=True, text=True, check=False,
+    )
+    digest = result.stdout.strip()
+    return digest if result.returncode == 0 and digest else None
 
 
 def symlink_in_path(path):
@@ -602,6 +540,8 @@ if os.path.isfile(ledger_path):
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
                 continue
             fam = entry.get("family")
             if fam:

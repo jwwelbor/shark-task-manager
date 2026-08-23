@@ -59,10 +59,10 @@ inventing a second, divergent vocabulary for the same concepts):
     digest_mismatch            -- recomputed digest disagrees with the
                                    manifest-recorded value
 """
-import hashlib
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -112,33 +112,15 @@ def symlink_in_path(path: Path) -> bool:
 
 
 def digest_of_path(path: Path):
-    # MUST implement the exact same rule as lib/retain_pair's own
-    # digest_of_path and verify-retention-root.sh's own digest_of_path --
-    # bench/reports/lifecycle-baseline-schema.yaml digest_rules
-    # (algorithm/encoding/canonicalization/file_encoding) and
-    # digest_rules.empty_artifact_semantics. A local per-file copy of this
-    # small pure function is the established precedent in this codebase
-    # (every digest_of_path implementation -- retain_pair, verify-retention-
-    # root.sh -- carries its own copy with the same "MUST follow the schema
-    # rule" comment, rather than a shared importable module).
-    if path.is_dir():
-        entries = []
-        for root, dirs, files in os.walk(path):
-            dirs.sort()
-            if any((Path(root) / dirname).is_symlink() for dirname in dirs):
-                return None
-            for fname in sorted(files):
-                fpath = Path(root) / fname
-                if fpath.is_symlink():
-                    return None
-                relpath = fpath.relative_to(path).as_posix()
-                entries.append({"path": relpath, "sha256": hashlib.sha256(fpath.read_bytes()).hexdigest()})
-        entries.sort(key=lambda e: e["path"])
-        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return hashlib.sha256(canonical).hexdigest()
-    if path.is_file():
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    return None
+    helper = Path(__file__).with_name("digest_path")
+    result = subprocess.run(
+        [sys.executable, str(helper), str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    digest = result.stdout.strip()
+    return digest if result.returncode == 0 and digest else None
 
 
 # Phase 1: layout completeness -- every schema-required artifact must be
@@ -180,6 +162,8 @@ if str(manifest.get("scenario_id", "")) != scenario_id or str(manifest.get("rep"
 # is NEVER trusted as proof by itself -- it is only ever compared AGAINST an
 # independently recomputed digest of the actual retained bytes.
 artifacts = manifest.get("artifacts") or {}
+if not isinstance(artifacts, dict):
+    refuse("schema_invalid", "manifest.json", "manifest.json artifacts must be a JSON object")
 for name in REQUIRED_WITH_SOURCE:
     entry = artifacts.get(name)
     if not isinstance(entry, dict):

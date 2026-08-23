@@ -386,6 +386,32 @@ dimension_paired_delta_time_cost_upstream_gap_reason: >-
   quality_delta -- no time_delta or cost_delta field exists for the
   elapsed_time/provider_cost dimensions (REQ-F-008)
 
+# Formal staged-contract disposition for AC-008/AC-011. These are not silent
+# omissions: E40-F09 owns the I-08 producer extension, and E40-F10 owns the
+# consumer activation proof. Closure requires the shared I-08 contract test,
+# a production-path fixture carrying the new fields, and a fresh F10 UAT
+# report that shows the values are copied and classified without recomputing
+# them. Until that evidence exists, the two schema-owned gap reasons above
+# are the only accepted representation and the affected acceptance slices
+# remain explicitly pending integration.
+staged_i08_measurement_obligations:
+  owner: E40-F09
+  consumer_activation_owner: E40-F10
+  closure_key: E40-F10-UAT
+  contract_test: shared I-08 lifecycle-evaluation contract test TC-067
+  required_fields:
+    - review_value.gates[].elapsed_seconds
+    - review_value.gates[].provider_cost_usd
+    - review_value.gates[].resolution_cost_usd
+    - comparisons[].comparison.time_delta
+    - comparisons[].comparison.cost_delta
+  closure_evidence:
+    - producer_contract_fields_present
+    - production_path_fixture_carries_fields
+    - F10_copies_values_verbatim
+    - F10_noise_band_classification_passes
+  status: pending-integration
+
 # ---------------------------------------------------------------------------
 # Report views (REQ-F-009, ADR-F10-07). `stage_diagnostic` is structurally
 # subordinate to `headline` and MUST NOT be published standalone.

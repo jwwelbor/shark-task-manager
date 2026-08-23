@@ -7,6 +7,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# TC-092 AC-T3 consumes this invocation's actual output. Keep the log only
+# when the caller supplied RUN_ALL_LOG; otherwise it is an ephemeral quality
+# gate artifact.
+if [[ -n "${RUN_ALL_LOG:-}" ]]; then
+	RUN_LOG="$RUN_ALL_LOG"
+	: >"$RUN_LOG"
+	KEEP_RUN_LOG=1
+else
+	RUN_LOG="$(mktemp)"
+	KEEP_RUN_LOG=0
+fi
+cleanup_run_log() {
+	if [[ "$KEEP_RUN_LOG" -eq 0 ]]; then
+		rm -f "$RUN_LOG"
+	fi
+}
+trap cleanup_run_log EXIT
+exec > >(tee "$RUN_LOG") 2>&1
+
 tests=(
 	"$SCRIPT_DIR/tc003_clean_checkout_test.sh"
 	"$SCRIPT_DIR/tc004_admit_full_set_test.sh"
@@ -83,7 +102,9 @@ tests=(
 	"$SCRIPT_DIR/tc089_phase_separation_test.sh"
 	"$SCRIPT_DIR/tc090_offline_determinism_and_scale_test.sh"
 	"$SCRIPT_DIR/tc091_static_safety_language_neutrality_test.sh"
-	"$SCRIPT_DIR/tc092_full-regression-registration_test.sh"
+	# tc092_full-regression-registration_test.sh runs below, after this log
+	# contains every pre-F10 test's output.
+	"$SCRIPT_DIR/tc093_digest_authority_test.sh"
 )
 
 status=0
@@ -98,5 +119,12 @@ for t in "${tests[@]}"; do
 	fi
 	echo
 done
+
+if TC092_RUN_LOG="$RUN_LOG" "$SCRIPT_DIR/tc092_full-regression-registration_test.sh"; then
+	echo "PASS: tc092_full-regression-registration_test.sh"
+else
+	echo "FAIL: tc092_full-regression-registration_test.sh" >&2
+	status=1
+fi
 
 exit "$status"

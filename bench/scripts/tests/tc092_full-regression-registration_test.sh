@@ -13,10 +13,7 @@
 #     supplies TC092_RUN_LOG pointing at a log already captured from a
 #     separate, real `run-all.sh` invocation (see bench/README.md's
 #     "Full regression verification" section for the two-step sequence).
-#     Without it, this test still passes (it is one line item inside the
-#     very run-all.sh invocation that would produce that log) but prints an
-#     explicit, unambiguous notice that AC-T3 was not exercised -- never a
-#     silent, unqualified PASS that could be mistaken for full coverage.
+#     Without it, this test fails: AC-T3 is a required quality-gate check.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_ALL="$SCRIPT_DIR/run-all.sh"
@@ -105,15 +102,15 @@ if [[ -n "${TC092_RUN_LOG:-}" ]]; then
 	[[ "$fail" -eq 0 ]] || exit 1
 	echo "TC-092: AC-T3 pass (every pre-F10 test's own marker AND run-all.sh's wrapper PASS line present in $TC092_RUN_LOG)"
 else
-	echo "TC-092: AC-T3 NOT EXERCISED in this invocation (no TC092_RUN_LOG supplied)." >&2
-	echo "TC-092: re-run with TC092_RUN_LOG=<captured run-all.sh output> to verify AC-T3; see bench/README.md." >&2
+	echo "TC-092: AC-T3 FAIL - TC092_RUN_LOG was not supplied; captured full-regression evidence is required." >&2
+	exit 1
 fi
 
 # --- TC-078 through TC-092 registered in run-all.sh, deterministic order ---
 # TC-078 is the Go contract test (tests/contracts/e40_f10_operator_baseline_contract_test.go),
 # run under `make test`, not a bench/scripts/tests/tc0NN_*.sh entry -- REQ-F-018's schema
 # validator has no shell counterpart registered here (architecture.md Component-changes row).
-for id in 079 080 081 082 083 084 085 086 087 088 089 090 091 092; do
+for id in 079 080 081 082 083 084 085 086 087 088 089 090 091 092 093; do
 	grep -q "tc${id}_" "$RUN_ALL" || { echo "TC-092: TC-${id} not registered in run-all.sh" >&2; exit 1; }
 done
 echo "TC-092: complete F10 suite (TC-079 through TC-092) registered in run-all.sh"

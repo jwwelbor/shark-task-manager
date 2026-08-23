@@ -7,7 +7,11 @@
 # exact Input file list: run-lifecycle-batch.sh, run-review-comparison.sh,
 # pilot-ledger.sh, verify-retention-root.sh, aggregate-lifecycle.sh,
 # report-lifecycle.sh, lib/spend-gate.sh, and
-# bench/reports/lifecycle-baseline-schema.yaml.
+# bench/reports/lifecycle-baseline-schema.yaml. The shared retention and
+# validation helpers are included as well: retain_pair writes retained
+# artifacts, path-safety.sh owns containment checks, and
+# verify_pair_retention validates the published root. Omitting those helpers
+# would leave the production write/read boundary outside this static gate.
 #
 #   AC-T1 -- all four scans (a)-(d) report an explicit zero-match count
 #            with the scanned file list enumerated.
@@ -48,6 +52,9 @@ FILES=(
 	"$BENCH_DIR/scripts/aggregate-lifecycle.sh"
 	"$BENCH_DIR/scripts/report-lifecycle.sh"
 	"$BENCH_DIR/scripts/lib/spend-gate.sh"
+	"$BENCH_DIR/scripts/lib/retain_pair"
+	"$BENCH_DIR/scripts/lib/path-safety.sh"
+	"$BENCH_DIR/scripts/lib/verify_pair_retention"
 	"$BENCH_DIR/reports/lifecycle-baseline-schema.yaml"
 )
 
@@ -143,4 +150,4 @@ grep -q "not the retention root" /tmp/tc091-negative.err || fail "AC-T2 negative
 
 rm -f /tmp/tc091-positive.out /tmp/tc091-negative.out /tmp/tc091-negative.err
 
-echo "TC-091 PASS: all four static scans report zero violations over the enumerated F10 file set (AC-T1); scan (a) correctly traces a two-statement concatenation chain both to the retention root (positive fixture) and away from it (negative fixture, AC-T2)"
+echo "TC-091 PASS: all four static scans report zero violations over the complete enumerated F10 production file set (AC-T1); scan (a) correctly traces a two-statement concatenation chain both to the retention root (positive fixture) and away from it (negative fixture, AC-T2)"

@@ -139,6 +139,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+export F10_DIGEST_HELPER="$SCRIPT_DIR/lib/digest_path"
 
 # TD-077 defect-class precedent (sibling path, never bare PATH resolution;
 # matches run-lifecycle-batch.sh's RUN_LIFECYCLE_BIN/EVALUATE_LIFECYCLE_BIN
@@ -285,6 +286,7 @@ if [[ -s "$PENDING" ]]; then
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -312,43 +314,12 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def digest_of_path(path):
-    # Implements bench/reports/lifecycle-baseline-schema.yaml's digest_rules
-    # (algorithm/encoding/canonicalization/file_encoding) AND
-    # digest_rules.empty_artifact_semantics (code-review-2026-08-20T2138-
-    # E40-F10.md findings 1 and 7 -- the schema's `digest_rules
-    # .empty_artifact_semantics` field is the single canonical rule; every
-    # digest_of_path re-implementation in this codebase, including this one,
-    # MUST follow it, not merely "mirror" another file's copy by convention):
-    # file_encoding: sha256_raw_bytes for a single file; canonicalization:
-    # compact_json_sorted_keys_utf8 over the sorted {path, sha256} list of
-    # every file for a directory. An existing-but-empty directory (zero
-    # files) still digests to a real, deterministic value -- the
-    # canonicalization of an empty list -- rather than being treated as
-    # missing; None is reserved for "path does not exist on disk at all".
-    # This function already implemented that correctly; only the "mirrors
-    # pilot-ledger.sh" phrasing here was stale (pilot-ledger.sh's round-1
-    # fix for finding 3 temporarily diverged from this rule, then was
-    # corrected back to it in its own T-E40-F10-004/006 rework).
-    if os.path.isdir(path):
-        entries = []
-        for root, dirs, files in os.walk(path):
-            dirs.sort()
-            if any(os.path.islink(os.path.join(root, dirname)) for dirname in dirs):
-                return None
-            for fname in sorted(files):
-                fpath = os.path.join(root, fname)
-                if os.path.islink(fpath):
-                    return None
-                relpath = os.path.relpath(fpath, path).replace(os.sep, "/")
-                with open(fpath, "rb") as fh:
-                    entries.append({"path": relpath, "sha256": sha256_bytes(fh.read())})
-        entries.sort(key=lambda e: e["path"])
-        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return sha256_bytes(canonical)
-    if os.path.isfile(path):
-        with open(path, "rb") as fh:
-            return sha256_bytes(fh.read())
-    return None
+    result = subprocess.run(
+        [sys.executable, os.environ["F10_DIGEST_HELPER"], path],
+        capture_output=True, text=True, check=False,
+    )
+    digest = result.stdout.strip()
+    return digest if result.returncode == 0 and digest else None
 
 
 def symlink_in_path(path):
@@ -417,6 +388,13 @@ with open(pending_path, encoding="utf-8") as f:
 
 for scenario_id, rep, rep_dir in pairs:
     failures = []
+    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", scenario_id):
+        failures.append({"artifact": "retention_directory", "reason": "schema_invalid", "detail": "scenario directory name is not lowercase-kebab"})
+    if not re.fullmatch(r"[0-9]+", rep):
+        failures.append({"artifact": "retention_directory", "reason": "schema_invalid", "detail": "rep directory name is not a non-negative integer"})
+        print(json.dumps({"scenario_id": scenario_id, "rep": rep, "verdict": "fail", "failures": failures}, sort_keys=True, separators=(",", ":")))
+        overall_fail = True
+        continue
     if symlink_in_path(rep_dir):
         failures.append({"artifact": "retention_directory", "reason": "schema_invalid", "detail": "retention paths must not contain symlinks"})
     for required_name in REQUIRED_ARTIFACTS_WITH_SOURCE + ["manifest.json"]:

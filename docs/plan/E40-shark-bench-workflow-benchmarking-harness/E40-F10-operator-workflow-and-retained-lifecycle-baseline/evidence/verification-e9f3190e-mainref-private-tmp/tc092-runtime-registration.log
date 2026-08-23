@@ -1,0 +1,7 @@
+2026-08-23T02:37:39Z
+e9f3190e5072663adcdb1a23491a42a6352ffc86
+TC-092: AC-T2 pass (62 pre-F10 tests present in run-all.sh, relative order unchanged)
+TC-092: every pre-F10 test still declares a discoverable pass marker
+TC-092: AC-T3 pass (every pre-F10 test's own marker AND run-all.sh's wrapper PASS line present in /tmp/e40-prepared-run-all-private-tmp.log)
+TC-092: complete F10 suite (TC-079 through TC-092) registered in run-all.sh
+TC-092: F01-F09 and complete F10 registration pass

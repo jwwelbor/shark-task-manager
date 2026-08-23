@@ -1,0 +1,22 @@
+TC-092: AC-T2 pass (62 pre-F10 tests present in run-all.sh, relative order unchanged)
+TC-092: every pre-F10 test still declares a discoverable pass marker
+TC-092: AC-T3 FAIL - tc004_admit_full_set_test.sh's own pass marker not found in captured run output: TC-004: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc004_admit_full_set_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc005_admit_rejection_branches_test.sh's own pass marker not found in captured run output: TC-005: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc005_admit_rejection_branches_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc006_admit_reproducibility_test.sh's own pass marker not found in captured run output: TC-006: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc006_admit_reproducibility_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc007_ledger_reproducibility_test.sh's own pass marker not found in captured run output: TC-007: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc007_ledger_reproducibility_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc008_lint_position_shift_test.sh's own pass marker not found in captured run output: TC-008: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc008_lint_position_shift_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc013_admit_offline_test.sh's own pass marker not found in captured run output: TC-013: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc013_admit_offline_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc014_run_one_smoke_test.sh's own pass marker not found in captured run output: TC-014: all sub-cases PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc014_run_one_smoke_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc031_adapter_conformance_test.sh's own pass marker not found in captured run output: TC-031: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc031_adapter_conformance_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc037_repo_hygiene_test.sh's own pass marker not found in captured run output: TC-037: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc037_repo_hygiene_test.sh' not found in captured run output
+TC-092: AC-T3 FAIL - tc038_frozen_interface_test.sh's own pass marker not found in captured run output: TC-038: PASS
+TC-092: AC-T3 FAIL - run-all.sh wrapper line 'PASS: tc038_frozen_interface_test.sh' not found in captured run output

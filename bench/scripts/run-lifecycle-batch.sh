@@ -304,11 +304,13 @@ set +e
 python3 - "$BENCH_DIR" "$batch_policy" "$scenarios_filter" "$reps_flag" >"$MATRIX_TMP" <<'PYEOF'
 import json
 import os
+import re
 import sys
 
 import yaml
 
 bench_dir, batch_policy_path, scenarios_filter, reps_override = sys.argv[1:5]
+SCENARIO_ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 # GATE_REP_BASE mirrors the bash-level constant above and run-review-
 # comparison.sh's own reserved gate-rep band (code-review-2026-08-21T0459-
@@ -331,6 +333,27 @@ def check_reps_bound(value, label):
         raise SystemExit(1)
 
 
+def positive_integer(value, label):
+    if isinstance(value, bool):
+        valid = False
+    elif isinstance(value, int):
+        valid = True
+    elif isinstance(value, float):
+        valid = value.is_integer()
+    elif isinstance(value, str):
+        valid = value.isdecimal()
+    else:
+        valid = False
+    if not valid:
+        print(f"run-lifecycle-batch: {label} must be a positive integer, got {value!r}", file=sys.stderr)
+        raise SystemExit(1)
+    parsed = int(value)
+    if parsed < 1:
+        print(f"run-lifecycle-batch: {label} must be a positive integer, got {value!r}", file=sys.stderr)
+        raise SystemExit(1)
+    return parsed
+
+
 with open(batch_policy_path) as f:
     policy = yaml.safe_load(f) or {}
 if not isinstance(policy, dict):
@@ -338,13 +361,7 @@ if not isinstance(policy, dict):
     raise SystemExit(1)
 
 min_reps_raw = policy.get("min_reps", 1)
-try:
-    min_reps = int(min_reps_raw)
-    if min_reps < 1:
-        raise ValueError
-except (TypeError, ValueError):
-    print(f"run-lifecycle-batch: batch policy min_reps must be a positive integer, got {min_reps_raw!r}", file=sys.stderr)
-    raise SystemExit(1)
+min_reps = positive_integer(min_reps_raw, "batch policy min_reps")
 check_reps_bound(min_reps, "batch policy min_reps")
 
 scenario_index_field = policy.get("scenario_index") or "scenarios/scenarios.yaml"
@@ -373,6 +390,9 @@ for rel in scenario_dirs:
     if not scenario_id:
         print(f"run-lifecycle-batch: scenario package missing scenario_id: {pkg_path}", file=sys.stderr)
         raise SystemExit(1)
+    if not SCENARIO_ID_PATTERN.fullmatch(scenario_id):
+        print(f"run-lifecycle-batch: scenario package has unsafe scenario_id: {scenario_id!r}", file=sys.stderr)
+        raise SystemExit(1)
     packages.append((scenario_id, pkg_path, pkg))
 
 requested_ids = [s for s in scenarios_filter.split(",") if s] if scenarios_filter else []
@@ -395,7 +415,8 @@ if not isinstance(policy_scenarios, dict):
 
 reps_override_val = None
 if reps_override:
-    reps_override_val = int(reps_override)
+    reps_override_val = positive_integer(reps_override, "--reps")
+    check_reps_bound(reps_override_val, "--reps")
 
 rows = []
 for scenario_id, pkg_path, pkg in selected:
@@ -409,13 +430,7 @@ for scenario_id, pkg_path, pkg in selected:
         reps = reps_override_val
     else:
         reps_raw = entry.get("reps", min_reps)
-        try:
-            reps = int(reps_raw)
-            if reps < 1:
-                raise ValueError
-        except (TypeError, ValueError):
-            print(f"run-lifecycle-batch: scenarios.{scenario_id}.reps must be a positive integer, got {reps_raw!r}", file=sys.stderr)
-            raise SystemExit(1)
+        reps = positive_integer(reps_raw, f"scenarios.{scenario_id}.reps")
         check_reps_bound(reps, f"scenarios.{scenario_id}.reps")
     root_key = str(entry.get("root_key") or "")
     scratch_root = str(entry.get("scratch_root") or "")
@@ -846,6 +861,8 @@ try:
     manifest = json.load(open(path))
 except Exception:
     sys.exit(1)
+if not isinstance(manifest, dict):
+    sys.exit(1)
 sys.exit(0 if (str(manifest.get("scenario_id", "")) == scenario_id and str(manifest.get("rep", "")) == rep) else 1)
 ' "$scenario_id" "$rep" "$dir/manifest.json"
 }
@@ -1165,6 +1182,12 @@ with open(batch_policy_path, "rb") as f:
 # operator input.
 policy_for_min_reps = yaml.safe_load(policy_bytes) or {}
 min_reps_raw = policy_for_min_reps.get("min_reps", 1) if isinstance(policy_for_min_reps, dict) else 1
+if isinstance(min_reps_raw, bool) or not isinstance(min_reps_raw, (int, float, str)):
+    print(f"run-lifecycle-batch: batch policy min_reps must be a positive integer, got {min_reps_raw!r}", file=sys.stderr)
+    raise SystemExit(1)
+if isinstance(min_reps_raw, float) and not min_reps_raw.is_integer():
+    print(f"run-lifecycle-batch: batch policy min_reps must be a positive integer, got {min_reps_raw!r}", file=sys.stderr)
+    raise SystemExit(1)
 try:
     min_reps = int(min_reps_raw)
     if min_reps < 1:
