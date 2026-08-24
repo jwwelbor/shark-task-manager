@@ -297,7 +297,15 @@ scratch_dir="$("$REPO_ROOT/scripts/shark-scratch-env.sh" "bench-$item_id")"
 	exit 1
 }
 
+
+# EXIT traps are inherited before a newly forked child executes its first
+# statement. A child can therefore be cancelled before an in-child
+# `trap - EXIT` reset runs. Bind destructive cleanup to this top-level Bash
+# process so no inherited trap can remove scratch while its parent still
+# needs the checkout for post-run evidence.
+cleanup_owner_pid="$BASHPID"
 cleanup_scratch() {
+	[[ "$BASHPID" == "$cleanup_owner_pid" ]] || return 0
 	if [[ "$keep_scratch" != "true" && -d "$scratch_dir" ]]; then
 		rm -rf "$scratch_dir"
 	fi
@@ -432,6 +440,11 @@ stderr_file="$run_dir/run/stderr.ndjson"
 t0_ns="$(date +%s%N)"
 
 (
+	# This child must never own the parent-only scratch cleanup. Bash child
+	# shells inherit EXIT traps; if cd/exec fails before setsid replaces this
+	# shell, the inherited trap would otherwise remove scratch while the
+	# parent is still collecting the failed invocation.
+	trap - EXIT
 	cd "$scratch_dir"
 	exec setsid "$SHARK_BIN" run "$seeded_entity_key" --json --workdir "$checkout_dir"
 ) >"$stdout_file" 2>"$stderr_file" </dev/null &
@@ -453,6 +466,10 @@ fi
 
 timed_out_marker="$(mktemp -u "${TMPDIR:-/tmp}/run-one-timedout-XXXXXX")"
 (
+	# The watchdog is a child shell, not a cleanup owner. Without this reset,
+	# cancelling a live watchdog runs the inherited cleanup_scratch EXIT trap
+	# and races the parent's post-run reads of the checkout.
+	trap - EXIT
 	sleep "$timeout_s"
 	: >"$timed_out_marker"
 	kill -TERM -"$pgid" 2>/dev/null || true

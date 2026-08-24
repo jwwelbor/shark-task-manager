@@ -1679,11 +1679,262 @@ this section as a reader's map to that schema and to
 `tests/contracts/e40_f10_operator_baseline_contract_test.go` (TC-078), not a
 substitute for either.
 
+### Run a baseline and controlled variant
+
+Use `e40-benchmark.sh` for the normal lifecycle-v2 operator path. The command
+creates an isolated local Shark project, prepares F10 batch policies, records
+experiment manifests, delegates provider-backed work to
+`run-lifecycle-batch.sh`, and renders a paired report from F10 aggregates. It
+does not replace the F05–F10 validators, spend gate, evaluator, retention
+layout, aggregator, or noise-band derivation.
+Provider-backed execution always invokes that repository-owned F10 driver;
+environment variables cannot replace it after spend acknowledgement or bypass
+its cap enforcement.
+
+Prepare an operator root outside this repository, then run the no-spend
+preflight:
+
+```bash
+make shark
+
+E40_ROOT=/tmp/e40-prompt-comparison
+bench/scripts/e40-benchmark.sh setup --out "$E40_ROOT"
+bench/scripts/e40-benchmark.sh preflight \
+  --config "$E40_ROOT/e40-demo.yaml"
+```
+
+`setup` initializes a local SQLite Shark project on a minimal local `main`
+checkout, installs Shark data, and seeds one feature, bug, change card, and
+tech-debt root. It writes `setup-result.json` and `e40-demo.yaml` under the
+operator root. The setup result records the Shark binary, content, prompt,
+workflow, enabled-gate, scenario-package, fixture, adapter, toolchain, and
+provider/model/effort route identities. It never reads or writes the
+repository's `shark-tasks.db`.
+
+`preflight` delegates to F10 preview mode and writes inspectable inputs under
+`$E40_ROOT/preflight/baseline/`. It makes zero provider calls. Read
+`preflight-result.json`, `batch-policy.yaml`, and `preview.txt` before you
+continue. The result uses `pass_with_dry_run_limitations` when F08's offline
+worker reaches a workflow transition that requires a real worker-produced
+artifact; it records the count and reason instead of hiding the limitation.
+The preflight pins the repository's batch and lifecycle helpers, strips
+provider/runtime executable overrides, and reads the setup-recorded Shark
+identity without invoking a config-selected binary. A changed `shark_binary`
+path or digest is refused before preview starts.
+
+The generated config is intentionally not provider-ready. A real run still
+needs both of these inputs:
+
+- Set `runtime.lifecycle_adapter` to an executable that accepts F08 lifecycle
+  requests on standard input and returns the documented worker result.
+- Set each `scenario_roots.<scenario-id>.i05_bundle_dir` to run-matched I-05
+  stage evidence. A directory that merely exists is not sufficient; the F09
+  evaluator rejects evidence whose run and dispatch identity do not match.
+
+The repository does not currently provide the production authority that
+wires those two inputs together for repeated provider runs. Do not substitute
+fixtures, reuse evidence across repetitions, or present a configured path as
+proof that the caller chain exists.
+
+Every provider-backed manifest binds the lifecycle-adapter path and bytes,
+the provider-command digest, and each selected scenario's I-05 path and tree
+digest. It also binds the complete config bytes. A resume recomputes this
+execution-input identity and refuses before invoking the batch driver if any
+of those inputs changed.
+Every selected scenario's `scratch_root` must also equal the setup-recorded
+baseline scratch template or the named variant's digest-valid, validated
+derivative. Repository-contained paths, symlink chains, and any other
+config-selected scratch tree are refused before batch-policy publication and
+provider dispatch.
+
+After you supply those inputs, use one run ID and retention root for the pilot
+and its promoted baseline. F10 stores pilot attestations in the retention
+root, so changing the run ID between these steps loses the publication gate:
+
+```bash
+BASELINE_ID=baseline-prompt-v1
+
+bench/scripts/e40-benchmark.sh pilot \
+  --config "$E40_ROOT/e40-demo.yaml" \
+  --run-id "$BASELINE_ID" \
+  --reps 1 \
+  --acknowledge-provider-spend \
+  --max-cost-usd 5 \
+  --max-wall-clock-seconds 900 \
+  --max-generated-tasks 20
+```
+
+Inspect one retained pilot from every selected family. Record and verify the
+four family attestations against the same root:
+
+```bash
+BASELINE_ROOT="$E40_ROOT/runs/$BASELINE_ID"
+
+bench/scripts/pilot-ledger.sh --retention-root "$BASELINE_ROOT" \
+  --record --scenario <scenario-id> --rep 1 \
+  --operator <operator-identity> --checklist <checklist.json>
+
+bench/scripts/pilot-ledger.sh --retention-root "$BASELINE_ROOT" --verify
+```
+
+Promote that root to a repeated baseline. The operator keeps
+`pilot-benchmark-manifest.json` separate and writes the comparison-eligible
+identity to `benchmark-manifest.json`:
+
+```bash
+bench/scripts/e40-benchmark.sh baseline \
+  --config "$E40_ROOT/e40-demo.yaml" \
+  --run-id "$BASELINE_ID" \
+  --reps 3 \
+  --acknowledge-provider-spend \
+  --max-cost-usd 15 \
+  --max-wall-clock-seconds 2700 \
+  --max-generated-tasks 60
+```
+
+Create a versioned prompt directory, then validate its copied overlay before
+running it. `validate-variant` records both the requested source digest and
+the resulting installed prompt digest. It refuses an unchanged prompt unless
+you explicitly request an identical control, and it refuses to reuse a
+variant name for different source bytes:
+
+```bash
+bench/scripts/e40-benchmark.sh validate-variant \
+  --config "$E40_ROOT/e40-demo.yaml" \
+  --variant-name prompt-v2 \
+  --prompt-root /path/to/prompt-v2
+
+python3 -m json.tool \
+  "$E40_ROOT/variants/prompt-v2/variant-definition.json"
+```
+
+To change a provider, model, or effort, copy and edit the applicable workflow
+bundle and pass it with `--workflow-root`. The operator derives those axes
+from the installed workflow routes. It does not accept a metadata-only model
+label that could diverge from the workflow Shark dispatches.
+
+Pilot, attest, and promote the variant with the same variant run ID:
+
+```bash
+VARIANT_ID=prompt-v2-run
+
+bench/scripts/e40-benchmark.sh pilot \
+  --config "$E40_ROOT/e40-demo.yaml" \
+  --variant-name prompt-v2 \
+  --run-id "$VARIANT_ID" \
+  --reps 1 \
+  --acknowledge-provider-spend \
+  --max-cost-usd 5 \
+  --max-wall-clock-seconds 900 \
+  --max-generated-tasks 20
+
+# Inspect and attest every selected family under
+# "$E40_ROOT/runs/$VARIANT_ID", then verify the pilot ledger.
+
+bench/scripts/e40-benchmark.sh variant \
+  --config "$E40_ROOT/e40-demo.yaml" \
+  --variant-name prompt-v2 \
+  --run-id "$VARIANT_ID" \
+  --reps 3 \
+  --acknowledge-provider-spend \
+  --max-cost-usd 15 \
+  --max-wall-clock-seconds 2700 \
+  --max-generated-tasks 60
+```
+
+Compare only after both roots contain a verified `aggregate.json` and the
+canonical manifest:
+
+```bash
+bench/scripts/e40-benchmark.sh compare \
+  --baseline "$E40_ROOT/runs/$BASELINE_ID" \
+  --variant "$E40_ROOT/runs/$VARIANT_ID" \
+  --out "$E40_ROOT/comparisons/prompt-v2"
+```
+
+The command writes `comparison.json` and `comparison.md`. Both point to the
+two retained raw-evidence roots. The report keeps correctness, invalid runs,
+time partitions, cost, gate findings, artifact use, and replayed-interaction
+proxies separate. It consumes F10's published noise bands instead of deriving
+new bands. It reports input/output tokens, generated LOC, or changed paths as
+`unavailable` when the I-08/F10 aggregate does not expose those rollups. It
+never substitutes zero. A faster or cheaper variant with a failed held-back
+oracle remains a quality regression and cannot be published as better.
+Before interpreting either aggregate, `compare` re-runs the pinned F10
+aggregator against each named retention root and requires an exact match. It
+also binds the aggregate's batch ID, policy digest, ceilings, mode,
+repetitions, acknowledgement, and retention-root identity to the manifest.
+Recorded retention roots are compared as lexical absolute paths and every
+component must still be a real directory; a symlink alias to the genuine root
+cannot launder a changed batch or authority record.
+Each provider-backed attempt writes a digest-bound, immutable record under
+`batch-authorities/<batch-id>.json`; the record binds that batch to the
+canonical manifest and the acknowledged attempt. Existing authority records
+must be regular files opened without following symlinks, so a preplaced
+authority symlink stops the run before it can become publication-eligible.
+During comparison, the recorded attempt path is resolved lexically and every
+parent is opened without following symlinks. A copied, edited, redirected, or
+hand-authored aggregate fails closed with exit `5`.
+The manifest, aggregate, batch identity, batch authority, retained attempt,
+cached comparison, Markdown report, and completion marker all use the same
+descriptor-relative reader. It opens the final file with no-follow semantics,
+requires a stable regular-file inode for the complete read, and revalidates
+the parent path before accepting the bytes; a final-file swap during a read is
+therefore an invalid comparison, never new authority.
+The retained baseline and variant manifests must themselves be regular files;
+a symlinked manifest is never accepted as retained comparison authority.
+Both live derivation and comparison re-aggregation pin the repository-owned
+lifecycle, I-05, and I-07 schemas and ignore aggregation-helper overrides, so
+ambient schema settings cannot change a supposedly identical result.
+
+Repeat the same command and run ID to resume safely. Verified retained pairs
+are skipped, each operator attempt is appended, and completed manifests and
+comparisons are not overwritten. The existing manifest must be a regular file
+with a valid digest and an exact immutable projection; changed config,
+adapter, provider-command, or I-05 evidence bytes stop the resume before any
+provider driver call. Add `--retry-incomplete` to `pilot`,
+`baseline`, or `variant` only after inspection; F10 moves an incomplete pair
+to its quarantine area before rerunning it.
+
+An `already_compared` result is not trusted by filename or input digests
+alone. The operator re-derives the complete comparison, permits only the
+original timestamp to vary, and requires the cached Markdown report to match.
+Missing, edited, extra-field, or symlinked cache content fails closed.
+Cache inspection and publication occur under the same output lock. A
+`comparison.complete.json` marker, written last, binds the JSON and Markdown
+digests; an exact JSON-only or Markdown-only interrupted publication can be
+recovered under that lock, while conflicting partial content is refused.
+All operator-created directory chains are traversed with directory file
+descriptors and no-follow opens. Atomic files are created and renamed relative
+to the validated parent descriptor, with path/inode rechecks before and after
+publication. Symlinked parents such as `operator-attempts/` or `reports/`, and
+a parent swapped to a symlink after validation, are refused without writing to
+the external target.
+Setup and variant staging directories are likewise created under held parent
+descriptors, inode-checked before use, and published by descriptor-relative
+rename. Operator locks retain root and lock descriptors for their lifetime;
+PID reads, writes, stale cleanup, and release never traverse the lexical lock
+path after validation.
+Provider execution also retains the run-root descriptor. The manifest and
+batch policy are read and written relative to it, the policy is handed to the
+driver through the inherited descriptor, and the driver validates the
+lexical retention root against that descriptor before dispatch and final
+publication. The operator repeats the identity check after every delegated
+process and keeps its attempts, authority, derived artifacts, and result on
+descriptor-relative write paths. Replacing the lexical run root therefore
+causes a bounded refusal without redirecting writes into the replacement.
+
+Exit codes are machine-stable at the top level: `0` success, `2` usage or
+invalid input, `3` missing spend acknowledgement or runtime readiness, `4`
+an immutable-output collision or an incomplete driver result, and `5` a
+comparison that was rendered but is not publication-eligible.
+
 ### Operator command set
 
 | Script | Signature |
 |---|---|
-| `run-lifecycle-batch.sh` | `--batch <policy.yaml> --retention-root <root> --mode preview\|pilot\|baseline [--dry-run] [--acknowledge-provider-spend] [--max-cost-usd <n>] [--max-wall-clock-seconds <n>] [--max-generated-tasks <n>] [--reps <n>] [--scenarios <id[,id...]>] [--reclaim-incomplete]` |
+| `e40-benchmark.sh` | `setup\|preflight\|validate-variant\|pilot\|baseline\|variant\|compare\|demo` — safe top-level preparation, identity, delegation, and paired reporting |
+| `run-lifecycle-batch.sh` | `--batch <policy.yaml> --retention-root <root> [--retention-root-fd <operator-inherited-fd>] --mode preview\|pilot\|baseline [--dry-run] [--acknowledge-provider-spend] [--max-cost-usd <n>] [--max-wall-clock-seconds <n>] [--max-generated-tasks <n>] [--reps <n>] [--scenarios <id[,id...]>] [--reclaim-incomplete]` |
 | `run-review-comparison.sh` | `--candidate <candidate.yaml> --retention-root <root> --mode preview\|pilot\|baseline --comparison-mode independent_frozen_candidate\|sequential_delivery [--acknowledge-provider-spend] [ceiling flags]` |
 | `pilot-ledger.sh` | `--retention-root <root> --record --scenario <id> --rep <n> --operator <identity> --checklist <checklist.json>` or `--retention-root <root> --verify [--family <f>]` |
 | `verify-retention-root.sh` | `--retention-root <root> --schema bench/reports/lifecycle-baseline-schema.yaml` |

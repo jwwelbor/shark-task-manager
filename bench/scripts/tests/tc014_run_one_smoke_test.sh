@@ -680,6 +680,28 @@ PYEOF
 	echo "TC-014k PASS"
 }
 
+# TC-014l: background child shells must not inherit ownership of the scratch
+# cleanup trap. Holding the stubbed run open gives the watchdog time to enter
+# its sleep before the parent cancels it. A watchdog with the inherited EXIT
+# trap deterministically removes the checkout before post-run collection.
+test_l() {
+	local out_dir="$WORKDIR/l-out"
+	grep -qF 'cleanup_owner_pid="$BASHPID"' "$RUN_ONE" ||
+		fail "l: cleanup owner is not bound to the top-level Bash process"
+	grep -qF '[[ "$BASHPID" == "$cleanup_owner_pid" ]] || return 0' "$RUN_ONE" ||
+		fail "l: inherited EXIT traps are not structurally barred from scratch cleanup"
+	[[ "$(grep -c $'^\ttrap - EXIT$' "$RUN_ONE")" -eq 2 ]] ||
+		fail "l: invoke child and watchdog must each cancel the inherited EXIT trap"
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_SHARK_RUN_DELAY_SECONDS=0.2 \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$out_dir" --corpus "$CORPUS_YAML" --skip-canary \
+		</dev/null >"$WORKDIR/l.out" 2>"$WORKDIR/l.err" ||
+		fail "l: cancelled watchdog removed parent-owned scratch state: $(cat "$WORKDIR/l.err")"
+	local record="$out_dir/cart-remove-item-last-match/default/rep-1/record.jsonl"
+	[[ -f "$record" ]] || fail "l: watchdog-safe run did not produce record.jsonl"
+	echo "TC-014l PASS"
+}
+
 test_a
 test_b
 test_c
@@ -691,5 +713,6 @@ test_h
 test_i
 test_j
 test_k
+test_l
 
 echo "TC-014: all sub-cases PASS"
