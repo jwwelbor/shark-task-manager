@@ -94,6 +94,10 @@ The dependency graph is stored in Shark and mirrored in
 
 - Epic workflow ordering
 - `gpt-5.6-sol` review model assignments
+- Sprint planning-to-active routing only if the owner re-ratifies removal of
+  the canonical sprint research step; otherwise remove that override
+- A versioned home for every retained WWGM policy; the currently ignored
+  generated `shark-data/` tree is not durable project configuration
 - Method-length and test-selection implementations
 - Test database environment setup and unexpected-skip policy
 - Application coding standards, lint rules, and a thin root `AGENTS.md`
@@ -102,8 +106,12 @@ The dependency graph is stored in Shark and mirrored in
 
 - Remove prompt and UAT rubric overrides once the promoted behavior ships and
   no local delta remains.
-- Rebuild retained workflow overrides from the post-F08 canonical files so
-  new steps, including `integration_review`, are not masked.
+- Rebuild every retained workflow override from the post-F08 canonical files
+  so new steps, including `integration_review`, are not masked. The newer
+  sprint workflow override must be explicitly retained or removed rather than
+  inherited accidentally.
+- Move or explicitly unignore retained WWGM policy so a fresh clone plus Shark
+  deployment reproduces it.
 - Use drift status and I-05 to prove the action for every path. Do not infer
   safety from file age or a successful `shark admin upgrade` alone.
 

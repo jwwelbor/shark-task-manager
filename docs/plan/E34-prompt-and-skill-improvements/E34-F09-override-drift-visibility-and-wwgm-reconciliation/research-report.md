@@ -40,8 +40,10 @@ WWGM or merge override content.
 | Stable digests | prompt SHA-256 contracts elsewhere in Shark | REUSE | Compare bytes without emitting content. |
 | Override drift status | No command or service exists | NEW | Add five-state classification with deterministic JSON. |
 | Baseline acknowledgement | No provenance mechanism exists | NEW | Record current canonical digest only after explicit reconciliation. |
-| Reusable WWGM gate semantics | approval/rubric/epic review overrides | PROMOTE | Assign to F06–F08 and prove canonical coverage before removal. |
-| WWGM workflow/model policy | workflow override diffs | RETAIN LOCAL | Rebase on new canonical YAML, preserving order and Sol assignments. |
+| Reusable WWGM gate semantics | approval/UAT/rubric/epic review overrides | PROMOTE | Assign to F06–F08 and prove canonical coverage before removal. |
+| WWGM workflow/model policy | epic/feature workflow override diffs | RETAIN LOCAL | Rebase on new canonical YAML, preserving order and Sol assignments. |
+| WWGM sprint routing policy | sprint workflow override diff | DECIDE LOCALLY | Re-ratify planning-to-active routing; remove or rebase, but do not promote automatically. |
+| Retained-policy durability | WWGM `.gitignore` excludes `shark-data/` | FIX LOCALLY | Give retained policy a tracked home or explicit unignore rule so fresh clones reproduce it. |
 | WWGM application safeguards | E04 proposal P1/P4/P5 | RETAIN LOCAL | Track in one WWGM item; do not place project commands in Shark defaults. |
 
 ## Findings
@@ -59,9 +61,11 @@ WWGM or merge override content.
    YAML. Read-only classification plus explicit operator reconciliation is the
    correct authority boundary.
 
-4. WWGM contains both reusable improvements and real local policy. Treating the
-   whole tree as either “upstream all” or “delete all” would be wrong. The
-   path-by-path matrix preserves the distinction.
+4. WWGM contains both reusable improvements and real local policy. The live
+   inventory is ten overrides, including the later UAT skill and sprint
+   workflow additions. Treating the whole tree as either “upstream all” or
+   “delete all” would be wrong. The path-by-path matrix preserves the
+   distinction.
 
 5. CC-007 and CC-008 already track tier-artifact and staged/disposition gaps.
    F09 must link or resolve them through the single WWGM adoption item rather
@@ -70,6 +74,10 @@ WWGM or merge override content.
 6. The proposed `rules.py` and editor hook have only one-project evidence.
    A thin WWGM `AGENTS.md` and project-local deterministic guards address the
    observed channel gap without prematurely adding general Shark machinery.
+
+7. Upgrade preservation is not source-control durability. WWGM ignores the
+   full generated `shark-data/` tree, so any workflow override retained after
+   reconciliation must move to a tracked path or be explicitly unignored.
 
 ## Decisions
 

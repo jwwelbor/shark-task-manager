@@ -16,9 +16,10 @@ description: Expose canonical-versus-override drift through Shark administration
 Shark overrides fully replace canonical bundle files and survive upgrades, but
 `shark admin upgrade` only reports that it skipped them. An operator cannot
 tell whether an override still matches its canonical baseline, hides upstream
-changes, duplicates the default, or has lost its counterpart. WWGM now has
-eight overrides: several contain reusable fixes, several mask newer canonical
-content, and two workflow files intentionally carry project policy.
+changes, duplicates the default, or has lost its counterpart. The 2026-08-24
+reconciliation found ten WWGM overrides: seven prompt/skill files contain
+reusable or stale policy, while three workflow files carry or may carry
+project-specific routing/model decisions.
 
 ### Solution
 
@@ -44,18 +45,25 @@ customized configurations from a known baseline.
 - Resolution is replace-only: an override at a relative path fully masks the
   canonical file. Therefore a small local amendment can hide unrelated future
   improvements in that file.
-- WWGM's approval and UAT rubric overrides contain reusable tier, staged-edge,
-  and disposition behavior. Its epic review adds a reusable deferred-consumer
-  rule. Those changes should move upstream through E34-F06–F08.
+- WWGM's approval, UAT skill, and UAT rubric overrides contain reusable tier,
+  staged-edge, and disposition behavior. Its epic review adds a reusable
+  deferred-consumer rule. Those changes should move upstream through
+  E34-F06–F08.
 - WWGM's code-review, task-review, development, and epic-review overrides are
-  behind the current canonical staged-integration content. Its workflow
-  overrides only differ intentionally in epic order and `gpt-5.6-sol` model
-  assignments, but whole-file replacement will also hide E34-F08's future
-  integration step.
+  behind the current canonical staged-integration content. The epic and
+  feature workflow overrides carry intentional epic order and `gpt-5.6-sol`
+  model assignments. The newer sprint workflow override also removes the
+  canonical research step; that routing change needs explicit owner
+  re-ratification rather than automatic upstream promotion. Every whole-file
+  workflow replacement can hide later canonical steps.
 - WWGM lacks a root `AGENTS.md` and the deterministic project checks proposed
   for method length, test selection, test database setup, unexpected skips,
   standards, and bare-assert linting. These are WWGM adoption work, not generic
   Shark bundle commands.
+- WWGM currently ignores the entire generated `shark-data/` tree, including
+  `overrides/`. Any retained workflow policy therefore needs an explicitly
+  versioned home or unignore rule; local preservation across one upgrade is
+  not sufficient recovery evidence for a fresh clone.
 
 ## Override status contract
 
@@ -127,8 +135,13 @@ bounded suggested action. Summary counts use the same classification keys.
    - Remove prompt and skill overrides whose behavior is fully canonical;
      rebase any retained amendment on the new full canonical file.
    - Retain WWGM's intentional epic workflow ordering and `gpt-5.6-sol` model
-     assignments, but rebuild both workflow overrides so they include new
+     assignments, but rebuild those workflow overrides so they include new
      canonical steps and fields.
+   - Re-ratify the sprint workflow's planning-to-active routing. Remove the
+     override if WWGM should use canonical sprint research; otherwise rebuild
+     it from the current canonical workflow and record the local decision.
+   - Make every retained WWGM policy reproducible from version control rather
+     than relying on the ignored generated `shark-data/` tree.
    - Add WWGM-local exact method-length and test-selection checks, test database
      setup, unexpected-skip enforcement, architecture standards, bare-assert
      lint guard, and a thin root `AGENTS.md` that points to canonical project
@@ -176,8 +189,10 @@ bounded suggested action. Summary counts use the same classification keys.
 | `prompts/feature/code_review.md` | Promote SIMPLE-lite/tier behavior through F08, then remove the stale full replacement. |
 | `prompts/feature/task_review.md` | Promote SIMPLE-lite behavior and F07 naming checks, then remove the stale full replacement. |
 | `prompts/task/development.md` | Promote generic tier and defect-sweep behavior through F06/F08; keep WWGM commands in project guidance, then remove. |
+| `skills/uat/SKILL.md` | Promote the generic undecomposed-producer feature-gate accommodation through F07/F08 without weakening the live-wiring/security floor, then remove. |
 | `workflow/epic.yaml` | Retain WWGM order/model policy, rebuilt from the post-F08 canonical workflow. |
 | `workflow/feature.yaml` | Retain WWGM model policy, rebuilt from the post-F08 canonical workflow. |
+| `workflow/sprint.yaml` | Do not promote as-is. Re-ratify the local removal of sprint research, then either remove the override or rebuild it from post-F10 canonical routing. |
 
 ## Acceptance scenarios
 
