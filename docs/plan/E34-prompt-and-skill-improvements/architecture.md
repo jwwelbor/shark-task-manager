@@ -169,16 +169,20 @@ hardcodes `development` or another project status.
 Invariants are evaluated against the parent-observed gate and the outer final
 envelope's `recommended_outcome` and `evidence`. Each configured outcome on a
 `gate_result_v1` step has one parent-owned semantic role: `success`, `rework`,
-`blocked`, `hold`, or `cancelled`. The opaque key still selects the transition;
-the role only selects validation rules. Outcomes such as `deep_verify` can be
-role `success` even when they route to another verification step.
+`route_rework`, `kickback_rework`, `blocked`, `hold`, or `cancelled`. The opaque
+key still selects the transition; the role only selects validation rules.
+Outcomes such as `deep_verify` can be role `success` even when they route to
+another verification step.
 
 - A `success` outcome contains no `open` or `severity_conflict` blocking
   finding.
-- A `rework` outcome contains at least one kickback. `blocked`, `hold`, or
-  `cancelled` requires a non-empty `no_kickback_reason` when it contains no
-  kickback. Findings may accompany these cases but never substitute for the
-  required routing explanation.
+- A `route_rework` outcome needs no kickback because its configured main-entity
+  transition is the rework route; it must not kick back the main entity before
+  that guarded transition. A `kickback_rework` outcome contains at least one
+  child/cross-entity kickback and may then transition the main entity as
+  configured. `blocked`, `hold`, or `cancelled` requires a non-empty
+  `no_kickback_reason` when it contains no kickback. Findings may accompany
+  these cases but never substitute for the required routing explanation.
 - Summaries are at most 1,000 bytes,
   pointers are at most 2,048 bytes, each collection has at most 100 entries,
   and the canonical nested GateResult is at most 256 KiB. These constants live
@@ -279,12 +283,27 @@ create an explicit replacement record linked by `prior_record_digest`; they do
 not silently rewrite the base. Unrelated interleaved commits remain visible in
 the full base-to-candidate inventory and require a disposition.
 
+Initial capture also writes one idempotent epic `reference` note with
+`record_kind=integration-candidate-root`, the epic run ID, base, and head digest.
+Feature-completion and restarted-parent callers resolve this unique nonterminal
+note from the parent epic rather than guessing a run directory. A second active
+record for the same epic conflicts until the first is terminally closed.
+
 Already-active epics without a pre-execution record are not allowed to infer a
 base from the current merge base. An operator must explicitly backfill a
 verified base plus the complete feature/event inventory through a validated
-command, or the epic remains blocked from `integration_review`. This is a new
-sidecar model and service boundary; no existing entity database column or
-result record is assumed.
+command, or the epic remains blocked from `integration_review`. The exact
+surface is `shark integration backfill <epic-key> --epic-run-id=<run-id>
+--base=<full-commit> --events-file=<bounded-v1-json>
+--session=<authorized-session-id> [--dry-run]`. The session must hold the epic's
+active claim. Dry-run performs all Git, path, event uniqueness, digest, and CAS
+checks without writes. Success creates immutable events/head only when no head
+exists and adds one idempotent epic `reference` note with
+`record_kind=integration-candidate-root`, run ID, base, and head digest so later
+feature completions and restarted parents can discover the record. Unreachable
+bases, incomplete/duplicate events, digest/path mismatches, or a conflicting
+existing head fail with no mutation. This is a new sidecar model and service
+boundary; no existing entity database column or result record is assumed.
 
 ## Override baseline architecture
 
@@ -324,8 +343,8 @@ or summaries.
   consume that same resolved field. Whole-file project overrides must
   deliberately adopt the new field.
 - Every `gate_result_v1` step also declares `outcome_roles`, with exactly one
-  `success|rework|blocked|hold|cancelled` role for every configured outcome and
-  no extras. Missing or unknown roles fail workflow validation. `shark next`
+  `success|route_rework|kickback_rework|blocked|hold|cancelled` role for every
+  configured outcome and no extras. Missing or unknown roles fail workflow validation. `shark next`
   exposes both the opaque outcome map and role map so Rider and the core runner
   enforce the same completeness invariant.
 - Once a gate selects `gate_result_v1`, a missing or malformed nested payload

@@ -109,6 +109,9 @@ them.
      captures the base before first feature dispatch, each feature completion
      writes a separate event, and integration-review dispatch binds candidate
      head plus tracked and untracked path digests.
+   - Register the active run/base/head in one idempotent epic `reference` note
+     so feature completion and restarted parents discover the unique record;
+     reject a second nonterminal candidate for the same epic.
    - Compute SHA-256 over canonical JSON excluding the object's own digest.
      Serialize updates under a run-scoped lock and compare-and-swap the prior
      head digest so concurrent feature completions are additive and stale
@@ -124,6 +127,13 @@ them.
    - For already-active epics with no pre-execution record, require an explicit
      operator backfill of a verified base and complete feature/event inventory;
      never infer or silently migrate the identity.
+   - Use `shark integration backfill <epic-key> --epic-run-id=<run-id>
+     --base=<full-commit> --events-file=<bounded-v1-json>
+     --session=<authorized-session-id> [--dry-run]`. Require an active epic
+     claim; dry-run performs every validation without writes. Success creates
+     the first immutable events/head and a discoverable epic reference note;
+     any missing, duplicate, mismatched, unreachable, or conflicting input
+     leaves both sidecars and notes unchanged.
 
 5. **REQ-F-005 — Integration closure checks**
    - Verify all applicable I-## and X-## producer/consumer contracts, live
@@ -238,7 +248,17 @@ them.
   and untracked candidate paths.
 - Race two feature-completion events and prove both survive; reject a stale CAS
   writer. Verify canonical digests, archived-head links, tamper detection,
-  truncation, reordering, and crash recovery.
+  truncation, and reordering.
+- Failure-inject after event fsync, after archived-head fsync, after candidate
+  head replacement before acknowledgement, and immediately before/after review
+  binding. After each restart prove identical retry, no duplicate/lost event,
+  a recomputable prior-head chain, complete additive inventory, and rejection
+  of a same event ID with different bytes.
+- Command-test integration backfill: a complete verified base/event inventory
+  creates the initial head/reference and enables review. Reject unreachable
+  bases, missing/duplicate events, digest/path mismatch, partial inventories,
+  unauthorized sessions, and conflicting second backfills with no mutation;
+  assert dry-run writes nothing and no case infers a merge base.
 - Implement `TC-I-01-READINESS-SYMMETRY` as the structural guard for the full
   I-01 producer/consumer reference surface.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.

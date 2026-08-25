@@ -159,8 +159,10 @@ bounded suggested action. Summary counts use the same classification keys.
    - Keep the root `AGENTS.md` project-local and thin.
 
 8. **REQ-F-008 — E40 comparison follow-up**
-   - After E40 is ready, benchmark a canonical configuration and a reconciled
-     WWGM-style configuration from recorded bundle and baseline digests.
+   - Define pinned scenarios through the shipped E40 operator for a canonical
+     configuration and a reconciled WWGM-style configuration from recorded
+     bundle and baseline digests; provider-backed execution remains
+     non-blocking.
    - Do not block F09 delivery on E40 execution.
 
 9. **REQ-NF-001 — Compatibility and determinism**

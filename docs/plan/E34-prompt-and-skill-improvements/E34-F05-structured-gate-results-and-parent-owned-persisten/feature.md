@@ -66,8 +66,10 @@ evidence field is invalid.
 
 The outer `recommended_outcome` value remains workflow-defined. The parser
 validates it against the current step's configured outcomes and uses that
-outcome's configured `success|rework|blocked|hold|cancelled` semantic role only
-for completeness checks; it never maps the opaque key to a hardcoded status.
+outcome's configured
+`success|route_rework|kickback_rework|blocked|hold|cancelled` semantic role
+only for completeness checks; it never maps the opaque key to a hardcoded
+status.
 Evidence contains compact command results and artifact pointers, not full logs,
 prompts, transcripts, credentials, or unrestricted tool output.
 
@@ -120,9 +122,11 @@ prompts, transcripts, credentials, or unrestricted tool output.
 
 4. **REQ-F-004 — Gate completeness**
    - Every structured step maps each opaque outcome key to exactly one semantic
-     role. `rework` requires a kickback; `blocked`, `hold`, or `cancelled`
-     requires `no_kickback_reason` when no kickback exists. Findings may
-     accompany these cases but do not replace the routing requirement.
+     role. `route_rework` uses the configured main-entity transition and needs
+     no kickback; `kickback_rework` requires at least one child/cross-entity
+     kickback. `blocked`, `hold`, or `cancelled` requires
+     `no_kickback_reason` when no kickback exists. Findings may accompany these
+     cases but do not replace the routing requirement.
    - A `success` role cannot contain an open blocking finding; keys such as
      `deep_verify` may be role `success` without being renamed.
    - A finding disposition must be one of the schema-defined values and must
@@ -236,12 +240,26 @@ prompts, transcripts, credentials, or unrestricted tool output.
 - Failure-inject after `persistence_complete`, after transition, and before
   release; assert transition and release occur exactly once and only after
   terminal worker-retirement evidence.
-- Controller-test pass, fail, blocked, unknown outcome, missing envelope, and
-  no-transition cases.
-- Workflow-test exact outcome-role coverage, unknown roles, and opaque
-  `deep_verify` with role `success`; CLI-test authenticated initial ingestion,
-  resume, entity/session mismatch, unsafe paths, and symlink rejection.
-- Render changed prompts and assert Rider/core contract parity.
+- Table-test every semantic role: `success` with and without open or
+  severity-conflict blockers; `route_rework` with no kickback and rejection of
+  a main-entity kickback; `kickback_rework` with and without a child kickback;
+  and `blocked`, `hold`, and `cancelled` with kickbacks or with present/missing
+  `no_kickback_reason`. Include opaque `deep_verify` as `success`.
+- Workflow-table every named adoption-matrix entry and representative excluded
+  steps. Test omitted selector → `legacy`, unknown selector/role, incomplete or
+  extra role maps, missing structured payload, Question pause, ADR impact
+  ingestion, and whole-file overrides. Assert `shark next --json` exposes the
+  same resolved `result_contract` and `outcome_roles` to both callers.
+- Filesystem-test absolute/escaping run IDs and paths, symlinked intermediate
+  and leaf components, directory/FIFO/socket targets, oversized reads,
+  `0700`/`0600` modes, permissive or non-regular existing targets, exclusive
+  temporary collisions, fsync/rename cleanup, and crash after create-once
+  `result.json` but before operation-state initialization.
+- Run shared valid, malformed, conflicting-replay, and partial-resume fixtures
+  through both the core ingestion call and Rider's apply-result/resume CLI.
+  Compare normalized results, bounded error classes, suboperation order, target
+  writes, and selected transition; rendered prompts alone are not parity
+  evidence.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.
 
 *Last Updated*: 2026-08-05

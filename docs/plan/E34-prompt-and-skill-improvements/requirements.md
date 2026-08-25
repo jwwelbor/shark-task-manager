@@ -73,7 +73,8 @@ verification plans.
   its versioned GateResult member owns findings, kickbacks, sweeps, impacts,
   and gate-specific summary without duplicate gate/outcome/evidence fields.
 - Each structured route maps every opaque outcome key to a validated semantic
-  role used only for success/rework/blocked/hold/cancelled completeness rules.
+  role used only for success, route-owned rework, child-kickback rework,
+  blocked, hold, or cancelled completeness rules.
 
 **REQ-F-010 — Parent persistence before transition**
 
