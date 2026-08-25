@@ -103,11 +103,16 @@ them.
    - Capture an immutable epic integration-base commit when execution begins.
      Bind each review to that base, candidate head, and the exact completed or
      staged feature commits and paths included in the candidate.
-   - Add an atomic `.shark/runs/<epic-run-id>/integration-candidate.json`
-     versioned sidecar. The epic active-entry coordinator captures the base
-     before first feature dispatch, feature completion appends digest-chained
-     commit/path entries, and integration-review dispatch binds candidate head
-     plus tracked and untracked path digests.
+   - Add immutable `.shark/runs/<epic-run-id>/integration-events/*.json`,
+     immutable archived candidate heads, and one atomic
+     `integration-candidate.json` head. The epic active-entry coordinator
+     captures the base before first feature dispatch, each feature completion
+     writes a separate event, and integration-review dispatch binds candidate
+     head plus tracked and untracked path digests.
+   - Compute SHA-256 over canonical JSON excluding the object's own digest.
+     Serialize updates under a run-scoped lock and compare-and-swap the prior
+     head digest so concurrent feature completions are additive and stale
+     writers fail without data loss.
    - Review the entire accumulated diff from the recorded integration base to
      the candidate head, not only the latest round or feature.
    - Include every completed or staged feature in the review inventory and
@@ -167,8 +172,8 @@ them.
    and to consume I-03 and I-04.
 3. Add `integration_review` to canonical epic workflow YAML, create its prompt,
    skill workflow, transition outcomes, and failure routing, and implement the
-   versioned integration-candidate sidecar/capture service and explicit legacy
-   backfill command.
+   immutable integration-event log, CAS candidate-head/capture service, and
+   explicit legacy backfill command.
 4. Implement interaction, finding, guard, ADR/standards, predicted-debt, and
    changed-path closure checks in the final review procedure.
 5. Produce I-05 and add tier-route, workflow, prompt-render, full-diff,
@@ -231,6 +236,9 @@ them.
 - Test pinned-base histories with independently squash-merged features,
   unrelated interleaved commits, rebases, a missing base, dirty tracked files,
   and untracked candidate paths.
+- Race two feature-completion events and prove both survive; reject a stale CAS
+  writer. Verify canonical digests, archived-head links, tamper detection,
+  truncation, reordering, and crash recovery.
 - Implement `TC-I-01-READINESS-SYMMETRY` as the structural guard for the full
   I-01 producer/consumer reference surface.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.

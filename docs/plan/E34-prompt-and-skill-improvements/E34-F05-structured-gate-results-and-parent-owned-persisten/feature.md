@@ -65,8 +65,9 @@ sweeps, impacts, and completeness explanation; a second gate, outcome, or
 evidence field is invalid.
 
 The outer `recommended_outcome` value remains workflow-defined. The parser
-validates it against the current step's configured outcomes and never maps it
-to a hardcoded status.
+validates it against the current step's configured outcomes and uses that
+outcome's configured `success|rework|blocked|hold|cancelled` semantic role only
+for completeness checks; it never maps the opaque key to a hardcoded status.
 Evidence contains compact command results and artifact pointers, not full logs,
 prompts, transcripts, credentials, or unrestricted tool output.
 
@@ -82,10 +83,12 @@ prompts, transcripts, credentials, or unrestricted tool output.
      top-level JSON shapes, secret-bearing text, and oversized content.
 
 2. **REQ-F-002 — Parent-owned persistence**
-   - Persist gate summary, evidence pointers, `review-finding` notes,
-     remediation-sweep notes, I-04 `reference` notes, and task kickbacks before
-     transition. An I-04 note stores the bounded ChangeImpactSet as typed
-     metadata and identifies its source key and operation digest.
+   - Persist a gate-summary/evidence `review` note, `review-finding` notes,
+     remediation-sweep `reference` notes, I-04 `reference` notes, and task
+     kickbacks before transition. Sweep and impact notes use existing note
+     types with bounded `record_kind` metadata; no new note enum or database
+     migration is implied. An I-04 note identifies its source key and operation
+     digest.
    - Store finding metadata for gate, severity, `class_key`, class statement,
      fingerprint, affected acceptance/test identifiers, disposition, and the
      parent session identity.
@@ -103,18 +106,25 @@ prompts, transcripts, credentials, or unrestricted tool output.
      conflicting target status or reason.
    - Distinguish `persistence_complete` from `transition_applied`; resume the
      guarded transition or lease release after either crash window.
-   - Add atomic `result.json` and `operation-state.json` sidecars under the
-     existing `.shark/runs/<run-id>/` directory; do not describe either as an
-     existing durable result record.
-   - Add `shark run --resume-run <run_id>` and an equivalent Rider adapter path.
-     Both acquire a new authorized session and validate the recorded entity,
-     source status, route, and digest before resuming.
+   - Under a per-run lock, create `result.json` once and atomically replace only
+     `operation-state.json` under the existing `.shark/runs/<run-id>/`
+     directory. Identical result bytes are idempotent; a different result never
+     overwrites the accepted record.
+   - Give every target write a deterministic suboperation ID stored in note
+     metadata or bounded entity-history reason metadata. On resume, reconcile
+     the sidecar from these durable target records before applying missing
+     operations, closing the target-commit/sidecar-update crash window.
+   - Add `shark run <entity-key> --resume-run=<run_id>
+     --session=<authorized-session-id>`. It acquires the run lock and validates
+     the recorded entity, source status, route, and digest before resuming.
 
 4. **REQ-F-004 — Gate completeness**
-   - A failing gate with a rework target requires a kickback. A failing gate
-     without a rework target requires `no_kickback_reason`; findings may
-     accompany either case but do not replace the routing requirement.
-   - A passing gate cannot contain an open blocking finding.
+   - Every structured step maps each opaque outcome key to exactly one semantic
+     role. `rework` requires a kickback; `blocked`, `hold`, or `cancelled`
+     requires `no_kickback_reason` when no kickback exists. Findings may
+     accompany these cases but do not replace the routing requirement.
+   - A `success` role cannot contain an open blocking finding; keys such as
+     `deep_verify` may be role `success` without being renamed.
    - A finding disposition must be one of the schema-defined values and must
      point to a durable decision when it is already dispositioned.
 
@@ -131,6 +141,9 @@ prompts, transcripts, credentials, or unrestricted tool output.
    - Route steps select `result_contract: legacy|gate_result_v1`; omission
      defaults to `legacy`, unknown values fail validation, and `shark next`
      exposes the resolved value to both execution paths.
+   - Structured steps declare an exact `outcome_roles` map covering every
+     configured outcome. Missing, extra, or unknown roles fail validation, and
+     `shark next` exposes the map to both paths.
    - Non-gate steps may continue using `legacy` while migrations proceed.
    - A gate explicitly configured for structured results must fail closed when
      the envelope is absent or malformed; it must not fall back silently.
@@ -140,22 +153,26 @@ prompts, transcripts, credentials, or unrestricted tool output.
    - Reuse the Question model's bounded-text and forbidden-marker approach.
    - Report validation errors by field and class without echoing rejected
      secrets or entire worker output.
+   - Use owner-only run directories/files, reject symlink or non-regular
+     targets, and fsync same-directory atomic writes; result creation is
+     no-replace under the per-run lock.
 
 ## Implementation plan
 
 1. Extend the canonical final worker-control envelope with an optional
    GateResult payload; add the model, validation helpers, and unit tests without
    introducing a second marker parser.
-2. Add new atomic `.shark/runs/<run-id>/result.json` and
-   `operation-state.json` sidecars for the terminal GateResult envelope and
-   replay journal. Add a persistence coordinator behind injected interfaces
-   for notes, task status changes, operation-state lookup, and
+2. Add a locked, immutable-create-once `.shark/runs/<run-id>/result.json` and
+   atomically replaced `operation-state.json` for the terminal GateResult
+   envelope and replay journal. Add a persistence coordinator behind injected
+   interfaces for notes, task status changes, operation-state lookup, and
    worker-retirement evidence.
 3. Integrate validation and persistence into the core runner between dispatch
    success and transition.
-4. Add authenticated `shark run --resume-run <run_id>`, replace Rider's
-   independent directive grammar with the shared service, and document the
-   compatibility boundary.
+4. Add authenticated `shark run <entity-key> --apply-result=<result-file>
+   --run-id=<run_id> --session=<session-id>` for Rider's initial ingestion and
+   `--resume-run=<run_id>` for recovery. Replace Rider's independent directive
+   grammar with this shared service and document the compatibility boundary.
 5. Add and validate the route-step `result_contract` field, update gate prompt
    partials once, then render all consumers and add parity, malformed-input,
    persistence-order, restart, crash-window, and replay tests.
@@ -192,9 +209,10 @@ prompts, transcripts, credentials, or unrestricted tool output.
 
 - Produces **I-02 GateResult v1** for E34-F06, E34-F07, and E34-F08.
 - E34-F06 and E34-F07 depend on this feature in Shark.
-- This feature reuses the canonical worker-control envelope, durable run
-  records, existing notes, task workflow services, lease identity, and the
-  Question handoff validation pattern.
+- This feature reuses the canonical worker-control envelope, run liveness
+  directory, existing notes, task workflow services, lease identity, and the
+  Question handoff validation pattern. Result and operation-state records
+  themselves are new.
 
 ## Out of scope
 
@@ -211,11 +229,18 @@ prompts, transcripts, credentials, or unrestricted tool output.
 - Service-test persistence ordering, partial failure, parent restart with a
   replacement session, exact replay, conflicting replay, and idempotent
   kickbacks.
+- Failure-inject after every durable note/history commit and before sidecar
+  replacement; reconcile by suboperation ID and prove no duplicate note,
+  history entry, or kickback. Race two initial results and require immutable
+  first-writer-wins conflict handling.
 - Failure-inject after `persistence_complete`, after transition, and before
   release; assert transition and release occur exactly once and only after
   terminal worker-retirement evidence.
 - Controller-test pass, fail, blocked, unknown outcome, missing envelope, and
   no-transition cases.
+- Workflow-test exact outcome-role coverage, unknown roles, and opaque
+  `deep_verify` with role `success`; CLI-test authenticated initial ingestion,
+  resume, entity/session mismatch, unsafe paths, and symlink rejection.
 - Render changed prompts and assert Rider/core contract parity.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.
 

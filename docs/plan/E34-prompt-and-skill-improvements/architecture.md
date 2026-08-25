@@ -47,8 +47,8 @@ durable evidence in existing Shark records.
 ## Gate result flow
 
 1. The parent reads the live entity, current route step, its `result_contract`,
-   configured outcomes, durable `run_id`, active lease session, and worker
-   retirement state.
+   configured outcomes and their semantic roles, durable `run_id`, active lease
+   session, and worker retirement state.
 2. The worker returns the existing single worker-control envelope with
    `kind: final`. It carries the opaque `recommended_outcome`, bounded common
    `evidence`, and, only for `result_contract: gate_result_v1`, one nested
@@ -63,16 +63,25 @@ durable evidence in existing Shark records.
    provenance, not the replay identity; none of these fields are trusted from
    worker output.
 5. The coordinator canonicalizes the validated envelope and computes an
-   operation digest from the stable bound identity plus envelope bytes.
+   operation digest as SHA-256 over canonical JSON containing the stable bound
+   identity and envelope; object keys are lexicographically sorted and arrays
+   retain contract order.
 6. Replay reads a durable operation state. `transition_applied` plus the
    expected live target returns success; `persistence_complete` resumes the
    guarded transition; a partial persistence state resumes its next operation.
    A different digest for the same stable identity is a conflict.
 7. The coordinator applies individually idempotent persistence operations in
-   this order: gate summary/evidence, findings and sweeps, I-04 change-impact
-   reference notes, task kickbacks, then `persistence_complete`. Every
-   operation carries the operation digest in metadata. A retry skips completed
-   identical operations and resumes the rest.
+   this order: gate-summary/evidence `review` note, finding `review-finding` notes,
+   remediation-sweep `reference` notes, I-04 change-impact `reference` notes,
+   task kickbacks, then `persistence_complete`. Each suboperation has a stable
+   ID derived from the run operation digest, operation kind, and stable item
+   identity: finding fingerprint, sweep `class_key`, impact source kind/key,
+   kickback entity key, or the singleton gate-summary key.
+   Notes store it in typed metadata; kickback reasons/history store its bounded
+   machine token. The target service holds the per-run lock and applies an
+   identical suboperation only when no matching durable target record exists.
+   A retry first reconciles the sidecar from note metadata and entity history,
+   skips completed identical operations, and resumes the rest.
 8. The parent applies the workflow transition exactly once from the recorded
    source to the resolved target, verifies an already-applied identical target,
    then records `transition_applied`. It releases the lease only after terminal
@@ -84,14 +93,28 @@ Validation completes before the first write, every write has a stable replay
 identity, and transition is gated on the completed operation set.
 
 The durable replay transport is new work, not an existing result store. E34-F05
-adds atomically replaced `result.json` and `operation-state.json` sidecars under
-the existing `.shark/runs/<run-id>/` liveness directory. The result sidecar
-contains the bounded canonical final envelope and its digest; operation state
-contains the bound entity, source status, completed operation identities,
-`persistence_complete`, and `transition_applied`. `shark run --resume-run
-<run_id>` (and the Rider adapter using the same service) must acquire and bind a
-new authorized session to the recorded entity and source route before it can
-resume. A run belonging to another entity, an unreachable source, or a
+adds `result.json` and `operation-state.json` sidecars under the existing
+`.shark/runs/<run-id>/` liveness directory. Under a per-run lock, `result.json`
+is immutable create-once: an identical existing digest is idempotent success
+and a different terminal result is rejected without replacing accepted bytes.
+Only `operation-state.json` is atomically replaced. It contains the bound
+entity, source status, completed operation identities, `persistence_complete`,
+and `transition_applied`, but durable notes and entity history remain the
+reconciliation authority after a crash between a target-store commit and a
+sidecar update.
+Run directories are owner-only (`0700`) and sidecars are `0600`. Creation and
+replacement reject symlinks/non-regular targets, write a same-directory
+temporary file with exclusive creation, fsync file and directory, then rename;
+result creation uses no-replace semantics under the lock.
+
+Both execution paths call one public ingestion boundary backed by the same
+parser and coordinator. Core `shark run` calls it directly; Rider invokes
+`shark run <entity-key> --apply-result=<bounded-result-file>
+--run-id=<run_id> --session=<authorized-session-id>`. Recovery uses
+`shark run <entity-key> --resume-run=<run_id>
+--session=<authorized-session-id>` and accepts no new result bytes. Both modes
+acquire the per-run lock and bind the session to the recorded entity and source
+route. A run belonging to another entity, an unreachable source, or a
 different envelope digest fails closed.
 
 ## I-01 ReadinessEvidence v1
@@ -125,7 +148,7 @@ are deliberately absent.
 | `kickbacks` | array of `Kickback` | No | Unique entity keys within the result |
 | `remediation_sweeps` | array of I-03 | No | Unique `class_key` values |
 | `change_impacts` | array of I-04 | No | Unique `source_kind` plus `source_key`; planning gates only |
-| `no_kickback_reason` | string | Conditional | Required when a failing result has no kickback |
+| `no_kickback_reason` | string | Conditional | Required for blocked, hold, or cancelled roles with no kickback |
 
 The outer final envelope's `EvidenceRef` contains `kind`, `pointer`, and an
 optional bounded `summary`.
@@ -144,13 +167,18 @@ an opaque value validated against the target entity's workflow; no parser
 hardcodes `development` or another project status.
 
 Invariants are evaluated against the parent-observed gate and the outer final
-envelope's `recommended_outcome` and `evidence`:
+envelope's `recommended_outcome` and `evidence`. Each configured outcome on a
+`gate_result_v1` step has one parent-owned semantic role: `success`, `rework`,
+`blocked`, `hold`, or `cancelled`. The opaque key still selects the transition;
+the role only selects validation rules. Outcomes such as `deep_verify` can be
+role `success` even when they route to another verification step.
 
-- A pass outcome contains no `open` or `severity_conflict` blocking finding.
-- A fail outcome with a rework target contains at least one kickback. A fail
-  outcome without a rework target contains a non-empty
-  `no_kickback_reason`. Findings may accompany either case but never substitute
-  for the required routing explanation.
+- A `success` outcome contains no `open` or `severity_conflict` blocking
+  finding.
+- A `rework` outcome contains at least one kickback. `blocked`, `hold`, or
+  `cancelled` requires a non-empty `no_kickback_reason` when it contains no
+  kickback. Findings may accompany these cases but never substitute for the
+  required routing explanation.
 - Summaries are at most 1,000 bytes,
   pointers are at most 2,048 bytes, each collection has at most 100 entries,
   and the canonical nested GateResult is at most 256 KiB. These constants live
@@ -221,20 +249,32 @@ to a consuming project's overrides.
 
 ## Epic integration candidate identity
 
-E34-F08 adds a new, atomic
-`.shark/runs/<epic-run-id>/integration-candidate.json` record. Its version 1
-shape contains `epic_key`, stable `epic_run_id`, immutable `base_commit`,
-`candidate_head`, ordered feature entries, tracked path/digest pairs, untracked
-path/digest pairs, `prior_record_digest`, and `record_digest`. Each feature
-entry contains the feature key, its landed or staged commit identity, completion
-event identity, and included path digests. It never stores file contents.
+E34-F08 adds immutable
+`.shark/runs/<epic-run-id>/integration-events/<event-id>.json` records and an
+atomic `integration-candidate.json` head. Event version 1 contains `epic_key`,
+stable `epic_run_id`, event kind, feature key when applicable, landed or staged
+commit identity, completion history identity, and included path digests. The
+candidate contains immutable `base_commit`, `candidate_head`, the sorted event
+IDs/digests, tracked path/digest pairs, untracked path/digest pairs,
+`prior_record_digest`, and `record_digest`. It never stores file contents.
+
+Every event and candidate digest is SHA-256 over UTF-8 canonical JSON with
+object keys sorted lexicographically, arrays already in contract order, and
+the object's own digest field omitted. Before replacing the candidate head,
+the coordinator writes the prior head unchanged to
+`integration-heads/<record-digest>.json`. Thus every `prior_record_digest` is
+recomputable from retained bytes. A run-scoped repository lock plus
+compare-and-swap on the prior head digest rejects stale writers; immutable
+per-feature event files make parallel completions additive rather than
+last-writer-wins.
 
 The epic active-entry coordinator owns initial capture before it dispatches the
-first feature. Feature completion appends a digest-chained entry, and
-`integration_review` dispatch atomically binds the candidate head and current
-tracked and untracked inventory. The review rejects an unreachable base,
-missing feature event, digest-chain break, dirty path outside the declared
-candidate, or a candidate changed after binding. Rebase and squash operations
+first feature. Feature completion writes one immutable event and updates the
+head under lock/CAS, and `integration_review` dispatch atomically binds the
+candidate head and current tracked and untracked inventory. The review rejects
+an unreachable base, missing feature event, digest-chain break, dirty path
+outside the declared candidate, or a candidate changed after binding. Rebase
+and squash operations
 create an explicit replacement record linked by `prior_record_digest`; they do
 not silently rewrite the base. Unrelated interleaved commits remain visible in
 the full base-to-candidate inventory and require a disposition.
@@ -269,15 +309,25 @@ or summaries.
   `legacy`; unknown values fail workflow validation. The canonical adoption
   matrix is: epic `feature_review` and the new `integration_review`; feature
   `specification`, `test_planning`, `task_review`, `code_review`, `qa`, and
-  `approval`; and tech-debt `in_progress` opt into `gate_result_v1`. These are
+  `approval`; tech-debt `triaged` and `in_progress`; and change-card
+  `development`, `code_review`, and `qa` opt into `gate_result_v1`. These are
   the agent-owned planning, review, approval, and resolution steps that can
   produce findings, sweeps, or I-04 impacts. Question
   `ready_for_resolution` remains a human `pause`: the validated Question
   resolution service, not worker output, persists its I-04 reference note.
+  ADR adoption uses a new parent-owned `shark impact record <entity-key>
+  --source-kind=adr --source-key=<ADR-ID> --source-pointer=<path>
+  --impact-file=<bounded-I-04-json>` boundary backed by the same validator and
+  typed-reference persistence service; workers do not write it directly.
   Other steps remain `legacy` unless a later versioned migration names them.
   `shark next` exposes the resolved value, and both Rider and the core runner
   consume that same resolved field. Whole-file project overrides must
   deliberately adopt the new field.
+- Every `gate_result_v1` step also declares `outcome_roles`, with exactly one
+  `success|rework|blocked|hold|cancelled` role for every configured outcome and
+  no extras. Missing or unknown roles fail workflow validation. `shark next`
+  exposes both the opaque outcome map and role map so Rider and the core runner
+  enforce the same completeness invariant.
 - Once a gate selects `gate_result_v1`, a missing or malformed nested payload
   fails closed; it never falls back to legacy directives.
 - Existing note records remain readable and need no database migration.
@@ -297,6 +347,9 @@ or summaries.
 - Store and print digests and relative pointers, not file content.
 - Bind gate results to the parent-observed entity, source status, outcome set,
   and lease; ignore any worker attempt to assert those identities.
+- Open run/event/result paths relative to the resolved project root with
+  no-follow semantics, owner-only permissions, regular-file checks, bounded
+  reads, and same-directory atomic writes.
 
 ## Verification strategy
 

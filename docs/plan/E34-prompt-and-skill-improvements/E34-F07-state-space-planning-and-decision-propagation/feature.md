@@ -113,6 +113,11 @@ through the validated resolution service rather than a worker envelope.
      follow-up work for each deferred amendment.
    - A completion record must not claim consistency while any affected
      artifact is omitted without disposition.
+   - Feature planning gates, tech-debt `triaged`/`in_progress`, and change-card
+     `development`/`code_review`/`qa` return I-04 through GateResult. Question
+     resolution persists it through the validated resolution service. ADR
+     adoption uses the parent-owned `shark impact record` command and the same
+     bounded validator/reference-note service.
 
 7. **REQ-F-007 — Design divergence**
    - Rework that departs from an accepted fix design must cite the original
@@ -135,7 +140,10 @@ through the validated resolution service rather than a worker envelope.
 3. Update Question/tech-debt/decision resolution content to produce or verify
    the affected-artifact set and persist its typed `reference` note through the
    parent-owned resolution service.
-4. Add rendered-prompt, reference, naming-drift, deferred-obligation,
+4. Add the parent-owned ADR impact-record command and route-selector fixtures
+   proving Question, tech debt, change card, and ADR all reach the same durable
+   I-04 representation.
+5. Add rendered-prompt, reference, naming-drift, deferred-obligation,
    multi-entity-axis, and decision-propagation tests.
 
 ## Acceptance scenarios

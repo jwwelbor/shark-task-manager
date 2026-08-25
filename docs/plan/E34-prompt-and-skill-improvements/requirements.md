@@ -72,6 +72,8 @@ verification plans.
   its outer fields own the opaque configured outcome and common evidence, and
   its versioned GateResult member owns findings, kickbacks, sweeps, impacts,
   and gate-specific summary without duplicate gate/outcome/evidence fields.
+- Each structured route maps every opaque outcome key to a validated semantic
+  role used only for success/rework/blocked/hold/cancelled completeness rules.
 
 **REQ-F-010 — Parent persistence before transition**
 
@@ -83,6 +85,9 @@ verification plans.
 
 - Exact replay is safe, conflicting replay fails, partial persistence resumes
   without duplication, and malformed structured output cannot advance work.
+- The terminal result is write-once, and deterministic suboperation IDs let a
+  restarted parent reconcile durable target records after every target
+  commit/sidecar-update crash window.
 
 **REQ-F-012 — Rider/core parity**
 

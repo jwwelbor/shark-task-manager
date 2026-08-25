@@ -225,17 +225,91 @@ func TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY(t *testing.T) {
 		require.Contains(t, content, "E34-interaction-map.md#i-01-readiness-evidence-shape", path)
 	}
 
-	for _, path := range []string{
-		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/feature.md",
-		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/spec.md",
-		"internal/sharkdata/default_data/skills/demo-script/SKILL.md",
-		"skills/shark-rider/verbs/demo.md",
-	} {
-		content := read(path)
-		for _, field := range wantFields {
-			require.Contains(t, content, "`"+field+"`", "%s must mirror I-01 field %s", path, field)
+	extractTableFields := func(document, marker string) []string {
+		t.Helper()
+		markerAt := strings.Index(document, marker)
+		require.NotEqual(t, -1, markerAt, "missing table marker %q", marker)
+		tableAt := strings.Index(document[markerAt:], "| Field |")
+		require.NotEqual(t, -1, tableAt, "missing field table after %q", marker)
+		table := document[markerAt+tableAt:]
+		if end := strings.Index(table, "\n\n"); end >= 0 {
+			table = table[:end]
 		}
+		rows := fieldPattern.FindAllStringSubmatch(table, -1)
+		fields := make([]string, 0, len(rows))
+		for _, row := range rows {
+			fields = append(fields, row[1])
+		}
+		return fields
 	}
+	extractInlineFields := func(document, marker, terminator string) []string {
+		t.Helper()
+		normalized := strings.Join(strings.Fields(document), " ")
+		markerAt := strings.Index(normalized, marker)
+		require.NotEqual(t, -1, markerAt, "missing inline marker %q", marker)
+		declaration := normalized[markerAt+len(marker):]
+		end := strings.Index(declaration, terminator)
+		require.NotEqual(t, -1, end, "missing inline terminator %q", terminator)
+		matches := regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(declaration[:end], -1)
+		fields := make([]string, 0, len(matches))
+		for _, match := range matches {
+			fields = append(fields, match[1])
+		}
+		return fields
+	}
+
+	mirrors := []struct {
+		path       string
+		table      bool
+		marker     string
+		terminator string
+	}{
+		{
+			path:   "docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/feature.md",
+			table:  true,
+			marker: "E34-F02 consumes this exact nine-field readiness shape read-only:",
+		},
+		{
+			path:       "docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/spec.md",
+			marker:     "The procedure reads these nine values without transforming their meaning:",
+			terminator: ". It reads current counterpart status",
+		},
+		{
+			path:   "internal/sharkdata/default_data/skills/demo-script/SKILL.md",
+			table:  true,
+			marker: "Record these nine fields without changing their meaning:",
+		},
+		{
+			path:       "skills/shark-rider/verbs/demo.md",
+			marker:     "read these nine fields without changing their meanings:",
+			terminator: ". Read counterpart status",
+		},
+	}
+	for _, mirror := range mirrors {
+		content := read(mirror.path)
+		var fields []string
+		if mirror.table {
+			fields = extractTableFields(content, mirror.marker)
+		} else {
+			fields = extractInlineFields(content, mirror.marker, mirror.terminator)
+		}
+		require.Equal(t, wantFields, fields, "%s must mirror the exact I-01 field set and order", mirror.path)
+	}
+
+	t.Run("counterfactual consumer mutations are detected", func(t *testing.T) {
+		fixture := "fields: `assessor_verdict`, `owner_decision`, `open_conditions`. End"
+		want := []string{"assessor_verdict", "owner_decision", "open_conditions"}
+		require.Equal(t, want, extractInlineFields(fixture, "fields:", ". End"))
+		for name, mutation := range map[string]string{
+			"removed": strings.Replace(fixture, ", `owner_decision`", "", 1),
+			"renamed": strings.Replace(fixture, "`owner_decision`", "`approval_decision`", 1),
+			"added":   strings.Replace(fixture, ". End", ", `consumer_only`. End", 1),
+		} {
+			t.Run(name, func(t *testing.T) {
+				assert.NotEqual(t, want, extractInlineFields(mutation, "fields:", ". End"))
+			})
+		}
+	})
 
 	pointerConsumers := append([]string{
 		"docs/plan/E34-prompt-and-skill-improvements/E34-interaction-map.md",
