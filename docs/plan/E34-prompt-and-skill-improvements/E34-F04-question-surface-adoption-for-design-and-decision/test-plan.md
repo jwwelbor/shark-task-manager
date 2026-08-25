@@ -129,8 +129,10 @@ engine, real database, browser, network, or telemetry fixture.
 ## Cross-feature contract tests (I-##)
 
 None. `spec.md` correctly declares that E34-F04 neither produces nor consumes
-I-01; the exact I-01 shape source and TC-002 remain E34-F03/E34-F02 ownership.
-No new I-## or twin contract test is permitted.
+I-01; its shared cross-feature guard is
+`TC-I-01-READINESS-SYMMETRY` under E34-F03/E34-F02 ownership. Local F04
+TC-002 remains only its prompt-rendering case. No new I-## or twin contract
+test is permitted.
 
 ## Cross-epic integration tests (X-##)
 

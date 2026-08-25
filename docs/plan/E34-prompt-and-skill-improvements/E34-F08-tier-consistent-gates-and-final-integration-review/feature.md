@@ -26,17 +26,18 @@ that every scoped round had missed.
 Define one artifact and gate matrix for SIMPLE, STANDARD, and COMPLEX features.
 Require gate reports to cite exact project-declared commands, exit status,
 runner-native counts and skips, and bounded log pointers. Add a mandatory epic
-`integration_review` step before completion that reviews the accumulated
-merge-base diff, closes cross-feature interactions, and verifies defect guards,
-decisions, standards, and predicted debt without silently superseding a failed
-feature gate.
+`integration_review` step before completion that reviews the accumulated diff
+from a recorded immutable base, closes cross-feature interactions, and verifies
+defect guards, decisions, standards, and predicted debt without silently
+superseding a failed feature gate.
 
 ### Impact
 
 Every tier is judged against artifacts it actually produces, deterministic
 evidence comes from tools, and the last epic gate evaluates the integrated
-system rather than the last round's delta. E40 can later measure the effect,
-but its benchmark work does not block this feature.
+system rather than the last round's delta. The shipped E40 operator can later
+measure pinned E34 scenarios, but provider-backed comparison does not block
+this feature.
 
 ## Research findings
 
@@ -50,9 +51,9 @@ but its benchmark work does not block this feature.
 - The canonical epic workflow moves from active directly to completed after
   feature work. It has no named whole-diff integration step with authority and
   closure rules.
-- E40's benchmark harness is under active development and is the right future
-  place to compare workflow outcomes, latency, and review-round behavior. Its
-  unfinished corpus is validation follow-up, not a delivery dependency.
+- E40's benchmark operator is shipped and is the right follow-up surface for
+  workflow outcomes, latency, and review-round behavior. Provider-backed
+  comparison evidence is validation follow-up, not a delivery dependency.
 
 ## Tier contract
 
@@ -99,10 +100,45 @@ them.
 4. **REQ-F-004 — Epic integration-review workflow step**
    - Add a non-terminal `integration_review` step between active work and epic
      completion in the canonical route-based epic workflow.
-   - Review the entire accumulated diff from the resolved integration base to
+   - Capture an immutable epic integration-base commit when execution begins.
+     Bind each review to that base, candidate head, and the exact completed or
+     staged feature commits and paths included in the candidate.
+   - Add immutable `.shark/runs/<epic-run-id>/integration-events/*.json`,
+     immutable archived candidate heads, and one atomic
+     `integration-candidate.json` head. The epic active-entry coordinator
+     captures the base before first feature dispatch, each feature completion
+     writes a separate event, and integration-review dispatch binds candidate
+     head plus tracked and untracked path digests.
+   - Register the active run/base/head in one idempotent epic `reference` note
+     so feature completion and restarted parents discover the unique record;
+     reject a second nonterminal candidate for the same epic.
+   - Derive the registration suboperation ID from epic, run, base, and first
+     head. Under the run lock, fsync sidecars before the note. Exact retry
+     repairs a missing note for a matching head; a note pointing to absent or
+     corrupt sidecars and any conflicting bytes fail closed. Do not dispatch a
+     feature until head and note reconcile.
+   - Compute SHA-256 over canonical JSON excluding the object's own digest.
+     Serialize updates under a run-scoped lock and compare-and-swap the prior
+     head digest so concurrent feature completions are additive and stale
+     writers fail without data loss.
+   - Review the entire accumulated diff from the recorded integration base to
      the candidate head, not only the latest round or feature.
    - Include every completed or staged feature in the review inventory and
      detect untracked changed paths.
+   - Fail closed on a missing or unreachable base and define handling for
+     rebases, squash-merged feature branches, interleaved unrelated commits,
+     dirty tracked files, and untracked candidate paths. Do not infer scope
+     from `merge-base HEAD main` after work has landed on `main`.
+   - For already-active epics with no pre-execution record, require an explicit
+     operator backfill of a verified base and complete feature/event inventory;
+     never infer or silently migrate the identity.
+   - Use `shark integration backfill <epic-key> --epic-run-id=<run-id>
+     --base=<full-commit> --events-file=<bounded-v1-json>
+     --session=<authorized-session-id> [--dry-run]`. Require an active epic
+     claim; dry-run performs every validation without writes. Success creates
+     the first immutable events/head and a discoverable epic reference note;
+     any missing, duplicate, mismatched, unreachable, or conflicting input
+     leaves both sidecars and notes unchanged.
 
 5. **REQ-F-005 — Integration closure checks**
    - Verify all applicable I-## and X-## producer/consumer contracts, live
@@ -111,6 +147,9 @@ them.
      follow-up is accounted for.
    - Cross-check open review findings, completed class sweeps and guards,
      ADRs, project standards, and predicted-debt records naming changed paths.
+   - Add shared contract test `TC-I-01-READINESS-SYMMETRY`, which reads the
+     canonical architecture field list and verifies the producer, consumer,
+     Rider verb, embedded skill, and interaction-map references in one test.
 
 6. **REQ-F-006 — Gate authority**
    - Integration review is an additional gate; it does not rewrite an
@@ -131,9 +170,10 @@ them.
      validation commands, and version/baseline evidence for E34-F09.
 
 8. **REQ-F-008 — Benchmark follow-up**
-   - Define E40 scenarios for tier routing, evidence fidelity, defect-class
-     recurrence, and final integration closure after E40 is ready.
-   - Do not block E34-F08 acceptance on E40 completion or a benchmark delta.
+   - Define pinned E40 scenarios for tier routing, evidence fidelity,
+     defect-class recurrence, and final integration closure.
+   - Do not block E34-F08 acceptance on provider-backed execution or a
+     benchmark delta.
 
 9. **REQ-NF-001 — Provider and project neutrality**
    - Do not name WWGM scripts, Python environment variables, a specific LLM,
@@ -145,14 +185,16 @@ them.
 1. Add the shared tier/evidence reference and refactor all consumers to use it.
 2. Update gate output policies to require GateResult plus executable evidence
    and to consume I-03 and I-04.
-3. Add `integration_review` to canonical epic workflow YAML and create its
-   prompt, skill workflow, transition outcomes, and failure routing.
+3. Add `integration_review` to canonical epic workflow YAML, create its prompt,
+   skill workflow, transition outcomes, and failure routing, and implement the
+   immutable integration-event log, CAS candidate-head/capture service, and
+   explicit legacy backfill command.
 4. Implement interaction, finding, guard, ADR/standards, predicted-debt, and
    changed-path closure checks in the final review procedure.
 5. Produce I-05 and add tier-route, workflow, prompt-render, full-diff,
    authority, and compatibility tests.
-6. Add non-blocking E40 benchmark scenario requirements after the harness
-   exposes the needed corpus surface.
+6. Add non-blocking pinned E40 benchmark scenario requirements through the
+   shipped operator.
 
 ## Acceptance scenarios
 
@@ -175,7 +217,8 @@ them.
 - Given every feature-level gate has passed and the epic candidate includes
   changes from several features and rework rounds,
 - When `integration_review` runs,
-- Then it reviews the complete accumulated diff and closes interactions,
+- Then it verifies the recorded base and candidate identity, reviews the
+  complete accumulated diff and closes interactions,
   impact sets, findings, guards, decisions, standards, and predicted debt,
 - And it cannot use its own PASS to overwrite a required feature rejection.
 
@@ -194,7 +237,7 @@ them.
 - WWGM validation scripts, database setup, lint configuration, or model
   assignments.
 - Changing historical E04 lifecycle records in this repository.
-- Waiting for E40 to finish before implementation.
+- Requiring provider-backed E40 comparison before implementation.
 
 ## Verification plan
 
@@ -205,6 +248,29 @@ them.
 - Test integration review over multi-feature accumulated diffs, untracked
   changed paths, open I/X edges, stale decisions, incomplete sweeps, missing
   guards, and a rejected feature gate.
+- Test pinned-base histories with independently squash-merged features,
+  unrelated interleaved commits, rebases, a missing base, dirty tracked files,
+  and untracked candidate paths.
+- Race two feature-completion events and prove both survive; reject a stale CAS
+  writer. Verify canonical digests, archived-head links, tamper detection,
+  truncation, and reordering.
+- Failure-inject after event fsync, after archived-head fsync, after candidate
+  head replacement before acknowledgement, and immediately before/after review
+  binding. After each restart prove identical retry, no duplicate/lost event,
+  a recomputable prior-head chain, complete additive inventory, and rejection
+  of a same event ID with different bytes.
+- For initial capture and backfill, failure-inject immediately before and after
+  the registration-note commit. Exact retry must repair only a missing note for
+  a matching head, never duplicate the stable registration ID, reject a note
+  with absent or corrupt sidecars, and expose exactly one discoverable active
+  candidate before feature dispatch.
+- Command-test integration backfill: a complete verified base/event inventory
+  creates the initial head/reference and enables review. Reject unreachable
+  bases, missing/duplicate events, digest/path mismatch, partial inventories,
+  unauthorized sessions, and conflicting second backfills with no mutation;
+  assert dry-run writes nothing and no case infers a merge base.
+- Implement `TC-I-01-READINESS-SYMMETRY` as the structural guard for the full
+  I-01 producer/consumer reference surface.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.
 
 *Last Updated*: 2026-08-05

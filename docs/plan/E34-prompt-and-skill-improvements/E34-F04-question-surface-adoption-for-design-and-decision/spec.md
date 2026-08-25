@@ -188,7 +188,7 @@ this specification introduces no system-level deviation from it.
 E34-F04 does not produce or consume the sole mapped interaction, **I-01**.
 `E34-interaction-map.md#i-01-readiness-evidence-shape` remains exclusively
 E34-F03's producer contract and E34-F02's consumer contract with shared
-pointer `E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md#TC-002`.
+pointer `TC-I-01-READINESS-SYMMETRY`.
 E34-F04 must not add, rename, or mirror an I-## interaction for its local
 Question-content adoption.
 

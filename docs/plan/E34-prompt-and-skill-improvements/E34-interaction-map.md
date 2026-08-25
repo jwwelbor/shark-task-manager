@@ -14,19 +14,25 @@ consumer obligations.
 | ID | Producer feature | Consumer feature(s) | Shape source | Payload | Style |
 |---|---|---|---|---|---|
 | I-01 | E34-F03 Deliverable Feature Decomposition and Staged Integration Acceptance | E34-F02 Evidence-Based Demo Script Skill | [I-01 ReadinessEvidence v1](./architecture.md#i-01-readinessevidence-v1) | Readiness evidence classifies demo claims without granting acceptance authority | Documentation policy and feature-contract handoff |
-| I-02 | E34-F05 Structured Gate Results and Parent-Owned Persistence | E34-F06, E34-F07, E34-F08 | [I-02 GateResult v1](./architecture.md#i-02-gateresult-v1) | Bounded gate outcome, evidence, findings, kickbacks, and sweeps persisted by the parent | JSON worker-to-parent contract |
+| I-02 | E34-F05 Structured Gate Results and Parent-Owned Persistence | E34-F06, E34-F07, E34-F08 | [I-02 GateResult v1](./architecture.md#i-02-gateresult-v1) | Outer final-envelope outcome/evidence plus bounded nested findings, kickbacks, sweeps, and impacts persisted by the parent | JSON worker-to-parent contract |
 | I-03 | E34-F06 Defect-Class Completeness and Recurrence Routing | E34-F08 | [I-03 DefectClassSweep v1](./architecture.md#i-03-defectclasssweep-v1) | Enumerated class scope, instances, dispositions, structural guard, and verification | Gate evidence nested in I-02 |
 | I-04 | E34-F07 State-Space Planning and Decision Propagation | E34-F08 | [I-04 ChangeImpactSet v1](./architecture.md#i-04-changeimpactset-v1) | Decision/state change, affected artifacts and consumers, amendments, follow-ups, and verification | Planning evidence nested in I-02 or linked decision record |
 | I-05 | E34-F08 Tier-Consistent Gates and Final Integration Review | E34-F09 | [I-05 CanonicalAdoptionManifest v1](./architecture.md#i-05-canonicaladoptionmanifest-v1) | Canonical bundle/version changes and explicit override adoption actions | Versioned JSON artifact and related document |
 
 ## Producer and consumer obligations
 
-### I-01 readiness evidence
+### I-01 readiness evidence shape
 
 E34-F03 produces the documented readiness shape. E34-F02 consumes it
 read-only and remains the activation owner for the real demo-script caller
-chain. The existing shared contract test is **TC-002** in
-`E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md`.
+chain. This compatibility heading preserves the existing consumer anchor; the
+normative fields remain in
+[architecture.md](./architecture.md#i-01-readinessevidence-v1).
+
+The shared structural contract test is **TC-I-01-READINESS-SYMMETRY** at
+`internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`.
+Historical F03 **TC-002** covers prompt rendering only and is not an I-01 shape
+contract test.
 
 ### I-02 GateResult
 

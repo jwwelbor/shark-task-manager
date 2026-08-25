@@ -65,6 +65,8 @@ fields without changing their meanings: `assessor_verdict`, `owner_decision`,
 `counterpart_status`, `review_basis`, and `demonstrability_disposition`.
 Read counterpart status live from Shark; do not replace an assessor verdict with
 an owner decision or completion marker.
+Preserve the shared structural contract-test pointer
+`TC-I-01-READINESS-SYMMETRY`; do not create a Rider-only twin test.
 
 ## Step 2 — Retrieve and follow the portable craft skill
 

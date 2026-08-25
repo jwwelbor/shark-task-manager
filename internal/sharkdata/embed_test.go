@@ -744,7 +744,7 @@ func TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007(t *testing.T) {
 		"skill": {
 			"name: demo-script",
 			"E34-interaction-map.md#i-01-readiness-evidence-shape",
-			"TC-002",
+			"TC-I-01-READINESS-SYMMETRY",
 			"E34-F03",
 			"E34-F02",
 			"assessor_verdict",

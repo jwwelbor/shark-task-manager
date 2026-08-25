@@ -44,6 +44,13 @@ verification plans.
 
 - Reusable skill content can be separated into workflow, prompt, methodology,
   and reference layers without breaking current consumers.
+- **D-E34-LEGACY-PROMPTS-001 — DEFER.** The earlier ignored dev-artifact review
+  prompt and skill-workflow-extraction prompt are not present, shipped, or
+  owned deliverables in this F05-F09 packet; no obsolete ignored path is
+  claimed to exist. Before epic decomposition passes, the E34 decomposition
+  owner must either create a Shark feature/task with a tracked artifact path or
+  record an explicit cancellation. Until then the deferred items remain open
+  planning scope and E34 cannot claim them delivered.
 
 ### Area 3: Durable material Questions — E34-F04
 
@@ -61,18 +68,27 @@ verification plans.
 
 **REQ-F-009 — GateResult v1**
 
-- Configured quality gates return one versioned, bounded JSON envelope with an
-  opaque configured outcome, evidence, findings, kickbacks, and sweeps.
+- Configured quality gates return one bounded canonical final JSON envelope:
+  its outer fields own the opaque configured outcome and common evidence, and
+  its versioned GateResult member owns findings, kickbacks, sweeps, impacts,
+  and gate-specific summary without duplicate gate/outcome/evidence fields.
+- Each structured route maps every opaque outcome key to a validated semantic
+  role used only for success, route-owned rework, child-kickback rework,
+  blocked, hold, or cancelled completeness rules.
 
 **REQ-F-010 — Parent persistence before transition**
 
 - Rider and the core runner validate, bind, and idempotently persist the gate
-  result under the parent session before any lifecycle transition.
+  result under its stable run identity and associated authorized parent session
+  before any lifecycle transition.
 
 **REQ-F-011 — Replay and failure safety**
 
 - Exact replay is safe, conflicting replay fails, partial persistence resumes
   without duplication, and malformed structured output cannot advance work.
+- The terminal result is write-once, and deterministic suboperation IDs let a
+  restarted parent reconcile durable target records after every target
+  commit/sidecar-update crash window.
 
 **REQ-F-012 — Rider/core parity**
 
