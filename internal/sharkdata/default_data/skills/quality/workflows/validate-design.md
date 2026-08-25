@@ -167,7 +167,7 @@ before task generation:
 4. Verify producer and consumer references use the SAME shape source from the map.
 5. Verify each I-## has one shared contract test pointer.
 6. For every staged I-##, verify its map-assigned gate mode, counterpart entities
-   and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
+   and a current status read live from the project record, shared-contract evidence, activation owner, closure key, and
    review basis match the feature PRD. A `contract-only` edge must be declared no
    later than feature specification. Mismatched staged-edge values or incomplete
    declarations are BLOCKER findings. A complete, predeclared `contract-only`

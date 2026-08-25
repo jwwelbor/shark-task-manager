@@ -112,8 +112,8 @@ handoff note to the requirements catalog and decisions log:
 - Do not invent I-## IDs in ordinary PRD prose. The interaction map is the
   canonical source.
 - If an interaction map already exists and every shape source resolves, verify
-  it is linked with:
-  `DOC_PATH="docs/plan/<epic-id>/<epic-id>-interaction-map.md" && shark related-docs add "Interaction Map" "${DOC_PATH}" --epic=<epic-id>`
+  that its relationship to the epic is recorded through the active
+  project-management workflow.
 
 ### Step 5 — Cross-Reference Verification
 

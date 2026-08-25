@@ -5,7 +5,7 @@ inputs:
   - upstream_artifacts: list of {label, path} for any discovery/vision/journey docs informing this epic (optional)
   - sibling_epic_summaries: list of {epic_id, title, scope_summary} for cross-epic awareness (optional)
   - epic_directory: absolute path to the directory where the epic's files should be created
-  - epic_main_file_path: absolute path of the main epic index file (epic.md or shark-generated equivalent)
+  - epic_main_file_path: absolute path of the main epic index file (epic.md or a generated equivalent)
   - plan_decision: object describing which optional documents to include — `{personas: bool, user_journeys: bool, success_metrics: bool, requirements: bool, scope: bool}` (host runs the PLAN gate; craft accepts the decision)
   - plan_remaining_steps: list of document slugs still to be produced (RESUME mode); empty if starting fresh
   - plan_completed_steps: list of document slugs already completed in a prior run
@@ -121,8 +121,8 @@ handoff note to the requirements catalog and decisions log:
 - Do not invent I-## IDs in ordinary PRD prose. The interaction map is the
   canonical source.
 - If an interaction map already exists and every shape source resolves, verify
-  it is linked with:
-  `DOC_PATH="docs/plan/<epic-id>/<epic-id>-interaction-map.md" && shark related-docs add "Interaction Map" "${DOC_PATH}" --epic=<epic-id>`
+  that its relationship to the epic is recorded through the active
+  project-management workflow.
 
 ### Step 5 — Cross-Reference Verification
 

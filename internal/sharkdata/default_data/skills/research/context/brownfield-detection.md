@@ -1,6 +1,6 @@
 # Brownfield Detection Rules
 
-**Purpose**: Determine whether a project is brownfield (existing codebase) or greenfield (new/empty) to route `/shark-rider project bootstrap` to the correct estate.
+**Purpose**: Determine whether a project is brownfield (existing codebase) or greenfield (new/empty) so the host can route the project bootstrap workflow to the correct estate.
 
 ## Detection Algorithm
 
@@ -98,7 +98,7 @@ A single entry point file (e.g., lone `main.py`, `index.ts`, `main.go`) with no 
 - Someone just started coding (greenfield with a file)
 - A minimal project (brownfield)
 
-Default to **greenfield** but mention: "Found a single source file. Treating as greenfield — if this is an existing project, re-run with `/shark-rider project bootstrap --force-brownfield`."
+Default to **greenfield** but mention: "Found a single source file. Treating as greenfield — if this is an existing project, re-run the project bootstrap workflow with brownfield reconciliation enabled."
 
 ## Output
 

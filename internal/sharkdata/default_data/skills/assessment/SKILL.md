@@ -33,6 +33,10 @@ inputs:
   - context_multiplier_reason: optional adjustment rationale (e.g. "team learning new tech")
 
 outputs:
+  # Every assessment activity returns this host-routable semantic outcome.
+  # `blocked` means the craft cannot reach a decision because required evidence
+  # or authority is unavailable; it is not a failed assessment.
+  - outcome: pass | fail | blocked
   # mode = complexity_triage
   - complexity_score: integer 0-27
   - tier: SIMPLE | STANDARD | COMPLEX
@@ -78,6 +82,13 @@ The assessment skill provides four distinct decision-making activities, each inv
 4. **Effort Estimation** — Size work items for planning and capacity allocation.
 
 Each activity produces a structured output. The host decides what to do with that output (advance status, store metadata, route through workflow, etc.).
+
+## Outcome contract
+
+Every assessment response includes one semantic `outcome`: `pass`, `fail`, or
+`blocked`. `pass` and `fail` report a completed assessment decision; `blocked`
+reports that required evidence or authority is unavailable. The host owns all
+workflow transitions and maps this outcome into its local state model.
 
 ## Mode Router
 

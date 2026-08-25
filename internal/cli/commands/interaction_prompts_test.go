@@ -844,7 +844,7 @@ func TestInteractionMapTemplateIsShippedWithSpecificationWritingSkill(t *testing
 		"| ID | Producer feature | Consumer feature(s) | Shape | Payload | Style |",
 		"I-##",
 		"architecture.md",
-		"shark related-docs add",
+		"project-management workflow",
 	} {
 		require.Truef(t, strings.Contains(content, want), "template missing %q", want)
 	}

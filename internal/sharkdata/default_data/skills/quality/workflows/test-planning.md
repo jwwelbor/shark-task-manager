@@ -224,7 +224,7 @@ For deterministic runtime interactions:
 - The test must assert the documented shape source, not just that a call
   happened.
 - For a staged edge, preserve the map-assigned gate mode, counterpart entities
-  and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
+  and a current status read live from the project record, shared-contract evidence, activation owner, closure key, and
   review basis. Test that a `contract-only` declaration is complete and
   predeclared; no test plan may invent or weaken those values.
 - Required staged fields include `review_basis`; do not omit it from the plan.

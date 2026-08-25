@@ -12,7 +12,7 @@ inputs:
   - existing_marker: parsed marker contents from a prior run (null if first run)
   - rerun_choice: fill-gaps | regenerate-all | reconcile-stack | cancel (null if no prior marker)
   - initiative_posture: stack-only | new-capability | extend | modernize | replace (confirmed by the host)
-  - host_state_status: free-form string the wrapper wants recorded in the marker (e.g. "shark: initialized", "none") — workflow does not interpret this
+  - host_state_status: free-form string the wrapper wants recorded in the marker (e.g. "initialized", "none") — workflow does not interpret this
   - generation_date: ISO date for marker and document headers
 outputs:
   - estate: brownfield | greenfield
@@ -245,7 +245,7 @@ Write the marker to `marker_path`:
 **Initiative Posture**: {stack-only | new-capability | extend | modernize | replace | unconfirmed}
 **Date**: {generation_date}
 **Stack**: {stack_summary — e.g., "TypeScript / Next.js 14 / PostgreSQL / Prisma", or "Provisional: Go (stated constraint)" for readiness 2}
-**Host State**: {host_state_status — supplied by the wrapper, e.g., "shark: initialized" or "none"}
+**Host State**: {host_state_status — supplied by the wrapper, e.g., "initialized" or "none"}
 
 ## Generated Files
 

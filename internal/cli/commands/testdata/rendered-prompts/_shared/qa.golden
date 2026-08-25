@@ -5,6 +5,13 @@ QA testing for task E07-F01: "Sample feature for golden test".
 
 This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
 
+## Outcome contract
+
+Every quality response includes one semantic `outcome`: `pass`, `fail`, or
+`blocked`. `pass` and `fail` describe a completed validation decision; `blocked`
+means required evidence, environment access, or authority is unavailable. The
+host, not this craft skill, maps the outcome to workflow state.
+
 ## Workflow Selection
 
 Based on what needs validation, invoke the appropriate workflow:
