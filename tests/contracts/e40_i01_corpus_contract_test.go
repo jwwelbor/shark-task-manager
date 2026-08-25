@@ -498,7 +498,7 @@ func TestTC002_I01FixturePackageVisibilityContract(t *testing.T) {
 	// The shark module's own path is derived live rather than hardcoded, so
 	// a future rename of the fixture module (or of this module) cannot
 	// silently defeat the guard below.
-	moduleCmd := exec.Command("go", "list", "-m")
+	moduleCmd := exec.Command("go", "list", "-buildvcs=false", "-m")
 	moduleCmd.Dir = repoRoot
 	moduleOutput, err := moduleCmd.CombinedOutput()
 	if err != nil {
@@ -509,7 +509,7 @@ func TestTC002_I01FixturePackageVisibilityContract(t *testing.T) {
 		t.Fatal("go list -m returned an empty module path")
 	}
 
-	cmd := exec.Command("go", "list", "./...")
+	cmd := exec.Command("go", "list", "-buildvcs=false", "./...")
 	cmd.Dir = repoRoot
 	output, err := cmd.CombinedOutput()
 	if err != nil {

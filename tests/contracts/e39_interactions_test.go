@@ -1812,7 +1812,7 @@ func projectRootTC011(t *testing.T) string {
 
 func runSharkTC011Failure(t *testing.T, dbPath string, args ...string) string {
 	t.Helper()
-	command := exec.Command("go", append([]string{"run", "./cmd/shark", "--db", dbPath}, args...)...)
+	command := exec.Command("go", append([]string{"run", "-buildvcs=false", "./cmd/shark", "--db", dbPath}, args...)...)
 	command.Dir = projectRootTC011(t)
 	output, err := command.CombinedOutput()
 	if err == nil {
@@ -1943,7 +1943,7 @@ func runSharkTC012(dbPath string, args ...string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("runtime.Caller failed")
 	}
-	command := exec.Command("go", append([]string{"run", "./cmd/shark", "--db", dbPath}, args...)...)
+	command := exec.Command("go", append([]string{"run", "-buildvcs=false", "./cmd/shark", "--db", dbPath}, args...)...)
 	command.Dir = filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
 	output, err := command.CombinedOutput()
 	return string(output), err
@@ -1956,7 +1956,7 @@ func runSharkTC013(t *testing.T, dbPath string, args ...string) string {
 		t.Fatal("runtime.Caller() failed")
 	}
 	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
-	commandArgs := append([]string{"run", "./cmd/shark", "--db", dbPath}, args...)
+	commandArgs := append([]string{"run", "-buildvcs=false", "./cmd/shark", "--db", dbPath}, args...)
 	command := exec.Command("go", commandArgs...)
 	command.Dir = projectRoot
 	return runSharkCaptureSeparate(t, command, "shark", args)
