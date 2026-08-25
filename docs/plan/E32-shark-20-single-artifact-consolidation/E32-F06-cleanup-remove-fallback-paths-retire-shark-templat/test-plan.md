@@ -190,11 +190,11 @@ These are renderer/config/workflow/CLI/content tests. They must not create or us
 **Acceptance criterion:** AC-004.
 **Technique:** Decision table; state transition.
 **ISO 25010:** Functional suitability, compatibility, reliability, security, portability.
-**Input:** Load (1) no config/no root JSON, (2) explicit `shark-data/workflow` directory, (3) explicit `.sharkworkflow.yaml` index, and (4) `../escape/workflow`.
-**Expected output:** First three load embedded/YAML workflows; traversal returns containment error.
-**Edge cases:** Missing disk bundle uses embedded defaults; YAML index is not JSON.
+**Input:** Load (1) no config/no root JSON, (2) explicit `shark-data/workflow` directory, (3) explicit `.sharkworkflow.yaml` index, (4) a configured `shark_data_path` bundle with a workflow file, and (5) `../escape/workflow`.
+**Expected output:** The first four load embedded/YAML workflows; traversal returns containment error.
+**Edge cases:** Missing disk bundle uses embedded defaults; YAML index is not JSON; `defaultWorkflowDataLoader` selects `custom-bundle/workflow/question.yaml` from the configured bundle.
 **Negative case:** No path relaxation or JSON selection.
-**Observability:** Assert workflow source/results and validation error.
+**Observability:** Assert workflow source/results and validation error; `TestDefaultWorkflowDataLoader_UsesSharkDataPathAndQuestionWorkflow` asserts the configured-bundle action.
 
 ### TC-005: Explicit install migrates JSON once and preserves YAML configuration
 
