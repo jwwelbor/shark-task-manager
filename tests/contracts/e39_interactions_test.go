@@ -524,7 +524,7 @@ func TestTC008_QuestionRegistrationTransportMatrix(t *testing.T) {
 func buildSharkTC008(t *testing.T) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "shark")
-	command := exec.Command("go", "build", "-o", binary, "./cmd/shark")
+	command := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
 	command.Dir = projectRootTC011(t)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build shark test binary: %v\n%s", err, output)
@@ -1335,7 +1335,7 @@ steps:
 func runSharkTC308(t *testing.T, projectRoot, dbPath string, args ...string) string {
 	t.Helper()
 	binaryPath := filepath.Join(projectRoot, "shark")
-	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binaryPath, "./cmd/shark")
 	build.Dir = projectRootTC011(t)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("TC-308 build shark: %v\n%s", err, output)
