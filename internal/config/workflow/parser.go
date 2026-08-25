@@ -290,6 +290,9 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	result := &MultiLevelWorkflow{
 		Sources: make(map[string]string),
 	}
+	if hasExplicitDeprecatedJSONWorkflowConfig(rawConfig) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
 
 	// --- Workflow file loading (E20-F04) ---
 	// Determine workflow file path and attempt to load it.
@@ -306,9 +309,6 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 		}
 	}
 
-	if hasExplicitDeprecatedJSONWorkflowConfig(rawConfig) {
-		return nil, DeprecatedWorkflowConfigJSONError()
-	}
 	if hasRootLegacyJSONWorkflow(configPath, rawConfig) {
 		return nil, DeprecatedWorkflowConfigJSONError()
 	}
@@ -319,19 +319,19 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	// would fail the JSON parse in loadWorkflowFile.
 	if workflowFilePath != "" {
 		if info, statErr := os.Stat(workflowFilePath); statErr == nil && !info.IsDir() {
-		idxMLW, isIndex, idxErr := LoadWorkflowIndexFile(workflowFilePath)
-		if idxErr != nil {
-			return nil, idxErr
-		}
-		if isIndex {
-			applyIndexResult(result, idxMLW, workflowFilePath)
-			fillDefaultSources(result)
-			if err := applyOwnerApprovalGates(result, rawConfig); err != nil {
-				return nil, err
+			idxMLW, isIndex, idxErr := LoadWorkflowIndexFile(workflowFilePath)
+			if idxErr != nil {
+				return nil, idxErr
 			}
-			cacheMultiLevel(result, cacheKey)
-			return result, nil
-		}
+			if isIndex {
+				applyIndexResult(result, idxMLW, workflowFilePath)
+				fillDefaultSources(result)
+				if err := applyOwnerApprovalGates(result, rawConfig); err != nil {
+					return nil, err
+				}
+				cacheMultiLevel(result, cacheKey)
+				return result, nil
+			}
 		}
 	}
 
@@ -351,20 +351,20 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	// precedence below.
 	if workflowFilePath != "" {
 		if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
-		overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
-		// B026 regression: even when LoadMultiLevelWorkflowFromYAMLDir returns
-		// a non-nil error (e.g. one sibling YAML is malformed), the returned
-		// MultiLevelWorkflow may carry slots that loaded successfully. Consume
-		// those partial results so a single bad file doesn't silently reset
-		// every entity workflow to its hardcoded default.
-		if mlw, _ := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); mlw != nil {
-			for _, entityType := range EntityTypes() {
-				if wf := mlw.GetByType(entityType); wf != nil {
-					result.setByType(entityType, wf)
-					result.Sources[entityType] = workflowFilePath
+			overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
+			// B026 regression: even when LoadMultiLevelWorkflowFromYAMLDir returns
+			// a non-nil error (e.g. one sibling YAML is malformed), the returned
+			// MultiLevelWorkflow may carry slots that loaded successfully. Consume
+			// those partial results so a single bad file doesn't silently reset
+			// every entity workflow to its hardcoded default.
+			if mlw, _ := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); mlw != nil {
+				for _, entityType := range EntityTypes() {
+					if wf := mlw.GetByType(entityType); wf != nil {
+						result.setByType(entityType, wf)
+						result.Sources[entityType] = workflowFilePath
+					}
 				}
 			}
-		}
 		}
 	}
 

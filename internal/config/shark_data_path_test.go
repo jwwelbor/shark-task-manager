@@ -148,13 +148,10 @@ func TestResolveWorkflowDir_DerivesFromSharkDataPath(t *testing.T) {
 	}
 	cfg := `{"shark_data_path": "custom-bundle"}`
 
-	dir, overrides, isFile := resolveWorkflowDir(tmp, []byte(cfg))
+	dir, overrides := resolveWorkflowDir(tmp, []byte(cfg))
 	want := filepath.Join(tmp, "custom-bundle", "workflow")
 	if dir != want {
 		t.Errorf("workflowDir = %q, want %q", dir, want)
-	}
-	if isFile {
-		t.Errorf("isLegacyFile = true; want false for an existing derived directory")
 	}
 	wantOverrides := filepath.Join(tmp, "custom-bundle", "overrides", "workflow")
 	if overrides != wantOverrides {
@@ -174,13 +171,10 @@ func TestResolveWorkflowDir_ExplicitWorkflowConfigWinsOverSharkDataPath(t *testi
 	// influence the resolved workflow dir.
 	cfg := `{"shark_data_path": "custom-bundle", "workflow_config": "explicit/wf"}`
 
-	dir, _, isFile := resolveWorkflowDir(tmp, []byte(cfg))
+	dir, _ := resolveWorkflowDir(tmp, []byte(cfg))
 	want := filepath.Join(tmp, "explicit", "wf")
 	if dir != want {
 		t.Errorf("workflowDir = %q, want %q (explicit workflow_config should win)", dir, want)
-	}
-	if isFile {
-		t.Errorf("isLegacyFile = true; want false")
 	}
 }
 
@@ -192,13 +186,10 @@ func TestResolveWorkflowDir_DefaultUnaffectedWhenSharkDataPathAbsent(t *testing.
 	if err := os.MkdirAll(filepath.Join(tmp, "shark-data", "workflow"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	dir, _, isFile := resolveWorkflowDir(tmp, []byte(`{}`))
+	dir, _ := resolveWorkflowDir(tmp, []byte(`{}`))
 	want := filepath.Join(tmp, "shark-data", "workflow")
 	if dir != want {
 		t.Errorf("workflowDir = %q, want %q", dir, want)
-	}
-	if isFile {
-		t.Errorf("isLegacyFile = true; want false")
 	}
 }
 
@@ -267,12 +258,9 @@ func TestResolveWorkflowDir_AbsoluteSharkDataPath(t *testing.T) {
 	}
 	cfg := `{"shark_data_path": "` + bundle + `"}`
 
-	dir, _, isFile := resolveWorkflowDir(projectRoot, []byte(cfg))
+	dir, _ := resolveWorkflowDir(projectRoot, []byte(cfg))
 	want := filepath.Join(bundle, "workflow")
 	if dir != want {
 		t.Errorf("workflowDir = %q, want %q (absolute bundle must not be joined under projectRoot)", dir, want)
-	}
-	if isFile {
-		t.Errorf("isLegacyFile = true; want false for an existing absolute workflow dir")
 	}
 }

@@ -31,13 +31,10 @@ func TestResolveWorkflowDir_DefaultsToSharkDataWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, overrides, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
+	dir, overrides := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	want := filepath.Join(tmp, "shark-data", "workflow")
 	if dir != want {
 		t.Errorf("workflowDir=%q want %q", dir, want)
-	}
-	if isFile {
-		t.Errorf("isLegacyFile=true; want false for directory")
 	}
 	if overrides != filepath.Join(tmp, "shark-data", "overrides", "workflow") {
 		t.Errorf("unexpected overrides path: %q", overrides)
@@ -57,13 +54,10 @@ func TestResolveWorkflowDir_CustomRelativePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
+	dir, _ := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	want := filepath.Join(tmp, "custom", "workflow")
 	if dir != want {
 		t.Errorf("workflowDir=%q want %q", dir, want)
-	}
-	if isFile {
-		t.Errorf("isLegacyFile=true; want false")
 	}
 }
 
@@ -81,20 +75,15 @@ func TestResolveWorkflowDir_AbsolutePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
+	dir, _ := resolveWorkflowDir(tmp, readConfig(t, configPath))
 	if dir != abs {
 		t.Errorf("workflowDir=%q want %q", dir, abs)
 	}
-	if isFile {
-		t.Errorf("isLegacyFile=true; want false")
-	}
 }
 
-// TestResolveWorkflowDir_LegacyFileFlag verifies that pointing
-// workflow_config at a file (rather than a directory) flags the legacy
-// fallback so the caller falls back to JSON loading. This is the back-compat
-// shim for projects still on `.sharkworkflow.json`.
-func TestResolveWorkflowDir_LegacyFileFlag(t *testing.T) {
+// TestResolveWorkflowDir_ExplicitFilePathPreserved verifies that file targets
+// remain visible to the strict workflow parser, which owns their validation.
+func TestResolveWorkflowDir_ExplicitFilePathPreserved(t *testing.T) {
 	t.Skip("legacy fallback signal retired by E32-F06")
 	tmp := t.TempDir()
 	jsonWorkflow := filepath.Join(tmp, "legacy", "workflow.json")
@@ -110,21 +99,15 @@ func TestResolveWorkflowDir_LegacyFileFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
-	if !isFile {
-		t.Errorf("isLegacyFile=false; want true when workflow_config points at a file")
-	}
-	if dir != "" {
-		t.Errorf("workflowDir=%q; want empty when signaling legacy fallback", dir)
+	dir, _ := resolveWorkflowDir(tmp, readConfig(t, configPath))
+	if dir != jsonWorkflow {
+		t.Errorf("workflowDir=%q; want explicit file path %q", dir, jsonWorkflow)
 	}
 }
 
-// TestResolveWorkflowDir_DefaultMissingFallsBackToLegacy verifies that
-// when the default shark-data/workflow/ doesn't exist AND the user didn't
-// explicitly configure workflow_config, the resolver flags legacy fallback
-// so inline JSON workflow blocks still load before missing slots fall back to
-// embedded canonical YAML.
-func TestResolveWorkflowDir_DefaultMissingFallsBackToLegacy(t *testing.T) {
+// TestResolveWorkflowDir_DefaultMissingReturnsCanonicalPath verifies that a
+// missing disk bundle remains a canonical embedded-default case.
+func TestResolveWorkflowDir_DefaultMissingReturnsCanonicalPath(t *testing.T) {
 	t.Skip("legacy fallback signal retired by E32-F06")
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, ".sharkconfig.json")
@@ -133,8 +116,8 @@ func TestResolveWorkflowDir_DefaultMissingFallsBackToLegacy(t *testing.T) {
 	}
 	// shark-data/workflow/ does NOT exist.
 
-	_, _, isFile := resolveWorkflowDir(tmp, readConfig(t, configPath))
-	if !isFile {
-		t.Errorf("expected legacy fallback when default dir is missing and no workflow_config is set")
+	dir, _ := resolveWorkflowDir(tmp, readConfig(t, configPath))
+	if want := filepath.Join(tmp, "shark-data", "workflow"); dir != want {
+		t.Errorf("workflowDir=%q; want canonical path %q", dir, want)
 	}
 }

@@ -576,6 +576,29 @@ func TestLoadMultiLevelWorkflow_JSONWorkflowConfigRejected(t *testing.T) {
 	}
 }
 
+// TC-002: Every explicit JSON target is rejected at the public loader before
+// path validation or JSON parsing can select it as a workflow source.
+func TestTC002_LoadMultiLevelWorkflow_RefusesEveryExplicitJSONTarget(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+	for _, target := range []string{
+		"legacy/workflow.json",
+		"../../outside/workflow.json",
+		filepath.Join(t.TempDir(), "workflow.json"),
+		"~/legacy/workflow.json",
+	} {
+		t.Run(target, func(t *testing.T) {
+			writeJSON(t, configPath, map[string]interface{}{"workflow_config": target})
+			ClearWorkflowCache()
+
+			_, err := LoadMultiLevelWorkflow(configPath)
+			if !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+				t.Fatalf("LoadMultiLevelWorkflow(%q) error = %v, want ErrDeprecatedWorkflowConfigJSON", target, err)
+			}
+		})
+	}
+}
+
 func TestIsDeprecatedWorkflowConfigTarget_JSONOnly(t *testing.T) {
 	tests := []struct {
 		name  string

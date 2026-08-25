@@ -170,9 +170,9 @@ func runShowPatternsConfig(svc interface {
 var configValidateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate configuration file",
-	Long: `Check configuration file for errors and validate settings.
-Validates both .sharkconfig.json and .sharkworkflow.json (if present).
-Reports workflow sources, duplicate definitions, and structural issues.`,
+	Long: `Check .sharkconfig.json settings and supported workflow sources.
+Validates YAML workflow directories or indexes and embedded defaults.
+Reports workflow sources and structural issues; legacy JSON workflow files are rejected with migration guidance.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		configFile, err := cli.GetConfigPath()
 		if err != nil || configFile == "" {
