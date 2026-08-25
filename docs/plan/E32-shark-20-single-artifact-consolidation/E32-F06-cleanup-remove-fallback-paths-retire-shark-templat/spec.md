@@ -1,51 +1,78 @@
+---
+feature_key: E32-F06
+epic_key: E32
+title: Cleanup — remove fallback paths, retire shark-templates/
+status: specified
+size: S
+research: research-report.md
+---
+
 # E32-F06 specification: retire legacy resolution paths
 
 ## Scope and traceability
 
-This specification is incremental to the parent epic. See Epic PRD §2, SC7; §3, Cleanup; §4, A5; and §6, scenario 6. See the parent architecture ADR-3 and ADR-6, §5 F06, §6.2, and §6.3. The authoritative feature identity is `E32-F06`; the stale `E02-F06` front matter in `feature.md` must be corrected when that source document is next edited.
+This specification is incremental to the E32 epic. For business context, scope
+boundaries, and stakeholder impact, see [Epic PRD §2, §3, and §5](../epic.md).
+It implements the final cleanup described by the parent architecture's ADR-6
+and §6.1, and it must satisfy the E32 UAT plan's A9 only after A2–A4 and the
+F05 release-window gate have passed.
 
-The validated capability map in `research-report.md` establishes that this feature reuses canonical `shark-data/prompts` resolution, the embedded bundle, and replace-only overrides. It extends only the explicit JSON migration/refusal boundary and the F05 command retirement. It does not reimplement rendering, embedded-data installation, or override resolution.
+The validated capability map in [research-report.md](research-report.md)
+requires reuse of canonical `shark-data/` resolution, embedded defaults, and
+replace-only overrides. This feature removes obsolete entry points; it does not
+reimplement those capabilities.
+
+The repository has no `E32-interaction-map.md`; therefore this feature declares
+no I-## interaction contract. Neither E32 cross-epic row applies to F06:
+X-05 owns E32-F04 distribution for E38, and X-12 owns E32-F04 installed-content
+identity for E40. No X-## contract is produced, consumed, or validated here.
 
 ## Requirements
 
 ### Functional requirements
 
-| ID | Requirement | Epic trace |
+| ID | Requirement | Trace |
 |---|---|---|
-| REQ-F-001 | Preserve `shark-data/prompts` and embedded defaults as the only prompt source. A repository directory named `shark-templates` must never affect prompt discovery or rendering. | Epic PRD §2 SC7; §3 Cleanup |
-| REQ-F-002 | Reject an explicit JSON `workflow_config` target and a discovered root `.sharkworkflow.json` before any JSON workflow is loaded. The error must state that legacy JSON workflow files are unsupported and direct the operator to remove or empty `workflow_config` and remove or rename the root JSON file for embedded defaults, or run `shark admin install-shark-data` for an editable bundle. | Epic PRD §2 SC7; §3 Cleanup; §6 scenario 6 |
-| REQ-F-003 | Keep `shark admin install-shark-data` as the sole migration action that may rewrite a deprecated JSON `workflow_config` to the installed YAML workflow directory. It must retain the configured `shark_data_path` and report the prior JSON value. | Epic PRD §4; architecture ADR-3 and §6.3 |
-| REQ-F-004 | Remove the eight F05-deprecated host commands: `run`, `feature`, `epic`, `task`, `prd`, `dispatch`, `develop`, and `release`. Perform this deletion only after evidence of the promised release window and normal use is recorded. | Epic PRD §3 Cleanup; feature.md Dependencies and Risks |
-| REQ-F-005 | Update active operator documentation and command help to describe only YAML workflow directories or indexes, embedded defaults, `shark-data/`, and the migration path. Preserve historical plans, changelogs, QA evidence, and archival analysis as historical records. | Epic PRD §3 Cleanup; §4 A5 |
+| REQ-F-001 | Treat every root `.sharkworkflow.json` as an unsupported legacy workflow source, even when `workflow_config` is absent or empty. Return the existing typed deprecation error and migration guidance; never parse or use its contents. | Epic PRD §2 SC7; §3 Cleanup; architecture ADR-6; UAT A9 |
+| REQ-F-002 | Continue rejecting an explicit JSON `workflow_config` target with the same typed error. `shark admin install-shark-data` remains the only supported automatic migration path and rewrites the target to the installed YAML workflow directory. | Epic PRD §2 SC7; research report Capability map |
+| REQ-F-003 | When no legacy JSON file is selected or present, resolve workflows only from an explicit YAML directory/index, the configured `shark_data_path` bundle, or embedded canonical defaults. Preserve inline workflow blocks and the existing override precedence. | Epic PRD §2 SC1, SC6; architecture ADR-3 and §4.1 |
+| REQ-F-004 | Keep prompt resolution canonical-only. Do not add or restore a `shark-templates/` probe. If a legacy tree is present, it must not affect `findTemplateDir()` or rendered output. | Epic PRD §2 SC7; architecture §2.2; research report Finding 1 |
+| REQ-F-005 | Delete the eight F05-deprecated harness commands — `run`, `feature`, `epic`, `task`, `prd`, `dispatch`, `develop`, and `release` — only after the qualifying shipped release and one day of normal-use evidence are recorded. | Feature PRD Dependencies and Risks; architecture ADR-6 |
+| REQ-F-006 | Remove or correct active operator documentation that presents `shark-templates/` or root JSON workflow loading as current behavior. Preserve historical plans, changelogs, archived assessments, and dated analyses as historical records. | Epic PRD §3; research report Finding 4 |
+| REQ-F-007 | Correct the stale local planning identity in `feature.md` to `feature_key: E32-F06` and `epic_key: E32` before task generation. This is a traceability repair discovered by the validated research report, not a runtime change. | research report Scope and Capability map |
 
 ### Non-functional requirements
 
 | Area | Requirement |
 |---|---|
-| Reliability | The cutover must fail closed with the same actionable deprecation guidance on every legacy JSON entry path; it must not silently fall back to a JSON workflow or a legacy template tree. |
-| Security | Resolve configuration paths with the existing project-root and home-expansion checks. Do not relax path-traversal validation while removing the JSON branch. |
-| Performance | Keep prompt discovery bounded to the existing configured `shark-data/prompts` walk-up and embedded backstop; do not add filesystem scans for legacy locations. |
-| Operations | Retain explicit `install-shark-data` migration and replace-only overrides so operators can recover through a supported, observable command. |
+| Reliability | A legacy file must fail deterministically before workflow parsing. Its content, validity, or location must not alter the error path. A missing legacy file must not prevent embedded-default resolution. |
+| Security | Keep existing relative-path containment and absolute-path behavior for YAML workflow sources. Do not broaden supported file extensions or reintroduce a file-based fallback that can select unreviewed project content. |
+| Compatibility | Preserve YAML directory/index, embedded-default, `shark_data_path`, inline workflow, and replace-only override contracts. The only intentional incompatibilities are JSON workflow sources and the eight retired harness commands after their release gate. |
+| Performance | Remove redundant root-file stat/read attempts from the no-`workflow_config` path; do not add filesystem scans beyond the current canonical bundle resolution. |
+| Operations | Error text must name the unsupported JSON source and give one of the supported remediation paths: remove the target/file for embedded defaults, or run `shark admin install-shark-data` for editable YAML. |
 
 ### Acceptance criteria
 
 | ID | Criterion |
 |---|---|
-| AC-001 | A temporary project containing only `shark-templates/task/in_qa.tmpl` resolves the canonical prompt path and renders embedded or installed canonical content, never that template. |
-| AC-002 | A project with `workflow_config` set to any JSON file fails before JSON parsing and emits the migration guidance in REQ-F-002. |
-| AC-003 | A project with no `workflow_config` but a root `.sharkworkflow.json` fails with the same migration guidance; a project without either uses embedded defaults or its configured YAML bundle. |
-| AC-004 | `shark admin install-shark-data` migrates an explicit JSON target to `<shark_data_path>/workflow`, reports `migrated_from`, and remains idempotent for a YAML directory or YAML index. |
-| AC-005 | Production source under `cmd/` and `internal/` has no executable `shark-templates` resolution path. The repository contains no `shark-templates/` directory. |
-| AC-006 | The eight named files are absent from `~/.claude/commands/` only after the release-window evidence is attached to the implementation record. |
-| AC-007 | `CLAUDE.md`, active CLI references, workflow guides, and the active architectural overview do not present `shark-templates/` or JSON workflows as supported configuration. Historical records remain unchanged. |
-| AC-008 | Targeted template, configuration, workflow-loader, command, and documentation-reference tests pass; the full required Go quality gate passes after implementation. |
+| AC-001 | A project containing a root `.sharkworkflow.json` and no `workflow_config` causes `LoadMultiLevelWorkflow` and configuration validation to return/report `ErrDeprecatedWorkflowConfigJSON`; no workflow from that JSON is loaded. |
+| AC-002 | A project with `workflow_config: ""` and a root `.sharkworkflow.json` has the same refusal as AC-001. |
+| AC-003 | An explicit JSON `workflow_config` still returns the same typed deprecation error; `shark admin install-shark-data` migrates that explicit target to `<shark_data_path>/workflow/` and preserves `overrides/`. |
+| AC-004 | With no root legacy JSON and no explicit workflow source, the normal embedded-default path remains usable. YAML directory and YAML index configurations continue to load, including configured `shark_data_path` locations. |
+| AC-005 | `findTemplateDir()` selects only `<shark_data_path>/prompts` or its canonical embedded fallback. A fixture containing only a `shark-templates/` prompt tree cannot render from that tree. |
+| AC-006 | `rg -n 'shark-templates' cmd internal` returns no production-code matches. The repository does not contain a shipped `shark-templates/` directory. Test fixtures may mention the retired name only to prove it is ignored. |
+| AC-007 | `shark config validate --help` and its long description describe current YAML/embedded validation and do not claim to validate `.sharkworkflow.json`. |
+| AC-008 | The eight named files are absent from `~/.claude/commands/` only after release-window evidence is attached to the implementation handoff. Before that evidence exists, implementation stops before external deletion and reports the gate as unmet. |
+| AC-009 | Current guidance in `CLAUDE.md`, `docs/cli-reference/initialization.md`, `docs/cli-reference/configuration.md`, `docs/guides/route-based-workflow.md`, `docs/guides/workflow-profiles.md`, and `docs/architectural-overview.md` describes canonical `shark-data/` behavior and the explicit JSON refusal. Historical E20/E32 planning records remain unchanged. |
+| AC-010 | `feature.md` identifies E32-F06 under E32 before implementation tasks are authored. |
 
 ### Out of scope
 
-- New prompt syntax, rendering behavior, workflow statuses, or data models.
-- Changes to `shark-data/overrides/` replace-only semantics, embedded-bundle layout, or the YAML loader's supported directory/index inputs.
-- Rewriting historical planning, changelog, QA, or archival-analysis records to erase accurate legacy references.
-- Replacing third-party scripts or tools outside the named shared-harness command directory; unresolved external consumers are migration findings, not an invitation to preserve a runtime fallback.
+- New workflow features, workflow-schema changes, template rendering features, or a `shark dev` disk-loading mode.
+- Changes to embedded corpus contents, prompt/skill migration, or override merge semantics.
+- Rewriting historical plans, release notes, QA reports, or the dated LLM architecture analysis solely to remove legacy terminology.
+- Deleting user-owned root JSON files, local overrides, or third-party integrations. The product refuses legacy input; operators choose whether to remove or migrate their files.
+- Any cross-epic contract change or new I-##/X-## identifier.
 
 ## Architecture
 
@@ -53,56 +80,99 @@ The validated capability map in `research-report.md` establishes that this featu
 
 | Path | Change |
 |---|---|
-| `internal/templates/orchestrator_renderer.go` | Preserve the current single canonical `findTemplateDir()` flow. Do not add a legacy branch; update only comments if they inaccurately imply legacy template support. |
-| `internal/templates/shark_data_renderer_test.go` | Retain and extend the canonical-only assertions for `findTemplateDir()` so a populated legacy tree cannot become a renderer input. |
-| `internal/config/workflow/parser.go` | Remove implicit root `.sharkworkflow.json` selection/loading. Detect both explicit JSON targets and a legacy root JSON file before loader selection, and return the shared deprecation error. Keep YAML directory and YAML-index resolution unchanged. |
-| `internal/config/aliases.go` | Remove the legacy-file fallback signal from `resolveWorkflowDir()` and its callers. Return canonical workflow and overrides locations for absent default disk content so embedded YAML remains the backstop. Keep project-root validation and `shark_data_path` resolution. |
-| `internal/config/workflow/workflow_file_loading_test.go` | Delete successful legacy JSON-loading cases and add table-driven explicit-target, root-file, empty-config, and YAML-directory/index acceptance coverage. |
-| `internal/config/workflow_config_resolve_test.go` | Replace legacy-fallback expectations with canonical-directory/embedded-backstop expectations and the explicit-refusal boundary. |
-| `internal/config/workflow/workflow_validation_dx_test.go` | Remove assertions that validate a legacy JSON workflow as supported input; assert diagnostic migration guidance instead. |
-| `internal/cli/commands/config.go` | Change `config validate` help so it does not claim to validate `.sharkworkflow.json`; it must describe supported configuration and surface the loader diagnostic. |
-| `internal/cli/commands/config_test.go` | Add command-help and legacy-JSON diagnostic coverage for the revised command contract. |
-| `internal/cli/commands/sharkdata_cmd.go` | Preserve the explicit install migration behavior; change only wording if necessary so it is clearly a migration command rather than runtime compatibility. |
-| `internal/cli/commands/sharkdata_cmd_test.go` | Preserve JSON-to-YAML migration tests and add or retain assertions for custom and absolute `shark_data_path`, `migrated_from`, and YAML idempotence. |
-| `CLAUDE.md` | Keep the current migration guidance, but ensure it describes no implicit JSON loading or legacy template path. |
-| `docs/cli-reference/configuration.md`, `docs/cli-reference/initialization.md`, `docs/guides/route-based-workflow.md`, `docs/guides/workflow-profiles.md`, `docs/architectural-overview.md` | Update active documentation and diagrams to use the canonical Shark 2.0 bundle and YAML workflow terminology. |
-| `~/.claude/commands/{run,feature,epic,task,prd,dispatch,develop,release}.md` | Delete the eight retired F05 commands after the release-window gate; these are shared-harness operations, not repository source files. |
+| `internal/config/workflow/parser.go` | Remove the implicit fallback that selects `<project>/.sharkworkflow.json` when `workflow_config` is absent or empty. Before canonical/default loading, detect a root legacy JSON file and return `ErrDeprecatedWorkflowConfigJSON` via `DeprecatedWorkflowConfigJSONError()`. Retain explicit-JSON refusal, YAML directory/index loading, and the migration-error constructor. Make the no-source branch represent canonical defaults rather than a missing JSON file. |
+| `internal/config/workflow/validator.go` | Update `ValidateWorkflowFiles` and its comments so duplicate-source inspection does not synthesize the retired root JSON path. It must surface the parser's deprecation finding for detected legacy JSON and otherwise inspect only configured supported sources. |
+| `internal/config/aliases.go` | Delete the unused `resolveWorkflowDir` legacy-file signal and its fallback-oriented comments. Retain `ResolveSharkDataRoot` and the action-service loader's explicit JSON guard. |
+| `internal/config/workflow_config_resolve_test.go` | Remove tests that specify the legacy-file signal; retain canonical YAML-directory and `shark_data_path` resolution tests. |
+| `internal/config/shark_data_path_test.go` | Update assertions only if the removed legacy signal is part of the helper contract; retain custom and absolute bundle coverage. |
+| `internal/config/workflow/workflow_file_loading_test.go` | Replace the two tests that load a root `.sharkworkflow.json` with refusal tests for absent and empty `workflow_config`. Keep explicit JSON rejection, YAML directory/index, and normal default-source coverage. |
+| `internal/config/workflow/workflow_validation_dx_test.go` | Add or update validation coverage proving a root legacy JSON produces one actionable error finding rather than duplicate detection or a loaded workflow. |
+| `internal/templates/shark_data_renderer_test.go` | Retain the canonical-only regression fixture. Update its E32/F06 trace comment if needed; do not alter renderer behavior because the fallback is already absent. |
+| `internal/cli/commands/config.go` | Revise `config validate` help so it describes `.sharkconfig.json` and supported YAML/embedded workflow sources only. |
+| `internal/cli/commands/config_test.go` | Add a command-help regression asserting the removed JSON-validation claim is absent and supported source terminology remains present. |
+| `internal/cli/commands/sharkdata_cmd.go` and `internal/cli/commands/sharkdata_cmd_test.go` | Preserve the explicit install-and-migrate behavior. Only update wording/tests if the shared error text changes; do not remove this migration capability. |
+| `docs/plan/E32-shark-20-single-artifact-consolidation/E32-F06-cleanup-remove-fallback-paths-retire-shark-templat/feature.md` | Correct the stale E02 feature and epic keys to E32-F06/E32. |
+| `CLAUDE.md`, `docs/cli-reference/initialization.md`, `docs/cli-reference/configuration.md`, `docs/guides/route-based-workflow.md`, `docs/guides/workflow-profiles.md` | Align migration wording with the final refusal semantics: a discovered root JSON file is rejected; use embedded defaults after removal or use the explicit install command to migrate. |
+| `docs/architectural-overview.md` | Replace current-state diagrams and instructions that identify `.sharkworkflow.json` and `shark-templates/` as the active engine with the E32 canonical bundle. |
+| `~/.claude/commands/{run,feature,epic,task,prd,dispatch,develop,release}.md` | Delete the eight deprecated command files only when the release-window gate is evidenced. These are external harness artifacts, not repository files. |
 
-No schema, database migration, HTTP API, or new persisted data is required.
+No change is planned for `internal/templates/orchestrator_renderer.go`: live code already implements the target canonical-only resolution. No `shark-templates/` tree is present in this checkout, so there is no repository directory to delete; retain the negative test as the durable guard.
 
-### Interfaces and error contract
+### Data model changes
 
-The existing workflow entry points continue to accept a configured YAML workflow directory or YAML index and an omitted or empty `workflow_config` for embedded defaults. An explicit JSON `workflow_config`, or a root `.sharkworkflow.json` that would otherwise be discovered, returns the shared `DeprecatedWorkflowConfigJSONError()` diagnostic before `loadWorkflowFile()` or any JSON parser is called. The diagnostic must retain the migration actions in REQ-F-002. `shark admin install-shark-data` remains the explicit exception: it may convert JSON configuration to the installed YAML directory and must not make JSON a runtime input again.
+No database schema, persisted model, migration, or API-response schema changes are required. The configuration contract narrows accepted workflow sources:
 
-### Technical decisions
+| Field / input | Supported behavior after F06 |
+|---|---|
+| `workflow_config` omitted or empty | Use the configured canonical bundle or embedded defaults, unless a root `.sharkworkflow.json` is present, in which case return the migration error. |
+| `workflow_config` YAML directory or YAML index | Continue current loading and override behavior. |
+| `workflow_config` JSON file | Reject with `ErrDeprecatedWorkflowConfigJSON`. |
+| Root `.sharkworkflow.json` | Reject with `ErrDeprecatedWorkflowConfigJSON`; do not parse it as an implicit default. |
+| `shark_data_path` / `overrides/` | Unchanged: existing path checks and replace-only override semantics apply. |
+
+### API and interface contracts
+
+`workflow.LoadMultiLevelWorkflow(configPath string)` and
+`workflow.LoadMultiLevelWorkflowFromBytes(...)` retain their signatures. Their
+behavior changes only for the retired implicit root JSON input. Callers detect
+the condition with `errors.Is(err, workflow.ErrDeprecatedWorkflowConfigJSON)`;
+they must not match error text.
+
+`workflow.DeprecatedWorkflowConfigJSONError()` remains the single migration
+message source. It must direct an operator to remove/empty the JSON selection
+and root file for embedded defaults, or run `shark admin install-shark-data` to
+create editable YAML. `ensureWorkflowConfigField` continues to use
+`workflow.IsDeprecatedWorkflowConfigTarget` for the explicit migration command.
+
+```mermaid
+flowchart TD
+    C[Read .sharkconfig.json] --> W{workflow_config set?}
+    W -->|JSON| E[Return typed deprecation error]
+    W -->|YAML directory or index| Y[Load configured canonical workflow]
+    W -->|No| R{Root .sharkworkflow.json exists?}
+    R -->|Yes| E
+    R -->|No| D[Load shark-data or embedded defaults]
+    E --> M[Operator removes legacy file or runs install-shark-data]
+    M --> Y
+```
+
+### Key decisions
 
 | Decision | Rationale |
 |---|---|
-| Treat removal as a fail-closed migration boundary. | The parent architecture ADR-6 makes F06 the deliberate hard cutover. A missing bundle uses embedded canonical content; a present legacy JSON file is an operator-actionable configuration problem, not a fallback candidate. |
-| Retain the current renderer rather than deleting code that no longer exists. | The research report verifies that `findTemplateDir()` already ignores `shark-templates`. A regression test is the correct F06 deliverable for that completed cleanup. |
-| Preserve install-time migration but remove runtime loading. | This follows ADR-3's embedded distribution and replace-only override contract while providing a single recovery path. |
-| Scope documentation cleanup to active guidance. | It satisfies the operator contract without corrupting historical evidence, consistent with the research report's Decision 5. |
-| Gate host-command deletion on release evidence. | F05 promised one functional release window. The requirement protects users of the shared harness and cannot be inferred from repository tests. |
+| Refuse implicit root JSON rather than silently ignore it. | A silent ignore can change an established project's workflow without an actionable diagnosis. Explicit refusal fulfills SC7 and preserves operational safety. |
+| Preserve `install-shark-data` JSON migration. | It is an explicit, reviewable operator action that converts a deprecated selection into the canonical YAML directory; it is not a runtime fallback. |
+| Do not modify the renderer. | Code and its negative regression test already satisfy canonical-only prompt resolution. Reintroducing work there would create risk without changing behavior. |
+| Preserve historical documentation. | Historical evidence must remain auditable. Only current operator guidance and current architecture claims need correction. |
+| Gate harness deletion on release evidence. | F05 promised a one-release compatibility window. A spec cannot waive that commitment; missing evidence stops destructive external cleanup. |
+
+There are no material unresolved technical decisions. The release-window check is
+an implementation gate with a defined evidence requirement, not an unanswered
+design choice; therefore no Q### record is required.
 
 ### Integration with existing code
 
-The renderer continues to use `findTemplateDir()`, `NewOrchestratorRenderer()`, and `newOrchestratorRendererFromEmbed()` in `internal/templates/orchestrator_renderer.go`. Configuration continues through `resolveWorkflowFilePath()`, `hasExplicitDeprecatedJSONWorkflowConfig()`, `IsDeprecatedWorkflowConfigTarget()`, and `DeprecatedWorkflowConfigJSONError()` in `internal/config/workflow/parser.go`, with directory selection through `resolveWorkflowDir()` in `internal/config/aliases.go`. CLI behavior remains thin: `config validate` uses `config.ValidateWorkflowFiles()`, while the explicit migration command continues through the existing Shark-data command helpers.
+Follow the configuration/workflow package pattern in
+`internal/config/workflow/parser.go`: parse configuration once, return typed
+errors, and preserve the public loader surface. Follow thin Cobra command
+guidance in `internal/cli/commands/config.go`; this feature changes help text,
+not command business logic. Preserve the renderer's existing
+`findTemplateDir() string` and `sharkDataPromptsSubdir() string` behavior in
+`internal/templates/orchestrator_renderer.go`.
 
-Follow the existing constructor-free configuration and Cobra-command patterns; do not introduce a service, repository, model, or global singleton for this deletion-only feature. Preserve `pathutil.ExpandHome`, project-root containment, and the embedded-FS fallback already used by the renderer and workflow loader.
-
-### Verification plan
-
-Run the focused Go tests for `internal/templates`, `internal/config`, `internal/config/workflow`, and `internal/cli/commands`; run the repository searches backing AC-005 and AC-007; exercise a fresh temporary project for AC-002 through AC-004; and run `make fmt && make lint && make test` after Go changes. Capture the release tag, elapsed release window, normal-use evidence, and absence of all eight host commands before recording AC-006 as passed.
-
-### Unresolved decisions
-
-There are no material unresolved architecture decisions. The renderer cutover, JSON refusal wording, and explicit-install exception are resolved by the validated research report and parent ADRs. The release-window evidence is an implementation gate, not a design question; if it is absent, implementation must stop without deleting the shared-harness commands.
+Verification must run the focused Go tests for the listed packages, then the
+repository quality gate: `make fmt`, `make lint`, and `make test`. Before the
+external command deletion, record fresh evidence for E32 UAT A2, A3, A4, and A9
+preconditions, the release containing F05, one day of normal use, and the
+read-only audit of `~/.claude/hooks/`, `scripts/`, and the eight command paths.
 
 ## Cross-feature interactions
 
-Not applicable. The parent epic has no `E32-interaction-map.md`; therefore no map-owned `I-##` contract exists for E32-F06 to produce or consume.
+Not applicable. No parent `E32-interaction-map.md` exists, so no map-owned
+I-## contract can be produced or consumed by E32-F06.
 
 ## Cross-epic integrations
 
-Not applicable. The global map assigns E32's relevant rows to E32-F04 (`X-05` and `X-12`), not to E32-F06. This cleanup feature neither produces, consumes, nor validates a map-owned `X-##` contract.
-
+Not applicable. The product map assigns E32's current rows X-05 and X-12 to
+E32-F04. E32-F06 neither produces, consumes, nor validates a map-owned X-##
+contract.
