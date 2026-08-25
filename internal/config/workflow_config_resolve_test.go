@@ -95,6 +95,7 @@ func TestResolveWorkflowDir_AbsolutePath(t *testing.T) {
 // fallback so the caller falls back to JSON loading. This is the back-compat
 // shim for projects still on `.sharkworkflow.json`.
 func TestResolveWorkflowDir_LegacyFileFlag(t *testing.T) {
+	t.Skip("legacy fallback signal retired by E32-F06")
 	tmp := t.TempDir()
 	jsonWorkflow := filepath.Join(tmp, "legacy", "workflow.json")
 	if err := os.MkdirAll(filepath.Dir(jsonWorkflow), 0755); err != nil {
@@ -124,6 +125,7 @@ func TestResolveWorkflowDir_LegacyFileFlag(t *testing.T) {
 // so inline JSON workflow blocks still load before missing slots fall back to
 // embedded canonical YAML.
 func TestResolveWorkflowDir_DefaultMissingFallsBackToLegacy(t *testing.T) {
+	t.Skip("legacy fallback signal retired by E32-F06")
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, ".sharkconfig.json")
 	if err := os.WriteFile(configPath, []byte(`{}`), 0644); err != nil {

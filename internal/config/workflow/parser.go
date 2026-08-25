@@ -67,6 +67,9 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if hasRootDeprecatedWorkflowConfig(configPath) {
+				return nil, DeprecatedWorkflowConfigJSONError()
+			}
 			// Config file doesn't exist - return nil, no error
 			// Caller will use default workflow
 			return nil, nil
@@ -257,6 +260,9 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
 		return multiLevelCache, nil
 	}
+	if hasRootDeprecatedWorkflowConfig(configPath) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
 
 	// Without a configured default directory, empty data means no config file
 	// and preserves the historical empty-workflow result. ActionService passes
@@ -293,7 +299,7 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	// Validate that relative workflow file paths do not escape the project root
 	// via path traversal. User-configured absolute paths (including ~/... expansion)
 	// are trusted and skip this check.
-	if !userAbsolute {
+	if workflowFilePath != "" && !userAbsolute {
 		configDir := filepath.Dir(configPath)
 		if err := validateWorkflowFilePath(configDir, workflowFilePath); err != nil {
 			return nil, fmt.Errorf("invalid workflow_config path: %w", err)
@@ -303,12 +309,16 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	if hasExplicitDeprecatedJSONWorkflowConfig(rawConfig) {
 		return nil, DeprecatedWorkflowConfigJSONError()
 	}
+	if hasRootLegacyJSONWorkflow(configPath, rawConfig) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
 
 	// E35-F04: workflow_config may point at a master index file that maps each
 	// entity to its workflow file, rooted at the index's bundle directory. This
 	// is detected before the directory/JSON-file handling because a YAML index
 	// would fail the JSON parse in loadWorkflowFile.
-	if info, statErr := os.Stat(workflowFilePath); statErr == nil && !info.IsDir() {
+	if workflowFilePath != "" {
+		if info, statErr := os.Stat(workflowFilePath); statErr == nil && !info.IsDir() {
 		idxMLW, isIndex, idxErr := LoadWorkflowIndexFile(workflowFilePath)
 		if idxErr != nil {
 			return nil, idxErr
@@ -322,11 +332,16 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 			cacheMultiLevel(result, cacheKey)
 			return result, nil
 		}
+		}
 	}
 
-	workflowFileData, err := loadWorkflowFile(workflowFilePath)
-	if err != nil {
-		return nil, err
+	var workflowFileData map[string]json.RawMessage
+	if workflowFilePath != "" {
+		var err error
+		workflowFileData, err = loadWorkflowFile(workflowFilePath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// If workflow_config points at a directory, treat it as the Shark 2.0
@@ -334,7 +349,8 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	// and overlay overrides from <parent>/overrides/workflow/. YAML-dir
 	// entries take precedence over inline definitions, matching JSON-file
 	// precedence below.
-	if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
+	if workflowFilePath != "" {
+		if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
 		overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
 		// B026 regression: even when LoadMultiLevelWorkflowFromYAMLDir returns
 		// a non-nil error (e.g. one sibling YAML is malformed), the returned
@@ -348,6 +364,7 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 					result.Sources[entityType] = workflowFilePath
 				}
 			}
+		}
 		}
 	}
 
@@ -745,8 +762,9 @@ func validateWorkflowFilePath(projectRoot, filePath string) error {
 
 // resolveWorkflowFilePath determines the workflow file path from config.
 // If workflow_config is set in rawConfig and is a non-empty string, it is used
-// (resolved relative to the config directory if relative). Otherwise, the default
-// .sharkworkflow.json in the config directory is returned.
+// (resolved relative to the config directory if relative). Otherwise, an
+// optional caller-provided canonical YAML directory is returned; an empty
+// result means to use inline or embedded defaults.
 // Paths starting with "~/" are expanded to the user's home directory.
 // The second return value indicates whether the path was explicitly absolute
 // (user-configured absolute path or ~/... expansion), as opposed to a relative
@@ -769,8 +787,15 @@ func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMes
 		return defaultWorkflowDir, filepath.IsAbs(defaultWorkflowDir)
 	}
 
-	// Default: .sharkworkflow.json in the same directory as .sharkconfig.json
-	return filepath.Join(configDir, ".sharkworkflow.json"), false
+	return "", false
+}
+
+// hasRootDeprecatedWorkflowConfig reports whether the project root contains
+// the retired Shark 1.x workflow file. It is checked before source resolution
+// so its contents can never participate in workflow loading.
+func hasRootDeprecatedWorkflowConfig(configPath string) bool {
+	info, err := os.Stat(filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json"))
+	return err == nil && !info.IsDir()
 }
 
 func hasExplicitDeprecatedJSONWorkflowConfig(rawConfig map[string]json.RawMessage) bool {
@@ -783,6 +808,20 @@ func hasExplicitDeprecatedJSONWorkflowConfig(rawConfig map[string]json.RawMessag
 		return false
 	}
 	return IsDeprecatedWorkflowConfigTarget(wc)
+}
+
+// hasRootLegacyJSONWorkflow reports the retired implicit workflow source. A
+// root JSON file is never a fallback: operators must remove it or migrate it
+// explicitly so an existing project cannot silently change workflow behavior.
+func hasRootLegacyJSONWorkflow(configPath string, rawConfig map[string]json.RawMessage) bool {
+	if wcRaw, ok := rawConfig["workflow_config"]; ok {
+		var wc string
+		if json.Unmarshal(wcRaw, &wc) == nil && strings.TrimSpace(wc) != "" {
+			return false
+		}
+	}
+	info, err := os.Stat(filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json"))
+	return err == nil && !info.IsDir()
 }
 
 // IsDeprecatedWorkflowConfigTarget reports whether workflow_config explicitly
