@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestTC008ConfigValidateHelpDescribesCanonicalWorkflowSources verifies the
+// production Cobra help entrypoint documents supported workflow sources only.
+func TestTC008ConfigValidateHelpDescribesCanonicalWorkflowSources(t *testing.T) {
+	var output bytes.Buffer
+	configValidateCmd.SetOut(&output)
+	t.Cleanup(func() { configValidateCmd.SetOut(nil) })
+
+	require.NoError(t, configValidateCmd.Help())
+
+	help := output.String()
+	assert.True(t, strings.Contains(help, "YAML"))
+	assert.True(t, strings.Contains(help, "embedded"))
+	assert.False(t, strings.Contains(help, "Validates both .sharkconfig.json and .sharkworkflow.json"))
+}
 
 // testPatternMatch is a local wrapper used by existing tests.
 // It delegates to ConfigService so tests continue to exercise the same logic.

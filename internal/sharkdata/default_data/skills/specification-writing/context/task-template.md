@@ -279,7 +279,7 @@ If wireframes are missing and the task touches frontend code, the BA/PM should r
 
 **status**: `draft` | `development` | `blocked` | `on_hold` | `completed` | `cancelled`
 
-Note: Status is managed via the `shark` CLI and tracked in database. Task files remain in feature directory regardless of status.
+Note: Status is managed by the active workflow and tracked in the project data store. Task files remain in the feature directory regardless of status.
 
 **feature**: Path to feature directory containing design docs
 
@@ -360,7 +360,7 @@ This folder contains agent-executable tasks that implement the {feature-key} fea
 
 ## Status Definitions
 
-Status is tracked by Shark in the project database. Task specs should name the intended workflow state semantically, but should not embed CLI commands for moving between states. Use the active task workflow to transition among `draft`, `development`, `blocked`, `on_hold`, `completed`, and `cancelled`.
+Status is tracked in the project data store. Task specs should name the intended workflow state semantically, but should not embed platform-specific transition instructions. Use the active task workflow to transition among `draft`, `development`, `blocked`, `on_hold`, `completed`, and `cancelled`.
 
 Task files remain in `/docs/plan/{epic}/{feature}/tasks/` regardless of status.
 

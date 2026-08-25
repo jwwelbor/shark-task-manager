@@ -35,8 +35,8 @@ graph TB
     subgraph "Shark Task Manager"
         CLI[CLI Interface<br/>shark status advance<br/>shark task resume]
         API[HTTP API<br/>/api/v1/tasks/:key]
-        WF[Workflow Engine<br/>.sharkworkflow.json]
-        TMPL[Template Engine<br/>shark-templates/]
+        WF[Workflow Engine<br/>shark-data/workflow]
+        TMPL[Template Engine<br/>shark-data/prompts]
         CTX[Context Store<br/>ContextData]
         DB[(SQLite / Turso)]
     end
@@ -96,7 +96,7 @@ All keys are case-insensitive. Slugged variants (`E07-user-management`) work eve
 
 ## Workflow State Machines
 
-Each entity level has its own state machine defined in `.sharkworkflow-short.json`. The state machine drives which agent is invoked, with which skills, using which prompt template.
+Each entity level has its own YAML state machine in `shark-data/workflow/`. The state machine drives which agent is invoked, with which skills, using which prompt template.
 
 ### Epic Workflow
 
@@ -241,12 +241,12 @@ sequenceDiagram
 
 ## Prompt Template System
 
-Shark uses a Go `text/template`-based system with Jinja2-style syntax. Templates live in `shark-templates/` organized by entity type and status.
+Shark uses a Go `text/template`-based system with Jinja2-style syntax. Canonical prompts live in `shark-data/prompts/`, with embedded defaults when no editable bundle is installed.
 
 ### Template Directory Structure
 
 ```
-shark-templates/
+shark-data/prompts/
 ├── partials/                    ← Shared template fragments
 │   ├── _resume_preamble.tmpl    ← "Previous session was interrupted, check for existing work"
 │   ├── _tdd_process.tmpl        ← Standard TDD workflow steps
@@ -295,7 +295,7 @@ Templates are auto-populated with entity context before being sent to an agent:
 
 ```mermaid
 graph LR
-    WF["Workflow Config\n(.sharkworkflow-short.json)"]
+    WF["Workflow Config\n(shark-data/workflow)"]
     META["Status Metadata\norchestrator_action.instruction_template"]
     TMPL["Template File\ntask_short/ready_for_development.tmpl"]
     PARTIALS["Partial Templates\n_resume_preamble.tmpl\n_tdd_process.tmpl"]
@@ -657,7 +657,7 @@ graph TB
     subgraph "Supporting Packages"
         TMPL_ENG[Template Engine<br/>internal/templates/]
         ACTION[Action Package<br/>internal/config/action/]
-        WF_CFG[Workflow Config<br/>.sharkworkflow-short.json]
+        WF_CFG[Workflow Config<br/>shark-data/workflow]
         DB[(SQLite / Turso)]
     end
 
@@ -760,7 +760,7 @@ flowchart TD
 
 ## Configuration Reference
 
-The workflow and agent routing are fully configurable via `.sharkworkflow-short.json`:
+Workflow and agent routing are configurable through a YAML workflow directory or index:
 
 ```json
 {
@@ -791,10 +791,10 @@ The workflow and agent routing are fully configurable via `.sharkworkflow-short.
 ```
 
 **To customize the workflow:**
-1. Copy `shark-templates/.sharkworkflow-short.json` to a custom path
-2. Edit statuses, transitions, agent types, skills, or templates
-3. Update `workflow_config` in `.sharkconfig.json` to point at your file
-4. `shark admin init` leaves custom files outside `shark-templates/` untouched
+1. Run `shark admin install-shark-data` to create an editable bundle
+2. Edit YAML workflows, prompts, skills, or overrides under `shark-data/`
+3. Set `workflow_config` to a YAML directory or index when using a custom source
+4. JSON workflow files are rejected with migration guidance
 
 ---
 
@@ -860,8 +860,8 @@ Shark's DLC facilitation rests on four pillars:
 
 | Pillar | Mechanism | Files |
 |--------|-----------|-------|
-| **Workflow** | JSON state machine with per-status metadata | `.sharkworkflow-short.json` |
-| **Prompts** | Template system auto-populated with entity context | `shark-templates/**/*.tmpl` |
+| **Workflow** | YAML state machine with per-status metadata | `shark-data/workflow/*.yaml` |
+| **Prompts** | Template system auto-populated with entity context | `shark-data/prompts/**/*.md` |
 | **Context** | Structured ContextData with progress, decisions, blockers | `internal/models/context_data.go` |
 | **Integration** | `orchestrator_action` tells host CLI which agent/model/skills to use | `internal/config/action/`, `internal/services/display_service.go` |
 

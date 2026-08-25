@@ -108,7 +108,7 @@ var LoadMultiLevelWorkflowOrDefault = workflow.LoadMultiLevelWorkflowOrDefault
 // ValidateWorkflow validates workflow configuration for correctness.
 var ValidateWorkflow = workflow.ValidateWorkflow
 
-// ValidateWorkflowFiles validates both .sharkconfig.json and .sharkworkflow.json.
+// ValidateWorkflowFiles validates supported workflow configuration sources.
 var ValidateWorkflowFiles = workflow.ValidateWorkflowFiles
 
 // ValidateTransition checks if a status transition is valid according to workflow.
@@ -329,14 +329,9 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 //  1. Read `workflow_config` from .sharkconfig.json bytes (raw decode to
 //     avoid pulling in the entire Manager). Empty/missing → use the default
 //     `<projectRoot>/shark-data/workflow/`.
-//  2. Stat the resolved path:
-//     - Directory → return (workflowDir, derived overridesDir, false).
-//     - File → treat as legacy JSON config; return ("", "", true) so the
-//     caller skips Pass 1 and falls back to JSON loading.
-//     - Missing → return the default path anyway so the loader can stat it
-//     and silently produce zero YAMLs, leaving Pass 3 (hardcoded defaults)
-//     to provide working workflows. This keeps fresh projects working
-//     without an init.
+//  2. Return the resolved canonical YAML directory and its derived overrides
+//     directory. The YAML loader handles missing directories while embedded
+//     defaults backstop missing workflow slots.
 //
 // overridesDir defaults to `<dataDir>/overrides/workflow/` where dataDir is
 // the parent of workflowDir. When workflow_config is set to a custom path
@@ -348,7 +343,7 @@ func defaultWorkflowDataLoader(configPath string) (map[string]map[string]action.
 // empty when the file is missing — both produce the same fallback behavior
 // (default workflow dir). This signature change (was: configPath) is part of
 // TD-023's "read .sharkconfig.json once" pass.
-func resolveWorkflowDir(projectRoot string, configBytes []byte) (workflowDir, overridesDir string, isLegacyFile bool) {
+func resolveWorkflowDir(projectRoot string, configBytes []byte) (workflowDir, overridesDir string) {
 	configured := readWorkflowConfigField(configBytes)
 
 	if configured == "" {
@@ -372,28 +367,8 @@ func resolveWorkflowDir(projectRoot string, configBytes []byte) (workflowDir, ov
 		}
 	}
 
-	info, err := os.Stat(workflowDir)
-	switch {
-	case err == nil && info.IsDir():
-		// Directory: derive an overrides path next to it.
-		overridesDir = filepath.Join(filepath.Dir(workflowDir), "overrides", "workflow")
-		return workflowDir, overridesDir, false
-	case err == nil && !info.IsDir():
-		// File: legacy .sharkworkflow.json case. Signal caller to fall back.
-		return "", "", true
-	default:
-		// Doesn't exist (or stat error). If the user explicitly pointed
-		// workflow_config at this path, we still try Pass 1 (the YAML
-		// loader is silent on missing dirs) — but if they didn't, the
-		// default shark-data/workflow/ may simply not exist on disk. In that
-		// case flag the legacy fallback path; the loader will still backstop
-		// missing slots with embedded canonical YAML.
-		overridesDir = filepath.Join(filepath.Dir(workflowDir), "overrides", "workflow")
-		if configured == "" {
-			return workflowDir, overridesDir, true
-		}
-		return workflowDir, overridesDir, false
-	}
+	overridesDir = filepath.Join(filepath.Dir(workflowDir), "overrides", "workflow")
+	return workflowDir, overridesDir
 }
 
 // readWorkflowConfigField extracts the `workflow_config` field from raw

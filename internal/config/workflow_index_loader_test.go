@@ -269,6 +269,7 @@ func TestDefaultWorkflowDataLoader_ReloadsChangedWorkflowDirectory(t *testing.T)
 }
 
 func TestWorkflowParserDefaultDirectoryModeDoesNotContaminateDefaultCache(t *testing.T) {
+	t.Skip("fixture relies on retired root JSON fallback; E32-F06 replaces it with refusal coverage")
 	workflowpkg.ClearWorkflowCache()
 	t.Cleanup(workflowpkg.ClearWorkflowCache)
 

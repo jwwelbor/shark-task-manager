@@ -35,7 +35,7 @@ Use research workflows:
 ### Project Bootstrap Workflows
 
 1. **bootstrap** - `workflows/bootstrap.md`
-   - Main orchestrator for `/shark-rider project bootstrap` command
+   - Main orchestrator for the project bootstrap workflow
    - Detects brownfield vs greenfield, routes to correct track, produces `docs/architecture/` foundation
    - Readiness 2 (idea needs refinement): creates only a `tech-stack.md` placeholder; remaining docs generated on reconcile pass after product-design
    - Use for: Project bootstrapping before `/vision`, after `git clone`, at project start

@@ -173,6 +173,7 @@ func TestNoLegacyTaskKeys(t *testing.T) {
 
 // TestValidateWorkflowFiles_DuplicateDetection checks that duplicates are reported.
 func TestValidateWorkflowFiles_DuplicateDetection(t *testing.T) {
+	t.Skip("legacy JSON workflow duplicate detection retired by E32-F06")
 	t.Cleanup(ClearWorkflowCache)
 	tmpDir := t.TempDir()
 
@@ -216,6 +217,26 @@ func TestValidateWorkflowFiles_DuplicateDetection(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected duplicate definition warning for task_workflow")
+	}
+}
+
+// TC-003: Validation reports one actionable root-legacy refusal rather than
+// loading the JSON file or treating it as a duplicate workflow source.
+func TestTC003_ValidateWorkflowFiles_RefusesRootLegacyJSONOnce(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	writeJSONFile(t, configPath, map[string]interface{}{})
+	writeJSONFile(t, filepath.Join(tmpDir, ".sharkworkflow.json"), map[string]interface{}{
+		"task_workflow": buildWorkflowBlock("legacy-root-only"),
+	})
+
+	ClearWorkflowCache()
+	results := ValidateWorkflowFiles(configPath)
+	if len(results) != 1 {
+		t.Fatalf("ValidateWorkflowFiles() returned %d findings, want one: %#v", len(results), results)
+	}
+	if results[0].Level != "error" || !strings.Contains(results[0].Message, ErrDeprecatedWorkflowConfigJSON.Error()) {
+		t.Errorf("finding = %#v, want one deprecated JSON error", results[0])
 	}
 }
 
@@ -378,6 +399,7 @@ func TestValidateWorkflowFiles_ConfigWithNoWorkflowBlocks(t *testing.T) {
 // TestValidateWorkflowFiles_ConflictingEntityDefinitions verifies that when different
 // entity types are defined in different files, duplicates are detected per-entity.
 func TestValidateWorkflowFiles_ConflictingEntityDefinitions(t *testing.T) {
+	t.Skip("legacy JSON workflow duplicate detection retired by E32-F06")
 	t.Cleanup(ClearWorkflowCache)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, ".sharkconfig.json")

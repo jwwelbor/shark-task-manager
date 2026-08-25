@@ -127,7 +127,7 @@ Build the UAT report containing:
 
 ### Step 5 — Owner review (config-gated)
 
-Whether a human ratifies the verdict before completion is a **project configuration decision**, not a skill default. Resolve the mode from the project's `.sharkconfig.json` `require_owner_approval` field:
+Whether a human ratifies the verdict before completion is a **project configuration decision**, not a skill default. Resolve the mode from the active project's `require_owner_approval` configuration field:
 
 - **Owner review ON** — the field is `true` or lists this entity's workflow level. Do not ask for approval in-session; release the Codex verdict as the recommended outcome and let the workflow park the entity at its owner-approval step. The owner reviews the written report there and releases pass (complete) or fail (rework) via a status advance. The owner may override Codex in either direction — owner judgment is final.
 - **Owner review OFF** — the field is absent, `false`, or does not list this level. The Codex verdict is final: do not stop to ask. Map the verdict to the outcome per the Verdict rules and populate `approved_task_ids` with every passing task. The report and results documents are the owner's asynchronous audit trail.

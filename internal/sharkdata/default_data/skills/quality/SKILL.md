@@ -13,6 +13,7 @@ inputs:
   - acceptance_criteria: list of acceptance criteria text to validate against
 outputs:
   - selected_workflow: one of {validate-design, validate-tasks, review-code, test-planning, qa-testing, generate-standards}
+  - outcome: pass | fail | blocked
   - validation_report: structured validation results (PASS|FAIL)
   - issues_found: list of {severity, description, location, remediation}
   - coverage_analysis: validation coverage and gaps
@@ -22,6 +23,13 @@ outputs:
 # Quality Skill
 
 This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
+
+## Outcome contract
+
+Every quality response includes one semantic `outcome`: `pass`, `fail`, or
+`blocked`. `pass` and `fail` describe a completed validation decision; `blocked`
+means required evidence, environment access, or authority is unavailable. The
+host, not this craft skill, maps the outcome to workflow state.
 
 ## Workflow Selection
 

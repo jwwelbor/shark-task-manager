@@ -153,7 +153,7 @@ Based on research of existing codebase:
 - Display utilities in `internal/formatters/`
 - Table rendering via `cli.OutputTable(headers, rows)`
 - JSON output via `cli.OutputJSON(data)`
-- Color coding via status metadata in `.sharkconfig.json`
+- Color coding via project status metadata
 
 **New Patterns Introduced**: None
 

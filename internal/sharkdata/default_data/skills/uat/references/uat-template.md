@@ -17,7 +17,7 @@ Use this template structure when generating UAT documents. UAT validates that fe
 ## Epic Context
 
 **Epic Goal:**
-{Epic description and primary objectives from epic.md or shark}
+{Epic description and primary objectives from epic.md or the project record}
 
 **This Feature's Role in the Epic:**
 {How this feature contributes to the epic's goals. Why does this feature exist?}

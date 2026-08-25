@@ -29,6 +29,10 @@ var (
 // that points at a deprecated Shark 1.x JSON workflow file.
 var ErrDeprecatedWorkflowConfigJSON = errors.New("deprecated workflow_config JSON file")
 
+// afterRootDeprecatedWorkflowCheck is a test seam for coordinating cache
+// publication after the root-file safety check and before cache lookup.
+var afterRootDeprecatedWorkflowCheck = func() {}
+
 // LoadWorkflowConfig loads workflow configuration from .sharkconfig.json
 //
 // Returns:
@@ -46,10 +50,18 @@ var ErrDeprecatedWorkflowConfigJSON = errors.New("deprecated workflow_config JSO
 // - Subsequent calls return cached config (fast path)
 // - Cache invalidated if config file path changes
 func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
+	if hasRootDeprecatedWorkflowConfig(configPath) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
+	afterRootDeprecatedWorkflowCheck()
+
 	// Check cache first (fast path)
 	workflowCacheLock.RLock()
 	if workflowCache != nil && workflowCachePath == configPath {
 		defer workflowCacheLock.RUnlock()
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return workflowCache, nil
 	}
 	workflowCacheLock.RUnlock()
@@ -60,6 +72,9 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 
 	// Double-check cache (another goroutine may have loaded it)
 	if workflowCache != nil && workflowCachePath == configPath {
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return workflowCache, nil
 	}
 
@@ -185,10 +200,18 @@ func GetWorkflowOrDefault(configPath string) *WorkflowConfig {
 // (e.g. defaultWorkflowDataLoader) should call LoadMultiLevelWorkflowFromBytes
 // directly to avoid re-reading the file (see TD-023).
 func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
+	if hasRootDeprecatedWorkflowConfig(configPath) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
+	afterRootDeprecatedWorkflowCheck()
+
 	// Check cache first (fast path)
 	multiLevelCacheLock.RLock()
 	if multiLevelCache != nil && multiLevelCachePath == configPath {
 		defer multiLevelCacheLock.RUnlock()
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return multiLevelCache, nil
 	}
 	multiLevelCacheLock.RUnlock()
@@ -197,10 +220,16 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if hasRootDeprecatedWorkflowConfig(configPath) {
+				return nil, DeprecatedWorkflowConfigJSONError()
+			}
 			multiLevelCacheLock.Lock()
 			defer multiLevelCacheLock.Unlock()
 			// Double-check cache (another goroutine may have populated it).
 			if multiLevelCache != nil && multiLevelCachePath == configPath {
+				if hasRootDeprecatedWorkflowConfig(configPath) {
+					return nil, DeprecatedWorkflowConfigJSONError()
+				}
 				return multiLevelCache, nil
 			}
 			result := &MultiLevelWorkflow{}
@@ -234,17 +263,26 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 // workflow_config. An explicit workflow_config always takes precedence.
 //
 // ActionService uses this to derive its default from shark_data_path while all
-// other consumers retain the legacy root .sharkworkflow.json fallback.
+// other consumers use inline or embedded canonical defaults when no source is
+// configured.
 func LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath string, data []byte, defaultWorkflowDir string) (*MultiLevelWorkflow, error) {
 	return loadMultiLevelWorkflowFromBytes(configPath, data, defaultWorkflowDir)
 }
 
 func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWorkflowDir string) (*MultiLevelWorkflow, error) {
+	if hasRootDeprecatedWorkflowConfig(configPath) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
+	afterRootDeprecatedWorkflowCheck()
+
 	cacheKey := workflowParserCacheKey(configPath, defaultWorkflowDir)
 	// Check cache first (fast path) — callers may have already populated it.
 	multiLevelCacheLock.RLock()
 	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
 		defer multiLevelCacheLock.RUnlock()
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return multiLevelCache, nil
 	}
 	multiLevelCacheLock.RUnlock()
@@ -255,9 +293,11 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 
 	// Double-check cache
 	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return multiLevelCache, nil
 	}
-
 	// Without a configured default directory, empty data means no config file
 	// and preserves the historical empty-workflow result. ActionService passes
 	// a default directory derived from shark_data_path, which must still load
@@ -284,6 +324,9 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	result := &MultiLevelWorkflow{
 		Sources: make(map[string]string),
 	}
+	if hasExplicitDeprecatedJSONWorkflowConfig(rawConfig) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
 
 	// --- Workflow file loading (E20-F04) ---
 	// Determine workflow file path and attempt to load it.
@@ -293,40 +336,42 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	// Validate that relative workflow file paths do not escape the project root
 	// via path traversal. User-configured absolute paths (including ~/... expansion)
 	// are trusted and skip this check.
-	if !userAbsolute {
+	if workflowFilePath != "" && !userAbsolute {
 		configDir := filepath.Dir(configPath)
 		if err := validateWorkflowFilePath(configDir, workflowFilePath); err != nil {
 			return nil, fmt.Errorf("invalid workflow_config path: %w", err)
 		}
 	}
 
-	if hasExplicitDeprecatedJSONWorkflowConfig(rawConfig) {
-		return nil, DeprecatedWorkflowConfigJSONError()
-	}
-
 	// E35-F04: workflow_config may point at a master index file that maps each
 	// entity to its workflow file, rooted at the index's bundle directory. This
 	// is detected before the directory/JSON-file handling because a YAML index
 	// would fail the JSON parse in loadWorkflowFile.
-	if info, statErr := os.Stat(workflowFilePath); statErr == nil && !info.IsDir() {
-		idxMLW, isIndex, idxErr := LoadWorkflowIndexFile(workflowFilePath)
-		if idxErr != nil {
-			return nil, idxErr
-		}
-		if isIndex {
-			applyIndexResult(result, idxMLW, workflowFilePath)
-			fillDefaultSources(result)
-			if err := applyOwnerApprovalGates(result, rawConfig); err != nil {
-				return nil, err
+	if workflowFilePath != "" {
+		if info, statErr := os.Stat(workflowFilePath); statErr == nil && !info.IsDir() {
+			idxMLW, isIndex, idxErr := LoadWorkflowIndexFile(workflowFilePath)
+			if idxErr != nil {
+				return nil, idxErr
 			}
-			cacheMultiLevel(result, cacheKey)
-			return result, nil
+			if isIndex {
+				applyIndexResult(result, idxMLW, workflowFilePath)
+				fillDefaultSources(result)
+				if err := applyOwnerApprovalGates(result, rawConfig); err != nil {
+					return nil, err
+				}
+				cacheMultiLevel(result, cacheKey)
+				return result, nil
+			}
 		}
 	}
 
-	workflowFileData, err := loadWorkflowFile(workflowFilePath)
-	if err != nil {
-		return nil, err
+	var workflowFileData map[string]json.RawMessage
+	if workflowFilePath != "" {
+		var err error
+		workflowFileData, err = loadWorkflowFile(workflowFilePath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// If workflow_config points at a directory, treat it as the Shark 2.0
@@ -334,18 +379,20 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	// and overlay overrides from <parent>/overrides/workflow/. YAML-dir
 	// entries take precedence over inline definitions, matching JSON-file
 	// precedence below.
-	if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
-		overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
-		// B026 regression: even when LoadMultiLevelWorkflowFromYAMLDir returns
-		// a non-nil error (e.g. one sibling YAML is malformed), the returned
-		// MultiLevelWorkflow may carry slots that loaded successfully. Consume
-		// those partial results so a single bad file doesn't silently reset
-		// every entity workflow to its hardcoded default.
-		if mlw, _ := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); mlw != nil {
-			for _, entityType := range EntityTypes() {
-				if wf := mlw.GetByType(entityType); wf != nil {
-					result.setByType(entityType, wf)
-					result.Sources[entityType] = workflowFilePath
+	if workflowFilePath != "" {
+		if info, statErr := os.Stat(workflowFilePath); statErr == nil && info.IsDir() {
+			overridesDir := filepath.Join(filepath.Dir(workflowFilePath), "overrides", "workflow")
+			// B026 regression: even when LoadMultiLevelWorkflowFromYAMLDir returns
+			// a non-nil error (e.g. one sibling YAML is malformed), the returned
+			// MultiLevelWorkflow may carry slots that loaded successfully. Consume
+			// those partial results so a single bad file doesn't silently reset
+			// every entity workflow to its hardcoded default.
+			if mlw, _ := LoadMultiLevelWorkflowFromYAMLDir(workflowFilePath, overridesDir); mlw != nil {
+				for _, entityType := range EntityTypes() {
+					if wf := mlw.GetByType(entityType); wf != nil {
+						result.setByType(entityType, wf)
+						result.Sources[entityType] = workflowFilePath
+					}
 				}
 			}
 		}
@@ -745,8 +792,9 @@ func validateWorkflowFilePath(projectRoot, filePath string) error {
 
 // resolveWorkflowFilePath determines the workflow file path from config.
 // If workflow_config is set in rawConfig and is a non-empty string, it is used
-// (resolved relative to the config directory if relative). Otherwise, the default
-// .sharkworkflow.json in the config directory is returned.
+// (resolved relative to the config directory if relative). Otherwise, an
+// optional caller-provided canonical YAML directory is returned; an empty
+// result means to use inline or embedded defaults.
 // Paths starting with "~/" are expanded to the user's home directory.
 // The second return value indicates whether the path was explicitly absolute
 // (user-configured absolute path or ~/... expansion), as opposed to a relative
@@ -769,8 +817,15 @@ func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMes
 		return defaultWorkflowDir, filepath.IsAbs(defaultWorkflowDir)
 	}
 
-	// Default: .sharkworkflow.json in the same directory as .sharkconfig.json
-	return filepath.Join(configDir, ".sharkworkflow.json"), false
+	return "", false
+}
+
+// hasRootDeprecatedWorkflowConfig reports whether the project root contains
+// the retired Shark 1.x workflow file. It is checked before source resolution
+// so its contents can never participate in workflow loading.
+func hasRootDeprecatedWorkflowConfig(configPath string) bool {
+	info, err := os.Stat(filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json"))
+	return err == nil && !info.IsDir()
 }
 
 func hasExplicitDeprecatedJSONWorkflowConfig(rawConfig map[string]json.RawMessage) bool {

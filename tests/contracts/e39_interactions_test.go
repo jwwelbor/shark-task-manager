@@ -524,7 +524,7 @@ func TestTC008_QuestionRegistrationTransportMatrix(t *testing.T) {
 func buildSharkTC008(t *testing.T) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "shark")
-	command := exec.Command("go", "build", "-o", binary, "./cmd/shark")
+	command := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
 	command.Dir = projectRootTC011(t)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build shark test binary: %v\n%s", err, output)
@@ -1335,7 +1335,7 @@ steps:
 func runSharkTC308(t *testing.T, projectRoot, dbPath string, args ...string) string {
 	t.Helper()
 	binaryPath := filepath.Join(projectRoot, "shark")
-	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binaryPath, "./cmd/shark")
 	build.Dir = projectRootTC011(t)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("TC-308 build shark: %v\n%s", err, output)
@@ -1812,7 +1812,7 @@ func projectRootTC011(t *testing.T) string {
 
 func runSharkTC011Failure(t *testing.T, dbPath string, args ...string) string {
 	t.Helper()
-	command := exec.Command("go", append([]string{"run", "./cmd/shark", "--db", dbPath}, args...)...)
+	command := exec.Command("go", append([]string{"run", "-buildvcs=false", "./cmd/shark", "--db", dbPath}, args...)...)
 	command.Dir = projectRootTC011(t)
 	output, err := command.CombinedOutput()
 	if err == nil {
@@ -1943,7 +1943,7 @@ func runSharkTC012(dbPath string, args ...string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("runtime.Caller failed")
 	}
-	command := exec.Command("go", append([]string{"run", "./cmd/shark", "--db", dbPath}, args...)...)
+	command := exec.Command("go", append([]string{"run", "-buildvcs=false", "./cmd/shark", "--db", dbPath}, args...)...)
 	command.Dir = filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
 	output, err := command.CombinedOutput()
 	return string(output), err
@@ -1956,7 +1956,7 @@ func runSharkTC013(t *testing.T, dbPath string, args ...string) string {
 		t.Fatal("runtime.Caller() failed")
 	}
 	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
-	commandArgs := append([]string{"run", "./cmd/shark", "--db", dbPath}, args...)
+	commandArgs := append([]string{"run", "-buildvcs=false", "./cmd/shark", "--db", dbPath}, args...)
 	command := exec.Command("go", commandArgs...)
 	command.Dir = projectRoot
 	return runSharkCaptureSeparate(t, command, "shark", args)

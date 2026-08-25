@@ -91,7 +91,7 @@ If an epic requires phased implementation, break into separate epics:
 - Hyphen separators
 - Created in `/docs/plan/{epic-key}/{feature-key}/tasks/` directory
 - Task files remain in feature directory throughout their lifecycle
-- Status is tracked in database via `shark` CLI, not by folder location
+- Status is tracked in the project data store, not by folder location
 
 **Examples**:
 - `T-E01-F01-001.md`
@@ -152,7 +152,7 @@ All implementation tasks live with their feature documentation:
     └── T-E##-F##-003.md
 ```
 
-Task status is tracked in database, managed via `shark` CLI.
+Task status is tracked in the project data store by the active workflow.
 
 ## Slug Guidelines
 

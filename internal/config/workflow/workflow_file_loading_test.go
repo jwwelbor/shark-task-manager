@@ -151,6 +151,7 @@ func TestLoadMultiLevelWorkflow_LegacyTaskKeysOnly(t *testing.T) {
 
 // TC-062: Workflow file task_workflow overrides both config block and legacy keys
 func TestLoadMultiLevelWorkflow_WorkflowFileTaskOverridesConfigBlock(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -189,6 +190,7 @@ func TestLoadMultiLevelWorkflow_WorkflowFileTaskOverridesConfigBlock(t *testing.
 
 // TC-001: Both files exist, all 5 entities from workflow file
 func TestLoadMultiLevelWorkflow_WorkflowFileDetected(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -230,6 +232,7 @@ func TestLoadMultiLevelWorkflow_WorkflowFileDetected(t *testing.T) {
 
 // TC-002: Workflow file with only epic_workflow
 func TestLoadMultiLevelWorkflow_WorkflowFileOnlyPartialEntities(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -260,6 +263,7 @@ func TestLoadMultiLevelWorkflow_WorkflowFileOnlyPartialEntities(t *testing.T) {
 
 // TC-003: Unknown keys in workflow file are silently ignored
 func TestLoadMultiLevelWorkflow_UnknownKeysIgnored(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -351,6 +355,7 @@ func TestLoadMultiLevelWorkflow_NoConfigNoWorkflowFile(t *testing.T) {
 
 // TC-020: File defines epic+task, config defines all 5
 func TestLoadMultiLevelWorkflow_PerEntityPrecedence(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -391,6 +396,7 @@ func TestLoadMultiLevelWorkflow_PerEntityPrecedence(t *testing.T) {
 
 // TC-021: Three tiers: file, config, defaults
 func TestLoadMultiLevelWorkflow_FullPrecedenceChain(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -434,6 +440,7 @@ func TestLoadMultiLevelWorkflow_FullPrecedenceChain(t *testing.T) {
 
 // TC-022: Both files define task_workflow, file wins
 func TestLoadMultiLevelWorkflow_WorkflowFileOverridesInline(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -460,6 +467,7 @@ func TestLoadMultiLevelWorkflow_WorkflowFileOverridesInline(t *testing.T) {
 
 // TC-023: Empty entity block in workflow file treated as "not defined"
 func TestLoadMultiLevelWorkflow_EmptyEntityInWorkflowFile(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -488,6 +496,7 @@ func TestLoadMultiLevelWorkflow_EmptyEntityInWorkflowFile(t *testing.T) {
 
 // TC-024: Empty status_flow in workflow file treated as nil
 func TestLoadMultiLevelWorkflow_EmptyStatusFlowInWorkflowFile(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -567,6 +576,29 @@ func TestLoadMultiLevelWorkflow_JSONWorkflowConfigRejected(t *testing.T) {
 	}
 }
 
+// TC-002: Every explicit JSON target is rejected at the public loader before
+// path validation or JSON parsing can select it as a workflow source.
+func TestTC002_LoadMultiLevelWorkflow_RefusesEveryExplicitJSONTarget(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+	for _, target := range []string{
+		"legacy/workflow.json",
+		"../../outside/workflow.json",
+		filepath.Join(t.TempDir(), "workflow.json"),
+		"~/legacy/workflow.json",
+	} {
+		t.Run(target, func(t *testing.T) {
+			writeJSON(t, configPath, map[string]interface{}{"workflow_config": target})
+			ClearWorkflowCache()
+
+			_, err := LoadMultiLevelWorkflow(configPath)
+			if !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+				t.Fatalf("LoadMultiLevelWorkflow(%q) error = %v, want ErrDeprecatedWorkflowConfigJSON", target, err)
+			}
+		})
+	}
+}
+
 func TestIsDeprecatedWorkflowConfigTarget_JSONOnly(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -614,6 +646,7 @@ func TestLoadMultiLevelWorkflow_MissingCustomPath(t *testing.T) {
 
 // TC-032: Absent workflow_config key, default path used
 func TestLoadMultiLevelWorkflow_AbsentWorkflowConfigKey(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06; TC-003 covers refusal")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -639,6 +672,7 @@ func TestLoadMultiLevelWorkflow_AbsentWorkflowConfigKey(t *testing.T) {
 
 // TC-033: Empty string workflow_config treated as absent
 func TestLoadMultiLevelWorkflow_EmptyWorkflowConfig(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06; TC-003 covers refusal")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -660,6 +694,99 @@ func TestLoadMultiLevelWorkflow_EmptyWorkflowConfig(t *testing.T) {
 
 	if result.Epic == nil || result.Epic.Version != "default-path-epic" {
 		t.Errorf("expected Epic from default path (empty config = absent), got %v", result.Epic)
+	}
+}
+
+// TC-003: A root Shark 1.x JSON workflow is refused whether workflow_config is
+// absent or explicitly empty. This exercises the public loader with real
+// config and filesystem inputs so the legacy file cannot become a fallback.
+func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config map[string]interface{}
+	}{
+		{name: "absent workflow_config", config: map[string]interface{}{}},
+		{name: "empty workflow_config", config: map[string]interface{}{"workflow_config": ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			configPath := filepath.Join(dir, ".sharkconfig.json")
+			writeJSON(t, configPath, tc.config)
+			writeJSON(t, filepath.Join(dir, ".sharkworkflow.json"), map[string]interface{}{
+				"task_workflow": buildWorkflowBlock("legacy-root-only"),
+			})
+
+			ClearWorkflowCache()
+			_, err := LoadMultiLevelWorkflow(configPath)
+			if !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+				t.Fatalf("LoadMultiLevelWorkflow() error = %v, want ErrDeprecatedWorkflowConfigJSON", err)
+			}
+			for _, phrase := range []string{"remove or empty workflow_config", "remove or rename a root .sharkworkflow.json", "shark admin install-shark-data"} {
+				if !strings.Contains(strings.ToLower(err.Error()), phrase) {
+					t.Errorf("error = %q, want migration guidance %q", err, phrase)
+				}
+			}
+		})
+	}
+}
+
+// TC-003: A root legacy file must be rejected even when the default workflow
+// was cached before the file appeared. Filesystem-dependent safety checks may
+// not be bypassed by a warm cache.
+func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSONAfterCacheWarmup(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+	writeJSON(t, configPath, map[string]interface{}{})
+	ClearWorkflowCache()
+	t.Cleanup(ClearWorkflowCache)
+
+	if _, err := LoadMultiLevelWorkflow(configPath); err != nil {
+		t.Fatalf("initial LoadMultiLevelWorkflow() error = %v", err)
+	}
+	writeJSON(t, filepath.Join(dir, ".sharkworkflow.json"), map[string]interface{}{
+		"task_workflow": buildWorkflowBlock("legacy-root-only"),
+	})
+
+	if _, err := LoadMultiLevelWorkflow(configPath); !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+		t.Fatalf("warm-cache LoadMultiLevelWorkflow() error = %v, want ErrDeprecatedWorkflowConfigJSON", err)
+	}
+}
+
+// TC-003: A root legacy file appearing while a caller waits for cache
+// publication must be rejected by the post-lock cache return as well.
+func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSONAfterConcurrentCachePublication(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+	writeJSON(t, configPath, map[string]interface{}{})
+	ClearWorkflowCache()
+	t.Cleanup(ClearWorkflowCache)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	afterRootDeprecatedWorkflowCheck = func() {
+		close(entered)
+		<-release
+	}
+	t.Cleanup(func() { afterRootDeprecatedWorkflowCheck = func() {} })
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := LoadMultiLevelWorkflow(configPath)
+		result <- err
+	}()
+	<-entered
+
+	multiLevelCacheLock.Lock()
+	multiLevelCache = &MultiLevelWorkflow{}
+	multiLevelCachePath = configPath
+	writeJSON(t, filepath.Join(dir, ".sharkworkflow.json"), map[string]interface{}{
+		"task_workflow": buildWorkflowBlock("legacy-root-only"),
+	})
+	multiLevelCacheLock.Unlock()
+	close(release)
+
+	if err := <-result; !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+		t.Fatalf("concurrent-cache LoadMultiLevelWorkflow() error = %v, want ErrDeprecatedWorkflowConfigJSON", err)
 	}
 }
 
@@ -743,6 +870,7 @@ func TestLoadMultiLevelWorkflow_RelativePathResolution(t *testing.T) {
 
 // TC-040: template_directory from workflow file wins
 func TestLoadMultiLevelWorkflow_TemplateDirFromWorkflowFile(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -769,6 +897,7 @@ func TestLoadMultiLevelWorkflow_TemplateDirFromWorkflowFile(t *testing.T) {
 
 // TC-041: No template_directory in workflow file, config value used
 func TestLoadMultiLevelWorkflow_TemplateDirFallbackToConfig(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -817,6 +946,7 @@ func TestLoadMultiLevelWorkflow_TemplateDirNeitherFile(t *testing.T) {
 
 // TC-050: Invalid JSON in workflow file returns error with file path
 func TestLoadMultiLevelWorkflow_InvalidWorkflowFileJSON(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -840,6 +970,7 @@ func TestLoadMultiLevelWorkflow_InvalidWorkflowFileJSON(t *testing.T) {
 
 // TC-051: Invalid entity block returns error with entity name and file path
 func TestLoadMultiLevelWorkflow_InvalidEntityBlock(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -867,6 +998,7 @@ func TestLoadMultiLevelWorkflow_InvalidEntityBlock(t *testing.T) {
 
 // TC-052: Empty workflow file (0 bytes) treated as empty JSON
 func TestLoadMultiLevelWorkflow_EmptyWorkflowFile(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 
@@ -918,6 +1050,7 @@ func TestLoadMultiLevelWorkflow_CircularWorkflowConfig(t *testing.T) {
 
 // TC-070: Legacy cache sync
 func TestLoadMultiLevelWorkflow_LegacyCacheSync(t *testing.T) {
+	t.Skip("legacy JSON workflow loading retired by E32-F06")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
 

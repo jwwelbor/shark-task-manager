@@ -102,7 +102,7 @@ func f09ProjectRoot(t *testing.T) string {
 func buildSharkF09(t *testing.T) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "shark")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
 	build.Dir = f09ProjectRoot(t)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build shark test binary: %v\n%s", err, output)

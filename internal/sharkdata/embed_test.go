@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -957,38 +958,86 @@ func scanEmbeddedMarkdown(t *testing.T, prefix string, scan func(relPath, conten
 	return violations
 }
 
-// TestEmbedded_SkillsContainNoBareSharkCLIRefs enforces the skill-purity rule
-// (E32-F09 AC): no skill .md body outside _extracted/ sidecars may contain a
-// bare "shark <verb>" CLI invocation.  _extracted/ files are migration
-// scaffolding excluded by the same logic as TestValidate_SkipsExtractedSidecars.
+// TC-090: TestEmbedded_SkillsContainNoBareSharkCLIRefs enforces the E32-F09
+// skill-purity rule for the embedded craft-skill set that the feature owns.
+// Workflow and orchestration skills intentionally retain CLI instructions and
+// are outside this feature's scope. The retired triage skill is also absent
+// from the canonical bundle, so it is not a scan target.
 //
 // This turns the one-time acceptance-criterion grep into a permanent regression
 // gate: if a future edit re-introduces a CLI ref into a canonical skill file,
 // `make test` will fail here before the change can merge.
 func TestEmbedded_SkillsContainNoBareSharkCLIRefs(t *testing.T) {
-	const skillsPrefix = "skills/"
 	const extractedDir = "/_extracted/"
-
-	// Verbs that would constitute a bare CLI invocation.
-	cliVerbs := []string{
-		"shark status ", "shark get ", "shark task ", "shark feature ",
-		"shark epic ", "shark list ", "shark create ", "shark delete ",
-		"shark update ", "shark progress ", "shark analytics ", "shark cloud ",
-		"shark admin ", "shark config ", "shark search ", "shark view ",
-		"shark notes ", "shark idea ", "shark bug ", "shark td ",
+	craftSkillPrefixes := []string{
+		"skills/specification-writing/",
+		"skills/uat/",
+		"skills/assessment/",
+		"skills/research/",
+		"skills/quality/",
 	}
 
-	violations := scanEmbeddedMarkdown(t, skillsPrefix, func(relPath, content string, violations *[]string) {
-		for _, verb := range cliVerbs {
-			if strings.Contains(content, verb) {
-				*violations = append(*violations, relPath+": contains \""+verb+"\"")
+	violations := scanEmbeddedMarkdown(t, "skills/", func(relPath, content string, violations *[]string) {
+		inScope := false
+		for _, prefix := range craftSkillPrefixes {
+			if strings.HasPrefix(relPath, prefix) {
+				inScope = true
+				break
 			}
 		}
+		if !inScope {
+			return
+		}
+		*violations = append(*violations, craftSkillPlatformRefs(relPath, content)...)
 	}, func(relPath string) bool { return strings.Contains(relPath, extractedDir) })
 
 	assert.Empty(t, violations,
-		"skill files must not contain bare shark CLI invocations; found:\n%s",
+		"E32-F09 craft skill files must not contain bare shark CLI invocations; found:\n%s",
 		strings.Join(violations, "\n"))
+}
+
+var craftSkillPlatformRef = regexp.MustCompile(`(?i)(?:/shark-rider\b|shark)`)
+
+// craftSkillPlatformRefs enforces the feature policy rather than maintaining a
+// brittle list of current CLI subcommands. Any platform name or command form in
+// an owned craft skill is a violation; workflow/orchestration skills are scoped
+// out by the caller.
+func craftSkillPlatformRefs(relPath, content string) []string {
+	match := craftSkillPlatformRef.FindString(content)
+	if match == "" {
+		return nil
+	}
+	return []string{relPath + `: contains platform-specific reference "` + match + `"`}
+}
+
+// TC-091: TestEmbedded_SkillPurityGateDetectsPlatformCommandFamilies verifies
+// that the regression gate covers complete platform-command families.
+func TestEmbedded_SkillPurityGateDetectsPlatformCommandFamilies(t *testing.T) {
+	assert.Equal(t,
+		[]string{`skills/research/SKILL.md: contains platform-specific reference "shark"`},
+		craftSkillPlatformRefs("skills/research/SKILL.md", "Run shark related-docs E32 before returning."))
+	assert.Equal(t,
+		[]string{`skills/research/SKILL.md: contains platform-specific reference "shark"`},
+		craftSkillPlatformRefs("skills/research/SKILL.md", "Run shark sprint E32 before returning."))
+	assert.Equal(t,
+		[]string{`skills/research/SKILL.md: contains platform-specific reference "shark"`},
+		craftSkillPlatformRefs("skills/research/SKILL.md", "Read .sharkconfig.json before returning."))
+	assert.Equal(t,
+		[]string{`skills/research/SKILL.md: contains platform-specific reference "/shark-rider"`},
+		craftSkillPlatformRefs("skills/research/SKILL.md", "Use /shark-rider project bootstrap."))
+}
+
+// TC-094: TestEmbedded_OutcomeReturningCraftSkillsDeclareThreeWayOutcome
+// verifies the host-routable assessment and quality outcome contract.
+func TestEmbedded_OutcomeReturningCraftSkillsDeclareThreeWayOutcome(t *testing.T) {
+	for _, relPath := range []string{
+		"skills/assessment/SKILL.md",
+		"skills/quality/SKILL.md",
+	} {
+		content, err := readEmbeddedAll(relPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "outcome: pass | fail | blocked", relPath)
+	}
 }
 
 // TestEmbedded_AgentsDescribeRoleNotWorkflow enforces the agent-persona purity
