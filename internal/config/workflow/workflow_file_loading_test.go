@@ -730,6 +730,28 @@ func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSON(t *testing.T) {
 	}
 }
 
+// TC-003: A root legacy file must be rejected even when the default workflow
+// was cached before the file appeared. Filesystem-dependent safety checks may
+// not be bypassed by a warm cache.
+func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSONAfterCacheWarmup(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+	writeJSON(t, configPath, map[string]interface{}{})
+	ClearWorkflowCache()
+	t.Cleanup(ClearWorkflowCache)
+
+	if _, err := LoadMultiLevelWorkflow(configPath); err != nil {
+		t.Fatalf("initial LoadMultiLevelWorkflow() error = %v", err)
+	}
+	writeJSON(t, filepath.Join(dir, ".sharkworkflow.json"), map[string]interface{}{
+		"task_workflow": buildWorkflowBlock("legacy-root-only"),
+	})
+
+	if _, err := LoadMultiLevelWorkflow(configPath); !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+		t.Fatalf("warm-cache LoadMultiLevelWorkflow() error = %v, want ErrDeprecatedWorkflowConfigJSON", err)
+	}
+}
+
 // TC-034: Absolute YAML directory via workflow_config (within project root)
 func TestLoadMultiLevelWorkflow_AbsolutePath(t *testing.T) {
 	dir := t.TempDir()

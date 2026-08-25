@@ -46,6 +46,10 @@ var ErrDeprecatedWorkflowConfigJSON = errors.New("deprecated workflow_config JSO
 // - Subsequent calls return cached config (fast path)
 // - Cache invalidated if config file path changes
 func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
+	if hasRootDeprecatedWorkflowConfig(configPath) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
+
 	// Check cache first (fast path)
 	workflowCacheLock.RLock()
 	if workflowCache != nil && workflowCachePath == configPath {
@@ -185,6 +189,10 @@ func GetWorkflowOrDefault(configPath string) *WorkflowConfig {
 // (e.g. defaultWorkflowDataLoader) should call LoadMultiLevelWorkflowFromBytes
 // directly to avoid re-reading the file (see TD-023).
 func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
+	if hasRootDeprecatedWorkflowConfig(configPath) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
+
 	// Check cache first (fast path)
 	multiLevelCacheLock.RLock()
 	if multiLevelCache != nil && multiLevelCachePath == configPath {
@@ -244,6 +252,10 @@ func LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath string, da
 }
 
 func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWorkflowDir string) (*MultiLevelWorkflow, error) {
+	if hasRootDeprecatedWorkflowConfig(configPath) {
+		return nil, DeprecatedWorkflowConfigJSONError()
+	}
+
 	cacheKey := workflowParserCacheKey(configPath, defaultWorkflowDir)
 	// Check cache first (fast path) — callers may have already populated it.
 	multiLevelCacheLock.RLock()
@@ -261,10 +273,6 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
 		return multiLevelCache, nil
 	}
-	if hasRootDeprecatedWorkflowConfig(configPath) {
-		return nil, DeprecatedWorkflowConfigJSONError()
-	}
-
 	// Without a configured default directory, empty data means no config file
 	// and preserves the historical empty-workflow result. ActionService passes
 	// a default directory derived from shark_data_path, which must still load
