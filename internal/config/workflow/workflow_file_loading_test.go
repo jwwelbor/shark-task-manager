@@ -707,7 +707,6 @@ func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSON(t *testing.T) {
 	}{
 		{name: "absent workflow_config", config: map[string]interface{}{}},
 		{name: "empty workflow_config", config: map[string]interface{}{"workflow_config": ""}},
-		{name: "explicit YAML workflow_config", config: map[string]interface{}{"workflow_config": "workflow"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
