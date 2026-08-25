@@ -22,7 +22,7 @@ size: S
 
 ### Problem
 
-F2–F5 ship with deliberate back-compat: the engine still falls back to `shark-templates/` if `shark-data/` is missing; deprecated slash commands still function with a header pointing to the new entry point; the legacy `.sharkworkflow.json` reader still loads. This back-compat exists so daily work isn't disrupted during the migration.
+F2–F5 shipped deliberate compatibility paths. The renderer cutover is now already canonical-only: a legacy `shark-templates/` tree must be ignored rather than become an error source. The remaining legacy concern is implicit `.sharkworkflow.json` loading; deprecated slash commands required a release-window audit before retirement.
 
 After one release window, the back-compat becomes dead weight that complicates the engine and slows iteration.
 
@@ -30,10 +30,10 @@ After one release window, the back-compat becomes dead weight that complicates t
 
 Cleanup pass:
 
-- Remove the `shark-templates/` resolution fallback from the engine.
+- Preserve canonical prompt resolution and ensure a `shark-templates/` tree cannot affect it.
 - Remove deprecated slash commands.
 - Remove the legacy `.sharkworkflow.json` reader.
-- Update all docs to remove `shark-templates/` references.
+- Update current-facing docs; preserve historical plans and review evidence.
 
 ### Impact
 
@@ -47,10 +47,9 @@ Cleanup pass:
 
 ### Engine fallback removal
 
-- Remove `shark-templates/` resolution path from `internal/templates/` resolver (the F2/E5 fallback).
+- Retain the already-shipped canonical-only renderer behavior; a legacy tree is ignored, not loaded or rejected.
 - Remove the legacy `.sharkworkflow.json` reader.
-- Refuse to load with a clear deprecation error if either is encountered:
-  > "shark-templates/ is no longer supported. Run `shark init` to lay down shark-data/, then migrate any local edits to shark-data/overrides/."
+- Refuse a root or explicit legacy `.sharkworkflow.json` with clear migration guidance. A legacy prompt tree remains non-operative.
 
 ### Slash command removal
 
@@ -68,7 +67,7 @@ Delete from `~/.claude/commands/`:
 
 ### Documentation cleanup
 
-- Remove `shark-templates/` references from CLAUDE.md, README, internal docs.
+- Remove retired-path claims from current operator guidance; preserve historical references in plans, changelogs, and review evidence.
 - Update any onboarding instructions to reference `shark init` and `shark-data/` only.
 - Search `~/.claude/hooks/` and `~/projects/shark-task-manager/scripts/` for hardcoded `shark-templates/` paths and update to `shark-data/`.
 
@@ -77,7 +76,7 @@ Delete from `~/.claude/commands/`:
 ## Acceptance Criteria / Exit gate
 
 1. `grep -r "shark-templates" ~/projects/shark-task-manager/cmd/ ~/projects/shark-task-manager/internal/` returns nothing.
-2. `grep -r "shark-templates" ~/projects/shark-task-manager/` returns only historical CHANGELOG entries.
+2. Current operator documentation contains no retired path as supported behavior; historical records retain accurate migration history.
 3. Old `.sharkworkflow.json` files refused with deprecation error message.
 4. Deprecated slash commands no longer present in `~/.claude/commands/`.
 5. CLAUDE.md and README contain no `shark-templates/` references.

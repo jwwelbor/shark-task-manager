@@ -1,263 +1,260 @@
-# Test Plan: E32-F06 - Cleanup — remove fallback paths, retire shark-templates/
+# Test Plan: E32-F06 - Cleanup: retire legacy resolution paths
 
 **Created:** 2026-08-25  
-**Feature PRD:** `docs/plan/E32-shark-20-single-artifact-consolidation/epic.md`  
-**Feature specification:** `docs/plan/E32-shark-20-single-artifact-consolidation/E32-F06-cleanup-remove-fallback-paths-retire-shark-templat/spec.md`  
-**Status:** APPROVED FOR DEVELOPMENT, with release-window gate on AC-008
+**Feature PRD:** `feature.md` (stale `E02-F06` identity; use `E32-F06`)  
+**Task specification:** `spec.md`  
+**Parent UAT:** `../uat-plan.md` scenarios A9 and I1  
+**Status:** NEEDS_REFINEMENT
 
-## Spec Drift Analysis
+## Scope and release gate
 
-### Drift Findings
+This plan covers runtime legacy-resolution removal, explicit JSON refusal, install-time migration, active operator guidance, and conditional host-command retirement. It does not rewrite historical records.
 
-The legacy `feature.md` is stale: it identifies itself as E02-F06/E02, says the
-renderer still has a fallback, asks for broad repository-wide text removal, and
-does not describe the explicit JSON refusal. The authoritative `spec.md`
-corrects all four points. AC-010 repairs the identity; the implementation must
-use `spec.md`, preserve historical records, and not recreate renderer work.
+Do not delete the eight host commands until the implementation record contains the promised F05 release tag, one full release window of normal-use evidence, and a command-directory audit. The 2026-06-22 assessment says that evidence was absent; refresh it before implementation.
 
-The 2026-06-22 assessment is also stale about the renderer; the research report
-confirms that `findTemplateDir()` is already canonical-only. It remains useful
-only as historic release-window evidence. No release evidence attached to this
-feature currently satisfies AC-008, so external command deletion is prohibited
-until the specified evidence is attached.
+## Spec drift analysis
 
-### Traceability Matrix
+### Drift findings
 
-| Feature requirement | ACs | Coverage | Notes |
+| ID | Severity | Finding | Required resolution |
 |---|---|---|---|
-| Reject every root legacy JSON before parsing | AC-001, AC-002 | Yes | TC-001, TC-002, TC-003 |
-| Reject explicit JSON; retain explicit migration | AC-003 | Yes | TC-004 |
-| Preserve canonical YAML, configured bundle, inline, overrides, embedded defaults | AC-004 | Yes | TC-005 |
-| Prompts remain canonical-only | AC-005, AC-006 | Yes | TC-006, TC-007 |
-| Retire commands only after compatibility window | AC-008 | Yes | TC-009 |
-| Correct current CLI and documentation guidance only | AC-007, AC-009 | Yes | TC-008, TC-010 |
-| Repair planning identity | AC-010 | Yes | TC-011 |
+| D-01 | RESOLVED | The stale `feature.md` fallback/error language conflicted with canonical-ignore renderer behavior. | Feature brief amended to match `spec.md` and current renderer evidence. |
+| D-02 | RESOLVED | The feature had stale E02 identity fields. | Front matter and heading now identify E32-F06 under E32. |
+| D-03 | WARNING | The old PRD permits only changelog legacy references; the specification preserves historical plans, QA evidence, and archival analysis. | Use the specification's active-document allowlist; do not rewrite history. |
+| D-04 | WARNING | `assessment.md` says a renderer fallback remains, but research and current source show no legacy renderer pass. | Treat assessment renderer evidence as stale; keep a regression test. |
+| D-05 | RESOLVED | AC-006 required an explicit release-window evidence location. | `docs/review/E32-shark-20-single-artifact-consolidation/E32-F06-cleanup-remove-fallback-paths-retire-shark-templat/release-window-audit-20260825.md` records tags, interval, and host audit. |
 
-No I-## or X-## applies: the specification expressly assigns E32's X-05 and
-X-12 to E32-F04 and declares no E32 interaction map. Therefore no shared
-contract test pointer is required or invented here.
+### Traceability matrix
 
-## Acceptance Criteria Review
+| Feature requirement | Specification AC | Covered? | Notes |
+|---|---|---|---|
+| Canonical prompt source; no legacy fallback | AC-001, AC-005 | Yes | Resolves D-01 in favor of current architecture. |
+| Legacy JSON refusal with migration help | AC-002, AC-003 | Yes | Covers explicit target and root discovery. |
+| Install-time migration only | AC-004 | Yes | Covers custom/absolute data path and idempotence. |
+| Retire eight commands after release window | AC-006 | Partial | External evidence is mandatory. |
+| Active canonical guidance | AC-007 | Yes | Explicitly preserves history. |
+| Focused and full quality gates | AC-008 | Yes | Execution gate, not substitute evidence. |
 
-All ten ACs are unambiguous and testable. AC-008 is deliberately state-gated:
-the negative branch (no qualifying evidence) is a release-blocking test, not a
-reason to delete external files. The source `feature.md` identity mismatch is
-resolved by AC-010 before task authoring.
+## Acceptance criteria review
 
-## AC Test Matrix
-
-| AC | Test case | Setup/input | Expected outcome | Edge or negative case |
+| AC | Ambiguous | Testable | Complete | Result |
 |---|---|---|---|---|
-| AC-001 | TC-001 root JSON with omitted field | temp project: `{}` plus valid/malformed root JSON | typed deprecation error; no workflow loaded | malformed content gives same typed error |
-| AC-002 | TC-002 root JSON with empty field | `workflow_config: ""` plus root JSON | same typed error | whitespace-only field is treated as empty |
-| AC-003 | TC-004 explicit JSON migration | explicit relative and absolute JSON target; override sentinel | loader rejects; install migrates to `workflow/`, sentinel remains | YAML index is not rejected |
-| AC-004 | TC-005 supported-source matrix | no JSON, embedded/default, YAML dir/index, custom absolute data root, inline/override | each resolves canonical expected source | missing JSON still permits default |
-| AC-005 | TC-006 renderer ignores retired tree | fixture with only retired tree, then canonical prompts | retired tree cannot supply output; canonical renders | absolute configured bundle wins |
-| AC-006 | TC-007 production-tree audit | tracked `cmd`, `internal`, shipped directories | no production reference/tree; test fixture exception only | historical docs are excluded |
-| AC-007 | TC-008 command help | real Cobra `config validate --help` | current YAML/embedded terms, no JSON-validation claim | deprecated filename absent |
-| AC-008 | TC-009 release-gate decision table | evidence absent / fully present | absent: stop, preserve eight files; present: exact eight absent | incomplete or stale evidence blocks |
-| AC-009 | TC-010 active-doc inventory | six listed current docs plus historical samples | current docs accurate; historical files byte-identical | historical legacy terms permitted |
-| AC-010 | TC-011 identity metadata | `feature.md` front matter | E32-F06 and E32 exactly | stale E02 values fail |
+| AC-001 | No | Yes | Yes | Ready |
+| AC-002 | No | Yes | Yes | Ready |
+| AC-003 | No | Yes | Yes | Ready |
+| AC-004 | No | Yes | Yes | Ready |
+| AC-005 | No | Yes | Yes | Ready |
+| AC-006 | No | Yes | Yes | Release evidence recorded |
+| AC-007 | No | Yes | Yes | Ready |
+| AC-008 | No | Yes | Yes | Ready |
 
-## ISTQB Technique Application (per AC)
+## ISTQB technique application
 
 | AC | Technique(s) | Test cases | Rationale |
 |---|---|---|---|
-| AC-001 | Equivalence partitioning; attack-class enumeration | TC-001, TC-003 | Omitted configuration plus valid/malformed legacy contents must share refusal. |
-| AC-002 | Equivalence partitioning | TC-002 | Empty, whitespace, and omitted selections are distinct input partitions. |
-| AC-003 | Decision table; contract-surface enumeration | TC-004 | Target kind and bundle location determine reject/migrate/preserve behavior. |
-| AC-004 | Decision table | TC-005 | Mutually exclusive source-selection branches must retain precedence. |
-| AC-005 | Equivalence partitioning | TC-006 | Retired-only vs canonical-present prompt trees prove selection. |
-| AC-006 | Contract-surface enumeration | TC-007 | Enumerate shipped Go paths and directory artifact boundary. |
-| AC-007 | Equivalence partitioning | TC-008 | Help must include supported claims and exclude retired claims. |
-| AC-008 | State transition; decision table | TC-009 | Evidence state controls the only permitted destructive transition. |
-| AC-009 | Content inventory enumeration | TC-010 | Current and historical documentation have intentionally different rules. |
-| AC-010 | Exact-value assertion | TC-011 | Metadata is a two-field traceability contract. |
+| AC-001 | Equivalence partitioning; contract-surface enumeration | TC-001 | Canonical source classes versus populated legacy directory. |
+| AC-002 | Equivalence partitioning; decision table | TC-002 | Relative, absolute, and home-expanded JSON targets. |
+| AC-003 | State transition; decision table | TC-003, TC-004 | Absent/empty config, root JSON, embedded, YAML directory/index. |
+| AC-004 | Decision table; state transition | TC-005 | JSON migration versus supported YAML idempotence. |
+| AC-005 | Contract-surface enumeration | TC-006 | Production resolver source and shipped tree. |
+| AC-006 | State transition; contract-surface enumeration | TC-007 | Evidence gate before exact eight-file deletion. |
+| AC-007 | Equivalence partitioning; contract-surface enumeration | TC-008 | Active versus historical documents. |
+| AC-008 | State transition | TC-009 | Focused suites before full required gate. |
 
-## ISO 25010 Coverage Matrix
+## ISO 25010 coverage matrix
+
+`N/A` means the characteristic does not materially apply. No latency SLO, platform-specific behavior, or user interface is introduced.
 
 | AC | Functional | Performance | Compat | Usability | Reliability | Security | Maintainability | Portability |
 |---|---|---|---|---|---|---|---|---|
-| AC-001 | ✅ TC-001 | N/A internal branch | ✅ TC-001 | ✅ error review | ✅ TC-003 | ✅ TC-003 | ✅ focused test | N/A no OS-specific behavior |
-| AC-002 | ✅ TC-002 | N/A internal branch | ✅ TC-002 | ✅ error review | ✅ TC-002 | ✅ TC-002 | ✅ focused test | N/A |
-| AC-003 | ✅ TC-004 | N/A | ✅ TC-004 | ✅ migration output | ✅ TC-004 | ✅ path-containment regression | ✅ focused test | ✅ relative/absolute variants |
-| AC-004 | ✅ TC-005 | ✅ no new scans review | ✅ TC-005 | N/A no user-facing change | ✅ TC-005 | ✅ existing containment retained | ✅ focused test | ✅ relative/absolute variants |
-| AC-005 | ✅ TC-006 | ✅ no probe regression | ✅ TC-006 | N/A internal resolver | ✅ TC-006 | ✅ unreviewed tree ignored | ✅ focused test | ✅ absolute-root variant |
-| AC-006 | ✅ TC-007 | N/A static audit | ✅ TC-007 | N/A | ✅ TC-007 | ✅ retired source unavailable | ✅ audit is maintainability guard | N/A |
-| AC-007 | ✅ TC-008 | N/A | ✅ TC-008 | ✅ TC-008 | N/A | N/A no input boundary | ✅ command regression | N/A |
-| AC-008 | ✅ TC-009 | N/A | ✅ gate protects users | ✅ handoff report | ✅ TC-009 | ✅ read-only audit before deletion | ✅ evidence checklist | N/A |
-| AC-009 | ✅ TC-010 | N/A | ✅ TC-010 | ✅ manual wording review | N/A | N/A | ✅ inventory check | N/A |
-| AC-010 | ✅ TC-011 | N/A | N/A | N/A | N/A | N/A | ✅ traceability guard | N/A |
+| AC-001 | ✅ TC-001 | ✅ TC-001 | ✅ TC-001 | N/A | ✅ TC-001 | N/A | ✅ TC-009 | N/A |
+| AC-002 | ✅ TC-002 | N/A | ✅ TC-002 | ✅ TC-002 | ✅ TC-002 | ✅ TC-002 | ✅ TC-009 | N/A |
+| AC-003 | ✅ TC-003, TC-004 | N/A | ✅ TC-004 | ✅ TC-003 | ✅ TC-003, TC-004 | ✅ TC-004 | ✅ TC-009 | ✅ TC-004 |
+| AC-004 | ✅ TC-005 | N/A | ✅ TC-005 | ✅ TC-005 | ✅ TC-005 | ✅ TC-005 | ✅ TC-009 | ✅ TC-005 |
+| AC-005 | ✅ TC-006 | ✅ TC-006 | N/A | N/A | ✅ TC-006 | ✅ TC-006 | ✅ TC-009 | N/A |
+| AC-006 | ✅ TC-007 | N/A | ✅ TC-007 | ✅ TC-007 | ✅ TC-007 | N/A | ✅ TC-009 | N/A |
+| AC-007 | ✅ TC-008 | N/A | ✅ TC-008 | ✅ TC-008 | N/A | N/A | ✅ TC-009 | N/A |
+| AC-008 | ✅ TC-009 | N/A | N/A | N/A | ✅ TC-009 | N/A | ✅ TC-009 | N/A |
 
-### Coverage Gaps
+### Coverage gaps
 
-None. Runtime observability is intentionally not added: these configuration
-loader outcomes already expose typed errors to callers and `config validate`;
-adding metrics/logs would expand the feature without an operational requirement.
+- No test-design coverage gap remains; the external release evidence is recorded in the feature review directory.
 
-## Observability Design
+## Observability design
 
-| Behavior | Metric | Log | Trace span | Alert | Test assertion |
+| Behavior | Metric | Log | Trace span | Alert threshold | Test assertion |
 |---|---|---|---|---|---|
-| Legacy JSON refusal | internal — typed error is caller-visible evidence; no new instrumentation | existing caller error presentation | N/A | N/A | TC-001..TC-003 assert `errors.Is` and guidance |
-| Supported canonical source resolution | internal — source tracking is existing evidence | N/A | N/A | N/A | TC-005 asserts loaded source/result |
-| Prompt resolution | internal — renderer return/error is direct evidence | N/A | N/A | N/A | TC-006 renders canonical content and rejects retired-only fixture |
-| Command retirement | implementation-handoff release evidence | read-only audit report | N/A | release blocker | TC-009 requires attached evidence |
-| Current guidance | direct-file content evidence | N/A | N/A | N/A | TC-008, TC-010 |
+| Canonical renderer ignores legacy tree | Internal - deterministic behavior | Internal - no log needed | Internal - no trace needed | N/A | TC-001 asserts canonical marker. |
+| Runtime JSON refusal | Error return is operator evidence | Error contains all migration actions | Internal - no trace needed | N/A | TC-002 and TC-003 assert typed error and wording. |
+| Install migration | Existing JSON `migrated_from` output | Existing migration message | Internal - no trace needed | N/A | TC-005 asserts output and persisted config. |
+| Command retirement | Release record is evidence | Audit record lists gate evidence and files | N/A | Gate absent means no deletion | TC-007 asserts evidence before absence. |
 
-## Integration Scenarios
+No new instrumentation is required. Existing diagnostics and install output are the required production evidence.
 
-| Scenario | Boundary verification | Epic UAT contribution |
+## Integration scenarios
+
+| Scenario | Components and boundary | Verification | UAT trace |
+|---|---|---|---|
+| Legacy refusal | CLI/config loader -> workflow parser -> YAML/embedded resolver | JSON target/root fails before `loadWorkflowFile()`; JSON never yields workflow. | A9, I1 |
+| Supported recovery | `install-shark-data` -> config -> YAML loader | JSON config becomes `<shark_data_path>/workflow`; normal loading is YAML/embedded only. | A2, A9, I1 |
+| Canonical rendering | Renderer -> `shark-data/prompts` or embedded bundle | Legacy sibling tree cannot affect output. | A3, A4, A9, I1 |
+| Operator contract | Help/docs -> migration action | Guidance names YAML, embedded defaults, Shark-data, and installation. | A9, I1 |
+
+## Cross-feature contract tests (I-##)
+
+None. `spec.md` declares no E32 interaction map or map-owned `I-##` edge. Epic UAT I1 is a journey, not an invented feature-contract pointer.
+
+## Cross-epic integration tests (X-##)
+
+None. `spec.md` and `docs/product/cross-epic-integration-map.md` assign E32 X-05 and X-12 to E32-F04, not E32-F06. No F06 X-row is deferred.
+
+## Test infrastructure
+
+| Need | Existing pattern | Plan |
 |---|---|---|
-| Legacy root JSON to config validation | loader's typed error becomes exactly one actionable validation finding, never parsed workflow or duplicate warning | A9 |
-| Explicit JSON to install command | rejection remains at loader; explicit `shark admin install-shark-data` writes canonical YAML reference and retains overrides | A2, A8, A9 |
-| Canonical defaults to prompt renderer | no legacy JSON permits embedded/canonical resolution; renderer never reads a retired prompt tree | A3, A4, A9, I1 |
-| Release evidence to harness cleanup | F04 A2-A4 evidence plus shipped F05 release and one normal-use day are a hard precondition before external deletion | A9 after its prerequisites |
+| Renderer resolution | `internal/templates/shark_data_renderer_test.go`, `orchestrator_renderer_test.go` | Temp project, canonical `.md` marker, legacy `.tmpl` marker, controlled cwd. |
+| Workflow resolution | `internal/config/workflow/workflow_file_loading_test.go`, `internal/config/workflow_config_resolve_test.go` | Reuse `writeJSON`, YAML fixtures, `ClearWorkflowCache`, table subtests. |
+| CLI diagnostics/install | `internal/cli/commands/config_test.go`, `sharkdata_cmd_test.go` | Reuse Cobra output capture and temporary projects. |
+| Static active-document audit | Narrow Go/rg test beside config/command tests | Explicit active-source allowlist; historical dirs excluded. |
+| Host command audit | Release evidence plus `~/.claude/commands/` | Exact paths only; never broad deletion. |
 
-## Cross-feature Contract Tests (I-##)
+These are renderer/config/workflow/CLI/content tests. They must not create or use the real database; repository-only tests are the exception.
 
-Not applicable. `spec.md` declares no I-## because no E32 interaction map
-exists. No current Shark-status read is performed or recorded, because the
-feature has no staged cross-feature edge.
-
-## Cross-epic Integration Tests (X-##)
-
-Not applicable. The global map's X-05 and X-12 producer ownership is E32-F04;
-E32-F06 declares neither a producer nor consumer contract. No deferral is
-needed.
-
-## Caller-Path Contracts
+## Caller-path contracts
 
 | TC | Production entrypoint | Lowest allowed mock seam | Forbidden mocks | Counter-factual |
 |---|---|---|---|---|
-| TC-001 | `workflow.LoadMultiLevelWorkflow(configPath)` | filesystem at temp project root | loader, config-byte parser, root JSON existence check | A fallback loader would parse the valid JSON and return a workflow. |
-| TC-002 | `workflow.LoadMultiLevelWorkflowFromBytes(configPath, []byte('{"workflow_config":""}'))` with root file on disk | filesystem root-file stat | `loadMultiLevelWorkflowFromBytes`; string-only target helper | Empty field could silently bypass a discovered legacy file. |
-| TC-003 | `workflow.ValidateWorkflowFiles(configPath)` | filesystem only | `LoadMultiLevelWorkflow`; validation-finding construction | Validator could emit duplicate/info findings instead of one actionable refusal. |
-| TC-004 | `runSharkInstallData(&cobra.Command{}, nil)` from temp project with real config path | embedded bundle filesystem; no repository mock | `ensureWorkflowConfigField`, config manager, install command | A migration could rewrite the wrong target or erase `overrides/`. |
-| TC-005 | `workflow.LoadMultiLevelWorkflow(configPath)` and `LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath, data, defaultDir)` | filesystem fixtures | source resolver, YAML loader, inline workflow parser | Removing JSON could also break YAML/default/override precedence. |
-| TC-006 | `findTemplateDir()` then `NewOrchestratorRenderer(dir).Render("task/in_qa.md", data)` | filesystem prompt fixtures | `findTemplateDir`, `hasPromptFiles`, renderer | A retired tree could be selected when it is the only tree. |
-| TC-007 | repository-file audit (`rg` over tracked `cmd` and `internal`) | direct-file entrypoint | N/A — content-only | A live source reference or shipped retired tree could return unnoticed. |
-| TC-008 | `configValidateCmd.Help()` / `shark config validate --help` | Cobra command construction | help text formatter | Help could retain the false JSON-validation promise. |
-| TC-009 | release-handoff checklist and direct `~/.claude/commands/<name>.md` file audit | direct-file entrypoint | N/A — external content-only, read-only until gate passes | Deletion could occur with no qualifying release or one-day evidence. |
-| TC-010 | direct-file entrypoints for the six named active docs | N/A — content-only | N/A | A current operator guide could still direct users to retired behavior. |
-| TC-011 | direct-file entrypoint `feature.md` front matter | N/A — content-only | N/A | Task generation could attach work to E02 instead of E32. |
+| TC-001 | `NewOrchestratorRenderer(findTemplateDir())`, then `Render("task/in_qa.md", data)` | No mock; real filesystem/renderer | Do not pass canonical dir directly or stub directory selection, embedded reader, or cwd. | A fallback could render `LEGACY` rather than `CANONICAL`. |
+| TC-002 | `workflow.LoadMultiLevelWorkflow(configPath)` with explicit JSON config | No mock; real config/filesystem | Do not call only classifier/error helpers or mock JSON parsing. | Loader could parse JSON before refusal or omit migration steps. |
+| TC-003 | `workflow.LoadMultiLevelWorkflow(configPath)` with absent/empty config plus root JSON | No mock; real root sentinel | Do not call `resolveWorkflowFilePath` alone or mock root stat. | Root JSON could load rather than fail. |
+| TC-004 | `workflow.LoadMultiLevelWorkflow(configPath)` for embedded/YAML cases | No mock; real YAML fixtures | Do not stub embedded defaults, directory/index resolver, or containment check. | Cutover could reject absence/YAML or weaken containment. |
+| TC-005 | Cobra `shark admin install-shark-data --json` in temp project | Embedded bundle filesystem only | Do not call `ensureWorkflowConfigField` alone or mock persistence/output. | Migration could alter data path, omit `migrated_from`, or rewrite YAML. |
+| TC-006 | Direct source/tree audit of `cmd/`, `internal/`, repository root | Content-only: direct filesystem | Do not grep only changed files or hide source through ignores. | Hidden resolver branch or shipped legacy dir remains. |
+| TC-007 | Direct release record and eight exact command paths | Content-only: direct filesystem | Do not infer gate from status or use wildcard deletion. | Premature deletion could pass absence-only test. |
+| TC-008 | Direct named active docs and `shark config validate --help` | Content-only: direct files/command help | Do not search all docs or accept support claims. | Active guidance could mislead while history hides it. |
+| TC-009 | `make fmt && make lint && make test` after focused suites | No mock | Do not replace full gate with selected tests. | Formatting, lint, or unrelated regression escapes. |
 
-## Acceptance Test Cases
+## Acceptance test cases
 
-### TC-001: Root legacy JSON is refused before parsing (AC-001)
+### TC-001: Canonical prompt rendering ignores a populated legacy tree
 
-**Feature requirement:** REQ-F-001. **Technique:** equivalence partitioning + attack-class enumeration. **ISO:** Functional, Compatibility, Reliability, Security.
+**Feature requirement:** REQ-F-001.  
+**Acceptance criterion:** AC-001.  
+**Technique:** Equivalence partitioning; contract-surface enumeration.  
+**ISO 25010:** Functional suitability, performance efficiency, compatibility, reliability.  
+**Preconditions:** Temp project has `shark-data/prompts/task/in_qa.md` containing `CANONICAL {{.task_id}}` and `shark-templates/task/in_qa.tmpl` containing `LEGACY {{.task_id}}`; cwd is inside the project.  
+**Input:** Render `task/in_qa.md` with `task_id=E32-F06-001` through TC-001's caller path.  
+**Expected output:** `CANONICAL E32-F06-001`; no output contains `LEGACY`.  
+**Edge cases:** Canonical disk bundle absent plus legacy tree present renders embedded canonical content; configured absolute Shark-data path renders canonical content.  
+**Negative case:** Legacy-only content is never selected.  
+**Observability:** Assert selected directory and canonical output marker.
 
-**Preconditions/Input:** For each of valid JSON containing a recognizable workflow and malformed JSON, create `<temp>/.sharkworkflow.json`; write `<temp>/.sharkconfig.json` as `{}`.
+### TC-002: Every explicit JSON target fails before parser selection
 
-**Expected:** `LoadMultiLevelWorkflow(configPath)` returns `errors.Is(err, ErrDeprecatedWorkflowConfigJSON) == true`; error includes removal and `shark admin install-shark-data` remediation; no `MultiLevelWorkflow` is returned.
+**Feature requirement:** REQ-F-002 and path safety.  
+**Acceptance criterion:** AC-002.  
+**Technique:** Equivalence partitioning; decision table.  
+**ISO 25010:** Functional suitability, compatibility, usability, reliability, security.  
+**Input:** `workflow_config` is `legacy/workflow.json`, an in-root absolute JSON path, and a home-expanded JSON path; each holds valid JSON.  
+**Expected output:** Every case returns `ErrDeprecatedWorkflowConfigJSON` before `loadWorkflowFile()` parses JSON. Diagnostic says JSON is unsupported, remove/empty `workflow_config`, remove/rename root JSON, or run `shark admin install-shark-data`.  
+**Edge cases:** Relative, absolute, and home-expanded targets.  
+**Negative case:** No JSON workflow result, silent fallback, or containment bypass.  
+**Observability:** Assert typed error and all migration phrases.
 
-**Negative:** must not parse either JSON variant or return the recognizable workflow.
+### TC-003: Root legacy JSON is refused with absent or empty configuration
 
-### TC-002: Empty legacy selection is refused (AC-002)
+**Feature requirement:** REQ-F-002.  
+**Acceptance criterion:** AC-003 root-file clause.  
+**Technique:** State transition; decision table.  
+**ISO 25010:** Functional suitability, compatibility, usability, reliability.  
+**Preconditions:** Temp root has a valid `.sharkworkflow.json` with a distinguishing `legacy-root-only` status.  
+**Input:** Load with `{}` and with `{"workflow_config":""}`.  
+**Expected output:** Both return TC-002's typed diagnostic; neither result contains `legacy-root-only`.  
+**Edge cases:** Missing versus empty field.  
+**Negative case:** Root JSON is never embedded defaults, YAML, or supported input.  
+**Observability:** Assert error identity and phrases.
 
-**Feature requirement:** REQ-F-001. **Technique:** equivalence partitioning. **ISO:** Functional, Compatibility, Reliability, Security.
+### TC-004: Embedded, YAML directory, and YAML index paths remain supported
 
-**Input:** `{ "workflow_config": "" }` and `{ "workflow_config": "   " }`, each with a root legacy file.
+**Feature requirement:** REQ-F-002 and REQ-F-003.  
+**Acceptance criterion:** AC-003 canonical-path clause.  
+**Technique:** Decision table; state transition.  
+**ISO 25010:** Functional suitability, compatibility, reliability, security, portability.  
+**Input:** Load (1) no config/no root JSON, (2) explicit `shark-data/workflow` directory, (3) explicit `.sharkworkflow.yaml` index, and (4) `../escape/workflow`.  
+**Expected output:** First three load embedded/YAML workflows; traversal returns containment error.  
+**Edge cases:** Missing disk bundle uses embedded defaults; YAML index is not JSON.  
+**Negative case:** No path relaxation or JSON selection.  
+**Observability:** Assert workflow source/results and validation error.
 
-**Expected:** the same typed error and guidance as TC-001. **Negative:** empty/whitespace must not enable embedded-default fallthrough while root JSON exists.
+### TC-005: Explicit install migrates JSON once and preserves YAML configuration
 
-### TC-003: Config validation reports one actionable legacy finding (AC-001)
+**Feature requirement:** REQ-F-003.  
+**Acceptance criterion:** AC-004.  
+**Technique:** Decision table; state transition.  
+**ISO 25010:** Functional suitability, compatibility, usability, reliability, security, portability.  
+**Input:** Execute with JSON plus `custom-data`; JSON plus absolute in-project bundle; YAML directory; and YAML index. Run each twice.  
+**Expected output:** JSON becomes `<shark_data_path>/workflow`, output has original `migrated_from`, data path stays unchanged. YAML values stay unchanged with empty `migrated_from`; second run succeeds.  
+**Negative case:** No runtime JSON loading and no YAML/data-path overwrite.  
+**Observability:** Assert JSON output, persisted config, and human migration message.
 
-**Feature requirement:** REQ-F-001. **Technique:** contract-surface enumeration. **ISO:** Functional, Usability, Reliability.
+### TC-006: Production source and shipped tree have no legacy template resolver
 
-**Input:** TC-001's valid root JSON fixture. **Expected:** `ValidateWorkflowFiles` has one error-level finding identifying the configuration and deprecation remediation; it contains no loaded source or duplicate-definition warning. **Negative:** it must not claim JSON was validated.
+**Feature requirement:** REQ-F-001.  
+**Acceptance criterion:** AC-005.  
+**Technique:** Contract-surface enumeration.  
+**ISO 25010:** Functional suitability, performance efficiency, reliability, security, maintainability.  
+**Input:** Walk executable Go under `cmd/` and `internal/`; inspect root directories named exactly `shark-templates`, excluding named generated/dev-artifact fixtures from shipped-tree assertion.  
+**Expected output:** No executable source resolves `shark-templates`; no shipped repository legacy directory exists.  
+**Edge cases:** Comments/test names are not runtime resolution.  
+**Negative case:** Any `os.Stat`, `filepath.Join`, glob, or fallback branch resolving legacy dir fails.  
+**Observability:** Keep exact matches in failure output.
 
-### TC-004: Explicit JSON is rejected while install migrates and preserves overrides (AC-003)
+### TC-007: Retire only the eight commands after evidenced release window
 
-**Feature requirement:** REQ-F-002. **Technique:** decision table + contract-surface enumeration. **ISO:** Functional, Compatibility, Usability, Reliability, Security, Portability.
+**Feature requirement:** REQ-F-004.  
+**Acceptance criterion:** AC-006.  
+**Technique:** State transition; contract-surface enumeration.  
+**ISO 25010:** Functional suitability, compatibility, usability, reliability.  
+**Preconditions:** Implementation record contains F05 release tag, elapsed-window dates, normal-use evidence, and live-consumer audit.  
+**Input:** Audit `~/.claude/commands/{run,feature,epic,task,prd,dispatch,develop,release}.md`.  
+**Expected output:** All evidence exists; all eight exact paths are absent; no other command changes.  
+**Negative case:** If evidence is absent, stop before deletion and record AC-006 blocked.  
+**Observability:** Preserve release evidence and exact audit list.
 
-**Input:** relative and absolute `workflow_config` JSON targets; configured relative/absolute `shark_data_path`; pre-create `overrides/skills/quality/workflows/review-code.md` with sentinel bytes.
+### TC-008: Active operator guidance names supported configuration only
 
-**Expected:** loader returns typed error. `runSharkInstallData` creates `<root>/shark-data/workflow/` or `<absolute-bundle>/workflow/`, writes that directory (with trailing slash) to `workflow_config`, and leaves the override sentinel byte-identical. A YAML index remains accepted.
+**Feature requirement:** REQ-F-005.  
+**Acceptance criterion:** AC-007.  
+**Technique:** Equivalence partitioning; contract-surface enumeration.  
+**ISO 25010:** Functional suitability, compatibility, usability, maintainability.  
+**Input:** Audit `CLAUDE.md`, configuration/initialization CLI docs, route-based/workflow-profile guides, architectural overview, and `shark config validate --help`.  
+**Expected output:** Active guidance describes YAML dirs/indexes, embedded defaults, `shark-data/`, and installation; it does not present legacy templates/JSON as supported. Historical records stay unchanged.  
+**Negative case:** Migration warnings may name JSON only as unsupported; help does not say it validates `.sharkworkflow.json`.  
+**Observability:** Preserve direct-file/help audit output.
 
-**Negative:** must not delete overrides, retain a JSON target, or reject YAML merely for a `.sharkworkflow`-like basename.
+### TC-009: Focused suites and required Go quality gate pass
 
-### TC-005: Supported source-selection matrix retains canonical behavior (AC-004)
+**Feature requirement:** Verification plan.  
+**Acceptance criterion:** AC-008.  
+**Technique:** State transition.  
+**ISO 25010:** Functional suitability, reliability, maintainability.  
+**Input:** Run `go test ./internal/templates`, `go test ./internal/config`, `go test ./internal/config/workflow`, `go test ./internal/cli/commands`, then `make fmt && make lint && make test`.  
+**Expected output:** Every command exits 0. If formatting changes source, rerun lint and full test.  
+**Negative case:** Focused green results do not pass AC-008 if full gate fails.  
+**Observability:** Preserve output bound to reviewed commit SHA.
 
-**Feature requirement:** REQ-F-003. **Technique:** decision table. **ISO:** Functional, Performance, Compatibility, Reliability, Security, Portability.
-
-**Input/Expected partitions:** (1) no JSON/no explicit source → embedded/default result usable; (2) YAML directory → expected YAML marker; (3) YAML index → expected marker; (4) custom absolute `shark_data_path`/default workflow directory → expected marker; (5) inline block plus configured source → documented precedence; (6) override fixture → replace-only source wins. Clear workflow cache between rows.
-
-**Negative:** a missing legacy JSON must not prevent default resolution; no row may add a directory scan beyond canonical resolution.
-
-### TC-006: Retired template tree cannot influence rendering (AC-005)
-
-**Feature requirement:** REQ-F-004. **Technique:** equivalence partitioning. **ISO:** Functional, Performance, Compatibility, Reliability, Security, Portability.
-
-**Input:** temp working root with only `shark-templates/task/in_qa.tmpl` containing `RETIRED`; then add `shark-data/prompts/task/in_qa.md` containing `CANONICAL`; also cover configured absolute prompt root.
-
-**Expected:** retired-only fixture is not selected and cannot render `RETIRED`; canonical fixture renders `CANONICAL`; absolute canonical root resolves directly.
-
-**Negative:** never add/reinstate a `shark-templates` probe.
-
-### TC-007: Production tree has no retired template source or shipped tree (AC-006)
-
-**Feature requirement:** REQ-F-004. **Technique:** contract-surface enumeration. **ISO:** Functional, Compatibility, Reliability, Security, Maintainability.
-
-**Input:** tracked `cmd/` and `internal/` production files, plus repository top-level shipped directories.
-
-**Expected:** `rg -n 'shark-templates' cmd internal` is empty; no shipped `shark-templates/` exists. **Negative:** fixture-only mentions under `*_test.go` are permitted; historical docs are not mutated or counted.
-
-### TC-008: Config validation help states only supported behavior (AC-007)
-
-**Feature requirement:** REQ-F-006. **Technique:** equivalence partitioning. **ISO:** Functional, Usability, Maintainability.
-
-**Input:** `shark config validate --help` and Cobra long description.
-
-**Expected:** mentions `.sharkconfig.json` and supported YAML/embedded sources; neither output claims it validates `.sharkworkflow.json`. **Negative:** no deprecated JSON-validation sentence remains.
-
-### TC-009: Command deletion obeys the release-window state machine (AC-008)
-
-**Feature requirement:** REQ-F-005. **Technique:** state transition + decision table. **ISO:** Functional, Compatibility, Usability, Reliability, Security, Maintainability.
-
-**Input:** evidence matrix: (a) no qualifying release, (b) release but less than one normal-use day, (c) release plus dated one-day normal-use evidence and fresh A2/A3/A4 prerequisite evidence. Audit the exact eight command paths and `~/.claude/hooks/` plus `scripts/` read-only.
-
-**Expected:** a/b produce an implementation-handoff blocker and preserve all eight files. Only c authorizes their removal, then each exact file is absent and no unrelated command/hook is touched.
-
-**Negative:** do not use a calendar assumption, old assessment, or an unverified tag as gate proof.
-
-### TC-010: Current guidance is corrected while history remains intact (AC-009)
-
-**Feature requirement:** REQ-F-006. **Technique:** content inventory enumeration. **ISO:** Functional, Compatibility, Usability, Maintainability.
-
-**Input:** `CLAUDE.md`, five named CLI/guide docs, and a selected E20/E32 historical record with recorded pre-change hash.
-
-**Expected:** active docs state canonical `shark-data`, embedded defaults, and explicit JSON refusal/remediation; historical file hashes remain unchanged. **Negative:** do not blanket-delete legacy vocabulary from historical plans/changelogs.
-
-### TC-011: Feature metadata identifies E32-F06 (AC-010)
-
-**Feature requirement:** REQ-F-007. **Technique:** exact-value assertion. **ISO:** Functional, Maintainability.
-
-**Input:** YAML front matter in this feature's `feature.md`. **Expected:** `feature_key: E32-F06` and `epic_key: E32`. **Negative:** E02-derived values fail before implementation task creation.
-
-## Test Infrastructure
-
-- Follow temp-project helpers in `internal/config/workflow/workflow_file_loading_test.go` (`writeJSON`, `writeWorkflowYAML`, `ClearWorkflowCache`) for TC-001..005; these are unit/package tests with no database.
-- Extend `internal/config/workflow/workflow_validation_dx_test.go` for TC-003, driving `ValidateWorkflowFiles` rather than stubbing the loader.
-- Extend `internal/templates/shark_data_renderer_test.go` for TC-006; it already has the canonical-only regression fixture and real renderer.
-- Extend `internal/cli/commands/sharkdata_cmd_test.go` for TC-004 and `internal/cli/commands/config_test.go` for TC-008. Command/service tests use mocks or temp filesystem as applicable; do not use a real database.
-- TC-007 and TC-010 can be small Go file-content assertions or documented repository audits. No new helper is needed. TC-009 is an implementation-handoff checklist, not an automated external-deletion helper.
-- The repository testing rule applies: only repository tests use the real database; this feature needs none.
-
-## Codex Test-Plan Red-Team
+## Codex test-plan red-team
 
 **Verdict:** PENDING  
 **Issues raised:** PENDING  
 **Issues addressed before dev:** PENDING  
 **Issues deferred:** PENDING
 
-The required independent review is run against this drafted plan before this
-plan is finalized. Its verbatim result and responses are appended below.
+The red-team result will be appended after review. Any unresolved blocker keeps the status at `NEEDS_REFINEMENT`.
 
 ## Recommendations
 
-- [x] Ready for implementation planning: every AC has a technique, ISO row, concrete case, and caller/content-path contract.
-- [x] Release blocker: do not delete external harness commands until TC-009 evidence is complete.
-- [ ] Needs BA refinement.
-- [ ] Needs technical refinement.
+- [x] Ready for development
+- [x] Feature-owner refinement complete: D-01 and D-02 resolved.
+- [x] Release-owner refinement complete: D-05 evidence attached.
+- [ ] Needs technical refinement
