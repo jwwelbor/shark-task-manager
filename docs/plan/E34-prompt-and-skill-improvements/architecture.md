@@ -36,8 +36,8 @@ durable evidence in existing Shark records.
 | Component | Owns | Does not own |
 |---|---|---|
 | Gate worker | Gate analysis and one bounded result | Claims, status mutation, note persistence, release |
-| GateResult parser | Marker selection, JSON decoding, schema validation | Entity lookup or writes |
-| Parent result coordinator | Entity/session binding, replay identity, persistence order, kickbacks | Gate reasoning or workflow outcome definitions |
+| Worker-control/GateResult parser | Canonical final-envelope selection, nested GateResult decoding, schema validation | Entity lookup or writes |
+| Parent result coordinator | Entity/run/session binding, replay state, persistence order, kickbacks | Gate reasoning or workflow outcome definitions |
 | Workflow service | Valid outcomes and target status resolution | Interpreting gate prose |
 | Note and entity services | Durable typed notes and validated status operations | Reading unvalidated model output |
 | Embedded quality content | General tier, sweep, planning, and review policy | Project-specific commands or standards |
@@ -46,23 +46,35 @@ durable evidence in existing Shark records.
 
 ## Gate result flow
 
-1. The parent reads the live entity, current step, configured outcomes, and
-   active lease session.
-2. The worker returns exactly one `GATE_RESULT_JSON:` line.
-3. The parser verifies a JSON object, schema version, field bounds, collection
-   invariants, forbidden markers, and configured outcome.
+1. The parent reads the live entity, current route step, its `result_contract`,
+   configured outcomes, durable `run_id`, active lease session, and worker
+   retirement state.
+2. The worker returns the existing single worker-control envelope with
+   `kind: final`. It carries the opaque `recommended_outcome`, bounded common
+   `evidence`, and, only for `result_contract: gate_result_v1`, one nested
+   `gate_result` object. E34 adds no second marker or outcome field.
+3. The parser validates the canonical worker-control top-level shape first,
+   then the nested GateResult version, bounds, collection invariants, forbidden
+   markers, and equality between its `outcome` and `recommended_outcome`.
 4. The parent binds the result to entity key, entity type, source status, gate,
-   and session. These fields are never trusted from worker output.
+   durable `run_id`, and current session. The renewable session is associated
+   provenance, not the replay identity; none of these fields are trusted from
+   worker output.
 5. The coordinator canonicalizes the validated envelope and computes an
-   operation digest from the bound identity plus envelope bytes.
-6. An exact completed replay returns success. The same bound identity with a
-   different digest is a conflict.
+   operation digest from the stable bound identity plus envelope bytes.
+6. Replay reads a durable operation state. `transition_applied` plus the
+   expected live target returns success; `persistence_complete` resumes the
+   guarded transition; a partial persistence state resumes its next operation.
+   A different digest for the same stable identity is a conflict.
 7. The coordinator applies individually idempotent persistence operations in
    this order: gate summary/evidence, findings and sweeps, task kickbacks, then
-   a completion marker. Every operation carries the operation digest in
+   `persistence_complete`. Every operation carries the operation digest in
    metadata. A retry skips completed identical operations and resumes the rest.
-8. Only after the completion marker exists does the parent advance through the
-   workflow service and release the lease.
+8. The parent applies the workflow transition exactly once from the recorded
+   source to the resolved target, verifies an already-applied identical target,
+   then records `transition_applied`. It releases the lease only after terminal
+   worker-retirement evidence; a crash after transition but before release
+   resumes release rather than repeating the transition.
 
 Cross-entity note and task writes do not need a new distributed transaction.
 Validation completes before the first write, every write has a stable replay
@@ -100,6 +112,7 @@ status, and lease fields are deliberately absent.
 | `findings` | array of `Finding` | No | Unique fingerprints within the result |
 | `kickbacks` | array of `Kickback` | No | Unique entity keys within the result |
 | `remediation_sweeps` | array of I-03 | No | Unique `class_key` values |
+| `change_impacts` | array of I-04 | No | Unique `source_kind` plus `source_key`; planning gates only |
 | `no_kickback_reason` | string | Conditional | Required when a failing result has no kickback |
 
 `EvidenceRef` contains `kind`, `pointer`, and an optional bounded `summary`.
@@ -120,10 +133,15 @@ hardcodes `development` or another project status.
 Invariants:
 
 - A pass outcome contains no `open` or `severity_conflict` blocking finding.
-- A fail outcome contains a finding or an explicit bounded
-  `no_kickback_reason` and, when rework is possible, at least one kickback.
-- Evidence, finding, kickback, and sweep collections have implementation-level
-  cardinality and byte limits modeled after Question bounded-text validation.
+- A fail outcome with a rework target contains at least one kickback. A fail
+  outcome without a rework target contains a non-empty
+  `no_kickback_reason`. Findings may accompany either case but never substitute
+  for the required routing explanation.
+- Gate identity text is at most 256 bytes, summaries are at most 1,000 bytes,
+  pointers are at most 2,048 bytes, each collection has at most 100 entries,
+  and the canonical nested GateResult is at most 256 KiB. These constants live
+  in one GateResult model package and are tested at limit-1, limit, and limit+1,
+  including empty and aggregate-size cases.
 - A disposition pointer is mandatory for `already_dispositioned` and
   `severity_conflict` when a prior decision exists.
 
@@ -196,10 +214,8 @@ canonical path to SHA-256. It contains no override bytes or summaries.
 
 - Status compares override bytes with the current embedded canonical bytes and
   the recorded baseline.
-- Upgrade snapshots the pre-upgrade on-disk canonical digest only for a newly
-  discovered override without a baseline. Existing baselines never advance
-  automatically.
-- Dry-run computes the snapshot and classifications in memory only.
+- Upgrade and dry-run classify an override with no trustworthy baseline as
+  `baseline_unknown`; neither operation creates or advances baseline metadata.
 - Acknowledge records the current embedded canonical digest after explicit
   manual reconciliation.
 - Missing, corrupt, untrusted, or mismatched metadata never implies current;
@@ -207,13 +223,18 @@ canonical path to SHA-256. It contains no override bytes or summaries.
 
 ## Compatibility and migration
 
-- GateResult adoption is opt-in per configured gate during migration. Once a
-  gate opts in, missing structured output fails closed.
+- Route-step YAML gains `result_contract: legacy|gate_result_v1`. Omitted means
+  `legacy`; unknown values fail workflow validation. Canonical quality-gate
+  steps opt in explicitly, `shark next` exposes the resolved value, and both
+  Rider and the core runner consume that same resolved field. Whole-file
+  project overrides must deliberately adopt the new field.
+- Once a gate selects `gate_result_v1`, a missing or malformed nested payload
+  fails closed; it never falls back to legacy directives.
 - Existing note records remain readable and need no database migration.
 - Existing projects with no overrides receive unchanged upgrade behavior plus
   zero-valued override summary fields.
-- Existing overrides initially classify as `baseline_unknown` unless a safe
-  pre-upgrade canonical counterpart can establish provenance.
+- Existing overrides classify as `baseline_unknown` until explicit operator
+  acknowledgement records the reviewed current canonical counterpart.
 - Route-based workflow additions are reconciled by whole-file override owners;
   Shark never patches project workflow YAML automatically.
 
@@ -232,7 +253,10 @@ canonical path to SHA-256. It contains no override bytes or summaries.
 - Shared contract fixtures exercise Rider documentation and core runner code.
 - Content tests verify every producer and consumer references the canonical
   interaction and no duplicate field list drifts.
-- Service tests cover partial persistence and exact/conflicting replay.
+- Service tests cover partial persistence, parent restart under a replacement
+  session, exact/conflicting replay, crash after `persistence_complete`, crash
+  after transition before release, and terminal worker retirement.
 - Workflow tests cover each tier and final integration authority.
-- Override tests cover all classifications, baseline transitions, dry-run,
-  symlinks, corrupt metadata, deterministic output, and content non-disclosure.
+- Override tests cover all classifications, acknowledge-only baseline
+  transitions, dry-run and mutating-upgrade override immutability, symlinks,
+  corrupt metadata, deterministic output, and content non-disclosure.

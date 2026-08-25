@@ -39,7 +39,7 @@ database entity, or standardize every non-gate worker response.
 | Parent-owned Rider mutations | `skills/shark-rider/verbs/run.md` | REUSE | Preserve claim, persistence, kickback, transition, and release authority in the parent. |
 | Bounded worker handoff | Question response parser/model/service | REUSE | Generalize the marker, validation, safe errors, and exact-replay pattern for gates. |
 | Typed notes with finding metadata | Gate prompts and Shark note commands | REUSE | Persist existing note types and metadata instead of adding a table. |
-| GateResult v1 | No common implementation exists | NEW | Define one shared model, parser, persistence order, and compatibility policy. |
+| GateResult v1 | Canonical worker-control final envelope exists; no nested gate payload or persistence coordinator exists | EXTEND | Add one nested model and shared persistence order without a second envelope. |
 | Core runner directive persistence | `handleSpawnAgent` transitions directly after output parsing | NEW | Insert validated persistence before transition and fail closed on any error. |
 | Rider/core behavioral parity | Separate current contracts | NEW | Add common fixtures and documentation assertions so the two paths cannot drift. |
 
@@ -69,7 +69,8 @@ database entity, or standardize every non-gate worker response.
 
 ## Decisions
 
-1. Use exactly one `GATE_RESULT_JSON:` v1 envelope for configured gates.
+1. Extend exactly one canonical worker-control `kind: final` envelope with a
+   `gate_result` v1 payload for configured gates; add no second marker.
 2. Keep the outcome opaque and validate it against the live step configuration.
 3. Persist notes and kickbacks before transition under the parent session.
 4. Reuse typed notes and exact-replay patterns; do not add a finding table.

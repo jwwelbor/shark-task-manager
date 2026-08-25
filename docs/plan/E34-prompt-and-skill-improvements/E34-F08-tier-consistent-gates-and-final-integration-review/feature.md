@@ -35,8 +35,9 @@ feature gate.
 
 Every tier is judged against artifacts it actually produces, deterministic
 evidence comes from tools, and the last epic gate evaluates the integrated
-system rather than the last round's delta. E40 can later measure the effect,
-but its benchmark work does not block this feature.
+system rather than the last round's delta. The shipped E40 operator can later
+measure pinned E34 scenarios, but provider-backed comparison does not block
+this feature.
 
 ## Research findings
 
@@ -50,9 +51,9 @@ but its benchmark work does not block this feature.
 - The canonical epic workflow moves from active directly to completed after
   feature work. It has no named whole-diff integration step with authority and
   closure rules.
-- E40's benchmark harness is under active development and is the right future
-  place to compare workflow outcomes, latency, and review-round behavior. Its
-  unfinished corpus is validation follow-up, not a delivery dependency.
+- E40's benchmark operator is shipped and is the right follow-up surface for
+  workflow outcomes, latency, and review-round behavior. Provider-backed
+  comparison evidence is validation follow-up, not a delivery dependency.
 
 ## Tier contract
 
@@ -99,10 +100,17 @@ them.
 4. **REQ-F-004 — Epic integration-review workflow step**
    - Add a non-terminal `integration_review` step between active work and epic
      completion in the canonical route-based epic workflow.
-   - Review the entire accumulated diff from the resolved integration base to
+   - Capture an immutable epic integration-base commit when execution begins.
+     Bind each review to that base, candidate head, and the exact completed or
+     staged feature commits and paths included in the candidate.
+   - Review the entire accumulated diff from the recorded integration base to
      the candidate head, not only the latest round or feature.
    - Include every completed or staged feature in the review inventory and
      detect untracked changed paths.
+   - Fail closed on a missing or unreachable base and define handling for
+     rebases, squash-merged feature branches, interleaved unrelated commits,
+     dirty tracked files, and untracked candidate paths. Do not infer scope
+     from `merge-base HEAD main` after work has landed on `main`.
 
 5. **REQ-F-005 — Integration closure checks**
    - Verify all applicable I-## and X-## producer/consumer contracts, live
@@ -111,6 +119,9 @@ them.
      follow-up is accounted for.
    - Cross-check open review findings, completed class sweeps and guards,
      ADRs, project standards, and predicted-debt records naming changed paths.
+   - Add shared contract test `TC-I-01-READINESS-SYMMETRY`, which reads the
+     canonical architecture field list and verifies the producer, consumer,
+     Rider verb, embedded skill, and interaction-map references in one test.
 
 6. **REQ-F-006 — Gate authority**
    - Integration review is an additional gate; it does not rewrite an
@@ -131,9 +142,10 @@ them.
      validation commands, and version/baseline evidence for E34-F09.
 
 8. **REQ-F-008 — Benchmark follow-up**
-   - Define E40 scenarios for tier routing, evidence fidelity, defect-class
-     recurrence, and final integration closure after E40 is ready.
-   - Do not block E34-F08 acceptance on E40 completion or a benchmark delta.
+   - Define pinned E40 scenarios for tier routing, evidence fidelity,
+     defect-class recurrence, and final integration closure.
+   - Do not block E34-F08 acceptance on provider-backed execution or a
+     benchmark delta.
 
 9. **REQ-NF-001 — Provider and project neutrality**
    - Do not name WWGM scripts, Python environment variables, a specific LLM,
@@ -151,8 +163,8 @@ them.
    changed-path closure checks in the final review procedure.
 5. Produce I-05 and add tier-route, workflow, prompt-render, full-diff,
    authority, and compatibility tests.
-6. Add non-blocking E40 benchmark scenario requirements after the harness
-   exposes the needed corpus surface.
+6. Add non-blocking pinned E40 benchmark scenario requirements through the
+   shipped operator.
 
 ## Acceptance scenarios
 
@@ -175,7 +187,8 @@ them.
 - Given every feature-level gate has passed and the epic candidate includes
   changes from several features and rework rounds,
 - When `integration_review` runs,
-- Then it reviews the complete accumulated diff and closes interactions,
+- Then it verifies the recorded base and candidate identity, reviews the
+  complete accumulated diff and closes interactions,
   impact sets, findings, guards, decisions, standards, and predicted debt,
 - And it cannot use its own PASS to overwrite a required feature rejection.
 
@@ -194,7 +207,7 @@ them.
 - WWGM validation scripts, database setup, lint configuration, or model
   assignments.
 - Changing historical E04 lifecycle records in this repository.
-- Waiting for E40 to finish before implementation.
+- Requiring provider-backed E40 comparison before implementation.
 
 ## Verification plan
 
@@ -205,6 +218,11 @@ them.
 - Test integration review over multi-feature accumulated diffs, untracked
   changed paths, open I/X edges, stale decisions, incomplete sweeps, missing
   guards, and a rejected feature gate.
+- Test pinned-base histories with independently squash-merged features,
+  unrelated interleaved commits, rebases, a missing base, dirty tracked files,
+  and untracked candidate paths.
+- Implement `TC-I-01-READINESS-SYMMETRY` as the structural guard for the full
+  I-01 producer/consumer reference surface.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.
 
 *Last Updated*: 2026-08-05

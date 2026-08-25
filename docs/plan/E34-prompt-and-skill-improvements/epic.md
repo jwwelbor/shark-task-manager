@@ -105,8 +105,8 @@ packet and must not be used as a status cache.
 - Canonical content cannot assume one project language, test runner, database,
   model provider, or local rule.
 - Project override reconciliation remains an explicit operator action.
-- E40 benchmark work is underway but is not a prerequisite; it becomes a later
-  validation consumer.
+- The E40 benchmark operator is shipped but provider-backed comparison is not a
+  prerequisite; pinned E34 scenarios remain a later validation consumer.
 
 ## High-level acceptance scenarios
 

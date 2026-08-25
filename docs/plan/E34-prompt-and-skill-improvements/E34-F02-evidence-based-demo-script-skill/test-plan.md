@@ -21,7 +21,7 @@ No drift found. The specification preserves the feature brief's Mode-3 boundary,
 | AC-002 | TC-004, TC-005 | Required scenario fields and normal-mode evidence boundary are checked; a specific generated script is manual review. |
 | AC-003 | TC-004 | One template check enumerates all seven allowed evidence surfaces. |
 | AC-004 | TC-005 | Procedure/skill wording must require an explicit gap and prohibit invention. |
-| AC-005 | TC-002 (shared I-01), TC-006 | TC-002 remains the sole shared I-01 contract test; TC-006 checks consumer references only. |
+| AC-005 | TC-I-01-READINESS-SYMMETRY (shared I-01), TC-006 | The executable structural test is the sole shared I-01 contract test; TC-006 checks consumer references only. |
 | AC-006 | TC-007 | Artifact path and existing related-document/reference-note/triage instructions. |
 | AC-007 | TC-001, TC-003, TC-006, TC-008 | Bundle validation, focused tests, changed prompt goldens, and quality gate. |
 
@@ -82,12 +82,12 @@ No drift found. The specification preserves the feature brief's Mode-3 boundary,
 
 **Covers:** AC-005, AC-007; REQ-F-003, REQ-NF-002.  
 **Technique:** Cross-document reference enumeration.  
-**Entrypoint:** Direct files `skills/shark-rider/verbs/demo.md` and `internal/sharkdata/default_data/skills/demo-script/SKILL.md`; canonical shared entrypoint **TC-002** in `../E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md`.  
+**Entrypoint:** Direct files `skills/shark-rider/verbs/demo.md` and `internal/sharkdata/default_data/skills/demo-script/SKILL.md`; canonical shared entrypoint `internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`.
 **Content-only justification:** I-01 is a documentation-policy handoff. Consumer content must preserve source and pointer, not simulate readiness classification.
 
-**Check:** Verify the consumer cites `E34-interaction-map.md#i-01-readiness-evidence-shape`, retains the exact nine read-only fields, and cites shared **TC-002**. Verify contract-only/open activation stays `Not demonstrated / pending integration`, while assessor verdict, owner decision, conditions, and risk remain `Accepted risks and overrides`.
+**Check:** Verify the consumer cites `E34-interaction-map.md#i-01-readiness-evidence-shape`, retains the exact nine read-only fields, and cites shared **TC-I-01-READINESS-SYMMETRY**. Verify contract-only/open activation stays `Not demonstrated / pending integration`, while assessor verdict, owner decision, conditions, and risk remain `Accepted risks and overrides`.
 
-**Expected result:** I-01 source, nine-field shape, activation owner/closure key, and TC-002 pointer are preserved exactly; no consumer-only I-01 test is added.
+**Expected result:** I-01 source, nine-field shape, activation owner/closure key, and `TC-I-01-READINESS-SYMMETRY` pointer are preserved exactly; no consumer-only I-01 test is added.
 
 ### TC-007: Artifact discovery and triage boundary are documented
 
@@ -119,7 +119,7 @@ No drift found. The specification preserves the feature brief's Mode-3 boundary,
 | AC-002 | TC-004, TC-005 | N/A: prose/template | N/A: no protocol | TC-004 | N/A: no runtime path | Manual policy review | TC-004 | TC-004 |
 | AC-003 | TC-004 | N/A: prose/template | TC-004 | TC-004 | N/A: no runtime path | N/A: no security mechanism | TC-004 | TC-004 |
 | AC-004 | TC-005 | N/A: prose/template | N/A: no protocol | TC-005 | N/A: no runtime path | Manual policy review | TC-005 | TC-005 |
-| AC-005 | TC-002, TC-006 | N/A: policy prose | N/A: no protocol | TC-006 | N/A: no runtime path | Manual policy review | TC-006 | TC-006 |
+| AC-005 | TC-I-01-READINESS-SYMMETRY, TC-006 | N/A: policy prose | N/A: no protocol | TC-006 | N/A: no runtime path | Manual policy review | TC-006 | TC-006 |
 | AC-006 | TC-007 | N/A: no runtime path | N/A: existing CLI contracts | TC-007 | N/A: no runtime path | N/A: no new secret handling | TC-007 | TC-007 |
 | AC-007 | TC-008 | N/A: no runtime path | TC-003 | N/A: developer gate | TC-008 | N/A: no security mechanism | TC-008 | TC-003 |
 
@@ -129,7 +129,7 @@ No runtime behavior or instrumentation is introduced. Every case names a rendere
 
 ## Integration coverage
 
-**I-01:** E34-F03 produces and E34-F02 consumes the readiness-evidence shape. Source: `E34-interaction-map.md#i-01-readiness-evidence-shape`. The one shared test is **TC-002** in the E34-F03 test plan. TC-006 is consumer reference conformance, not a second contract test.
+**I-01:** E34-F03 produces and E34-F02 consumes the readiness-evidence shape. Source: `E34-interaction-map.md#i-01-readiness-evidence-shape`. The shared structural test is `internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`. TC-006 is consumer reference conformance, not a second contract test.
 
 **X-##:** None applies. `spec.md` declares no E34-F02 X-## and the product map has no row for this feature; none is invented.
 
@@ -155,7 +155,7 @@ review before approval; this does not change the content-only test scope.
 
 - Every AC has concrete content-only coverage with renderer, validator, command, or direct-file entrypoint and justification.
 - Existing renderer, bundle, golden, and repository-gate infrastructure is cited.
-- I-01 preserves the exact source, nine-field shape, and shared TC-002 pointer; no twin test is proposed.
+- I-01 preserves the exact source, nine-field shape, and shared `TC-I-01-READINESS-SYMMETRY` pointer; no twin test is proposed.
 - No runtime caller-path, decision-table, mutation, or simulated policy test is invented.
 
 **Recommendation:** Ready for task generation.

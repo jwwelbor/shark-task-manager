@@ -95,9 +95,9 @@ bounded suggested action. Summary counts use the same classification keys.
 2. **REQ-F-002 — Baseline provenance**
    - Store per-path canonical baseline digests in a Shark-owned manifest that
      never contains override bytes.
-   - Snapshot the pre-upgrade canonical digest for a discovered override when
-     no trustworthy baseline exists; do not silently advance an existing
-     override baseline during later upgrades.
+   - Leave a discovered override without trustworthy provenance as
+     `baseline_unknown`; status, upgrade, and dry-run never create or advance a
+     baseline.
    - Add an explicit `shark admin overrides acknowledge <path>...` operation
      that records the current canonical digest only after the operator has
      manually reconciled that override.
@@ -171,8 +171,8 @@ bounded suggested action. Summary counts use the same classification keys.
 1. Add the baseline manifest model, safe path walker, digest classifier, and
    unit tests in `internal/sharkdata`.
 2. Add `admin overrides status` and `acknowledge`, plus JSON and human output.
-3. Integrate classification counts and baseline snapshot behavior into upgrade
-   and dry-run paths without changing override bytes.
+3. Integrate classification counts into upgrade and dry-run paths without
+   changing override bytes or baseline metadata.
 4. Consume I-05 and produce a path-by-path WWGM reconciliation checklist.
 5. Create/reuse the single WWGM adoption item, link CC-007/CC-008, execute the
    cleanup and local safeguards there, and validate both projects.
@@ -239,9 +239,13 @@ bounded suggested action. Summary counts use the same classification keys.
 ## Verification plan
 
 - Unit-test all five classifications, path safety, symlinks, missing/corrupt
-  manifests, deterministic ordering, baseline snapshot, and acknowledge.
+  manifests, deterministic ordering, `baseline_unknown` preservation, and
+  explicit acknowledge.
 - CLI-test human/JSON output and backward-compatible upgrade fields.
-- Assert dry-run changes no file or manifest and status never prints content.
+- Assert dry-run changes no file or manifest; run a mutating upgrade with
+  sentinel override bytes and mode metadata and assert the override inventory,
+  byte digests, and baseline manifest remain identical; status never prints
+  content.
 - Validate the full WWGM reconciliation checklist against I-05 and the live
   override inventory before the linked WWGM item closes.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.

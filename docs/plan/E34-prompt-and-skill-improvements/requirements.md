@@ -44,6 +44,11 @@ verification plans.
 
 - Reusable skill content can be separated into workflow, prompt, methodology,
   and reference layers without breaking current consumers.
+- The existing dev-artifact review prompt and
+  `dev-artifacts/planning/skill-workflow-extraction-prompt.md` remain explicit
+  E34 deliverables. F05-F09 do not supersede them; E34 cannot pass
+  decomposition until they have an owning feature or an explicit durable
+  defer/cancel decision.
 
 ### Area 3: Durable material Questions — E34-F04
 

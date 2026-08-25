@@ -21,12 +21,18 @@ consumer obligations.
 
 ## Producer and consumer obligations
 
-### I-01 readiness evidence
+### I-01 readiness evidence shape
 
 E34-F03 produces the documented readiness shape. E34-F02 consumes it
 read-only and remains the activation owner for the real demo-script caller
-chain. The existing shared contract test is **TC-002** in
-`E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md`.
+chain. This compatibility heading preserves the existing consumer anchor; the
+normative fields remain in
+[architecture.md](./architecture.md#i-01-readinessevidence-v1).
+
+The shared structural contract test is **TC-I-01-READINESS-SYMMETRY** at
+`internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`.
+Historical F03 **TC-002** covers prompt rendering only and is not an I-01 shape
+contract test.
 
 ### I-02 GateResult
 

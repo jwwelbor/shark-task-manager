@@ -25,8 +25,7 @@ a reason.
 - Canonical feature and epic workflow YAML, quality prompts, and reusable
   Question/council skills
 - E34-F03 staged-integration contracts and E34-F04 Question adoption
-- E40 benchmark design, treated as later validation because implementation is
-  underway and has only just started
+- Shipped E40 benchmark operator, available for pinned E34 follow-up scenarios
 
 ## Systematic decisions
 
@@ -47,8 +46,9 @@ a reason.
 6. **Reuse existing decision infrastructure.** Severity and materiality
    conflicts use E39 Questions and E38 councils. No recurrence store or new
    owner-approval configuration is added.
-7. **Do not wait for E40.** E40 receives follow-up benchmark scenarios after
-   its harness is ready; E34 implementation proceeds independently.
+7. **Do not require provider-backed E40 runs.** The operator is shipped; E34
+   records pinned follow-up scenarios while implementation proceeds
+   independently of paid benchmark execution.
 
 ## Proposal coverage
 
@@ -123,8 +123,8 @@ The dependency graph is stored in Shark and mirrored in
 - E34-F09 creates or reuses one WWGM change item only after I-05 exists. That
   item links or resolves CC-007 and CC-008 and includes the E04-F02 historical
   lifecycle reconciliation; it does not create a parallel set of cards.
-- E40 work remains independent. Add benchmark scenarios after the harness
-  exposes stable task/config fixtures.
+- E40 work remains independent. Add pinned E34 benchmark scenarios through the
+  shipped operator without making provider-backed execution an E34 gate.
 
 ## Explicit exclusions
 

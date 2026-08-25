@@ -22,11 +22,13 @@ recurrence analysis and reliable replay impossible.
 
 ### Solution
 
-Define one versioned `GateResult` envelope for code review, QA, UAT, and other
-configured quality gates. Both `/shark-rider run` and `shark run` validate the
+Define one versioned `GateResult` payload for code review, QA, UAT, and other
+configured quality gates inside the existing canonical `kind: final`
+worker-control envelope. Both `/shark-rider run` and `shark run` validate the
 same shape, persist its bounded evidence and directives idempotently under the
-parent lease, and only then advance by its opaque workflow outcome. Preserve a
-compatibility path for non-gate workflow steps and existing directive output.
+durable worker run and parent lease, and only then advance by its opaque
+workflow outcome. Preserve a compatibility path for non-gate workflow steps
+and existing directive output without adding a second result envelope.
 
 ### Impact
 
@@ -53,9 +55,12 @@ or repeat a kickback.
 
 ## Public contract
 
-The canonical shape is `GateResult` schema version 1, emitted on exactly one
-whole line with the `GATE_RESULT_JSON:` marker. Its normative field definitions
-live in [Architecture: I-02 GateResult v1](../architecture.md#i-02-gateresult-v1).
+The canonical shape is `GateResult` schema version 1, carried as the optional
+`gate_result` member of the existing single worker-control `kind: final`
+envelope. Its normative field definitions live in
+[Architecture: I-02 GateResult v1](../architecture.md#i-02-gateresult-v1).
+The outer `recommended_outcome` remains authoritative and must equal the
+nested `outcome`; a second marker or conflicting outcome is invalid.
 
 The `outcome` value remains workflow-defined. The parser validates it against
 the current step's configured outcomes and never maps it to a hardcoded status.
@@ -82,15 +87,21 @@ prompts, transcripts, credentials, or unrestricted tool output.
      worker claim, advance, release, or force-set workflow state.
 
 3. **REQ-F-003 — Replay safety**
-   - Treat an exact result replay for the same entity, source status, and parent
-     session as success without duplicate notes or transitions.
+   - Bind persistence to a stable `run_id`, entity, source status, and operation
+     digest. Associate each renewable parent session without making it the
+     replay identity.
+   - Let a restarted parent with a newly claimed authorized session resume an
+     exact partial result without duplicate notes, kickbacks, or transitions.
    - Reject a non-identical replay under the same persistence identity.
    - Make already-applied kickbacks safe to retry and fail closed on a
      conflicting target status or reason.
+   - Distinguish `persistence_complete` from `transition_applied`; resume the
+     guarded transition or lease release after either crash window.
 
 4. **REQ-F-004 — Gate completeness**
-   - A failing gate with no finding, kickback, or explicit
-     `no_kickback_reason` is invalid.
+   - A failing gate with a rework target requires a kickback. A failing gate
+     without a rework target requires `no_kickback_reason`; findings may
+     accompany either case but do not replace the routing requirement.
    - A passing gate cannot contain an open blocking finding.
    - A finding disposition must be one of the schema-defined values and must
      point to a durable decision when it is already dispositioned.
@@ -105,8 +116,10 @@ prompts, transcripts, credentials, or unrestricted tool output.
      order.
 
 6. **REQ-F-006 — Compatibility**
-   - Non-gate steps may continue using their current outcome markers while
-     migrations proceed.
+   - Route steps select `result_contract: legacy|gate_result_v1`; omission
+     defaults to `legacy`, unknown values fail validation, and `shark next`
+     exposes the resolved value to both execution paths.
+   - Non-gate steps may continue using `legacy` while migrations proceed.
    - A gate explicitly configured for structured results must fail closed when
      the envelope is absent or malformed; it must not fall back silently.
    - Existing note storage remains readable; no database migration is planned.
@@ -118,15 +131,20 @@ prompts, transcripts, credentials, or unrestricted tool output.
 
 ## Implementation plan
 
-1. Add the GateResult model, validation helpers, marker parser, and unit tests.
-2. Add a persistence coordinator behind injected interfaces for notes, task
-   status changes, and exact-replay lookup.
+1. Extend the canonical final worker-control envelope with an optional
+   GateResult payload; add the model, validation helpers, and unit tests without
+   introducing a second marker parser.
+2. Make GateResult the terminal payload in the existing durable
+   `.shark/runs/<run-id>` result record. Add a persistence coordinator behind
+   injected interfaces for notes, task status changes, operation-state lookup,
+   and worker-retirement evidence.
 3. Integrate validation and persistence into the core runner between dispatch
    success and transition.
 4. Replace Rider's independent directive grammar with the shared contract and
    document the compatibility boundary.
-5. Update gate prompt partials once, then render all consuming prompts and add
-   parity, malformed-input, persistence-order, and replay tests.
+5. Add and validate the route-step `result_contract` field, update gate prompt
+   partials once, then render all consumers and add parity, malformed-input,
+   persistence-order, restart, crash-window, and replay tests.
 
 ## Acceptance scenarios
 
@@ -149,17 +167,20 @@ prompts, transcripts, credentials, or unrestricted tool output.
 
 **Replay a committed result**
 
-- Given persistence succeeded but the caller did not observe the response,
-- When the same parent session submits the exact envelope again,
-- Then the parent reports success without duplicate notes, kickbacks, or
-  transitions.
+- Given persistence succeeded but the parent crashed before transition, or the
+  transition succeeded but the parent crashed before lease release,
+- When a restarted parent claims an authorized replacement session and resumes
+  the same `run_id` and exact envelope,
+- Then the parent completes the transition and release exactly once without
+  duplicate notes or kickbacks.
 
 ## Dependencies and interactions
 
 - Produces **I-02 GateResult v1** for E34-F06, E34-F07, and E34-F08.
 - E34-F06 and E34-F07 depend on this feature in Shark.
-- This feature reuses existing notes, task workflow services, lease identity,
-  and the Question handoff validation pattern.
+- This feature reuses the canonical worker-control envelope, durable run
+  records, existing notes, task workflow services, lease identity, and the
+  Question handoff validation pattern.
 
 ## Out of scope
 
@@ -170,10 +191,15 @@ prompts, transcripts, credentials, or unrestricted tool output.
 
 ## Verification plan
 
-- Unit-test schema validation, top-level shape checks, bounds, secret markers,
-  and outcome validation.
-- Service-test persistence ordering, partial failure, exact replay,
-  conflicting replay, and idempotent kickbacks.
+- Unit-test schema validation, top-level shape checks, outer/nested outcome
+  equality, secret markers, and every text/collection/total bound at limit-1,
+  limit, and limit+1.
+- Service-test persistence ordering, partial failure, parent restart with a
+  replacement session, exact replay, conflicting replay, and idempotent
+  kickbacks.
+- Failure-inject after `persistence_complete`, after transition, and before
+  release; assert transition and release occur exactly once and only after
+  terminal worker-retirement evidence.
 - Controller-test pass, fail, blocked, unknown outcome, missing envelope, and
   no-transition cases.
 - Render changed prompts and assert Rider/core contract parity.

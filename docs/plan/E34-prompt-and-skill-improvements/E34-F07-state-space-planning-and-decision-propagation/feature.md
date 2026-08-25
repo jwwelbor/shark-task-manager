@@ -181,6 +181,9 @@ GateResult when a change invalidates existing material.
 - Render each changed prompt and update only affected goldens.
 - Test closed and incomplete lifecycle tables, deferred obligations, non-FK
   consumers, shipped-consumer changes, naming drift, and decision propagation.
+- Use decision-table fixtures for allowed entry, allowed exit, forbidden edge,
+  terminal-state exit, recovery edge, and a new state whose consumer and
+  regression coverage were not updated; every incomplete fixture must fail.
 - Verify existing solo-feature and non-stateful workflows remain valid.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.
 

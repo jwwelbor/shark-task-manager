@@ -151,6 +151,66 @@ func TestE34F03PromptBundleAndReferences(t *testing.T) {
 	}
 }
 
+// TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY is the shared structural
+// guard for the I-01 producer/consumer contract. It prevents a source-anchor or
+// contract-test migration from updating only one documentation surface.
+func TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	e34Root := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements")
+
+	read := func(path string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(repoRoot, path))
+		require.NoError(t, err, "%s must exist", path)
+		return string(body)
+	}
+
+	architecture := read("docs/plan/E34-prompt-and-skill-improvements/architecture.md")
+	for _, field := range []string{
+		"assessor_verdict",
+		"owner_decision",
+		"open_conditions",
+		"gate_mode",
+		"activation_owner",
+		"closure_key",
+		"counterpart_status",
+		"review_basis",
+		"demonstrability_disposition",
+	} {
+		require.Contains(t, architecture, "`"+field+"`", "canonical I-01 field %s", field)
+	}
+
+	interactionMap, err := os.ReadFile(filepath.Join(e34Root, "E34-interaction-map.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(interactionMap), "### I-01 readiness evidence shape")
+	require.Contains(t, string(interactionMap), "architecture.md#i-01-readinessevidence-v1")
+
+	anchorConsumers := []string{
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/feature.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/spec.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/test-plan.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/tasks/T-E34-F02-002.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/tasks/T-E34-F02-003.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F03-deliverable-feature-decomposition-and-staged-integ/spec.md",
+		"internal/sharkdata/default_data/skills/demo-script/SKILL.md",
+		"skills/shark-rider/verbs/demo.md",
+	}
+	for _, path := range anchorConsumers {
+		content := read(path)
+		require.Contains(t, content, "E34-interaction-map.md#i-01-readiness-evidence-shape", path)
+	}
+
+	pointerConsumers := append([]string{
+		"docs/plan/E34-prompt-and-skill-improvements/E34-interaction-map.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F08-tier-consistent-gates-and-final-integration-review/feature.md",
+	}, anchorConsumers...)
+	for _, path := range pointerConsumers {
+		content := read(path)
+		require.Contains(t, content, "TC-I-01-READINESS-SYMMETRY", path)
+		assert.NotContains(t, content, "shared contract-test pointer is **TC-002**", path)
+	}
+}
+
 // TestE34F04QuestionManagementPromptReferences reads shipped decision producers
 // and rendered prompts. TC-002 and TC-003 are finite content contracts, so
 // they must not emulate Question lifecycle policy.
