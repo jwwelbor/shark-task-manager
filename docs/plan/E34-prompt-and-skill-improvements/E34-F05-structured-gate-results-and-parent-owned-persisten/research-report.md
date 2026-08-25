@@ -72,7 +72,8 @@ database entity, or standardize every non-gate worker response.
 1. Extend exactly one canonical worker-control `kind: final` envelope with a
    `gate_result` v1 payload for configured gates; add no second marker.
 2. Keep the outcome opaque and validate it against the live step configuration.
-3. Persist notes and kickbacks before transition under the parent session.
+3. Persist notes and kickbacks before transition under the stable run identity,
+   with the authorized parent session retained as associated provenance.
 4. Reuse typed notes and exact-replay patterns; do not add a finding table.
 5. Keep an explicit migration period for non-gate and legacy prompt output,
    but never silently downgrade a gate configured for structured results.

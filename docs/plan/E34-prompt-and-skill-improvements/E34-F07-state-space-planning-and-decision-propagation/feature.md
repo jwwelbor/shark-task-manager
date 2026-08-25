@@ -59,7 +59,10 @@ The normative **I-04 ChangeImpactSet v1** shape lives in
 decision or state change, affected producer and consumer artifacts, shipped
 acceptance criteria, required amendments or linked follow-up keys, naming
 checks, and verification evidence. Planning gates return it through E34-F05's
-GateResult when a change invalidates existing material.
+GateResult when a change invalidates existing material. The F05 parent
+coordinator persists each returned set as an idempotent typed `reference` note
+before kickbacks or transition. Human Question resolution emits the same note
+through the validated resolution service rather than a worker envelope.
 
 ## Requirements
 
@@ -130,7 +133,8 @@ GateResult when a change invalidates existing material.
 2. Update feature specification, test planning, task review, and epic feature
    review prompts to invoke the guidance at their existing gates.
 3. Update Question/tech-debt/decision resolution content to produce or verify
-   the affected-artifact set.
+   the affected-artifact set and persist its typed `reference` note through the
+   parent-owned resolution service.
 4. Add rendered-prompt, reference, naming-drift, deferred-obligation,
    multi-entity-axis, and decision-propagation tests.
 

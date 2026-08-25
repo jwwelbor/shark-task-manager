@@ -94,7 +94,9 @@ bounded suggested action. Summary counts use the same classification keys.
 
 2. **REQ-F-002 — Baseline provenance**
    - Store per-path canonical baseline digests in a Shark-owned manifest that
-     never contains override bytes.
+     never contains override bytes. Its location is
+     `<resolved shark_data_path>/.shark-override-baselines.json`; it is not
+     hardcoded to a repository-relative `shark-data/` directory.
    - Leave a discovered override without trustworthy provenance as
      `baseline_unknown`; status, upgrade, and dry-run never create or advance a
      baseline.

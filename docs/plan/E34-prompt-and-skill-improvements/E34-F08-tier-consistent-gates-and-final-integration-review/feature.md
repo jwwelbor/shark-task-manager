@@ -26,10 +26,10 @@ that every scoped round had missed.
 Define one artifact and gate matrix for SIMPLE, STANDARD, and COMPLEX features.
 Require gate reports to cite exact project-declared commands, exit status,
 runner-native counts and skips, and bounded log pointers. Add a mandatory epic
-`integration_review` step before completion that reviews the accumulated
-merge-base diff, closes cross-feature interactions, and verifies defect guards,
-decisions, standards, and predicted debt without silently superseding a failed
-feature gate.
+`integration_review` step before completion that reviews the accumulated diff
+from a recorded immutable base, closes cross-feature interactions, and verifies
+defect guards, decisions, standards, and predicted debt without silently
+superseding a failed feature gate.
 
 ### Impact
 
@@ -103,6 +103,11 @@ them.
    - Capture an immutable epic integration-base commit when execution begins.
      Bind each review to that base, candidate head, and the exact completed or
      staged feature commits and paths included in the candidate.
+   - Add an atomic `.shark/runs/<epic-run-id>/integration-candidate.json`
+     versioned sidecar. The epic active-entry coordinator captures the base
+     before first feature dispatch, feature completion appends digest-chained
+     commit/path entries, and integration-review dispatch binds candidate head
+     plus tracked and untracked path digests.
    - Review the entire accumulated diff from the recorded integration base to
      the candidate head, not only the latest round or feature.
    - Include every completed or staged feature in the review inventory and
@@ -111,6 +116,9 @@ them.
      rebases, squash-merged feature branches, interleaved unrelated commits,
      dirty tracked files, and untracked candidate paths. Do not infer scope
      from `merge-base HEAD main` after work has landed on `main`.
+   - For already-active epics with no pre-execution record, require an explicit
+     operator backfill of a verified base and complete feature/event inventory;
+     never infer or silently migrate the identity.
 
 5. **REQ-F-005 — Integration closure checks**
    - Verify all applicable I-## and X-## producer/consumer contracts, live
@@ -157,8 +165,10 @@ them.
 1. Add the shared tier/evidence reference and refactor all consumers to use it.
 2. Update gate output policies to require GateResult plus executable evidence
    and to consume I-03 and I-04.
-3. Add `integration_review` to canonical epic workflow YAML and create its
-   prompt, skill workflow, transition outcomes, and failure routing.
+3. Add `integration_review` to canonical epic workflow YAML, create its prompt,
+   skill workflow, transition outcomes, and failure routing, and implement the
+   versioned integration-candidate sidecar/capture service and explicit legacy
+   backfill command.
 4. Implement interaction, finding, guard, ADR/standards, predicted-debt, and
    changed-path closure checks in the final review procedure.
 5. Produce I-05 and add tier-route, workflow, prompt-render, full-diff,

@@ -52,10 +52,12 @@ durable evidence in existing Shark records.
 2. The worker returns the existing single worker-control envelope with
    `kind: final`. It carries the opaque `recommended_outcome`, bounded common
    `evidence`, and, only for `result_contract: gate_result_v1`, one nested
-   `gate_result` object. E34 adds no second marker or outcome field.
+   `gate_result` object. The outer envelope exclusively owns outcome and
+   executable evidence; E34 adds no second marker, gate, outcome, or evidence
+   field.
 3. The parser validates the canonical worker-control top-level shape first,
    then the nested GateResult version, bounds, collection invariants, forbidden
-   markers, and equality between its `outcome` and `recommended_outcome`.
+   markers, and gate-specific completeness against the parent-observed route.
 4. The parent binds the result to entity key, entity type, source status, gate,
    durable `run_id`, and current session. The renewable session is associated
    provenance, not the replay identity; none of these fields are trusted from
@@ -67,9 +69,10 @@ durable evidence in existing Shark records.
    guarded transition; a partial persistence state resumes its next operation.
    A different digest for the same stable identity is a conflict.
 7. The coordinator applies individually idempotent persistence operations in
-   this order: gate summary/evidence, findings and sweeps, task kickbacks, then
-   `persistence_complete`. Every operation carries the operation digest in
-   metadata. A retry skips completed identical operations and resumes the rest.
+   this order: gate summary/evidence, findings and sweeps, I-04 change-impact
+   reference notes, task kickbacks, then `persistence_complete`. Every
+   operation carries the operation digest in metadata. A retry skips completed
+   identical operations and resumes the rest.
 8. The parent applies the workflow transition exactly once from the recorded
    source to the resolved target, verifies an already-applied identical target,
    then records `transition_applied`. It releases the lease only after terminal
@@ -79,6 +82,17 @@ durable evidence in existing Shark records.
 Cross-entity note and task writes do not need a new distributed transaction.
 Validation completes before the first write, every write has a stable replay
 identity, and transition is gated on the completed operation set.
+
+The durable replay transport is new work, not an existing result store. E34-F05
+adds atomically replaced `result.json` and `operation-state.json` sidecars under
+the existing `.shark/runs/<run-id>/` liveness directory. The result sidecar
+contains the bounded canonical final envelope and its digest; operation state
+contains the bound entity, source status, completed operation identities,
+`persistence_complete`, and `transition_applied`. `shark run --resume-run
+<run_id>` (and the Rider adapter using the same service) must acquire and bind a
+new authorized session to the recorded entity and source route before it can
+resume. A run belonging to another entity, an unreachable source, or a
+different envelope digest fails closed.
 
 ## I-01 ReadinessEvidence v1
 
@@ -100,22 +114,21 @@ shape is reproduced here so every E34 interaction resolves to architecture.
 ## I-02 GateResult v1
 
 The worker-owned JSON object has these fields. Parent-owned entity, source
-status, and lease fields are deliberately absent.
+status, observed gate, configured outcome, common evidence, and lease fields
+are deliberately absent.
 
 | Field | Type | Required | Contract |
 |---|---|---|---|
 | `schema_version` | integer | Yes | Exactly `1` |
-| `gate` | string | Yes | Current configured gate identifier |
-| `outcome` | string | Yes | Exact key in the current workflow step's outcomes |
 | `summary` | string | Yes | Trimmed bounded summary; no transcript or prompt content |
-| `evidence` | array of `EvidenceRef` | Yes | At least one bounded pointer; no raw unrestricted logs |
 | `findings` | array of `Finding` | No | Unique fingerprints within the result |
 | `kickbacks` | array of `Kickback` | No | Unique entity keys within the result |
 | `remediation_sweeps` | array of I-03 | No | Unique `class_key` values |
 | `change_impacts` | array of I-04 | No | Unique `source_kind` plus `source_key`; planning gates only |
 | `no_kickback_reason` | string | Conditional | Required when a failing result has no kickback |
 
-`EvidenceRef` contains `kind`, `pointer`, and an optional bounded `summary`.
+The outer final envelope's `EvidenceRef` contains `kind`, `pointer`, and an
+optional bounded `summary`.
 For executable evidence it also contains exact `command`, `working_directory`,
 `exit_code`, runner-native `counts`, `expected_skips`, and
 `unexpected_skips`. The pointer identifies the retained bounded log or report;
@@ -130,14 +143,15 @@ the envelope never embeds the log.
 an opaque value validated against the target entity's workflow; no parser
 hardcodes `development` or another project status.
 
-Invariants:
+Invariants are evaluated against the parent-observed gate and the outer final
+envelope's `recommended_outcome` and `evidence`:
 
 - A pass outcome contains no `open` or `severity_conflict` blocking finding.
 - A fail outcome with a rework target contains at least one kickback. A fail
   outcome without a rework target contains a non-empty
   `no_kickback_reason`. Findings may accompany either case but never substitute
   for the required routing explanation.
-- Gate identity text is at most 256 bytes, summaries are at most 1,000 bytes,
+- Summaries are at most 1,000 bytes,
   pointers are at most 2,048 bytes, each collection has at most 100 entries,
   and the canonical nested GateResult is at most 256 KiB. These constants live
   in one GateResult model package and are tested at limit-1, limit, and limit+1,
@@ -205,12 +219,40 @@ pass validation. E34-F09 consumes it before project reconciliation.
 The manifest describes canonical adoption work. It does not authorize changes
 to a consuming project's overrides.
 
+## Epic integration candidate identity
+
+E34-F08 adds a new, atomic
+`.shark/runs/<epic-run-id>/integration-candidate.json` record. Its version 1
+shape contains `epic_key`, stable `epic_run_id`, immutable `base_commit`,
+`candidate_head`, ordered feature entries, tracked path/digest pairs, untracked
+path/digest pairs, `prior_record_digest`, and `record_digest`. Each feature
+entry contains the feature key, its landed or staged commit identity, completion
+event identity, and included path digests. It never stores file contents.
+
+The epic active-entry coordinator owns initial capture before it dispatches the
+first feature. Feature completion appends a digest-chained entry, and
+`integration_review` dispatch atomically binds the candidate head and current
+tracked and untracked inventory. The review rejects an unreachable base,
+missing feature event, digest-chain break, dirty path outside the declared
+candidate, or a candidate changed after binding. Rebase and squash operations
+create an explicit replacement record linked by `prior_record_digest`; they do
+not silently rewrite the base. Unrelated interleaved commits remain visible in
+the full base-to-candidate inventory and require a disposition.
+
+Already-active epics without a pre-execution record are not allowed to infer a
+base from the current merge base. An operator must explicitly backfill a
+verified base plus the complete feature/event inventory through a validated
+command, or the epic remains blocked from `integration_review`. This is a new
+sidecar model and service boundary; no existing entity database column or
+result record is assumed.
+
 ## Override baseline architecture
 
-Shark stores digest provenance in
-`shark-data/.shark-override-baselines.json`, outside the user-owned override
-subtree. The file has a schema version and a map from normalized relative
-canonical path to SHA-256. It contains no override bytes or summaries.
+Shark stores digest provenance at
+`<resolved shark_data_path>/.shark-override-baselines.json`, outside the
+user-owned override subtree. The file has a schema version and a map from
+normalized relative canonical path to SHA-256. It contains no override bytes
+or summaries.
 
 - Status compares override bytes with the current embedded canonical bytes and
   the recorded baseline.
@@ -224,10 +266,18 @@ canonical path to SHA-256. It contains no override bytes or summaries.
 ## Compatibility and migration
 
 - Route-step YAML gains `result_contract: legacy|gate_result_v1`. Omitted means
-  `legacy`; unknown values fail workflow validation. Canonical quality-gate
-  steps opt in explicitly, `shark next` exposes the resolved value, and both
-  Rider and the core runner consume that same resolved field. Whole-file
-  project overrides must deliberately adopt the new field.
+  `legacy`; unknown values fail workflow validation. The canonical adoption
+  matrix is: epic `feature_review` and the new `integration_review`; feature
+  `specification`, `test_planning`, `task_review`, `code_review`, `qa`, and
+  `approval`; and tech-debt `in_progress` opt into `gate_result_v1`. These are
+  the agent-owned planning, review, approval, and resolution steps that can
+  produce findings, sweeps, or I-04 impacts. Question
+  `ready_for_resolution` remains a human `pause`: the validated Question
+  resolution service, not worker output, persists its I-04 reference note.
+  Other steps remain `legacy` unless a later versioned migration names them.
+  `shark next` exposes the resolved value, and both Rider and the core runner
+  consume that same resolved field. Whole-file project overrides must
+  deliberately adopt the new field.
 - Once a gate selects `gate_result_v1`, a missing or malformed nested payload
   fails closed; it never falls back to legacy directives.
 - Existing note records remain readable and need no database migration.

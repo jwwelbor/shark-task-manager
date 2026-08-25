@@ -166,7 +166,7 @@ func TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY(t *testing.T) {
 	}
 
 	architecture := read("docs/plan/E34-prompt-and-skill-improvements/architecture.md")
-	for _, field := range []string{
+	wantFields := []string{
 		"assessor_verdict",
 		"owner_decision",
 		"open_conditions",
@@ -176,9 +176,34 @@ func TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY(t *testing.T) {
 		"counterpart_status",
 		"review_basis",
 		"demonstrability_disposition",
-	} {
-		require.Contains(t, architecture, "`"+field+"`", "canonical I-01 field %s", field)
 	}
+	sectionPattern := regexp.MustCompile(`(?ms)^## I-01 ReadinessEvidence v1\s*$\n(.*?)(?:^## )`)
+	fieldPattern := regexp.MustCompile("(?m)^\\| `([^`]+)` \\|")
+	parseFields := func(document string) []string {
+		sections := sectionPattern.FindAllStringSubmatch(document, -1)
+		require.Len(t, sections, 1, "canonical I-01 section must occur exactly once")
+		fieldRows := fieldPattern.FindAllStringSubmatch(sections[0][1], -1)
+		fields := make([]string, 0, len(fieldRows))
+		for _, row := range fieldRows {
+			fields = append(fields, row[1])
+		}
+		return fields
+	}
+	gotFields := parseFields(architecture)
+	require.Equal(t, wantFields, gotFields, "canonical I-01 field set and order must not drift")
+
+	t.Run("counterfactual field mutations are detected", func(t *testing.T) {
+		mutations := map[string]string{
+			"removed": strings.Replace(architecture, "| `owner_decision` |", "| owner decision removed |", 1),
+			"renamed": strings.Replace(architecture, "`gate_mode`", "`readiness_mode`", 1),
+			"added":   strings.Replace(architecture, "| `open_conditions` |", "| `unexpected_field` | Added field |\n| `open_conditions` |", 1),
+		}
+		for name, mutation := range mutations {
+			t.Run(name, func(t *testing.T) {
+				assert.NotEqual(t, wantFields, parseFields(mutation))
+			})
+		}
+	})
 
 	interactionMap, err := os.ReadFile(filepath.Join(e34Root, "E34-interaction-map.md"))
 	require.NoError(t, err)
@@ -200,6 +225,18 @@ func TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY(t *testing.T) {
 		require.Contains(t, content, "E34-interaction-map.md#i-01-readiness-evidence-shape", path)
 	}
 
+	for _, path := range []string{
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/feature.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/spec.md",
+		"internal/sharkdata/default_data/skills/demo-script/SKILL.md",
+		"skills/shark-rider/verbs/demo.md",
+	} {
+		content := read(path)
+		for _, field := range wantFields {
+			require.Contains(t, content, "`"+field+"`", "%s must mirror I-01 field %s", path, field)
+		}
+	}
+
 	pointerConsumers := append([]string{
 		"docs/plan/E34-prompt-and-skill-improvements/E34-interaction-map.md",
 		"docs/plan/E34-prompt-and-skill-improvements/E34-F08-tier-consistent-gates-and-final-integration-review/feature.md",
@@ -209,6 +246,24 @@ func TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY(t *testing.T) {
 		require.Contains(t, content, "TC-I-01-READINESS-SYMMETRY", path)
 		assert.NotContains(t, content, "shared contract-test pointer is **TC-002**", path)
 	}
+
+	legacyPointers := []string{
+		"E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md#TC-002",
+		"exact I-01 shape source and TC-002",
+		"shared contract-test pointer is **TC-002**",
+	}
+	require.NoError(t, filepath.WalkDir(e34Root, func(path string, entry os.DirEntry, walkErr error) error {
+		require.NoError(t, walkErr)
+		if entry.IsDir() || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+		for _, stale := range legacyPointers {
+			assert.NotContains(t, string(body), stale, "%s contains a stale I-01 test pointer", path)
+		}
+		return nil
+	}))
 }
 
 // TestE34F04QuestionManagementPromptReferences reads shipped decision producers

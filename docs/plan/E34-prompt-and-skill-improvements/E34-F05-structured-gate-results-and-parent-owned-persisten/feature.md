@@ -59,11 +59,14 @@ The canonical shape is `GateResult` schema version 1, carried as the optional
 `gate_result` member of the existing single worker-control `kind: final`
 envelope. Its normative field definitions live in
 [Architecture: I-02 GateResult v1](../architecture.md#i-02-gateresult-v1).
-The outer `recommended_outcome` remains authoritative and must equal the
-nested `outcome`; a second marker or conflicting outcome is invalid.
+The outer `recommended_outcome` and common `evidence` remain authoritative.
+The nested object contains only gate-specific summary, findings, kickbacks,
+sweeps, impacts, and completeness explanation; a second gate, outcome, or
+evidence field is invalid.
 
-The `outcome` value remains workflow-defined. The parser validates it against
-the current step's configured outcomes and never maps it to a hardcoded status.
+The outer `recommended_outcome` value remains workflow-defined. The parser
+validates it against the current step's configured outcomes and never maps it
+to a hardcoded status.
 Evidence contains compact command results and artifact pointers, not full logs,
 prompts, transcripts, credentials, or unrestricted tool output.
 
@@ -72,14 +75,17 @@ prompts, transcripts, credentials, or unrestricted tool output.
 1. **REQ-F-001 — Shared GateResult model and parser**
    - Define one Go model, JSON decoder, validation contract, and error taxonomy
      used by the core runner and mirrored exactly by Rider guidance.
-   - Require a non-zero schema version, configured outcome, concise summary,
-     and bounded collections with unique finding and kickback identities.
+   - Require a non-zero schema version and concise summary, and validate the
+     outer configured outcome and evidence with bounded collections and unique
+     finding and kickback identities.
    - Reject duplicate envelopes, unknown versions, unknown outcomes, invalid
      top-level JSON shapes, secret-bearing text, and oversized content.
 
 2. **REQ-F-002 — Parent-owned persistence**
    - Persist gate summary, evidence pointers, `review-finding` notes,
-     remediation-sweep notes, and task kickbacks before transition.
+     remediation-sweep notes, I-04 `reference` notes, and task kickbacks before
+     transition. An I-04 note stores the bounded ChangeImpactSet as typed
+     metadata and identifies its source key and operation digest.
    - Store finding metadata for gate, severity, `class_key`, class statement,
      fingerprint, affected acceptance/test identifiers, disposition, and the
      parent session identity.
@@ -97,6 +103,12 @@ prompts, transcripts, credentials, or unrestricted tool output.
      conflicting target status or reason.
    - Distinguish `persistence_complete` from `transition_applied`; resume the
      guarded transition or lease release after either crash window.
+   - Add atomic `result.json` and `operation-state.json` sidecars under the
+     existing `.shark/runs/<run-id>/` directory; do not describe either as an
+     existing durable result record.
+   - Add `shark run --resume-run <run_id>` and an equivalent Rider adapter path.
+     Both acquire a new authorized session and validate the recorded entity,
+     source status, route, and digest before resuming.
 
 4. **REQ-F-004 — Gate completeness**
    - A failing gate with a rework target requires a kickback. A failing gate
@@ -134,14 +146,16 @@ prompts, transcripts, credentials, or unrestricted tool output.
 1. Extend the canonical final worker-control envelope with an optional
    GateResult payload; add the model, validation helpers, and unit tests without
    introducing a second marker parser.
-2. Make GateResult the terminal payload in the existing durable
-   `.shark/runs/<run-id>` result record. Add a persistence coordinator behind
-   injected interfaces for notes, task status changes, operation-state lookup,
-   and worker-retirement evidence.
+2. Add new atomic `.shark/runs/<run-id>/result.json` and
+   `operation-state.json` sidecars for the terminal GateResult envelope and
+   replay journal. Add a persistence coordinator behind injected interfaces
+   for notes, task status changes, operation-state lookup, and
+   worker-retirement evidence.
 3. Integrate validation and persistence into the core runner between dispatch
    success and transition.
-4. Replace Rider's independent directive grammar with the shared contract and
-   document the compatibility boundary.
+4. Add authenticated `shark run --resume-run <run_id>`, replace Rider's
+   independent directive grammar with the shared service, and document the
+   compatibility boundary.
 5. Add and validate the route-step `result_contract` field, update gate prompt
    partials once, then render all consumers and add parity, malformed-input,
    persistence-order, restart, crash-window, and replay tests.
@@ -191,9 +205,9 @@ prompts, transcripts, credentials, or unrestricted tool output.
 
 ## Verification plan
 
-- Unit-test schema validation, top-level shape checks, outer/nested outcome
-  equality, secret markers, and every text/collection/total bound at limit-1,
-  limit, and limit+1.
+- Unit-test schema validation, top-level shape checks, rejection of nested
+  gate/outcome/evidence aliases, secret markers, and every
+  text/collection/total bound at limit-1, limit, and limit+1.
 - Service-test persistence ordering, partial failure, parent restart with a
   replacement session, exact replay, conflicting replay, and idempotent
   kickbacks.
