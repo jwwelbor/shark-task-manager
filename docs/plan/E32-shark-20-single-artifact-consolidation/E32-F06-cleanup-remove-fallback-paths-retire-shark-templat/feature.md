@@ -1,6 +1,6 @@
 ---
-feature_key: E02-F06-cleanup-remove-fallback-paths-retire-shark-templat
-epic_key: E02
+feature_key: E32-F06
+epic_key: E32
 title: Cleanup — remove fallback paths, retire shark-templates/
 description: Drop one-release back-compat code — remove shark-templates/ fallback from the engine, remove deprecated slash commands, remove the legacy .sharkworkflow.json reader, update docs.
 size: S
@@ -8,7 +8,7 @@ size: S
 
 # Cleanup — remove fallback paths, retire shark-templates/
 
-**Feature Key**: E02-F06
+**Feature Key**: E32-F06
 
 ---
 
