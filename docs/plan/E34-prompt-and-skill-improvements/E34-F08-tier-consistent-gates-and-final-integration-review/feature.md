@@ -112,6 +112,11 @@ them.
    - Register the active run/base/head in one idempotent epic `reference` note
      so feature completion and restarted parents discover the unique record;
      reject a second nonterminal candidate for the same epic.
+   - Derive the registration suboperation ID from epic, run, base, and first
+     head. Under the run lock, fsync sidecars before the note. Exact retry
+     repairs a missing note for a matching head; a note pointing to absent or
+     corrupt sidecars and any conflicting bytes fail closed. Do not dispatch a
+     feature until head and note reconcile.
    - Compute SHA-256 over canonical JSON excluding the object's own digest.
      Serialize updates under a run-scoped lock and compare-and-swap the prior
      head digest so concurrent feature completions are additive and stale
@@ -254,6 +259,11 @@ them.
   binding. After each restart prove identical retry, no duplicate/lost event,
   a recomputable prior-head chain, complete additive inventory, and rejection
   of a same event ID with different bytes.
+- For initial capture and backfill, failure-inject immediately before and after
+  the registration-note commit. Exact retry must repair only a missing note for
+  a matching head, never duplicate the stable registration ID, reject a note
+  with absent or corrupt sidecars, and expose exactly one discoverable active
+  candidate before feature dispatch.
 - Command-test integration backfill: a complete verified base/event inventory
   creates the initial head/reference and enables review. Reject unreachable
   bases, missing/duplicate events, digest/path mismatch, partial inventories,

@@ -122,9 +122,11 @@ prompts, transcripts, credentials, or unrestricted tool output.
 
 4. **REQ-F-004 — Gate completeness**
    - Every structured step maps each opaque outcome key to exactly one semantic
-     role. `route_rework` uses the configured main-entity transition and needs
-     no kickback; `kickback_rework` requires at least one child/cross-entity
-     kickback. `blocked`, `hold`, or `cancelled` requires
+     role. Every kickback must target a different entity from the bound main
+     entity. `success` and `route_rework` contain no kickbacks;
+     `route_rework` uses the configured main-entity transition, while
+     `kickback_rework` requires at least one child/cross-entity kickback.
+     `blocked`, `hold`, or `cancelled` requires
      `no_kickback_reason` when no kickback exists. Findings may accompany these
      cases but do not replace the routing requirement.
    - A `success` role cannot contain an open blocking finding; keys such as
@@ -241,10 +243,13 @@ prompts, transcripts, credentials, or unrestricted tool output.
   release; assert transition and release occur exactly once and only after
   terminal worker-retirement evidence.
 - Table-test every semantic role: `success` with and without open or
-  severity-conflict blockers; `route_rework` with no kickback and rejection of
-  a main-entity kickback; `kickback_rework` with and without a child kickback;
+  severity-conflict blockers and with a forbidden child kickback;
+  `route_rework` with no kickback and rejection of any kickback;
+  `kickback_rework` with and without a child kickback;
   and `blocked`, `hold`, and `cancelled` with kickbacks or with present/missing
-  `no_kickback_reason`. Include opaque `deep_verify` as `success`.
+  `no_kickback_reason`. Under every role reject a kickback targeting the bound
+  main entity. Include opaque `deep_verify` as `success` and reject obsolete
+  semantic role `rework`.
 - Workflow-table every named adoption-matrix entry and representative excluded
   steps. Test omitted selector → `legacy`, unknown selector/role, incomplete or
   extra role maps, missing structured payload, Question pause, ADR impact

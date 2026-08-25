@@ -168,21 +168,23 @@ hardcodes `development` or another project status.
 
 Invariants are evaluated against the parent-observed gate and the outer final
 envelope's `recommended_outcome` and `evidence`. Each configured outcome on a
-`gate_result_v1` step has one parent-owned semantic role: `success`, `rework`,
+`gate_result_v1` step has one parent-owned semantic role: `success`,
 `route_rework`, `kickback_rework`, `blocked`, `hold`, or `cancelled`. The opaque
 key still selects the transition; the role only selects validation rules.
 Outcomes such as `deep_verify` can be role `success` even when they route to
 another verification step.
 
+- Every kickback key must differ from the bound main entity key, regardless of
+  role, so a pre-transition write cannot invalidate the guarded source state.
 - A `success` outcome contains no `open` or `severity_conflict` blocking
-  finding.
-- A `route_rework` outcome needs no kickback because its configured main-entity
-  transition is the rework route; it must not kick back the main entity before
-  that guarded transition. A `kickback_rework` outcome contains at least one
-  child/cross-entity kickback and may then transition the main entity as
-  configured. `blocked`, `hold`, or `cancelled` requires a non-empty
-  `no_kickback_reason` when it contains no kickback. Findings may accompany
-  these cases but never substitute for the required routing explanation.
+  finding and no kickback.
+- A `route_rework` outcome contains no kickback because its configured
+  main-entity transition is the rework route. A `kickback_rework` outcome
+  contains at least one child/cross-entity kickback and may then transition the
+  main entity as configured. `blocked`, `hold`, or `cancelled` requires a
+  non-empty `no_kickback_reason` when it contains no kickback. Findings may
+  accompany these cases but never substitute for the required routing
+  explanation.
 - Summaries are at most 1,000 bytes,
   pointers are at most 2,048 bytes, each collection has at most 100 entries,
   and the canonical nested GateResult is at most 256 KiB. These constants live
@@ -288,6 +290,13 @@ Initial capture also writes one idempotent epic `reference` note with
 Feature-completion and restarted-parent callers resolve this unique nonterminal
 note from the parent epic rather than guessing a run directory. A second active
 record for the same epic conflicts until the first is terminally closed.
+The registration suboperation ID is SHA-256 over the epic key, epic run ID,
+base, and first head digest. Under the same run lock, the coordinator fsyncs the
+events and head before inserting the note with that ID in metadata. On exact
+retry, a matching head with no note repairs only the missing note; a matching
+head and note is success; conflicting bytes or a note whose referenced head is
+absent or corrupt fails closed without reconstruction. The parent cannot
+acknowledge active entry or dispatch a feature until both halves reconcile.
 
 Already-active epics without a pre-execution record are not allowed to infer a
 base from the current merge base. An operator must explicitly backfill a
