@@ -184,8 +184,12 @@ notes.
 - Validate bundle manifest/index registration and every referenced path.
 - Render all changed prompts through the production renderer.
 - Test point instance, multiple siblings, zero remaining instances, same
-  fingerprint recurrence, new in-scope fingerprint, new class, accepted risk,
-  and severity-conflict scenarios.
+  fingerprint recurrence, paired new same-class fingerprints inside and outside
+  the completed search scope, new class, accepted risk, and severity-conflict
+  scenarios.
+- Reintroduce a sibling defect with a missing, disabled, and ineffective guard;
+  closure must fail until executable counterfactual evidence proves the guard
+  detects the class.
 - Assert no numeric retry threshold and no WWGM-specific term appears in the
   canonical workflow.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.

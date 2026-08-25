@@ -233,9 +233,11 @@ embedded-bundle pattern tested through
 
 **Produces: I-01** for E34-F02. The authoritative shape source is
 [`E34-interaction-map.md#i-01-readiness-evidence-shape`](../E34-interaction-map.md#i-01-readiness-evidence-shape).
-The one shared contract-test pointer is **TC-002** in `test-plan.md`; E34-F03
-publishes the nine-field readiness evidence shape and E34-F02 consumes it
-read-only. Do not create a producer-only twin test or invent another I-## ID.
+The shared structural contract-test pointer is
+**TC-I-01-READINESS-SYMMETRY** at
+`internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`;
+E34-F03 publishes the nine-field readiness evidence shape and E34-F02 consumes
+it read-only. Do not create a producer-only twin test or invent another I-## ID.
 
 ## Cross-epic integrations
 

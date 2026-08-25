@@ -151,6 +151,195 @@ func TestE34F03PromptBundleAndReferences(t *testing.T) {
 	}
 }
 
+// TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY is the shared structural
+// guard for the I-01 producer/consumer contract. It prevents a source-anchor or
+// contract-test migration from updating only one documentation surface.
+func TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	e34Root := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements")
+
+	read := func(path string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(repoRoot, path))
+		require.NoError(t, err, "%s must exist", path)
+		return string(body)
+	}
+
+	architecture := read("docs/plan/E34-prompt-and-skill-improvements/architecture.md")
+	wantFields := []string{
+		"assessor_verdict",
+		"owner_decision",
+		"open_conditions",
+		"gate_mode",
+		"activation_owner",
+		"closure_key",
+		"counterpart_status",
+		"review_basis",
+		"demonstrability_disposition",
+	}
+	sectionPattern := regexp.MustCompile(`(?ms)^## I-01 ReadinessEvidence v1\s*$\n(.*?)(?:^## )`)
+	fieldPattern := regexp.MustCompile("(?m)^\\| `([^`]+)` \\|")
+	parseFields := func(document string) []string {
+		sections := sectionPattern.FindAllStringSubmatch(document, -1)
+		require.Len(t, sections, 1, "canonical I-01 section must occur exactly once")
+		fieldRows := fieldPattern.FindAllStringSubmatch(sections[0][1], -1)
+		fields := make([]string, 0, len(fieldRows))
+		for _, row := range fieldRows {
+			fields = append(fields, row[1])
+		}
+		return fields
+	}
+	gotFields := parseFields(architecture)
+	require.Equal(t, wantFields, gotFields, "canonical I-01 field set and order must not drift")
+
+	t.Run("counterfactual field mutations are detected", func(t *testing.T) {
+		mutations := map[string]string{
+			"removed": strings.Replace(architecture, "| `owner_decision` |", "| owner decision removed |", 1),
+			"renamed": strings.Replace(architecture, "`gate_mode`", "`readiness_mode`", 1),
+			"added":   strings.Replace(architecture, "| `open_conditions` |", "| `unexpected_field` | Added field |\n| `open_conditions` |", 1),
+		}
+		for name, mutation := range mutations {
+			t.Run(name, func(t *testing.T) {
+				assert.NotEqual(t, wantFields, parseFields(mutation))
+			})
+		}
+	})
+
+	interactionMap, err := os.ReadFile(filepath.Join(e34Root, "E34-interaction-map.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(interactionMap), "### I-01 readiness evidence shape")
+	require.Contains(t, string(interactionMap), "architecture.md#i-01-readinessevidence-v1")
+
+	anchorConsumers := []string{
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/feature.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/spec.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/test-plan.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/tasks/T-E34-F02-002.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/tasks/T-E34-F02-003.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F03-deliverable-feature-decomposition-and-staged-integ/spec.md",
+		"internal/sharkdata/default_data/skills/demo-script/SKILL.md",
+		"skills/shark-rider/verbs/demo.md",
+	}
+	for _, path := range anchorConsumers {
+		content := read(path)
+		require.Contains(t, content, "E34-interaction-map.md#i-01-readiness-evidence-shape", path)
+	}
+
+	extractTableFields := func(document, marker string) []string {
+		t.Helper()
+		markerAt := strings.Index(document, marker)
+		require.NotEqual(t, -1, markerAt, "missing table marker %q", marker)
+		tableAt := strings.Index(document[markerAt:], "| Field |")
+		require.NotEqual(t, -1, tableAt, "missing field table after %q", marker)
+		table := document[markerAt+tableAt:]
+		if end := strings.Index(table, "\n\n"); end >= 0 {
+			table = table[:end]
+		}
+		rows := fieldPattern.FindAllStringSubmatch(table, -1)
+		fields := make([]string, 0, len(rows))
+		for _, row := range rows {
+			fields = append(fields, row[1])
+		}
+		return fields
+	}
+	extractInlineFields := func(document, marker, terminator string) []string {
+		t.Helper()
+		normalized := strings.Join(strings.Fields(document), " ")
+		markerAt := strings.Index(normalized, marker)
+		require.NotEqual(t, -1, markerAt, "missing inline marker %q", marker)
+		declaration := normalized[markerAt+len(marker):]
+		end := strings.Index(declaration, terminator)
+		require.NotEqual(t, -1, end, "missing inline terminator %q", terminator)
+		matches := regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(declaration[:end], -1)
+		fields := make([]string, 0, len(matches))
+		for _, match := range matches {
+			fields = append(fields, match[1])
+		}
+		return fields
+	}
+
+	mirrors := []struct {
+		path       string
+		table      bool
+		marker     string
+		terminator string
+	}{
+		{
+			path:   "docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/feature.md",
+			table:  true,
+			marker: "E34-F02 consumes this exact nine-field readiness shape read-only:",
+		},
+		{
+			path:       "docs/plan/E34-prompt-and-skill-improvements/E34-F02-evidence-based-demo-script-skill/spec.md",
+			marker:     "The procedure reads these nine values without transforming their meaning:",
+			terminator: ". It reads current counterpart status",
+		},
+		{
+			path:   "internal/sharkdata/default_data/skills/demo-script/SKILL.md",
+			table:  true,
+			marker: "Record these nine fields without changing their meaning:",
+		},
+		{
+			path:       "skills/shark-rider/verbs/demo.md",
+			marker:     "read these nine fields without changing their meanings:",
+			terminator: ". Read counterpart status",
+		},
+	}
+	for _, mirror := range mirrors {
+		content := read(mirror.path)
+		var fields []string
+		if mirror.table {
+			fields = extractTableFields(content, mirror.marker)
+		} else {
+			fields = extractInlineFields(content, mirror.marker, mirror.terminator)
+		}
+		require.Equal(t, wantFields, fields, "%s must mirror the exact I-01 field set and order", mirror.path)
+	}
+
+	t.Run("counterfactual consumer mutations are detected", func(t *testing.T) {
+		fixture := "fields: `assessor_verdict`, `owner_decision`, `open_conditions`. End"
+		want := []string{"assessor_verdict", "owner_decision", "open_conditions"}
+		require.Equal(t, want, extractInlineFields(fixture, "fields:", ". End"))
+		for name, mutation := range map[string]string{
+			"removed": strings.Replace(fixture, ", `owner_decision`", "", 1),
+			"renamed": strings.Replace(fixture, "`owner_decision`", "`approval_decision`", 1),
+			"added":   strings.Replace(fixture, ". End", ", `consumer_only`. End", 1),
+		} {
+			t.Run(name, func(t *testing.T) {
+				assert.NotEqual(t, want, extractInlineFields(mutation, "fields:", ". End"))
+			})
+		}
+	})
+
+	pointerConsumers := append([]string{
+		"docs/plan/E34-prompt-and-skill-improvements/E34-interaction-map.md",
+		"docs/plan/E34-prompt-and-skill-improvements/E34-F08-tier-consistent-gates-and-final-integration-review/feature.md",
+	}, anchorConsumers...)
+	for _, path := range pointerConsumers {
+		content := read(path)
+		require.Contains(t, content, "TC-I-01-READINESS-SYMMETRY", path)
+		assert.NotContains(t, content, "shared contract-test pointer is **TC-002**", path)
+	}
+
+	legacyPointers := []string{
+		"E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md#TC-002",
+		"exact I-01 shape source and TC-002",
+		"shared contract-test pointer is **TC-002**",
+	}
+	require.NoError(t, filepath.WalkDir(e34Root, func(path string, entry os.DirEntry, walkErr error) error {
+		require.NoError(t, walkErr)
+		if entry.IsDir() || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+		for _, stale := range legacyPointers {
+			assert.NotContains(t, string(body), stale, "%s contains a stale I-01 test pointer", path)
+		}
+		return nil
+	}))
+}
+
 // TestE34F04QuestionManagementPromptReferences reads shipped decision producers
 // and rendered prompts. TC-002 and TC-003 are finite content contracts, so
 // they must not emulate Question lifecycle policy.

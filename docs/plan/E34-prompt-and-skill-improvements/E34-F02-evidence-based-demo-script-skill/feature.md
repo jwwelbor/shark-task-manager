@@ -141,8 +141,9 @@ closure state.
 
 **Consumes: I-01** from E34-F03. The authoritative shape source is
 [`E34-interaction-map.md#i-01-readiness-evidence-shape`](../E34-interaction-map.md#i-01-readiness-evidence-shape),
-and the one shared contract-test pointer is **TC-002** in
-`../E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md`.
+and the shared structural contract-test pointer is
+**TC-I-01-READINESS-SYMMETRY** at
+`internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`.
 E34-F02 consumes this exact nine-field readiness shape read-only:
 
 | Field | I-01 value |

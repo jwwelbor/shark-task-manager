@@ -46,7 +46,8 @@ scenario. Preserve the labels exactly:
 
 Consume the I-01 readiness handoff read-only from
 `E34-interaction-map.md#i-01-readiness-evidence-shape`. Preserve the shared
-contract-test pointer `TC-002`; do not create a consumer-only twin test.
+contract-test pointer `TC-I-01-READINESS-SYMMETRY`; do not create a
+consumer-only twin test.
 E34-F03 is the producer; E34-F02 is the consumer, activation owner, and
 closure key for the live demo-script caller chain.
 

@@ -72,8 +72,8 @@ root `AGENTS.md` and local executable guards.
 
 ### E40 as a delivery gate
 
-E40 is underway and can later measure these workflow changes. E34 does not wait
-for its corpus, harness, or baseline report.
+The E40 operator is shipped and can measure pinned follow-up scenarios. E34
+does not wait for provider-backed comparison runs or a new baseline report.
 
 ## Alternatives considered
 
@@ -107,7 +107,7 @@ that cannot be merged safely from text position alone.
 ## Future candidates
 
 - Cross-project rules indexing after broader evidence
-- Automated benchmark comparison after E40 is ready
+- Automated benchmark comparison through the shipped E40 operator
 - Aggregate analytics over structured GateResult notes after adoption data
   demonstrates a concrete reporting need
 - Finer-grained overlay/patch override semantics as a separate design effort

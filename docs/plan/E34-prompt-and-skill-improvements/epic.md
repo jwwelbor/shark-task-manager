@@ -77,6 +77,12 @@ compounds because the capabilities are shared by every later epic and project.
 Live lifecycle status remains in Shark; this table describes only the planning
 packet and must not be used as a status cache.
 
+Decision `D-E34-LEGACY-PROMPTS-001` explicitly defers the two earlier unowned
+dev-artifact prompt requests. They are not delivered by F05-F09 and no ignored
+path is claimed. The epic decomposition owner must assign each to a tracked
+Shark feature/task and repository path, or record cancellation, before
+decomposition can pass.
+
 ## Success criteria
 
 1. Every E34 cross-feature handoff has one stable I-## shape source, producer,
@@ -105,8 +111,8 @@ packet and must not be used as a status cache.
 - Canonical content cannot assume one project language, test runner, database,
   model provider, or local rule.
 - Project override reconciliation remains an explicit operator action.
-- E40 benchmark work is underway but is not a prerequisite; it becomes a later
-  validation consumer.
+- The E40 benchmark operator is shipped but provider-backed comparison is not a
+  prerequisite; pinned E34 scenarios remain a later validation consumer.
 
 ## High-level acceptance scenarios
 

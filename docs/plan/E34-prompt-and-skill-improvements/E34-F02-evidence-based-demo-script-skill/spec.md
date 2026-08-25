@@ -201,8 +201,9 @@ triage commands.
 The skill consumes, but does not produce, **I-01** from E34-F03. The exact
 shape source is
 [`E34-interaction-map.md#i-01-readiness-evidence-shape`](../E34-interaction-map.md#i-01-readiness-evidence-shape),
-and the one shared contract-test pointer is **TC-002** in
-`../E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md`.
+and the shared structural contract-test pointer is
+**TC-I-01-READINESS-SYMMETRY** at
+`internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`.
 
 The procedure reads these nine values without transforming their meaning:
 `assessor_verdict`, `owner_decision`, `open_conditions`, `gate_mode`,
@@ -249,7 +250,8 @@ key, proves live production-path use and closes the tracked obligation.
   E34 content references and bundle integrity. The new checks must preserve
   their renderer/validator patterns and avoid a database-backed test.
 - The demonstration skill's I-01 consumer behavior must mirror the map and
-  E34-F03's `TC-002`; no twin interaction contract test is added.
+  executable `TC-I-01-READINESS-SYMMETRY`; no twin interaction contract test is
+  added.
 
 ## Cross-feature interactions
 
@@ -257,8 +259,9 @@ key, proves live production-path use and closes the tracked obligation.
 Feature Decomposition and Staged Integration Acceptance. Consumer: E34-F02
 Evidence-Based Demo Script Skill. The exact shape source is
 [`E34-interaction-map.md#i-01-readiness-evidence-shape`](../E34-interaction-map.md#i-01-readiness-evidence-shape).
-The exact shared contract-test pointer is **TC-002** in
-`../E34-F03-deliverable-feature-decomposition-and-staged-integ/test-plan.md`.
+The exact shared structural contract-test pointer is
+**TC-I-01-READINESS-SYMMETRY** at
+`internal/cli/commands/interaction_prompts_test.go::TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`.
 E34-F02 consumes the nine fields read-only to classify demo claims; it is the
 map-declared activation owner and closure key. It creates no second I-## ID or
 consumer-only twin test.
