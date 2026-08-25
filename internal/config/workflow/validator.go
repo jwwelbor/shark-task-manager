@@ -402,8 +402,9 @@ type WorkflowValidationFinding struct {
 	File    string `json:"file"`    // Source file path
 }
 
-// ValidateWorkflowFiles validates both .sharkconfig.json and .sharkworkflow.json,
-// checking for JSON structure, duplicate definitions, and missing required sub-keys.
+// ValidateWorkflowFiles validates supported workflow sources, checking for
+// duplicate definitions and missing required sub-keys. A discovered root JSON
+// source is reported through the loader's typed deprecation diagnostic.
 // Returns a list of findings (errors, warnings, info).
 func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 	var results []WorkflowValidationFinding

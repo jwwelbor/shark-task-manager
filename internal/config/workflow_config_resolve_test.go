@@ -84,7 +84,6 @@ func TestResolveWorkflowDir_AbsolutePath(t *testing.T) {
 // TestResolveWorkflowDir_ExplicitFilePathPreserved verifies that file targets
 // remain visible to the strict workflow parser, which owns their validation.
 func TestResolveWorkflowDir_ExplicitFilePathPreserved(t *testing.T) {
-	t.Skip("legacy fallback signal retired by E32-F06")
 	tmp := t.TempDir()
 	jsonWorkflow := filepath.Join(tmp, "legacy", "workflow.json")
 	if err := os.MkdirAll(filepath.Dir(jsonWorkflow), 0755); err != nil {
@@ -108,7 +107,6 @@ func TestResolveWorkflowDir_ExplicitFilePathPreserved(t *testing.T) {
 // TestResolveWorkflowDir_DefaultMissingReturnsCanonicalPath verifies that a
 // missing disk bundle remains a canonical embedded-default case.
 func TestResolveWorkflowDir_DefaultMissingReturnsCanonicalPath(t *testing.T) {
-	t.Skip("legacy fallback signal retired by E32-F06")
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, ".sharkconfig.json")
 	if err := os.WriteFile(configPath, []byte(`{}`), 0644); err != nil {

@@ -67,9 +67,6 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if hasRootDeprecatedWorkflowConfig(configPath) {
-				return nil, DeprecatedWorkflowConfigJSONError()
-			}
 			// Config file doesn't exist - return nil, no error
 			// Caller will use default workflow
 			return nil, nil
@@ -200,6 +197,9 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if hasRootDeprecatedWorkflowConfig(configPath) {
+				return nil, DeprecatedWorkflowConfigJSONError()
+			}
 			multiLevelCacheLock.Lock()
 			defer multiLevelCacheLock.Unlock()
 			// Double-check cache (another goroutine may have populated it).
@@ -237,7 +237,8 @@ func LoadMultiLevelWorkflowFromBytes(configPath string, data []byte) (*MultiLeve
 // workflow_config. An explicit workflow_config always takes precedence.
 //
 // ActionService uses this to derive its default from shark_data_path while all
-// other consumers retain the legacy root .sharkworkflow.json fallback.
+// other consumers use inline or embedded canonical defaults when no source is
+// configured.
 func LoadMultiLevelWorkflowFromBytesWithDefaultWorkflowDir(configPath string, data []byte, defaultWorkflowDir string) (*MultiLevelWorkflow, error) {
 	return loadMultiLevelWorkflowFromBytes(configPath, data, defaultWorkflowDir)
 }
@@ -307,10 +308,6 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 		if err := validateWorkflowFilePath(configDir, workflowFilePath); err != nil {
 			return nil, fmt.Errorf("invalid workflow_config path: %w", err)
 		}
-	}
-
-	if hasRootLegacyJSONWorkflow(configPath, rawConfig) {
-		return nil, DeprecatedWorkflowConfigJSONError()
 	}
 
 	// E35-F04: workflow_config may point at a master index file that maps each
@@ -808,20 +805,6 @@ func hasExplicitDeprecatedJSONWorkflowConfig(rawConfig map[string]json.RawMessag
 		return false
 	}
 	return IsDeprecatedWorkflowConfigTarget(wc)
-}
-
-// hasRootLegacyJSONWorkflow reports the retired implicit workflow source. A
-// root JSON file is never a fallback: operators must remove it or migrate it
-// explicitly so an existing project cannot silently change workflow behavior.
-func hasRootLegacyJSONWorkflow(configPath string, rawConfig map[string]json.RawMessage) bool {
-	if wcRaw, ok := rawConfig["workflow_config"]; ok {
-		var wc string
-		if json.Unmarshal(wcRaw, &wc) == nil && strings.TrimSpace(wc) != "" {
-			return false
-		}
-	}
-	info, err := os.Stat(filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json"))
-	return err == nil && !info.IsDir()
 }
 
 // IsDeprecatedWorkflowConfigTarget reports whether workflow_config explicitly
