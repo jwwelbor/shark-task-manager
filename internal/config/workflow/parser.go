@@ -64,6 +64,9 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 
 	// Double-check cache (another goroutine may have loaded it)
 	if workflowCache != nil && workflowCachePath == configPath {
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return workflowCache, nil
 	}
 
@@ -212,6 +215,9 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 			defer multiLevelCacheLock.Unlock()
 			// Double-check cache (another goroutine may have populated it).
 			if multiLevelCache != nil && multiLevelCachePath == configPath {
+				if hasRootDeprecatedWorkflowConfig(configPath) {
+					return nil, DeprecatedWorkflowConfigJSONError()
+				}
 				return multiLevelCache, nil
 			}
 			result := &MultiLevelWorkflow{}
@@ -271,6 +277,9 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 
 	// Double-check cache
 	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return multiLevelCache, nil
 	}
 	// Without a configured default directory, empty data means no config file
