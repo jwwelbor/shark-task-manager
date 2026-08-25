@@ -48,7 +48,7 @@ the dated release audit is the required implementation record.
 | AC-003 | No | Yes | Yes | Ready |
 | AC-004 | No | Yes | Yes | Ready |
 | AC-005 | No | Yes | Yes | Ready |
-| AC-006 | No | Yes | Yes | Release evidence recorded |
+| AC-006 | No | Yes | Yes | Ready |
 | AC-007 | No | Yes | Yes | Ready |
 | AC-008 | No | Yes | Yes | Ready |
 | AC-009 | No | Yes | Yes | Ready |
@@ -228,7 +228,7 @@ These are renderer/config/workflow/CLI/content tests. They must not create or us
 **Preconditions:** Implementation record contains F05 release tag, elapsed-window dates, normal-use evidence, and live-consumer audit.
 **Input:** Audit `~/.claude/commands/{run,feature,epic,task,prd,dispatch,develop,release}.md`.
 **Expected output:** All evidence exists; all eight exact paths are absent; no other command changes.
-**Negative case:** If evidence is absent, stop before deletion and record AC-006 blocked.
+**Negative case:** If evidence is absent, stop before deletion and record AC-008 blocked.
 **Observability:** Preserve release evidence and exact audit list.
 
 ### TC-008: Active operator guidance names supported configuration only

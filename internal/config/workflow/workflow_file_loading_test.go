@@ -752,6 +752,44 @@ func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSONAfterCacheWarmup(t *t
 	}
 }
 
+// TC-003: A root legacy file appearing while a caller waits for cache
+// publication must be rejected by the post-lock cache return as well.
+func TestTC003_LoadMultiLevelWorkflow_RefusesRootLegacyJSONAfterConcurrentCachePublication(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sharkconfig.json")
+	writeJSON(t, configPath, map[string]interface{}{})
+	ClearWorkflowCache()
+	t.Cleanup(ClearWorkflowCache)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	afterRootDeprecatedWorkflowCheck = func() {
+		close(entered)
+		<-release
+	}
+	t.Cleanup(func() { afterRootDeprecatedWorkflowCheck = func() {} })
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := LoadMultiLevelWorkflow(configPath)
+		result <- err
+	}()
+	<-entered
+
+	multiLevelCacheLock.Lock()
+	multiLevelCache = &MultiLevelWorkflow{}
+	multiLevelCachePath = configPath
+	writeJSON(t, filepath.Join(dir, ".sharkworkflow.json"), map[string]interface{}{
+		"task_workflow": buildWorkflowBlock("legacy-root-only"),
+	})
+	multiLevelCacheLock.Unlock()
+	close(release)
+
+	if err := <-result; !errors.Is(err, ErrDeprecatedWorkflowConfigJSON) {
+		t.Fatalf("concurrent-cache LoadMultiLevelWorkflow() error = %v, want ErrDeprecatedWorkflowConfigJSON", err)
+	}
+}
+
 // TC-034: Absolute YAML directory via workflow_config (within project root)
 func TestLoadMultiLevelWorkflow_AbsolutePath(t *testing.T) {
 	dir := t.TempDir()

@@ -29,6 +29,10 @@ var (
 // that points at a deprecated Shark 1.x JSON workflow file.
 var ErrDeprecatedWorkflowConfigJSON = errors.New("deprecated workflow_config JSON file")
 
+// afterRootDeprecatedWorkflowCheck is a test seam for coordinating cache
+// publication after the root-file safety check and before cache lookup.
+var afterRootDeprecatedWorkflowCheck = func() {}
+
 // LoadWorkflowConfig loads workflow configuration from .sharkconfig.json
 //
 // Returns:
@@ -49,11 +53,15 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	if hasRootDeprecatedWorkflowConfig(configPath) {
 		return nil, DeprecatedWorkflowConfigJSONError()
 	}
+	afterRootDeprecatedWorkflowCheck()
 
 	// Check cache first (fast path)
 	workflowCacheLock.RLock()
 	if workflowCache != nil && workflowCachePath == configPath {
 		defer workflowCacheLock.RUnlock()
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return workflowCache, nil
 	}
 	workflowCacheLock.RUnlock()
@@ -195,11 +203,15 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	if hasRootDeprecatedWorkflowConfig(configPath) {
 		return nil, DeprecatedWorkflowConfigJSONError()
 	}
+	afterRootDeprecatedWorkflowCheck()
 
 	// Check cache first (fast path)
 	multiLevelCacheLock.RLock()
 	if multiLevelCache != nil && multiLevelCachePath == configPath {
 		defer multiLevelCacheLock.RUnlock()
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return multiLevelCache, nil
 	}
 	multiLevelCacheLock.RUnlock()
@@ -261,12 +273,16 @@ func loadMultiLevelWorkflowFromBytes(configPath string, data []byte, defaultWork
 	if hasRootDeprecatedWorkflowConfig(configPath) {
 		return nil, DeprecatedWorkflowConfigJSONError()
 	}
+	afterRootDeprecatedWorkflowCheck()
 
 	cacheKey := workflowParserCacheKey(configPath, defaultWorkflowDir)
 	// Check cache first (fast path) — callers may have already populated it.
 	multiLevelCacheLock.RLock()
 	if multiLevelCache != nil && multiLevelCachePath == cacheKey {
 		defer multiLevelCacheLock.RUnlock()
+		if hasRootDeprecatedWorkflowConfig(configPath) {
+			return nil, DeprecatedWorkflowConfigJSONError()
+		}
 		return multiLevelCache, nil
 	}
 	multiLevelCacheLock.RUnlock()
