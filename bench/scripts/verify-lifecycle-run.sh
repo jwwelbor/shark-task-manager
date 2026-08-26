@@ -174,6 +174,8 @@ def validate_declared_fields(record, schema):
             if value is None:
                 if pointer == "/outcome/reason" and record.get("outcome", {}).get("terminal") != "complete":
                     continue
+                if schema.get("properties", {}).get(pointer) == "nullable_string":
+                    continue
                 fail("malformed_field", actual_path, "required field is null")
             if isinstance(value, str) and not value:
                 if pointer == "/outcome/reason" and record.get("outcome", {}).get("terminal") != "complete":
@@ -233,7 +235,8 @@ def validate_record(record, schema):
         ordinals.append(ordinal)
         response = dispatch["response"]
         validate_vocabulary(dispatch["outcome"], schema.get("dispatch_outcome", []), f"{path}/outcome")
-        validate_vocabulary(response["resolved_via"], schema.get("resolved_via", []), f"{path}/response/resolved_via", "malformed_field")
+        if "resolved_via" in response:
+            validate_vocabulary(response["resolved_via"], schema.get("resolved_via", []), f"{path}/response/resolved_via", "malformed_field")
         if response["entity_key"] != dispatch["requested_key"] and dispatch["requested_key"] != graph["root_key"]:
             fail("identity_mismatch", f"{path}/response/entity_key", "returned entity does not match requested key")
         if not response["model"].strip() or not response["provider"].strip():

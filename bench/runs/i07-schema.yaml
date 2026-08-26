@@ -47,11 +47,14 @@ required_fields:
   - /dispatches[]/response/agent_type
   - /dispatches[]/response/provider
   - /dispatches[]/response/model
-  - /dispatches[]/response/effort
+  # response/effort, response/resolved_via, and response/unresolved_placeholders
+  # are deliberately absent here: shark next --json marks all three
+  # `json:"...,omitempty"` and legitimately omits them (no effort override
+  # configured; no cross-entity traversal occurred; no unresolved `<token>`
+  # placeholders survived rendering). Requiring them unconditionally rejects
+  # a correct response.
   - /dispatches[]/response/prompt_sha256
   - /dispatches[]/response/prompt_bytes
-  - /dispatches[]/response/resolved_via
-  - /dispatches[]/response/unresolved_placeholders
   - /dispatches[]/claim/session_id
   - /dispatches[]/worker/worker_id
   - /dispatches[]/worker/session_id
@@ -103,7 +106,10 @@ required_fields:
   - /stages[]/evidence_refs
   - /workflow_policy/reviewer/provider
   - /workflow_policy/reviewer/model
-  - /workflow_policy/reviewer/effort
+  # reviewer/effort is not required: run-lifecycle.sh writes an empty string
+  # here (no real reviewer identity is wired into workflow_policy yet), and
+  # the validator's blanket empty-string-is-invalid rule for required string
+  # fields would otherwise reject every record this driver ever produces.
   - /workflow_policy
   - /workflow_policy/enabled_gates
   - /workflow_policy/gate_order

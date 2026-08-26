@@ -19,6 +19,139 @@ document instead of re-deriving the manifest shape, the `p2p_set`
 resolution rule, or the diff method from `corpus.yaml` or the scripts
 directly (I-01).
 
+## Operator quick start: CLI dispatch smoke test
+
+This is the fastest path to a real, logged run of the **Shark CLI dispatch
+loop** (`shark next` → `claim` → workflow prompt → `status advance` →
+`release`) end to end — useful for confirming the seam still works after a
+CLI/workflow change and for pinpointing exactly which step broke. It is
+deliberately lighter than the F10 operator workflow below: no spend gate,
+no attestation ledger, no I-05 evidence bundle, just `run-lifecycle.sh`'s own
+per-dispatch JSONL record.
+
+**Scope note:** this exercises the Shark CLI and workflow prompts only. The
+default provider command (`claude --print --output-format json`, fed only
+the assembled prompt bytes on stdin) is a headless single-turn call — it does
+**not** load the `shark-rider` skill or drive `/shark-rider` verbs. Benchmarking
+the rider skill itself needs a different provider command that launches a
+real Claude Code session with the skill loaded; nothing in `bench/` does that
+today (tracked as follow-up work, not covered by the steps below).
+
+**Precondition:** both fixture submodules (`bench/fixture-repo`,
+`bench/fixture-py`) must be initialized (`git submodule update --init`) —
+check with `git submodule status`. If both already show a commit SHA (no
+leading `-`), you're ready; the Tier 2 curator sequences elsewhere in this
+document are a separate, heavier workflow and not a prerequisite for this
+smoke test.
+
+### One command (`smoke-lifecycle.sh`)
+
+`bench/scripts/smoke-lifecycle.sh` chains every step below into one command.
+It resolves the variables the manual sequence otherwise makes you look up by
+hand (scratch project path, seeded root entity key, scenario package path,
+the `setup`-built `shark` binary) straight out of `setup-result.json`, then
+runs the dry-run and the schema check, printing the record's own
+`outcome.reason` on any failure instead of a bare exit code:
+
+```bash
+make shark
+bench/scripts/smoke-lifecycle.sh --out /tmp/e40-smoke
+# --scenario <id>  defaults to py-bug-due-date-boundary; other admitted ids
+#                  are py-change-priority-scale, py-feature-recurring-tasks,
+#                  py-techdebt-consolidate-validation
+# --live           run live after the dry-run passes (spends provider credit)
+# --adapter <path> override the provider adapter for --live (default
+#                  bench/scripts/lifecycle-worker-adapter.sh)
+# --run-id <id>    override the generated run id
+```
+
+**Known dry-run limitation, not a script bug:** a dry run can legitimately
+end `terminal: "worker_failure"` when the workflow's next step needs a
+real worker-produced artifact the faked `pass` result never wrote — e.g.
+`py-bug-due-date-boundary`'s `research → …` transition requires
+`docs/plan/bugs/B001.research-report.md` on disk, which only a real (live)
+worker creates. This is the README's own documented
+`pass_with_dry_run_limitations` case, not a broken smoke test — the printed
+`outcome.reason` names the missing artifact and the failing `shark status
+advance` call verbatim. Verifying the seam past that point requires
+`--live` (real provider spend) or a scenario whose first few steps don't
+require a generated artifact.
+
+### The steps it runs, if you want to drive them by hand
+
+1. **Build and pin the binary.**
+
+   ```bash
+   make shark
+   export SHARK_BIN="$(pwd)/bin/shark"   # adjust to make shark's actual output path
+   ```
+
+2. **Provision a scratch project with a seeded root entity.**
+
+   ```bash
+   bench/scripts/e40-benchmark.sh setup --out /tmp/e40-smoke
+   ```
+
+   Read `/tmp/e40-smoke/setup-result.json` for `root_keys` (the seeded
+   feature/bug/change_card/tech_debt entity keys, keyed by `entity_family`),
+   `scratch_root` (the scratch project path), and `scenario_matrix` (each
+   admitted scenario's `package_path`, keyed by `scenario_id`) —
+   `run-lifecycle.sh`'s `--root` argument must name an entity that already
+   exists in the scratch project (it never creates one itself), and its
+   `--scenario` a package path from that matrix.
+
+3. **Dry-run first — zero cost, zero adapter required.**
+
+   ```bash
+   bench/scripts/run-lifecycle.sh \
+     --scenario bench/scenarios/packages/py-bug-due-date-boundary/package.yaml \
+     --run-id smoke-1 \
+     --root <root_keys.bug from setup-result.json> \
+     --scratch-root <scratch_root from setup-result.json> \
+     --output /tmp/e40-smoke/lifecycle.jsonl \
+     --mode dry-run
+   ```
+
+   `--mode dry-run` (and `--mode contract`) fake a `pass` result instead of
+   calling a provider, so this step only proves the `shark`
+   next/claim/advance/release seam is intact — no API spend. The written
+   `lifecycle.jsonl` is the per-step log: one record per dispatch, with the
+   claim, worker result, heartbeats, transition, release, and timestamps for
+   each step — enough to see exactly which step failed and why. A non-zero
+   exit does not mean the script failed to run; read the record's own
+   `outcome` block first (see the known-limitation note above).
+
+4. **Validate the record.**
+
+   ```bash
+   bench/scripts/verify-lifecycle-run.sh /tmp/e40-smoke/lifecycle.jsonl \
+     --schema bench/runs/i07-schema.yaml
+   ```
+
+5. **Go live** once the dry run is clean. This spends real provider credit:
+   each dispatched step calls `claude --print --output-format json` (or set
+   `LIFECYCLE_ADAPTER`/`--provider-command` to point at a different provider
+   command) against the assembled workflow prompt.
+
+   ```bash
+   export LIFECYCLE_ADAPTER="$(pwd)/bench/scripts/lifecycle-worker-adapter.sh"
+   bench/scripts/run-lifecycle.sh \
+     --scenario bench/scenarios/packages/py-bug-due-date-boundary/package.yaml \
+     --run-id smoke-1-live \
+     --root <root_keys.bug from setup-result.json> \
+     --scratch-root <scratch_root from setup-result.json> \
+     --output /tmp/e40-smoke/lifecycle-live.jsonl \
+     --mode live
+   ```
+
+   `lifecycle-live.jsonl` now carries the real per-dispatch outcome: if a
+   step breaks, its `dispatch` entry's `worker`/`outcome`/`errors` fields name
+   which stage failed and why, without needing the full F10 spend-gate,
+   attestation, and noise-band apparatus documented below. Reach for the F10
+   operator workflow (E40-F10 section) only when you need a repeatable,
+   publication-grade baseline to compare variants against — not for a
+   one-off "does this still work" pass.
+
 ## Manifest schema (REQ-F-002)
 
 `bench/corpus/corpus.yaml`, schema-versioned via its top-level
