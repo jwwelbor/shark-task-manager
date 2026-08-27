@@ -7,4 +7,4 @@ Plan sprint {{.id}}: "{{.title}}".
 Read the sprint plan and readiness data (`shark sprint plan {{.id}} --json`),
 propose entity assignments, and confirm scope. Do NOT start the sprint — starting
 is an explicit user action. When scope is agreed, release outcome `pass` to move
-the sprint to active.
+the sprint to research.

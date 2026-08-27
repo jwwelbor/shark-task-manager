@@ -1817,6 +1817,9 @@ func TestTC012_RegistrationBaselineV1(t *testing.T) {
 				if row.name == "sprint" && response.Action == "spawn_agent" && (!strings.Contains(response.Prompt, "S001")) {
 					t.Fatalf("%s keyed next %s rendered prompt does not contain the sprint key S001: %q", baselineName, row.type_, response.Prompt)
 				}
+				if row.name == "sprint" && response.Action == "spawn_agent" && !strings.Contains(response.Prompt, "move\nthe sprint to research") {
+					t.Fatalf("%s keyed next %s rendered prompt does not describe the configured planning-to-research route: %q", baselineName, row.type_, response.Prompt)
+				}
 			})
 		})
 	}
