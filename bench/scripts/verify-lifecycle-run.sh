@@ -33,6 +33,19 @@ except ImportError as exc:
 
 run_path, schema_path = sys.argv[1:3]
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
+# Must match the field set refresh_candidate() in run-lifecycle.sh hashes into
+# identity_digest. Named explicitly (not "every non-digest key present") so a
+# producer that silently drops or adds a candidate field is caught here
+# instead of round-tripping through a self-consistent but wrong digest.
+CANDIDATE_IDENTITY_FIELDS = (
+    "base_commit",
+    "tree_digest",
+    "binary_diff_digest",
+    "changed_path_digest",
+    "dirty_untracked_manifest",
+    "test_suite_digest",
+    "scratch_content_digest",
+)
 
 
 class ContractError(Exception):
@@ -257,11 +270,12 @@ def validate_record(record, schema):
         if not isinstance(usage.get("model"), str) or not usage["model"].strip() or not isinstance(usage.get("provider"), str) or not usage["provider"].strip():
             fail("missing_usage_or_model", f"{path}/usage", "stage usage must name provider and model")
         candidate = stage["candidate"]
-        expected_identity = canonical_digest({key: candidate[key] for key in (
-            "base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest",
-            "dirty_untracked_manifest", "test_suite_digest")})
+        missing_identity_fields = [field for field in CANDIDATE_IDENTITY_FIELDS if field not in candidate]
+        if missing_identity_fields:
+            fail("identity_mismatch", f"{path}/candidate", f"candidate is missing identity field(s): {', '.join(missing_identity_fields)}")
+        expected_identity = canonical_digest({field: candidate[field] for field in CANDIDATE_IDENTITY_FIELDS})
         if candidate["identity_digest"] != expected_identity:
-            fail("identity_mismatch", f"{path}/candidate/identity_digest", "candidate identity digest does not match its six identity components")
+            fail("identity_mismatch", f"{path}/candidate/identity_digest", "candidate identity digest does not match its identity components")
         if candidate["snapshot_digest"] != stage["evidence_refs"]["candidate_snapshot_digest"]:
             fail("candidate_snapshot_mismatch", f"{path}/evidence_refs/candidate_snapshot_digest", "candidate snapshot digest disagrees with the stage snapshot")
         for artifact_index, artifact in enumerate(stage["artifacts"]):

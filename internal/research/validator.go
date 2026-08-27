@@ -9,10 +9,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// artifact holds the frontmatter fields shark cannot derive on its own:
+// Rigor and Categories are the researcher's classification of the work,
+// and RelatedWork records whether related capability work exists. Identity
+// (entity key/type) is not parsed here — shark already knows which entity
+// it is validating (ArtifactPaths resolves the report path from the entity,
+// not the reverse), so there is nothing for the agent to restate. Recipe is
+// still parsed but optional: it defaults to "universal" in readArtifact
+// since that is the only recipe that exists today.
 type artifact struct {
 	ResearchSchema int      `yaml:"research_schema"`
-	EntityKey      string   `yaml:"entity_key"`
-	EntityType     string   `yaml:"entity_type"`
 	Recipe         string   `yaml:"recipe"`
 	Rigor          string   `yaml:"rigor"`
 	Categories     []string `yaml:"categories"`
@@ -46,7 +52,7 @@ func ValidateEntity(projectRoot string, entity models.Entity) error {
 }
 
 func validateV2Report(catalog *Catalog, entity models.Entity, report artifact, body string) error {
-	if err := validateIdentity("research report", report, entity); err != nil {
+	if err := validateIdentity("research report", report); err != nil {
 		return err
 	}
 	recipe, ok := catalog.Recipes[report.Recipe]
@@ -235,7 +241,7 @@ func requiresCapabilityMap(entity models.Entity, report artifact, entries []chec
 }
 
 func validateLegacyReport(catalog *Catalog, entity models.Entity, report artifact, body string) error {
-	if err := validateIdentity("legacy research report", report, entity); err != nil {
+	if err := validateIdentity("legacy research report", report); err != nil {
 		return err
 	}
 	recipe, ok := catalog.Recipes[report.Recipe]
@@ -306,15 +312,15 @@ func readArtifact(path string) (artifact, string, error) {
 	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &value); err != nil {
 		return artifact{}, "", fmt.Errorf("parse %s front matter: %w", path, err)
 	}
+	if value.Recipe == "" {
+		value.Recipe = "universal"
+	}
 	return value, strings.Join(lines[end+1:], "\n"), nil
 }
 
-func validateIdentity(name string, value artifact, entity models.Entity) error {
-	if value.EntityKey != entity.GetKey() || value.EntityType != string(entity.GetEntityType()) {
-		return fmt.Errorf("%s front matter must identify %s %s", name, entity.GetEntityType(), entity.GetKey())
-	}
-	if value.Recipe == "" || value.Rigor == "" {
-		return fmt.Errorf("%s front matter must include recipe and rigor", name)
+func validateIdentity(name string, value artifact) error {
+	if value.Rigor == "" {
+		return fmt.Errorf("%s front matter must include rigor", name)
 	}
 	return nil
 }

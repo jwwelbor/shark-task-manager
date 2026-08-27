@@ -7,13 +7,21 @@ siblings, docs/plan/E07/E07-F01/E07-F01.md, and only the category-specific sourc
 the report checklist.
 
 Write only `research-report.md` beside the feature file and register that
-report as a related document on E07-F01. Its front matter must include
-`research_schema: 2`, `entity_key`, `entity_type: feature`,
-`recipe: universal`, `rigor`, selected `categories`, and `related_work`.
+report as a related document on E07-F01. Its front matter must include only
+`research_schema: 2`, `rigor`, a `categories` list drawn only from the
+recipe's category vocabulary (e.g. `frontend`, `backend`, `api`, `data`,
+`workflow_operations`, `documentation` — never a module ID), and a boolean
+`related_work` front matter field (`true` or `false`, not a list — distinct
+from the `related_work` checklist module below). Do not include `entity_key`,
+`entity_type`, or `recipe` — shark already knows the entity and there is only
+one recipe.
 
 Include Scope, Research checklist, Capability map, Findings, Decisions, and
 Sources. The checked checklist is both the research plan and completion
-record: every selected catalog module needs a concrete `Evidence:` path.
+record: every selected catalog module needs a concrete `Evidence:` path. Each
+entry must be a single markdown checkbox line, never a heading, in this exact
+form: `- [x]` followed by the module id in backticks, then
+`— Evidence: <path>` (e.g. `- [x] scope_vocabulary — Evidence: path/to/file`).
 Always select `scope_vocabulary`, `affected_implementation_or_contract`, and
 `related_work`; standard adds `pattern_contract` or `dependency_impact`; and
 complex also adds `cross_boundary_risks` and `alternatives`.

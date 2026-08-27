@@ -106,6 +106,7 @@ tests=(
 	# contains every pre-F10 test's output.
 	"$SCRIPT_DIR/tc093_digest_authority_test.sh"
 	"$SCRIPT_DIR/tc094_e40_benchmark_operator_test.sh"
+	"$SCRIPT_DIR/tc095_lifecycle_verify_identity_digest_test.sh"
 )
 
 status=0
