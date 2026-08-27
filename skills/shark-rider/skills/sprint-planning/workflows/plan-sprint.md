@@ -90,8 +90,7 @@ reliably keep pace with intake.
    ```
    On **yes**: `shark sprint add {S###} {TD-KEY} --at 1 --json`, then record
    the decision as a note on both entities (`shark create note {S###} "..."
-   --type=decision`, and the matching note on `{TD-KEY}`) per CLAUDE.md
-   Rule 14.
+   --type=decision`, and the matching note on `{TD-KEY}`).
    On **no**: leave it and continue; do not silently drop it — repeat it in
    the Step 5 completion summary as a known, declined risk.
 6. If nothing matches, say so explicitly:
