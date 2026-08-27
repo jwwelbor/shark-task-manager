@@ -196,7 +196,7 @@ func (s *SprintService) TransitionStatus(ctx context.Context, key string, target
 	}
 	return s.entitySvc.TransitionStatus(
 		ctx, s.entityRepo, models.EntityTypeSprint, key, targetStatus, opts,
-		SimpleTransitionFeatures(), nil,
+		SimpleTransitionFeatures(), s.makeResolveActionFn(),
 	)
 }
 
@@ -206,7 +206,21 @@ func (s *SprintService) GetNextStatus(ctx context.Context, key string) (*NextSta
 	if s.entitySvc == nil || s.entityRepo == nil {
 		return nil, fmt.Errorf("sprint workflow dispatch not configured: EnableWorkflowDispatch was not called")
 	}
-	return s.entitySvc.GetNextStatus(ctx, s.entityRepo, models.EntityTypeSprint, key, nil)
+	return s.entitySvc.GetNextStatus(ctx, s.entityRepo, models.EntityTypeSprint, key, s.makeResolveActionFn())
+}
+
+// makeResolveActionFn returns a ResolveActionFn callback that generates
+// Sprint-specific placeholders for route-based workflow actions.
+func (s *SprintService) makeResolveActionFn() ResolveActionFn {
+	return func(entity models.Entity, status string) *config.PopulatedAction {
+		sprint, ok := entity.(*models.Sprint)
+		if !ok {
+			return nil
+		}
+		placeholders := config.EntityPlaceholders(sprint)
+		placeholders["is_resume"] = "false"
+		return s.entitySvc.ResolveActionForStatus(status, placeholders)
+	}
 }
 
 func (s *SprintService) getTracer() trace.Tracer {

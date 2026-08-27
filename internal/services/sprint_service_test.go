@@ -6598,10 +6598,22 @@ func TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus(t
 		assert.Equal(t, "planning", result.FromStatus)
 		assert.Equal(t, "research", result.ToStatus)
 		assert.True(t, result.Transitioned)
+		require.NotNil(t, result.OrchestratorAction)
+		assert.Equal(t, config.ActionSpawnAgent, result.OrchestratorAction.Action)
 
 		info, err := svc.GetNextStatus(ctx, "S001")
 		require.NoError(t, err)
 		require.NotNil(t, info)
 		assert.Equal(t, "planning", info.CurrentStatus)
+		var researchTransition *TransitionInfoWithAction
+		for i := range info.AvailableTransitions {
+			if info.AvailableTransitions[i].TargetStatus == "research" {
+				researchTransition = &info.AvailableTransitions[i]
+				break
+			}
+		}
+		require.NotNil(t, researchTransition)
+		require.NotNil(t, researchTransition.OrchestratorAction)
+		assert.Equal(t, config.ActionSpawnAgent, researchTransition.OrchestratorAction.Action)
 	})
 }
