@@ -135,6 +135,8 @@ type SprintService struct {
 	capacityRepo   SprintCapacityRepository        // optional: nil-safe
 	cfg            *config.Config                  // optional: nil-safe; used for sprint_defaults
 	db             *repository.DB                  // optional: nil-safe; required for CloseSprintWithCarryover
+	entitySvc      *EntityService                  // optional: nil-safe; wired via EnableWorkflowDispatch, required for TransitionStatus/GetNextStatus (B059)
+	entityRepo     EntityRepository                // optional: nil-safe; wired via EnableWorkflowDispatch
 }
 
 // NewSprintService creates a SprintService with dependency injection.
@@ -168,6 +170,43 @@ func NewSprintService(
 		svc.db = db[0]
 	}
 	return svc
+}
+
+// EnableWorkflowDispatch wires the shared EntityService/EntityRepository so
+// SprintService satisfies runner.EntityTransitioner (TransitionStatus,
+// GetNextStatus), enabling `shark next`/`shark status set|advance` for
+// sprints (B059). Optional: TransitionStatus and GetNextStatus return an
+// error if called before this is set, matching the nil-safe degrade pattern
+// used for assignmentRepo/capacityRepo above.
+func (s *SprintService) EnableWorkflowDispatch(entitySvc *EntityService, entityRepo EntityRepository) {
+	if entitySvc == nil || entityRepo == nil {
+		return
+	}
+	s.entitySvc = entitySvc.ForLevel(workflow.LevelSprint)
+	s.entityRepo = entityRepo
+}
+
+// TransitionStatus transitions a sprint to a specific status with workflow
+// validation. Delegates to EntityService.TransitionStatus for shared
+// transition logic (same pattern as BugService/TechDebtService/QuestionService).
+// Requires EnableWorkflowDispatch to have been called; returns an error otherwise.
+func (s *SprintService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	if s.entitySvc == nil || s.entityRepo == nil {
+		return nil, fmt.Errorf("sprint workflow dispatch not configured: EnableWorkflowDispatch was not called")
+	}
+	return s.entitySvc.TransitionStatus(
+		ctx, s.entityRepo, models.EntityTypeSprint, key, targetStatus, opts,
+		SimpleTransitionFeatures(), nil,
+	)
+}
+
+// GetNextStatus returns the available transitions for the current status of a sprint.
+// Requires EnableWorkflowDispatch to have been called; returns an error otherwise.
+func (s *SprintService) GetNextStatus(ctx context.Context, key string) (*NextStatusInfo, error) {
+	if s.entitySvc == nil || s.entityRepo == nil {
+		return nil, fmt.Errorf("sprint workflow dispatch not configured: EnableWorkflowDispatch was not called")
+	}
+	return s.entitySvc.GetNextStatus(ctx, s.entityRepo, models.EntityTypeSprint, key, nil)
 }
 
 func (s *SprintService) getTracer() trace.Tracer {
@@ -482,7 +521,16 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 	if err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s: %w", key, err))
 	}
-	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), activeStatus); err != nil {
+	// B059: the shipped default sprint workflow requires planning -> research ->
+	// active (a mandatory research gate) rather than a direct planning -> active
+	// edge. startTransitionTarget prefers the direct hop to activeStatus (legacy/
+	// simple workflows keep their original single-call behavior), and only when
+	// that edge doesn't exist AND the sprint is currently in the planning phase
+	// does it take a single hop along the route's "pass" outcome instead — so
+	// `shark sprint start` advances the sprint through the gate one call at a
+	// time instead of failing outright or skipping the gate.
+	targetStatus := s.startTransitionTarget(string(sprint.Status), activeStatus)
+	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), targetStatus); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err))
 	}
 	if s.workflowSvc.ProjectRoot() != "" && workflowStatusMatchesAny(
@@ -496,7 +544,7 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 	}
 
 	// Update status
-	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus(activeStatus)); err != nil {
+	if err := s.repo.UpdateStatus(ctx, sprint.ID, models.SprintStatus(targetStatus)); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to start sprint %s: %w", key, err))
 	}
 
@@ -952,6 +1000,33 @@ func selectorWithFallback(fallback, status string, err error) (string, error) {
 // workflow's "execution" phase (falling back to "active").
 func (s *SprintService) executionPhaseStatus() (string, error) {
 	return s.statusInPhase("execution", "active")
+}
+
+// startTransitionTarget resolves the status StartSprint should move a sprint
+// to from currentStatus, given the workflow's designated execution-phase
+// status (executionStatus).
+//
+// It prefers a direct hop to executionStatus, which preserves the original
+// single-call planning -> active behavior for legacy/simple workflows (and
+// for any route-based workflow whose current step already routes straight to
+// execution). Only when that direct edge is undefined AND the sprint is
+// currently in the "planning" phase does it fall back to a single hop along
+// the current step's "pass" outcome (e.g. planning -> research on the shipped
+// default sprint workflow, B059) — so a mandatory intermediate gate is
+// advanced through one call at a time rather than causing StartSprint to fail
+// outright or silently skipping the gate for other, non-planning statuses.
+func (s *SprintService) startTransitionTarget(currentStatus, executionStatus string) string {
+	if s.workflowSvc.ValidateTransition(currentStatus, executionStatus) == nil {
+		return executionStatus
+	}
+	if s.workflowSvc.IsRouteBased() && workflowStatusMatchesAny(
+		s.workflowSvc, currentStatus, s.workflowSvc.GetStatusesByPhase("planning"),
+	) {
+		if target := s.workflowSvc.GetOutcomes(currentStatus)["pass"]; target != "" {
+			return target
+		}
+	}
+	return executionStatus
 }
 
 // reviewPhaseStatus returns the designated status of the configured sprint

@@ -736,7 +736,11 @@ func GetSprintService() *services.SprintService {
 	sprintRepo := repository.NewSprintRepository(db)
 	workflowSvc := GetWorkflowService()
 	// Pass db for CloseSprintWithCarryover transaction support (T-E19-F03-007)
-	return services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, cfg, db)
+	svc := services.NewSprintService(sprintRepo, workflowSvc, sprintRepo, sprintRepo, cfg, db)
+	// B059: wire generic status-transition dispatch so sprints support
+	// `shark next`/`shark status set|advance` like other entity types.
+	svc.EnableWorkflowDispatch(GetEntityService(), services.NewSprintRepositoryAdapter(sprintRepo))
+	return svc
 }
 
 // GetSprintAnalyticsService returns a SprintAnalyticsService instance.

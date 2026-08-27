@@ -1669,7 +1669,11 @@ func TestTC012_RegistrationBaselineV1(t *testing.T) {
 		{"bug", "B001", models.EntityTypeBug, keys.EntityTypeBug, true, "spawn_agent", ""},
 		{"change", "CC-001", models.EntityTypeChange, keys.EntityTypeChange, true, "spawn_agent", ""},
 		{"tech_debt", "TD-001", models.EntityTypeTechDebt, keys.EntityTypeUnknown, true, "spawn_agent", ""},
-		{"sprint", "S001", models.EntityTypeSprint, keys.EntityTypeSprint, false, "", `unsupported entity type: "sprint"`},
+		// B059: sprint now resolves through the generic transitioner (buildTransitioner/
+		// SprintService.GetNextStatus), so `shark next` no longer errors with
+		// "unsupported entity type: sprint" — it dispatches the shipped default
+		// workflow's planning step (spawn_agent) like the other route-based types.
+		{"sprint", "S001", models.EntityTypeSprint, keys.EntityTypeSprint, false, "spawn_agent", ""},
 		{"idea", "I-2026-01-01-01", models.EntityTypeIdea, keys.EntityTypeUnknown, false, "", `unsupported entity type: "idea"`},
 	}
 
@@ -1795,6 +1799,23 @@ func TestTC012_RegistrationBaselineV1(t *testing.T) {
 				}
 				if response.EntityKey != row.key || response.EntityType != string(row.type_) || response.Action != row.nextAction {
 					t.Fatalf("%s keyed next %s = %#v, want key=%q type=%q action=%q", baselineName, row.type_, response, row.key, row.type_, row.nextAction)
+				}
+				// B059 F-1 regression: sprint's spawn_agent dispatch must have a
+				// real placeholder generator wired up. A missing "sprint" case
+				// in buildPlaceholderGenerator (run.go) silently degrades to an
+				// empty vars map, and text/template renders missing keys as the
+				// literal string "<no value>" instead of erroring — so the
+				// dispatch would "succeed" while producing a prompt no agent
+				// could act on (e.g. `Plan sprint <no value>: "<no value>"`).
+				// Scoped to sprint only: other baseline rows can legitimately
+				// render a missing optional field (e.g. file_path) as
+				// "<no value>" for fixture entities with no on-disk doc, which
+				// is unrelated to this bug.
+				if row.name == "sprint" && response.Action == "spawn_agent" && strings.Contains(response.Prompt, "<no value>") {
+					t.Fatalf("%s keyed next %s rendered prompt contains unresolved template placeholders (<no value>): %q", baselineName, row.type_, response.Prompt)
+				}
+				if row.name == "sprint" && response.Action == "spawn_agent" && (!strings.Contains(response.Prompt, "S001")) {
+					t.Fatalf("%s keyed next %s rendered prompt does not contain the sprint key S001: %q", baselineName, row.type_, response.Prompt)
 				}
 			})
 		})

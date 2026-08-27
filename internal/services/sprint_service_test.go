@@ -26,15 +26,16 @@ import (
 
 // MockSprintRepository is a test double for SprintRepository.
 type MockSprintRepository struct {
-	CreateFunc         func(ctx context.Context, s *models.Sprint) error
-	GetByKeyFunc       func(ctx context.Context, key string) (*models.Sprint, error)
-	GetByIDFunc        func(ctx context.Context, id int64) (*models.Sprint, error)
-	UpdateFunc         func(ctx context.Context, s *models.Sprint) error
-	DeleteFunc         func(ctx context.Context, id int64) error
-	UpdateStatusFunc   func(ctx context.Context, id int64, status models.SprintStatus) error
-	UpdateStatusTxFunc func(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error
-	GetNextKeyFunc     func(ctx context.Context) (string, error)
-	ListFunc           func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
+	CreateFunc                func(ctx context.Context, s *models.Sprint) error
+	GetByKeyFunc              func(ctx context.Context, key string) (*models.Sprint, error)
+	GetByIDFunc               func(ctx context.Context, id int64) (*models.Sprint, error)
+	UpdateFunc                func(ctx context.Context, s *models.Sprint) error
+	DeleteFunc                func(ctx context.Context, id int64) error
+	UpdateStatusFunc          func(ctx context.Context, id int64, status models.SprintStatus) error
+	UpdateStatusIfCurrentFunc func(ctx context.Context, id int64, expectedStatus, newStatus models.SprintStatus) (bool, error)
+	UpdateStatusTxFunc        func(ctx context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error
+	GetNextKeyFunc            func(ctx context.Context) (string, error)
+	ListFunc                  func(ctx context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error)
 
 	// F03 methods
 	AddAssignmentFunc               func(ctx context.Context, assignment *models.SprintAssignment) error
@@ -85,6 +86,13 @@ func (m *MockSprintRepository) Update(ctx context.Context, s *models.Sprint) err
 		return m.UpdateFunc(ctx, s)
 	}
 	return nil
+}
+
+func (m *MockSprintRepository) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedStatus, newStatus models.SprintStatus) (bool, error) {
+	if m.UpdateStatusIfCurrentFunc != nil {
+		return m.UpdateStatusIfCurrentFunc(ctx, id, expectedStatus, newStatus)
+	}
+	return true, nil
 }
 
 func (m *MockSprintRepository) Delete(ctx context.Context, id int64) error {
@@ -780,6 +788,56 @@ func TestSprintService_StartSprint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSprintService_StartSprint_PlanningAdvancesThroughResearchGate is the
+// B059 regression test: "Sprints cannot advance past 'planning' with the
+// shipped default sprint workflow". Before the fix, StartSprint always tried
+// a direct planning -> active transition, which the embedded default
+// sprint.yaml (route-based, with a mandatory research gate) rejects with
+// "invalid transition from 'planning' to 'active'" — permanently stuck.
+//
+// This test binds to the embedded default workflow (workflow.NewService(""))
+// rather than a hand-rolled fixture, because the bug is specifically about
+// the shipped defaults. It derives the expected landing status from the
+// workflow service itself (planning step's "pass" outcome) instead of
+// hardcoding "research", per .claude/rules/feedback_no_hardcoded_statuses.
+func TestSprintService_StartSprint_PlanningAdvancesThroughResearchGate(t *testing.T) {
+	ctx := context.Background()
+	workflowSvc := workflow.NewService("")
+	sprintWorkflow := workflowSvc.ForLevel(workflow.LevelSprint)
+
+	require.True(t, sprintWorkflow.IsRouteBased(),
+		"embedded default sprint workflow is expected to be route-based (steps:) for this regression to be meaningful")
+	wantNext := sprintWorkflow.GetOutcomes("planning")["pass"]
+	require.NotEmpty(t, wantNext, "planning step must define a 'pass' outcome in the embedded default sprint workflow")
+
+	var updatedTo models.SprintStatus
+	calls := 0
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			calls++
+			if calls > 1 {
+				return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: updatedTo}, nil
+			}
+			return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "planning"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			updatedTo = status
+			return nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	result, err := svc.StartSprint(ctx, "S001")
+
+	require.NoError(t, err, "shark sprint start must not fail on a fresh planning sprint under the default workflow")
+	require.NotNil(t, result)
+	assert.Equal(t, wantNext, string(result.Status),
+		"StartSprint should advance one hop along the workflow's planning->pass route, not fail or jump straight to active")
+	assert.NotEqual(t, "active", string(result.Status),
+		"a mandatory research gate must not be silently bypassed")
 }
 
 func TestSprintService_StartSprint_RequiresResearchEvidence(t *testing.T) {
@@ -6498,4 +6556,52 @@ func TestBulkAddToSprint_ReportsTerminalItemsSkippedPerEntityWorkflow(t *testing
 	assert.Equal(t, 1, result.AddedByType["change_card"])
 	assert.Equal(t, 1, result.SkippedByType["task"])
 	assert.Equal(t, 1, result.SkippedByType["change_card"])
+}
+
+// TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus is
+// part of the B059 fix: SprintService now satisfies runner.EntityTransitioner
+// (see the compile-time assertion in internal/cli/commands/run.go) so `shark
+// next <sprint-key>` / `shark status set|advance <sprint-key>` no longer fail
+// with "unsupported entity type: sprint". Before EnableWorkflowDispatch is
+// called, both methods must fail loudly rather than panic or silently no-op.
+func TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus(t *testing.T) {
+	ctx := context.Background()
+	workflowSvc := workflow.NewService("")
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Name: "Sprint 1", Status: "planning"}, nil
+		},
+		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
+			return nil
+		},
+	}
+
+	t.Run("not configured returns an error instead of panicking", func(t *testing.T) {
+		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+		_, err := svc.TransitionStatus(ctx, "S001", "research", TransitionOptions{})
+		require.Error(t, err)
+
+		_, err = svc.GetNextStatus(ctx, "S001")
+		require.Error(t, err)
+	})
+
+	t.Run("configured dispatches through EntityService", func(t *testing.T) {
+		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+		entitySvc := NewEntityService(workflowSvc)
+		svc.EnableWorkflowDispatch(entitySvc, NewSprintRepositoryAdapter(mockRepo))
+
+		result, err := svc.TransitionStatus(ctx, "S001", "research", TransitionOptions{})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, "planning", result.FromStatus)
+		assert.Equal(t, "research", result.ToStatus)
+		assert.True(t, result.Transitioned)
+
+		info, err := svc.GetNextStatus(ctx, "S001")
+		require.NoError(t, err)
+		require.NotNil(t, info)
+		assert.Equal(t, "planning", info.CurrentStatus)
+	})
 }

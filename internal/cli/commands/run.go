@@ -651,9 +651,10 @@ func setupWorktree(ctx context.Context, entityKey string, creator runner.Worktre
 }
 
 // buildTransitioner returns an EntityTransitioner for the given entity type.
-// All five service types (TaskService, FeatureService, EpicService, BugService,
-// ChangeCardService) directly satisfy runner.EntityTransitioner via their
-// TransitionStatus and GetNextStatus methods.
+// TaskService, FeatureService, EpicService, BugService, ChangeCardService,
+// TechDebtService, QuestionService, and SprintService directly satisfy
+// runner.EntityTransitioner via their TransitionStatus and GetNextStatus
+// methods (SprintService only after EnableWorkflowDispatch is called).
 func buildTransitioner(_ context.Context, entityType string) (runner.EntityTransitioner, error) {
 	switch entityType {
 	case "task":
@@ -670,6 +671,8 @@ func buildTransitioner(_ context.Context, entityType string) (runner.EntityTrans
 		return cli.GetTechDebtService(), nil
 	case "question":
 		return getQuestionService(), nil
+	case "sprint":
+		return cli.GetSprintService(), nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %q", entityType)
 	}
@@ -693,6 +696,8 @@ func buildPlaceholderGenerator(_ context.Context, entityType string) runner.Plac
 		return &techDebtPlaceholderAdapter{svc: cli.GetTechDebtService()}
 	case "question":
 		return &questionPlaceholderAdapter{svc: getQuestionService()}
+	case "sprint":
+		return &sprintPlaceholderAdapter{svc: cli.GetSprintService()}
 	default:
 		return nil
 	}
@@ -795,6 +800,18 @@ func (a *techDebtPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, k
 	return config.TechDebtPlaceholders(td), nil
 }
 
+type sprintPlaceholderAdapter struct {
+	svc *services.SprintService
+}
+
+func (a *sprintPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error) {
+	sprint, err := a.svc.GetSprint(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sprint %s for placeholders: %w", key, err)
+	}
+	return config.EntityPlaceholders(sprint), nil
+}
+
 // ─── compile-time interface assertions ────────────────────────────────────────
 
 var (
@@ -806,6 +823,7 @@ var (
 	_ runner.EntityTransitioner = (*services.ChangeCardService)(nil)
 	_ runner.EntityTransitioner = (*services.TechDebtService)(nil)
 	_ runner.EntityTransitioner = (*services.QuestionService)(nil)
+	_ runner.EntityTransitioner = (*services.SprintService)(nil)
 
 	// Placeholder adapters remain entity-specific.
 	_ runner.PlaceholderGenerator = (*taskPlaceholderAdapter)(nil)
@@ -815,4 +833,5 @@ var (
 	_ runner.PlaceholderGenerator = (*changeCardPlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*techDebtPlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*questionPlaceholderAdapter)(nil)
+	_ runner.PlaceholderGenerator = (*sprintPlaceholderAdapter)(nil)
 )
