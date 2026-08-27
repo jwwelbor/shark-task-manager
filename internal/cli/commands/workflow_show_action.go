@@ -225,6 +225,14 @@ func lookupEntityPlaceholders(ctx context.Context, key string, entityType string
 		placeholders["current_responder"] = state.CurrentResponder()
 		return placeholders, nil
 
+	case "sprint":
+		svc := cli.GetSprintService()
+		sprint, err := svc.GetSprint(ctx, key)
+		if err != nil || sprint == nil {
+			return fallbackPlaceholders(key), nil
+		}
+		return config.EntityPlaceholders(sprint), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}

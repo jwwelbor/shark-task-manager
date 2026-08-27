@@ -248,6 +248,8 @@ func dispatchTransition(ctx context.Context, entityType, key, targetStatus strin
 		return cli.GetTechDebtService().TransitionStatus(ctx, key, targetStatus, opts)
 	case "question":
 		return getQuestionService().TransitionStatus(ctx, key, targetStatus, opts)
+	case "sprint":
+		return cli.GetSprintService().TransitionStatus(ctx, key, targetStatus, opts)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -270,6 +272,8 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 		return cli.GetTechDebtService().GetNextStatus(ctx, key)
 	case "question":
 		return getQuestionService().GetNextStatus(ctx, key)
+	case "sprint":
+		return cli.GetSprintService().GetNextStatus(ctx, key)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -378,7 +382,7 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 	if transResult.ChildCount > 0 {
 		cli.Warning(fmt.Sprintf("%d child entities remain in current states.", transResult.ChildCount))
 	}
-	cli.Info(fmt.Sprintf("Run `shark get %s --field orchestrator_action` to get your next instructions.", transResult.EntityKey))
+	cli.Info(fmt.Sprintf("Run `shark next %s --json` to get your next instructions.", transResult.EntityKey))
 	return nil
 }
 
