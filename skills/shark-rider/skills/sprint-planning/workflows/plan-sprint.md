@@ -30,6 +30,7 @@ Parse the JSON response:
 - `status` — the sprint's current lifecycle status
 - `key` — canonical sprint key (use this for all subsequent calls)
 - `capacity` — per-agent-type capacity values (if present at this level; otherwise read from plan in Step 2)
+- `goal`, `name` — the sprint's stated scope, used by the Step 1.5 tech-debt cross-check
 
 **If status is `planning`**: proceed silently.
 
@@ -50,6 +51,57 @@ Parse the JSON response:
   ```
 - If user says **no**: exit cleanly. Do not call any further shark commands.
 - If user says **yes**: continue to Step 2.
+
+---
+
+## Step 1.5: Tech-Debt Landmine Cross-Check
+
+Before proposing any backlog assignments, check whether open tech-debt
+contains a **landmine** under this sprint's scope — a defect *in the code
+path the sprint is about to build or extend*, as opposed to debt that is
+merely topically adjacent. This is a Rider-side judgment call (relevance
+requires reading intent, not just matching), not something `shark` itself
+computes — do not look for or wait on any shark-internal readiness/gate
+field to surface this; shark's `readiness` score and `plan` backlog answer
+"is this entity eligible for assignment," not "is this a defect under our
+target surface," and severity triage in the tech-debt backlog does not
+reliably keep pace with intake.
+
+1. From Step 1's `goal` and `name`, extract the epic/feature keys (e.g.
+   `E09`, `E11`, `E04-F02`) and domain nouns (e.g. "freeze", "reload",
+   "manifest") the sprint actually names.
+2. Pull the full tech-debt backlog: `shark list tech-debt --json`. Use the
+   full list, not Step 2's `shark sprint plan` backlog — that only contains
+   items already eligible for assignment by shark's own rules, a narrower
+   and different question.
+3. Filter to items whose `title`/`description` reference the same
+   epic/feature keys or domain nouns from step 1, regardless of `severity`
+   or `status`.
+4. For each match, judge it the way an architect would: is this a defect IN
+   the surface the sprint is about to write or extend (a landmine), or just
+   topically related (leave it alone)? Only landmines count as findings.
+5. If any landmines are found, present them before continuing to Step 2:
+   ```
+   Tech-debt landmine check for Sprint {S###}:
+     • {TD-KEY} — {title}
+       Why it hits this sprint: {one sentence}
+       Effort: {effort_estimate}   Status: {status}
+   Pull {TD-KEY} into this sprint now (recommended: --at 1)? (yes/no)
+   ```
+   On **yes**: `shark sprint add {S###} {TD-KEY} --at 1 --json`, then record
+   the decision as a note on both entities (`shark create note {S###} "..."
+   --type=decision`, and the matching note on `{TD-KEY}`) per CLAUDE.md
+   Rule 14.
+   On **no**: leave it and continue; do not silently drop it — repeat it in
+   the Step 5 completion summary as a known, declined risk.
+6. If nothing matches, say so explicitly:
+   ```
+   Tech-debt landmine check for Sprint {S###}: none found.
+   ```
+   Silence here must mean "checked, clean" — never skip this line.
+
+This step never blocks planning and never assigns anything without the
+per-item confirmation above, in both interactive and auto mode.
 
 ---
 
@@ -190,6 +242,13 @@ Print the completion message:
 ```
 Sprint {S###} planning complete.
 To execute this sprint: /shark-rider run-sprint {S###}
+```
+
+If Step 1.5 found any landmines the user declined to pull in, repeat them
+here so they aren't lost:
+```
+Declined tech-debt risk (still open under this sprint's surface):
+  • {TD-KEY} — {title}
 ```
 
 **DO NOT call `shark sprint start`.** Starting a sprint is an explicit user action. The user must run `/shark-rider run-sprint {S###}` (which will offer to start the sprint if needed).
