@@ -178,3 +178,30 @@ PY
     || fail "verify-lifecycle-run.sh rejected a candidate.identity_digest actually produced by run-lifecycle.sh's own candidate_identity()/refresh_candidate()"
 
 echo "TC-095: pass (verify-lifecycle-run.sh accepts run-lifecycle.sh's own candidate.identity_digest)"
+
+# Negative case: a candidate whose identity_digest disagrees with its named
+# identity fields must still be rejected. Recomputing "everything but the
+# digest keys" (the pre-fix formula) can never fail this way since it always
+# matches whatever fields the record happens to carry — this proves the
+# check compares against the fixed field list, not just itself.
+TAMPERED="$WORKDIR/lifecycle-tampered.jsonl"
+python3 - "$RECORD" "$TAMPERED" <<'PY'
+import json
+import sys
+
+record_path, tampered_path = sys.argv[1:3]
+with open(record_path, encoding="utf-8") as stream:
+    record = json.loads(stream.readline())
+
+candidate = record["stages"][0]["candidate"]
+candidate["test_suite_digest"] = "0" * 64  # identity_digest is now stale
+
+with open(tampered_path, "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+
+if "$VERIFIER" "$TAMPERED" --schema "$SCHEMA" >/dev/null 2>&1; then
+    fail "verify-lifecycle-run.sh accepted a candidate whose identity_digest disagrees with its identity fields"
+fi
+
+echo "TC-095: pass (verify-lifecycle-run.sh rejects a candidate whose identity_digest disagrees with its identity fields)"

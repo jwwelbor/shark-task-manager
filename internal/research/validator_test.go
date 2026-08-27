@@ -53,6 +53,7 @@ func TestValidateEntity_V2(t *testing.T) {
 		{"unsupported schema", strings.Replace(validV2TaskReport(entity), "research_schema: 2", "research_schema: 3", 1), "unsupported research_schema"},
 		{"standard lacks coverage", strings.Replace(validV2TaskReport(entity), "rigor: simple", "rigor: standard", 1), "requires pattern_contract or dependency_impact"},
 		{"complex lacks risks", strings.Replace(validV2TaskReport(entity), "rigor: simple", "rigor: complex", 1), "requires pattern_contract or dependency_impact"},
+		{"missing rigor", strings.Replace(validV2TaskReport(entity), "rigor: simple\n", "", 1), "front matter must include rigor"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

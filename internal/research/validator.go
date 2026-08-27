@@ -12,10 +12,11 @@ import (
 // artifact holds the frontmatter fields shark cannot derive on its own:
 // Rigor and Categories are the researcher's classification of the work,
 // and RelatedWork records whether related capability work exists. Identity
-// (entity key/type) and Recipe are not parsed here — shark already knows
-// which entity it is validating (ArtifactPaths resolves the report path
-// from the entity, not the reverse), and "universal" is the only recipe
-// that exists, so there is nothing for the agent to restate.
+// (entity key/type) is not parsed here — shark already knows which entity
+// it is validating (ArtifactPaths resolves the report path from the entity,
+// not the reverse), so there is nothing for the agent to restate. Recipe is
+// still parsed but optional: it defaults to "universal" in readArtifact
+// since that is the only recipe that exists today.
 type artifact struct {
 	ResearchSchema int      `yaml:"research_schema"`
 	Recipe         string   `yaml:"recipe"`
