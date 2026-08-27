@@ -205,3 +205,27 @@ if "$VERIFIER" "$TAMPERED" --schema "$SCHEMA" >/dev/null 2>&1; then
 fi
 
 echo "TC-095: pass (verify-lifecycle-run.sh rejects a candidate whose identity_digest disagrees with its identity fields)"
+
+# Negative case: a candidate entirely missing one of the seven named identity
+# fields must be rejected with a clear diagnostic, not an unhandled crash.
+MISSING_FIELD="$WORKDIR/lifecycle-missing-field.jsonl"
+python3 - "$RECORD" "$MISSING_FIELD" <<'PY'
+import json
+import sys
+
+record_path, missing_field_path = sys.argv[1:3]
+with open(record_path, encoding="utf-8") as stream:
+    record = json.loads(stream.readline())
+
+del record["stages"][0]["candidate"]["scratch_content_digest"]
+
+with open(missing_field_path, "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+
+missing_field_output="$("$VERIFIER" "$MISSING_FIELD" --schema "$SCHEMA" 2>&1)" && \
+    fail "verify-lifecycle-run.sh accepted a candidate missing scratch_content_digest"
+echo "$missing_field_output" | grep -q "scratch_content_digest" \
+    || fail "verify-lifecycle-run.sh's missing-field diagnostic did not name scratch_content_digest: $missing_field_output"
+
+echo "TC-095: pass (verify-lifecycle-run.sh rejects a candidate missing a named identity field)"
