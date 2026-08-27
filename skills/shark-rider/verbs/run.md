@@ -167,6 +167,41 @@ For long steps, periodically renew the parent lease:
 shark heartbeat {response.entity_key} --session "$SID" --progress <0..1> --note "<step>"
 ```
 
+### Long-running Codex CLI adapter
+
+Keep the canonical Shark prompt unchanged. The parent must pass
+`response.prompt` byte-for-byte to the worker; do not append heartbeat
+instructions to it. Instead, use Codex's JSONL event stream as an observable
+sidecar and emit parent-owned Shark heartbeats from that stream.
+
+For a long planning or review step, allow up to **15 minutes** and retain both
+the event stream and the final message. Run the worker in the background so
+the parent can poll `$EVENT_FILE` while it is still running, and keep stdout
+(the JSONL event stream) separate from stderr:
+
+```bash
+timeout --foreground 900 codex exec -C "$REPO_ROOT" -s danger-full-access \
+  --json --output-last-message "$RESULT_FILE" - < "$PROMPT_FILE" \
+  > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
+CODEX_PID=$!
+```
+
+While the worker runs, inspect `$EVENT_FILE` at least once per minute. For
+each new event, renew the lease and record the latest event type or item type:
+
+```bash
+shark heartbeat {response.entity_key} --session "$SID" --progress <0..1> \
+  --note "worker alive; latest Codex event: <event-type>"
+```
+
+Use elapsed time to estimate progress; do not infer completion from a
+heartbeat. The JSONL file is a durable, trackable worker heartbeat. Only the
+worker's terminal result in `$RESULT_FILE` authorizes a workflow transition.
+Wait for the worker to finish (`wait "$CODEX_PID"`) before reading
+`$RESULT_FILE`. If the 15-minute limit expires, record the event-log path and
+its last event in a blocker note, release the lease, and do not advance the
+workflow.
+
 ### Mid-run consultation (`kind: question` / `kind: needs_council`)
 
 Before the worker returns a final result, it may instead pause with a

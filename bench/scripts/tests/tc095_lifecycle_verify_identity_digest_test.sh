@@ -57,6 +57,16 @@ assert "scratch_content_digest" in candidate, "refresh_candidate did not add scr
 
 digest64 = lambda seed: __import__("hashlib").sha256(seed.encode()).hexdigest()
 
+# The real stage producer must emit the object that the I-07 verifier joins to
+# candidate_snapshot_digest. A list here passes shallow required-field checks
+# but crashes the verifier during that join.
+produced_stage = namespace["stage_record"](
+    {"ordinal": 1, "response": {"status": "in_development"}}, candidate
+)
+assert produced_stage["evidence_refs"] == {
+    "candidate_snapshot_digest": candidate["snapshot_digest"]
+}, "stage_record emitted malformed candidate snapshot evidence"
+
 record = {
     "identity": {
         "schema_version": "1.0",

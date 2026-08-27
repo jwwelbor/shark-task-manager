@@ -292,7 +292,8 @@ def stage_record(dispatch, candidate):
         "usage": {"provider": dispatch["response"].get("provider", "unknown"), "model": dispatch["response"].get("model", "unknown")},
         "cost_usd": dispatch.get("cost_usd", 0.0), "elapsed_seconds": dispatch.get("elapsed_seconds", 0.0),
         "errors": [], "rework": False, "intervals": [], "candidate": candidate,
-        "artifacts": [], "access_events": [], "evidence_refs": [],
+        "artifacts": [], "access_events": [],
+        "evidence_refs": {"candidate_snapshot_digest": candidate["snapshot_digest"]},
     }
 
 
