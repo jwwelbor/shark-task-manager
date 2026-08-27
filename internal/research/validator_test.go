@@ -43,17 +43,17 @@ func TestValidateEntity_V2(t *testing.T) {
 		report  string
 		wantErr string
 	}{
-		{"valid simple task references parent map", validV2TaskReport(entity), ""},
-		{"missing core module", strings.Replace(validV2TaskReport(entity), "- [x] `scope_vocabulary`", "", 1), "requires module \"scope_vocabulary\""},
-		{"unchecked module", strings.Replace(validV2TaskReport(entity), "- [x] `scope_vocabulary`", "- [ ] `scope_vocabulary`", 1), "is unchecked"},
-		{"missing evidence", strings.Replace(validV2TaskReport(entity), "Evidence: `tasks/T-E01-F01-001.md`.", "", 1), "missing evidence"},
-		{"unknown module", strings.Replace(validV2TaskReport(entity), "scope_vocabulary", "invented_module", 1), "unknown module"},
-		{"inapplicable module", strings.Replace(validV2TaskReport(entity), "affected_implementation_or_contract", "related_work", 1), "not applicable"},
-		{"unknown category", strings.Replace(validV2TaskReport(entity), "categories: [backend]", "categories: [unknown]", 1), "does not define category"},
-		{"unsupported schema", strings.Replace(validV2TaskReport(entity), "research_schema: 2", "research_schema: 3", 1), "unsupported research_schema"},
-		{"standard lacks coverage", strings.Replace(validV2TaskReport(entity), "rigor: simple", "rigor: standard", 1), "requires pattern_contract or dependency_impact"},
-		{"complex lacks risks", strings.Replace(validV2TaskReport(entity), "rigor: simple", "rigor: complex", 1), "requires pattern_contract or dependency_impact"},
-		{"missing rigor", strings.Replace(validV2TaskReport(entity), "rigor: simple\n", "", 1), "front matter must include rigor"},
+		{"valid simple task references parent map", validV2TaskReport(), ""},
+		{"missing core module", strings.Replace(validV2TaskReport(), "- [x] `scope_vocabulary`", "", 1), "requires module \"scope_vocabulary\""},
+		{"unchecked module", strings.Replace(validV2TaskReport(), "- [x] `scope_vocabulary`", "- [ ] `scope_vocabulary`", 1), "is unchecked"},
+		{"missing evidence", strings.Replace(validV2TaskReport(), "Evidence: `tasks/T-E01-F01-001.md`.", "", 1), "missing evidence"},
+		{"unknown module", strings.Replace(validV2TaskReport(), "scope_vocabulary", "invented_module", 1), "unknown module"},
+		{"inapplicable module", strings.Replace(validV2TaskReport(), "affected_implementation_or_contract", "related_work", 1), "not applicable"},
+		{"unknown category", strings.Replace(validV2TaskReport(), "categories: [backend]", "categories: [unknown]", 1), "does not define category"},
+		{"unsupported schema", strings.Replace(validV2TaskReport(), "research_schema: 2", "research_schema: 3", 1), "unsupported research_schema"},
+		{"standard lacks coverage", strings.Replace(validV2TaskReport(), "rigor: simple", "rigor: standard", 1), "requires pattern_contract or dependency_impact"},
+		{"complex lacks risks", strings.Replace(validV2TaskReport(), "rigor: simple", "rigor: complex", 1), "requires pattern_contract or dependency_impact"},
+		{"missing rigor", strings.Replace(validV2TaskReport(), "rigor: simple\n", "", 1), "front matter must include rigor"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestValidateEntity_V2AcceptsSoftWrappedChecklistEvidence(t *testing.T) {
 	paths, err := ArtifactPaths(root, entity)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Report), 0o755))
-	report := strings.Replace(validV2TaskReport(entity),
+	report := strings.Replace(validV2TaskReport(),
 		"- [x] `scope_vocabulary` — Evidence: `tasks/T-E01-F01-001.md`.",
 		"- [x] `scope_vocabulary` — This checklist item uses a readable wrapped line\n  Evidence: `tasks/T-E01-F01-001.md`.", 1)
 	require.NoError(t, os.WriteFile(paths.Report, []byte(report), 0o644))
@@ -92,7 +92,7 @@ func TestValidateEntity_V2DoesNotAbsorbOtherMarkdownBullets(t *testing.T) {
 			paths, err := ArtifactPaths(root, entity)
 			require.NoError(t, err)
 			require.NoError(t, os.MkdirAll(filepath.Dir(paths.Report), 0o755))
-			report := strings.Replace(validV2TaskReport(entity),
+			report := strings.Replace(validV2TaskReport(),
 				"- [x] `scope_vocabulary` — Evidence: `tasks/T-E01-F01-001.md`.",
 				"- [x] `scope_vocabulary` — This item has no evidence\n"+marker+" Evidence: `tasks/T-E01-F01-001.md`.", 1)
 			require.NoError(t, os.WriteFile(paths.Report, []byte(report), 0o644))
@@ -112,7 +112,7 @@ func TestValidateEntity_V2StandardFeatureRequiresCapabilityMapDecision(t *testin
 	if err := os.MkdirAll(filepath.Dir(paths.Report), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	report := validV2FeatureReport(entity)
+	report := validV2FeatureReport()
 	if err := os.WriteFile(paths.Report, []byte(report), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestValidateEntity_V2ComplexResearchRequiresRiskAndAlternativeAnalysis(t *t
 	if err := os.MkdirAll(filepath.Dir(paths.Report), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	report := strings.Replace(validV2TaskReport(entity), "rigor: simple", "rigor: complex", 1)
+	report := strings.Replace(validV2TaskReport(), "rigor: simple", "rigor: complex", 1)
 	report = strings.Replace(report, "## Findings", "- [x] `dependency_impact` — Evidence: `internal/runner/controller.go` calls the transition service.\n- [x] `cross_boundary_risks` — Evidence: `internal/runner` crosses the workflow boundary.\n- [x] `alternatives` — Evidence: `internal/runner/controller.go`; a direct repository call would bypass validation.\n\n## Findings", 1)
 	if err := os.WriteFile(paths.Report, []byte(report), 0o644); err != nil {
 		t.Fatal(err)
@@ -203,11 +203,11 @@ func taskEntity() models.Entity {
 	return &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", FilePath: stringPtr("docs/plan/E01/F01/tasks/T-E01-F01-001.md")}, Status: "research"}
 }
 
-func validV2TaskReport(entity models.Entity) string {
+func validV2TaskReport() string {
 	return "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n\n## Scope\nAdvance this task through the existing runner transition.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `tasks/T-E01-F01-001.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `internal/runner/controller.go` transition path.\n\n## Findings\nThe task uses the established transition service and references the parent Capability map at `docs/plan/E01/F01/research-report.md`.\n\n## Decisions\nExtend the established runner transition instead of creating another status path.\n\n## Sources\n- `tasks/T-E01-F01-001.md`\n- `internal/runner/controller.go`\n- `docs/plan/E01/F01/research-report.md` (parent Capability map)\n"
 }
 
-func validV2FeatureReport(entity models.Entity) string {
+func validV2FeatureReport() string {
 	return "---\nresearch_schema: 2\nrigor: standard\ncategories: [backend]\nrelated_work: true\n---\n# Research report\n\n## Scope\nExtend the existing feature capability.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `docs/plan/E01/F01/feature.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `internal/services/feature_service.go`.\n- [x] `related_work` — Evidence: `docs/plan/E01/F02/research-report.md`.\n- [x] `pattern_contract` — Evidence: `internal/services/feature_service.go` service boundary.\n\n## Capability map\n| Capability | Source | Decision |\n| --- | --- | --- |\n| Existing capability | `docs/plan/E01/F02/research-report.md` | EXTEND |\n\n## Findings\nThe feature extends the established service contract.\n\n## Decisions\nReuse the service boundary and extend its capability.\n\n## Sources\n- `docs/plan/E01/F01/feature.md`\n- `internal/services/feature_service.go`\n"
 }
 
