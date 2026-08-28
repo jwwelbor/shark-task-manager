@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/pterm/pterm"
 )
 
 // Test Suite 2.4: buildFeaturePlanningBasicInfo()
@@ -790,6 +792,69 @@ func TestSortFeatures(t *testing.T) {
 		sortFeatures(features, "")
 		if features[0].Key != "E07-F01" {
 			t.Errorf("Default sort failed: first key is %s, want E07-F01", features[0].Key)
+		}
+	})
+}
+
+// TestRenderFeatureAggregation_ReadinessMessage covers B047 AC5: "feature get
+// readiness messaging uses computed progress rather than a stale cached
+// field." feature.ProgressPct is the persisted cache; data.ProgressInfo is
+// computed live from the current task status breakdown. The two normally
+// agree once the aggregate coordinator keeps the cache current, but the
+// readiness banner must key off the same computed source the rest of the
+// page uses (see buildFeatureBasicInfo's "Progress" row), not the raw
+// cached column, so a stale cache can never show a readiness banner that
+// disagrees with the progress the operator is looking at.
+func TestRenderFeatureAggregation_ReadinessMessage(t *testing.T) {
+	origNoColor := cli.GlobalConfig.NoColor
+	defer func() { cli.GlobalConfig.NoColor = origNoColor }()
+	cli.GlobalConfig.NoColor = true
+
+	// pterm.Success caches its output writer at package-init time (a copy of
+	// os.Stdout taken once), so it does not observe captureOutput's temporary
+	// os.Stdout swap. Redirect it explicitly for this test and restore after.
+	origSuccessWriter := pterm.Success
+	defer func() { pterm.Success = origSuccessWriter }()
+
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Only task"}}
+
+	t.Run("computed progress at 100 shows readiness banner even when cached field lags", func(t *testing.T) {
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Feature"}, EpicID: 7,
+			Status:      models.FeatureStatusActive,
+			ProgressPct: 90.0, // stale cache: not yet refreshed
+		}
+		data := &FeatureGetData{
+			Tasks:        []*models.Task{task},
+			ProgressInfo: &status.ProgressInfo{WeightedPct: 100.0}, // computed: current
+		}
+
+		out := captureOutput(t, func() {
+			pterm.Success = *origSuccessWriter.WithWriter(os.Stdout)
+			renderFeatureAggregationWithTags(feature, data, nil, nil)
+		})
+
+		if !strings.Contains(string(out), "ready for approval") {
+			t.Errorf("expected readiness banner when computed progress is 100%%, got output:\n%s", out)
+		}
+	})
+
+	t.Run("computed progress below 100 hides readiness banner even when cached field is stale-high", func(t *testing.T) {
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Feature"}, EpicID: 7,
+			Status:      models.FeatureStatusActive,
+			ProgressPct: 100.0, // stale cache: overstates progress
+		}
+		data := &FeatureGetData{
+			Tasks:        []*models.Task{task},
+			ProgressInfo: &status.ProgressInfo{WeightedPct: 80.0}, // computed: current
+		}
+
+		out := captureOutput(t, func() {
+			pterm.Success = *origSuccessWriter.WithWriter(os.Stdout)
+			renderFeatureAggregationWithTags(feature, data, nil, nil)
+		})
+
+		if strings.Contains(string(out), "ready for approval") {
+			t.Errorf("did not expect readiness banner when computed progress is below 100%%, got output:\n%s", out)
 		}
 	})
 }

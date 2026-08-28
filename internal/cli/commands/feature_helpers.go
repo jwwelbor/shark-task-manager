@@ -532,8 +532,15 @@ func renderFeatureAggregationWithTags(feature *models.Feature, data *FeatureGetD
 			// Action items section (tasks needing attention)
 			renderFeatureActionItems(data.ActionItems)
 
-			// Check if all tasks are completed
-			if len(data.Tasks) > 0 && feature.ProgressPct >= 100.0 {
+			// Check if all tasks are completed. Use the computed progress value
+			// (same source as the Progress row/breakdown above), not the raw
+			// persisted cache, so this banner never disagrees with the rest of
+			// the page (B047 AC5).
+			readinessPct := feature.ProgressPct
+			if data.ProgressInfo != nil {
+				readinessPct = data.ProgressInfo.WeightedPct
+			}
+			if len(data.Tasks) > 0 && readinessPct >= 100.0 {
 				fmt.Println()
 				pterm.Success.Println("All tasks completed! Feature is ready for approval.")
 			}
