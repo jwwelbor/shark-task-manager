@@ -3764,6 +3764,160 @@ func TestSprintService_GetSprintReadiness_Factor2_DependencySatisfaction(t *test
 	})
 }
 
+// ---------------------------------------------------------------------------
+// B058: Sprint readiness treats completed external dependencies as unsatisfied.
+//
+// computeDependencySatisfactionFactor previously counted a task dependency as
+// satisfied only when its key was assigned to the *current* sprint. A
+// dependency completed in a prior/historical sprint (not assigned to this
+// sprint) was wrongly counted as unsatisfied, deducting readiness points.
+//
+// These tests use a real SQLite DB (via newTestDB, matching the existing
+// CloseSprintWithCarryover precedent in this file) because GetSprintReadiness
+// batch-looks-up external dependency task status via a concrete
+// repository.NewTaskRepository(s.db) — s.db must be non-nil for the lookup to
+// run at all, so a mock-only SprintAssignmentQueryRepository cannot exercise
+// this code path.
+// ---------------------------------------------------------------------------
+
+// seedB058Epic inserts (or reuses) a minimal epic row for B058 dependency fixtures.
+func seedB058Epic(t *testing.T, db *repository.DB, key string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var epicID int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM epics WHERE key = ?`, key).Scan(&epicID); err == nil {
+		return epicID
+	}
+	res, err := db.ExecContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES (?, 'B058 Test Epic', 'active', 'medium')`, key)
+	require.NoError(t, err)
+	epicID, err = res.LastInsertId()
+	require.NoError(t, err)
+	return epicID
+}
+
+// seedB058Feature inserts (or reuses) a minimal feature row for B058 dependency fixtures.
+func seedB058Feature(t *testing.T, db *repository.DB, epicID int64, key string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var featureID int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM features WHERE key = ?`, key).Scan(&featureID); err == nil {
+		return featureID
+	}
+	res, err := db.ExecContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, ?, 'B058 Test Feature', 'active')`, epicID, key)
+	require.NoError(t, err)
+	featureID, err = res.LastInsertId()
+	require.NoError(t, err)
+	return featureID
+}
+
+// seedB058Task inserts (replacing any prior row) a task with the given key and status.
+func seedB058Task(t *testing.T, db *repository.DB, featureID int64, key, status string) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `DELETE FROM tasks WHERE key = ?`, key)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO tasks (feature_id, key, title, status) VALUES (?, ?, ?, ?)`, featureID, key, "Task "+key, status)
+	require.NoError(t, err)
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCompletedInHistoricalSprint_Satisfied
+// reproduces the B058 bug scenario: a task assigned to the current sprint depends on
+// a task that is completed (terminal) but assigned to a different (historical) sprint,
+// i.e. it is simply absent from the current sprint's assignment set. The dependency
+// must count as satisfied and Factor 2 must not be penalized.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCompletedInHistoricalSprint_Satisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-001", "completed") // terminal, NOT in current sprint
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-002", Size: sizePtrR(3), DependsOn: `["T-E58-F01-001"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 20, f2.Score,
+		"dependency completed in a historical sprint must be treated as satisfied, not penalized")
+	assert.Contains(t, f2.Detail, "satisfied")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyNotTerminal_StillUnsatisfied
+// preserves the negative case: a dependency that exists but has NOT reached a terminal
+// status, and is not assigned to the current sprint, must still count as unsatisfied.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyNotTerminal_StillUnsatisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-003", "development") // NOT terminal, NOT in current sprint
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-004", Size: sizePtrR(3), DependsOn: `["T-E58-F01-003"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 19, f2.Score,
+		"a non-terminal dependency outside the current sprint must still be unsatisfied")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyDoesNotExist_StillUnsatisfied
+// preserves the safe default: a dependency key that doesn't resolve to any task at all
+// (e.g. a typo) must still count as unsatisfied, even with the B058 fix in place.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyDoesNotExist_StillUnsatisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-005", Size: sizePtrR(3), DependsOn: `["T-E58-F01-DOES-NOT-EXIST"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 19, f2.Score,
+		"a dependency key that doesn't exist in the task table must still be unsatisfied")
+}
+
 // TestSprintService_GetSprintReadiness_Factor3_TaskCount tests TC-013-03: BVA on entity count.
 func TestSprintService_GetSprintReadiness_Factor3_TaskCount(t *testing.T) {
 	ctx := context.Background()
