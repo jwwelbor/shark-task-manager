@@ -39,8 +39,8 @@ Both modes gate the sprint close operation on explicit user confirmation.
 /shark-rider run-sprint-team S###                         # Team topology alias
 ```
 
-See: `workflows/run-sprint.md` for the solo pull-loop workflow.
-See: `workflows/run-sprint-team.md` for the team execution workflow.
+**Read `workflows/run-sprint.md`** to get the solo pull-loop step-by-step procedure.
+**Read `workflows/run-sprint-team.md`** to get the team execution step-by-step procedure.
 
 ## Key Design Decisions
 

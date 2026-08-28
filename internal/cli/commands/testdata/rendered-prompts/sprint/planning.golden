@@ -7,10 +7,12 @@ Plan sprint E07-F01: "Sample feature for golden test".
 
 ## What This Is
 
-A **mode-aware sprint scoping harness**. It reads `shark sprint plan` once at the start, surfaces backlog entities grouped by feature and agent type, and walks through assignment confirmation — either item-by-item (interactive mode) or with a single greedy-fill proposal (auto mode). When done, it reports the readiness-score delta and suggests `/shark-rider run-sprint` as the next step. It does NOT call `shark sprint start`.
+A **mode-aware sprint scoping harness**. It reads the sprint's goal, cross-checks open tech-debt for landmines under that scope (a Rider-side relevance judgment — see Step 1.5, not a shark-computed field), reads `shark sprint plan` once, surfaces backlog entities grouped by feature and agent type, and walks through assignment confirmation — either item-by-item (interactive mode) or with a single greedy-fill proposal (auto mode). When done, it reports the readiness-score delta and suggests `/shark-rider run-sprint` as the next step. It does NOT call `shark sprint start`.
 
 ```
-shark sprint plan {S###} --json → surface backlog → confirm assignments → shark sprint readiness {S###} --json → report delta
+shark get {S###} --json → tech-debt landmine cross-check (Rider-side judgment, confirm) →
+shark sprint plan {S###} --json → surface backlog → confirm assignments →
+shark sprint readiness {S###} --json → report delta
 ```
 
 It does NOT decide which sprint strategy to use. It reads capacity and readiness from shark, proposes based on that data, and requires explicit user confirmation before any `shark sprint add` call.

@@ -22,7 +22,7 @@ Parse `$ARGUMENTS`:
 ## Step 1: Verify Sprint Is Closed
 
 ```bash
-/shark-rider query: get {S###} --json --field=status
+shark get {S###} --json --field=status
 ```
 
 Parse the returned value as `STATUS`.
@@ -82,7 +82,7 @@ Store the full JSON response as `VELOCITY`. Key fields to extract:
 For each entity key in `SUMMARY.carryover` and `SUMMARY.rejected` (deduplicated):
 
 ```bash
-/shark-rider query: notes {entity_key}
+shark notes {entity_key}
 ```
 
 Store results as `NOTES[entity_key]` — the raw notes output for that entity. If an entity has no notes, store an empty result (do not error).
@@ -104,6 +104,7 @@ Apply the five pattern-match rules below against the collected data. For each ru
 - **Recommendation**: `"Sprint included {N} entity/entities with size ≥ 8 (XL or larger). Consider splitting XL+ entities into smaller tasks before next sprint planning to reduce cycle-time variance."`
 
 **Rule 3 — High carryover rate** (signal: high if carryover > 30% of planned):
+- **Pre-condition guard**: if `SUMMARY.planned_count == 0`, skip Rule 3 entirely (no planned entities → carryover rate undefined).
 - **Condition**: `SUMMARY.carryover_count / SUMMARY.planned_count > 0.30`
 - **Recommendation**: `"Carryover rate was {carryover_pct:.0f}% ({SUMMARY.carryover_count} of {SUMMARY.planned_count} planned entities) — scope was too aggressive. Consider a capacity buffer of ~{buffer_pct:.0f}% in next sprint planning."`
   - Compute `carryover_pct = carryover_count / planned_count * 100`
@@ -269,7 +270,7 @@ Archive now? (yes/no)
 
 - **`shark sprint summary` returns error**: print the error and exit. Do not attempt to render a partial report.
 - **`shark sprint velocity` returns error or no data**: record `trailing_average = null`, set `variance_pct = null`, render the Velocity Context section with "Velocity history unavailable." Do not abort the full retro.
-- **The notes lookup returns an error for one entity**: record empty notes for that entity, continue with the rest. Log a notice: `Note: could not retrieve notes for {entity_key}.`
+- **`shark notes {entity_key}` returns error for one entity**: record empty notes for that entity, continue with the rest. Log a notice: `Note: could not retrieve notes for {entity_key}.`
 - **Sprint key not found** (`shark get` returns not-found): print `Sprint {S###} not found.` and exit.
 - **Fewer than 3 recommendation rules triggered**: generate additional observations from the highest-signal data available (see Step 3 Fallback). Never emit fewer than 3 recommendation items as long as any sprint data is available.
 
