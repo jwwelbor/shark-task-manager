@@ -2751,8 +2751,12 @@ func (s *SprintService) GetSprintReadiness(ctx context.Context, key string) (*Sp
 // that are referenced by this sprint's assignments but are NOT themselves
 // assigned to this sprint (e.g. a prerequisite completed in an earlier
 // sprint). It returns the set of such dependency keys (uppercased) whose
-// task status is terminal per workflow.Service — i.e. dependencies that
-// should count as satisfied even though they are not in the current sprint.
+// task status is terminal AND successful per workflow.Service — i.e.
+// dependencies that should count as satisfied even though they are not in
+// the current sprint. A status that is terminal but not successful (e.g.
+// "cancelled") is deliberately excluded: the workflow's ExcludeFromProgress
+// flag on the status metadata (not a hardcoded status name) is used to tell
+// abandoned terminal work apart from completed terminal work.
 //
 // A dependency key that cannot be resolved to an existing task (typo, or the
 // batch lookup itself failing) is simply absent from the returned map, which
@@ -2810,7 +2814,15 @@ func (s *SprintService) computeExternalDependencyTerminalStatus(
 
 	taskLevelWf := s.workflowSvc.ForLevel(workflow.LevelTask)
 	for depKey, task := range tasks {
-		if task != nil && taskLevelWf.IsTerminalStatus(string(task.Status)) {
+		if task == nil {
+			continue
+		}
+		status := string(task.Status)
+		// Only credit a dependency that is terminal AND successful. A status can be
+		// terminal without being a success (e.g. "cancelled" is terminal but abandoned
+		// work); such statuses are marked ExcludeFromProgress in the workflow config,
+		// so that flag — not a hardcoded status name — is the discriminator.
+		if taskLevelWf.IsTerminalStatus(status) && !taskLevelWf.GetStatusMetadata(status).ExcludeFromProgress {
 			extDepTerminal[strings.ToUpper(depKey)] = true
 		}
 	}
@@ -2915,7 +2927,7 @@ func computeDependencySatisfactionFactor(
 
 	var detail string
 	if unsatisfied == 0 {
-		detail = "All task dependencies are satisfied (assigned to this sprint)"
+		detail = "All task dependencies are satisfied (assigned to this sprint or already completed)"
 	} else {
 		detail = fmt.Sprintf("%d unsatisfied external task dependenc%s", unsatisfied,
 			pluralize(unsatisfied, "y", "ies"))
@@ -3124,8 +3136,11 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 	// Step 5: Compute CapacityRow slice in-memory.
 	capacity := buildCapacityRows(assignments, capacityModels)
 
-	// Step 6: Compute SprintReadiness in-memory (uses the same factor algorithms as GetSprintReadiness).
-	readiness := planComputeReadiness(assignments, capacityModels)
+	// Step 6: Compute SprintReadiness in-memory (uses the same factor algorithms as GetSprintReadiness),
+	// including the same external-dependency terminal-status enrichment (B058) so
+	// `shark sprint plan` and `shark sprint readiness` agree on Factor 2 for identical inputs.
+	extDepTerminal := s.computeExternalDependencyTerminalStatus(ctx, assignments)
+	readiness := computeReadinessFromData(assignments, capacityModels, extDepTerminal)
 
 	return &SprintPlanView{
 		Sprint:    sprintEntity,
@@ -3169,20 +3184,10 @@ func buildCapacityRows(assignments []sprint.AssignmentWithSize, capacityModels [
 	return rows
 }
 
-// planComputeReadiness computes SprintReadiness from in-memory assignment and capacity data.
-// Delegates to computeReadinessFromData so both paths produce identical output for
-// identical inputs (determinism guarantee).
-//
-// NOTE (B058 scope): the plan path does not batch-lookup external dependency
-// terminal status (no extDepTerminal enrichment), so it passes nil and
-// dependency satisfaction here still only considers current-sprint membership.
-// The bug fix is scoped to GetSprintReadiness; see docs/plan/bugs/B058.md.
-func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity) *SprintReadiness {
-	return computeReadinessFromData(assignments, capacities, nil)
-}
-
 // computeReadinessFromData is the shared in-memory computation kernel used by both
-// GetSprintReadiness (post-query) and planComputeReadiness (plan path).
+// GetSprintReadiness (post-query) and PlanSprint (plan path), which each compute their
+// own extDepTerminal via computeExternalDependencyTerminalStatus so the two commands
+// agree on Factor 2 for identical inputs (B058).
 //
 // It aggregates capacity/allocation totals, builds the dependency-check index,
 // collects unsized/oversized lists, and then calls each of the six factor helpers.

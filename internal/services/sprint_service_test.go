@@ -3855,7 +3855,8 @@ func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCompletedInH
 	f2 := result.Factors[1]
 	assert.Equal(t, 20, f2.Score,
 		"dependency completed in a historical sprint must be treated as satisfied, not penalized")
-	assert.Contains(t, f2.Detail, "satisfied")
+	assert.Equal(t, "All task dependencies are satisfied (assigned to this sprint or already completed)", f2.Detail,
+		"detail must not claim sprint assignment when satisfaction came from a terminal-elsewhere dependency")
 }
 
 // TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyNotTerminal_StillUnsatisfied
@@ -3888,6 +3889,40 @@ func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyNotTerminal_
 	f2 := result.Factors[1]
 	assert.Equal(t, 19, f2.Score,
 		"a non-terminal dependency outside the current sprint must still be unsatisfied")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCancelled_StillUnsatisfied
+// is the B058 code-review Blocker 1 regression test: a dependency that is terminal but
+// NOT successful (cancelled/abandoned) must NOT be credited as satisfied. IsTerminalStatus
+// alone is true for both "completed" and "cancelled" in this repo's embedded task workflow,
+// so crediting purely on terminal-ness wrongly satisfies a dependency on abandoned work.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCancelled_StillUnsatisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-006", "cancelled") // terminal but NOT successful
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-007", Size: sizePtrR(3), DependsOn: `["T-E58-F01-006"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 19, f2.Score,
+		"a cancelled (terminal-but-abandoned) external dependency must NOT count as satisfied")
 }
 
 // TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyDoesNotExist_StillUnsatisfied
@@ -4522,6 +4557,49 @@ func TestPlanSprint_NilAssignmentRepo(t *testing.T) {
 	assert.Len(t, result.Capacity, 0)
 	require.NotNil(t, result.Readiness, "readiness must be non-nil even with nil repos")
 	assert.Equal(t, 0, result.Readiness.OverallScore, "nil repos → no assignments → score=0")
+}
+
+// TestPlanSprint_Factor2_ExternalDependencyCompletedInHistoricalSprint_AgreesWithReadiness
+// is the B058 code-review Blocker 2 regression test: `shark sprint plan`'s readiness table
+// (PlanSprint) must apply the same external-dependency terminal-status
+// enrichment as `shark sprint readiness` (GetSprintReadiness). Before the fix, PlanSprint
+// passed nil for extDepTerminal, so the same B058 repro scenario scored differently across
+// the two commands.
+func TestPlanSprint_Factor2_ExternalDependencyCompletedInHistoricalSprint_AgreesWithReadiness(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-008", "completed") // terminal, NOT in current sprint
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-009", Size: sizePtrR(3), DependsOn: `["T-E58-F01-008"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	readiness, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+
+	planView, err := svc.PlanSprint(ctx, "S024")
+	require.NoError(t, err)
+	require.NotNil(t, planView.Readiness)
+
+	f2Readiness := readiness.Factors[1]
+	f2Plan := planView.Readiness.Factors[1]
+	assert.Equal(t, 20, f2Plan.Score,
+		"shark sprint plan must credit the historically-completed external dependency just like shark sprint readiness")
+	assert.Equal(t, f2Readiness.Score, f2Plan.Score,
+		"GetSprintReadiness and PlanSprint must agree on Factor 2 for identical inputs")
 }
 
 // ─── E19-F07-003: AddEntityToSprint with Position and BulkAddToSprint auto-number ───────────
