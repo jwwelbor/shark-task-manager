@@ -107,6 +107,7 @@ tests=(
 	"$SCRIPT_DIR/tc093_digest_authority_test.sh"
 	"$SCRIPT_DIR/tc094_e40_benchmark_operator_test.sh"
 	"$SCRIPT_DIR/tc095_lifecycle_verify_identity_digest_test.sh"
+	"$SCRIPT_DIR/tc096_admit_run_selector_expected_filter_test.sh"
 )
 
 status=0

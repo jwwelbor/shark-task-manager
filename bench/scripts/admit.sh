@@ -381,6 +381,51 @@ def go_list_packages(checkout_dir, packages):
     return result
 
 
+def run_selector_top_level_pattern(run_selector):
+    """Extracts the element of a `-run` pattern that Go matches against a
+    top-level test's own name -- the part before the first unescaped "/"
+    (see -run's documented per-"/"-element matching, also relied on by
+    anchored_alternation above). `expected` only ever holds bare top-level
+    names (testenum never enumerates subtests), so this is the only part
+    of run_selector relevant to filtering it: a selector targeting a
+    specific subtest (e.g. "TestFoo/bar") still requires TestFoo itself to
+    match its own element for that subtest to run at all, and Go still
+    forwards a terminal event for the top-level test regardless of which
+    of its subtests matched. Returns None if run_selector is falsy."""
+    if not run_selector:
+        return None
+    return run_selector.split("/", 1)[0]
+
+
+def filter_expected_by_run_selector(expected, run_selector):
+    """Filters an `expected` set of bare top-level test names down to only
+    those a non-empty `run_selector` would actually select, so `expected`
+    stays in sync with what run_go_tests()'s own `-run run_selector` just
+    executed (B053: previously `expected` ignored run_selector entirely,
+    so every test the selector legitimately excluded was reported as a
+    spurious missing terminal event).
+
+    Deliberately does NOT shell out to `go test -list` for this: this
+    file's header established that `-list` executes TestMain and is
+    therefore exactly as forgeable as every other signal this file
+    refuses to trust (see "Evidence-forgeability property" above). Plain
+    regex matching against testenum's own non-executing enumeration keeps
+    the same non-forgeable trust model -- run_selector is matched with
+    Python's re against each bare name, mirroring Go's own per-"/"-element
+    -run matching (see run_selector_top_level_pattern)."""
+    if not run_selector:
+        return expected
+    top_level_pattern = run_selector_top_level_pattern(run_selector)
+    try:
+        pattern = re.compile(top_level_pattern)
+    except re.error as exc:
+        raise RuntimeError(
+            f"p2p_set run_selector {run_selector!r} is not a usable regexp "
+            f"(top-level element {top_level_pattern!r}): {exc}"
+        )
+    return {name for name in expected if pattern.search(name)}
+
+
 def enumerate_tests(pkg_dir):
     """Independent, non-executing enumeration of a package directory's
     top-level Go test function names via testenum (see
@@ -406,9 +451,12 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
 
     For each package, "clean" requires ALL three of:
       1. every testenum-enumerated test not in this package's own skip
-         set has a per-test terminal event (no missing evidence -- this
-         alone catches a TestMain that never calls m.Run(), so nothing
-         it "does" can hide a package that produced zero results);
+         set, and selected by run_selector when one is given (B053: see
+         filter_expected_by_run_selector -- a test the selector itself
+         excluded is never expected to produce a terminal event), has a
+         per-test terminal event (no missing evidence -- this alone
+         catches a TestMain that never calls m.Run(), so nothing it
+         "does" can hide a package that produced zero results);
       2. none of the OBSERVED per-test terminal events for this package
          is "fail" (code review round 6, finding 6b: this scans every
          entry `results` actually holds for this package, not just
@@ -448,7 +496,9 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
         results, _problem_pkgs, returncode = run_go_tests(
             checkout_dir, [import_path], run_pattern=run_selector, skip_pattern=skip_pattern
         )
-        expected = enumerate_tests(pkg_dir) - pkg_skip_names
+        expected = filter_expected_by_run_selector(
+            enumerate_tests(pkg_dir) - pkg_skip_names, run_selector
+        )
         observed = {
             bare_test_name(identity)
             for identity in results
