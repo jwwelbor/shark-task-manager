@@ -381,17 +381,66 @@ def go_list_packages(checkout_dir, packages):
     return result
 
 
+_UNSAFE_RUN_SELECTOR_CHARS = frozenset("|[(\\")
+
+
+def validate_run_selector_grammar(run_selector):
+    """Rejects a `run_selector` unless it stays inside a conservative
+    grammar: no `|` (top-level alternation), `[` (character class), `(`
+    (group), or `\\` (escape) -- anchors (`^`/`$`), wildcards (`.`/`*`),
+    and `/` (subtest separator) are all still allowed.
+
+    Why the restriction: Go's real `-run` semantics (testing.splitRegexp)
+    split a selector on top-level `|` INTO AN ALTERNATION FIRST, then split
+    EACH ALTERNATIVE on `/` independently. A naive `split("/", 1)[0]` (used
+    by run_selector_top_level_pattern below) does not replicate that --
+    e.g. "^TestA$/^NoSuchSub$|^TestZ$" makes real `go test -run` select
+    and run BOTH TestA and TestZ, but a naive split yields only {TestA},
+    silently dropping TestZ from `expected` (B053 round 2: reimplementing
+    Go's full alternation-then-split algorithm in Python was considered
+    and rejected as unnecessary complexity for a bounded fix). Within this
+    restricted grammar there is no `|` to worry about splitting
+    independently, and no `[`/`(`/`\\` to confuse a naive split, so
+    `split("/", 1)[0]` is provably correct for every selector this
+    function accepts.
+
+    Incidentally also closes two related findings: RE2 (Go) and Python's
+    `re` disagree on POSIX character classes like `[[:alpha:]]` (banning
+    `[` closes this), and Python's backtracking `re` engine is vulnerable
+    to catastrophic backtracking (ReDoS) on constructs RE2's linear-time
+    matching accepts safely (banning `\\` and `(` is defense-in-depth here
+    -- RE2 itself can't express the nested-quantifier/backreference
+    patterns that cause ReDoS, but Python's `re` can).
+
+    Raises RuntimeError if run_selector uses any of these constructs, so a
+    filter result that can't be trusted is never silently produced."""
+    bad = sorted(_UNSAFE_RUN_SELECTOR_CHARS.intersection(run_selector))
+    if bad:
+        raise RuntimeError(
+            f"p2p_set run_selector {run_selector!r} uses unsupported regexp "
+            f"syntax {bad!r} -- admit.sh's run_selector filtering only "
+            "supports a restricted grammar (no |, [, (, or \\) because "
+            "naive per-\"/\"-element splitting cannot safely replicate "
+            "Go's full -run alternation semantics for those constructs"
+        )
+
+
 def run_selector_top_level_pattern(run_selector):
     """Extracts the element of a `-run` pattern that Go matches against a
-    top-level test's own name -- the part before the first unescaped "/"
-    (see -run's documented per-"/"-element matching, also relied on by
+    top-level test's own name -- the part before the first "/" (see -run's
+    documented per-"/"-element matching, also relied on by
     anchored_alternation above). `expected` only ever holds bare top-level
     names (testenum never enumerates subtests), so this is the only part
     of run_selector relevant to filtering it: a selector targeting a
     specific subtest (e.g. "TestFoo/bar") still requires TestFoo itself to
     match its own element for that subtest to run at all, and Go still
     forwards a terminal event for the top-level test regardless of which
-    of its subtests matched. Returns None if run_selector is falsy."""
+    of its subtests matched. Returns None if run_selector is falsy.
+
+    Callers MUST run run_selector through validate_run_selector_grammar()
+    first -- outside that restricted grammar, a plain split("/", 1)[0]
+    does not correctly replicate Go's real -run semantics (see that
+    function's docstring)."""
     if not run_selector:
         return None
     return run_selector.split("/", 1)[0]
@@ -410,11 +459,17 @@ def filter_expected_by_run_selector(expected, run_selector):
     therefore exactly as forgeable as every other signal this file
     refuses to trust (see "Evidence-forgeability property" above). Plain
     regex matching against testenum's own non-executing enumeration keeps
-    the same non-forgeable trust model -- run_selector is matched with
-    Python's re against each bare name, mirroring Go's own per-"/"-element
-    -run matching (see run_selector_top_level_pattern)."""
+    the same non-forgeable trust model.
+
+    run_selector is first validated against a restricted grammar (see
+    validate_run_selector_grammar) and, within that grammar, matched with
+    Python's re against each bare name using only the top-level (pre-"/")
+    element (see run_selector_top_level_pattern) -- NOT a full replication
+    of Go's per-"/"-element alternation matching, which the restricted
+    grammar makes unnecessary (B053 round 2)."""
     if not run_selector:
         return expected
+    validate_run_selector_grammar(run_selector)
     top_level_pattern = run_selector_top_level_pattern(run_selector)
     try:
         pattern = re.compile(top_level_pattern)
