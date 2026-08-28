@@ -6638,3 +6638,147 @@ func TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus(t
 		assert.Equal(t, config.ActionSpawnAgent, activeTransition.OrchestratorAction.Action)
 	})
 }
+
+// ---------------------------------------------------------------------------
+// B044: GetNextTask must not hand out an actively-claimed backlog item.
+// ---------------------------------------------------------------------------
+//
+// sprintClaimReaderStub is a keyed claim stub mirroring
+// keyedStandalonePlanClaimStub in standalone_planning_service_test.go — the
+// established pattern for SprintClaimReader-shaped dependencies in this
+// package. Per .claude/rules/testing/architecture.md and
+// .claude/rules/services/testing.md, service-layer tests use mocked
+// dependencies, never a real database; StandalonePlanningService's own claim
+// tests follow the same rule despite sitting next to real ClaimService
+// integration tests elsewhere in the package.
+type sprintClaimReaderStub struct {
+	claimed map[string]bool // keyed by "entityType|entityKey"
+}
+
+func (s sprintClaimReaderStub) IsClaimable(_ context.Context, entityType, entityKey string) (bool, error) {
+	return !s.claimed[entityType+"|"+entityKey], nil
+}
+
+// B044 — Caller-Path Contract:
+//   - Entrypoint: SprintService.GetNextTask(ctx, "") after SetClaimReader
+//     wires a SprintClaimReader (production wiring in
+//     internal/cli/services_global.go's GetSprintService passes the real
+//     *ClaimService, which satisfies this same narrow interface).
+//   - Reproduces the race: "task-A" (sprint_order=1, would normally win) is
+//     actively claimed by another agent; GetNextTask must skip it and return
+//     "task-B" instead.
+//   - Counter-factual: the pre-fix GetNextTask ignores claim state entirely,
+//     so it would return "task-A" despite the live claim — this test fails
+//     against that code for the right reason (wrong Key returned).
+func TestGetNextTask_B044_SkipsActivelyClaimedCandidate(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	order1 := 1
+	order2 := 2
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "task",
+			Key:         "task-A", // sprint_order=1 → would win the sort, but is claimed
+			Title:       "Task A",
+			Status:      "todo",
+			SprintOrder: &order1,
+			AssignedAt:  time.Now().Add(-1 * time.Hour),
+		},
+		{
+			EntityType:  "task",
+			Key:         "task-B", // sprint_order=2 → next in line, unclaimed
+			Title:       "Task B",
+			Status:      "todo",
+			SprintOrder: &order2,
+			AssignedAt:  time.Now().Add(-2 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	svc.SetClaimReader(sprintClaimReaderStub{claimed: map[string]bool{"task|task-A": true}})
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result, "an unclaimed candidate must still be returned")
+	assert.Equal(t, "task-B", result.Key, "the actively-claimed task-A must be skipped in favor of the next unclaimed candidate")
+}
+
+// TestGetNextTask_B044_ChangeCardEntityTypeNormalizedForClaimLookup guards
+// against a specific defect class: the sprint backlog UNION emits
+// EntityType="change_card" (see internal/repository/sprint/repository.go),
+// but claims for change-cards are recorded under entity_type="change" (see
+// models.EntityTypeChange / DetectEntityType in
+// internal/cli/commands/helpers.go). If GetNextTask passed the backlog
+// spelling straight to IsClaimable, every actively-claimed change-card would
+// silently look unclaimed (IsClaimable finds no row under "change_card" and
+// returns true) and the fix would only work for tasks.
+func TestGetNextTask_B044_ChangeCardEntityTypeNormalizedForClaimLookup(t *testing.T) {
+	ctx := context.Background()
+
+	activeSprint := makeActiveSprint(10, "S001")
+	order1 := 1
+	order2 := 2
+
+	backlogItems := []*sprint.BacklogItem{
+		{
+			EntityType:  "change_card",
+			Key:         "CC-001", // sprint_order=1 → would win the sort, but is claimed
+			Title:       "Change A",
+			Status:      "todo",
+			SprintOrder: &order1,
+			AssignedAt:  time.Now().Add(-1 * time.Hour),
+		},
+		{
+			EntityType:  "change_card",
+			Key:         "CC-002", // sprint_order=2 → next in line, unclaimed
+			Title:       "Change B",
+			Status:      "todo",
+			SprintOrder: &order2,
+			AssignedAt:  time.Now().Add(-2 * time.Hour),
+		},
+	}
+
+	mockRepo := &MockSprintRepository{
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{activeSprint}, nil
+		},
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListBacklogFunc: func(_ context.Context, _ int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+	}
+
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	// Claim is recorded under the claims-table spelling "change", not the
+	// backlog spelling "change_card" — mirrors production claim storage.
+	svc.SetClaimReader(sprintClaimReaderStub{claimed: map[string]bool{"change|CC-001": true}})
+
+	result, err := svc.GetNextTask(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result, "an unclaimed candidate must still be returned")
+	assert.Equal(t, "CC-002", result.Key, "the actively-claimed CC-001 must be skipped even though its backlog entity_type spelling differs from the claims-table spelling")
+}
+
+// No separate nil-claimReader regression test is added here: every
+// pre-existing GetNextTask test above (e.g. TestGetNextTask_TC001_...)
+// already constructs SprintService without calling SetClaimReader and
+// asserts normal selection, which is exactly the backward-compat path B044
+// must preserve.
