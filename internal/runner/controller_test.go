@@ -1454,7 +1454,10 @@ func TestRunController_SpawnAgentUsesJSONRecommendedOutcome(t *testing.T) {
 // the shark-rider worker-return contract fell through to the pass-first
 // target, silently advancing past a blocked/failed gate.
 func TestRecommendedOutcome_JSONBody(t *testing.T) {
-	outcome, specified := recommendedOutcome(`{"outcome": "blocked"}`)
+	outcome, specified, err := recommendedOutcome(`{"outcome": "blocked"}`)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
 	if !specified {
 		t.Fatal("recommendedOutcome() specified = false, want true for JSON body")
 	}
@@ -1467,7 +1470,10 @@ func TestRecommendedOutcome_JSONBody(t *testing.T) {
 // match tolerates surrounding whitespace/newlines, matching how real process
 // output is captured.
 func TestRecommendedOutcome_JSONBodyWithWhitespace(t *testing.T) {
-	outcome, specified := recommendedOutcome("\n  {\"outcome\": \"simple\"}  \n")
+	outcome, specified, err := recommendedOutcome("\n  {\"outcome\": \"simple\"}  \n")
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
 	if !specified {
 		t.Fatal("recommendedOutcome() specified = false, want true for whitespace-padded JSON body")
 	}
@@ -1481,7 +1487,10 @@ func TestRecommendedOutcome_JSONBodyWithWhitespace(t *testing.T) {
 // are technically present is not a concern here — this asserts the common,
 // pre-existing case is unaffected by the new JSON path.
 func TestRecommendedOutcome_TextLineStillWorks(t *testing.T) {
-	outcome, specified := recommendedOutcome("Did the work.\nRECOMMENDED OUTCOME: pass")
+	outcome, specified, err := recommendedOutcome("Did the work.\nRECOMMENDED OUTCOME: pass")
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
 	if !specified {
 		t.Fatal("recommendedOutcome() specified = false, want true for text-line format")
 	}
@@ -1497,9 +1506,53 @@ func TestRecommendedOutcome_TextLineStillWorks(t *testing.T) {
 // safeguard against prose merely mentioning "RECOMMENDED OUTCOME".
 func TestRecommendedOutcome_ProseMentioningJSONIsIgnored(t *testing.T) {
 	stdout := `I considered returning {"outcome": "blocked"} but decided to keep going.`
-	outcome, specified := recommendedOutcome(stdout)
+	outcome, specified, err := recommendedOutcome(stdout)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
 	if specified {
 		t.Fatalf("recommendedOutcome() specified = true, outcome = %q, want false (embedded JSON in prose must not trigger routing)", outcome)
+	}
+}
+
+// TestRecommendedOutcome_MalformedJSONFailsLoud verifies that stdout shaped
+// like a JSON outcome object but malformed (unterminated / invalid JSON)
+// surfaces a parse error instead of silently falling through to the
+// pass-first target. B046 was filed to stop exactly this failure class
+// (silent advance past a gate); recommendedOutcome must fail loud here to
+// match parseQuestionResponseHandoff's behavior on invalid JSON.
+func TestRecommendedOutcome_MalformedJSONFailsLoud(t *testing.T) {
+	outcome, specified, err := recommendedOutcome(`{"outcome": "blocked"`)
+	if err == nil {
+		t.Fatalf("recommendedOutcome() error = nil, want error for malformed JSON; got outcome=%q specified=%v", outcome, specified)
+	}
+}
+
+// TestRecommendedOutcome_WrongTypedOutcomeFieldFailsLoud verifies a
+// wrong-typed `outcome` field (e.g. a number instead of a string) surfaces a
+// parse error rather than silently falling through to pass-first.
+func TestRecommendedOutcome_WrongTypedOutcomeFieldFailsLoud(t *testing.T) {
+	outcome, specified, err := recommendedOutcome(`{"outcome": 5}`)
+	if err == nil {
+		t.Fatalf("recommendedOutcome() error = nil, want error for wrong-typed outcome field; got outcome=%q specified=%v", outcome, specified)
+	}
+}
+
+// TestRecommendedOutcome_JSONEmptyOutcomeIsSpecified verifies JSON
+// `{"outcome":""}` is reported as specified (not silently dropped to
+// pass-first), aligning empty-outcome semantics with the text-line format —
+// both now defer to the unknown-outcome hard error in
+// targetStatusForDispatch rather than diverging.
+func TestRecommendedOutcome_JSONEmptyOutcomeIsSpecified(t *testing.T) {
+	outcome, specified, err := recommendedOutcome(`{"outcome": ""}`)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if !specified {
+		t.Fatal("recommendedOutcome() specified = false, want true for empty JSON outcome (must not silently fall back to pass-first)")
+	}
+	if outcome != "" {
+		t.Fatalf("recommendedOutcome() outcome = %q, want empty string", outcome)
 	}
 }
 
