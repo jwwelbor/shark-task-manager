@@ -275,7 +275,8 @@ type ObservabilityConfig struct {
 	SampleRate   float64 `json:"sample_rate,omitempty"`
 
 	// CaptureAgentTranscripts controls whether full agent stdout/stderr is written
-	// to per-dispatch transcript files under .shark/runs/{run_id}/. Default: false.
+	// to per-dispatch transcript files under .shark/runs/{run_id}/{entity_key}/.
+	// Default: false.
 	CaptureAgentTranscripts bool `json:"capture_agent_transcripts,omitempty"`
 
 	// LogTruncateBytes is the maximum number of bytes to include from agent stderr
