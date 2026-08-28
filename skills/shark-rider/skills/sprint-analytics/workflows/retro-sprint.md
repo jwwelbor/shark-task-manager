@@ -79,18 +79,20 @@ Store the full JSON response as `VELOCITY`. Key fields to extract:
 
 ### 2c. Carryover and Rejection Notes
 
-For each entity key in `SUMMARY.carryover` and `SUMMARY.rejected` (deduplicated), determine the
-entity type from the key's format, then call the matching notes command:
+For each entity in `SUMMARY.carryover` and `SUMMARY.rejected` (deduplicated by entity key), use the
+entity's own `entity_type` field — never infer the type by pattern-matching the key against a key
+format, since carryover/rejected entity keys are not guaranteed to look like `E##-F##-###`,
+`B###`, `CC-###`, or `TD-###` — then call the matching notes command:
 
-| Key format | Entity type | Command |
-|---|---|---|
-| `E##-F##-###` or `T-E##-F##-###` | task | `shark task notes {entity_key}` |
-| `B###` | bug | `shark bug notes {entity_key}` |
-| `CC-###` | change-card | `shark change notes {entity_key}` |
-| `TD-###` | tech-debt | `shark td notes {entity_key}` |
+| `entity_type` value | Command |
+|---|---|
+| `task` | `shark task notes {entity_key}` |
+| `bug` | `shark bug notes {entity_key}` |
+| `change_card` | `shark change notes {entity_key}` |
+| `tech_debt` | `shark td notes {entity_key}` |
 
-If a key matches none of the above formats, record empty notes for that entity and log a notice
-(same handling as a notes-command error — see Error Handling below).
+If `entity_type` is missing or does not match one of the values above, record empty notes for that
+entity and log a notice (same handling as a notes-command error — see Error Handling below).
 
 Store results as `NOTES[entity_key]` — the raw notes output for that entity. If an entity has no notes, store an empty result (do not error).
 
