@@ -879,7 +879,10 @@ func targetStatusForDispatch(nextInfo *services.NextStatusInfo, stdout string) (
 	if len(nextInfo.AvailableTransitions) == 0 {
 		return "", fmt.Errorf("no transition is available")
 	}
-	outcome, specified := recommendedOutcome(stdout)
+	outcome, specified, err := recommendedOutcome(stdout)
+	if err != nil {
+		return "", err
+	}
 	if !specified {
 		return nextInfo.AvailableTransitions[0].TargetStatus, nil //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 	}
@@ -913,15 +916,45 @@ func guardedTransitionOptions(runOpts RunOptions, fromStatus, targetStatus strin
 // recommendedOutcome extracts the explicit final worker recommendation. It
 // intentionally accepts only a whole trimmed line so prose mentioning the
 // phrase cannot alter the workflow route.
-func recommendedOutcome(stdout string) (string, bool) {
+//
+// It also accepts the shark-rider worker-return contract's JSON alternative,
+// `{"outcome": "<key>"}` — but only when the ENTIRE trimmed stdout is that
+// JSON object. This preserves the same safety property as the text-line
+// format: outcome-shaped JSON merely mentioned within a longer message (e.g.
+// prose describing what the worker considered returning) must not alter the
+// workflow route.
+//
+// A non-nil error means the worker's stdout was recognized as an attempted
+// JSON outcome object (it starts with `{`) but failed to parse, or the
+// `outcome` field was the wrong type. B046 was filed because a malformed
+// outcome silently fell through to the pass-first target instead of
+// surfacing a parse error; this mirrors parseQuestionResponseHandoff's
+// fail-loud behavior on invalid JSON rather than repeating that mistake.
+func recommendedOutcome(stdout string) (string, bool, error) {
 	const prefix = "recommended outcome:"
 	for _, line := range strings.Split(stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if len(line) >= len(prefix) && strings.EqualFold(line[:len(prefix)], prefix) {
-			return strings.TrimSpace(line[len(prefix):]), true
+			return strings.TrimSpace(line[len(prefix):]), true, nil
 		}
 	}
-	return "", false
+
+	trimmed := strings.TrimSpace(stdout)
+	if strings.HasPrefix(trimmed, "{") {
+		var body struct {
+			Outcome string `json:"outcome"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &body); err != nil {
+			return "", false, fmt.Errorf("invalid JSON outcome in worker stdout: %w", err)
+		}
+		// Report as specified even when empty, matching the text-line
+		// format: an empty/unrecognized outcome fails loud downstream in
+		// targetStatusForDispatch's outcome lookup rather than silently
+		// falling back to the pass-first transition.
+		return strings.TrimSpace(body.Outcome), true, nil
+	}
+
+	return "", false, nil
 }
 
 func (c *RunController) dryRunNextOutcome(

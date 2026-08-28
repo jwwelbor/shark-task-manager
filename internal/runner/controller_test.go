@@ -1532,6 +1532,217 @@ func TestRunController_CheckOrResumeDispatchesAndTransitions(t *testing.T) {
 	}
 }
 
+// TestRunController_SpawnAgentUsesJSONRecommendedOutcome verifies the full
+// dispatch loop routes to the workflow's "blocked" target when a worker's
+// stdout is pure JSON (`{"outcome": "blocked"}`) with ExitCode 0 and no
+// "RECOMMENDED OUTCOME:" text line. B046: this input shape previously fell
+// through recommendedOutcome() to the pass-first target, reproducing the
+// original bug (advancing past a blocked gate) for JSON-only worker output.
+func TestRunController_SpawnAgentUsesJSONRecommendedOutcome(t *testing.T) {
+	getNextCalls := 0
+	var transitionedTo string
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			getNextCalls++
+			if getNextCalls > 2 {
+				return &services.NextStatusInfo{CurrentStatus: "on_hold", IsTerminal: true}, nil
+			}
+			return &services.NextStatusInfo{
+				CurrentStatus: "in_progress",
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "on_hold"}},
+				},
+				Outcomes: map[string]string{"pass": "completed", "blocked": "on_hold"},
+			}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			transitionedTo = target
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "work"}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+			return &DispatchResult{ExitCode: 0, Stdout: `{"outcome": "blocked"}`}, nil
+		}},
+	}
+
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	_, err := ctrl.Run(context.Background(), "E07-F01-001", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if transitionedTo != "on_hold" {
+		t.Fatalf("TransitionStatus() target = %q, want on_hold (blocked outcome), pass-first would incorrectly give completed", transitionedTo)
+	}
+}
+
+// TestRunController_SpawnAgentMalformedJSONOutcomeFailsRunWithoutTransition
+// verifies the full dispatch loop end-to-end for the fail-loud fix: when a
+// worker's stdout looks like a JSON outcome object but fails to parse,
+// TransitionStatus must never be called and the run must report a failed
+// outcome, instead of silently advancing via the pass-first target. This
+// pins down the actual guarantee B046 exists to provide, complementing the
+// unit-level TestRecommendedOutcome_MalformedJSONFailsLoud coverage of
+// recommendedOutcome() in isolation.
+func TestRunController_SpawnAgentMalformedJSONOutcomeFailsRunWithoutTransition(t *testing.T) {
+	transitionCalled := false
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "in_progress",
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "on_hold"}},
+				},
+				Outcomes: map[string]string{"pass": "completed", "blocked": "on_hold"},
+			}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			transitionCalled = true
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "work"}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+			// Malformed JSON: looks like an outcome object but is truncated.
+			return &DispatchResult{ExitCode: 0, Stdout: `{"outcome": "blocked"`}, nil
+		}},
+	}
+
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	result, err := ctrl.Run(context.Background(), "E07-F01-001", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil (stage failures are reported via RunResult, not a Go error)", err)
+	}
+	if transitionCalled {
+		t.Fatal("TransitionStatus() was called, want it never called — malformed JSON outcome must not silently advance the entity")
+	}
+	if result.Outcome != "failed" {
+		t.Fatalf("RunResult.Outcome = %q, want %q", result.Outcome, "failed")
+	}
+	if result.Error == "" {
+		t.Fatal("RunResult.Error is empty, want a parse-error message explaining the malformed JSON outcome")
+	}
+}
+
+// TestRecommendedOutcome_JSONBody verifies a worker that returns a pure JSON
+// object like {"outcome": "blocked"} (no "RECOMMENDED OUTCOME:" text line) is
+// still recognized. B046: without this, workers using the JSON-only shape of
+// the shark-rider worker-return contract fell through to the pass-first
+// target, silently advancing past a blocked/failed gate.
+func TestRecommendedOutcome_JSONBody(t *testing.T) {
+	outcome, specified, err := recommendedOutcome(`{"outcome": "blocked"}`)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if !specified {
+		t.Fatal("recommendedOutcome() specified = false, want true for JSON body")
+	}
+	if outcome != "blocked" {
+		t.Fatalf("recommendedOutcome() outcome = %q, want %q", outcome, "blocked")
+	}
+}
+
+// TestRecommendedOutcome_JSONBodyWithWhitespace verifies the whole-stdout JSON
+// match tolerates surrounding whitespace/newlines, matching how real process
+// output is captured.
+func TestRecommendedOutcome_JSONBodyWithWhitespace(t *testing.T) {
+	outcome, specified, err := recommendedOutcome("\n  {\"outcome\": \"simple\"}  \n")
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if !specified {
+		t.Fatal("recommendedOutcome() specified = false, want true for whitespace-padded JSON body")
+	}
+	if outcome != "simple" {
+		t.Fatalf("recommendedOutcome() outcome = %q, want %q", outcome, "simple")
+	}
+}
+
+// TestRecommendedOutcome_TextLineStillWorks verifies the existing
+// "RECOMMENDED OUTCOME:" text-line format keeps working unchanged — this
+// asserts the common, pre-existing case is unaffected by the new JSON path.
+func TestRecommendedOutcome_TextLineStillWorks(t *testing.T) {
+	outcome, specified, err := recommendedOutcome("Did the work.\nRECOMMENDED OUTCOME: pass")
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if !specified {
+		t.Fatal("recommendedOutcome() specified = false, want true for text-line format")
+	}
+	if outcome != "pass" {
+		t.Fatalf("recommendedOutcome() outcome = %q, want %q", outcome, "pass")
+	}
+}
+
+// TestRecommendedOutcome_ProseMentioningJSONIsIgnored verifies the safety
+// property carried over from the text-line format: outcome-shaped JSON that
+// appears embedded in a longer message (not as the SOLE stdout content) must
+// not be misparsed as an explicit outcome. This mirrors the existing
+// safeguard against prose merely mentioning "RECOMMENDED OUTCOME".
+func TestRecommendedOutcome_ProseMentioningJSONIsIgnored(t *testing.T) {
+	stdout := `I considered returning {"outcome": "blocked"} but decided to keep going.`
+	outcome, specified, err := recommendedOutcome(stdout)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if specified {
+		t.Fatalf("recommendedOutcome() specified = true, outcome = %q, want false (embedded JSON in prose must not trigger routing)", outcome)
+	}
+}
+
+// TestRecommendedOutcome_MalformedJSONFailsLoud verifies that stdout shaped
+// like a JSON outcome object but malformed (unterminated / invalid JSON)
+// surfaces a parse error instead of silently falling through to the
+// pass-first target. B046 was filed to stop exactly this failure class
+// (silent advance past a gate); recommendedOutcome must fail loud here to
+// match parseQuestionResponseHandoff's behavior on invalid JSON.
+func TestRecommendedOutcome_MalformedJSONFailsLoud(t *testing.T) {
+	outcome, specified, err := recommendedOutcome(`{"outcome": "blocked"`)
+	if err == nil {
+		t.Fatalf("recommendedOutcome() error = nil, want error for malformed JSON; got outcome=%q specified=%v", outcome, specified)
+	}
+}
+
+// TestRecommendedOutcome_WrongTypedOutcomeFieldFailsLoud verifies a
+// wrong-typed `outcome` field (e.g. a number instead of a string) surfaces a
+// parse error rather than silently falling through to pass-first.
+func TestRecommendedOutcome_WrongTypedOutcomeFieldFailsLoud(t *testing.T) {
+	outcome, specified, err := recommendedOutcome(`{"outcome": 5}`)
+	if err == nil {
+		t.Fatalf("recommendedOutcome() error = nil, want error for wrong-typed outcome field; got outcome=%q specified=%v", outcome, specified)
+	}
+}
+
+// TestRecommendedOutcome_JSONEmptyOutcomeIsSpecified verifies JSON
+// `{"outcome":""}` is reported as specified (not silently dropped to
+// pass-first), aligning empty-outcome semantics with the text-line format —
+// both now defer to the unknown-outcome hard error in
+// targetStatusForDispatch rather than diverging.
+func TestRecommendedOutcome_JSONEmptyOutcomeIsSpecified(t *testing.T) {
+	outcome, specified, err := recommendedOutcome(`{"outcome": ""}`)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if !specified {
+		t.Fatal("recommendedOutcome() specified = false, want true for empty JSON outcome (must not silently fall back to pass-first)")
+	}
+	if outcome != "" {
+		t.Fatalf("recommendedOutcome() outcome = %q, want empty string", outcome)
+	}
+}
+
 // TestRunController_SpawnAgentDispatchesAssembledPrompt verifies the run loop
 // does not dispatch PopulatedAction.Instruction directly when a prompt
 // assembler is configured. The CLI injects the same final assembly helper used
