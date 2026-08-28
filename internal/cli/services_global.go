@@ -740,6 +740,9 @@ func GetSprintService() *services.SprintService {
 	// B059: wire generic status-transition dispatch so sprints support
 	// `shark next`/`shark status set|advance` like other entity types.
 	svc.EnableWorkflowDispatch(GetEntityService(), services.NewSprintRepositoryAdapter(sprintRepo))
+	// B044: wire claim-awareness so GetNextTask never hands out an
+	// actively-claimed backlog item.
+	svc.SetClaimReader(GetClaimService())
 	return svc
 }
 

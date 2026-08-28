@@ -106,6 +106,14 @@ type SprintCapacityRepository interface {
 	SetCapacity(ctx context.Context, c *models.SprintCapacity) error
 }
 
+// SprintClaimReader supplies non-mutating claimability checks used by
+// GetNextTask to exclude actively-claimed backlog items from selection
+// (B044). Mirrors the StandalonePlanClaimReader seam: read-only, cannot
+// claim, release, or heartbeat.
+type SprintClaimReader interface {
+	IsClaimable(ctx context.Context, entityType, entityKey string) (bool, error)
+}
+
 // CreateSprintInput contains parameters for creating a new sprint.
 type CreateSprintInput struct {
 	Name      string    // Required, non-empty
@@ -137,6 +145,7 @@ type SprintService struct {
 	db             *repository.DB                  // optional: nil-safe; required for CloseSprintWithCarryover
 	entitySvc      *EntityService                  // optional: nil-safe; wired via EnableWorkflowDispatch, required for TransitionStatus/GetNextStatus (B059)
 	entityRepo     EntityRepository                // optional: nil-safe; wired via EnableWorkflowDispatch
+	claimReader    SprintClaimReader               // optional: nil-safe; wired via SetClaimReader, used by GetNextTask (B044)
 }
 
 // NewSprintService creates a SprintService with dependency injection.
@@ -184,6 +193,13 @@ func (s *SprintService) EnableWorkflowDispatch(entitySvc *EntityService, entityR
 	}
 	s.entitySvc = entitySvc.ForLevel(workflow.LevelSprint)
 	s.entityRepo = entityRepo
+}
+
+// SetClaimReader wires the optional claim-awareness dependency used by
+// GetNextTask to skip actively-claimed backlog items (B044). A nil reader
+// (the default when unset) preserves prior behavior — no claim filtering.
+func (s *SprintService) SetClaimReader(reader SprintClaimReader) {
+	s.claimReader = reader
 }
 
 // TransitionStatus transitions a sprint to a specific status with workflow
@@ -684,6 +700,21 @@ type CapacityWarning struct {
 // the two representations. Tech-debt keys (TD-###) are not handled by
 // keys.KeyService.Parse — IsTechDebtKey is used as a fallback.
 // ---------------------------------------------------------------------------
+
+// claimEntityTypeForBacklogType translates a sprint backlog entity_type
+// string (as emitted by the sprint_assignments UNION: "task", "bug",
+// "change_card", "tech_debt") into the entity_type spelling used by the
+// claims table / models.EntityType (e.g. "change", not "change_card" — see
+// models.EntityTypeChange and DetectEntityType in cli/commands/helpers.go).
+// Without this translation, IsClaimable would look up change-card claims
+// under a type string no claim was ever recorded with, silently treating
+// every actively-claimed change-card as claimable (B044).
+func claimEntityTypeForBacklogType(backlogEntityType string) string {
+	if backlogEntityType == "change_card" {
+		return "change"
+	}
+	return backlogEntityType
+}
 
 func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKey string) (entityType string, entityID int64, err error) {
 	keySvc := keys.NewKeyService()
@@ -1633,6 +1664,28 @@ func (s *SprintService) GetNextTask(ctx context.Context, agentType string) (*Bac
 				candidates = append(candidates, item)
 			}
 		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	// 3b. Exclude actively-claimed candidates (B044). A nil claimReader
+	// preserves prior behavior — no claim filtering, for callers/tests that
+	// don't wire one.
+	if s.claimReader != nil {
+		unclaimed := make([]*BacklogItemView, 0, len(candidates))
+		for _, c := range candidates {
+			claimEntityType := claimEntityTypeForBacklogType(c.EntityType)
+			claimable, err := s.claimReader.IsClaimable(ctx, claimEntityType, c.Key)
+			if err != nil {
+				return nil, fmt.Errorf("check claim for %s %s: %w", c.EntityType, c.Key, err)
+			}
+			if claimable {
+				unclaimed = append(unclaimed, c)
+			}
+		}
+		candidates = unclaimed
 	}
 
 	if len(candidates) == 0 {
