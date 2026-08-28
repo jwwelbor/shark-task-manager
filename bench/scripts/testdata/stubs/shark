@@ -61,6 +61,14 @@
 #                                 seeded task document is visible under
 #                                 <workdir>/docs/plan and contains
 #                                 STUB_SHARK_RUN_TASK_SPEC_TEXT.
+#   STUB_SHARK_RUN_WRITE_TRANSCRIPT "1": also write a real run.log and a
+#                                 real entity-scoped transcript file (B052:
+#                                 .shark/runs/<run_id>/<entity_key>/
+#                                 1-in_development-anthropic.log) so a test
+#                                 can exercise run-one.sh's own postrun
+#                                 transcript-copy phase against the actual
+#                                 on-disk layout `shark run` produces, not
+#                                 just a RunResult stages[] fixture (TC-014m).
 set -euo pipefail
 
 log_invocation() {
@@ -148,6 +156,14 @@ if [[ "${1:-}" == "run" ]]; then
 	echo "run.log: $run_log_path" >&2
 	printf '{"ts":"%s","run_id":"%s","event":"stage_start","entity_key":"%s","iteration":1,"status":"in_development","action":"spawn_agent","agent_type":"developer","provider":"anthropic","stage_elapsed_ms":0,"total_elapsed_ms":0}\n' \
 		"$ts" "$run_id" "$entity_key" >&2
+
+	if [[ "${STUB_SHARK_RUN_WRITE_TRANSCRIPT:-0}" == "1" ]]; then
+		entity_dir="$(dirname "$run_log_path")/$entity_key"
+		mkdir -p "$entity_dir"
+		printf 'run.log stub content\n' >"$run_log_path"
+		printf 'COMMAND: echo hi\nEXIT: 0\nDURATION: 1ms\n---STDOUT---\nhi\n---STDERR---\n' \
+			>"$entity_dir/1-in_development-anthropic.log"
+	fi
 
 	if [[ "${STUB_SHARK_RUN_HANG:-0}" == "1" ]]; then
 		# TC-014e/AC-03/AC-04: never emits stage_end or a RunResult. Ignores

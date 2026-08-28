@@ -110,6 +110,11 @@ type RunResult struct {
 
 // StageLog captures per-stage execution details.
 type StageLog struct {
+	// EntityKey is the entity this stage was executed for. Cascade children
+	// populate their own key so stages remain attributable after the parent
+	// flattens child Stages into its own result.
+	EntityKey string `json:"entity_key"`
+
 	// Status is the workflow status this stage executed.
 	Status string `json:"status"`
 
@@ -501,9 +506,10 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 
 		case config.ActionArchive:
 			result.Stages = append(result.Stages, StageLog{
-				Status:   currentStatus,
-				Action:   action.Action,
-				Duration: time.Since(stageStart),
+				EntityKey: key,
+				Status:    currentStatus,
+				Action:    action.Action,
+				Duration:  time.Since(stageStart),
 			})
 			result.StagesCompleted++
 			result.FinalStatus = currentStatus
@@ -734,9 +740,10 @@ func (c *RunController) autoAdvanceCascadeParent(
 	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 	if opts.DryRun {
 		result.Stages = append(result.Stages, StageLog{
-			Status:   currentStatus,
-			Action:   config.ActionAdvanceStatus,
-			Duration: 0,
+			EntityKey: key,
+			Status:    currentStatus,
+			Action:    config.ActionAdvanceStatus,
+			Duration:  0,
 		})
 		postInfo, ok := c.dryRunPostActionStatus(ctx, key, currentStatus, nextInfo, "cascade", opts, result, startTime)
 		if !ok {
@@ -765,9 +772,10 @@ func (c *RunController) autoAdvanceCascadeParent(
 		RunID:      opts.RunID,
 	})
 	result.Stages = append(result.Stages, StageLog{
-		Status:   currentStatus,
-		Action:   config.ActionAdvanceStatus,
-		Duration: time.Since(stageStart),
+		EntityKey: key,
+		Status:    currentStatus,
+		Action:    config.ActionAdvanceStatus,
+		Duration:  time.Since(stageStart),
 	})
 	result.StagesCompleted++
 	if c.workflowSvc.IsTerminalStatus(transitionResult.ToStatus) {
@@ -790,6 +798,7 @@ func (c *RunController) handleAdvanceStatus(
 ) stageOutcome {
 	if opts.DryRun {
 		result.Stages = append(result.Stages, StageLog{
+			EntityKey: key,
 			Status:    currentStatus,
 			Action:    action.Action,
 			AgentType: action.AgentType,
@@ -845,6 +854,7 @@ func (c *RunController) handleAdvanceStatus(
 	})
 
 	result.Stages = append(result.Stages, StageLog{
+		EntityKey: key,
 		Status:    currentStatus,
 		Action:    action.Action,
 		AgentType: action.AgentType,
@@ -1036,6 +1046,7 @@ func (c *RunController) handleSpawnAgent(
 
 	if opts.DryRun {
 		result.Stages = append(result.Stages, StageLog{
+			EntityKey: key,
 			Status:    currentStatus,
 			Action:    action.Action,
 			AgentType: action.AgentType,
@@ -1129,6 +1140,7 @@ func (c *RunController) handleSpawnAgent(
 	}
 
 	stage := StageLog{
+		EntityKey: key,
 		Status:    currentStatus,
 		Action:    action.Action,
 		AgentType: action.AgentType,
@@ -1199,7 +1211,7 @@ func (c *RunController) handleSpawnAgent(
 		// attribute is emitted ONLY on success.
 		relPath := c.maybeWriteTranscript(
 			ctx, opts, transcriptDisabled,
-			stageN, currentStatus, action.Provider,
+			key, stageN, currentStatus, action.Provider,
 			dispatchResult.Command, dispatchResult.ExitCode,
 			dispatchResult.Duration.Milliseconds(),
 			dispatchResult.Stdout, dispatchResult.Stderr,
@@ -1252,7 +1264,7 @@ func (c *RunController) handleSpawnAgent(
 	// the `transcript_path` attribute is emitted ONLY on success.
 	relPath := c.maybeWriteTranscript(
 		ctx, opts, transcriptDisabled,
-		stageN, currentStatus, action.Provider,
+		key, stageN, currentStatus, action.Provider,
 		dispatchResult.Command, dispatchResult.ExitCode,
 		dispatchResult.Duration.Milliseconds(),
 		dispatchResult.Stdout, dispatchResult.Stderr,
@@ -1455,7 +1467,7 @@ func (c *RunController) recordDispatchFailure(
 ) {
 	relPath := c.maybeWriteTranscript(
 		ctx, opts, transcriptDisabled,
-		stageN, currentStatus, provider,
+		result.EntityKey, stageN, currentStatus, provider,
 		command, exitCode, durationMS, stdout, stderr,
 	)
 	recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -1487,7 +1499,7 @@ func (c *RunController) recordDispatchFailure(
 // the transcript's COMMAND line exactly matches what was actually executed.
 func (c *RunController) maybeWriteTranscript(
 	ctx context.Context, opts RunOptions, transcriptDisabled *bool,
-	stageN int, status, provider, command string,
+	entityKey string, stageN int, status, provider, command string,
 	exitCode int, durationMS int64, stdout, stderr string,
 ) string {
 	if !opts.Observability.CaptureAgentTranscripts {
@@ -1501,7 +1513,7 @@ func (c *RunController) maybeWriteTranscript(
 	}
 
 	rel, err := writeTranscript(
-		opts.ProjectRoot, opts.RunID, stageN,
+		opts.ProjectRoot, opts.RunID, entityKey, stageN,
 		status, provider, command,
 		exitCode, durationMS, stdout, stderr,
 	)
@@ -1510,7 +1522,7 @@ func (c *RunController) maybeWriteTranscript(
 		// still locate the missing transcript in their mental model even when
 		// the file itself could not be created.
 		emitTranscriptWarning(ctx, opts.Observability, opts.RunID,
-			relTranscriptPath(opts.RunID, stageN, status, provider), err)
+			relTranscriptPath(opts.RunID, entityKey, stageN, status, provider), err)
 		*transcriptDisabled = true
 		return ""
 	}
