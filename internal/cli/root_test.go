@@ -197,10 +197,14 @@ func TestFindProjectRoot_WithGitDir(t *testing.T) {
 	// Create a temporary directory structure for testing
 	tmpDir := t.TempDir()
 
-	// Create .git directory in root
+	// Create .git directory in root (with a HEAD file so it's recognized as
+	// a real git repo, not a stray empty directory — see B054)
 	gitDir := filepath.Join(tmpDir, ".git")
 	if err := os.MkdirAll(gitDir, 0755); err != nil {
 		t.Fatalf("Failed to create .git directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatalf("Failed to create HEAD file: %v", err)
 	}
 
 	// Create nested subdirectory
@@ -235,6 +239,103 @@ func TestFindProjectRoot_WithGitDir(t *testing.T) {
 	// Verify root is correct
 	if root != tmpDir {
 		t.Errorf("FindProjectRoot() = %v, want %v", root, tmpDir)
+	}
+}
+
+func TestFindProjectRootFrom_EmptyGitDirNotAccepted(t *testing.T) {
+	// B054: a stray, empty .git directory (no HEAD file, no objects/ dir) must
+	// NOT be accepted as a project-root marker. Without content validation,
+	// findProjectRootFrom wrongly treats any directory named ".git" as valid.
+	//
+	// Start the search from a subdirectory below the empty .git so that
+	// "accepted" (root == tmpDir) and "not accepted" (root == startDir, the
+	// no-markers-found fallback) are distinguishable outcomes.
+	tmpDir := t.TempDir()
+
+	gitDir := filepath.Join(tmpDir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatalf("Failed to create empty .git directory: %v", err)
+	}
+
+	startDir := filepath.Join(tmpDir, "subdir")
+	if err := os.MkdirAll(startDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
+
+	// ceiling = tmpDir keeps the walk from escaping into the host filesystem.
+	root, err := findProjectRootFrom(startDir, tmpDir)
+	if err != nil {
+		t.Fatalf("findProjectRootFrom() error = %v", err)
+	}
+
+	if root != startDir {
+		t.Errorf("findProjectRootFrom() = %q, want %q (empty .git dir must not be accepted as a marker, so no markers are found and startDir is returned)", root, startDir)
+	}
+}
+
+func TestFindProjectRootFrom_GitDirWithHEADAccepted(t *testing.T) {
+	// Regression guard: a .git directory containing a HEAD file (the common
+	// case for a normal git checkout) must still be accepted.
+	tmpDir := t.TempDir()
+
+	gitDir := filepath.Join(tmpDir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatalf("Failed to create .git directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatalf("Failed to create HEAD file: %v", err)
+	}
+
+	root, err := findProjectRootFrom(tmpDir, tmpDir)
+	if err != nil {
+		t.Fatalf("findProjectRootFrom() error = %v", err)
+	}
+
+	if root != tmpDir {
+		t.Errorf("findProjectRootFrom() = %q, want %q (.git dir with HEAD file must be accepted)", root, tmpDir)
+	}
+}
+
+func TestFindProjectRootFrom_GitDirWithObjectsAccepted(t *testing.T) {
+	// Regression guard: a .git directory containing an objects/ subdirectory
+	// (e.g. bare repo style) must still be accepted.
+	tmpDir := t.TempDir()
+
+	gitDir := filepath.Join(tmpDir, ".git")
+	objectsDir := filepath.Join(gitDir, "objects")
+	if err := os.MkdirAll(objectsDir, 0755); err != nil {
+		t.Fatalf("Failed to create .git/objects directory: %v", err)
+	}
+
+	root, err := findProjectRootFrom(tmpDir, tmpDir)
+	if err != nil {
+		t.Fatalf("findProjectRootFrom() error = %v", err)
+	}
+
+	if root != tmpDir {
+		t.Errorf("findProjectRootFrom() = %q, want %q (.git dir with objects/ must be accepted)", root, tmpDir)
+	}
+}
+
+func TestFindProjectRootFrom_GitFileWorktreeAccepted(t *testing.T) {
+	// Critical regression guard: in a git worktree, ".git" is a FILE (not a
+	// directory) containing a "gitdir: <path>" pointer to the real repo's
+	// worktree metadata. This must be accepted as-is, unmodified by the fix.
+	tmpDir := t.TempDir()
+
+	gitFile := filepath.Join(tmpDir, ".git")
+	content := "gitdir: /path/to/real/.git/worktrees/branch-name\n"
+	if err := os.WriteFile(gitFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create .git worktree file: %v", err)
+	}
+
+	root, err := findProjectRootFrom(tmpDir, tmpDir)
+	if err != nil {
+		t.Fatalf("findProjectRootFrom() error = %v", err)
+	}
+
+	if root != tmpDir {
+		t.Errorf("findProjectRootFrom() = %q, want %q (.git worktree file must be accepted unmodified)", root, tmpDir)
 	}
 }
 
@@ -422,11 +523,16 @@ func TestFindProjectRoot_NestedGitWithoutParentConfig(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create nested-repo with its own .git directory (no parent markers)
+	// Create nested-repo with its own .git directory (no parent markers).
+	// Add a HEAD file so it's recognized as a real git repo, not a stray
+	// empty directory (see B054).
 	nestedRepo := filepath.Join(tmpDir, "nested-repo")
 	nestedGit := filepath.Join(nestedRepo, ".git")
 	if err := os.MkdirAll(nestedGit, 0755); err != nil {
 		t.Fatalf("Failed to create nested .git directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedGit, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatalf("Failed to create HEAD file: %v", err)
 	}
 
 	// Create subfolder within nested-repo
