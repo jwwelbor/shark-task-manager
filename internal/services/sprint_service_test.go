@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -3951,6 +3952,86 @@ func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyDoesNotExist
 	f2 := result.Factors[1]
 	assert.Equal(t, 19, f2.Score,
 		"a dependency key that doesn't exist in the task table must still be unsatisfied")
+}
+
+// TestSprintService_GetSprintReadiness_ExternalDependencyLookupError_FailsLoud is the
+// code-review regression test for B058 finding #1 (MED): a failure of the external-dependency
+// batch lookup itself (e.g. a transient DB error) must propagate as an error, not be silently
+// swallowed into "no dependencies satisfied" (Rule 12 — fail loud). It uses a *repository.DB
+// backed by a fresh in-memory SQLite connection with no schema applied (deliberately separate
+// from the shared package testDB), so TaskRepository.GetByKeys fails with a real
+// "no such table: tasks" error rather than a mocked one.
+func TestSprintService_GetSprintReadiness_ExternalDependencyLookupError_FailsLoud(t *testing.T) {
+	ctx := context.Background()
+
+	rawDB, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	defer rawDB.Close()
+	schemalessDB := repository.NewDB(rawDB)
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-100", Size: sizePtrR(3), DependsOn: `["T-E58-F01-EXTERNAL"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, schemalessDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.Error(t, err, "a batch-lookup failure must propagate as an error instead of degrading silently")
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "external dependency",
+		"the error should name the failing operation so it is observable, not swallowed")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ManyExternalDependencies_ChunkedLookup is the
+// code-review regression test for B058 finding #2 (MED): computeExternalDependencyTerminalStatus
+// chunks its GetByKeys calls into batches of externalDepBatchSize keys to stay under SQLite's
+// bound-parameter limit. This seeds more distinct external dependency keys than fit in a single
+// batch and asserts every one of them still resolves correctly, proving the multi-batch loop
+// merges results across batches rather than only covering the first chunk.
+func TestSprintService_GetSprintReadiness_Factor2_ManyExternalDependencies_ChunkedLookup(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+
+	const depCount = externalDepBatchSize + 50 // spans two GetByKeys batches
+	depKeys := make([]string, depCount)
+	for i := 0; i < depCount; i++ {
+		key := fmt.Sprintf("T-E58-F01-CHUNK-%04d", i)
+		depKeys[i] = key
+		seedB058Task(t, testDB, featureID, key, "completed") // terminal, NOT in current sprint
+	}
+	dependsOnJSON, err := json.Marshal(depKeys)
+	require.NoError(t, err)
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-CHUNK-ASSIGNEE", Size: sizePtrR(3), DependsOn: string(dependsOnJSON)},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 20, f2.Score,
+		"every external dependency must be credited as satisfied even when the lookup spans multiple GetByKeys batches")
 }
 
 // TestSprintService_GetSprintReadiness_Factor3_TaskCount tests TC-013-03: BVA on entity count.
