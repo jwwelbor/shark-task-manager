@@ -19,7 +19,16 @@
 //
 // File path layout (relative to project root):
 //
-//	.shark/runs/<run_id>/<stage_n>-<status>-<provider>.log
+//	.shark/runs/<run_id>/<entity_key>/<stage_n>-<status>-<provider>.log
+//
+// The entity_key directory level exists because cascade children inherit
+// their parent's run_id unchanged (RunID is a stable per-invocation
+// correlation identifier across the whole cascade tree — see
+// controller.go's RunOptions.RunID doc comment) while each child's own
+// Run() independently restarts its stage_n counter at 1. Without per-entity
+// nesting, two sibling cascade children dispatching in the same
+// status/provider would collide on stage_n and silently overwrite each
+// other's transcript.
 //
 // Permissions:
 //   - Parent directory: 0o755
@@ -45,10 +54,16 @@ const transcriptFileMode os.FileMode = 0o644
 // transcript_path attribute on slog events so the filename is portable across
 // project roots.
 //
-// The caller is responsible for passing a non-empty runID, a positive stageN,
-// and non-empty status/provider; this helper does not validate its inputs.
-func relTranscriptPath(runID string, stageN int, status, provider string) string {
-	return filepath.Join(".shark", "runs", runID, fmt.Sprintf("%d-%s-%s.log", stageN, status, provider))
+// entityKey nests each entity (parent and every cascade child) under its own
+// subdirectory so sibling cascade children — which inherit the same runID
+// but each restart their own stageN counter at 1 — can never collide on
+// filename (see the package doc comment above for the full rationale).
+//
+// The caller is responsible for passing a non-empty runID, a non-empty
+// entityKey, a positive stageN, and non-empty status/provider; this helper
+// does not validate its inputs.
+func relTranscriptPath(runID, entityKey string, stageN int, status, provider string) string {
+	return filepath.Join(".shark", "runs", runID, entityKey, fmt.Sprintf("%d-%s-%s.log", stageN, status, provider))
 }
 
 // writeTranscript writes a single dispatch transcript to the filesystem under
@@ -64,6 +79,8 @@ func relTranscriptPath(runID string, stageN int, status, provider string) string
 // Arguments:
 //   - root:       absolute path to the project root (from RunOptions.ProjectRoot).
 //   - runID:      per-run identifier (directory name under .shark/runs/).
+//   - entityKey:  the entity this dispatch belongs to (per-entity subdirectory
+//     name, so sibling cascade children never collide — see relTranscriptPath).
 //   - stageN:     1-based stage counter within the run (filename prefix).
 //   - status:     the current (from) status that drove this dispatch.
 //   - provider:   agent provider key (e.g. "anthropic", "codex").
@@ -77,14 +94,14 @@ func relTranscriptPath(runID string, stageN int, status, provider string) string
 // MkdirAll or WriteFile fails. Callers treat errors as non-fatal — they log a
 // single run.transcript.warning and disable further writes for the run.
 func writeTranscript(
-	root, runID string,
+	root, runID, entityKey string,
 	stageN int,
 	status, provider, command string,
 	exitCode int,
 	durationMS int64,
 	stdout, stderr string,
 ) (string, error) {
-	rel := relTranscriptPath(runID, stageN, status, provider)
+	rel := relTranscriptPath(runID, entityKey, stageN, status, provider)
 	abs := filepath.Join(root, rel)
 
 	dir := filepath.Dir(abs)

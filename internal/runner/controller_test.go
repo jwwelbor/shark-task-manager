@@ -1027,6 +1027,140 @@ func TestRunController_CascadeAction_RunsDispatchableChildrenAndAutoAdvancesPare
 	}
 }
 
+// TestRunController_CascadeStagesCarryEntityKey verifies that after
+// handleCascade flattens each child's Stages into the parent's result.Stages
+// (controller.go's `result.Stages = append(result.Stages, childResult.Stages...)`),
+// each flattened StageLog entry still identifies which cascade child produced
+// it via StageLog.EntityKey. Before B052's fix, StageLog carried no entity
+// attribution at all, so per-child stage metrics became unrecoverable once
+// flattened into the parent's single Stages slice.
+//
+// Unlike TestRunController_CascadeAction_RunsDispatchableChildrenAndAutoAdvancesParent
+// (which stubs RunChild to return a canned RunResult), this test drives each
+// cascade child through a REAL child *RunController* — exactly as production
+// wiring does in internal/cli/commands/run.go's runChild closure — so it
+// exercises the actual StageLog{EntityKey: key, ...} construction sites in
+// handleSpawnAgent, not just the flattening `append` itself.
+func TestRunController_CascadeStagesCarryEntityKey(t *testing.T) {
+	childKeys := []string{"E07-F01-T01", "E07-F01-T02"}
+
+	dispatcher := &MockDispatcher{
+		DispatchFunc: func(ctx context.Context, input DispatchInput) (*DispatchResult, error) {
+			return &DispatchResult{
+				ExitCode: 0,
+				Stdout:   "output for " + input.EntityKey,
+				Duration: time.Millisecond,
+				Command:  "claude -p " + input.EntityKey,
+			}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{"anthropic": dispatcher}
+
+	childTransitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "active",
+				IsTerminal:    false,
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+				},
+			}, nil
+		},
+		TransitionStatusFunc: func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	childActionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{
+				Action:      config.ActionSpawnAgent,
+				AgentType:   "developer",
+				Provider:    "anthropic",
+				Instruction: "do work",
+			}, nil
+		},
+	}
+
+	// runChild mirrors production wiring (internal/cli/commands/run.go): it
+	// constructs a real child RunController per child and calls its Run().
+	runChild := func(ctx context.Context, childType, key string, childOpts RunOptions) (*RunResult, error) {
+		childCtrl, err := NewRunController(RunControllerDeps{
+			Transitioner: childTransitioner,
+			Placeholders: &MockPlaceholderGen{},
+			ActionSvc:    childActionSvc,
+			WorkflowSvc:  defaultWorkflowSvc(),
+			Dispatchers:  dispatchers,
+		})
+		if err != nil {
+			t.Fatalf("build child controller for %s: %v", key, err)
+		}
+		childOpts.EntityType = childType
+		return childCtrl.Run(ctx, key, childOpts)
+	}
+
+	cascadeSvc := &MockCascadeChildrenService{
+		DescribeDispatchableChildrenFunc: func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+			return services.CascadeChildrenState{
+				Children: []services.CascadeChild{
+					{Key: childKeys[0], EntityType: "task"},
+					{Key: childKeys[1], EntityType: "task"},
+				},
+				TotalChildren:       2,
+				NonTerminalChildren: 2,
+			}, nil
+		},
+	}
+
+	parentTransitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "active", IsTerminal: false}, nil
+		},
+	}
+	parentActionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionCascade}, nil
+		},
+	}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: parentTransitioner,
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc:    parentActionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  dispatchers,
+		ChildrenSvc:  cascadeSvc,
+		RunChild:     runChild,
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	result, err := ctrl.Run(context.Background(), "E07-F01", RunOptions{EntityType: "feature"})
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+
+	// Each child dispatches exactly one spawn_agent stage. After flattening,
+	// result.Stages must contain one entry per child, each correctly tagged
+	// with that child's own entity key (never empty, never the other child's,
+	// never the parent's).
+	byKey := map[string]int{}
+	for _, stage := range result.Stages {
+		if stage.Action != config.ActionSpawnAgent {
+			continue
+		}
+		byKey[stage.EntityKey]++
+	}
+	for _, key := range childKeys {
+		if byKey[key] != 1 {
+			t.Errorf("expected exactly 1 spawn_agent stage tagged EntityKey=%s, got %d (all stages: %#v)", key, byKey[key], result.Stages)
+		}
+	}
+	if got := byKey[""]; got != 0 {
+		t.Errorf("expected 0 stages with empty EntityKey, got %d (all stages: %#v)", got, result.Stages)
+	}
+}
+
 // TC-308: a directly blocked cascade child is parked, rather than ending the
 // parent run. The runner must continue to a later eligible sibling exactly as
 // keyed next does; only an all-parked cascade returns the compact block pause.

@@ -6,7 +6,7 @@
 //
 //   - When observability.capture_agent_transcripts == true, RunController
 //     writes a transcript file for each agent dispatch at
-//     {project_root}/.shark/runs/{run_id}/{stage_n}-{status}-{provider}.log
+//     {project_root}/.shark/runs/{run_id}/{entity_key}/{stage_n}-{status}-{provider}.log
 //     with file mode 0644 and parent directory mode 0755.
 //   - File contents use the EXACT format:
 //     COMMAND: <cmd>
@@ -71,9 +71,9 @@ func expectedTranscript(command string, exit int, durationMS int64, stdout, stde
 
 // relPathFor returns the project-relative transcript path that the controller
 // should emit on slog events and write on disk, for stage number n, status s,
-// and provider p under the given run ID.
-func relPathFor(runID string, n int, status, provider string) string {
-	return filepath.Join(".shark", "runs", runID, fmt.Sprintf("%d-%s-%s.log", n, status, provider))
+// and provider p under the given run ID and entity key.
+func relPathFor(runID, entityKey string, n int, status, provider string) string {
+	return filepath.Join(".shark", "runs", runID, entityKey, fmt.Sprintf("%d-%s-%s.log", n, status, provider))
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ func TestTranscript_EnabledWritesFile_ClaudeDispatcher(t *testing.T) {
 
 	// File should exist at the expected path (provider from happyPathFixture
 	// is "anthropic" — the Claude dispatcher's registration key).
-	rel := relPathFor(runID, 1, "in_development", "anthropic")
+	rel := relPathFor(runID, "E07-F01-001", 1, "in_development", "anthropic")
 	abs := filepath.Join(root, rel)
 	info, err := os.Stat(abs)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestTranscript_EnabledWritesFile_CodexDispatcher(t *testing.T) {
 		t.Fatalf("expected outcome=completed, got %s", res.Outcome)
 	}
 
-	rel := relPathFor(runID, 1, "in_development", "codex")
+	rel := relPathFor(runID, "E07-F01-001", 1, "in_development", "codex")
 	abs := filepath.Join(root, rel)
 	got, err := os.ReadFile(abs)
 	if err != nil {
@@ -272,7 +272,7 @@ func TestTranscript_Enabled_StageCompleteHasPathAttr(t *testing.T) {
 	if len(completes) != 1 {
 		t.Fatalf("expected exactly 1 run.stage.complete, got %d", len(completes))
 	}
-	wantRel := relPathFor(runID, 1, "in_development", "anthropic")
+	wantRel := relPathFor(runID, "E07-F01-001", 1, "in_development", "anthropic")
 	got, ok := completes[0]["transcript_path"].(string)
 	if !ok {
 		t.Fatalf("run.stage.complete missing transcript_path (attrs: %v)", completes[0])
@@ -324,7 +324,7 @@ func TestTranscript_Enabled_StageErrorHasPathAttr(t *testing.T) {
 	if len(errors_) != 1 {
 		t.Fatalf("expected exactly 1 run.stage.error, got %d", len(errors_))
 	}
-	wantRel := relPathFor(runID, 1, "in_development", "anthropic")
+	wantRel := relPathFor(runID, "E07-F01-001", 1, "in_development", "anthropic")
 	got, ok := errors_[0]["transcript_path"].(string)
 	if !ok {
 		t.Fatalf("run.stage.error missing transcript_path (attrs: %v)", errors_[0])
@@ -468,13 +468,169 @@ func TestTranscript_MultipleStages_IncrementCounter(t *testing.T) {
 	}
 
 	// Both files should be present, numbered 1 and 2.
-	f1 := filepath.Join(root, relPathFor(runID, 1, "in_development", "anthropic"))
-	f2 := filepath.Join(root, relPathFor(runID, 2, "code_review", "anthropic"))
+	f1 := filepath.Join(root, relPathFor(runID, "E07-F01-001", 1, "in_development", "anthropic"))
+	f2 := filepath.Join(root, relPathFor(runID, "E07-F01-001", 2, "code_review", "anthropic"))
 	if _, err := os.Stat(f1); err != nil {
 		t.Errorf("missing stage 1 transcript at %s: %v", f1, err)
 	}
 	if _, err := os.Stat(f2); err != nil {
 		t.Errorf("missing stage 2 transcript at %s: %v", f2, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AC (B052): sibling cascade children never collide on transcript filename
+// ---------------------------------------------------------------------------
+
+// TestTranscript_CascadeChildrenProduceDistinctFiles reproduces B052: cascade
+// children inherit the parent's RunID unchanged, and each child's own Run()
+// independently restarts its stage counter at 1. Before B052's fix, two
+// sibling children dispatching in the same status/provider ("in_development"/
+// "anthropic") both resolved to the SAME transcript path
+// (.shark/runs/{runID}/1-in_development-anthropic.log), so the second child's
+// os.WriteFile silently truncated the first child's transcript.
+//
+// This test drives a real cascade — a parent RunController whose RunChild
+// constructs a REAL child *RunController* per child (mirroring production
+// wiring in internal/cli/commands/run.go), both children sharing the same
+// RunID and dispatching their first stage as "in_development"/"anthropic" —
+// and asserts BOTH children's transcript files exist on disk, each under its
+// own entity-key subdirectory, with distinct content attributable to the
+// correct child.
+func TestTranscript_CascadeChildrenProduceDistinctFiles(t *testing.T) {
+	_ = captureSlog(t)
+
+	root := t.TempDir()
+	runID := "run-cascade-collision"
+	childKeys := []string{"E07-F01-T01", "E07-F01-T02"}
+
+	dispatcher := &MockDispatcher{
+		DispatchFunc: func(ctx context.Context, input DispatchInput) (*DispatchResult, error) {
+			return &DispatchResult{
+				ExitCode: 0,
+				Stdout:   "output for " + input.EntityKey,
+				Duration: mustParseMS(t, 10),
+				Command:  "claude -p " + input.EntityKey,
+			}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{"anthropic": dispatcher}
+
+	childTransitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "in_development",
+				IsTerminal:    false,
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+				},
+			}, nil
+		},
+		TransitionStatusFunc: func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	childActionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{
+				Action:      config.ActionSpawnAgent,
+				AgentType:   "developer",
+				Provider:    "anthropic",
+				Instruction: "do work",
+			}, nil
+		},
+	}
+
+	// runChild mirrors production wiring: a real child RunController is built
+	// per child and inherits the parent's RunOptions (same RunID, ProjectRoot,
+	// Observability) unchanged, exactly as internal/cli/commands/run.go's
+	// runChild closure and controller.go's handleCascade `childOpts := opts` do.
+	runChild := func(ctx context.Context, childType, key string, childOpts RunOptions) (*RunResult, error) {
+		childCtrl, err := NewRunController(RunControllerDeps{
+			Transitioner: childTransitioner,
+			Placeholders: &MockPlaceholderGen{},
+			ActionSvc:    childActionSvc,
+			WorkflowSvc:  defaultWorkflowSvc(),
+			Dispatchers:  dispatchers,
+		})
+		if err != nil {
+			t.Fatalf("build child controller for %s: %v", key, err)
+		}
+		childOpts.EntityType = childType
+		return childCtrl.Run(ctx, key, childOpts)
+	}
+
+	cascadeSvc := &MockCascadeChildrenService{
+		DescribeDispatchableChildrenFunc: func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+			return services.CascadeChildrenState{
+				Children: []services.CascadeChild{
+					{Key: childKeys[0], EntityType: "task"},
+					{Key: childKeys[1], EntityType: "task"},
+				},
+				TotalChildren:       2,
+				NonTerminalChildren: 2,
+			}, nil
+		},
+	}
+
+	parentTransitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "active", IsTerminal: false}, nil
+		},
+	}
+	parentActionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionCascade}, nil
+		},
+	}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: parentTransitioner,
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc:    parentActionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  dispatchers,
+		ChildrenSvc:  cascadeSvc,
+		RunChild:     runChild,
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	opts := RunOptions{
+		RunID:         runID,
+		ProjectRoot:   root,
+		EntityType:    "feature",
+		Observability: obsWithTranscripts(0, true),
+	}
+	if _, err := ctrl.Run(context.Background(), "E07-F01", opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Both children's first-stage transcripts must exist, each under its own
+	// entity-key subdirectory, with content attributable to the correct child.
+	for _, key := range childKeys {
+		rel := relPathFor(runID, key, 1, "in_development", "anthropic")
+		abs := filepath.Join(root, rel)
+		content, err := os.ReadFile(abs)
+		if err != nil {
+			t.Fatalf("expected distinct transcript for cascade child %s at %s, got err: %v", key, abs, err)
+		}
+		wantSub := "output for " + key
+		if !strings.Contains(string(content), wantSub) {
+			t.Errorf("transcript for %s missing expected content %q; got %q", key, wantSub, string(content))
+		}
+		// Guard against the pre-fix collision: neither child's transcript may
+		// contain the OTHER child's output (which is what silent os.WriteFile
+		// truncation would produce if both children wrote the same path).
+		for _, other := range childKeys {
+			if other == key {
+				continue
+			}
+			if strings.Contains(string(content), "output for "+other) {
+				t.Errorf("transcript for %s unexpectedly contains sibling %s's output — collision not prevented", key, other)
+			}
+		}
 	}
 }
 
