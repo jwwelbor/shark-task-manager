@@ -1448,6 +1448,60 @@ func TestRunController_SpawnAgentUsesJSONRecommendedOutcome(t *testing.T) {
 	}
 }
 
+// TestRunController_SpawnAgentMalformedJSONOutcomeFailsRunWithoutTransition
+// verifies the full dispatch loop end-to-end for the fail-loud fix: when a
+// worker's stdout looks like a JSON outcome object but fails to parse,
+// TransitionStatus must never be called and the run must report a failed
+// outcome, instead of silently advancing via the pass-first target. This
+// pins down the actual guarantee B046 exists to provide, complementing the
+// unit-level TestRecommendedOutcome_MalformedJSONFailsLoud coverage of
+// recommendedOutcome() in isolation.
+func TestRunController_SpawnAgentMalformedJSONOutcomeFailsRunWithoutTransition(t *testing.T) {
+	transitionCalled := false
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "in_progress",
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "on_hold"}},
+				},
+				Outcomes: map[string]string{"pass": "completed", "blocked": "on_hold"},
+			}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			transitionCalled = true
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "work"}, nil
+		},
+	}
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+			// Malformed JSON: looks like an outcome object but is truncated.
+			return &DispatchResult{ExitCode: 0, Stdout: `{"outcome": "blocked"`}, nil
+		}},
+	}
+
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	result, err := ctrl.Run(context.Background(), "E07-F01-001", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil (stage failures are reported via RunResult, not a Go error)", err)
+	}
+	if transitionCalled {
+		t.Fatal("TransitionStatus() was called, want it never called — malformed JSON outcome must not silently advance the entity")
+	}
+	if result.Outcome != "failed" {
+		t.Fatalf("RunResult.Outcome = %q, want %q", result.Outcome, "failed")
+	}
+	if result.Error == "" {
+		t.Fatal("RunResult.Error is empty, want a parse-error message explaining the malformed JSON outcome")
+	}
+}
+
 // TestRecommendedOutcome_JSONBody verifies a worker that returns a pure JSON
 // object like {"outcome": "blocked"} (no "RECOMMENDED OUTCOME:" text line) is
 // still recognized. B046: without this, workers using the JSON-only shape of
@@ -1482,10 +1536,9 @@ func TestRecommendedOutcome_JSONBodyWithWhitespace(t *testing.T) {
 	}
 }
 
-// TestRecommendedOutcome_TextLineStillTakesPriority verifies the existing
-// "RECOMMENDED OUTCOME:" text-line format keeps working unchanged when both
-// are technically present is not a concern here — this asserts the common,
-// pre-existing case is unaffected by the new JSON path.
+// TestRecommendedOutcome_TextLineStillWorks verifies the existing
+// "RECOMMENDED OUTCOME:" text-line format keeps working unchanged — this
+// asserts the common, pre-existing case is unaffected by the new JSON path.
 func TestRecommendedOutcome_TextLineStillWorks(t *testing.T) {
 	outcome, specified, err := recommendedOutcome("Did the work.\nRECOMMENDED OUTCOME: pass")
 	if err != nil {
