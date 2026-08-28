@@ -52,11 +52,10 @@ Store the full JSON response as `SUMMARY`. Key fields to extract:
 
 - `planned_count` — total entities planned at sprint start
 - `completed_count` — entities that reached terminal status (`completed`)
-- `carryover_count` — entities that carried over to the next sprint
 - `planned_size` — Σ size of all planned entities
 - `completed_size` — Σ size of completed entities
-- `carryover` — list of entity keys that carried over (may be empty `[]`)
-- `rejected` — list of entity keys that were rejected/blocked without completion (may be empty `[]`)
+- `carryover_entities` — list of `{key, entity_type, size}` objects for entities not completed at sprint close (may be empty `[]`); derive `carryover_count` as `len(carryover_entities)`
+- `rejected` — no such field exists in the current summary output (tracked separately as B061); treat this input as always empty until it does
 - `cycle_times_by_phase` — per-phase cycle time data (from `--detailed`); if absent, record `null`
 - `agent_allocations` — per-agent-type planned vs. completed data (from `--detailed`); if absent, record `null`
 
@@ -79,10 +78,11 @@ Store the full JSON response as `VELOCITY`. Key fields to extract:
 
 ### 2c. Carryover and Rejection Notes
 
-For each entity in `SUMMARY.carryover` and `SUMMARY.rejected` (deduplicated by entity key), use the
-entity's own `entity_type` field — never infer the type by pattern-matching the key against a key
-format, since carryover/rejected entity keys are not guaranteed to look like `E##-F##-###`,
-`B###`, `CC-###`, or `TD-###` — then call the matching notes command:
+For each entity in `SUMMARY.carryover_entities` and `SUMMARY.rejected` (deduplicated by entity
+key; `rejected` is currently always empty — see Step 2a), use the entity's own `entity_type`
+field — never infer the type by pattern-matching the key against a key format, since carryover/
+rejected entity keys are not guaranteed to look like `E##-F##-###`, `B###`, `CC-###`, or
+`TD-###` — then call the matching notes command:
 
 | `entity_type` value | Command |
 |---|---|

@@ -31,7 +31,7 @@ It does NOT execute sprint work. It does NOT modify sprint state (other than an 
 |---|---|
 | **Outcome** | `shark sprint summary --detailed --json` (planned vs. completed count and Σ size) |
 | **Velocity Context** | `shark sprint velocity --json` (this sprint vs. trailing average, with delta) |
-| **Carryover Analysis** | `shark <entity-type> notes {entity_key}` for each carryover and rejected entity (entity-type derived from key format: task, bug, change, or td) |
+| **Carryover Analysis** | `shark <entity-type> notes {entity_key}` for each carryover and rejected entity (entity-type comes from the entity's own `entity_type` field, not inferred from the key) |
 | **Cycle-Time Highlights** | Per-phase cycle times from the `--detailed` summary |
 | **Recommendations** | Pattern-matched from the above data; 3–5 items; always quantitative triggers |
 
