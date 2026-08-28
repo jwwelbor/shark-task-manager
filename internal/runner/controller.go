@@ -903,6 +903,13 @@ func guardedTransitionOptions(runOpts RunOptions, fromStatus, targetStatus strin
 // recommendedOutcome extracts the explicit final worker recommendation. It
 // intentionally accepts only a whole trimmed line so prose mentioning the
 // phrase cannot alter the workflow route.
+//
+// It also accepts the shark-rider worker-return contract's JSON alternative,
+// `{"outcome": "<key>"}` — but only when the ENTIRE trimmed stdout is that
+// JSON object. This preserves the same safety property as the text-line
+// format: outcome-shaped JSON merely mentioned within a longer message (e.g.
+// prose describing what the worker considered returning) must not alter the
+// workflow route.
 func recommendedOutcome(stdout string) (string, bool) {
 	const prefix = "recommended outcome:"
 	for _, line := range strings.Split(stdout, "\n") {
@@ -911,6 +918,20 @@ func recommendedOutcome(stdout string) (string, bool) {
 			return strings.TrimSpace(line[len(prefix):]), true
 		}
 	}
+
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed != "" {
+		var body struct {
+			Outcome string `json:"outcome"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &body); err == nil {
+			outcome := strings.TrimSpace(body.Outcome)
+			if outcome != "" {
+				return outcome, true
+			}
+		}
+	}
+
 	return "", false
 }
 
