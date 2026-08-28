@@ -29,6 +29,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ADMIT_SCRIPT="$SCRIPTS_DIR/admit.sh"
 
+# shellcheck source=lib/transient-run-selector-corpus.sh
+source "$SCRIPT_DIR/lib/transient-run-selector-corpus.sh"
+
 fail() {
 	echo "TC-097 FAIL: $1" >&2
 	exit 1
@@ -170,40 +173,9 @@ TRANSIENT_CORPUS="$WORKDIR/corpus-bad-grammar.yaml"
 # must reject this selector, on account of the top-level "|".
 BAD_SELECTOR='^TestTaxAmount$|^TestApplyDiscount$'
 
-python3 - "$CORPUS_YAML" "$TRANSIENT_CORPUS" "$TRANSIENT_ITEM" "$TRANSIENT_SET" "$BAD_SELECTOR" <<'PYEOF'
-import os
-import sys
-import yaml
-
-src_path, dst_path, item_id, set_name, run_selector = sys.argv[1:6]
-
-with open(src_path) as f:
-    data = yaml.safe_load(f)
-
-if item_id not in {it["id"] for it in data["items"]}:
-    sys.exit(f"TC-097 setup: item not found in corpus.yaml: {item_id}")
-
-data["p2p_sets"][set_name] = {
-    "packages": ["./pkg/pricing/..."],
-    "run_selector": run_selector,
-    "exclude_tests": [],
-}
-
-corpus_dir = os.path.dirname(os.path.abspath(src_path))
-
-for item in data["items"]:
-    if item["id"] == item_id:
-        item["p2p_set"] = set_name
-        for key in ("prompt_path", "seed_path", "reference_patch_path"):
-            if key in item:
-                item[key] = os.path.join(corpus_dir, item[key])
-        for i, p in enumerate(item["f2p"]["paths"]):
-            item["f2p"]["paths"][i] = os.path.join(corpus_dir, p)
-        break
-
-with open(dst_path, "w") as f:
-    yaml.safe_dump(data, f, sort_keys=False)
-PYEOF
+build_transient_run_selector_corpus \
+	"$CORPUS_YAML" "$TRANSIENT_CORPUS" "$TRANSIENT_ITEM" "$TRANSIENT_SET" \
+	"$BAD_SELECTOR" "./pkg/pricing/..."
 
 set +e
 OUT_FILE="$WORKDIR/stdout.log"

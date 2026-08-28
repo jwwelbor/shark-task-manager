@@ -534,11 +534,32 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
     (it must still build), even though there is nothing to
     cross-reference.
 
+    A fourth, SET-WIDE (not per-package) precondition guards (1) itself
+    (B053 finding 1, code review round on PR #203): when run_selector is
+    given, it must select at least one enumerated test SOMEWHERE across
+    this p2p_set's packages, or the whole call raises RuntimeError before
+    returning any verdict. This is deliberately set-wide rather than
+    per-package -- a selector legitimately scoped to only one package's
+    tests would otherwise trip a per-package version of this guard on
+    every OTHER package in a multi-package (e.g. "./...") set, which is
+    not a misconfiguration. Without this precondition, a selector matching
+    nothing (typo, overly narrow pattern) would filter `expected` down to
+    the empty set in every package -- (1)'s missing-evidence check becomes
+    vacuously true (nothing expected, nothing missing) and `go test -run
+    <no-match>` exits 0 with nothing to run -- so a package that ran zero
+    tests would read as P2P-green.
+
     Returns (all_clean: bool, problem_packages: list[str]) where each
     problem_packages entry names the package and exactly which
     condition(s) failed, for verdict diagnostics."""
     all_clean = True
     problem_packages = []
+    # Zero-match run_selector guard (B053 finding 1, see docstring above):
+    # track how many enumerated tests existed before filtering vs. how many
+    # survived filtering, across every package in this p2p_set (not
+    # per-package -- see rationale above).
+    total_pre_filter_candidates = 0
+    total_post_filter_selected = 0
 
     for import_path, pkg_dir in go_list_packages(checkout_dir, packages):
         pkg_skip_names = {
@@ -551,9 +572,10 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
         results, _problem_pkgs, returncode = run_go_tests(
             checkout_dir, [import_path], run_pattern=run_selector, skip_pattern=skip_pattern
         )
-        expected = filter_expected_by_run_selector(
-            enumerate_tests(pkg_dir) - pkg_skip_names, run_selector
-        )
+        pre_filter_expected = enumerate_tests(pkg_dir) - pkg_skip_names
+        expected = filter_expected_by_run_selector(pre_filter_expected, run_selector)
+        total_pre_filter_candidates += len(pre_filter_expected)
+        total_post_filter_selected += len(expected)
         observed = {
             bare_test_name(identity)
             for identity in results
@@ -591,6 +613,14 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
             if returncode != 0 and not missing and not failed:
                 detail.append(f"exit code {returncode} despite clean, complete per-test evidence")
             problem_packages.append(f"{import_path} ({'; '.join(detail)})")
+
+    if run_selector and total_pre_filter_candidates > 0 and total_post_filter_selected == 0:
+        raise RuntimeError(
+            f"p2p_set run_selector {run_selector!r} matched none of the "
+            f"{total_pre_filter_candidates} testenum-enumerated test(s) across "
+            f"{packages!r} -- refusing to treat 0 tests actually run as "
+            "P2P-green; check the selector for a typo or an overly narrow pattern"
+        )
 
     return all_clean, problem_packages
 

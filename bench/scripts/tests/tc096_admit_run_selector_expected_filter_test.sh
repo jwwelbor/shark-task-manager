@@ -29,6 +29,9 @@ BENCH_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 ADMIT_SCRIPT="$SCRIPTS_DIR/admit.sh"
 CORPUS_YAML="$BENCH_DIR/corpus/corpus.yaml"
 
+# shellcheck source=lib/transient-run-selector-corpus.sh
+source "$SCRIPT_DIR/lib/transient-run-selector-corpus.sh"
+
 fail() {
 	echo "TC-096 FAIL: $1" >&2
 	exit 1
@@ -45,45 +48,9 @@ TRANSIENT_ITEM="pricing-negative-subtotal"
 TRANSIENT_SET="pricing_taxamount_only"
 TRANSIENT_CORPUS="$WORKDIR/corpus-run-selector.yaml"
 
-python3 - "$CORPUS_YAML" "$TRANSIENT_CORPUS" "$TRANSIENT_ITEM" "$TRANSIENT_SET" <<'PYEOF'
-import os
-import sys
-import yaml
-
-src_path, dst_path, item_id, set_name = sys.argv[1:5]
-
-with open(src_path) as f:
-    data = yaml.safe_load(f)
-
-if item_id not in {it["id"] for it in data["items"]}:
-    sys.exit(f"TC-096 setup: item not found in corpus.yaml: {item_id}")
-
-data["p2p_sets"][set_name] = {
-    "packages": ["./pkg/pricing/..."],
-    "run_selector": "^TestTaxAmount$",
-    "exclude_tests": [],
-}
-
-corpus_dir = os.path.dirname(os.path.abspath(src_path))
-
-for item in data["items"]:
-    if item["id"] == item_id:
-        item["p2p_set"] = set_name
-        # admit.sh resolves every path field in an item relative to the
-        # corpus.yaml file it was given (os.path.dirname(corpus_yaml_path)).
-        # This transient copy lives in a different directory, so rewrite
-        # every path field to an absolute path pointing back at the real,
-        # committed corpus/ tree it was copied from.
-        for key in ("prompt_path", "seed_path", "reference_patch_path"):
-            if key in item:
-                item[key] = os.path.join(corpus_dir, item[key])
-        for i, p in enumerate(item["f2p"]["paths"]):
-            item["f2p"]["paths"][i] = os.path.join(corpus_dir, p)
-        break
-
-with open(dst_path, "w") as f:
-    yaml.safe_dump(data, f, sort_keys=False)
-PYEOF
+build_transient_run_selector_corpus \
+	"$CORPUS_YAML" "$TRANSIENT_CORPUS" "$TRANSIENT_ITEM" "$TRANSIENT_SET" \
+	"^TestTaxAmount$" "./pkg/pricing/..."
 
 echo "TC-096: running admit.sh against a p2p_set with a non-empty run_selector"
 set +e
