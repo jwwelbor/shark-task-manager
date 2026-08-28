@@ -27,7 +27,7 @@ Store as `SPRINT_KEY`, `AGENT_FILTER`, `MAX_ITERATIONS`, `CARRYOVER_VALUE`.
 ## Step 1: Sprint Status Check
 
 ```bash
-/shark-rider query: get {SPRINT_KEY} --json
+shark get {SPRINT_KEY} --json
 ```
 
 Parse the JSON response. Extract:
@@ -202,7 +202,7 @@ This workflow is safe to re-invoke:
 
 - All shark calls use `--json`.
 - `shark sprint next` is the sole source of "what to work on next". The loop does NOT read the backlog directly or pick entities itself.
-- `/shark-rider run {ENTITY_KEY}` is the sole dispatch mechanism. The loop does NOT advance entity status or perform other entity-manipulation commands directly.
+- `/shark-rider run {ENTITY_KEY}` is the sole dispatch mechanism. The loop does NOT call `shark status advance` or any other entity-manipulation command directly.
 - `shark sprint close` is only called after explicit user confirmation in Step 4.
 - The loop honors `--max-iterations` and exits at the cap with a notice.
 - `shark sprint start` is only called if status is `planning` AND the user explicitly confirms (Step 1).

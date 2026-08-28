@@ -22,7 +22,7 @@ Parse `$ARGUMENTS`:
 ## Step 1: Verify Sprint Is Closed
 
 ```bash
-/shark-rider query: get {S###} --json --field=status
+shark get {S###} --json --field=status
 ```
 
 Parse the returned value as `STATUS`.
@@ -52,11 +52,10 @@ Store the full JSON response as `SUMMARY`. Key fields to extract:
 
 - `planned_count` — total entities planned at sprint start
 - `completed_count` — entities that reached terminal status (`completed`)
-- `carryover_count` — entities that carried over to the next sprint
 - `planned_size` — Σ size of all planned entities
 - `completed_size` — Σ size of completed entities
-- `carryover` — list of entity keys that carried over (may be empty `[]`)
-- `rejected` — list of entity keys that were rejected/blocked without completion (may be empty `[]`)
+- `carryover_entities` — list of `{key, entity_type, size}` objects for entities not completed at sprint close (may be empty `[]`); derive `carryover_count` as `len(carryover_entities)`
+- `rejected` — no such field exists in the current summary output (tracked separately as B061); treat this input as always empty until it does
 - `cycle_times_by_phase` — per-phase cycle time data (from `--detailed`); if absent, record `null`
 - `agent_allocations` — per-agent-type planned vs. completed data (from `--detailed`); if absent, record `null`
 
@@ -79,11 +78,21 @@ Store the full JSON response as `VELOCITY`. Key fields to extract:
 
 ### 2c. Carryover and Rejection Notes
 
-For each entity key in `SUMMARY.carryover` and `SUMMARY.rejected` (deduplicated):
+For each entity in `SUMMARY.carryover_entities` and `SUMMARY.rejected` (deduplicated by entity
+key; `rejected` is currently always empty — see Step 2a), use the entity's own `entity_type`
+field — never infer the type by pattern-matching the key against a key format, since carryover/
+rejected entity keys are not guaranteed to look like `E##-F##-###`, `B###`, `CC-###`, or
+`TD-###` — then call the matching notes command:
 
-```bash
-/shark-rider query: notes {entity_key}
-```
+| `entity_type` value | Command |
+|---|---|
+| `task` | `shark task notes {entity_key}` |
+| `bug` | `shark bug notes {entity_key}` |
+| `change_card` | `shark change notes {entity_key}` |
+| `tech_debt` | `shark td notes {entity_key}` |
+
+If `entity_type` is missing or does not match one of the values above, record empty notes for that
+entity and log a notice (same handling as a notes-command error — see Error Handling below).
 
 Store results as `NOTES[entity_key]` — the raw notes output for that entity. If an entity has no notes, store an empty result (do not error).
 
@@ -104,6 +113,7 @@ Apply the five pattern-match rules below against the collected data. For each ru
 - **Recommendation**: `"Sprint included {N} entity/entities with size ≥ 8 (XL or larger). Consider splitting XL+ entities into smaller tasks before next sprint planning to reduce cycle-time variance."`
 
 **Rule 3 — High carryover rate** (signal: high if carryover > 30% of planned):
+- **Pre-condition guard**: if `SUMMARY.planned_count == 0`, skip Rule 3 entirely (no planned entities → carryover rate undefined).
 - **Condition**: `SUMMARY.carryover_count / SUMMARY.planned_count > 0.30`
 - **Recommendation**: `"Carryover rate was {carryover_pct:.0f}% ({SUMMARY.carryover_count} of {SUMMARY.planned_count} planned entities) — scope was too aggressive. Consider a capacity buffer of ~{buffer_pct:.0f}% in next sprint planning."`
   - Compute `carryover_pct = carryover_count / planned_count * 100`
@@ -144,6 +154,8 @@ Compose the retro report as a single markdown document. Use the structure below 
 |---|---|---|---|
 | Entity count | {planned_count} | {completed_count} | {carryover_count} |
 | Σ size points | {planned_size} | {completed_size} | {planned_size - completed_size} |
+
+**Pre-condition guard**: if `planned_count == 0`, render **Completion rate** as `n/a (no planned entities)` and do not compute `completion_pct`.
 
 **Completion rate**: {completed_count}/{planned_count} entities ({completion_pct:.0f}%)
 
@@ -269,7 +281,7 @@ Archive now? (yes/no)
 
 - **`shark sprint summary` returns error**: print the error and exit. Do not attempt to render a partial report.
 - **`shark sprint velocity` returns error or no data**: record `trailing_average = null`, set `variance_pct = null`, render the Velocity Context section with "Velocity history unavailable." Do not abort the full retro.
-- **The notes lookup returns an error for one entity**: record empty notes for that entity, continue with the rest. Log a notice: `Note: could not retrieve notes for {entity_key}.`
+- **`shark <entity-type> notes {entity_key}` returns error for one entity**: record empty notes for that entity, continue with the rest. Log a notice: `Note: could not retrieve notes for {entity_key}.`
 - **Sprint key not found** (`shark get` returns not-found): print `Sprint {S###} not found.` and exit.
 - **Fewer than 3 recommendation rules triggered**: generate additional observations from the highest-signal data available (see Step 3 Fallback). Never emit fewer than 3 recommendation items as long as any sprint data is available.
 
@@ -291,7 +303,7 @@ This workflow is safe to re-invoke:
 - All shark calls use `--json` or `--field`.
 - `shark sprint summary {S###} --detailed --json` is called exactly once.
 - `shark sprint velocity --json` is called exactly once.
-- `shark notes` is called at most once per unique entity key in the carryover and rejected lists.
+- `shark <entity-type> notes` is called at most once per unique entity key in the carryover and rejected lists.
 - `shark sprint archive` is only called after explicit user confirmation.
 - Recommendations always cite quantitative data from the sprint. No generic placeholders.
 - The five section headers (`## Outcome`, `## Velocity Context`, `## Carryover Analysis`, `## Cycle-Time Highlights`, `## Recommendations`) are fixed and must appear in every report, even if a section contains only a "data not available" note.
