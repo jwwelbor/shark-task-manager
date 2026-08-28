@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/pterm/pterm"
 )
 
 // Test Suite 2.4: buildFeaturePlanningBasicInfo()
@@ -748,7 +750,7 @@ func TestSortFeatures(t *testing.T) {
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01"}}},
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02"}}},
 		}
-		sortFeatures(features, "key")
+		sortFeatures(features, "key", nil, nil)
 		if features[0].Key != "E07-F01" || features[1].Key != "E07-F02" || features[2].Key != "E07-F03" {
 			t.Errorf("Sort by key failed: got %s, %s, %s", features[0].Key, features[1].Key, features[2].Key)
 		}
@@ -760,7 +762,7 @@ func TestSortFeatures(t *testing.T) {
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02"}, ProgressPct: 20.0}},
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03"}, ProgressPct: 50.0}},
 		}
-		sortFeatures(features, "progress")
+		sortFeatures(features, "progress", nil, nil)
 		if features[0].ProgressPct != 20.0 || features[1].ProgressPct != 50.0 || features[2].ProgressPct != 80.0 {
 			t.Errorf("Sort by progress failed: got %.0f, %.0f, %.0f",
 				features[0].ProgressPct, features[1].ProgressPct, features[2].ProgressPct)
@@ -773,7 +775,7 @@ func TestSortFeatures(t *testing.T) {
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02"}, Status: models.FeatureStatusDraft}},
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03"}, Status: models.FeatureStatusActive}},
 		}
-		sortFeatures(features, "status")
+		sortFeatures(features, "status", nil, nil)
 		if features[0].Status != models.FeatureStatusDraft ||
 			features[1].Status != models.FeatureStatusActive ||
 			features[2].Status != models.FeatureStatusCompleted {
@@ -787,9 +789,112 @@ func TestSortFeatures(t *testing.T) {
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03"}}},
 			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01"}}},
 		}
-		sortFeatures(features, "")
+		sortFeatures(features, "", nil, nil)
 		if features[0].Key != "E07-F01" {
 			t.Errorf("Default sort failed: first key is %s, want E07-F01", features[0].Key)
+		}
+	})
+}
+
+// TestSortFeatures_ProgressUsesLiveComputedValue covers the remaining half of
+// B047 AC5: "Feature list display and sort order use the same progress
+// value." renderFeatureListTable and outputFeatureListJSON both render
+// live-computed weighted progress (status.CalculateProgress over the
+// status-breakdown batch), not the persisted ProgressPct cache. Before the
+// fix, sortFeatures sorted by the stale cache, so a feature whose displayed
+// percentage (computed) was higher than another's could still sort below it
+// (cache says otherwise) — the exact "sort order disagrees with the
+// displayed value" symptom the AC calls out.
+//
+// F01 has a stale low cache (10%) but a fully-completed live breakdown
+// (100% computed). F02 has a stale high cache (90%) but an all-todo live
+// breakdown (0% computed). Sorting by the cache would put F01 before F02;
+// sorting by the live-computed value (matching the table/JSON output) must
+// put F02 before F01.
+func TestSortFeatures_ProgressUsesLiveComputedValue(t *testing.T) {
+	cfg := &config.WorkflowConfig{
+		StatusMetadata: map[string]config.StatusMetadata{
+			"todo":      {ProgressWeight: 0.0},
+			"completed": {ProgressWeight: 1.0},
+		},
+	}
+
+	features := []FeatureWithTaskCount{
+		{Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01"}, ProgressPct: 10.0}},
+		{Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F02"}, ProgressPct: 90.0}},
+	}
+	statusBreakdownBatch := map[int64]map[models.TaskStatus]int{
+		1: {models.TaskStatus("completed"): 1}, // live-computed: 100%
+		2: {models.TaskStatus("todo"): 1},      // live-computed: 0%
+	}
+
+	sortFeatures(features, "progress", statusBreakdownBatch, cfg)
+
+	if features[0].Key != "E07-F02" || features[1].Key != "E07-F01" {
+		t.Errorf("sortFeatures did not use live-computed progress: got order %s, %s; want E07-F02, E07-F01",
+			features[0].Key, features[1].Key)
+	}
+}
+
+// TestRenderFeatureAggregation_ReadinessMessage covers B047 AC5: "feature get
+// readiness messaging uses computed progress rather than a stale cached
+// field." feature.ProgressPct is the persisted cache; data.ProgressInfo is
+// computed live from the current task status breakdown. The two normally
+// agree once the aggregate coordinator keeps the cache current, but the
+// readiness banner must key off the same computed source the rest of the
+// page uses (see buildFeatureBasicInfo's "Progress" row), not the raw
+// cached column, so a stale cache can never show a readiness banner that
+// disagrees with the progress the operator is looking at.
+func TestRenderFeatureAggregation_ReadinessMessage(t *testing.T) {
+	origNoColor := cli.GlobalConfig.NoColor
+	defer func() { cli.GlobalConfig.NoColor = origNoColor }()
+	cli.GlobalConfig.NoColor = true
+
+	// pterm.Success caches its output writer at package-init time (a copy of
+	// os.Stdout taken once), so it does not observe captureOutput's temporary
+	// os.Stdout swap. Redirect it explicitly for this test and restore after.
+	origSuccessWriter := pterm.Success
+	defer func() { pterm.Success = origSuccessWriter }()
+
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Only task"}}
+
+	t.Run("computed progress at 100 shows readiness banner even when cached field lags", func(t *testing.T) {
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Feature"}, EpicID: 7,
+			Status:      models.FeatureStatusActive,
+			ProgressPct: 90.0, // stale cache: not yet refreshed
+		}
+		data := &FeatureGetData{
+			Tasks:        []*models.Task{task},
+			ProgressInfo: &status.ProgressInfo{WeightedPct: 100.0}, // computed: current
+		}
+
+		out := captureOutput(t, func() {
+			pterm.Success = *origSuccessWriter.WithWriter(os.Stdout)
+			renderFeatureAggregationWithTags(feature, data, nil, nil)
+		})
+
+		if !strings.Contains(string(out), "ready for approval") {
+			t.Errorf("expected readiness banner when computed progress is 100%%, got output:\n%s", out)
+		}
+	})
+
+	t.Run("computed progress below 100 hides readiness banner even when cached field is stale-high", func(t *testing.T) {
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Feature"}, EpicID: 7,
+			Status:      models.FeatureStatusActive,
+			ProgressPct: 100.0, // stale cache: overstates progress
+		}
+		data := &FeatureGetData{
+			Tasks:        []*models.Task{task},
+			ProgressInfo: &status.ProgressInfo{WeightedPct: 80.0}, // computed: current
+		}
+
+		out := captureOutput(t, func() {
+			pterm.Success = *origSuccessWriter.WithWriter(os.Stdout)
+			renderFeatureAggregationWithTags(feature, data, nil, nil)
+		})
+
+		if strings.Contains(string(out), "ready for approval") {
+			t.Errorf("did not expect readiness banner when computed progress is below 100%%, got output:\n%s", out)
 		}
 	})
 }

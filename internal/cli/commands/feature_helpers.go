@@ -86,11 +86,31 @@ func filterFeaturesByCompletedStatus(features []FeatureWithTaskCount, showAll bo
 }
 
 // sortFeatures sorts features by the specified field.
-func sortFeatures(features []FeatureWithTaskCount, sortBy string) {
+//
+// For "progress", the sort key must match what renderFeatureListTable and
+// outputFeatureListJSON actually display: the live-computed weighted
+// progress (status.CalculateProgress over statusBreakdownBatch), not the
+// persisted ProgressPct cache. Using the cache here let the displayed
+// percentage and the sort order disagree for the same row whenever the
+// cache lagged the live task-status breakdown (B047 AC5). cfg is the same
+// workflow config the table/JSON renderers load; when nil (config
+// unavailable), sorting falls back to the cached ProgressPct, matching
+// their fallback behavior.
+func sortFeatures(features []FeatureWithTaskCount, sortBy string, statusBreakdownBatch map[int64]map[models.TaskStatus]int, cfg *config.WorkflowConfig) {
 	switch sortBy {
 	case "progress":
+		progressPct := func(f FeatureWithTaskCount) float64 {
+			if cfg == nil {
+				return f.ProgressPct
+			}
+			statusCounts := make(map[string]int)
+			for taskStatus, count := range statusBreakdownBatch[f.ID] {
+				statusCounts[string(taskStatus)] = count
+			}
+			return status.CalculateProgress(statusCounts, cfg).WeightedPct
+		}
 		sort.Slice(features, func(i, j int) bool {
-			return features[i].ProgressPct < features[j].ProgressPct
+			return progressPct(features[i]) < progressPct(features[j])
 		})
 	case "status":
 		statusOrder := map[models.FeatureStatus]int{
@@ -532,8 +552,15 @@ func renderFeatureAggregationWithTags(feature *models.Feature, data *FeatureGetD
 			// Action items section (tasks needing attention)
 			renderFeatureActionItems(data.ActionItems)
 
-			// Check if all tasks are completed
-			if len(data.Tasks) > 0 && feature.ProgressPct >= 100.0 {
+			// Check if all tasks are completed. Use the computed progress value
+			// (same source as the Progress row/breakdown above), not the raw
+			// persisted cache, so this banner never disagrees with the rest of
+			// the page (B047 AC5).
+			readinessPct := feature.ProgressPct
+			if data.ProgressInfo != nil {
+				readinessPct = data.ProgressInfo.WeightedPct
+			}
+			if len(data.Tasks) > 0 && readinessPct >= 100.0 {
 				fmt.Println()
 				pterm.Success.Println("All tasks completed! Feature is ready for approval.")
 			}
