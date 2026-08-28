@@ -77,4 +77,56 @@ grep -q "^admit: " "$ERR_FILE" || fail "stderr does not carry the script's own e
 grep -qF "$ZERO_MATCH_SELECTOR" "$ERR_FILE" || fail "stderr does not name the zero-match run_selector: $(cat "$ERR_FILE")"
 
 echo "TC-098: end-to-end admit.sh process exits 2 with a clear stderr message for a zero-match run_selector"
+
+# --- Multi-package case (code review, PR #203): the zero-match guard is
+# deliberately SET-WIDE (summed across every package in the p2p_set), not
+# per-package -- see check_p2p_green()'s docstring in admit.sh. A selector
+# legitimately scoped to only one package's tests must NOT trip the guard
+# just because it matches zero tests in every OTHER package of a
+# multi-package set. Without this case, the set-wide accumulation logic is
+# only ever exercised with exactly one package in the loop, which is
+# behaviorally indistinguishable from a (wrong) per-package check.
+TRANSIENT_SET_MULTIPKG="pricing_multipkg_partial_match"
+TRANSIENT_CORPUS_MULTIPKG="$WORKDIR/corpus-multipkg-partial-match.yaml"
+# "./pkg/..." enumerates every fixture-repo package (pkg/pricing, pkg/cart,
+# pkg/inventory, pkg/validate) as ONE p2p_set. TestTaxAmount exists only in
+# pkg/pricing -- the selector matches something there and nothing in the
+# other three packages.
+build_transient_run_selector_corpus \
+	"$CORPUS_YAML" "$TRANSIENT_CORPUS_MULTIPKG" "$TRANSIENT_ITEM" "$TRANSIENT_SET_MULTIPKG" \
+	"^TestTaxAmount$" "./pkg/..."
+
+echo "TC-098: running admit.sh against a multi-package p2p_set whose run_selector matches some tests in one package and none in the others"
+set +e
+OUT_FILE_MULTIPKG="$WORKDIR/stdout-multipkg.log"
+ERR_FILE_MULTIPKG="$WORKDIR/stderr-multipkg.log"
+"$ADMIT_SCRIPT" "$TRANSIENT_CORPUS_MULTIPKG" --item "$TRANSIENT_ITEM" >"$OUT_FILE_MULTIPKG" 2>"$ERR_FILE_MULTIPKG"
+CODE_MULTIPKG=$?
+set -e
+
+[[ "$CODE_MULTIPKG" -eq 0 ]] || fail "expected admit.sh to exit 0 (admitted) for a selector that matches something in one package of a multi-package set, got $CODE_MULTIPKG (stdout: $(cat "$OUT_FILE_MULTIPKG"), stderr: $(cat "$ERR_FILE_MULTIPKG"))"
+
+python3 - "$OUT_FILE_MULTIPKG" <<'PYEOF'
+import json
+import sys
+
+verdict_path = sys.argv[1]
+with open(verdict_path) as f:
+    line = f.read().strip()
+
+try:
+    verdict = json.loads(line)
+except json.JSONDecodeError as exc:
+    sys.exit(f"TC-098 FAIL: admit.sh did not print a single JSON verdict line for the multi-package case: {line!r} ({exc})")
+
+if verdict["status"] != "admitted":
+    sys.exit(
+        "TC-098 FAIL: expected status 'admitted' for a multi-package p2p_set whose "
+        f"run_selector matches something in one package, got {verdict['status']!r} "
+        f"(failing_check={verdict.get('failing_check')!r}) -- the zero-match guard must be "
+        f"set-wide, not per-package: {line}"
+    )
+PYEOF
+
+echo "TC-098: multi-package case correctly admitted -- the zero-match guard is set-wide, not per-package"
 echo "TC-098: PASS"
