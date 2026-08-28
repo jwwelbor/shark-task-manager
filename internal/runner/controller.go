@@ -113,7 +113,7 @@ type StageLog struct {
 	// EntityKey is the entity this stage was executed for. Cascade children
 	// populate their own key so stages remain attributable after the parent
 	// flattens child Stages into its own result.
-	EntityKey string `json:"entity_key,omitempty"`
+	EntityKey string `json:"entity_key"`
 
 	// Status is the workflow status this stage executed.
 	Status string `json:"status"`

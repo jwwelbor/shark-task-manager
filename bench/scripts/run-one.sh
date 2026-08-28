@@ -535,13 +535,34 @@ if [[ -n "$run_id" && -d "$scratch_dir/.shark/runs/$run_id" ]]; then
 	if [[ -f "$src/run.log" ]]; then
 		cp "$src/run.log" "$run_dir/run/run.log"
 	fi
-	shopt -s nullglob
-	transcripts=("$src"/*.log)
-	shopt -u nullglob
+	# Transcripts now live one directory level deeper, under the
+	# entity key that produced them ($src/<entityKey>/*.log -- B052
+	# entity-scoped path fix), so a flat "$src"/*.log glob matches
+	# nothing. Discover recursively; -mindepth 2 already excludes the
+	# top-level run.log without a separate basename check (LivenessRecorder
+	# writes exactly one run.log per RunID, directly under $src, never
+	# nested under an entity directory -- internal/runner/liveness.go's
+	# resolveLogPath keys only on runID).
+	#
+	# Deliberate deviation from B052's code-review F1 note: the reviewer's
+	# suggested full repair also nests the COPY DESTINATION by entity key
+	# and re-keys collect-run.sh's reconcile_transcripts on
+	# (entity_key, idx) to avoid two same-named sibling transcripts
+	# colliding at a flat destination. That is not done here -- destination
+	# stays flat, matching the (idx)-only keying reconcile_transcripts
+	# already has. This is safe today and unreachable-by-construction, not
+	# an oversight: docs/plan/bugs/B052.md's own scope note says
+	# meta.json.item_type is restricted to task/bug in Phase 1, so no
+	# cascade action ever fires and at most one entity directory exists per
+	# run -- the same reachability argument the review's own F5 makes for
+	# collect-run.sh's sibling `iteration`-keying gap. The nested-
+	# destination + (entity_key, idx) rework is deferred to Phase 2
+	# cascade benching, alongside F5, since both need the same keying
+	# change made once rather than twice.
+	readarray -d '' -t transcripts < <(find "$src" -mindepth 2 -type f -name '*.log' -print0 2>/dev/null)
 	if [[ "${#transcripts[@]}" -gt 0 ]]; then
 		mkdir -p "$run_dir/run/transcripts"
 		for f in "${transcripts[@]}"; do
-			[[ "$(basename "$f")" == "run.log" ]] && continue
 			cp "$f" "$run_dir/run/transcripts/"
 		done
 	fi

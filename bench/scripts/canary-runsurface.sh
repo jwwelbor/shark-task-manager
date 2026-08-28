@@ -76,7 +76,7 @@ done
 # --- pinned expected field sets -- see header note above. ---
 RUNRESULT_REQUIRED="entity_key,final_status,stages_completed,stages,outcome,total_duration_ns"
 RUNRESULT_OPTIONAL="error,question_block"
-STAGELOG_REQUIRED="status,action,duration_ns,exit_code"
+STAGELOG_REQUIRED="status,action,duration_ns,exit_code,entity_key"
 STAGELOG_OPTIONAL="agent_type,provider,output_summary"
 
 fail_field() {
@@ -190,7 +190,14 @@ if not stdout:
 
 status = stage.get("status", "")
 provider = stage.get("provider", "")
-candidates = sorted(glob.glob(os.path.join(run_dir, "*-%s-%s.log" % (status, provider))))
+# Transcripts now live one directory level deeper, under the entity
+# key that produced them (run_dir/<entityKey>/*.log -- B052
+# entity-scoped path fix). This canary seeds exactly one task, so
+# exactly one entity directory exists; search recursively so this
+# check does not care how deep that directory is nested.
+candidates = sorted(
+    glob.glob(os.path.join(run_dir, "**", "*-%s-%s.log" % (status, provider)), recursive=True)
+)
 if len(candidates) != 1:
     sys.stderr.write(
         "canary-runsurface: expected exactly one transcript matching *-%s-%s.log under %s, found %d\n"

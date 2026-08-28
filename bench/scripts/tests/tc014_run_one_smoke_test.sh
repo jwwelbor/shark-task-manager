@@ -702,6 +702,36 @@ test_l() {
 	echo "TC-014l PASS"
 }
 
+# TC-014m (B052 regression): `shark run`'s real on-disk transcript layout is
+# entity-scoped (.shark/runs/<run_id>/<entity_key>/<stageN>-<status>-
+# <provider>.log), one directory level deeper than run-one.sh's postrun
+# phase used to assume. Every other TC-014 sub-case exercises a
+# STUB_SHARK_RUN_RESULT_FILE stages[] fixture only -- the stub never
+# actually creates .shark/runs/<run_id>/ on disk, so none of them touch
+# run-one.sh's transcript-copy code at all (that blind spot is exactly why
+# B052's bench/scripts regression shipped unnoticed). This case makes the
+# stub write a real run.log + entity-scoped transcript file and asserts
+# run-one.sh's postrun phase actually finds and copies it.
+test_m() {
+	local out_dir="$WORKDIR/m-out" err="$WORKDIR/m.err"
+
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_SHARK_RUN_WRITE_TRANSCRIPT=1 \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$out_dir" --corpus "$CORPUS_YAML" --skip-canary \
+		</dev/null >"$WORKDIR/m.out" 2>"$err" ||
+		fail "m: run-one.sh exited non-zero: $(cat "$err")"
+
+	local run_log="$out_dir/cart-remove-item-last-match/default/rep-1/run/run.log"
+	[[ -f "$run_log" ]] || fail "m: run/run.log not copied"
+
+	local transcript="$out_dir/cart-remove-item-last-match/default/rep-1/run/transcripts/1-in_development-anthropic.log"
+	[[ -f "$transcript" ]] ||
+		fail "m: entity-scoped transcript not copied to run/transcripts/ (found: $(find "$out_dir/cart-remove-item-last-match/default/rep-1/run" -type f 2>/dev/null | tr '\n' ' '))"
+	grep -qF 'COMMAND: echo hi' "$transcript" || fail "m: copied transcript content does not match the stub's entity-scoped source file"
+
+	echo "TC-014m PASS"
+}
+
 test_a
 test_b
 test_c
@@ -714,5 +744,6 @@ test_i
 test_j
 test_k
 test_l
+test_m
 
 echo "TC-014: all sub-cases PASS"
