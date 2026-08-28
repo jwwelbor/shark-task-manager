@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -3764,6 +3765,275 @@ func TestSprintService_GetSprintReadiness_Factor2_DependencySatisfaction(t *test
 	})
 }
 
+// ---------------------------------------------------------------------------
+// B058: Sprint readiness treats completed external dependencies as unsatisfied.
+//
+// computeDependencySatisfactionFactor previously counted a task dependency as
+// satisfied only when its key was assigned to the *current* sprint. A
+// dependency completed in a prior/historical sprint (not assigned to this
+// sprint) was wrongly counted as unsatisfied, deducting readiness points.
+//
+// These tests use a real SQLite DB (via newTestDB, matching the existing
+// CloseSprintWithCarryover precedent in this file) because GetSprintReadiness
+// batch-looks-up external dependency task status via a concrete
+// repository.NewTaskRepository(s.db) — s.db must be non-nil for the lookup to
+// run at all, so a mock-only SprintAssignmentQueryRepository cannot exercise
+// this code path.
+// ---------------------------------------------------------------------------
+
+// seedB058Epic inserts (or reuses) a minimal epic row for B058 dependency fixtures.
+func seedB058Epic(t *testing.T, db *repository.DB, key string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var epicID int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM epics WHERE key = ?`, key).Scan(&epicID); err == nil {
+		return epicID
+	}
+	res, err := db.ExecContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES (?, 'B058 Test Epic', 'active', 'medium')`, key)
+	require.NoError(t, err)
+	epicID, err = res.LastInsertId()
+	require.NoError(t, err)
+	return epicID
+}
+
+// seedB058Feature inserts (or reuses) a minimal feature row for B058 dependency fixtures.
+func seedB058Feature(t *testing.T, db *repository.DB, epicID int64, key string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var featureID int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM features WHERE key = ?`, key).Scan(&featureID); err == nil {
+		return featureID
+	}
+	res, err := db.ExecContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, ?, 'B058 Test Feature', 'active')`, epicID, key)
+	require.NoError(t, err)
+	featureID, err = res.LastInsertId()
+	require.NoError(t, err)
+	return featureID
+}
+
+// seedB058Task inserts (replacing any prior row) a task with the given key and status.
+func seedB058Task(t *testing.T, db *repository.DB, featureID int64, key, status string) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `DELETE FROM tasks WHERE key = ?`, key)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO tasks (feature_id, key, title, status) VALUES (?, ?, ?, ?)`, featureID, key, "Task "+key, status)
+	require.NoError(t, err)
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCompletedInHistoricalSprint_Satisfied
+// reproduces the B058 bug scenario: a task assigned to the current sprint depends on
+// a task that is completed (terminal) but assigned to a different (historical) sprint,
+// i.e. it is simply absent from the current sprint's assignment set. The dependency
+// must count as satisfied and Factor 2 must not be penalized.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCompletedInHistoricalSprint_Satisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-001", "completed") // terminal, NOT in current sprint
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-002", Size: sizePtrR(3), DependsOn: `["T-E58-F01-001"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 20, f2.Score,
+		"dependency completed in a historical sprint must be treated as satisfied, not penalized")
+	assert.Equal(t, "All task dependencies are satisfied (assigned to this sprint or already completed)", f2.Detail,
+		"detail must not claim sprint assignment when satisfaction came from a terminal-elsewhere dependency")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyNotTerminal_StillUnsatisfied
+// preserves the negative case: a dependency that exists but has NOT reached a terminal
+// status, and is not assigned to the current sprint, must still count as unsatisfied.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyNotTerminal_StillUnsatisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-003", "development") // NOT terminal, NOT in current sprint
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-004", Size: sizePtrR(3), DependsOn: `["T-E58-F01-003"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 19, f2.Score,
+		"a non-terminal dependency outside the current sprint must still be unsatisfied")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCancelled_StillUnsatisfied
+// is the B058 code-review Blocker 1 regression test: a dependency that is terminal but
+// NOT successful (cancelled/abandoned) must NOT be credited as satisfied. IsTerminalStatus
+// alone is true for both "completed" and "cancelled" in this repo's embedded task workflow,
+// so crediting purely on terminal-ness wrongly satisfies a dependency on abandoned work.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyCancelled_StillUnsatisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-006", "cancelled") // terminal but NOT successful
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-007", Size: sizePtrR(3), DependsOn: `["T-E58-F01-006"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 19, f2.Score,
+		"a cancelled (terminal-but-abandoned) external dependency must NOT count as satisfied")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyDoesNotExist_StillUnsatisfied
+// preserves the safe default: a dependency key that doesn't resolve to any task at all
+// (e.g. a typo) must still count as unsatisfied, even with the B058 fix in place.
+func TestSprintService_GetSprintReadiness_Factor2_ExternalDependencyDoesNotExist_StillUnsatisfied(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-005", Size: sizePtrR(3), DependsOn: `["T-E58-F01-DOES-NOT-EXIST"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 19, f2.Score,
+		"a dependency key that doesn't exist in the task table must still be unsatisfied")
+}
+
+// TestSprintService_GetSprintReadiness_ExternalDependencyLookupError_FailsLoud is the
+// code-review regression test for B058 finding #1 (MED): a failure of the external-dependency
+// batch lookup itself (e.g. a transient DB error) must propagate as an error, not be silently
+// swallowed into "no dependencies satisfied" (Rule 12 — fail loud). It uses a *repository.DB
+// backed by a fresh in-memory SQLite connection with no schema applied (deliberately separate
+// from the shared package testDB), so TaskRepository.GetByKeys fails with a real
+// "no such table: tasks" error rather than a mocked one.
+func TestSprintService_GetSprintReadiness_ExternalDependencyLookupError_FailsLoud(t *testing.T) {
+	ctx := context.Background()
+
+	rawDB, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	defer rawDB.Close()
+	schemalessDB := repository.NewDB(rawDB)
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-100", Size: sizePtrR(3), DependsOn: `["T-E58-F01-EXTERNAL"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, schemalessDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.Error(t, err, "a batch-lookup failure must propagate as an error instead of degrading silently")
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "external dependency",
+		"the error should name the failing operation so it is observable, not swallowed")
+}
+
+// TestSprintService_GetSprintReadiness_Factor2_ManyExternalDependencies_ChunkedLookup is the
+// code-review regression test for B058 finding #2 (MED): computeExternalDependencyTerminalStatus
+// chunks its GetByKeys calls into batches of externalDepBatchSize keys to stay under SQLite's
+// bound-parameter limit. This seeds more distinct external dependency keys than fit in a single
+// batch and asserts every one of them still resolves correctly, proving the multi-batch loop
+// merges results across batches rather than only covering the first chunk.
+func TestSprintService_GetSprintReadiness_Factor2_ManyExternalDependencies_ChunkedLookup(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+
+	const depCount = externalDepBatchSize + 50 // spans two GetByKeys batches
+	depKeys := make([]string, depCount)
+	for i := 0; i < depCount; i++ {
+		key := fmt.Sprintf("T-E58-F01-CHUNK-%04d", i)
+		depKeys[i] = key
+		seedB058Task(t, testDB, featureID, key, "completed") // terminal, NOT in current sprint
+	}
+	dependsOnJSON, err := json.Marshal(depKeys)
+	require.NoError(t, err)
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-CHUNK-ASSIGNEE", Size: sizePtrR(3), DependsOn: string(dependsOnJSON)},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	result, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+	f2 := result.Factors[1]
+	assert.Equal(t, 20, f2.Score,
+		"every external dependency must be credited as satisfied even when the lookup spans multiple GetByKeys batches")
+}
+
 // TestSprintService_GetSprintReadiness_Factor3_TaskCount tests TC-013-03: BVA on entity count.
 func TestSprintService_GetSprintReadiness_Factor3_TaskCount(t *testing.T) {
 	ctx := context.Background()
@@ -4368,6 +4638,49 @@ func TestPlanSprint_NilAssignmentRepo(t *testing.T) {
 	assert.Len(t, result.Capacity, 0)
 	require.NotNil(t, result.Readiness, "readiness must be non-nil even with nil repos")
 	assert.Equal(t, 0, result.Readiness.OverallScore, "nil repos → no assignments → score=0")
+}
+
+// TestPlanSprint_Factor2_ExternalDependencyCompletedInHistoricalSprint_AgreesWithReadiness
+// is the B058 code-review Blocker 2 regression test: `shark sprint plan`'s readiness table
+// (PlanSprint) must apply the same external-dependency terminal-status
+// enrichment as `shark sprint readiness` (GetSprintReadiness). Before the fix, PlanSprint
+// passed nil for extDepTerminal, so the same B058 repro scenario scored differently across
+// the two commands.
+func TestPlanSprint_Factor2_ExternalDependencyCompletedInHistoricalSprint_AgreesWithReadiness(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+
+	epicID := seedB058Epic(t, testDB, "E58")
+	featureID := seedB058Feature(t, testDB, epicID, "E58-F01")
+	seedB058Task(t, testDB, featureID, "T-E58-F01-008", "completed") // terminal, NOT in current sprint
+
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) { return sprintObj, nil },
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return []sprint.AssignmentWithSize{
+				{EntityType: "task", Key: "T-E58-F01-009", Size: sizePtrR(3), DependsOn: `["T-E58-F01-008"]`},
+			}, nil
+		},
+	}
+	wf := workflow.NewService("")
+	svc := NewSprintService(mockRepo, wf, mockAssignRepo, nil, nil, testDB)
+
+	readiness, err := svc.GetSprintReadiness(ctx, "S024")
+	require.NoError(t, err)
+
+	planView, err := svc.PlanSprint(ctx, "S024")
+	require.NoError(t, err)
+	require.NotNil(t, planView.Readiness)
+
+	f2Readiness := readiness.Factors[1]
+	f2Plan := planView.Readiness.Factors[1]
+	assert.Equal(t, 20, f2Plan.Score,
+		"shark sprint plan must credit the historically-completed external dependency just like shark sprint readiness")
+	assert.Equal(t, f2Readiness.Score, f2Plan.Score,
+		"GetSprintReadiness and PlanSprint must agree on Factor 2 for identical inputs")
 }
 
 // ─── E19-F07-003: AddEntityToSprint with Position and BulkAddToSprint auto-number ───────────

@@ -2745,9 +2745,18 @@ type SprintReadiness struct {
 
 // GetSprintReadiness computes the 0-100 readiness score for a sprint.
 //
-// Fetches data via exactly two repository calls:
-//  1. assignmentRepo.GetAssignmentsWithSize — all active assignments with size, title, depends_on
-//  2. capacityRepo.GetCapacity — all capacity rows for the sprint
+// After resolving the sprint key via s.repo.GetByKey, fetches data via one
+// guaranteed repository call plus up to two conditional ones:
+//  1. assignmentRepo.GetAssignmentsWithSize (guaranteed) — all active assignments
+//     with size, title, depends_on
+//  2. capacityRepo.GetCapacity (conditional on s.capacityRepo != nil) — all
+//     capacity rows for the sprint
+//  3. TaskRepository.GetByKeys (conditional; may run as multiple chunked
+//     batches — see computeExternalDependencyTerminalStatus) — batch lookup of
+//     dependency keys that are NOT assigned to this sprint, to determine
+//     whether they are already terminal (e.g. completed in a prior sprint).
+//     Skipped when there are no such external dependencies, or when the
+//     service was constructed without a *repository.DB.
 //
 // All six factor scores are then computed in-memory — no additional DB queries per factor.
 // The result is deterministic: identical inputs always produce the same output.
@@ -2786,9 +2795,134 @@ func (s *SprintService) GetSprintReadiness(ctx context.Context, key string) (*Sp
 		}
 	}
 
+	// ─── Conditional lookup: terminal status of external (non-sprint) task
+	// dependencies, so completed prerequisites from other sprints satisfy
+	// Factor 2 instead of being penalized (B058). ─────────────────────────
+	assignedKeys := buildAssignedKeys(assignments)
+	extDepTerminal, err := s.computeExternalDependencyTerminalStatus(ctx, assignments, assignedKeys)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute external dependency terminal status for sprint %s readiness: %w", key, err)
+	}
+
 	// ─── In-memory computation only from here ──────────────────────────────
-	return computeReadinessFromData(assignments, capacities), nil
+	return computeReadinessFromData(assignments, capacities, extDepTerminal, assignedKeys), nil
 }
+
+// buildAssignedKeys builds the uppercased set of this sprint's assignment
+// keys, shared by computeExternalDependencyTerminalStatus and
+// computeReadinessFromData so it is computed exactly once per readiness
+// calculation instead of twice.
+func buildAssignedKeys(assignments []sprint.AssignmentWithSize) map[string]bool {
+	assignedKeys := make(map[string]bool, len(assignments))
+	for _, a := range assignments {
+		assignedKeys[strings.ToUpper(a.Key)] = true
+	}
+	return assignedKeys
+}
+
+// computeExternalDependencyTerminalStatus batch-looks-up task dependencies
+// that are referenced by this sprint's assignments but are NOT themselves
+// assigned to this sprint (e.g. a prerequisite completed in an earlier
+// sprint). It returns the set of such dependency keys (uppercased) whose
+// task status is terminal AND successful per workflow.Service — i.e.
+// dependencies that should count as satisfied even though they are not in
+// the current sprint. A status that is terminal but not successful (e.g.
+// "cancelled") is deliberately excluded: the workflow's ExcludeFromProgress
+// flag on the status metadata (not a hardcoded status name) is used to tell
+// abandoned terminal work apart from completed terminal work.
+//
+// A dependency key that cannot be resolved to an existing task (a typo) is
+// simply absent from the returned map, which preserves the existing
+// "unsatisfied by default" safety behavior. A failure of the batch lookup
+// itself (e.g. a transient DB error) is NOT swallowed: it is returned to the
+// caller so it can be surfaced instead of silently degrading every task's
+// Factor 2 score to "unsatisfied" (Rule 12 — fail loud).
+//
+// The lookup is chunked into batches of externalDepBatchSize keys to stay
+// under SQLite's default bound-parameter limit (SQLITE_MAX_VARIABLE_NUMBER,
+// typically 999), so a large sprint with many distinct external dependency
+// keys cannot exceed it.
+//
+// Requires s.db (used to construct a TaskRepository); when s.db is nil the
+// lookup is skipped entirely and an empty map is returned, matching the
+// pre-B058 behavior (satisfaction determined by sprint membership only).
+//
+// assignedKeys is the uppercased set of this sprint's assignment keys,
+// built once by the caller via buildAssignedKeys and shared with
+// computeReadinessFromData.
+func (s *SprintService) computeExternalDependencyTerminalStatus(
+	ctx context.Context,
+	assignments []sprint.AssignmentWithSize,
+	assignedKeys map[string]bool,
+) (map[string]bool, error) {
+	extDepTerminal := make(map[string]bool)
+	if s.db == nil {
+		return extDepTerminal, nil
+	}
+
+	var externalDeps []string
+	seen := make(map[string]bool)
+	for _, a := range assignments {
+		if a.EntityType != "task" || a.DependsOn == "" || a.DependsOn == "[]" || a.DependsOn == "null" {
+			continue
+		}
+		var deps []string
+		if err := json.Unmarshal([]byte(a.DependsOn), &deps); err != nil {
+			// Malformed JSON is surfaced separately by computeDependencySatisfactionFactor.
+			continue
+		}
+		for _, dep := range deps {
+			depUpper := strings.ToUpper(dep)
+			if assignedKeys[depUpper] || seen[depUpper] {
+				continue
+			}
+			seen[depUpper] = true
+			externalDeps = append(externalDeps, depUpper)
+		}
+	}
+
+	if len(externalDeps) == 0 {
+		return extDepTerminal, nil
+	}
+
+	taskRepo := repository.NewTaskRepository(s.db)
+	tasks := make(map[string]*models.Task, len(externalDeps))
+	for i := 0; i < len(externalDeps); i += externalDepBatchSize {
+		end := i + externalDepBatchSize
+		if end > len(externalDeps) {
+			end = len(externalDeps)
+		}
+		batch, err := taskRepo.GetByKeys(ctx, externalDeps[i:end])
+		if err != nil {
+			return nil, fmt.Errorf("failed to batch-lookup external dependency tasks (keys %d-%d of %d): %w", i, end-1, len(externalDeps), err)
+		}
+		for k, v := range batch {
+			tasks[k] = v
+		}
+	}
+
+	taskLevelWf := s.workflowSvc.ForLevel(workflow.LevelTask)
+	for depKey, task := range tasks {
+		if task == nil {
+			continue
+		}
+		status := string(task.Status)
+		// Only credit a dependency that is terminal AND successful. A status can be
+		// terminal without being a success (e.g. "cancelled" is terminal but abandoned
+		// work); such statuses are marked ExcludeFromProgress in the workflow config,
+		// so that flag — not a hardcoded status name — is the discriminator.
+		if taskLevelWf.IsTerminalStatus(status) && !taskLevelWf.GetStatusMetadata(status).ExcludeFromProgress {
+			extDepTerminal[strings.ToUpper(depKey)] = true
+		}
+	}
+	return extDepTerminal, nil
+}
+
+// externalDepBatchSize is the maximum number of keys per GetByKeys batch in
+// computeExternalDependencyTerminalStatus. SQLite's default
+// SQLITE_MAX_VARIABLE_NUMBER is 999; this stays comfortably under that limit
+// so a sprint with many distinct external dependency keys cannot exceed it.
+const externalDepBatchSize = 500
 
 // computeCapacityUtilizationFactor computes Factor 1 (Capacity utilization, 0-25).
 //
@@ -2839,12 +2973,23 @@ func computeCapacityUtilizationFactor(totalCapacity, totalAllocated float64) Rea
 // computeDependencySatisfactionFactor computes Factor 2 (Dependency satisfaction, 0-20).
 //
 // For each task in the sprint, parses depends_on JSON ([]string of task keys).
-// A dependency is "satisfied" if the dependency key is also assigned to the sprint.
-// Unsatisfied = dependencies not in the sprint's assigned key set.
+// A dependency is "satisfied" if either:
+//   - the dependency key is also assigned to the sprint, OR
+//   - the dependency key is terminal (e.g. completed) in some other/historical
+//     sprint, per extDepTerminal (B058: completed external dependencies must
+//     not be penalized just because they aren't assigned to this sprint).
+//
+// Unsatisfied = dependencies that are neither assigned to this sprint nor
+// terminal elsewhere (this also covers dependency keys that don't exist at
+// all — they are simply absent from extDepTerminal, so they stay unsatisfied).
 // score = max(0, 20 - unsatisfied_count)
 //
 // Non-task entities are excluded (bugs/changes/tech-debts have no depends_on).
-func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize, assignedKeys map[string]bool) ReadinessFactor {
+func computeDependencySatisfactionFactor(
+	assignments []sprint.AssignmentWithSize,
+	assignedKeys map[string]bool,
+	extDepTerminal map[string]bool,
+) ReadinessFactor {
 	const maxScore = 20
 	name := "Dependency satisfaction"
 
@@ -2862,9 +3007,11 @@ func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize
 			continue
 		}
 		for _, dep := range deps {
-			if !assignedKeys[strings.ToUpper(dep)] {
-				unsatisfied++
+			depUpper := strings.ToUpper(dep)
+			if assignedKeys[depUpper] || extDepTerminal[depUpper] {
+				continue
 			}
+			unsatisfied++
 		}
 	}
 
@@ -2875,7 +3022,7 @@ func computeDependencySatisfactionFactor(assignments []sprint.AssignmentWithSize
 
 	var detail string
 	if unsatisfied == 0 {
-		detail = "All task dependencies are satisfied (assigned to this sprint)"
+		detail = "All task dependencies are satisfied (assigned to this sprint or already completed)"
 	} else {
 		detail = fmt.Sprintf("%d unsatisfied external task dependenc%s", unsatisfied,
 			pluralize(unsatisfied, "y", "ies"))
@@ -3084,8 +3231,15 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 	// Step 5: Compute CapacityRow slice in-memory.
 	capacity := buildCapacityRows(assignments, capacityModels)
 
-	// Step 6: Compute SprintReadiness in-memory (uses the same factor algorithms as GetSprintReadiness).
-	readiness := planComputeReadiness(assignments, capacityModels)
+	// Step 6: Compute SprintReadiness in-memory (uses the same factor algorithms as GetSprintReadiness),
+	// including the same external-dependency terminal-status enrichment (B058) so
+	// `shark sprint plan` and `shark sprint readiness` agree on Factor 2 for identical inputs.
+	assignedKeys := buildAssignedKeys(assignments)
+	extDepTerminal, err := s.computeExternalDependencyTerminalStatus(ctx, assignments, assignedKeys)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute external dependency terminal status for sprint %s plan: %w", key, err)
+	}
+	readiness := computeReadinessFromData(assignments, capacityModels, extDepTerminal, assignedKeys)
 
 	return &SprintPlanView{
 		Sprint:    sprintEntity,
@@ -3129,20 +3283,23 @@ func buildCapacityRows(assignments []sprint.AssignmentWithSize, capacityModels [
 	return rows
 }
 
-// planComputeReadiness computes SprintReadiness from in-memory assignment and capacity data.
-// Delegates to computeReadinessFromData so both paths produce identical output for
-// identical inputs (determinism guarantee).
-func planComputeReadiness(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity) *SprintReadiness {
-	return computeReadinessFromData(assignments, capacities)
-}
-
 // computeReadinessFromData is the shared in-memory computation kernel used by both
-// GetSprintReadiness (post-query) and planComputeReadiness (plan path).
+// GetSprintReadiness (post-query) and PlanSprint (plan path), which each compute their
+// own extDepTerminal via computeExternalDependencyTerminalStatus so the two commands
+// agree on Factor 2 for identical inputs (B058).
 //
 // It aggregates capacity/allocation totals, builds the dependency-check index,
 // collects unsized/oversized lists, and then calls each of the six factor helpers.
 // Identical inputs always produce identical output (deterministic).
-func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity) *SprintReadiness {
+//
+// extDepTerminal is the (possibly nil) set of external (non-sprint-assigned)
+// task dependency keys that are terminal elsewhere; see
+// computeDependencySatisfactionFactor.
+//
+// assignedKeys is the uppercased set of this sprint's assignment keys,
+// built once by the caller via buildAssignedKeys and shared with
+// computeExternalDependencyTerminalStatus (rather than rebuilt here).
+func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacities []*models.SprintCapacity, extDepTerminal map[string]bool, assignedKeys map[string]bool) *SprintReadiness {
 	// ─── Zero-entity degenerate case (spec AC-12) ──────────────────────────
 	// When no entities are assigned, the overall score is 0 and all factor
 	// scores are also 0, regardless of what individual formulae would produce.
@@ -3164,12 +3321,6 @@ func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacitie
 	}
 
 	totalEntities := len(assignments)
-
-	// Build an index of assigned task keys for Factor 2 dependency check.
-	assignedKeys := make(map[string]bool, totalEntities)
-	for _, a := range assignments {
-		assignedKeys[strings.ToUpper(a.Key)] = true
-	}
 
 	// Aggregate capacity totals for Factor 1.
 	var totalCapacity, totalAllocated float64
@@ -3202,7 +3353,7 @@ func computeReadinessFromData(assignments []sprint.AssignmentWithSize, capacitie
 	f1 := computeCapacityUtilizationFactor(totalCapacity, totalAllocated)
 
 	// ─── Factor 2: Dependency satisfaction (0-20) ──────────────────────────
-	f2 := computeDependencySatisfactionFactor(assignments, assignedKeys)
+	f2 := computeDependencySatisfactionFactor(assignments, assignedKeys, extDepTerminal)
 
 	// ─── Factor 3: Task count (0-15) ───────────────────────────────────────
 	f3 := computeTaskCountFactor(totalEntities)
