@@ -164,9 +164,9 @@ require a generated artifact.
   the same axes `build-ledgers.sh` records on every ledger and
   `diff-ledgers.sh --toolchain-guard` compares against.
 - **`p2p_sets`** — a map from a `p2p_set` identifier to `packages` (Go
-  package patterns), `run_selector` (an optional `-run` regex), and
-  `exclude_tests` (fully-qualified test identities to subtract). See
-  "`p2p_set` resolution rule" below.
+  package patterns), `run_selector` (an optional, RESTRICTED `-run`
+  pattern — see below), and `exclude_tests` (fully-qualified test
+  identities to subtract). See "`p2p_set` resolution rule" below.
 - **`items`** — the admitted corpus (REQ-F-006: ≥10). Each entry carries:
   `id`, `type` (`task` or `bug`), `prompt_path`, `seed_path`, an `f2p`
   block (`paths`: held-back F2P source file(s); `test_names`: fully
@@ -222,6 +222,29 @@ depends on the set definition itself rather than on any F2P injection —
 this corpus: it is identical to `default` except it does **not** exclude
 the permanent-failure probe, so that candidate's own P2P set is red at base
 for a reason intrinsic to the set, not to its F2P files.
+
+### `run_selector`'s restricted grammar
+
+A `p2p_set`'s `run_selector`, when set, is passed straight to `go test
+-run` — but `bench/scripts/admit.sh` ALSO filters its own P2P `expected`
+test set through that same selector (matched with Python's `re`, against
+each testenum-enumerated top-level test name) so that `expected` stays in
+sync with what `-run` actually selected. Because Python's `re` and Go's
+real `-run` semantics (`testing.splitRegexp`) disagree on several
+constructs, `run_selector` is restricted to a conservative grammar:
+anchors (`^`, `$`), wildcards (`.`, `*`), and `/` (subtest separator) are
+allowed; top-level alternation (`|`), character classes (`[`), groups
+(`(`), and escapes (`\`) are **not** — `admit.sh` rejects any of those
+four constructs with a `RuntimeError` (process exit 2) rather than
+silently mis-filtering `expected`. Write `run_selector` values against this
+restricted grammar, not against the full `-run` regex language.
+
+`admit.sh` also refuses to treat a `run_selector` that matches **zero** of
+a p2p_set's enumerated tests as a clean result: a typo'd or overly narrow
+selector would otherwise filter `expected` down to the empty set (nothing
+missing, nothing failing, `go test -run <no-match>` exits 0) and read as
+P2P-green with nothing actually run. `admit.sh` raises loudly (`RuntimeError`,
+process exit 2) instead.
 
 ## Ledger diff method (REQ-F-011) and toolchain guard (REQ-F-010)
 

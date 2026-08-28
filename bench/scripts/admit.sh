@@ -381,6 +381,106 @@ def go_list_packages(checkout_dir, packages):
     return result
 
 
+_UNSAFE_RUN_SELECTOR_CHARS = frozenset("|[(\\")
+
+
+def validate_run_selector_grammar(run_selector):
+    """Rejects a `run_selector` unless it stays inside a conservative
+    grammar: no `|` (top-level alternation), `[` (character class), `(`
+    (group), or `\\` (escape) -- anchors (`^`/`$`), wildcards (`.`/`*`),
+    and `/` (subtest separator) are all still allowed.
+
+    Why the restriction: Go's real `-run` semantics (testing.splitRegexp)
+    split a selector on top-level `|` INTO AN ALTERNATION FIRST, then split
+    EACH ALTERNATIVE on `/` independently. A naive `split("/", 1)[0]` (used
+    by run_selector_top_level_pattern below) does not replicate that --
+    e.g. "^TestA$/^NoSuchSub$|^TestZ$" makes real `go test -run` select
+    and run BOTH TestA and TestZ, but a naive split yields only {TestA},
+    silently dropping TestZ from `expected` (B053 round 2: reimplementing
+    Go's full alternation-then-split algorithm in Python was considered
+    and rejected as unnecessary complexity for a bounded fix). Within this
+    restricted grammar there is no `|` to worry about splitting
+    independently, and no `[`/`(`/`\\` to confuse a naive split, so
+    `split("/", 1)[0]` is provably correct for every selector this
+    function accepts.
+
+    Incidentally also closes two related findings: RE2 (Go) and Python's
+    `re` disagree on POSIX character classes like `[[:alpha:]]` (banning
+    `[` closes this), and Python's backtracking `re` engine is vulnerable
+    to catastrophic backtracking (ReDoS) on constructs RE2's linear-time
+    matching accepts safely (banning `\\` and `(` is defense-in-depth here
+    -- RE2 itself can't express the nested-quantifier/backreference
+    patterns that cause ReDoS, but Python's `re` can).
+
+    Raises RuntimeError if run_selector uses any of these constructs, so a
+    filter result that can't be trusted is never silently produced."""
+    bad = sorted(_UNSAFE_RUN_SELECTOR_CHARS.intersection(run_selector))
+    if bad:
+        raise RuntimeError(
+            f"p2p_set run_selector {run_selector!r} uses unsupported regexp "
+            f"syntax {bad!r} -- admit.sh's run_selector filtering only "
+            "supports a restricted grammar (no |, [, (, or \\) because "
+            "naive per-\"/\"-element splitting cannot safely replicate "
+            "Go's full -run alternation semantics for those constructs"
+        )
+
+
+def run_selector_top_level_pattern(run_selector):
+    """Extracts the element of a `-run` pattern that Go matches against a
+    top-level test's own name -- the part before the first "/" (see -run's
+    documented per-"/"-element matching, also relied on by
+    anchored_alternation above). `expected` only ever holds bare top-level
+    names (testenum never enumerates subtests), so this is the only part
+    of run_selector relevant to filtering it: a selector targeting a
+    specific subtest (e.g. "TestFoo/bar") still requires TestFoo itself to
+    match its own element for that subtest to run at all, and Go still
+    forwards a terminal event for the top-level test regardless of which
+    of its subtests matched. Returns None if run_selector is falsy.
+
+    Callers MUST run run_selector through validate_run_selector_grammar()
+    first -- outside that restricted grammar, a plain split("/", 1)[0]
+    does not correctly replicate Go's real -run semantics (see that
+    function's docstring)."""
+    if not run_selector:
+        return None
+    return run_selector.split("/", 1)[0]
+
+
+def filter_expected_by_run_selector(expected, run_selector):
+    """Filters an `expected` set of bare top-level test names down to only
+    those a non-empty `run_selector` would actually select, so `expected`
+    stays in sync with what run_go_tests()'s own `-run run_selector` just
+    executed (B053: previously `expected` ignored run_selector entirely,
+    so every test the selector legitimately excluded was reported as a
+    spurious missing terminal event).
+
+    Deliberately does NOT shell out to `go test -list` for this: this
+    file's header established that `-list` executes TestMain and is
+    therefore exactly as forgeable as every other signal this file
+    refuses to trust (see "Evidence-forgeability property" above). Plain
+    regex matching against testenum's own non-executing enumeration keeps
+    the same non-forgeable trust model.
+
+    run_selector is first validated against a restricted grammar (see
+    validate_run_selector_grammar) and, within that grammar, matched with
+    Python's re against each bare name using only the top-level (pre-"/")
+    element (see run_selector_top_level_pattern) -- NOT a full replication
+    of Go's per-"/"-element alternation matching, which the restricted
+    grammar makes unnecessary (B053 round 2)."""
+    if not run_selector:
+        return expected
+    validate_run_selector_grammar(run_selector)
+    top_level_pattern = run_selector_top_level_pattern(run_selector)
+    try:
+        pattern = re.compile(top_level_pattern)
+    except re.error as exc:
+        raise RuntimeError(
+            f"p2p_set run_selector {run_selector!r} is not a usable regexp "
+            f"(top-level element {top_level_pattern!r}): {exc}"
+        )
+    return {name for name in expected if pattern.search(name)}
+
+
 def enumerate_tests(pkg_dir):
     """Independent, non-executing enumeration of a package directory's
     top-level Go test function names via testenum (see
@@ -406,9 +506,12 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
 
     For each package, "clean" requires ALL three of:
       1. every testenum-enumerated test not in this package's own skip
-         set has a per-test terminal event (no missing evidence -- this
-         alone catches a TestMain that never calls m.Run(), so nothing
-         it "does" can hide a package that produced zero results);
+         set, and selected by run_selector when one is given (B053: see
+         filter_expected_by_run_selector -- a test the selector itself
+         excluded is never expected to produce a terminal event), has a
+         per-test terminal event (no missing evidence -- this alone
+         catches a TestMain that never calls m.Run(), so nothing it
+         "does" can hide a package that produced zero results);
       2. none of the OBSERVED per-test terminal events for this package
          is "fail" (code review round 6, finding 6b: this scans every
          entry `results` actually holds for this package, not just
@@ -431,11 +534,32 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
     (it must still build), even though there is nothing to
     cross-reference.
 
+    A fourth, SET-WIDE (not per-package) precondition guards (1) itself
+    (B053 finding 1, code review round on PR #203): when run_selector is
+    given, it must select at least one enumerated test SOMEWHERE across
+    this p2p_set's packages, or the whole call raises RuntimeError before
+    returning any verdict. This is deliberately set-wide rather than
+    per-package -- a selector legitimately scoped to only one package's
+    tests would otherwise trip a per-package version of this guard on
+    every OTHER package in a multi-package (e.g. "./...") set, which is
+    not a misconfiguration. Without this precondition, a selector matching
+    nothing (typo, overly narrow pattern) would filter `expected` down to
+    the empty set in every package -- (1)'s missing-evidence check becomes
+    vacuously true (nothing expected, nothing missing) and `go test -run
+    <no-match>` exits 0 with nothing to run -- so a package that ran zero
+    tests would read as P2P-green.
+
     Returns (all_clean: bool, problem_packages: list[str]) where each
     problem_packages entry names the package and exactly which
     condition(s) failed, for verdict diagnostics."""
     all_clean = True
     problem_packages = []
+    # Zero-match run_selector guard (B053 finding 1, see docstring above):
+    # track how many enumerated tests existed before filtering vs. how many
+    # survived filtering, across every package in this p2p_set (not
+    # per-package -- see rationale above).
+    total_pre_filter_candidates = 0
+    total_post_filter_selected = 0
 
     for import_path, pkg_dir in go_list_packages(checkout_dir, packages):
         pkg_skip_names = {
@@ -448,7 +572,10 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
         results, _problem_pkgs, returncode = run_go_tests(
             checkout_dir, [import_path], run_pattern=run_selector, skip_pattern=skip_pattern
         )
-        expected = enumerate_tests(pkg_dir) - pkg_skip_names
+        pre_filter_expected = enumerate_tests(pkg_dir) - pkg_skip_names
+        expected = filter_expected_by_run_selector(pre_filter_expected, run_selector)
+        total_pre_filter_candidates += len(pre_filter_expected)
+        total_post_filter_selected += len(expected)
         observed = {
             bare_test_name(identity)
             for identity in results
@@ -486,6 +613,14 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
             if returncode != 0 and not missing and not failed:
                 detail.append(f"exit code {returncode} despite clean, complete per-test evidence")
             problem_packages.append(f"{import_path} ({'; '.join(detail)})")
+
+    if run_selector and total_pre_filter_candidates > 0 and total_post_filter_selected == 0:
+        raise RuntimeError(
+            f"p2p_set run_selector {run_selector!r} matched none of the "
+            f"{total_pre_filter_candidates} testenum-enumerated test(s) across "
+            f"{packages!r} -- refusing to treat 0 tests actually run as "
+            "P2P-green; check the selector for a typo or an overly narrow pattern"
+        )
 
     return all_clean, problem_packages
 
