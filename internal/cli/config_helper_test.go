@@ -88,6 +88,7 @@ func TestGetConfigPath(t *testing.T) {
 
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")
@@ -221,6 +222,7 @@ func TestFindProjectRoot_Priority(t *testing.T) {
 		// Create .git in root
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create .sharkconfig.json in subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")
@@ -253,6 +255,7 @@ func TestFindProjectRoot_Priority(t *testing.T) {
 		// Create .git in root
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create shark-tasks.db in subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")

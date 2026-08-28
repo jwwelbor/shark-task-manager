@@ -15,8 +15,9 @@ import (
 //  3. .git/ directory (WEAK - used if no stronger markers found)
 //
 // Returns the project root directory, or startDir if no markers found.
-// This logic mirrors internal/cli.FindProjectRoot but is duplicated here
-// to avoid a circular import chain: cmd/server → internal/dbinit → internal/cli → cobra.
+// This logic mirrors internal/cli.findProjectRootFrom (including the .git
+// content validation added for B054) but is duplicated here to avoid a
+// circular import chain: cmd/server → internal/dbinit → internal/cli → cobra.
 func findProjectRoot(startDir string) (string, error) {
 	if startDir == "" {
 		var err error
@@ -53,8 +54,22 @@ func findProjectRoot(startDir string) (string, error) {
 		}
 
 		if foundGit == "" {
-			if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
-				foundGit = currentDir
+			if info, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
+				if info.IsDir() {
+					// A .git directory is only a valid marker if it looks like
+					// a real git repo (has a HEAD file or an objects/ dir).
+					// This rejects stray/empty .git directories (B054).
+					gitDir := filepath.Join(currentDir, ".git")
+					_, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
+					_, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
+					if headErr == nil || objectsErr == nil {
+						foundGit = currentDir
+					}
+				} else {
+					// A .git file is a worktree pointer (contains "gitdir: <path>")
+					// and is always accepted as-is.
+					foundGit = currentDir
+				}
 			}
 		}
 

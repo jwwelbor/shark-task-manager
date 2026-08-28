@@ -384,6 +384,12 @@ func TestFindProjectRoot_NestedGitWithParentConfig(t *testing.T) {
 	if err := os.MkdirAll(nestedGit, 0755); err != nil {
 		t.Fatalf("Failed to create nested .git directory: %v", err)
 	}
+	// Add a HEAD file so the nested .git is recognized as a real git repo,
+	// not a stray empty directory (see B054), keeping this test's coverage
+	// of .sharkconfig.json-over-.git priority meaningful.
+	if err := os.WriteFile(filepath.Join(nestedGit, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatalf("Failed to create nested .git HEAD file: %v", err)
+	}
 
 	// Create subfolder within nested-repo
 	subfolder := filepath.Join(nestedRepo, "subfolder")
