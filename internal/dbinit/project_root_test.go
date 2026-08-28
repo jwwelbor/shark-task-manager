@@ -18,7 +18,7 @@ func TestFindProjectRoot_SharkConfig(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	root, err := findProjectRoot(sub)
+	root, err := findProjectRootFrom(sub, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestFindProjectRoot_SharkDB(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	root, err := findProjectRoot(sub)
+	root, err := findProjectRootFrom(sub, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestFindProjectRoot_ConfigPreferredOverDB(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	root, err := findProjectRoot(sub)
+	root, err := findProjectRootFrom(sub, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -99,7 +99,11 @@ func TestFindProjectRoot_EmptyGitDir_NotAcceptedAsMarker(t *testing.T) {
 		t.Fatalf("mkdir .git: %v", err)
 	}
 
-	root, err := findProjectRoot(sub)
+	// ceiling = dir keeps the walk from escaping into the host filesystem: without
+	// it, this test would otherwise walk unbounded past dir, which could pick up a
+	// real marker above it (e.g. in a sandbox where TMPDIR resolves under a real
+	// project root) and fail/pass for the wrong reason.
+	root, err := findProjectRootFrom(sub, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +133,7 @@ func TestFindProjectRoot_GitDirWithHEAD_Accepted(t *testing.T) {
 		t.Fatalf("write HEAD: %v", err)
 	}
 
-	root, err := findProjectRoot(sub)
+	root, err := findProjectRootFrom(sub, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +157,7 @@ func TestFindProjectRoot_GitDirWithObjects_Accepted(t *testing.T) {
 		t.Fatalf("mkdir .git/objects: %v", err)
 	}
 
-	root, err := findProjectRoot(sub)
+	root, err := findProjectRootFrom(sub, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +181,7 @@ func TestFindProjectRoot_GitFile_WorktreePointer_AcceptedUnmodified(t *testing.T
 		t.Fatalf("write .git file: %v", err)
 	}
 
-	root, err := findProjectRoot(sub)
+	root, err := findProjectRootFrom(sub, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -19,6 +19,14 @@ import (
 // content validation added for B054) but is duplicated here to avoid a
 // circular import chain: cmd/server → internal/dbinit → internal/cli → cobra.
 func findProjectRoot(startDir string) (string, error) {
+	return findProjectRootFrom(startDir, "")
+}
+
+// findProjectRootFrom is findProjectRoot with an optional ceiling directory.
+// ceiling, when non-empty, stops the upward walk at that directory (inclusive).
+// This is used in tests to prevent the walk from escaping the temp directory
+// tree and picking up markers from the host environment.
+func findProjectRootFrom(startDir, ceiling string) (string, error) {
 	if startDir == "" {
 		var err error
 		startDir, err = os.Getwd()
@@ -54,12 +62,12 @@ func findProjectRoot(startDir string) (string, error) {
 		}
 
 		if foundGit == "" {
-			if info, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
+			gitDir := filepath.Join(currentDir, ".git")
+			if info, err := os.Stat(gitDir); err == nil {
 				if info.IsDir() {
 					// A .git directory is only a valid marker if it looks like
 					// a real git repo (has a HEAD file or an objects/ dir).
 					// This rejects stray/empty .git directories (B054).
-					gitDir := filepath.Join(currentDir, ".git")
 					_, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
 					_, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
 					if headErr == nil || objectsErr == nil {
@@ -71,6 +79,10 @@ func findProjectRoot(startDir string) (string, error) {
 					foundGit = currentDir
 				}
 			}
+		}
+
+		if ceiling != "" && currentDir == ceiling {
+			break
 		}
 
 		parentDir := filepath.Dir(currentDir)
