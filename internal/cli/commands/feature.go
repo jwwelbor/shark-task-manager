@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -249,7 +251,15 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	sortFeatures(featuresWithTaskCount, sortBy)
+	configPath, cfgErr := cli.GetConfigPath()
+	if cfgErr != nil && cli.GlobalConfig.Verbose {
+		slog.Warn("Failed to get config path", "error", cfgErr)
+	}
+	cfg, cfgErr := config.LoadWorkflowConfig(configPath)
+	if cfgErr != nil && cli.GlobalConfig.Verbose {
+		slog.Warn("Failed to load config", "error", cfgErr)
+	}
+	sortFeatures(featuresWithTaskCount, sortBy, statusBreakdownBatch, cfg)
 
 	if cli.GlobalConfig.JSON {
 		return outputFeatureListJSON(featuresWithTaskCount, statusBreakdownBatch)
