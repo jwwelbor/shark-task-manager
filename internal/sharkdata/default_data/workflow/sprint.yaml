@@ -16,7 +16,7 @@ steps:
     skills: [sprint-planning]
     prompt: sprint/planning.md
     outcomes:
-      pass: research
+      pass: active
       fail: on_hold
       blocked: on_hold
   active:
@@ -35,24 +35,6 @@ steps:
     outcomes:
       pass: closing
       fail: on_hold
-      blocked: on_hold
-  research:
-    phase: research
-    color: purple
-    display_token: RSR
-    description: Sprint scope research and readiness evidence are being prepared
-    progress_weight: 0.1
-    responsibility: agent
-    is_planning: true
-    action: spawn_agent
-    agent: researcher
-    provider: anthropic
-    model: haiku
-    skills: [research]
-    prompt: sprint/research.md
-    outcomes:
-      pass: active
-      fail: planning
       blocked: on_hold
   closing:
     phase: review

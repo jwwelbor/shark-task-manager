@@ -730,8 +730,8 @@ func TestSprintService_StartSprint(t *testing.T) {
 		errMsg        string
 	}{
 		{
-			name:          "start researched sprint succeeds",
-			currentStatus: "research",
+			name:          "start planning sprint succeeds",
+			currentStatus: "planning",
 			expectErr:     false,
 		},
 		{
@@ -790,19 +790,10 @@ func TestSprintService_StartSprint(t *testing.T) {
 	}
 }
 
-// TestSprintService_StartSprint_PlanningAdvancesThroughResearchGate is the
-// B059 regression test: "Sprints cannot advance past 'planning' with the
-// shipped default sprint workflow". Before the fix, StartSprint always tried
-// a direct planning -> active transition, which the embedded default
-// sprint.yaml (route-based, with a mandatory research gate) rejects with
-// "invalid transition from 'planning' to 'active'" — permanently stuck.
-//
-// This test binds to the embedded default workflow (workflow.NewService(""))
-// rather than a hand-rolled fixture, because the bug is specifically about
-// the shipped defaults. It derives the expected landing status from the
-// workflow service itself (planning step's "pass" outcome) instead of
-// hardcoding "research", per .claude/rules/feedback_no_hardcoded_statuses.
-func TestSprintService_StartSprint_PlanningAdvancesThroughResearchGate(t *testing.T) {
+// TestSprintService_StartSprint_DefaultWorkflowActivatesDirectly verifies that
+// planning is the sole mandatory pre-execution step in the embedded default
+// sprint workflow. Custom workflows can still add an intermediate pass route.
+func TestSprintService_StartSprint_DefaultWorkflowActivatesDirectly(t *testing.T) {
 	ctx := context.Background()
 	workflowSvc := workflow.NewService("")
 	sprintWorkflow := workflowSvc.ForLevel(workflow.LevelSprint)
@@ -811,6 +802,9 @@ func TestSprintService_StartSprint_PlanningAdvancesThroughResearchGate(t *testin
 		"embedded default sprint workflow is expected to be route-based (steps:) for this regression to be meaningful")
 	wantNext := sprintWorkflow.GetOutcomes("planning")["pass"]
 	require.NotEmpty(t, wantNext, "planning step must define a 'pass' outcome in the embedded default sprint workflow")
+	executionStatuses := sprintWorkflow.GetStatusesByPhase("execution")
+	require.Len(t, executionStatuses, 1, "embedded default workflow must define exactly one execution status")
+	wantExecution := executionStatuses[0]
 
 	var updatedTo models.SprintStatus
 	calls := 0
@@ -835,13 +829,40 @@ func TestSprintService_StartSprint_PlanningAdvancesThroughResearchGate(t *testin
 	require.NoError(t, err, "shark sprint start must not fail on a fresh planning sprint under the default workflow")
 	require.NotNil(t, result)
 	assert.Equal(t, wantNext, string(result.Status),
-		"StartSprint should advance one hop along the workflow's planning->pass route, not fail or jump straight to active")
-	assert.NotEqual(t, "active", string(result.Status),
-		"a mandatory research gate must not be silently bypassed")
+		"StartSprint should follow the embedded planning pass route")
+	assert.Equal(t, wantExecution, string(result.Status),
+		"the default workflow should activate a sprint after planning")
 }
 
 func TestSprintService_StartSprint_RequiresResearchEvidence(t *testing.T) {
 	root := t.TempDir()
+	workflowDir := filepath.Join(root, "shark-data", "workflow")
+	require.NoError(t, os.MkdirAll(workflowDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(workflowDir, "sprint.yaml"), []byte(`version: "1.0"
+start: planning
+steps:
+  planning:
+    phase: planning
+    action: advance_status
+    outcomes:
+      pass: research
+  research:
+    phase: research
+    action: advance_status
+    outcomes:
+      pass: active
+  active:
+    phase: execution
+    action: advance_status
+    outcomes:
+      pass: completed
+  completed:
+    phase: done
+    terminal: true
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".sharkconfig.json"), []byte(`{"workflow_config":"shark-data/workflow"}`), 0o644))
+	cfgworkflow.ClearWorkflowCache()
+	t.Cleanup(cfgworkflow.ClearWorkflowCache)
 	workflowSvc := workflow.NewService(root)
 	filePath := "docs/plan/sprints/S001.md"
 
@@ -941,7 +962,7 @@ func TestSprintService_StartSprint_MultipleActiveAllowed(t *testing.T) {
 			if callCounts[key] > 1 {
 				return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "active"}, nil
 			}
-			return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "research"}, nil
+			return &models.Sprint{ID: int64(len(callCounts)), Key: key, Name: key, Status: "planning"}, nil
 		},
 		UpdateStatusFunc: func(ctx context.Context, id int64, status models.SprintStatus) error {
 			return nil
@@ -6580,7 +6601,7 @@ func TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus(t
 	t.Run("not configured returns an error instead of panicking", func(t *testing.T) {
 		svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
 
-		_, err := svc.TransitionStatus(ctx, "S001", "research", TransitionOptions{})
+		_, err := svc.TransitionStatus(ctx, "S001", "active", TransitionOptions{})
 		require.Error(t, err)
 
 		_, err = svc.GetNextStatus(ctx, "S001")
@@ -6592,11 +6613,11 @@ func TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus(t
 		entitySvc := NewEntityService(workflowSvc)
 		svc.EnableWorkflowDispatch(entitySvc, NewSprintRepositoryAdapter(mockRepo))
 
-		result, err := svc.TransitionStatus(ctx, "S001", "research", TransitionOptions{})
+		result, err := svc.TransitionStatus(ctx, "S001", "active", TransitionOptions{})
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.Equal(t, "planning", result.FromStatus)
-		assert.Equal(t, "research", result.ToStatus)
+		assert.Equal(t, "active", result.ToStatus)
 		assert.True(t, result.Transitioned)
 		require.NotNil(t, result.OrchestratorAction)
 		assert.Equal(t, config.ActionSpawnAgent, result.OrchestratorAction.Action)
@@ -6605,15 +6626,15 @@ func TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus(t
 		require.NoError(t, err)
 		require.NotNil(t, info)
 		assert.Equal(t, "planning", info.CurrentStatus)
-		var researchTransition *TransitionInfoWithAction
+		var activeTransition *TransitionInfoWithAction
 		for i := range info.AvailableTransitions {
-			if info.AvailableTransitions[i].TargetStatus == "research" {
-				researchTransition = &info.AvailableTransitions[i]
+			if info.AvailableTransitions[i].TargetStatus == "active" {
+				activeTransition = &info.AvailableTransitions[i]
 				break
 			}
 		}
-		require.NotNil(t, researchTransition)
-		require.NotNil(t, researchTransition.OrchestratorAction)
-		assert.Equal(t, config.ActionSpawnAgent, researchTransition.OrchestratorAction.Action)
+		require.NotNil(t, activeTransition)
+		require.NotNil(t, activeTransition.OrchestratorAction)
+		assert.Equal(t, config.ActionSpawnAgent, activeTransition.OrchestratorAction.Action)
 	})
 }

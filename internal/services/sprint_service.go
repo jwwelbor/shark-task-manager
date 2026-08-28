@@ -535,14 +535,9 @@ func (s *SprintService) StartSprint(ctx context.Context, key string) (*models.Sp
 	if err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s: %w", key, err))
 	}
-	// B059: the shipped default sprint workflow requires planning -> research ->
-	// active (a mandatory research gate) rather than a direct planning -> active
-	// edge. startTransitionTarget prefers the direct hop to activeStatus (legacy/
-	// simple workflows keep their original single-call behavior), and only when
-	// that edge doesn't exist AND the sprint is currently in the planning phase
-	// does it take a single hop along the route's "pass" outcome instead — so
-	// `shark sprint start` advances the sprint through the gate one call at a
-	// time instead of failing outright or skipping the gate.
+	// The default sprint workflow routes planning directly to its execution
+	// status. startTransitionTarget also supports custom planning workflows
+	// whose pass route includes one explicit intermediate gate.
 	targetStatus := s.startTransitionTarget(string(sprint.Status), activeStatus)
 	if err := s.workflowSvc.ValidateTransition(string(sprint.Status), targetStatus); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("cannot start sprint %s in status %s: %w", key, sprint.Status, err))
@@ -1020,15 +1015,9 @@ func (s *SprintService) executionPhaseStatus() (string, error) {
 // to from currentStatus, given the workflow's designated execution-phase
 // status (executionStatus).
 //
-// It prefers a direct hop to executionStatus, which preserves the original
-// single-call planning -> active behavior for legacy/simple workflows (and
-// for any route-based workflow whose current step already routes straight to
-// execution). Only when that direct edge is undefined AND the sprint is
-// currently in the "planning" phase does it fall back to a single hop along
-// the current step's "pass" outcome (e.g. planning -> research on the shipped
-// default sprint workflow, B059) — so a mandatory intermediate gate is
-// advanced through one call at a time rather than causing StartSprint to fail
-// outright or silently skipping the gate for other, non-planning statuses.
+// It prefers a direct hop to executionStatus. When a custom route-based
+// planning workflow defines an explicit intermediate pass route instead, it
+// advances one hop at a time rather than failing or skipping that gate.
 func (s *SprintService) startTransitionTarget(currentStatus, executionStatus string) string {
 	if s.workflowSvc.ValidateTransition(currentStatus, executionStatus) == nil {
 		return executionStatus
