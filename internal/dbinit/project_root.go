@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // findProjectRoot walks up the directory tree from startDir to find the project root.
@@ -15,9 +16,18 @@ import (
 //  3. .git/ directory (WEAK - used if no stronger markers found)
 //
 // Returns the project root directory, or startDir if no markers found.
-// This logic mirrors internal/cli.FindProjectRoot but is duplicated here
-// to avoid a circular import chain: cmd/server → internal/dbinit → internal/cli → cobra.
+// This logic mirrors internal/cli.findProjectRootFrom (including the .git
+// content validation added for B054) but is duplicated here to avoid a
+// circular import chain: cmd/server → internal/dbinit → internal/cli → cobra.
 func findProjectRoot(startDir string) (string, error) {
+	return findProjectRootFrom(startDir, "")
+}
+
+// findProjectRootFrom is findProjectRoot with an optional ceiling directory.
+// ceiling, when non-empty, stops the upward walk at that directory (inclusive).
+// This is used in tests to prevent the walk from escaping the temp directory
+// tree and picking up markers from the host environment.
+func findProjectRootFrom(startDir, ceiling string) (string, error) {
 	if startDir == "" {
 		var err error
 		startDir, err = os.Getwd()
@@ -53,9 +63,32 @@ func findProjectRoot(startDir string) (string, error) {
 		}
 
 		if foundGit == "" {
-			if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
-				foundGit = currentDir
+			gitDir := filepath.Join(currentDir, ".git")
+			if info, err := os.Stat(gitDir); err == nil {
+				if info.IsDir() {
+					// A .git directory is only a valid marker if it looks like
+					// a real git repo (has a HEAD file or an objects/ dir).
+					// This rejects stray/empty .git directories (B054).
+					_, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
+					_, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
+					if headErr == nil || objectsErr == nil {
+						foundGit = currentDir
+					}
+				} else {
+					// A .git file is a worktree pointer and must contain a
+					// "gitdir: <path>" line to be accepted. This rejects
+					// stray/empty/garbage .git files (B054).
+					if data, readErr := os.ReadFile(gitDir); readErr == nil {
+						if strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:") {
+							foundGit = currentDir
+						}
+					}
+				}
 			}
+		}
+
+		if ceiling != "" && currentDir == ceiling {
+			break
 		}
 
 		parentDir := filepath.Dir(currentDir)

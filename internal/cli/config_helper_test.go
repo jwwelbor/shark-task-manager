@@ -88,6 +88,7 @@ func TestGetConfigPath(t *testing.T) {
 
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")
@@ -142,10 +143,12 @@ func TestGetConfigPath(t *testing.T) {
 			t.Skip("Skipping test: /tmp contains project markers that would interfere with test")
 		}
 
-		// Create temp directory with only .git
+		// Create temp directory with only .git (with a HEAD file so it's
+		// recognized as a real git repo, not a stray empty directory — B054)
 		tmpDir := t.TempDir()
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")
@@ -219,6 +222,7 @@ func TestFindProjectRoot_Priority(t *testing.T) {
 		// Create .git in root
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create .sharkconfig.json in subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")
@@ -251,6 +255,7 @@ func TestFindProjectRoot_Priority(t *testing.T) {
 		// Create .git in root
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create shark-tasks.db in subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")
@@ -288,10 +293,13 @@ func TestFindProjectRoot_Priority(t *testing.T) {
 			t.Skip("Skipping test: /tmp contains project markers that would interfere with test")
 		}
 
-		// Create directory with only .git
+		// Create directory with only .git (a real git marker needs a HEAD
+		// file or objects/ dir — see B054 — so create a HEAD file to mark
+		// this as a valid repo, not a stray empty directory)
 		tmpDir := t.TempDir()
 		gitDir := filepath.Join(tmpDir, ".git")
 		require.NoError(t, os.MkdirAll(gitDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644))
 
 		// Create subdirectory
 		subDir := filepath.Join(tmpDir, "subdir")

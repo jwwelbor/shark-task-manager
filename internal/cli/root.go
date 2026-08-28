@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -309,8 +310,27 @@ func findProjectRootFrom(startDir, ceiling string) (string, error) {
 			}
 		}
 		if foundGit == "" {
-			if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
-				foundGit = currentDir
+			gitDir := filepath.Join(currentDir, ".git")
+			if info, err := os.Stat(gitDir); err == nil {
+				if info.IsDir() {
+					// A .git directory is only a valid marker if it looks like
+					// a real git repo (has a HEAD file or an objects/ dir).
+					// This rejects stray/empty .git directories (B054).
+					_, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
+					_, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
+					if headErr == nil || objectsErr == nil {
+						foundGit = currentDir
+					}
+				} else {
+					// A .git file is a worktree pointer and must contain a
+					// "gitdir: <path>" line to be accepted. This rejects
+					// stray/empty/garbage .git files (B054).
+					if data, readErr := os.ReadFile(gitDir); readErr == nil {
+						if strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:") {
+							foundGit = currentDir
+						}
+					}
+				}
 			}
 		}
 
