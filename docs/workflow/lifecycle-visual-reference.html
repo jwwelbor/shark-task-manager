@@ -545,8 +545,7 @@ flowchart LR
         <div class="panel diagram">
           <pre class="mermaid">
 flowchart LR
-    S0[Planning<br/>plan view and proposal] --> S1[Research<br/>sprint report]
-    S1 --> S2[Active<br/>pull next entity]
+    S0[Planning<br/>plan view and proposal] --> S2[Active<br/>pull next entity]
     S2 --> S3[Run keyed entity<br/>ordinary workflow]
     S3 --> S2
     S2 -->|backlog drained| S4[Close confirmation]
@@ -560,7 +559,7 @@ flowchart LR
     classDef review fill:#48213b,stroke:#f472b6,color:#ffe4f4,stroke-width:2px;
     classDef ops fill:#123f3a,stroke:#34d399,color:#d3fae9,stroke-width:2px;
     classDef decision fill:#153852,stroke:#38bdf8,color:#e0f5ff,stroke-width:2px;
-    class S0,S1 spec;
+    class S0 spec;
     class S2,S3 ops;
     class S4,S7 decision;
     class S5 review;
@@ -571,7 +570,6 @@ flowchart LR
           <thead><tr><th>Phase</th><th>Artifact or state</th><th>Mutation gate</th></tr></thead>
           <tbody>
             <tr><td>Planning</td><td>Sprint entity file, plan proposal, backlog grouping, capacity allocation, readiness before/after</td><td>Explicit confirmation before each add or one auto-plan confirmation; never starts the sprint</td></tr>
-            <tr><td>Research</td><td><code>S###.research-report.md</code> with assigned-work and workflow evidence</td><td>Pass required before activation</td></tr>
             <tr><td>Active</td><td>Session dispatch list, burndown JSON, basic summary JSON; child entities create their normal artifacts</td><td>Explicit confirmation before start and close</td></tr>
             <tr><td>Closing</td><td><code>docs/sprints/S###-retro.md</code>: outcome, velocity, carryover, cycle time, quantitative recommendations</td><td>Retro confirmation gates pass to completed</td></tr>
             <tr><td>Archived</td><td>Terminal sprint state</td><td>Separate explicit archive confirmation</td></tr>
