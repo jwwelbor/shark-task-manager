@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -321,9 +322,14 @@ func findProjectRootFrom(startDir, ceiling string) (string, error) {
 						foundGit = currentDir
 					}
 				} else {
-					// A .git file is a worktree pointer (contains "gitdir: <path>")
-					// and is always accepted as-is.
-					foundGit = currentDir
+					// A .git file is a worktree pointer and must contain a
+					// "gitdir: <path>" line to be accepted. This rejects
+					// stray/empty/garbage .git files (B054).
+					if data, readErr := os.ReadFile(gitDir); readErr == nil {
+						if strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:") {
+							foundGit = currentDir
+						}
+					}
 				}
 			}
 		}

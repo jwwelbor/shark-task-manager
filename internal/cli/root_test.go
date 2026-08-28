@@ -339,6 +339,58 @@ func TestFindProjectRootFrom_GitFileWorktreeAccepted(t *testing.T) {
 	}
 }
 
+func TestFindProjectRootFrom_EmptyGitFileNotAccepted(t *testing.T) {
+	// B054: a stray, empty (or garbage-content) .git FILE must not be
+	// accepted as a project-root marker. Without content validation,
+	// findProjectRootFrom wrongly treats any file named ".git" as a valid
+	// worktree pointer regardless of content (e.g. `touch .git`).
+	tmpDir := t.TempDir()
+
+	gitFile := filepath.Join(tmpDir, ".git")
+	if err := os.WriteFile(gitFile, []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to create empty .git file: %v", err)
+	}
+
+	startDir := filepath.Join(tmpDir, "subdir")
+	if err := os.MkdirAll(startDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
+
+	root, err := findProjectRootFrom(startDir, tmpDir)
+	if err != nil {
+		t.Fatalf("findProjectRootFrom() error = %v", err)
+	}
+
+	if root != startDir {
+		t.Errorf("findProjectRootFrom() = %q, want %q (empty .git file must not be accepted as a marker)", root, startDir)
+	}
+}
+
+func TestFindProjectRootFrom_GarbageGitFileNotAccepted(t *testing.T) {
+	// B054: a .git file with garbage content (not "gitdir: <path>") must not
+	// be accepted as a project-root marker.
+	tmpDir := t.TempDir()
+
+	gitFile := filepath.Join(tmpDir, ".git")
+	if err := os.WriteFile(gitFile, []byte("not a real git marker\n"), 0644); err != nil {
+		t.Fatalf("Failed to create garbage .git file: %v", err)
+	}
+
+	startDir := filepath.Join(tmpDir, "subdir")
+	if err := os.MkdirAll(startDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
+
+	root, err := findProjectRootFrom(startDir, tmpDir)
+	if err != nil {
+		t.Fatalf("findProjectRootFrom() error = %v", err)
+	}
+
+	if root != startDir {
+		t.Errorf("findProjectRootFrom() = %q, want %q (garbage .git file must not be accepted as a marker)", root, startDir)
+	}
+}
+
 func TestFindProjectRoot_NoMarkers(t *testing.T) {
 	// Use a deeply nested subdir with no markers. Pass tmpDir as the ceiling so
 	// the walk cannot escape into host-environment ancestors (e.g. /tmp/.sharkconfig.json).

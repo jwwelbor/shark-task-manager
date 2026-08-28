@@ -166,11 +166,11 @@ func TestFindProjectRoot_GitDirWithObjects_Accepted(t *testing.T) {
 	}
 }
 
-// TestFindProjectRoot_GitFile_WorktreePointer_AcceptedUnmodified mirrors
-// internal/cli's findProjectRootFrom regression coverage: a .git file (git
-// worktree pointer, e.g. "gitdir: /path/to/real/.git") is always accepted as
-// a marker without content validation.
-func TestFindProjectRoot_GitFile_WorktreePointer_AcceptedUnmodified(t *testing.T) {
+// TestFindProjectRoot_GitFile_WorktreePointer_Accepted mirrors internal/cli's
+// findProjectRootFrom regression coverage: a .git file (git worktree
+// pointer, e.g. "gitdir: /path/to/real/.git") is accepted as a marker when
+// its content starts with "gitdir:".
+func TestFindProjectRoot_GitFile_WorktreePointer_Accepted(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "sub", "dir")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -186,6 +186,58 @@ func TestFindProjectRoot_GitFile_WorktreePointer_AcceptedUnmodified(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if root != dir {
-		t.Errorf("root = %q, want %q (.git worktree file should be accepted unmodified)", root, dir)
+		t.Errorf("root = %q, want %q (.git worktree file with gitdir: content should be accepted)", root, dir)
+	}
+}
+
+// TestFindProjectRoot_EmptyGitFile_NotAcceptedAsMarker guards against B054's
+// symptom recurring through the .git-as-file shape: an empty .git file (e.g.
+// from a stray `touch .git`) must not be accepted as a project-root marker.
+func TestFindProjectRoot_EmptyGitFile_NotAcceptedAsMarker(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub", "dir")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write empty .git file: %v", err)
+	}
+
+	root, err := findProjectRootFrom(sub, dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if root == dir {
+		t.Errorf("root = %q, empty .git file must not be accepted as a marker (B054)", root)
+	}
+	if root != sub {
+		t.Errorf("root = %q, want %q (fallback to start dir since no valid marker exists)", root, sub)
+	}
+}
+
+// TestFindProjectRoot_GarbageGitFile_NotAcceptedAsMarker guards against
+// B054's symptom recurring through the .git-as-file shape: a .git file with
+// garbage content (not a "gitdir: <path>" pointer) must not be accepted.
+func TestFindProjectRoot_GarbageGitFile_NotAcceptedAsMarker(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub", "dir")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("not a real git marker\n"), 0o644); err != nil {
+		t.Fatalf("write garbage .git file: %v", err)
+	}
+
+	root, err := findProjectRootFrom(sub, dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if root == dir {
+		t.Errorf("root = %q, garbage .git file must not be accepted as a marker (B054)", root)
+	}
+	if root != sub {
+		t.Errorf("root = %q, want %q (fallback to start dir since no valid marker exists)", root, sub)
 	}
 }

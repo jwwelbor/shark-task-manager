@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // findProjectRoot walks up the directory tree from startDir to find the project root.
@@ -74,9 +75,14 @@ func findProjectRootFrom(startDir, ceiling string) (string, error) {
 						foundGit = currentDir
 					}
 				} else {
-					// A .git file is a worktree pointer (contains "gitdir: <path>")
-					// and is always accepted as-is.
-					foundGit = currentDir
+					// A .git file is a worktree pointer and must contain a
+					// "gitdir: <path>" line to be accepted. This rejects
+					// stray/empty/garbage .git files (B054).
+					if data, readErr := os.ReadFile(gitDir); readErr == nil {
+						if strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:") {
+							foundGit = currentDir
+						}
+					}
 				}
 			}
 		}
