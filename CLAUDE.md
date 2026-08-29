@@ -64,21 +64,6 @@ from per-entity YAML files referenced by `workflow_config` in
 - a **master index file** that maps each entity to its workflow file (see
   [Route-Based Workflow Guide](docs/guides/route-based-workflow.md) §3).
 
-`shark admin install-shark-data` materializes the `shark-data/` tree (workflows,
-prompts, skills, agents) and leaves your `shark-data/overrides/` subtree
-untouched. `shark admin init` only creates the database, `docs/plan/`, and
-`.sharkconfig.json` — content is served from the embedded bundle by default.
-
-> A bare Shark 1.x JSON workflow file (e.g. `.sharkworkflow.json`) is **no
-> longer a valid `workflow_config` target** — the loader rejects it with a
-> migration hint because an explicit JSON target overrides the embedded
-> defaults. To migrate with no disk bundle, remove the `workflow_config` line
-> from `.sharkconfig.json` or set it to an empty string; if a root
-> `.sharkworkflow.json` exists, remove or rename it too before expecting
-> embedded defaults. To migrate with editable workflow files, run
-> `shark admin install-shark-data`; it extracts the content bundle and rewrites
-> deprecated JSON targets to the installed bundle's workflow directory.
-
 ---
 
 ## Documentation References
