@@ -1699,6 +1699,96 @@ func TestSprintRepository_OverrideTransactionCommitsAssignmentAndEvidence(t *tes
 	assert.Equal(t, 1, overrideCount)
 }
 
+// TestSprintRepository_ListActiveAdmissionOverrides covers finding #2: the
+// repository must be able to read back overrides it wrote, keyed by
+// AdmissionOverrideKey(entity_type, entity_id), so admission consumers can
+// apply them without re-reading once per candidate.
+func TestSprintRepository_ListActiveAdmissionOverrides(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	repo := NewSprintRepository(dbconn.NewDB(database))
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_admission_overrides WHERE sprint_id IN (SELECT id FROM sprints WHERE key = 'S923')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S923'")
+	sprintID := createTestSprintForTx(t, database, repo, "S923", "planning")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_admission_overrides WHERE sprint_id = ?", sprintID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprintID)
+	}()
+
+	overrideA := &models.SprintAdmissionOverride{SprintID: sprintID, EntityType: "task", EntityID: 9231, Reason: "Authorized exception for ready prerequisite work", RequestedBy: "developer", ReasonCode: "ancestor_dependency_unmet"}
+	overrideB := &models.SprintAdmissionOverride{SprintID: sprintID, EntityType: "bug", EntityID: 9232, Reason: "Authorized exception for out-of-portfolio hotfix", RequestedBy: "developer", ReasonCode: "outside_portfolio_gate"}
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.CreateAdmissionOverrideTx(ctx, tx, overrideA))
+	require.NoError(t, repo.CreateAdmissionOverrideTx(ctx, tx, overrideB))
+	require.NoError(t, tx.Commit())
+
+	overrides, err := repo.ListActiveAdmissionOverrides(ctx, sprintID)
+	require.NoError(t, err)
+	require.Len(t, overrides, 2)
+
+	got, ok := overrides[AdmissionOverrideKey("task", 9231)]
+	require.True(t, ok, "expected an override keyed by task:9231")
+	assert.Equal(t, "ancestor_dependency_unmet", got.ReasonCode)
+
+	got, ok = overrides[AdmissionOverrideKey("bug", 9232)]
+	require.True(t, ok, "expected an override keyed by bug:9232")
+	assert.Equal(t, "outside_portfolio_gate", got.ReasonCode)
+
+	// A sprint with no overrides returns an empty (non-nil) map, not an error.
+	otherSprintID := createTestSprintForTx(t, database, repo, "S924", "planning")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", otherSprintID) }()
+	empty, err := repo.ListActiveAdmissionOverrides(ctx, otherSprintID)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+}
+
+// TestSprintRepository_GetEpicIDByKey_And_GetFeatureIDByKey covers finding #3:
+// epic and feature keys must resolve to a database ID through the same
+// SprintRepository seam used by AddEntityToSprint/BulkAddToSprint, so
+// `shark sprint add E##`/`shark sprint add E##-F##` can succeed outside the
+// test-only seedSprintAssignment raw-SQL bypass.
+func TestSprintRepository_GetEpicIDByKey_And_GetFeatureIDByKey(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	repo := NewSprintRepository(dbconn.NewDB(database))
+
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E93-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E93'")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E93-F01'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E93'")
+	}()
+
+	res, err := database.ExecContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES (?, ?, ?, ?)`,
+		"E93", "Sprint assignment epic", "active", "medium")
+	require.NoError(t, err)
+	epicID, err := res.LastInsertId()
+	require.NoError(t, err)
+
+	res, err = database.ExecContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, ?, ?, ?)`,
+		epicID, "E93-F01", "Sprint assignment feature", "development")
+	require.NoError(t, err)
+	featureID, err := res.LastInsertId()
+	require.NoError(t, err)
+
+	gotEpicID, err := repo.GetEpicIDByKey(ctx, "E93")
+	require.NoError(t, err)
+	assert.Equal(t, epicID, gotEpicID)
+
+	gotFeatureID, err := repo.GetFeatureIDByKey(ctx, "E93-F01")
+	require.NoError(t, err)
+	assert.Equal(t, featureID, gotFeatureID)
+
+	_, err = repo.GetEpicIDByKey(ctx, "E93NOPE")
+	assert.ErrorIs(t, err, repoerr.ErrNotFound)
+
+	_, err = repo.GetFeatureIDByKey(ctx, "E93-F93NOPE")
+	assert.ErrorIs(t, err, repoerr.ErrNotFound)
+}
+
 func TestSprintRepository_CreateAndGetLatestGoalReviewTx(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()

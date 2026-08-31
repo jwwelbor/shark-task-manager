@@ -836,6 +836,43 @@ func (r *SprintRepository) GetTechDebtIDByKey(ctx context.Context, key string) (
 	return id, nil
 }
 
+// GetEpicIDByKey resolves an epic key (e.g. "E19") to its database ID.
+// Returns an error if the key does not exist. Follows the same simple
+// exact-match pattern as GetTaskIDByKey/GetBugIDByKey; callers are expected
+// to pass an already-normalised numeric key (see keys.KeyService.Parse's
+// Normalized field), not a slugged variant.
+func (r *SprintRepository) GetEpicIDByKey(ctx context.Context, key string) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM epics WHERE UPPER(key) = UPPER(?)`, key,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("epic not found with key %q: %w", key, repoerr.ErrNotFound)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to get epic id by key: %w", err)
+	}
+	return id, nil
+}
+
+// GetFeatureIDByKey resolves a fully-qualified feature key (e.g. "E19-F09")
+// to its database ID. Returns an error if the key does not exist. Features
+// are stored with a globally-unique fully-qualified key, so this follows the
+// same simple exact-match pattern as GetTaskIDByKey/GetBugIDByKey.
+func (r *SprintRepository) GetFeatureIDByKey(ctx context.Context, key string) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM features WHERE UPPER(key) = UPPER(?)`, key,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("feature not found with key %q: %w", key, repoerr.ErrNotFound)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to get feature id by key: %w", err)
+	}
+	return id, nil
+}
+
 // ReassignToSprintTx updates the sprint_id on a set of active sprint_assignments
 // rows to newSprintID. The move also clears sprint_order in the same UPDATE so
 // the reassigned rows cannot collide with existing ordered rows in the
@@ -1513,6 +1550,43 @@ func (r *SprintRepository) CreateAdmissionOverrideTx(ctx context.Context, tx *sq
 	}
 	override.ID = id
 	return nil
+}
+
+// ListActiveAdmissionOverrides returns every admission override recorded for
+// a sprint, keyed by AdmissionOverrideKey(entity_type, entity_id), so callers
+// can apply overrides to a batch of admission decisions with one read
+// instead of one lookup per candidate.
+func (r *SprintRepository) ListActiveAdmissionOverrides(ctx context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, sprint_id, entity_type, entity_id, reason, requested_by, reason_code, created_at
+		FROM sprint_admission_overrides
+		WHERE sprint_id = ?`, sprintID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sprint admission overrides: %w", err)
+	}
+	defer rows.Close()
+
+	overrides := make(map[string]*models.SprintAdmissionOverride)
+	for rows.Next() {
+		override := &models.SprintAdmissionOverride{}
+		if err := rows.Scan(
+			&override.ID, &override.SprintID, &override.EntityType, &override.EntityID,
+			&override.Reason, &override.RequestedBy, &override.ReasonCode, &override.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan sprint admission override: %w", err)
+		}
+		overrides[AdmissionOverrideKey(override.EntityType, override.EntityID)] = override
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate sprint admission overrides: %w", err)
+	}
+	return overrides, nil
+}
+
+// AdmissionOverrideKey builds the map key ListActiveAdmissionOverrides uses,
+// shared with callers that need to look an override up by entity identity.
+func AdmissionOverrideKey(entityType string, entityID int64) string {
+	return entityType + ":" + fmt.Sprint(entityID)
 }
 
 func (r *SprintRepository) CreateGoalReviewTx(ctx context.Context, tx *sql.Tx, review *models.SprintGoalReview) error {

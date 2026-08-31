@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
@@ -150,4 +151,90 @@ func TestSprintService_GetSprintReadiness_TC005_BlockedAdmissionForcesOverallZer
 	assert.Equal(t, "Roadmap admission", readiness.Factors[6].Name)
 	assert.Equal(t, 0, readiness.Factors[6].Score)
 	assert.Contains(t, readiness.Factors[6].Detail, "task-blocked")
+}
+
+// TestPortfolioSprintAdmissionEvidenceReader_NoEligibleEpicAllowsAllCandidates
+// covers the gap the reviewer flagged: no test exercised the real evidence
+// reader with anything but the one-root happy path. With zero eligible
+// portfolio roots (e.g. both epics terminal), the planner reports
+// PauseReason "no_eligible_epic" and RootKeys == []. That is a normal
+// between-epics state, not an error, so the reader must return usable
+// evidence with an empty PortfolioEpicKey rather than failing every caller
+// (shark sprint add/next/readiness/plan).
+func TestPortfolioSprintAdmissionEvidenceReader_NoEligibleEpicAllowsAllCandidates(t *testing.T) {
+	source := &stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+		Epics: []*models.Epic{
+			portfolioTestEpic(1, "E01", "Shipped one", "shipped_custom", models.PriorityHigh, nil),
+			portfolioTestEpic(2, "E02", "Shipped two", "shipped_custom", models.PriorityHigh, nil),
+		},
+	}}
+	reader := newTestPortfolioSprintAdmissionEvidenceReader(t, source)
+
+	evidence, err := reader.ReadSprintAdmissionEvidence(context.Background())
+
+	require.NoError(t, err)
+	require.NotNil(t, evidence)
+	assert.Equal(t, "", evidence.PortfolioEpicKey)
+
+	// With no active portfolio gate, a candidate under any epic is not
+	// blocked for being "outside the portfolio" — only unmet ancestor
+	// dependencies still block.
+	decision, err := evaluateSprintAdmissionEvidence(&SprintAdmissionEvidence{
+		PortfolioEpicKey: evidence.PortfolioEpicKey,
+		Candidates:       map[string]SprintAdmissionCandidate{"T-E09-F01-001": {Key: "T-E09-F01-001", EpicKey: "E09"}},
+		UnmetAncestors:   map[string][]string{},
+	}, "T-E09-F01-001")
+	require.NoError(t, err)
+	assert.Equal(t, SprintAdmissionAllowed, decision.State)
+}
+
+// TestPortfolioSprintAdmissionEvidenceReader_TieResolvesToLowestKey covers
+// the parallel-tie case: multiple equally-eligible, equally-prioritized
+// epics produce PortfolioPlan.RootKeys with len > 1 ("parallel_tie"). The
+// reader must not error; it resolves deterministically to the
+// lexicographically lowest tied root key.
+func TestPortfolioSprintAdmissionEvidenceReader_TieResolvesToLowestKey(t *testing.T) {
+	source := &stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+		Epics: []*models.Epic{
+			portfolioTestEpic(3, "E03", "Third", "active_custom", models.PriorityHigh, nil),
+			portfolioTestEpic(2, "E02", "Second", "active_custom", models.PriorityHigh, nil),
+		},
+	}}
+	reader := newTestPortfolioSprintAdmissionEvidenceReader(t, source)
+
+	evidence, err := reader.ReadSprintAdmissionEvidence(context.Background())
+
+	require.NoError(t, err)
+	require.NotNil(t, evidence)
+	assert.Equal(t, "E02", evidence.PortfolioEpicKey)
+}
+
+// TestPortfolioSprintAdmissionEvidenceReader_SingleRootHappyPath is the
+// existing one-root case, exercised through the real advisor/planner
+// pipeline (not a stub evidence reader) so it sits alongside the zero- and
+// tie-root coverage above.
+func TestPortfolioSprintAdmissionEvidenceReader_SingleRootHappyPath(t *testing.T) {
+	source := &stubPortfolioSnapshotSource{snapshot: portfoliorepo.Snapshot{
+		Epics: []*models.Epic{
+			portfolioTestEpic(1, "E01", "Only eligible epic", "active_custom", models.PriorityHigh, nil),
+		},
+	}}
+	reader := newTestPortfolioSprintAdmissionEvidenceReader(t, source)
+
+	evidence, err := reader.ReadSprintAdmissionEvidence(context.Background())
+
+	require.NoError(t, err)
+	require.NotNil(t, evidence)
+	assert.Equal(t, "E01", evidence.PortfolioEpicKey)
+}
+
+func newTestPortfolioSprintAdmissionEvidenceReader(
+	t *testing.T,
+	source *stubPortfolioSnapshotSource,
+) *PortfolioSprintAdmissionEvidenceReader {
+	t.Helper()
+	workflows := portfolioTestWorkflows()
+	advisor := NewPortfolioAdviceServiceFromSnapshot(source, &stubPortfolioClaimFilter{}, workflows)
+	planner := NewPortfolioPlanningService()
+	return NewPortfolioSprintAdmissionEvidenceReader(source, advisor, planner, workflows)
 }

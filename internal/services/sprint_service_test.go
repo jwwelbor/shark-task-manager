@@ -55,13 +55,16 @@ type MockSprintRepository struct {
 	GetBugIDByKeyFunc               func(ctx context.Context, key string) (int64, error)
 	GetChangeCardIDByKeyFunc        func(ctx context.Context, key string) (int64, error)
 	GetTechDebtIDByKeyFunc          func(ctx context.Context, key string) (int64, error)
+	GetEpicIDByKeyFunc              func(ctx context.Context, key string) (int64, error)
+	GetFeatureIDByKeyFunc           func(ctx context.Context, key string) (int64, error)
 
 	// F07 sprint_order methods
-	MaxSprintOrderFunc         func(ctx context.Context, sprintID int64) (int, error)
-	SetSprintOrderTxFunc       func(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error
-	RenumberAssignmentsTxFunc  func(ctx context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error
-	ListOrderedAssignmentsFunc func(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error)
-	CountNullSprintOrderFunc   func(ctx context.Context, sprintID int64) (int, error)
+	MaxSprintOrderFunc               func(ctx context.Context, sprintID int64) (int, error)
+	SetSprintOrderTxFunc             func(ctx context.Context, tx *sql.Tx, assignmentID int64, newPosition *int) error
+	RenumberAssignmentsTxFunc        func(ctx context.Context, tx *sql.Tx, sprintID int64, ops []sprint.RenumberOp) error
+	ListOrderedAssignmentsFunc       func(ctx context.Context, sprintID int64) ([]*models.SprintAssignment, error)
+	CountNullSprintOrderFunc         func(ctx context.Context, sprintID int64) (int, error)
+	ListActiveAdmissionOverridesFunc func(ctx context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error)
 }
 
 func (m *MockSprintRepository) Create(ctx context.Context, s *models.Sprint) error {
@@ -264,6 +267,20 @@ func (m *MockSprintRepository) GetTechDebtIDByKey(ctx context.Context, key strin
 	return 0, fmt.Errorf("GetTechDebtIDByKey not implemented in mock")
 }
 
+func (m *MockSprintRepository) GetEpicIDByKey(ctx context.Context, key string) (int64, error) {
+	if m.GetEpicIDByKeyFunc != nil {
+		return m.GetEpicIDByKeyFunc(ctx, key)
+	}
+	return 0, fmt.Errorf("GetEpicIDByKey not implemented in mock")
+}
+
+func (m *MockSprintRepository) GetFeatureIDByKey(ctx context.Context, key string) (int64, error) {
+	if m.GetFeatureIDByKeyFunc != nil {
+		return m.GetFeatureIDByKeyFunc(ctx, key)
+	}
+	return 0, fmt.Errorf("GetFeatureIDByKey not implemented in mock")
+}
+
 // F07 sprint_order mock implementations.
 
 func (m *MockSprintRepository) MaxSprintOrder(ctx context.Context, sprintID int64) (int, error) {
@@ -299,6 +316,13 @@ func (m *MockSprintRepository) CountNullSprintOrder(ctx context.Context, sprintI
 		return m.CountNullSprintOrderFunc(ctx, sprintID)
 	}
 	return 0, nil
+}
+
+func (m *MockSprintRepository) ListActiveAdmissionOverrides(ctx context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error) {
+	if m.ListActiveAdmissionOverridesFunc != nil {
+		return m.ListActiveAdmissionOverridesFunc(ctx, sprintID)
+	}
+	return map[string]*models.SprintAdmissionOverride{}, nil
 }
 
 // TestSprintService_NewSprintService tests constructor validation.
@@ -2082,7 +2106,7 @@ func TestSprintService_AddEntityToSprint_TechDebtSucceeds(t *testing.T) {
 }
 
 // TestSprintService_AddEntityToSprint_InvalidEntityType tests TC-R05 (service variant):
-// entity key that resolves to an unsupported type (e.g., epic) returns an error.
+// an entity key that resolves to a genuinely unsupported type returns an error.
 func TestSprintService_AddEntityToSprint_InvalidEntityType(t *testing.T) {
 	ctx := context.Background()
 
@@ -2099,11 +2123,103 @@ func TestSprintService_AddEntityToSprint_InvalidEntityType(t *testing.T) {
 
 	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
 		SprintKey: "S024",
-		EntityKey: "E07", // epic key — not assignable to sprint
+		EntityKey: "Q001", // question key — not assignable to sprint
 	})
 
-	assert.Error(t, err, "epic keys should be rejected")
+	assert.Error(t, err, "question keys should be rejected")
 	assert.Nil(t, assignment)
+	assert.Nil(t, warning)
+}
+
+// TestSprintService_AddEntityToSprint_EpicSucceeds covers finding #3:
+// ValidateSprintAssignmentEntityType's allowlist and resolveEntityTypeAndID's
+// switch previously never gained "epic"/"feature" cases even though
+// sprintAssignableWorkflowLevels and the ListBacklog UNION query already
+// treat epics/features as backlog/selection candidates, so `shark sprint add
+// E19` could never succeed outside the test-only seedSprintAssignment
+// raw-SQL bypass. This exercises the real AddEntityToSprint path end to end
+// (not the bypass) with an epic key.
+func TestSprintService_AddEntityToSprint_EpicSucceeds(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetEpicIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			assert.Equal(t, "E19", key)
+			return 5019, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			assert.Equal(t, "epic", assignment.EntityType)
+			assert.Equal(t, int64(5019), assignment.EntityID)
+			assignment.ID = 1
+			return nil
+		},
+		ListAssignmentsFunc: func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "E19",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	assert.Equal(t, "epic", assignment.EntityType)
+	assert.Nil(t, warning)
+}
+
+// TestSprintService_AddEntityToSprint_FeatureSucceeds is the feature-key
+// counterpart to TestSprintService_AddEntityToSprint_EpicSucceeds (finding #3).
+func TestSprintService_AddEntityToSprint_FeatureSucceeds(t *testing.T) {
+	ctx := context.Background()
+
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+		GetFeatureIDByKeyFunc: func(ctx context.Context, key string) (int64, error) {
+			assert.Equal(t, "E19-F09", key)
+			return 6019, nil
+		},
+		GetActiveAssignmentFunc: func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		AddAssignmentFunc: func(ctx context.Context, assignment *models.SprintAssignment) error {
+			assert.Equal(t, "feature", assignment.EntityType)
+			assert.Equal(t, int64(6019), assignment.EntityID)
+			assignment.ID = 1
+			return nil
+		},
+		ListAssignmentsFunc: func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return []*models.SprintAssignment{}, nil
+		},
+	}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, nil, nil, nil)
+
+	assignment, warning, err := svc.AddEntityToSprint(ctx, AddEntityInput{
+		SprintKey: "S024",
+		EntityKey: "E19-F09",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	assert.Equal(t, "feature", assignment.EntityType)
 	assert.Nil(t, warning)
 }
 
@@ -2845,6 +2961,154 @@ func TestBulkAddToSprint_CapacityWarning(t *testing.T) {
 	require.NotEmpty(t, result.CapacityWarnings, "capacity warning should be emitted")
 	assert.Equal(t, agentType, result.CapacityWarnings[0].AgentType)
 	assert.Greater(t, result.CapacityWarnings[0].Allocated, result.CapacityWarnings[0].Capacity)
+}
+
+// countingSprintAdmissionEvidenceReader wraps a stub evidence reader and
+// records how many times ReadSprintAdmissionEvidence is called, so tests can
+// assert the bulk admission path reads the portfolio snapshot once per call
+// regardless of candidate count (finding #6: BulkAddToSprint previously
+// called admissionSvc.Evaluate once per candidate, an N+1).
+type countingSprintAdmissionEvidenceReader struct {
+	stubSprintAdmissionEvidenceReader
+	calls int
+}
+
+func (r *countingSprintAdmissionEvidenceReader) ReadSprintAdmissionEvidence(ctx context.Context) (*SprintAdmissionEvidence, error) {
+	r.calls++
+	return r.stubSprintAdmissionEvidenceReader.ReadSprintAdmissionEvidence(ctx)
+}
+
+// TestBulkAddToSprint_EvaluatesAdmissionOnceRegardlessOfCandidateCount covers
+// finding #6: BulkAddToSprint must call the shared admission evaluator's
+// batched EvaluateCandidates once for the whole candidate set, not once per
+// candidate, so it does not re-read the full portfolio snapshot per row.
+func TestBulkAddToSprint_EvaluatesAdmissionOnceRegardlessOfCandidateCount(t *testing.T) {
+	ctx := context.Background()
+	sprint1 := &models.Sprint{ID: 24, Key: "S024", Name: "Sprint 24", Status: "planning"}
+
+	backlogItems := []sprint.BacklogItem{
+		{EntityType: "task", EntityID: 1001, Key: "T-E01-F01-001", Status: "todo"},
+		{EntityType: "task", EntityID: 1002, Key: "T-E01-F01-002", Status: "todo"},
+		{EntityType: "task", EntityID: 1003, Key: "T-E01-F01-003", Status: "todo"},
+	}
+
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(ctx context.Context, entityTypes []string, assignedSprintStatuses ...string) ([]sprint.BacklogItem, error) {
+			return backlogItems, nil
+		},
+		BulkAssignFunc: func(ctx context.Context, sprintID int64, assignments []models.SprintAssignment) (int, error) {
+			return len(assignments), nil
+		},
+	}
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprint1, nil
+		},
+	}
+
+	reader := &countingSprintAdmissionEvidenceReader{stubSprintAdmissionEvidenceReader: stubSprintAdmissionEvidenceReader{
+		evidence: &SprintAdmissionEvidence{
+			PortfolioEpicKey: "E01",
+			Candidates: map[string]SprintAdmissionCandidate{
+				"T-E01-F01-001": {Key: "T-E01-F01-001", EpicKey: "E01"},
+				"T-E01-F01-002": {Key: "T-E01-F01-002", EpicKey: "E01"},
+				"T-E01-F01-003": {Key: "T-E01-F01-003", EpicKey: "E01"},
+			},
+			UnmetAncestors: map[string][]string{},
+		},
+	}}
+
+	workflowSvc := workflow.NewService("")
+	svc := NewSprintService(mockRepo, workflowSvc, mockAssignRepo, nil, nil)
+	svc.SetAdmissionService(NewSprintAdmissionService(reader))
+
+	result, err := svc.BulkAddToSprint(ctx, BulkAddInput{SprintKey: "S024", EntityTypes: []string{"task"}})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 3, result.AddedByType["task"])
+	assert.Equal(t, 1, reader.calls, "admission evidence must be read exactly once for the whole batch, not once per candidate")
+}
+
+// TestGetSprintReadiness_AppliesOverride_ReportsOverriddenNotBlocked covers
+// finding #2: a stored admission override must be read back and applied so a
+// previously-overridden candidate reports SprintAdmissionOverridden (and does
+// not force readiness to zero) instead of Blocked on every subsequent read.
+func TestGetSprintReadiness_AppliesOverride_ReportsOverriddenNotBlocked(t *testing.T) {
+	ctx := context.Background()
+	sprintObj := &models.Sprint{ID: 24, Key: "S024", Status: "planning"}
+	assignments := []sprint.AssignmentWithSize{
+		{EntityType: "task", EntityID: 501, Key: "task-overridden", Title: "Overridden", Size: sizePtrR(5), AgentType: agentPtrR("backend")},
+	}
+
+	var capturedSprintID int64
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return sprintObj, nil
+		},
+		ListActiveAdmissionOverridesFunc: func(_ context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error) {
+			capturedSprintID = sprintID
+			return map[string]*models.SprintAdmissionOverride{
+				sprint.AdmissionOverrideKey("task", 501): {SprintID: sprintID, EntityType: "task", EntityID: 501, Reason: "authorized exception"},
+			}, nil
+		},
+	}
+	mockAssignRepo := &MockSprintAssignmentQueryRepository{
+		GetAssignmentsWithSizeFunc: func(_ context.Context, _ int64) ([]sprint.AssignmentWithSize, error) {
+			return assignments, nil
+		},
+	}
+	mockCapRepo := &MockSprintCapacityRepository{
+		GetCapacityFunc: func(_ context.Context, _ int64) ([]*models.SprintCapacity, error) {
+			return []*models.SprintCapacity{{AgentType: "backend", CapacityPoints: 10}}, nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflow.NewService(""), mockAssignRepo, mockCapRepo, nil)
+	svc.SetAdmissionService(NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: &SprintAdmissionEvidence{
+		PortfolioEpicKey: "E01",
+		Candidates:       map[string]SprintAdmissionCandidate{"task-overridden": {Key: "task-overridden", EpicKey: "E02"}},
+		UnmetAncestors:   map[string][]string{},
+	}}))
+
+	readiness, err := svc.GetSprintReadiness(ctx, "S024")
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(24), capturedSprintID)
+	require.Len(t, readiness.Admission, 1)
+	assert.Equal(t, SprintAdmissionOverridden, readiness.Admission[0].State)
+	admissionFactor := readiness.Factors[len(readiness.Factors)-1]
+	assert.Equal(t, "Roadmap admission", admissionFactor.Name)
+	assert.NotEqual(t, 0, readiness.OverallScore, "an overridden (not blocked) candidate must not force overall readiness to zero")
+}
+
+// TestSelectSprint_IncludesOverriddenCandidate covers finding #2 for the
+// selection/plan consumers: a candidate with a stored override must remain
+// in the selection output (state Overridden), not be silently excluded the
+// way a Blocked candidate is.
+func TestSelectSprint_IncludesOverriddenCandidate(t *testing.T) {
+	order1 := 1
+	backlogItems := []*sprint.BacklogItem{
+		{EntityType: "task", EntityID: 900, Key: "task-overridden", Title: "Overridden", Status: "todo", SprintOrder: &order1, AssignedAt: time.Now()},
+	}
+	svc := newGetNextTaskTestService(t, backlogItems)
+	svc.SetAdmissionService(NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: &SprintAdmissionEvidence{
+		PortfolioEpicKey: "E01",
+		Candidates:       map[string]SprintAdmissionCandidate{"task-overridden": {Key: "task-overridden", EpicKey: "E02"}},
+		UnmetAncestors:   map[string][]string{},
+	}}))
+	mockRepo, ok := svc.repo.(*MockSprintRepository)
+	require.True(t, ok)
+	mockRepo.ListActiveAdmissionOverridesFunc = func(_ context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error) {
+		return map[string]*models.SprintAdmissionOverride{
+			sprint.AdmissionOverrideKey("task", 900): {SprintID: sprintID, EntityType: "task", EntityID: 900, Reason: "authorized exception"},
+		}, nil
+	}
+
+	selection, err := svc.SelectSprint(context.Background(), SprintSelectionInput{SprintKey: "S001", Limit: 2})
+
+	require.NoError(t, err)
+	require.Len(t, selection.Items, 1)
+	assert.Equal(t, "task-overridden", selection.Items[0].Key)
 }
 
 // TestBulkAddToSprint_FeatureNotFound tests TC-K03:
@@ -7185,6 +7449,61 @@ func TestSelectSprint_E19F09_PersistedClaimAndQuestionTurnover(t *testing.T) {
 	selection, err = svc.SelectSprint(ctx, SprintSelectionInput{SprintKey: "S059", Limit: 5})
 	require.NoError(t, err)
 	require.Len(t, selection.Items, 2)
+}
+
+// TestGetNextTask_MergesExclusionDiagnosticsAcrossExecutionSprints covers
+// finding #5: selectExecutionSprintCandidates previously kept
+// PortfolioEpicKey/ExcludedByReason from only the first (index 0) execution
+// sprint, silently dropping exclusion counts from any additional concurrent
+// execution-phase sprint. With two execution sprints, each excluding a
+// distinct candidate for a distinct reason, the merged diagnostics must
+// reflect both.
+func TestGetNextTask_MergesExclusionDiagnosticsAcrossExecutionSprints(t *testing.T) {
+	first := makeActiveSprint(10, "S001")
+	second := makeActiveSprint(11, "S002")
+	order := 1
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			if key == second.Key {
+				return second, nil
+			}
+			return first, nil
+		},
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{first, second}, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			if sprintID == first.ID {
+				return []*sprint.BacklogItem{
+					{EntityType: "task", Key: "task-block-1", Title: "Blocked by ancestor", Status: "todo", SprintOrder: &order, AssignedAt: time.Now()},
+				}, nil
+			}
+			return []*sprint.BacklogItem{
+				{EntityType: "task", Key: "task-allowed", Title: "Allowed", Status: "todo", SprintOrder: &order, AssignedAt: time.Now()},
+				{EntityType: "task", Key: "task-block-2", Title: "Blocked outside portfolio", Status: "todo", SprintOrder: &order, AssignedAt: time.Now()},
+			}, nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+	svc.SetAdmissionService(NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: &SprintAdmissionEvidence{
+		PortfolioEpicKey: "E01",
+		Candidates: map[string]SprintAdmissionCandidate{
+			"task-block-1": {Key: "task-block-1", EpicKey: "E02"},
+			"task-allowed": {Key: "task-allowed", EpicKey: "E01"},
+			"task-block-2": {Key: "task-block-2", EpicKey: "E03"},
+		},
+		UnmetAncestors: map[string][]string{"E02": {"E01"}},
+	}}))
+
+	item, err := svc.GetNextTask(context.Background(), "")
+
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	assert.Equal(t, "task-allowed", item.Key)
+	assert.Equal(t, map[string]int{
+		string(SprintAdmissionReasonAncestorDependency): 1,
+		string(SprintAdmissionReasonOutsidePortfolio):   1,
+	}, item.ExcludedByReason)
 }
 
 func (s sprintClaimReaderStub) IsClaimable(_ context.Context, entityType, entityKey string) (bool, error) {

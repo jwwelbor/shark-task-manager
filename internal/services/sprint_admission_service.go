@@ -68,8 +68,22 @@ func (r *PortfolioSprintAdmissionEvidenceReader) ReadSprintAdmissionEvidence(ctx
 		return nil, fmt.Errorf("read portfolio admission advice: %w", err)
 	}
 	plan := r.planner.Plan(advice)
-	if len(plan.RootKeys) != 1 {
-		return nil, fmt.Errorf("read portfolio admission advice: selected portfolio gate is unavailable")
+	// Zero eligible roots (between epics, all blocked, or portfolio paused) and
+	// multiple tied roots are both normal portfolio states, not errors. Zero
+	// roots means no portfolio gate is currently active, so admission evidence
+	// carries an empty PortfolioEpicKey and evaluateSprintAdmissionEvidence
+	// skips the outside-portfolio-gate check entirely. A tie resolves
+	// deterministically to the lexicographically lowest root key, mirroring
+	// the "one active gate" mental model already used elsewhere for parallel
+	// ties.
+	portfolioEpicKey := ""
+	switch {
+	case len(plan.RootKeys) == 1:
+		portfolioEpicKey = plan.RootKeys[0]
+	case len(plan.RootKeys) > 1:
+		tied := append([]string(nil), plan.RootKeys...)
+		sort.Strings(tied)
+		portfolioEpicKey = tied[0]
 	}
 	snapshot, err := r.snapshotSource.ReadSnapshot(ctx)
 	if err != nil {
@@ -79,7 +93,7 @@ func (r *PortfolioSprintAdmissionEvidenceReader) ReadSprintAdmissionEvidence(ctx
 	if epicWorkflow == nil {
 		return nil, fmt.Errorf("read portfolio admission snapshot: epic workflow is unavailable")
 	}
-	return sprintAdmissionEvidenceFromSnapshot(snapshot, plan.RootKeys[0], epicWorkflow)
+	return sprintAdmissionEvidenceFromSnapshot(snapshot, portfolioEpicKey, epicWorkflow)
 }
 
 func sprintAdmissionEvidenceFromSnapshot(snapshot portfoliorepo.Snapshot, portfolioEpicKey string, epicWorkflow *workflow.Service) (*SprintAdmissionEvidence, error) {
@@ -182,7 +196,7 @@ func evaluateSprintAdmissionEvidence(evidence *SprintAdmissionEvidence, candidat
 		decision.ReasonCode = SprintAdmissionReasonAncestorDependency
 		return decision, nil
 	}
-	if candidate.EpicKey != evidence.PortfolioEpicKey {
+	if evidence.PortfolioEpicKey != "" && candidate.EpicKey != evidence.PortfolioEpicKey {
 		decision.State = SprintAdmissionBlocked
 		decision.ReasonCode = SprintAdmissionReasonOutsidePortfolio
 	}

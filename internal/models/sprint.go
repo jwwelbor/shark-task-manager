@@ -37,12 +37,12 @@ type Sprint struct {
 }
 
 // SprintAssignment is a polymorphic association row linking a sprint to a
-// task, bug, change-card, or tech-debt item.
+// task, bug, change-card, tech-debt, epic, or feature item.
 //
 // EntityType is constrained at the app layer only (see
 // ValidateSprintAssignmentEntityType in validation.go); per the post-B018
 // convention, the underlying sprint_assignments table does NOT carry a
-// CHECK constraint on entity_type. Adding a fifth assignable entity type
+// CHECK constraint on entity_type. Adding another assignable entity type
 // later requires updating only the Go validator — no DB migration.
 //
 // RemovedAt is nullable: a NULL value means the assignment is currently

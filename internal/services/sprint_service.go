@@ -65,6 +65,8 @@ type SprintRepository interface {
 	GetBugIDByKey(ctx context.Context, key string) (int64, error)
 	GetChangeCardIDByKey(ctx context.Context, key string) (int64, error)
 	GetTechDebtIDByKey(ctx context.Context, key string) (int64, error)
+	GetEpicIDByKey(ctx context.Context, key string) (int64, error)
+	GetFeatureIDByKey(ctx context.Context, key string) (int64, error)
 
 	// --- Sprint order methods (F07) ---
 
@@ -89,6 +91,14 @@ type SprintRepository interface {
 	// that have sprint_order = NULL. Used by StartSprint to surface a soft warning
 	// (REQ-F-009) without blocking the start transition.
 	CountNullSprintOrder(ctx context.Context, sprintID int64) (int, error)
+
+	// ListActiveAdmissionOverrides returns every roadmap admission override
+	// recorded for a sprint, keyed by sprint.AdmissionOverrideKey(entity_type,
+	// entity_id). Admission consumers apply these to decisions returned by
+	// SprintAdmissionService so a previously-overridden candidate reports
+	// SprintAdmissionOverridden instead of being re-evaluated as Blocked on
+	// every subsequent plan/selection/readiness read.
+	ListActiveAdmissionOverrides(ctx context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error)
 }
 
 // SprintAssignmentQueryRepository handles assignment queries needed for sprint planning.
@@ -769,6 +779,20 @@ func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKe
 		}
 		return "change_card", entityID, nil
 
+	case keys.EntityTypeEpic:
+		entityID, err = repo.GetEpicIDByKey(ctx, parsed.Normalized)
+		if err != nil {
+			return "", 0, fmt.Errorf("epic %q not found: %w", entityKey, err)
+		}
+		return "epic", entityID, nil
+
+	case keys.EntityTypeFeature:
+		entityID, err = repo.GetFeatureIDByKey(ctx, parsed.Normalized)
+		if err != nil {
+			return "", 0, fmt.Errorf("feature %q not found: %w", entityKey, err)
+		}
+		return "feature", entityID, nil
+
 	default:
 		// Tech-debt keys (TD-###) are not handled by KeyService.Parse.
 		// Fall back to IsTechDebtKey before returning an unsupported-type error.
@@ -1299,6 +1323,7 @@ type BacklogGroup struct {
 // BacklogItemView is the CLI-friendly projection of a BacklogItem.
 type BacklogItemView struct {
 	EntityType        string         `json:"entity_type"`
+	EntityID          int64          `json:"-"` // internal only, used to match admission overrides
 	Key               string         `json:"key"`
 	Title             string         `json:"title"`
 	Status            string         `json:"status"`
@@ -1558,6 +1583,7 @@ func buildGroupedView(items []*sprint.BacklogItem) []*BacklogGroup {
 func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 	v := &BacklogItemView{
 		EntityType:     item.EntityType,
+		EntityID:       item.EntityID,
 		Key:            item.Key,
 		Title:          item.Title,
 		Status:         item.Status,
@@ -1771,7 +1797,7 @@ func (s *SprintService) SelectSprint(ctx context.Context, input SprintSelectionI
 	if err := s.filterSprintSelectionQuestions(ctx, &candidates); err != nil {
 		return nil, err
 	}
-	portfolioEpicKey, excludedByReason, err := s.filterSprintSelectionAdmission(ctx, &candidates)
+	portfolioEpicKey, excludedByReason, err := s.filterSprintSelectionAdmission(ctx, sprintEntity.ID, &candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -1828,7 +1854,12 @@ func (s *SprintService) selectExecutionSprintCandidates(ctx context.Context, inp
 		candidates = append(candidates, selection.Items...)
 		if index == 0 {
 			result.PortfolioEpicKey = selection.PortfolioEpicKey
-			result.ExcludedByReason = selection.ExcludedByReason
+		}
+		for reason, count := range selection.ExcludedByReason {
+			if result.ExcludedByReason == nil {
+				result.ExcludedByReason = make(map[string]int, len(selection.ExcludedByReason))
+			}
+			result.ExcludedByReason[reason] += count
 		}
 	}
 	sortSprintSelection(candidates)
@@ -1891,7 +1922,7 @@ func (s *SprintService) filterSprintSelectionQuestions(ctx context.Context, cand
 // evaluator after the existing workflow, claim, and Question gates. A blocked
 // candidate is omitted; evaluator failures are surfaced so planning and
 // dispatch never fail open when roadmap evidence is unavailable.
-func (s *SprintService) filterSprintSelectionAdmission(ctx context.Context, candidates *[]*BacklogItemView) (string, map[string]int, error) {
+func (s *SprintService) filterSprintSelectionAdmission(ctx context.Context, sprintID int64, candidates *[]*BacklogItemView) (string, map[string]int, error) {
 	if s.admissionSvc == nil {
 		return "", nil, nil
 	}
@@ -1903,11 +1934,15 @@ func (s *SprintService) filterSprintSelectionAdmission(ctx context.Context, cand
 	if err != nil {
 		return "", nil, fmt.Errorf("evaluate roadmap admission: %w", err)
 	}
+	overrides, err := s.repo.ListActiveAdmissionOverrides(ctx, sprintID)
+	if err != nil {
+		return "", nil, fmt.Errorf("list roadmap admission overrides: %w", err)
+	}
 	eligible := make([]*BacklogItemView, 0, len(*candidates))
 	excluded := make(map[string]int)
 	portfolioEpicKey := ""
 	for index, candidate := range *candidates {
-		decision := decisions[index]
+		decision := decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(candidate.EntityType, candidate.EntityID)])
 		portfolioEpicKey = decision.PortfolioEpicKey
 		if decision.State != SprintAdmissionBlocked {
 			eligible = append(eligible, candidate)
@@ -2370,13 +2405,28 @@ func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput)
 	// candidates continue through the efficient bulk path. Blocked candidates
 	// require a valid reason and are delegated to AddEntityToSprint so their
 	// override and assignment share one transaction.
-	if s.admissionSvc != nil {
-		bulkEligible := make([]sprint.BacklogItem, 0, len(filtered))
+	//
+	// Evaluated as one EvaluateCandidates call for the whole batch (not one
+	// Evaluate call per candidate) so this loop reads the portfolio admission
+	// snapshot exactly once regardless of candidate count, matching the
+	// batching filterSprintSelectionAdmission/filterSprintPlanAdmission
+	// already use.
+	if s.admissionSvc != nil && len(filtered) > 0 {
+		candidateKeys := make([]string, 0, len(filtered))
 		for _, candidate := range filtered {
-			decision, decisionErr := s.admissionSvc.Evaluate(ctx, candidate.Key)
-			if decisionErr != nil {
-				return nil, fmt.Errorf("failed to evaluate roadmap admission for %q: %w", candidate.Key, decisionErr)
-			}
+			candidateKeys = append(candidateKeys, candidate.Key)
+		}
+		decisions, decisionErr := s.admissionSvc.EvaluateCandidates(ctx, candidateKeys)
+		if decisionErr != nil {
+			return nil, fmt.Errorf("failed to evaluate roadmap admission for bulk add to sprint %s: %w", input.SprintKey, decisionErr)
+		}
+		overrides, overrideErr := s.repo.ListActiveAdmissionOverrides(ctx, sprintEntity.ID)
+		if overrideErr != nil {
+			return nil, fmt.Errorf("failed to list roadmap admission overrides for bulk add to sprint %s: %w", input.SprintKey, overrideErr)
+		}
+		bulkEligible := make([]sprint.BacklogItem, 0, len(filtered))
+		for index, candidate := range filtered {
+			decision := decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(candidate.EntityType, candidate.EntityID)])
 			if decision.State != SprintAdmissionBlocked {
 				bulkEligible = append(bulkEligible, candidate)
 				continue
@@ -3094,13 +3144,13 @@ func (s *SprintService) GetSprintReadiness(ctx context.Context, key string) (*Sp
 
 	// ─── In-memory computation only from here ──────────────────────────────
 	readiness := computeReadinessFromData(assignments, capacities, extDepTerminal, assignedKeys)
-	if err := s.applyReadinessAdmission(ctx, assignments, readiness); err != nil {
+	if err := s.applyReadinessAdmission(ctx, sprintEntity.ID, assignments, readiness); err != nil {
 		return nil, err
 	}
 	return readiness, nil
 }
 
-func (s *SprintService) applyReadinessAdmission(ctx context.Context, assignments []sprint.AssignmentWithSize, readiness *SprintReadiness) error {
+func (s *SprintService) applyReadinessAdmission(ctx context.Context, sprintID int64, assignments []sprint.AssignmentWithSize, readiness *SprintReadiness) error {
 	if s.admissionSvc == nil {
 		return nil
 	}
@@ -3111,6 +3161,13 @@ func (s *SprintService) applyReadinessAdmission(ctx context.Context, assignments
 	decisions, err := s.admissionSvc.EvaluateCandidates(ctx, keys)
 	if err != nil {
 		return fmt.Errorf("evaluate roadmap admission for readiness: %w", err)
+	}
+	overrides, err := s.repo.ListActiveAdmissionOverrides(ctx, sprintID)
+	if err != nil {
+		return fmt.Errorf("list roadmap admission overrides for readiness: %w", err)
+	}
+	for index, assignment := range assignments {
+		decisions[index] = decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(assignment.EntityType, assignment.EntityID)])
 	}
 	readiness.Admission = decisions
 	blocked := make([]SprintAdmissionDecision, 0)
@@ -3535,7 +3592,7 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 	if backlog == nil {
 		backlog = []sprint.BacklogItem{}
 	}
-	portfolioEpicKey, excludedByReason, err := s.filterSprintPlanAdmission(ctx, &backlog)
+	portfolioEpicKey, excludedByReason, err := s.filterSprintPlanAdmission(ctx, sprintEntity.ID, &backlog)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate roadmap admission for sprint %s plan: %w", key, err)
 	}
@@ -3570,7 +3627,7 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 		return nil, fmt.Errorf("failed to compute external dependency terminal status for sprint %s plan: %w", key, err)
 	}
 	readiness := computeReadinessFromData(assignments, capacityModels, extDepTerminal, assignedKeys)
-	if err := s.applyReadinessAdmission(ctx, assignments, readiness); err != nil {
+	if err := s.applyReadinessAdmission(ctx, sprintEntity.ID, assignments, readiness); err != nil {
 		return nil, fmt.Errorf("failed to evaluate roadmap admission for sprint %s plan: %w", key, err)
 	}
 
@@ -3584,7 +3641,7 @@ func (s *SprintService) PlanSprint(ctx context.Context, key string) (*SprintPlan
 	}, nil
 }
 
-func (s *SprintService) filterSprintPlanAdmission(ctx context.Context, backlog *[]sprint.BacklogItem) (string, map[string]int, error) {
+func (s *SprintService) filterSprintPlanAdmission(ctx context.Context, sprintID int64, backlog *[]sprint.BacklogItem) (string, map[string]int, error) {
 	if s.admissionSvc == nil || len(*backlog) == 0 {
 		return "", nil, nil
 	}
@@ -3596,11 +3653,15 @@ func (s *SprintService) filterSprintPlanAdmission(ctx context.Context, backlog *
 	if err != nil {
 		return "", nil, err
 	}
+	overrides, err := s.repo.ListActiveAdmissionOverrides(ctx, sprintID)
+	if err != nil {
+		return "", nil, fmt.Errorf("list roadmap admission overrides: %w", err)
+	}
 	allowed := make([]sprint.BacklogItem, 0, len(*backlog))
 	excluded := make(map[string]int)
 	portfolioEpicKey := ""
 	for index, item := range *backlog {
-		decision := decisions[index]
+		decision := decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(item.EntityType, item.EntityID)])
 		portfolioEpicKey = decision.PortfolioEpicKey
 		if decision.State == SprintAdmissionBlocked {
 			excluded[string(decision.ReasonCode)]++

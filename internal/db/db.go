@@ -4250,7 +4250,7 @@ func migrateSprintTables(db *sql.DB) error {
 	//
 	// Mirrors the entity_notes polymorphic pattern (db.go:1698-1811). Permitted
 	// entity_type values (validated at the app layer, not the DB layer):
-	//   'task' | 'bug' | 'change_card' | 'tech_debt'
+	//   'task' | 'bug' | 'change_card' | 'tech_debt' | 'epic' | 'feature'
 	//
 	// Per the post-B018 convention (see migrateDropPolymorphicEntityTypeChecks
 	// and spec §3.4), there is intentionally NO CHECK constraint on
