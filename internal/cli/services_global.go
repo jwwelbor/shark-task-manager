@@ -820,6 +820,19 @@ func GetClaimService() *services.ClaimService {
 	return svc
 }
 
+// GetHarnessResolver returns a HarnessResolver backed by the global DB
+// connection's claim repository. Creates a new instance per call (the
+// underlying repo is stateless), matching the GetClaimService accessor
+// pattern above. Panics on DB failure (fail-fast, matching the other CLI
+// accessors) — see spec.md §3.3 AC-T3.
+func GetHarnessResolver() *services.HarnessResolver {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	return services.NewHarnessResolver(claimrepo.NewRepository(db))
+}
+
 // GetPortfolioAdviceService returns a read-only portfolio advice service
 // backed by the shared CLI database and configured workflows. This is the
 // internal evidence input to bare `shark plan`'s epic selection.
