@@ -90,17 +90,15 @@ func TestRenderedPromptsGolden(t *testing.T) {
 	entities, err := os.ReadDir(promptsDir)
 	require.NoError(t, err)
 
-	vars := goldenVars()
-	// T-E34-F01-006/TC-008 (AC-07, REQ-NF-001): merge the zero HarnessIdentity's
-	// three vars keys the same way resolveEntity does in production (next.go)
-	// before every render. None of the shipped prompts in this corpus branch
-	// on .harness (spec.md §2.4 item 5), so merging these empty-string keys
-	// must not change a single byte of output — this is exactly the
-	// "vars construction order" / "map iteration behavior" drift TC-008's
-	// Negative Cases call out, and the full corpus (not a hand-picked
-	// fixture) is what would catch it.
+	// varsWithHarness mirrors what resolveEntity actually merges into the
+	// placeholder map in production (next.go) before every render: the zero
+	// HarnessIdentity's three vars keys, unconditionally, per D-F01-07.
+	// varsWithoutHarness is the pre-feature shape (no harness keys at all) —
+	// the "before this feature" state TC-008 compares against.
+	varsWithoutHarness := goldenVars()
+	varsWithHarness := goldenVars()
 	for k, v := range (services.HarnessIdentity{}).Vars() {
-		vars[k] = v
+		varsWithHarness[k] = v
 	}
 	goldenRoot := filepath.Join("testdata", "rendered-prompts")
 
@@ -132,7 +130,7 @@ func TestRenderedPromptsGolden(t *testing.T) {
 					// Match the renderer's lookup key: subdirectory-prefixed
 					// relative path (e.g., "feature/ready_for_assessment.md").
 					tmplName := filepath.ToSlash(filepath.Join(entity, name))
-					rendered, err := renderer.Render(tmplName, vars)
+					rendered, err := renderer.Render(tmplName, varsWithHarness)
 					require.NoErrorf(t, err, "render %s", tmplName)
 
 					goldenPath := filepath.Join(goldenRoot, entity, status+".golden")
@@ -152,19 +150,24 @@ func TestRenderedPromptsGolden(t *testing.T) {
 							tmplName, goldenPath)
 					}
 
-					// T-E34-F01-006/TC-008: the committed .golden file is the
-					// "before this feature" byte capture; rendering it again now
-					// (with this feature's harness-vars merge applied above) is
-					// the "after this feature's full change set" state. Compare
-					// PromptSHA256 digests — computed the identical way
-					// NextResponse.PromptSHA256 is — rather than only the raw
-					// string compare above, so this test is a direct,
-					// non-aspirational check of AC-07's literal wording. A
-					// digest mismatch here is a hard REQ-NF-001 regression.
-					beforeDigest := promptSHA256(string(want))
-					afterDigest := promptSHA256(rendered)
-					assert.Equalf(t, beforeDigest, afterDigest,
-						"prompt_sha256 must be identical before/after this feature for %s (REQ-NF-001/AC-07)", tmplName)
+					// T-E34-F01-006/TC-008 (AC-07, REQ-NF-001): a genuine
+					// before/after comparison, independent of the committed
+					// .golden file (which a future -update would overwrite,
+					// destroying it as a "before this feature" anchor).
+					// renderedWithoutHarness reproduces the pre-feature vars
+					// shape (no harness keys at all); rendered (above) is the
+					// post-feature shape with this feature's harness-vars merge
+					// applied. PromptSHA256 is computed the identical way
+					// NextResponse.PromptSHA256 is. None of the shipped prompts
+					// in this corpus branch on .harness (spec.md §2.4 item 5),
+					// so the two digests must match — this is exactly the "vars
+					// construction order" / "map iteration behavior" drift
+					// TC-008's Negative Cases call out, caught across the full
+					// corpus rather than a hand-picked fixture.
+					renderedWithoutHarness, err := renderer.Render(tmplName, varsWithoutHarness)
+					require.NoErrorf(t, err, "render %s without harness keys", tmplName)
+					assert.Equalf(t, promptSHA256(renderedWithoutHarness), promptSHA256(rendered),
+						"prompt_sha256 must be identical before/after this feature's harness-vars merge for %s (REQ-NF-001/AC-07)", tmplName)
 				})
 			}
 		})
