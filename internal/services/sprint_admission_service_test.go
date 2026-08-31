@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -64,6 +65,49 @@ func TestSprintAdmissionService_EvaluateFailsClosedWhenEvidenceUnavailable(t *te
 	assert.Contains(t, err.Error(), "admission evidence")
 }
 
+func TestSprintAdmissionService_EvaluateAllowsStandaloneEntitiesAbsentFromSnapshot(t *testing.T) {
+	// Bugs, change-cards, and tech-debt items have no epic ancestry, so
+	// sprintAdmissionEvidenceFromSnapshot never populates them into
+	// evidence.Candidates (it only walks snapshot.Epics/snapshot.Children,
+	// which are epic/feature/task rows). Before this fix, evaluating any of
+	// these keys against real portfolio evidence returned a hard
+	// "candidate is unavailable" error, so AddEntityToSprint/BulkAddToSprint/
+	// PlanSprint/GetSprintReadiness could never admit a bug, change-card, or
+	// tech-debt item into a sprint once roadmap admission was wired in.
+	evidence := &SprintAdmissionEvidence{
+		PortfolioEpicKey: "E01",
+		Candidates:       map[string]SprintAdmissionCandidate{"T-E01-F01-001": {Key: "T-E01-F01-001", EpicKey: "E01"}},
+		UnmetAncestors:   map[string][]string{},
+	}
+	service := NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: evidence})
+
+	for _, key := range []string{"B001", "CC-001", "TD-001"} {
+		t.Run(key, func(t *testing.T) {
+			decision, err := service.Evaluate(context.Background(), key)
+			require.NoError(t, err)
+			assert.Equal(t, SprintAdmissionAllowed, decision.State)
+			assert.Empty(t, decision.ReasonCode)
+		})
+	}
+}
+
+func TestSprintAdmissionService_EvaluateStillFailsForUnavailableHierarchyCandidate(t *testing.T) {
+	// A missing epic/feature/task key is a genuine evidence gap (e.g. a stale
+	// snapshot or an orphaned assignment) and must keep failing loud rather
+	// than being silently allowed like the standalone-entity case above.
+	evidence := &SprintAdmissionEvidence{
+		PortfolioEpicKey: "E01",
+		Candidates:       map[string]SprintAdmissionCandidate{},
+		UnmetAncestors:   map[string][]string{},
+	}
+	service := NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: evidence})
+
+	_, err := service.Evaluate(context.Background(), "T-E01-F01-001")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is unavailable")
+}
+
 func TestValidSprintOverrideReasonBoundaries(t *testing.T) {
 	assert.False(t, validSprintOverrideReason("                   "))
 	assert.False(t, validSprintOverrideReason("1234567890123456789"))
@@ -96,6 +140,60 @@ func TestSprintService_AddEntityToSprintRejectsBlockedCandidateBeforeAssignment(
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), string(SprintAdmissionReasonAncestorDependency))
 	assert.False(t, added)
+}
+
+// TestSprintService_AddEntityToSprintOverridePathPersistsAssignmentAndOverride
+// exercises the roadmap-override transaction branch of AddEntityToSprint
+// (AddAssignmentTx + CreateAdmissionOverrideTx + Commit). Before this test,
+// MockSprintRepository did not implement AddAssignmentTx/CreateAdmissionOverrideTx,
+// so the `s.repo.(sprintAdmissionMutationRepository)` type assertion in
+// AddEntityToSprint always failed for every test in this suite, meaning the
+// override-write path could never be reached or verified.
+func TestSprintService_AddEntityToSprintOverridePathPersistsAssignmentAndOverride(t *testing.T) {
+	var assignmentTxCalled, overrideTxCalled bool
+	var capturedOverride *models.SprintAdmissionOverride
+	repo := &MockSprintRepository{
+		GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 1, Key: "S001", Status: "planning"}, nil
+		},
+		GetTaskIDByKeyFunc: func(context.Context, string) (int64, error) { return 10, nil },
+		GetActiveAssignmentFunc: func(context.Context, string, int64) (*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		MaxSprintOrderFunc: func(context.Context, int64) (int, error) { return 0, nil },
+		AddAssignmentTxFunc: func(_ context.Context, _ *sql.Tx, assignment *models.SprintAssignment) error {
+			assignmentTxCalled = true
+			assignment.ID = 99
+			return nil
+		},
+		CreateAdmissionOverrideTxFunc: func(_ context.Context, _ *sql.Tx, override *models.SprintAdmissionOverride) error {
+			overrideTxCalled = true
+			capturedOverride = override
+			return nil
+		},
+		AddAssignmentFunc: func(context.Context, *models.SprintAssignment) error {
+			t.Fatal("non-transactional AddAssignment must not be called on the override path")
+			return nil
+		},
+	}
+	testDB := newTestDB(t)
+	service := NewSprintService(repo, workflow.NewService(""), nil, nil, nil, testDB)
+	service.SetAdmissionService(NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: &SprintAdmissionEvidence{
+		PortfolioEpicKey: "E01",
+		Candidates:       map[string]SprintAdmissionCandidate{"T-E02-F01-001": {Key: "T-E02-F01-001", EpicKey: "E02"}},
+		UnmetAncestors:   map[string][]string{"E02": {"E01"}},
+	}}))
+
+	assignment, _, err := service.AddEntityToSprint(context.Background(), AddEntityInput{
+		SprintKey: "S001", EntityKey: "T-E02-F01-001", OverrideReason: strings.Repeat("x", 20),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, assignment)
+	assert.True(t, assignmentTxCalled, "AddAssignmentTx must be called on the override path")
+	assert.True(t, overrideTxCalled, "CreateAdmissionOverrideTx must be called on the override path")
+	require.NotNil(t, capturedOverride)
+	assert.Equal(t, string(SprintAdmissionReasonAncestorDependency), capturedOverride.ReasonCode)
 }
 
 // TC-006: selection and the sprint-next compatibility projection must omit a

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -181,6 +182,16 @@ func (s *SprintAdmissionService) EvaluateCandidates(ctx context.Context, candida
 func evaluateSprintAdmissionEvidence(evidence *SprintAdmissionEvidence, candidateKey string) (SprintAdmissionDecision, error) {
 	candidate, ok := evidence.Candidates[candidateKey]
 	if !ok {
+		if isStandaloneAdmissionEntityKey(candidateKey) {
+			// Bugs, change-cards, and tech-debt items have no epic ancestry and
+			// are never enumerated in the portfolio snapshot built by
+			// sprintAdmissionEvidenceFromSnapshot (which only walks epics,
+			// features, and tasks). The roadmap gate and ancestor-dependency
+			// checks are meaningless for entities with no epic association, so
+			// they are unconditionally allowed rather than treated as an
+			// evidence gap.
+			return SprintAdmissionDecision{CandidateKey: candidateKey, State: SprintAdmissionAllowed}, nil
+		}
 		return SprintAdmissionDecision{}, fmt.Errorf("read sprint admission evidence: candidate %q is unavailable", candidateKey)
 	}
 
@@ -201,6 +212,17 @@ func evaluateSprintAdmissionEvidence(evidence *SprintAdmissionEvidence, candidat
 		decision.ReasonCode = SprintAdmissionReasonOutsidePortfolio
 	}
 	return decision, nil
+}
+
+// isStandaloneAdmissionEntityKey reports whether candidateKey identifies a
+// bug, change-card, or tech-debt item — entity types the portfolio snapshot
+// never enumerates because they have no epic ancestry.
+func isStandaloneAdmissionEntityKey(candidateKey string) bool {
+	switch keys.NewKeyService().DetectEntityType(candidateKey) {
+	case keys.EntityTypeBug, keys.EntityTypeChange:
+		return true
+	}
+	return keys.IsTechDebtKey(candidateKey)
 }
 
 func (d SprintAdmissionDecision) WithOverride(override *models.SprintAdmissionOverride) SprintAdmissionDecision {

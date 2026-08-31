@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/research"
 	internaltesthelper "github.com/jwwelbor/shark-task-manager/internal/test"
@@ -41,6 +42,8 @@ type MockSprintRepository struct {
 
 	// F03 methods
 	AddAssignmentFunc               func(ctx context.Context, assignment *models.SprintAssignment) error
+	AddAssignmentTxFunc             func(ctx context.Context, tx *sql.Tx, assignment *models.SprintAssignment) error
+	CreateAdmissionOverrideTxFunc   func(ctx context.Context, tx *sql.Tx, override *models.SprintAdmissionOverride) error
 	RemoveAssignmentFunc            func(ctx context.Context, sprintID int64, entityType string, entityID int64) error
 	GetActiveAssignmentFunc         func(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error)
 	ListAssignmentsFunc             func(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error)
@@ -140,6 +143,23 @@ func (m *MockSprintRepository) List(ctx context.Context, filters *sprint.SprintL
 func (m *MockSprintRepository) AddAssignment(ctx context.Context, assignment *models.SprintAssignment) error {
 	if m.AddAssignmentFunc != nil {
 		return m.AddAssignmentFunc(ctx, assignment)
+	}
+	return nil
+}
+
+// AddAssignmentTx and CreateAdmissionOverrideTx satisfy the unexported
+// sprintAdmissionMutationRepository optional-capability interface that
+// AddEntityToSprint type-asserts s.repo against on the roadmap-override path.
+func (m *MockSprintRepository) AddAssignmentTx(ctx context.Context, tx *sql.Tx, assignment *models.SprintAssignment) error {
+	if m.AddAssignmentTxFunc != nil {
+		return m.AddAssignmentTxFunc(ctx, tx, assignment)
+	}
+	return nil
+}
+
+func (m *MockSprintRepository) CreateAdmissionOverrideTx(ctx context.Context, tx *sql.Tx, override *models.SprintAdmissionOverride) error {
+	if m.CreateAdmissionOverrideTxFunc != nil {
+		return m.CreateAdmissionOverrideTxFunc(ctx, tx, override)
 	}
 	return nil
 }
@@ -6303,6 +6323,143 @@ func TestGetSprintBacklog_TC020_GroupedViewRegressionGuard(t *testing.T) {
 //   - Forbidden mocks: Do NOT interleave carried items by priority; service sorts by sprint_order ASC NULLS LAST.
 //   - Counter-factual: a buggy impl interleaving carried items would produce sprint_orders other than M+1..M+K;
 //     TC-021 asserts RenumberAssignmentsTx ops for carried items start at M+1 where M=receiving sprint's existing max.
+//
+// TestCloseSprintWithCarryover_RequiresAcceptedGoalReview covers REQ-F10-006:
+// closing a sprint must be gated on an accepted Sprint Goal Review. Before
+// this test, MockSprintRepository.GetLatestGoalReviewTx's zero-value fallback
+// always returned an Accepted review, so every existing CloseSprintWithCarryover
+// test passed identically whether the gate in the service existed, was
+// inverted, or was deleted outright — the gate had zero coverage.
+func TestCloseSprintWithCarryover_RequiresAcceptedGoalReview(t *testing.T) {
+	ctx := context.Background()
+	activeSprint := &models.Sprint{
+		ID:        1,
+		Key:       "S001",
+		Status:    "active",
+		Name:      "Sprint 1",
+		StartDate: time.Now().Add(-7 * 24 * time.Hour),
+		EndDate:   time.Now().Add(-1 * time.Hour),
+	}
+
+	tests := []struct {
+		name              string
+		goalReviewFunc    func(context.Context, *sql.Tx, int64) (*models.SprintGoalReview, error)
+		wantErrorContains string
+	}{
+		{
+			name: "missing goal review blocks close",
+			goalReviewFunc: func(context.Context, *sql.Tx, int64) (*models.SprintGoalReview, error) {
+				return nil, repoerr.ErrNotFound
+			},
+			wantErrorContains: "accepted sprint goal review is required",
+		},
+		{
+			name: "rejected goal review blocks close",
+			goalReviewFunc: func(context.Context, *sql.Tx, int64) (*models.SprintGoalReview, error) {
+				return &models.SprintGoalReview{
+					SprintID: 1, Goal: "g", BeforeResult: "b", AfterResult: "a", Reviewer: "qa",
+					Outcome: models.SprintGoalReviewRejected,
+				}, nil
+			},
+			wantErrorContains: `must be accepted`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var completionCreated bool
+			var statusUpdated bool
+			mockRepo := &MockSprintRepository{
+				GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+					return activeSprint, nil
+				},
+				GetByIDFunc: func(_ context.Context, id int64) (*models.Sprint, error) {
+					return activeSprint, nil
+				},
+				ListAssignmentsFunc: func(_ context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+					return nil, nil
+				},
+				ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+					return nil, nil
+				},
+				GetLatestGoalReviewTxFunc: tt.goalReviewFunc,
+				UpdateStatusTxFunc: func(_ context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
+					statusUpdated = true
+					return nil
+				},
+				CreateCompletionTxFunc: func(_ context.Context, tx *sql.Tx, completion *models.SprintCompletion) error {
+					completionCreated = true
+					return nil
+				},
+			}
+
+			testDB := newTestDB(t)
+			svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil, testDB)
+
+			result, err := svc.CloseSprintWithCarryover(ctx, "S001", CarryoverNext)
+
+			require.Error(t, err, "close must be rejected without an accepted goal review")
+			assert.Nil(t, result)
+			assert.Contains(t, err.Error(), tt.wantErrorContains)
+			assert.False(t, completionCreated, "no sprint_completions row may be written without an accepted review")
+			assert.False(t, statusUpdated, "sprint status must not change without an accepted review")
+		})
+	}
+}
+
+// TestCloseSprintWithCarryover_AcceptedGoalReviewProceeds is the positive
+// counterpart to the gate test above: an accepted review must let the close
+// proceed through to completion.
+func TestCloseSprintWithCarryover_AcceptedGoalReviewProceeds(t *testing.T) {
+	ctx := context.Background()
+	activeSprint := &models.Sprint{
+		ID:        1,
+		Key:       "S001",
+		Status:    "active",
+		Name:      "Sprint 1",
+		StartDate: time.Now().Add(-7 * 24 * time.Hour),
+		EndDate:   time.Now().Add(-1 * time.Hour),
+	}
+
+	var completionCreated bool
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Sprint, error) {
+			return activeSprint, nil
+		},
+		ListAssignmentsFunc: func(_ context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error) {
+			return nil, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error) {
+			return nil, nil
+		},
+		GetLatestGoalReviewTxFunc: func(context.Context, *sql.Tx, int64) (*models.SprintGoalReview, error) {
+			return &models.SprintGoalReview{
+				SprintID: 1, Goal: "g", BeforeResult: "b", AfterResult: "a", Reviewer: "qa",
+				Outcome: models.SprintGoalReviewAccepted,
+			}, nil
+		},
+		UpdateStatusTxFunc: func(_ context.Context, tx *sql.Tx, id int64, status models.SprintStatus) error {
+			return nil
+		},
+		CreateCompletionTxFunc: func(_ context.Context, tx *sql.Tx, completion *models.SprintCompletion) error {
+			completionCreated = true
+			return nil
+		},
+	}
+
+	testDB := newTestDB(t)
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil, testDB)
+
+	result, err := svc.CloseSprintWithCarryover(ctx, "S001", CarryoverNext)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, completionCreated, "an accepted review must let the close proceed to completion")
+}
+
 func TestCloseSprintWithCarryover_TC021_NextPreservesOrderAppendedAfterExisting(t *testing.T) {
 	ctx := context.Background()
 
