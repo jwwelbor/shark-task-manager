@@ -676,8 +676,112 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 34, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 34 (B055 outgoing task dependency display)")
+	assert.Equal(t, 35, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 35 (E34-F01 entity_claims harness columns)")
+}
+
+// ---------------------------------------------------------------------------
+// TC-014: entity_claims harness columns migration (schema v34 -> v35).
+// Part of E34-F01 (T-E34-F01-001).
+// ---------------------------------------------------------------------------
+
+// TestMigration_EntityClaimsAddHarness_PreservesExistingRows verifies AC-11:
+// a database at schema version 34 with an existing entity_claims row
+// upgrades to 35, the row's original columns are unchanged, and its three
+// new harness columns are NULL (no backfill — NULL is the correct "unknown
+// harness" value per spec.md §3.1).
+func TestMigration_EntityClaimsAddHarness_PreservesExistingRows(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/legacy-entity-claims-v34.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	// Pre-migration entity_claims shape (mirrors migrateEntityClaimsTable,
+	// before the three harness columns existed).
+	_, err = db.Exec(`
+		CREATE TABLE entity_claims (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type    TEXT NOT NULL,
+			entity_key     TEXT NOT NULL,
+			claimed_by     TEXT NOT NULL,
+			session_id     TEXT NOT NULL,
+			claimed_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			progress       REAL,
+			note           TEXT,
+			UNIQUE(entity_type, entity_key)
+		);
+	`)
+	require.NoError(t, err, "setup legacy entity_claims table")
+
+	_, err = db.Exec(`
+		INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id, note)
+		VALUES ('task', 'E01-F01-001', 'dev-agent', 'sess-legacy-1', 'pre-existing claim')
+	`)
+	require.NoError(t, err, "seed pre-migration entity_claims row")
+
+	err = setSchemaVersion(db, 34)
+	require.NoError(t, err, "setup version 34 schema marker")
+
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "version 34 entity_claims should migrate to add harness columns cleanly")
+	assert.True(t, applied, "version 34 database should run the version 35 harness-columns migration")
+
+	for _, column := range []string{"harness", "harness_version", "harness_model"} {
+		var columnType string
+		var notNull int
+		err = db.QueryRow(`
+			SELECT type, "notnull" FROM pragma_table_info('entity_claims') WHERE name = ?
+		`, column).Scan(&columnType, &notNull)
+		require.NoErrorf(t, err, "column %s should exist after migration", column)
+		assert.Equal(t, "TEXT", columnType, "column %s should be TEXT", column)
+		assert.Equal(t, 0, notNull, "column %s should be nullable", column)
+	}
+
+	var entityKey, claimedBy, note string
+	var harness, harnessVersion, harnessModel sql.NullString
+	err = db.QueryRow(`
+		SELECT entity_key, claimed_by, note, harness, harness_version, harness_model
+		FROM entity_claims WHERE entity_type = 'task' AND entity_key = 'E01-F01-001'
+	`).Scan(&entityKey, &claimedBy, &note, &harness, &harnessVersion, &harnessModel)
+	require.NoError(t, err, "pre-existing row should survive the migration")
+	assert.Equal(t, "E01-F01-001", entityKey, "pre-existing entity_key should be unchanged")
+	assert.Equal(t, "dev-agent", claimedBy, "pre-existing claimed_by should be unchanged")
+	assert.Equal(t, "pre-existing claim", note, "pre-existing note should be unchanged")
+	assert.False(t, harness.Valid, "harness should be NULL on a pre-existing row")
+	assert.False(t, harnessVersion.Valid, "harness_version should be NULL on a pre-existing row")
+	assert.False(t, harnessModel.Valid, "harness_model should be NULL on a pre-existing row")
+
+	version, err := getSchemaVersion(db)
+	require.NoError(t, err, "getSchemaVersion should succeed")
+	assert.Equal(t, CurrentSchemaVersion, version, "schema version should advance to 35 after the harness-columns migration")
+}
+
+// TestMigration_EntityClaimsAddHarness_Idempotent verifies that rerunning
+// migrateEntityClaimsAddHarness against an already-migrated database is a
+// no-op and does not error (AC-11 edge case: SQLite has no "ADD COLUMN IF
+// NOT EXISTS", so the PRAGMA table_info guard is what this test exercises).
+func TestMigration_EntityClaimsAddHarness_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "InitDB should succeed")
+	defer db.Close()
+
+	err = migrateEntityClaimsAddHarness(db)
+	require.NoError(t, err, "second call to migrateEntityClaimsAddHarness should be idempotent (no error)")
+
+	for _, column := range []string{"harness", "harness_version", "harness_model"} {
+		var count int
+		err := db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('entity_claims') WHERE name = ?`, column,
+		).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "column %s should appear exactly once in entity_claims after idempotent migration", column)
+	}
 }
 
 // TC-302: the persisted relationship vocabulary must match the application

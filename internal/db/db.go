@@ -482,9 +482,13 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	             relationship types)
 //	34 — B055   (task_display_data dependencies_json: only outgoing depends_on
 //	             task relationships are rendered as dependencies)
+//	35 — E34-F01 (entity_claims gains three nullable harness/harness_version/
+//	             harness_model columns: harness identity persists on the
+//	             claim so later dispatch can render harness-aware prompt
+//	             branches — T-E34-F01-001)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 34
+const CurrentSchemaVersion = 35
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -1108,6 +1112,13 @@ func runPreQuestionMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate entity_claims table: %w", err)
 	}
 
+	// E34-F01: add nullable harness/harness_version/harness_model columns to
+	// entity_claims so harness identity can persist on the claim and later
+	// influence prompt rendering (spec.md §3.1, AC-11).
+	if err := migrateEntityClaimsAddHarness(db); err != nil {
+		return fmt.Errorf("failed to migrate entity_claims harness columns: %w", err)
+	}
+
 	// Add sprint_order column to sprint_assignments, create the partial unique
 	// index, and backfill planning/active sprints (E19-F07).
 	if err := migrateSprintAssignmentsAddSprintOrder(db); err != nil {
@@ -1580,6 +1591,46 @@ func migrateEntityClaimsTable(db *sql.DB) error {
 			ON entity_claims(last_heartbeat);
 	`); err != nil {
 		return fmt.Errorf("failed to create idx_entity_claims_heartbeat: %w", err)
+	}
+
+	return nil
+}
+
+// migrateEntityClaimsAddHarness adds three nullable harness-identity columns
+// to entity_claims: harness, harness_version, harness_model (E34-F01,
+// T-E34-F01-001). These persist the claiming host's harness type/version/
+// model so later dispatch can render harness-aware prompt branches
+// (spec.md §3.1). No backfill: NULL is the correct "unknown harness" value
+// for pre-existing rows (AC-11).
+//
+// Uses the ALTER TABLE ... ADD COLUMN + PRAGMA table_info guard pattern from
+// migrateSprintAssignmentsAddSprintOrder: SQLite has no
+// "ADD COLUMN IF NOT EXISTS", so the presence of the "harness" column is
+// checked first, and the three ALTER TABLE statements are skipped entirely
+// on an already-migrated database — safe to rerun (AC-T2).
+//
+// CurrentSchemaVersion is bumped from 34 -> 35 in the same commit that wires
+// this function into runMigrations(). See database-critical.md for the
+// migration checklist.
+func migrateEntityClaimsAddHarness(db *sql.DB) error {
+	var columnExists int
+	err := db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('entity_claims') WHERE name = 'harness'`,
+	).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check entity_claims.harness column: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE entity_claims ADD COLUMN harness TEXT`); err != nil {
+			return fmt.Errorf("failed to add harness to entity_claims: %w", err)
+		}
+		if _, err := db.Exec(`ALTER TABLE entity_claims ADD COLUMN harness_version TEXT`); err != nil {
+			return fmt.Errorf("failed to add harness_version to entity_claims: %w", err)
+		}
+		if _, err := db.Exec(`ALTER TABLE entity_claims ADD COLUMN harness_model TEXT`); err != nil {
+			return fmt.Errorf("failed to add harness_model to entity_claims: %w", err)
+		}
 	}
 
 	return nil
