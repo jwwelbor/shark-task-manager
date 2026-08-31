@@ -676,8 +676,8 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 34, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 34 (B055 outgoing task dependency display)")
+	assert.Equal(t, 35, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 35 (E19-F10 sprint admission overrides and Sprint Goal Reviews)")
 }
 
 // TC-302: the persisted relationship vocabulary must match the application

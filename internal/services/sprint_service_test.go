@@ -17,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/research"
 	internaltesthelper "github.com/jwwelbor/shark-task-manager/internal/test"
@@ -47,6 +48,8 @@ type MockSprintRepository struct {
 	ReassignToSprintTxFunc          func(ctx context.Context, tx *sql.Tx, assignmentIDs []int64, newSprintID int64) error
 	DropAssignmentsTxFunc           func(ctx context.Context, tx *sql.Tx, assignmentIDs []int64) error
 	CreateCompletionTxFunc          func(ctx context.Context, tx *sql.Tx, completion *models.SprintCompletion) error
+	GetLatestGoalReviewTxFunc       func(ctx context.Context, tx *sql.Tx, sprintID int64) (*models.SprintGoalReview, error)
+	CreateGoalReviewTxFunc          func(ctx context.Context, tx *sql.Tx, review *models.SprintGoalReview) error
 	ListBacklogFunc                 func(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*sprint.BacklogItem, error)
 	GetTaskIDByKeyFunc              func(ctx context.Context, key string) (int64, error)
 	GetBugIDByKeyFunc               func(ctx context.Context, key string) (int64, error)
@@ -183,6 +186,20 @@ func (m *MockSprintRepository) DropAssignmentsTx(ctx context.Context, tx *sql.Tx
 func (m *MockSprintRepository) CreateCompletionTx(ctx context.Context, tx *sql.Tx, completion *models.SprintCompletion) error {
 	if m.CreateCompletionTxFunc != nil {
 		return m.CreateCompletionTxFunc(ctx, tx, completion)
+	}
+	return nil
+}
+
+func (m *MockSprintRepository) GetLatestGoalReviewTx(ctx context.Context, tx *sql.Tx, sprintID int64) (*models.SprintGoalReview, error) {
+	if m.GetLatestGoalReviewTxFunc != nil {
+		return m.GetLatestGoalReviewTxFunc(ctx, tx, sprintID)
+	}
+	return &models.SprintGoalReview{SprintID: sprintID, Goal: "Goal", BeforeResult: "Before", AfterResult: "After", Reviewer: "qa", Outcome: models.SprintGoalReviewAccepted}, nil
+}
+
+func (m *MockSprintRepository) CreateGoalReviewTx(ctx context.Context, tx *sql.Tx, review *models.SprintGoalReview) error {
+	if m.CreateGoalReviewTxFunc != nil {
+		return m.CreateGoalReviewTxFunc(ctx, tx, review)
 	}
 	return nil
 }
@@ -6966,6 +6983,208 @@ func TestSprintService_EnableWorkflowDispatch_TransitionStatusAndGetNextStatus(t
 // integration tests elsewhere in the package.
 type sprintClaimReaderStub struct {
 	claimed map[string]bool // keyed by "entityType|entityKey"
+}
+
+type sprintQuestionBlockerStub struct{ blocked map[string]bool }
+
+type persistedQuestionReader struct {
+	repo *repository.QuestionRepository
+}
+
+func (r persistedQuestionReader) GetQuestionByID(ctx context.Context, id int64) (*models.Question, error) {
+	return r.repo.GetByID(ctx, id)
+}
+
+func (s sprintQuestionBlockerStub) Check(_ context.Context, entityType models.EntityType, entityKey string) (*QuestionBlock, error) {
+	if s.blocked[string(entityType)+"|"+entityKey] {
+		return &QuestionBlock{QuestionKey: "Q001", Summary: "Sprint gate"}, nil
+	}
+	return nil, nil
+}
+
+func TestGetNextTask_E19F09_SkipsQuestionBlockedCandidate(t *testing.T) {
+	order1, order2 := 1, 2
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		{EntityType: "task", Key: "task-A", Title: "A", Status: "todo", SprintOrder: &order1, AssignedAt: time.Now()},
+		{EntityType: "task", Key: "task-B", Title: "B", Status: "todo", SprintOrder: &order2, AssignedAt: time.Now()},
+	})
+	svc.SetQuestionBlocker(sprintQuestionBlockerStub{blocked: map[string]bool{"task|task-A": true}})
+
+	result, err := svc.GetNextTask(context.Background(), "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "task-B", result.Key, "TC-001: an open Question must exclude its candidate")
+}
+
+func TestSelectSprint_E19F09_ReturnsOrderedUnclaimedCandidates(t *testing.T) {
+	order1, order2 := 1, 2
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		{EntityType: "task", Key: "task-A", Title: "A", Status: "todo", SprintOrder: &order1, AssignedAt: time.Now()},
+		{EntityType: "bug", Key: "B001", Title: "B", Status: "todo", SprintOrder: &order2, AssignedAt: time.Now()},
+	})
+	svc.SetClaimReader(sprintClaimReaderStub{claimed: map[string]bool{"task|task-A": true}})
+
+	selection, err := svc.SelectSprint(context.Background(), SprintSelectionInput{SprintKey: "S001", Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, selection.Items, 1)
+	assert.Equal(t, "B001", selection.Items[0].Key, "TC-001: shared selection omits a claimed top candidate")
+}
+
+// TC-006: sprint next is a compatibility projection of the active shared
+// selector, so both entrypoints must produce the same first candidate.
+func TestGetNextTask_E19F09_MatchesActiveSharedSelection(t *testing.T) {
+	order1, order2 := 1, 2
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		{EntityType: "task", Key: "task-A", Title: "A", Status: "todo", SprintOrder: &order1, AssignedAt: time.Now()},
+		{EntityType: "bug", Key: "B001", Title: "B", Status: "todo", SprintOrder: &order2, AssignedAt: time.Now()},
+	})
+
+	selection, err := svc.SelectActiveSprint(context.Background(), SprintSelectionInput{Limit: 2})
+	require.NoError(t, err)
+	require.NotEmpty(t, selection.Items)
+
+	next, err := svc.GetNextTask(context.Background(), "")
+	require.NoError(t, err)
+	require.NotNil(t, next)
+	assert.Equal(t, selection.Items[0].Key, next.Key)
+}
+
+// TC-003: an explicit plan preview is available only for planning or
+// execution-phase sprints; terminal sprints must never emit candidates.
+func TestSelectSprint_E19F09_RejectsTerminalSprint(t *testing.T) {
+	backlogRead := false
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, _ string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 10, Key: "S099", Status: "completed", Name: "Completed sprint"}, nil
+		},
+		ListBacklogFunc: func(context.Context, int64, *string, bool, ...string) ([]*sprint.BacklogItem, error) {
+			backlogRead = true
+			return nil, nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	_, err := svc.SelectSprint(context.Background(), SprintSelectionInput{SprintKey: "S099", Limit: 5})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "planning or execution")
+	assert.False(t, backlogRead, "terminal sprint selection must stop before reading candidates")
+}
+
+// TC-006: the legacy sequential alias retains the predecessor's full
+// execution-sprint domain, rather than silently limiting itself to the first
+// sprint returned by the repository.
+func TestGetNextTask_E19F09_ConsidersAllExecutionSprints(t *testing.T) {
+	first := makeActiveSprint(10, "S001")
+	second := makeActiveSprint(11, "S002")
+	mockRepo := &MockSprintRepository{
+		GetByKeyFunc: func(_ context.Context, key string) (*models.Sprint, error) {
+			if key == second.Key {
+				return second, nil
+			}
+			return first, nil
+		},
+		ListFunc: func(_ context.Context, filters *sprint.SprintListFilters) ([]*models.Sprint, error) {
+			return []*models.Sprint{first, second}, nil
+		},
+		ListBacklogFunc: func(_ context.Context, sprintID int64, _ *string, _ bool, _ ...string) ([]*sprint.BacklogItem, error) {
+			if sprintID == first.ID {
+				return nil, nil
+			}
+			order := 1
+			return []*sprint.BacklogItem{{EntityType: "task", Key: "T-E19-F09-002", Title: "Later sprint work", Status: "todo", SprintOrder: &order, AssignedAt: time.Now()}}, nil
+		},
+	}
+	svc := NewSprintService(mockRepo, workflow.NewService(""), nil, nil, nil)
+
+	item, err := svc.GetNextTask(context.Background(), "")
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	assert.Equal(t, "T-E19-F09-002", item.Key)
+	assert.Equal(t, second.Key, item.SprintKey)
+}
+
+// TC-005: hierarchy assignments remain explicit candidates for the caller to
+// expand; the shared selector must neither drop nor traverse them.
+func TestSelectSprint_E19F09_RetainsFeatureAndEpicExpansionCandidates(t *testing.T) {
+	order1, order2 := 1, 2
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		{EntityType: "feature", Key: "E19-F09", Title: "Feature", Status: "development", SprintOrder: &order1, AssignedAt: time.Now()},
+		{EntityType: "epic", Key: "E19", Title: "Epic", Status: "active", SprintOrder: &order2, AssignedAt: time.Now()},
+	})
+
+	selection, err := svc.SelectSprint(context.Background(), SprintSelectionInput{SprintKey: "S001", Limit: 5})
+	require.NoError(t, err)
+	require.Equal(t, []string{"E19-F09", "E19"}, []string{selection.Items[0].Key, selection.Items[1].Key})
+	assert.Equal(t, "feature", selection.Items[0].EntityType)
+	assert.Equal(t, "epic", selection.Items[1].EntityType)
+	assert.True(t, selection.Items[0].RequiresExpansion)
+	assert.True(t, selection.Items[1].RequiresExpansion)
+}
+
+// TC-001/TC-002 persisted boundary: a real claim and a real direct blocking
+// Question change the next read-only selection without the selector writing
+// any state itself.
+func TestSelectSprint_E19F09_PersistedClaimAndQuestionTurnover(t *testing.T) {
+	ctx := context.Background()
+	testDB := newTestDB(t)
+	epicID := seedB058Epic(t, testDB, "E59")
+	featureID := seedB058Feature(t, testDB, epicID, "E59-F01")
+	seedB058Task(t, testDB, featureID, "T-E59-F01-001", "development")
+	seedB058Task(t, testDB, featureID, "T-E59-F01-002", "development")
+
+	order1, order2 := 1, 2
+	active := makeActiveSprint(59, "S059")
+	svc := NewSprintService(&MockSprintRepository{
+		GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) { return active, nil },
+		ListBacklogFunc: func(context.Context, int64, *string, bool, ...string) ([]*sprint.BacklogItem, error) {
+			return []*sprint.BacklogItem{
+				{EntityType: "task", Key: "T-E59-F01-001", Title: "A", Status: "development", SprintOrder: &order1, AssignedAt: time.Now()},
+				{EntityType: "task", Key: "T-E59-F01-002", Title: "B", Status: "development", SprintOrder: &order2, AssignedAt: time.Now()},
+			}, nil
+		},
+	}, workflow.NewService(""), nil, nil, nil)
+
+	ttl := time.Hour
+	claims := NewClaimService(claimrepo.NewRepository(testDB), &ttl)
+	svc.SetClaimReader(claims)
+
+	registry := NewEntityRegistry()
+	registry.Register(models.EntityTypeTask, NewTaskRepositoryAdapter(repository.NewTaskRepository(testDB)))
+	questions := repository.NewQuestionRepository(testDB)
+	blocker, err := NewQuestionBlocker(repository.NewEntityRelationshipRepository(testDB), registry, persistedQuestionReader{repo: questions})
+	require.NoError(t, err)
+	svc.SetQuestionBlocker(blocker)
+
+	selection, err := svc.SelectSprint(ctx, SprintSelectionInput{SprintKey: "S059", Limit: 5})
+	require.NoError(t, err)
+	require.Equal(t, "T-E59-F01-001", selection.Items[0].Key)
+
+	_, err = claims.Claim(ctx, ClaimInput{EntityType: "task", EntityKey: "T-E59-F01-001", ClaimedBy: "test", SessionID: "sess-e19f09"})
+	require.NoError(t, err)
+	selection, err = svc.SelectSprint(ctx, SprintSelectionInput{SprintKey: "S059", Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, selection.Items, 1)
+	require.Equal(t, "T-E59-F01-002", selection.Items[0].Key)
+
+	_, err = claims.Release(ctx, "task", "T-E59-F01-001", "sess-e19f09", "pass", false)
+	require.NoError(t, err)
+	state, err := models.EncodeQuestionState(nil, models.QuestionState{ResolutionOwner: "owner", Responders: []models.QuestionResponder{{Identity: "owner", Status: models.QuestionResponderPending}}})
+	require.NoError(t, err)
+	question := &models.Question{BaseEntity: models.BaseEntity{Key: "Q059", Title: "Question", ContextData: state}, Status: models.QuestionStatusOpen, Summary: "Gate B", Blocking: true, Requester: "test"}
+	require.NoError(t, questions.Create(ctx, question))
+	var taskBID int64
+	require.NoError(t, testDB.QueryRowContext(ctx, `SELECT id FROM tasks WHERE key = ?`, "T-E59-F01-002").Scan(&taskBID))
+	require.NoError(t, repository.NewEntityRelationshipRepository(testDB).Create(ctx, &models.EntityRelationship{FromEntityType: models.EntityTypeQuestion, FromEntityID: question.ID, ToEntityType: models.EntityTypeTask, ToEntityID: taskBID, RelationshipType: models.EntityRelQuestionBlocks}))
+
+	selection, err = svc.SelectSprint(ctx, SprintSelectionInput{SprintKey: "S059", Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, selection.Items, 1)
+	require.Equal(t, "T-E59-F01-001", selection.Items[0].Key)
+	_, err = testDB.ExecContext(ctx, `UPDATE questions SET status = ? WHERE id = ?`, models.QuestionStatusResolved, question.ID)
+	require.NoError(t, err)
+	selection, err = svc.SelectSprint(ctx, SprintSelectionInput{SprintKey: "S059", Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, selection.Items, 2)
 }
 
 func (s sprintClaimReaderStub) IsClaimable(_ context.Context, entityType, entityKey string) (bool, error) {

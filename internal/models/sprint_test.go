@@ -240,16 +240,6 @@ func TestSprintAssignment_Validate(t *testing.T) {
 			errMsg:     "entity_id must be greater than 0",
 		},
 		{
-			name:       "invalid entity_type - epic (not allowlisted)",
-			assignment: SprintAssignment{SprintID: 1, EntityType: "epic", EntityID: 100},
-			wantErr:    true,
-		},
-		{
-			name:       "invalid entity_type - feature (not allowlisted)",
-			assignment: SprintAssignment{SprintID: 1, EntityType: "feature", EntityID: 100},
-			wantErr:    true,
-		},
-		{
 			name:       "invalid entity_type - idea (not allowlisted)",
 			assignment: SprintAssignment{SprintID: 1, EntityType: "idea", EntityID: 100},
 			wantErr:    true,

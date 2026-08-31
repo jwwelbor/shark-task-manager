@@ -297,7 +297,7 @@ func (r *SprintRepository) List(ctx context.Context, filters *SprintListFilters)
 
 // BacklogItem is a read-only projection returned by ListBacklog. It is NOT a
 // stored model — it is assembled at query time from sprint_assignments joined
-// to the four entity tables (tasks, bugs, change_cards, tech_debts) via a
+// to the supported entity tables via a
 // UNION ALL query.
 //
 // AgentType and Priority are present only for entities that carry those
@@ -360,6 +360,26 @@ func (r *SprintRepository) AddAssignment(ctx context.Context, assignment *models
 	id, err := result.LastInsertId()
 	if err != nil {
 		return fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	assignment.ID = id
+	return nil
+}
+
+// AddAssignmentTx inserts an assignment in the caller-owned transaction.
+func (r *SprintRepository) AddAssignmentTx(ctx context.Context, tx *sql.Tx, assignment *models.SprintAssignment) error {
+	if err := assignment.Validate(); err != nil {
+		return fmt.Errorf("invalid assignment: %w", err)
+	}
+	result, err := tx.ExecContext(ctx,
+		"INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order) VALUES (?, ?, ?, ?, ?)",
+		assignment.SprintID, assignment.EntityType, assignment.EntityID,
+		assignment.AssignedAt, assignment.SprintOrder)
+	if err != nil {
+		return fmt.Errorf("failed to add assignment: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get assignment insert id: %w", err)
 	}
 	assignment.ID = id
 	return nil
@@ -461,24 +481,24 @@ func (r *SprintRepository) ListAssignments(ctx context.Context, sprintID int64, 
 
 // ListBacklog returns BacklogItem rows for all active assignments in a sprint.
 //
-// The query is a UNION ALL of four static sub-selects — one per entity type
-// (bug, change_card, task, tech_debt, listed in lexicographic order). Static
+// The query is a UNION ALL of six static sub-selects — one per entity type
+// (bug, change_card, epic, feature, task, tech_debt, listed in lexicographic order). Static
 // SQL with parameterized sprint_id bindings is used throughout; dynamic table
 // names via string interpolation are intentionally avoided to prevent SQL
 // injection (see spec §4.1.3 rationale and .claude/rules/go/input-sanitization.md).
 //
-// Extension point: to add a fifth entity type, add a new sub-select block
+// Extension point: to add another entity type, add a new sub-select block
 // below following the same pattern (sa.id, sa.sprint_id, '<type>' AS entity_type,
 // sa.entity_id, <table>.key, <table>.title, <table>.status, <agent_type_or_null>,
 // <priority_or_null>, <size_or_null>, sa.assigned_at).
 //
 // If entityType is non-nil, only the matching sub-select is executed (the
-// other three are replaced by SELECT with no matching rows). When blockedOnly
+// other sub-selects are omitted. When blockedOnly
 // is true, the caller is expected to have set relevant status filters — the
 // repository receives a pre-computed list of blocked status values passed via
 // the blockedStatuses variadic argument.
 func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, entityType *string, blockedOnly bool, blockedStatuses ...string) ([]*BacklogItem, error) {
-	// Build the UNION ALL of four sub-selects. Each sub-select contributes the
+	// Build the UNION ALL of six sub-selects. Each sub-select contributes the
 	// entity_type literal as a constant column so callers never need to infer
 	// the type from the key format.
 	//
@@ -502,6 +522,8 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 	subSelects := []subSelect{
 		{"bug", "bugs", "NULL", "NULL", "NULL"},
 		{"change_card", "change_cards", "NULL", "cc.priority", "NULL"},
+		{"epic", "epics", "NULL", "NULL", "NULL"},
+		{"feature", "features", "NULL", "NULL", "f.execution_order"},
 		{"task", "tasks", "t.agent_type", "t.priority", "t.execution_order"},
 		{"tech_debt", "tech_debts", "NULL", "NULL", "NULL"},
 	}
@@ -510,6 +532,8 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 	tableAliases := map[string]string{
 		"bugs":         "b",
 		"change_cards": "cc",
+		"epics":        "e",
+		"features":     "f",
 		"tasks":        "t",
 		"tech_debts":   "td",
 	}
@@ -640,7 +664,7 @@ func (r *SprintRepository) ListBacklog(ctx context.Context, sprintID int64, enti
 // CloseSprintWithCarryover in the service layer to identify work that has not
 // finished and must be moved or dropped.
 //
-// The implementation uses a UNION ALL across all four entity tables to resolve
+// The implementation uses a UNION ALL across all four direct-work entity tables to resolve
 // entity status at query time, following the same static-SQL pattern as
 // ListBacklog (no dynamic table names, all parameterized).
 //
@@ -660,7 +684,7 @@ func (r *SprintRepository) ListAssignmentsForCarryover(ctx context.Context, spri
 		completedFilter = fmt.Sprintf(" AND %%s.status NOT IN (%s)", strings.Join(placeholders, ","))
 	}
 
-	// Build UNION ALL across four entity tables.
+	// Build UNION ALL across four direct-work entity tables.
 	// Each sub-select returns (sa.id, sa.sprint_id, entity_type, sa.entity_id)
 	// filtered to exclude completed statuses.
 	type tableEntry struct {
@@ -1471,4 +1495,71 @@ func (r *SprintRepository) CreateCompletionTx(ctx context.Context, tx *sql.Tx, c
 
 	completion.ID = id
 	return nil
+}
+
+func (r *SprintRepository) CreateAdmissionOverrideTx(ctx context.Context, tx *sql.Tx, override *models.SprintAdmissionOverride) error {
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO sprint_admission_overrides
+			(sprint_id, entity_type, entity_id, reason, requested_by, reason_code)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		override.SprintID, override.EntityType, override.EntityID, override.Reason,
+		override.RequestedBy, override.ReasonCode)
+	if err != nil {
+		return fmt.Errorf("failed to create sprint admission override: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get sprint admission override insert id: %w", err)
+	}
+	override.ID = id
+	return nil
+}
+
+func (r *SprintRepository) CreateGoalReviewTx(ctx context.Context, tx *sql.Tx, review *models.SprintGoalReview) error {
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO sprint_goal_reviews
+			(sprint_id, goal, before_result, after_result, reviewer, outcome)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		review.SprintID, review.Goal, review.BeforeResult, review.AfterResult,
+		review.Reviewer, review.Outcome)
+	if err != nil {
+		return fmt.Errorf("failed to create sprint goal review: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get sprint goal review insert id: %w", err)
+	}
+	review.ID = id
+	return nil
+}
+
+func (r *SprintRepository) GetLatestGoalReview(ctx context.Context, sprintID int64) (*models.SprintGoalReview, error) {
+	return getLatestGoalReview(ctx, r.db, sprintID)
+}
+
+// GetLatestGoalReviewTx reads close-authorizing evidence through the caller's
+// transaction so the review check and completion write share one boundary.
+func (r *SprintRepository) GetLatestGoalReviewTx(ctx context.Context, tx *sql.Tx, sprintID int64) (*models.SprintGoalReview, error) {
+	return getLatestGoalReview(ctx, tx, sprintID)
+}
+
+func getLatestGoalReview(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}, sprintID int64) (*models.SprintGoalReview, error) {
+	review := &models.SprintGoalReview{}
+	err := queryer.QueryRowContext(ctx, `
+		SELECT id, sprint_id, goal, before_result, after_result, reviewer, outcome, reviewed_at
+		FROM sprint_goal_reviews
+		WHERE sprint_id = ?
+		ORDER BY reviewed_at DESC, id DESC
+		LIMIT 1`, sprintID).Scan(
+		&review.ID, &review.SprintID, &review.Goal, &review.BeforeResult,
+		&review.AfterResult, &review.Reviewer, &review.Outcome, flexTime{&review.ReviewedAt})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, repoerr.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest sprint goal review: %w", err)
+	}
+	return review, nil
 }

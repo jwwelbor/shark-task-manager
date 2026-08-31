@@ -655,6 +655,8 @@ func cleanupTestEntities(t *testing.T, database *sql.DB, pairs [][2]string) {
 		"bug":         "bugs",
 		"change_card": "change_cards",
 		"tech_debt":   "tech_debts",
+		"feature":     "features",
+		"epic":        "epics",
 	}
 	for _, pair := range pairs {
 		entityType, key := pair[0], pair[1]
@@ -680,10 +682,11 @@ func cleanupSprintAndAssignments(t *testing.T, database *sql.DB, sprintID int64)
 // TC-B02: ListBacklog — bug entity type returned with entity_type="bug"
 // TC-B03: ListBacklog — change_card entity type returned
 // TC-B04: ListBacklog — tech_debt entity type returned
+// TC-B10: ListBacklog — hierarchy candidates retain their feature/epic labels
 // ---------------------------------------------------------------------------
 
 // TestListBacklog_AllEntityTypes verifies that the UNION ALL query returns rows
-// from all four entity tables with correct entity_type labels (TC-B01..TC-B04).
+// from all supported entity tables with correct entity_type labels (TC-B01..TC-B04, TC-B10).
 func TestListBacklog_AllEntityTypes(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -699,23 +702,33 @@ func TestListBacklog_AllEntityTypes(t *testing.T) {
 	bugID := seedEntityRow(t, database, "bug", "B901", "Backlog Bug", "reported")
 	ccID := seedEntityRow(t, database, "change_card", "CC-901", "Backlog CC", "proposed")
 	tdID := seedEntityRow(t, database, "tech_debt", "TD-901", "Backlog TD", "identified")
+	var epicID int64
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO epics (key, title, status, priority) VALUES ('E-B10-001', 'Backlog Epic', 'active', 'medium') RETURNING id`).Scan(&epicID))
+	var featureID int64
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO features (epic_id, key, title, status) VALUES (?, 'E-B10-001-F01', 'Backlog Feature', 'in_progress') RETURNING id`, epicID).Scan(&featureID))
 
 	defer cleanupTestEntities(t, database, [][2]string{
 		{"task", "T-B01-F01-001"},
 		{"bug", "B901"},
 		{"change_card", "CC-901"},
 		{"tech_debt", "TD-901"},
+		{"epic", "E-B10-001"},
+		{"feature", "E-B10-001-F01"},
 	})
 
 	_ = seedSprintAssignment(t, database, sprintID, "task", taskID)
 	_ = seedSprintAssignment(t, database, sprintID, "bug", bugID)
 	_ = seedSprintAssignment(t, database, sprintID, "change_card", ccID)
 	_ = seedSprintAssignment(t, database, sprintID, "tech_debt", tdID)
+	_ = seedSprintAssignment(t, database, sprintID, "epic", epicID)
+	_ = seedSprintAssignment(t, database, sprintID, "feature", featureID)
 
 	// Execute ListBacklog (nil entityType = all types)
 	items, err := repo.ListBacklog(ctx, sprintID, nil, false)
 	require.NoError(t, err)
-	require.Len(t, items, 4, "expected 4 backlog items (one per entity type)")
+	require.Len(t, items, 6, "expected 6 backlog items (one per supported entity type)")
 
 	// Build a map from entity_type → item for assertions
 	byType := make(map[string]*BacklogItem)
@@ -750,6 +763,14 @@ func TestListBacklog_AllEntityTypes(t *testing.T) {
 	require.True(t, ok, "expected tech_debt row in backlog")
 	assert.Equal(t, "tech_debt", tdItem.EntityType)
 	assert.Equal(t, "TD-901", tdItem.EntityKey)
+
+	// TC-B10: hierarchy candidates appear explicitly so callers can expand them.
+	epicItem, ok := byType["epic"]
+	require.True(t, ok, "expected epic row in backlog")
+	assert.Equal(t, "E-B10-001", epicItem.EntityKey)
+	featureItem, ok := byType["feature"]
+	require.True(t, ok, "expected feature row in backlog")
+	assert.Equal(t, "E-B10-001-F01", featureItem.EntityKey)
 }
 
 // TestListBacklog_FilterByEntityType verifies that the entityType filter limits
@@ -1625,6 +1646,81 @@ func TestSprintRepository_CreateCompletionTx_NilOptionalFields(t *testing.T) {
 	assert.False(t, gotNextSprintID.Valid, "next_sprint_id should be NULL for backlog mode")
 	assert.False(t, gotPlannedSize.Valid, "planned_size_sum should be NULL for unsized")
 	assert.False(t, gotCompletedSize.Valid, "completed_size_sum should be NULL for unsized")
+}
+
+func TestSprintRepository_CreateAdmissionOverrideTx_PersistsExactlyOneActiveRecord(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	repo := NewSprintRepository(dbconn.NewDB(database))
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_admission_overrides WHERE sprint_id IN (SELECT id FROM sprints WHERE key = 'S920')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S920'")
+	sprintID := createTestSprintForTx(t, database, repo, "S920", "planning")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_admission_overrides WHERE sprint_id = ?", sprintID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprintID)
+	}()
+
+	override := &models.SprintAdmissionOverride{SprintID: sprintID, EntityType: "task", EntityID: 9201, Reason: "Unblock prerequisite integration work", RequestedBy: "developer", ReasonCode: "ancestor_dependency_unmet"}
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.CreateAdmissionOverrideTx(ctx, tx, override))
+	require.NoError(t, tx.Commit())
+	assert.NotZero(t, override.ID)
+
+	tx, err = database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	err = repo.CreateAdmissionOverrideTx(ctx, tx, override)
+	assert.Error(t, err)
+	require.NoError(t, tx.Rollback())
+}
+
+func TestSprintRepository_OverrideTransactionCommitsAssignmentAndEvidence(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	repo := NewSprintRepository(dbconn.NewDB(database))
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S922'")
+	sprintID := createTestSprintForTx(t, database, repo, "S922", "planning")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprintID)
+	}()
+
+	assignment := &models.SprintAssignment{SprintID: sprintID, EntityType: "task", EntityID: 9221, AssignedAt: time.Now().UTC()}
+	override := &models.SprintAdmissionOverride{SprintID: sprintID, EntityType: "task", EntityID: 9221, Reason: "Required integration work is ready for controlled admission", RequestedBy: "developer", ReasonCode: "ancestor_dependency_unmet"}
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.AddAssignmentTx(ctx, tx, assignment))
+	require.NoError(t, repo.CreateAdmissionOverrideTx(ctx, tx, override))
+	require.NoError(t, tx.Commit())
+
+	var assignmentCount, overrideCount int
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sprint_assignments WHERE sprint_id = ? AND entity_type = ? AND entity_id = ? AND removed_at IS NULL", sprintID, "task", 9221).Scan(&assignmentCount))
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sprint_admission_overrides WHERE sprint_id = ? AND entity_type = ? AND entity_id = ?", sprintID, "task", 9221).Scan(&overrideCount))
+	assert.Equal(t, 1, assignmentCount)
+	assert.Equal(t, 1, overrideCount)
+}
+
+func TestSprintRepository_CreateAndGetLatestGoalReviewTx(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	repo := NewSprintRepository(dbconn.NewDB(database))
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprint_goal_reviews WHERE sprint_id IN (SELECT id FROM sprints WHERE key = 'S921')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S921'")
+	sprintID := createTestSprintForTx(t, database, repo, "S921", "active")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprint_goal_reviews WHERE sprint_id = ?", sprintID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprintID)
+	}()
+
+	review := &models.SprintGoalReview{SprintID: sprintID, Goal: "Demonstrate admission gate", BeforeResult: "Blocked work was selectable", AfterResult: "Blocked work is omitted", Reviewer: "qa", Outcome: models.SprintGoalReviewAccepted}
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repo.CreateGoalReviewTx(ctx, tx, review))
+	require.NoError(t, tx.Commit())
+
+	got, err := repo.GetLatestGoalReview(ctx, sprintID)
+	require.NoError(t, err)
+	assert.Equal(t, review.ID, got.ID)
+	assert.Equal(t, models.SprintGoalReviewAccepted, got.Outcome)
 }
 
 // --------------------------------------------------------------------------

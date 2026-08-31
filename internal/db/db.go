@@ -482,9 +482,10 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	             relationship types)
 //	34 — B055   (task_display_data dependencies_json: only outgoing depends_on
 //	             task relationships are rendered as dependencies)
+//	35 — E19-F10 (sprint admission overrides and Sprint Goal Reviews)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 34
+const CurrentSchemaVersion = 35
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -1053,6 +1054,9 @@ func runPreQuestionMigrations(db *sql.DB) error {
 	// Create sprint_completions table for carryover transaction and velocity analytics (E19-F03)
 	if err := migrateSprintCompletionsTable(db); err != nil {
 		return fmt.Errorf("sprint_completions table migration: %w", err)
+	}
+	if err := migrateSprintAdmissionEvidenceTables(db); err != nil {
+		return fmt.Errorf("sprint admission evidence migration: %w", err)
 	}
 
 	// Drop legacy task_relationships, feature_relationships, epic_relationships tables (E07-F39)
@@ -4460,6 +4464,39 @@ func migrateSprintCompletionsTable(db *sql.DB) error {
 		return fmt.Errorf("failed to create idx_sprint_completions_sprint: %w", err)
 	}
 
+	return nil
+}
+
+func migrateSprintAdmissionEvidenceTables(db *sql.DB) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sprint_admission_overrides (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sprint_id INTEGER NOT NULL,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			reason TEXT NOT NULL,
+			requested_by TEXT NOT NULL,
+			reason_code TEXT NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+			UNIQUE (sprint_id, entity_type, entity_id)
+		);
+		CREATE TABLE IF NOT EXISTS sprint_goal_reviews (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sprint_id INTEGER NOT NULL,
+			goal TEXT NOT NULL,
+			before_result TEXT NOT NULL,
+			after_result TEXT NOT NULL,
+			reviewer TEXT NOT NULL,
+			outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'rejected')),
+			reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_sprint_goal_reviews_latest
+			ON sprint_goal_reviews (sprint_id, reviewed_at DESC, id DESC);
+	`); err != nil {
+		return fmt.Errorf("failed to create sprint admission evidence tables: %w", err)
+	}
 	return nil
 }
 

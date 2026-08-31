@@ -182,6 +182,37 @@ type SprintCompletion struct {
 	NextSprintID         *int64    `json:"next_sprint_id,omitempty" db:"next_sprint_id"`
 }
 
+// SprintAdmissionOverride records an audited exception to roadmap admission.
+type SprintAdmissionOverride struct {
+	ID          int64     `json:"id" db:"id"`
+	SprintID    int64     `json:"sprint_id" db:"sprint_id"`
+	EntityType  string    `json:"entity_type" db:"entity_type"`
+	EntityID    int64     `json:"entity_id" db:"entity_id"`
+	Reason      string    `json:"reason" db:"reason"`
+	RequestedBy string    `json:"requested_by" db:"requested_by"`
+	ReasonCode  string    `json:"reason_code" db:"reason_code"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
+
+type SprintGoalReviewOutcome string
+
+const (
+	SprintGoalReviewAccepted SprintGoalReviewOutcome = "accepted"
+	SprintGoalReviewRejected SprintGoalReviewOutcome = "rejected"
+)
+
+// SprintGoalReview records evidence used to accept or reject a sprint goal.
+type SprintGoalReview struct {
+	ID           int64                   `json:"id" db:"id"`
+	SprintID     int64                   `json:"sprint_id" db:"sprint_id"`
+	Goal         string                  `json:"goal" db:"goal"`
+	BeforeResult string                  `json:"before_result" db:"before_result"`
+	AfterResult  string                  `json:"after_result" db:"after_result"`
+	Reviewer     string                  `json:"reviewer" db:"reviewer"`
+	Outcome      SprintGoalReviewOutcome `json:"outcome" db:"outcome"`
+	ReviewedAt   time.Time               `json:"reviewed_at" db:"reviewed_at"`
+}
+
 // Validate enforces structural invariants on a SprintAssignment row:
 //   - SprintID and EntityID must be greater than 0 (FK targets must exist).
 //   - EntityType must be in the {task, bug, change_card, tech_debt} allowlist.

@@ -30,6 +30,7 @@ type sprintLifecycleServicer interface {
 	StartSprint(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprint(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryover(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
+	SubmitSprintGoalReview(ctx context.Context, input services.SubmitSprintGoalReviewInput) (*models.SprintGoalReview, error)
 	ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error)
 	// CountNullSprintOrder returns the count of active assignments with sprint_order = NULL
 	// for the given sprint. Used by runSprintStart to surface the REQ-F-009 soft warning.
@@ -252,6 +253,13 @@ Examples:
   shark sprint close S001 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSprintClose,
+}
+
+var sprintGoalReviewCmd = &cobra.Command{
+	Use:   "goal-review <sprint-key>",
+	Short: "Submit sprint goal review evidence",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runSprintGoalReview,
 }
 
 // sprintArchiveCmd archives a sprint (transitions to completed).
@@ -495,6 +503,9 @@ var sprintNextCmd = &cobra.Command{
 	Long: `Identify and display the next highest-priority item in the active sprint.
 Optionally filter by agent type.
 
+This compatibility command returns the first candidate from the shared sprint
+selector. For the full read-only candidate set, use ` + "`shark plan sprint`" + `.
+
 Selection logic:
 1. Sprint order (lowest first)
 2. Explicit Execution Order (lowest first)
@@ -529,6 +540,7 @@ func init() {
 	sprintCmd.AddCommand(sprintDeleteCmd)
 	sprintCmd.AddCommand(sprintStartCmd)
 	sprintCmd.AddCommand(sprintCloseCmd)
+	sprintCmd.AddCommand(sprintGoalReviewCmd)
 	sprintCmd.AddCommand(sprintArchiveCmd)
 	sprintCmd.AddCommand(sprintVelocityCmd)
 	sprintCmd.AddCommand(sprintBurndownCmd)
@@ -567,6 +579,11 @@ func init() {
 
 	// Close flags (T-E19-F03-007)
 	sprintCloseCmd.Flags().String("carryover", "", "Carryover mode: next or backlog (default from config)")
+	sprintGoalReviewCmd.Flags().String("goal", "", "Declared executable sprint goal")
+	sprintGoalReviewCmd.Flags().String("before", "", "Observed result before the demonstration")
+	sprintGoalReviewCmd.Flags().String("after", "", "Observed result after the demonstration")
+	sprintGoalReviewCmd.Flags().String("reviewer", "", "Reviewer identity")
+	sprintGoalReviewCmd.Flags().String("outcome", "", "Review outcome: accepted or rejected")
 
 	// Velocity flags
 	sprintVelocityCmd.Flags().Int("sprints", 5, "Number of recent sprints to include (1–100, default 5)")
@@ -587,6 +604,7 @@ func init() {
 	sprintAddCmd.Flags().Bool("bulk-tech-debt", false, "Assign all open tech-debt items not already in a sprint")
 	sprintAddCmd.Flags().Bool("bulk-changes", false, "Assign all open change-cards not already in a sprint")
 	sprintAddCmd.Flags().Int("at", 0, "Insert at this 1-based position in the sprint pull queue (mutually exclusive with bulk flags)")
+	sprintAddCmd.Flags().String("override-reason", "", "Reason (20-500 characters) for admitting blocked prerequisite work")
 
 	// Reorder flags (F07)
 	sprintReorderCmd.Flags().Bool("top", false, "Move to position 1 (equivalent to --at=1)")
@@ -928,6 +946,23 @@ func runSprintClose(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runSprintGoalReview(cmd *cobra.Command, args []string) error {
+	goal, _ := cmd.Flags().GetString("goal")
+	before, _ := cmd.Flags().GetString("before")
+	after, _ := cmd.Flags().GetString("after")
+	reviewer, _ := cmd.Flags().GetString("reviewer")
+	outcome, _ := cmd.Flags().GetString("outcome")
+	review, err := getSprintLifecycleService().SubmitSprintGoalReview(cmd.Context(), services.SubmitSprintGoalReviewInput{SprintKey: args[0], Goal: goal, BeforeResult: before, AfterResult: after, Reviewer: reviewer, Outcome: models.SprintGoalReviewOutcome(outcome)})
+	if err != nil {
+		return err
+	}
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(review)
+	}
+	cli.Success(fmt.Sprintf("Recorded %s goal review for sprint %s", review.Outcome, args[0]))
+	return nil
+}
+
 // runSprintArchive handles the `shark sprint archive` command.
 func runSprintArchive(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
@@ -1197,6 +1232,7 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 	bulkTechDebt, _ := cmd.Flags().GetBool("bulk-tech-debt")
 	bulkChanges, _ := cmd.Flags().GetBool("bulk-changes")
 	entityKeyFlag, _ := cmd.Flags().GetString("entity")
+	overrideReason, _ := cmd.Flags().GetString("override-reason")
 
 	// F07: --at flag (optional position; 0 = not set)
 	atChanged := cmd.Flags().Changed("at")
@@ -1219,7 +1255,7 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 
 	// Step 2: Route — bulk paths call BulkAddToSprint; single path calls AddEntityToSprint.
 	if bulkFeature != "" {
-		input := services.BulkAddInput{SprintKey: sprintKey, FeatureKey: bulkFeature}
+		input := services.BulkAddInput{SprintKey: sprintKey, FeatureKey: bulkFeature, OverrideReason: overrideReason}
 		result, err := svc.BulkAddToSprint(cmd.Context(), input)
 		if err != nil {
 			return err
@@ -1238,7 +1274,7 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 		if bulkChanges {
 			entityTypes = append(entityTypes, "change_card")
 		}
-		input := services.BulkAddInput{SprintKey: sprintKey, EntityTypes: entityTypes}
+		input := services.BulkAddInput{SprintKey: sprintKey, EntityTypes: entityTypes, OverrideReason: overrideReason}
 		result, err := svc.BulkAddToSprint(cmd.Context(), input)
 		if err != nil {
 			return err
@@ -1253,8 +1289,9 @@ func runSprintAdd(cmd *cobra.Command, args []string) error {
 
 	// Build AddEntityInput with optional Position (AC-T1: detect via Changed, not value).
 	addInput := services.AddEntityInput{
-		SprintKey: sprintKey,
-		EntityKey: entityKey,
+		SprintKey:      sprintKey,
+		EntityKey:      entityKey,
+		OverrideReason: overrideReason,
 	}
 	if atChanged {
 		addInput.Position = &atVal
@@ -2045,6 +2082,9 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Agent:   %s\n", item.AgentType)
 	}
 	fmt.Printf("  Status:  %s\n", item.Status)
+	if item.RequiresExpansion {
+		fmt.Printf("  Next:    expand via shark plan %s\n", item.Key)
+	}
 	fmt.Printf("  Priority: %d\n", item.Priority)
 	if item.Size != nil {
 		fmt.Printf("  Size:     %d\n", *item.Size)

@@ -743,6 +743,18 @@ func GetSprintService() *services.SprintService {
 	// B044: wire claim-awareness so GetNextTask never hands out an
 	// actively-claimed backlog item.
 	svc.SetClaimReader(GetClaimService())
+	// E19-F09: sprint selection shares the same read-only Question gate as
+	// keyed dispatch so open Questions cannot be selected for a sprint wave.
+	svc.SetQuestionBlocker(GetQuestionBlocker())
+	portfolioSnapshot := portfoliorepo.NewRepository(db)
+	svc.SetAdmissionService(services.NewSprintAdmissionService(
+		services.NewPortfolioSprintAdmissionEvidenceReader(
+			portfolioSnapshot,
+			GetPortfolioAdviceService(),
+			GetPortfolioPlanningService(),
+			GetWorkflowService(),
+		),
+	))
 	return svc
 }
 

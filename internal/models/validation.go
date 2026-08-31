@@ -94,9 +94,8 @@ func ValidateSprintKey(key string) error {
 }
 
 // ValidateSprintAssignmentEntityType validates the polymorphic entity_type
-// column on sprint_assignments. The allowed values are {task, bug,
-// change_card, tech_debt} — sprints group execution-level work items only,
-// so epic/feature/idea are intentionally NOT allowlisted.
+// column on sprint_assignments. The allowed values are task, bug, change_card,
+// tech_debt.
 //
 // Per the post-B018 convention (see internal/db/db.go:436-444 and the
 // `feedback_entity_type_check_constraints` user-feedback memory), there is

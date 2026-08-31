@@ -29,9 +29,9 @@ func TestValidateSprintAssignmentEntityType_Invalid(t *testing.T) {
 	}{
 		{"empty string", ""},
 		{"whitespace only", "   "},
-		{"epic - not allowlisted", "epic"},
-		{"feature - not allowlisted", "feature"},
 		{"idea - not allowlisted", "idea"},
+		{"feature - not allowlisted", "feature"},
+		{"epic - not allowlisted", "epic"},
 		{"sprint - sprints don't assign sprints", "sprint"},
 		{"uppercase TASK", "TASK"},
 		{"mixed case Task", "Task"},

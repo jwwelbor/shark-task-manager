@@ -29,6 +29,7 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	sharkconfig "github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -61,6 +62,7 @@ var (
 	planGetPortfolioAdvisor  = func() portfolioAdvisor { return cli.GetPortfolioAdviceService() }
 	planGetPortfolioPlanner  = func() portfolioPlanner { return cli.GetPortfolioPlanningService() }
 	planGetStandalonePlanner = func() standalonePlanner { return cli.GetStandalonePlanningService() }
+	planGetSprintSelector    = func() sprintSelector { return cli.GetSprintService() }
 	planGetMaxParallelItems  = func() int {
 		cfg, err := cli.GetConfig()
 		if err != nil {
@@ -81,6 +83,22 @@ type portfolioPlanner interface {
 
 type standalonePlanner interface {
 	Plan(ctx context.Context, collection services.StandalonePlanCollection) (services.StandalonePlan, error)
+}
+
+type sprintSelector interface {
+	SelectSprint(context.Context, services.SprintSelectionInput) (*services.SprintSelection, error)
+	SelectActiveSprint(context.Context, services.SprintSelectionInput) (*services.SprintSelection, error)
+}
+
+type SprintPlanSelectionResponse struct {
+	Mode             string                      `json:"mode"`
+	Action           string                      `json:"action"`
+	SprintKey        string                      `json:"sprint_key,omitempty"`
+	Preview          bool                        `json:"preview,omitempty"`
+	Entity           *services.BacklogItemView   `json:"entity,omitempty"`
+	Entities         []*services.BacklogItemView `json:"entities,omitempty"`
+	PortfolioEpicKey string                      `json:"portfolio_epic_key,omitempty"`
+	ExcludedByReason map[string]int              `json:"excluded_by_reason,omitempty"`
 }
 
 // PortfolioPlanCandidate is the bounded epic projection returned by bare
@@ -177,7 +195,7 @@ type ParallelPlanResponse struct {
 var planCmd = newPlanCommand()
 
 func newPlanCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "plan [entity-key|collection]",
 		Short: "Select the next epic, hierarchy tier, or standalone-collection root as JSON",
 		Long: `With no entity key, select the next eligible epic. Return one epic
@@ -252,6 +270,8 @@ Errors:
 		Args: cobra.MaximumNArgs(1),
 		RunE: runPlan,
 	}
+	cmd.Flags().String("agent", "", "Filter sprint candidates by current workflow role")
+	return cmd
 }
 
 func init() {
@@ -268,6 +288,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	if len(args) == 0 {
 		return runPortfolioPlan(ctx, cmd, span, maxParallelItems)
+	}
+	if args[0] == "sprint" || keys.IsSprintKey(args[0]) {
+		agent, err := cmd.Flags().GetString("agent")
+		if err != nil {
+			return err
+		}
+		return runPlanSprintSelection(ctx, cmd, args[0], agent, maxParallelItems)
 	}
 
 	if collection, ok := parseStandaloneCollection(args[0]); ok {
@@ -291,6 +318,34 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return handlePlanResolutionError(span, entityType, normalizedKey, err)
 	}
 	return outputPlanResult(span, resp)
+}
+
+func runPlanSprintSelection(ctx context.Context, cmd *cobra.Command, root, agent string, limit int) error {
+	selector := planGetSprintSelector()
+	input := services.SprintSelectionInput{AgentType: agent, Limit: limit}
+	var selection *services.SprintSelection
+	var err error
+	if root == "sprint" {
+		selection, err = selector.SelectActiveSprint(ctx, input)
+	} else {
+		input.SprintKey = root
+		selection, err = selector.SelectSprint(ctx, input)
+	}
+	if err != nil {
+		return err
+	}
+	response := SprintPlanSelectionResponse{Mode: "sprint_selection", SprintKey: selection.SprintKey, Preview: selection.Preview, PortfolioEpicKey: selection.PortfolioEpicKey, ExcludedByReason: selection.ExcludedByReason}
+	switch len(selection.Items) {
+	case 0:
+		response.Action = "pause"
+	case 1:
+		response.Action = "select_item"
+		response.Entity = selection.Items[0]
+	default:
+		response.Action = "parallel_candidates"
+		response.Entities = selection.Items
+	}
+	return cli.OutputJSON(response)
 }
 
 func runPortfolioPlan(ctx context.Context, cmd *cobra.Command, span trace.Span, maxParallelItems int) error {
