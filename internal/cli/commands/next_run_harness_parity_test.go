@@ -127,6 +127,11 @@ func TestTC009_NextRunParity_FlagTier(t *testing.T) {
 	runPrompt := renderViaRunController(t, claims, harnessIfTemplate, override)
 
 	require.Equal(t, nextPrompt, runPrompt, "AC-08: next/run prompts must be byte-identical at the flag tier")
+	// Pin the branch, not just equality: two surfaces that both degraded to
+	// the zero identity would render identical (branch B) prompts and pass
+	// the Equal check above without either surface having resolved the flag.
+	require.Contains(t, nextPrompt, harnessBranchA,
+		"flag tier passes --harness=claude; both surfaces must render the claude branch")
 }
 
 // TestTC010_NextRunParity_ClaimTier covers TC-010: no override flags on

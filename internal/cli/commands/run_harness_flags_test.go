@@ -17,6 +17,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,6 +30,31 @@ func TestRunCmd_RegistersHarnessOverrideFlags(t *testing.T) {
 			t.Errorf("runCmd missing --%s flag; without it, precedence tier 1 (flags) has no entry point under `shark run` (REQ-F-006/AC-08)", name)
 		}
 	}
+}
+
+// TestRunCmd_HarnessFlagsParseIntoOverrideIdentity is the behavioral
+// counterpart to the source scan below: it parses the three harness flags
+// against the real runCmd flag set (the same set `runRun` reads via
+// harnessOverrideFromFlags) and asserts the resulting HarnessIdentity, so
+// AC-T2's flag entry point is proven end-to-end from cobra flag parsing
+// through the shared helper — not just "the flag exists" and "the source
+// text contains a call". runCmd is a package singleton, so the parsed flag
+// values are reset in t.Cleanup to avoid leaking into other tests.
+func TestRunCmd_HarnessFlagsParseIntoOverrideIdentity(t *testing.T) {
+	t.Cleanup(func() {
+		for _, name := range []string{"harness", "harness-version", "harness-model"} {
+			_ = runCmd.Flags().Set(name, "")
+		}
+	})
+
+	require.NoError(t, runCmd.ParseFlags([]string{
+		"--harness=claude", "--harness-version=2.1.0", "--harness-model=opus",
+	}))
+
+	got, err := harnessOverrideFromFlags(runCmd)
+	require.NoError(t, err)
+	require.Equal(t, services.HarnessIdentity{Type: "claude", Version: "2.1.0", Model: "opus"}, got,
+		"harnessOverrideFromFlags must read back exactly what was parsed onto runCmd's real flag set")
 }
 
 // TestRunRun_WiresHarnessOverrideAndResolver pins the production wiring
