@@ -329,6 +329,44 @@ Precedence: an explicitly passed `--sequential` flag always wins; when the
 flag is not passed, the `sequential_dispatch` config value applies; when
 neither is set, the default is fan-out.
 
+<a id="harness-metadata-flags"></a>
+#### Harness metadata flags
+
+`shark claim`, `shark next`, and `shark run` accept three optional flags that
+capture and resolve harness identity for prompt rendering:
+
+```bash
+shark claim <key> --by=agent1 --harness=claude --harness-version=2.1.0 --harness-model=opus
+shark next <key> --harness=claude --harness-version=2.1.0 --harness-model=opus
+shark run --harness=claude --harness-version=2.1.0 --harness-model=opus
+```
+
+| Flag | Description |
+|------|-------------|
+| `--harness` | Harness type (e.g. `claude`, `codex`). Trimmed and lowercased before use/persisting. |
+| `--harness-version` | Harness version string. Trimmed only, not normalized. |
+| `--harness-model` | Harness model string. Trimmed only, not normalized. |
+
+`shark claim` persists the three values on the entity's claim row so they
+outlive the claiming process. `shark next` and `shark run` resolve harness
+identity per field, highest precedence first: an explicit flag on the
+rendering command, the entity's active claim, the `SHARK_HARNESS` /
+`SHARK_HARNESS_VERSION` / `SHARK_HARNESS_MODEL` environment variables, then
+unset (empty string). `shark run` accepts the same three flags as `shark next`
+so both dispatch surfaces render identically given the same inputs.
+
+Resolved harness identity is injected into prompt rendering under the
+`harness`, `harness_version`, and `harness_model` placeholder keys, and
+workflow prompts may branch on it via the `isHarness <name>`, `isClaude`, and
+`isCodex` template helpers. An entity with no resolvable harness metadata
+(no flag, no claim, no env var) renders the same as before this feature —
+these flags are purely additive.
+
+`shark next --json` additionally reports the resolved values on the response
+as `harness`, `harness_version`, and `harness_model` — each `omitempty`, so a
+run with no resolvable harness metadata emits a response byte-identical to
+before this feature existed.
+
 ### Web Server Configuration
 
 The `web` key configures the `shark web` dashboard server.

@@ -472,6 +472,11 @@ func runNext(cmd *cobra.Command, args []string) error {
 		attribute.String("action", resp.Action),
 		attribute.String("agent_type", resp.AgentType),
 		attribute.String("model", resp.Model),
+		// harness (not harness_version/harness_model) is added as a span
+		// attribute per spec.md §5: the harness type is a small, bounded
+		// vocabulary ("claude", "codex", ...), while version/model are
+		// free-text and would risk unbounded attribute cardinality.
+		attribute.String("harness", resp.Harness),
 		attribute.Int("prompt_bytes", resp.PromptBytes),
 		attribute.Int("unresolved_placeholders", len(resp.UnresolvedPlaceholders)),
 		attribute.String("exit_status", "ok"),

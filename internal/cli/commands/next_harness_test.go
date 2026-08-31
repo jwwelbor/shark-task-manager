@@ -24,6 +24,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // harnessBranchA/B are distinctive markers used as the template branch
@@ -352,6 +355,62 @@ func TestTC018_ClaimReadFailureDegradesToZeroIdentity(t *testing.T) {
 type harnessTestError string
 
 func (e harnessTestError) Error() string { return string(e) }
+
+// TestTC017_HarnessTypeAddedAsSpanAttributeVersionModelAreNot covers TC-017
+// (spec.md §5 / test-plan.md's observability-design row): a claimed entity's
+// resolved harness *type* must appear as an attribute on runNext's existing
+// "shark.next" OTel span, while harness_version/harness_model must NOT be
+// added — bounded cardinality per §5. Drives the real runNext span emission
+// via an in-memory exporter (the tracetest.NewInMemoryExporter pattern
+// already used by TestRunPlanBareEmitsEpicOnlyParallelCandidatesWithBoundedTelemetry
+// in plan_parallel_test.go); no mock stands in for the tracer/span itself.
+func TestTC017_HarnessTypeAddedAsSpanAttributeVersionModelAreNot(t *testing.T) {
+	unsetHarnessEnv(t)
+	originalTracerProvider := otel.GetTracerProvider()
+	exporter := tracetest.NewInMemoryExporter()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	otel.SetTracerProvider(tracerProvider)
+	defer func() {
+		_ = tracerProvider.Shutdown(context.Background())
+		otel.SetTracerProvider(originalTracerProvider)
+	}()
+
+	claims := &harnessMockClaimReader{claim: &models.EntityClaim{
+		Harness:        "claude",
+		HarnessVersion: "2.1.0",
+		HarnessModel:   "opus",
+	}}
+	cache := harnessTestCache(t, claims, harnessIfTemplate)
+
+	stdout, err := runHarnessNextCommand(t, cache, []string{"E01-F01-001"})
+	require.NoError(t, err)
+
+	var resp NextResponse
+	require.NoError(t, json.Unmarshal([]byte(stdout), &resp))
+	require.Equal(t, "claude", resp.Harness, "precondition: harness must resolve to claude")
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.Equal(t, "shark.next", spans[0].Name)
+
+	var gotHarness string
+	var hasHarness, hasHarnessVersion, hasHarnessModel bool
+	for _, attr := range spans[0].Attributes {
+		switch string(attr.Key) {
+		case "harness":
+			hasHarness = true
+			gotHarness = attr.Value.AsString()
+		case "harness_version":
+			hasHarnessVersion = true
+		case "harness_model":
+			hasHarnessModel = true
+		}
+	}
+	assert.True(t, hasHarness, "span must carry a harness attribute")
+	assert.Equal(t, "claude", gotHarness, "span's harness attribute must equal the resolved type")
+	assert.False(t, hasHarnessVersion, "harness_version must NOT be added as a span attribute (bounded cardinality, spec.md §5)")
+	assert.False(t, hasHarnessModel, "harness_model must NOT be added as a span attribute (bounded cardinality, spec.md §5)")
+}
 
 // TestNewNextAdapterCache_WiresHarnessResolver pins the production wiring
 // line every TC-003..018 test above bypasses by construction (they all
