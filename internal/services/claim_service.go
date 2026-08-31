@@ -87,6 +87,15 @@ type ClaimInput struct {
 	ClaimedBy  string // agent/user identity; defaults to $SHARK_ACTOR or "cli"
 	SessionID  string // lease id; generated when empty
 	Force      bool   // steal an existing (even live) claim
+
+	// Harness identity (E34-F01, spec.md REQ-F-001). Optional and
+	// independently settable; supplying none is valid. Callers are expected
+	// to have already normalized Harness (trimmed, lowercased) and
+	// HarnessVersion/HarnessModel (trimmed only) per REQ-F-001 — this input
+	// carries the values through unchanged.
+	Harness        string
+	HarnessVersion string
+	HarnessModel   string
 }
 
 // Claim leases an entity. Expired leases are reclaimed first (TTL backstop); a
@@ -111,10 +120,19 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 	}
 
 	c := &models.EntityClaim{
-		EntityType: in.EntityType,
-		EntityKey:  in.EntityKey,
-		ClaimedBy:  by,
-		SessionID:  session,
+		EntityType:     in.EntityType,
+		EntityKey:      in.EntityKey,
+		ClaimedBy:      by,
+		SessionID:      session,
+		Harness:        in.Harness,
+		HarnessVersion: in.HarnessVersion,
+		HarnessModel:   in.HarnessModel,
+	}
+	// Validate before touching the repository (REQ-NF-004, AC-10 / TC-013):
+	// an oversized harness field must reject the claim with no partial row
+	// ever written, so the repository's Claim must not be reached at all.
+	if err := c.Validate(); err != nil {
+		return nil, err
 	}
 
 	claimed, err := s.repo.Claim(ctx, c)

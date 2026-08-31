@@ -37,10 +37,11 @@ func (r *Repository) Claim(ctx context.Context, c *models.EntityClaim) (*models.
 		return nil, err
 	}
 	const q = `
-		INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id, progress, note)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id, progress, note, harness, harness_version, harness_model)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	res, err := r.db.ExecContext(ctx, q, c.EntityType, c.EntityKey, c.ClaimedBy, c.SessionID, c.Progress, nullString(c.Note))
+	res, err := r.db.ExecContext(ctx, q, c.EntityType, c.EntityKey, c.ClaimedBy, c.SessionID, c.Progress, nullString(c.Note),
+		nullString(c.Harness), nullString(c.HarnessVersion), nullString(c.HarnessModel))
 	if err != nil {
 		if repoerr.IsSQLiteUniqueViolation(err) {
 			return nil, ErrAlreadyClaimed
@@ -57,7 +58,7 @@ func (r *Repository) Claim(ctx context.Context, c *models.EntityClaim) (*models.
 // Get returns the claim for an entity, or (nil, nil) when unclaimed.
 func (r *Repository) Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
 	const q = `
-		SELECT id, entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat, progress, note
+		SELECT id, entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat, progress, note, harness, harness_version, harness_model
 		FROM entity_claims WHERE entity_type = ? AND entity_key = ?
 	`
 	return r.scanOne(r.db.QueryRowContext(ctx, q, entityType, entityKey))
@@ -141,7 +142,7 @@ func (r *Repository) ReclaimExpired(ctx context.Context, ttl time.Duration) (int
 // List returns all current claims ordered by claim time.
 func (r *Repository) List(ctx context.Context) ([]*models.EntityClaim, error) {
 	const q = `
-		SELECT id, entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat, progress, note
+		SELECT id, entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat, progress, note, harness, harness_version, harness_model
 		FROM entity_claims ORDER BY claimed_at
 	`
 	rows, err := r.db.QueryContext(ctx, q)
@@ -162,7 +163,7 @@ func (r *Repository) List(ctx context.Context) ([]*models.EntityClaim, error) {
 
 func (r *Repository) getByID(ctx context.Context, id int64) (*models.EntityClaim, error) {
 	const q = `
-		SELECT id, entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat, progress, note
+		SELECT id, entity_type, entity_key, claimed_by, session_id, claimed_at, last_heartbeat, progress, note, harness, harness_version, harness_model
 		FROM entity_claims WHERE id = ?
 	`
 	return r.scanOne(r.db.QueryRowContext(ctx, q, id))
@@ -184,8 +185,9 @@ func scanRow(row rowScanner) (*models.EntityClaim, error) {
 	var c models.EntityClaim
 	var progress sql.NullFloat64
 	var note sql.NullString
+	var harness, harnessVersion, harnessModel sql.NullString
 	if err := row.Scan(&c.ID, &c.EntityType, &c.EntityKey, &c.ClaimedBy, &c.SessionID,
-		&c.ClaimedAt, &c.LastHeartbeat, &progress, &note); err != nil {
+		&c.ClaimedAt, &c.LastHeartbeat, &progress, &note, &harness, &harnessVersion, &harnessModel); err != nil {
 		return nil, err
 	}
 	if progress.Valid {
@@ -194,6 +196,10 @@ func scanRow(row rowScanner) (*models.EntityClaim, error) {
 	if note.Valid {
 		c.Note = note.String
 	}
+	// NULL maps to "" (unknown harness) — spec.md §3.1, D-F01-03.
+	c.Harness = harness.String
+	c.HarnessVersion = harnessVersion.String
+	c.HarnessModel = harnessModel.String
 	return &c, nil
 }
 
