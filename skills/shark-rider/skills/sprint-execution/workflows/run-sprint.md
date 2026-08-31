@@ -154,7 +154,31 @@ Sprint {SPRINT_KEY} left in active state. Run /shark-rider run-sprint {SPRINT_KE
 ```
 Exit.
 
-**If user says yes**: construct the close command.
+**If user says yes**: closing requires a submitted Sprint Goal Review first — a
+close attempt with no accepted review returns the sprint to active and
+creates no completion row. Collect the goal-review evidence from the user
+before calling close:
+
+```
+Before closing, record the Sprint Goal Review:
+  Declared executable goal:
+  Observed result before the demonstration:
+  Observed result after the demonstration:
+  Reviewer identity:
+  Outcome (accepted/rejected):
+```
+
+Submit the review:
+```bash
+shark sprint goal-review {SPRINT_KEY} --goal={GOAL} --before={BEFORE_RESULT} --after={AFTER_RESULT} --reviewer={REVIEWER} --outcome={OUTCOME} --json
+```
+
+If the outcome is `rejected` (or the user has no evidence to submit), do not
+proceed to close — report that the sprint remains active pending an accepted
+goal review, and exit.
+
+Only after a submitted review with `--outcome=accepted`, construct the close
+command.
 
 If `CARRYOVER_VALUE` is set:
 ```bash
@@ -171,7 +195,10 @@ Parse the response. On success:
 Sprint {SPRINT_KEY} closed successfully.
 ```
 
-On error: print the full error message. Do not retry silently.
+On error: print the full error message, including the case where close
+reports no accepted goal review — in that case, the sprint remains active;
+suggest re-running `shark sprint goal-review` with `--outcome=accepted`
+before retrying close. Do not retry silently.
 
 ---
 
@@ -184,6 +211,7 @@ On error: print the full error message. Do not retry silently.
 | `shark sprint next` returns a malformed JSON response | Print the raw response, report `shark sprint next returned unexpected output`, exit loop and proceed to Step 3 |
 | `/shark-rider run {ENTITY_KEY}` fails or the agent errors | Log error; continue loop (do not abort sprint) |
 | `shark sprint close` fails | Print full error; sprint remains open; suggest manual retry |
+| `shark sprint close` fails with no accepted goal review | Sprint remains active, no completion row created; submit `shark sprint goal-review {SPRINT_KEY} --outcome=accepted` (with goal/before/after/reviewer evidence) before retrying close |
 | User provides `--max-iterations=0` or negative | Treat as invalid; print usage and exit |
 
 ---
@@ -203,6 +231,6 @@ This workflow is safe to re-invoke:
 - All shark calls use `--json`.
 - `shark sprint next` is the sole source of "what to work on next". The loop does NOT read the backlog directly or pick entities itself.
 - `/shark-rider run {ENTITY_KEY}` is the sole dispatch mechanism. The loop does NOT call `shark status advance` or any other entity-manipulation command directly.
-- `shark sprint close` is only called after explicit user confirmation in Step 4.
+- `shark sprint close` is only called after explicit user confirmation in Step 4, and only after an accepted `shark sprint goal-review` submission for this close attempt.
 - The loop honors `--max-iterations` and exits at the cap with a notice.
 - `shark sprint start` is only called if status is `planning` AND the user explicitly confirms (Step 1).

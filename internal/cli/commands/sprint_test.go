@@ -33,6 +33,7 @@ type MockSprintService struct {
 	StartSprintFunc              func(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintFunc              func(ctx context.Context, key string) (*models.Sprint, error)
 	CloseSprintWithCarryoverFunc func(ctx context.Context, key string, mode services.CarryoverMode) (*services.SprintCloseResult, error)
+	SubmitSprintGoalReviewFunc   func(ctx context.Context, input services.SubmitSprintGoalReviewInput) (*models.SprintGoalReview, error)
 	ArchiveSprintFunc            func(ctx context.Context, key string) (*models.Sprint, error)
 	// F07 start warning (REQ-F-009)
 	CountNullSprintOrderFunc func(ctx context.Context, sprintKey string) (int, error)
@@ -107,6 +108,13 @@ func (m *MockSprintService) CloseSprintWithCarryover(ctx context.Context, key st
 	return &services.SprintCloseResult{
 		Sprint: &models.Sprint{Key: key, Name: "Sprint", Status: "completed"},
 	}, nil
+}
+
+func (m *MockSprintService) SubmitSprintGoalReview(ctx context.Context, input services.SubmitSprintGoalReviewInput) (*models.SprintGoalReview, error) {
+	if m.SubmitSprintGoalReviewFunc != nil {
+		return m.SubmitSprintGoalReviewFunc(ctx, input)
+	}
+	return &models.SprintGoalReview{}, nil
 }
 
 func (m *MockSprintService) ArchiveSprint(ctx context.Context, key string) (*models.Sprint, error) {
@@ -197,6 +205,11 @@ func (m *MockSprintService) ReorderAssignment(ctx context.Context, sprintKey, en
 var _ sprintLifecycleServicer = (*MockSprintService)(nil)
 var _ sprintAssignmentServicer = (*MockSprintService)(nil)
 var _ sprintCapacityServicer = (*MockSprintService)(nil)
+
+// TC-006: the compatibility notice belongs in human-facing command help only.
+func TestSprintNext_TC006_HelpPointsToPlanSprint(t *testing.T) {
+	require.Contains(t, sprintNextCmd.Long, "shark plan sprint")
+}
 
 // Test helpers
 func setupSprintTest(t *testing.T, mock *MockSprintService) func() {
@@ -1372,6 +1385,54 @@ func TestSprintAdd_JSONOutputContainsAssignmentFields(t *testing.T) {
 	assert.Contains(t, result, "entity_id", "entity_id must be present in JSON output")
 	assert.Contains(t, result, "assigned_at", "assigned_at must be present in JSON output")
 	assert.Equal(t, "task", result["entity_type"], "entity_type must match the assignment")
+}
+
+func TestSprintAdd_PassesOverrideReasonToAssignmentService(t *testing.T) {
+	const reason = "Required integration work is ready for controlled admission"
+	mock := &MockSprintService{
+		AddEntityToSprintFunc: func(_ context.Context, input services.AddEntityInput) (*models.SprintAssignment, *services.CapacityWarning, error) {
+			assert.Equal(t, "S024", input.SprintKey)
+			assert.Equal(t, "E07-F01-001", input.EntityKey)
+			assert.Equal(t, reason, input.OverrideReason)
+			return &models.SprintAssignment{}, nil, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("entity", "", "")
+	cmd.Flags().String("bulk", "", "")
+	cmd.Flags().Bool("bulk-bugs", false, "")
+	cmd.Flags().Bool("bulk-tech-debt", false, "")
+	cmd.Flags().Bool("bulk-changes", false, "")
+	cmd.Flags().String("override-reason", reason, "")
+	cmd.Flags().Int("at", 0, "")
+
+	require.NoError(t, runSprintAdd(cmd, []string{"S024", "E07-F01-001"}))
+}
+
+func TestSprintGoalReview_PassesDeclaredEvidenceToService(t *testing.T) {
+	mock := &MockSprintService{SubmitSprintGoalReviewFunc: func(_ context.Context, input services.SubmitSprintGoalReviewInput) (*models.SprintGoalReview, error) {
+		assert.Equal(t, "S024", input.SprintKey)
+		assert.Equal(t, "Demonstrate roadmap gate", input.Goal)
+		assert.Equal(t, "blocked", input.BeforeResult)
+		assert.Equal(t, "allowed", input.AfterResult)
+		assert.Equal(t, "qa", input.Reviewer)
+		assert.Equal(t, models.SprintGoalReviewAccepted, input.Outcome)
+		return &models.SprintGoalReview{Outcome: input.Outcome}, nil
+	}}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("goal", "Demonstrate roadmap gate", "")
+	cmd.Flags().String("before", "blocked", "")
+	cmd.Flags().String("after", "allowed", "")
+	cmd.Flags().String("reviewer", "qa", "")
+	cmd.Flags().String("outcome", "accepted", "")
+	require.NoError(t, runSprintGoalReview(cmd, []string{"S024"}))
 }
 
 // =============================================================================
@@ -3744,4 +3805,34 @@ func TestSprintNext_TCF06004_ForwardsNonDefaultWorkflowRole(t *testing.T) {
 
 	require.NoError(t, runSprintNext(cmd, []string{}))
 	assert.Equal(t, "qa", receivedRole)
+}
+
+func TestSprintNext_E19F09_HumanOutputMarksExpansionCandidate(t *testing.T) {
+	mock := &MockSprintService{
+		GetNextTaskFunc: func(context.Context, string) (*services.BacklogItemView, error) {
+			return &services.BacklogItemView{Key: "E19-F09", EntityType: "feature", Title: "Sprint selector", Status: "development", RequiresExpansion: true}, nil
+		},
+	}
+	cleanup := setupSprintTest(t, mock)
+	defer cleanup()
+
+	originalJSON := cli.GlobalConfig.JSON
+	defer func() { cli.GlobalConfig.JSON = originalJSON }()
+	cli.GlobalConfig.JSON = false
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	originalOut := os.Stdout
+	os.Stdout = w
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("agent", "", "")
+	runErr := runSprintNext(cmd, nil)
+	w.Close()
+	os.Stdout = originalOut
+	var output bytes.Buffer
+	_, _ = output.ReadFrom(r)
+
+	require.NoError(t, runErr)
+	assert.Contains(t, output.String(), "expand via shark plan E19-F09")
 }
