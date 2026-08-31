@@ -62,9 +62,12 @@ func TestEntityClaim_Validate(t *testing.T) {
 	}
 }
 
-// TestEntityClaim_Validate_HarnessFieldTooLong_NamesFieldAndQuotesInput pins
-// down AC-10's error-shape requirement: the error must name the offending
-// field and quote the offending input with %q, per
+// TestEntityClaim_Validate_HarnessFieldTooLong_NamesFieldAndQuotesInput is
+// TC-013's model-layer slice (test-plan.md; task-scoped per T-E34-F01-001's
+// task spec — the CLI-boundary half of TC-013, including "no partial claim
+// row is written," is covered by T-E34-F01-002 at the runClaim seam). It
+// pins down AC-10's error-shape requirement: the error must name the
+// offending field and quote the offending input with %q, per
 // .claude/rules/go/input-sanitization.md (REQ-NF-004). errors.Is() alone
 // (covered by the table above) cannot distinguish "rejected the right
 // field" from "rejected the wrong field with the same sentinel", so this

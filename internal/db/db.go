@@ -1612,6 +1612,11 @@ func migrateEntityClaimsTable(db *sql.DB) error {
 // CurrentSchemaVersion is bumped from 34 -> 35 in the same commit that wires
 // this function into runMigrations(). See database-critical.md for the
 // migration checklist.
+//
+// The guard only checks "harness" before adding all three columns, so a
+// crash between the second and third ALTER TABLE would leave the table
+// half-migrated; this mirrors migrateSprintAssignmentsAddSprintOrder's
+// single-column guard, the pattern AC-T2 requires reusing here.
 func migrateEntityClaimsAddHarness(db *sql.DB) error {
 	var columnExists int
 	err := db.QueryRow(
