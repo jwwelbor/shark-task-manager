@@ -1,12 +1,12 @@
 ---
 type: interaction-map
 epic: E34
-last_updated: 2026-08-05
+last_updated: 2026-08-30
 ---
 
 # E34 Cross-Feature Interaction Map
 
-E34 has nine features. This map is the authoritative registry for stable
+E34 has ten features. This map is the authoritative registry for stable
 cross-feature interaction IDs. Shape definitions live in
 [architecture.md](./architecture.md); feature plans name their producer and
 consumer obligations.
@@ -85,6 +85,12 @@ The planned shared contract test is
 
 Shark stores the same order through `depends_on` relationships. E40 is a
 future validation consumer, not an E34 dependency.
+
+E34-F10 is an independent pre-dispatch product-alignment guard. It does not
+produce or consume an I-## payload: it consults durable product artifacts
+before work selection, while F07 and F08 respectively govern decision
+propagation and post-selection quality gates. Its feature packet records that
+non-overlapping boundary and its own UAT coverage.
 
 ## Registration
 

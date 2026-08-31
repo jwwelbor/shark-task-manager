@@ -154,12 +154,18 @@ E34-F02 consumes this exact nine-field readiness shape read-only:
 | `gate_mode` | `contract-only` until E34-F02 proves live production-path use |
 | `activation_owner` | E34-F02 |
 | `closure_key` | E34-F02 |
-| `counterpart_status` | Read live from Shark at review/UAT time; this map intentionally contains no copied current-state snapshot |
+| `counterpart_status` | `E34-F03` is `completed` in the live Shark read on 2026-08-25; re-read it at review/UAT time and record any change rather than copying a stale value |
 | `review_basis` | Accumulated E34 branch with the map and both feature specifications present |
 | `demonstrability_disposition` | `pending-integration` until live wiring closes; no override makes it demonstrated-now |
 
-The map table supplies the counterpart identities and shared contract evidence;
-they are not extra readiness fields. E34-F02 must not create a twin test,
+The predeclared `contract-only` edge is E34-F03 (completed producer) to
+E34-F02 (activation owner and closure key); its review basis is the accumulated
+E34 branch, the interaction map, both feature specifications, and shared
+**TC-002**. The assessor verdict remains independent, an owner decision may
+only be `override-accept` with explicit conditions, and the demonstrability
+disposition remains `pending-integration` until E34-F02 proves the real caller
+chain. The map table supplies the counterpart identities and shared contract
+evidence; they are not extra readiness fields. E34-F02 must not create a twin test,
 assign a new I-## ID, or redefine this producer contract. When the activation
 remains open, E34-F02 classifies the claim as `pending-integration`; completion
 markers, a demo, or an owner override do not substitute for closed

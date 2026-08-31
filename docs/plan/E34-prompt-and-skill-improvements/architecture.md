@@ -1,7 +1,7 @@
 ---
 type: architecture
 epic: E34
-last_updated: 2026-08-05
+last_updated: 2026-08-30
 ---
 
 # E34 Workflow Quality Architecture
@@ -9,7 +9,7 @@ last_updated: 2026-08-05
 ## Purpose
 
 This architecture defines the shared contracts introduced by E34-F05 through
-E34-F09. It keeps workflow policy in reusable bundle content, lifecycle
+E34-F10. It keeps workflow policy in reusable bundle content, lifecycle
 authority in the parent orchestrator, project commands in each project, and
 durable evidence in existing Shark records.
 
@@ -31,6 +31,20 @@ durable evidence in existing Shark records.
 6. **No silent authority changes.** Final integration review adds assurance but
    never rewrites an independent feature verdict.
 
+## Architecture decisions
+
+| ID | Decision | Rationale | Consequence |
+|---|---|---|---|
+| ADR-E34-01 | Use one canonical worker-control envelope, with a versioned `GateResult` nested for gate steps, and parent-owned persistence. | Existing Rider and core-runner result grammars diverge, while workers cannot safely mutate lifecycle state. | Both paths validate the same bounded outer envelope and nested contract before a configured transition; non-gate steps retain their compatible outcome path during migration. |
+| ADR-E34-02 | Reuse typed notes, workflows, Questions, councils, and I/X maps rather than add review, recurrence, or decision tables. | The existing records already provide durable ownership, links, and lifecycle controls. A new store would duplicate authority without solving the worker-to-parent boundary. | Persistence metadata and references must remain bounded and idempotent; analytics can be designed later from adoption evidence. |
+| ADR-E34-03 | Define canonical evidence policy but leave commands, standards, environments, and model choices to each project. | Shark ships reusable content to heterogeneous projects and must not require a language, runner, database, or provider. | Canonical gates require executable evidence fields; project guidance supplies the exact command and working directory. |
+| ADR-E34-04 | Add `integration_review` as an additive epic gate with non-supersession authority. | Feature-scoped gates can miss accumulated-diff defects, but a later pass must not erase a failed required verdict. | Final review verifies I-##/X-## closure, impacts, guards, and standards while preserving configured feature-gate outcomes. |
+| ADR-E34-05 | Classify replace-only overrides by digest and require explicit acknowledgement for a new baseline. | Automatic merges or baseline advances could silently hide canonical policy or alter project-owned files. | Status and dry-run are content-private and non-destructive; reconciliation remains an operator action. |
+
+All material E34 architecture choices above are settled by the PRD, research,
+and feature packets. No unresolved decision meets the Question materiality
+threshold, so this design creates no Q### record.
+
 ## Component boundaries
 
 | Component | Owns | Does not own |
@@ -43,6 +57,7 @@ durable evidence in existing Shark records.
 | Embedded quality content | General tier, sweep, planning, and review policy | Project-specific commands or standards |
 | Project guidance | Exact validation commands, environment, standards, local policy | Canonical Shark semantics |
 | Override drift service | Digests, baselines, classifications | Override content merge, deletion, or rewrite |
+| Product critical-path guard | Reads D01, D02, roadmap, and the durable critical-path artifact before selection or dispatch; records path-gate and side-quest disposition | Lifecycle propagation (E34-F07) or quality-gate evaluation (E34-F08) |
 
 ## Gate result flow
 
