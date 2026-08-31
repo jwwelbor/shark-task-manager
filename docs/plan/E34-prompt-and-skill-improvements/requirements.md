@@ -44,13 +44,22 @@ verification plans.
 
 - Reusable skill content can be separated into workflow, prompt, methodology,
   and reference layers without breaking current consumers.
-- **D-E34-LEGACY-PROMPTS-001 — DEFER.** The earlier ignored dev-artifact review
-  prompt and skill-workflow-extraction prompt are not present, shipped, or
-  owned deliverables in this F05-F09 packet; no obsolete ignored path is
-  claimed to exist. Before epic decomposition passes, the E34 decomposition
-  owner must either create a Shark feature/task with a tracked artifact path or
-  record an explicit cancellation. Until then the deferred items remain open
-  planning scope and E34 cannot claim them delivered.
+- **D-E34-LEGACY-PROMPTS-001 — RESOLVED 2026-08-31.** Neither legacy prompt was
+  a shipped or owned deliverable in the F05-F09 packet. Both items are now
+  resolved individually:
+  - *Earlier ignored dev-artifact review prompt* — **CANCELLED**. An
+    exhaustive search (`docs/`, `dev-artifacts/`, `shark search`) found no
+    file, path, or specification for this artifact anywhere in the
+    repository; it was referenced only in planning language and never
+    materialized. No tracked work is created for it.
+  - *skill-workflow-extraction prompt* — **TRACKED**. This artifact does
+    exist, at `dev-artifacts/planning/skill-workflow-extraction-prompt.md`
+    (dated 2026-06-22), and implements REQ-F-006's layered-extraction concept.
+    It is now owned by `E34-F11-layered-skill-extraction-adoption`
+    (`T-E34-F11-001`), which records the repository path and adoption
+    pointer; no new prompt content was authored.
+  - See the E34 epic decision note referencing D-E34-LEGACY-PROMPTS-001 for
+    the full record.
 
 ### Area 3: Durable material Questions — E34-F04
 
@@ -206,6 +215,30 @@ verification plans.
 - E40 receives later scenarios for tier routing, evidence fidelity,
   recurrence, integration closure, and override configurations without
   becoming an E34 dependency.
+
+### Area 10: Product critical-path guard for delivery workflows — E34-F10
+
+**REQ-F-032 — Durable product critical-path artifact**
+
+- A durable product critical-path artifact records the current product-roadmap
+  gate and the last passing production step, sourced from
+  `docs/product/D01-vision-statement.md`, `docs/product/D02-success-criteria.md`,
+  and `docs/plan/product-delivery-roadmap.md`.
+
+**REQ-F-033 — Pre-dispatch delivery guard**
+
+- Sprint planning/active/closing; epic assessment/decomposition/active; feature
+  specification, test planning, task generation, task review, and approval; and
+  task development completion reporting consult the guard before selecting or
+  dispatching work, and report the current gate, proposed contribution,
+  executable advancement evidence, unresolved prerequisites, and the
+  disposition of side work.
+
+**REQ-F-034 — Production-grade evidence only**
+
+- Fixture, capture, hand-authored actor, contract-only, and component-suite
+  evidence cannot satisfy a production product gate; only executable evidence
+  against the live golden path advances it.
 
 ## Non-functional requirements
 

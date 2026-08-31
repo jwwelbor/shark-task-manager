@@ -6,7 +6,7 @@ last_updated: 2026-08-30
 
 # E34 Cross-Feature Interaction Map
 
-E34 has ten features. This map is the authoritative registry for stable
+E34 has eleven features. This map is the authoritative registry for stable
 cross-feature interaction IDs. Shape definitions live in
 [architecture.md](./architecture.md); feature plans name their producer and
 consumer obligations.
@@ -91,6 +91,12 @@ produce or consume an I-## payload: it consults durable product artifacts
 before work selection, while F07 and F08 respectively govern decision
 propagation and post-selection quality gates. Its feature packet records that
 non-overlapping boundary and its own UAT coverage.
+
+E34-F11 is a standalone documentation/adoption feature. It does not produce
+or consume an I-## payload: it only records the repository path and Shark
+ownership of the pre-existing skill-workflow-extraction prompt
+(`T-E34-F11-001`), resolving `D-E34-LEGACY-PROMPTS-001`. It has no shared
+surface with any other feature in this map.
 
 ## Registration
 
