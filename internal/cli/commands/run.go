@@ -71,6 +71,21 @@ func init() {
 	runCmd.Flags().BoolVar(&runVerbose, "verbose", false, "Show detailed stage progress")
 	runCmd.Flags().StringVar(&runWorkDir, "workdir", "", "Working directory override for agent processes")
 	runCmd.Flags().BoolVar(&runWorktree, "worktree", false, "Create an isolated git worktree for agent dispatch and clean up on completion")
+	runCmd.Flags().String(
+		"harness",
+		"",
+		"Override the resolved harness type (e.g. claude, codex); wins over the active claim and SHARK_HARNESS",
+	)
+	runCmd.Flags().String(
+		"harness-version",
+		"",
+		"Override the resolved harness version; wins over the active claim and SHARK_HARNESS_VERSION",
+	)
+	runCmd.Flags().String(
+		"harness-model",
+		"",
+		"Override the resolved harness model; wins over the active claim and SHARK_HARNESS_MODEL",
+	)
 	cli.RootCmd.AddCommand(runCmd)
 }
 
@@ -100,6 +115,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
 		return fmt.Errorf("invalid entity key %q: %w", entityKey, err)
+	}
+
+	// Read the --harness/--harness-version/--harness-model override flags
+	// once, per spec.md §3.3 AC-T2. Required for REQ-F-006/AC-08: without
+	// this, precedence tier 1 (flags) has no entry point under `shark run`.
+	harnessOverride, err := harnessOverrideFromFlags(cmd)
+	if err != nil {
+		return err
 	}
 
 	// Emit run.start now that we know entity_type.
@@ -234,6 +257,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			RunChild:          runChild,
 			QuestionResponses: buildQuestionResponsePersister(childType),
 			QuestionBlocker:   questionBlocker,
+			HarnessResolver:   cli.GetHarnessResolver(),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cascade child controller for %s %s: %w", childType, key, err)
@@ -311,6 +335,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		RunChild:          runChild,
 		QuestionResponses: buildQuestionResponsePersister(entityType),
 		QuestionBlocker:   questionBlocker,
+		HarnessResolver:   cli.GetHarnessResolver(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)
@@ -327,14 +352,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := runner.RunOptions{
-		DryRun:        runDryRun,
-		Verbose:       runVerbose,
-		WorkingDir:    workingDir,
-		RunID:         runID,
-		SessionID:     runSessionID,
-		ProjectRoot:   projectRoot,
-		EntityType:    entityType,
-		Observability: obs,
+		DryRun:          runDryRun,
+		Verbose:         runVerbose,
+		WorkingDir:      workingDir,
+		RunID:           runID,
+		SessionID:       runSessionID,
+		ProjectRoot:     projectRoot,
+		EntityType:      entityType,
+		Observability:   obs,
+		HarnessOverride: harnessOverride,
 	}
 
 	// D6 edit 3: the liveness recorder replaces the inline JSON-gated ticker
