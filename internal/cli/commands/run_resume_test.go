@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -514,5 +516,72 @@ func TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus(t *testing.T) {
 	}
 	if transition.status[entityKey] != "in_review" {
 		t.Fatalf("expected the coordinator's transitioner to record in_review, got %q", transition.status[entityKey])
+	}
+}
+
+// TestRunResumeRun_AlreadyTransitionedWiringReachesCoordinator drives
+// runResumeRun itself — not resumeGateIngestIfConfigured directly — for the
+// already_transitioned fixture. This is F-1's exact defect class applied to
+// run_resume.go's branch selection: every other already_transitioned test
+// in this file calls resumeGateIngestIfConfigured/
+// resumeGateIngestForUninitializedState directly, so none of them would
+// catch a regression in runResumeRun's own `if decision.State != nil {...}
+// else {...}` guard (e.g. reintroducing the `&& decision.Action !=
+// gaterun.ResumeActionAlreadyTransitioned` conjunct F-2 removed). Only a
+// test that calls the real entry point and observes the coordinator's
+// lease release actually happen proves the wiring, mirroring
+// TestRunRunRunControllerDepsAlwaysSetsGateIngest's rationale for run.go.
+func TestRunResumeRun_AlreadyTransitionedWiringReachesCoordinator(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origResolver, origCoordinator := runResumeWorkflowServiceOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeWorkflowServiceOverride, runResumeCoordinatorOverride = origResolver, origCoordinator
+	}()
+
+	entityKey := "E01-F01-001"
+	runID := "run-wiring1234567890abcdef1234567890"
+	root := t.TempDir()
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir %s: %v", root, err)
+	}
+	defer func() { _ = os.Chdir(origWD) }()
+
+	// A marker so cli.FindProjectRoot() (which runResumeRun calls
+	// internally) resolves projectRoot to root, matching the run dir
+	// setUpAlreadyTransitionedFixture builds under root.
+	if err := os.WriteFile(filepath.Join(root, ".sharkconfig.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("write .sharkconfig.json: %v", err)
+	}
+
+	decision := setUpAlreadyTransitionedFixture(t, entityKey, runID, root)
+	_ = decision // runResumeRun re-derives its own decision internally.
+
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "in_review"}}
+	releaser := &fakeCountingLeaseReleaser{}
+	runResumeWorkflowServiceOverride = &fakeGateStepResolver{
+		resultContract: "gate_result_v1",
+		outcomes:       map[string]string{"pass": "in_review"},
+		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser,
+	)
+
+	runResumeID = runID
+	runSession = "sess-resume"
+
+	if err := runResumeRun(context.Background(), "task", entityKey); err != nil {
+		t.Fatalf("runResumeRun: %v", err)
+	}
+
+	if len(releaser.calls) != 1 {
+		t.Fatalf("expected exactly 1 lease release call through the real runResumeRun entry point, got %d", len(releaser.calls))
 	}
 }
