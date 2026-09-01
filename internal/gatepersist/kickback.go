@@ -67,9 +67,18 @@ func kickbackEntityType(entityKey string) (models.EntityType, error) {
 // never be able to bypass the guarded main-entity transition through a
 // kickback, so this coordinator does not trust that upstream check alone.
 func validateKickbacks(kickbacks []gateresult.Kickback, mainEntityKey string, validator StatusValidator) (map[string]models.EntityType, error) {
+	ks := keys.NewKeyService()
+	canonicalMain := ks.Normalize(mainEntityKey)
 	entityTypes := make(map[string]models.EntityType, len(kickbacks))
 	for _, k := range kickbacks {
-		if k.EntityKey == mainEntityKey {
+		// Canonical-identity-aware comparison, not raw string equality: see
+		// internal/gateresult.ValidateRole's matching check for why a
+		// slugged/short-form alias of mainEntityKey must be rejected here
+		// too (authorization-bypass-via-key-aliasing, code-review round 11).
+		// This defense-in-depth re-check does not trust the upstream
+		// ValidateRole call alone, so it applies the same canonicalization
+		// rather than a raw `==`.
+		if ks.Normalize(k.EntityKey) == canonicalMain {
 			return nil, fmt.Errorf("gatepersist: kickback entity_key %q must differ from the bound main entity", k.EntityKey)
 		}
 		entityType, err := kickbackEntityType(k.EntityKey)
@@ -99,23 +108,34 @@ func validateKickbacks(kickbacks []gateresult.Kickback, mainEntityKey string, va
 // entity key, target status, AND reason (operations.go), so embedding it
 // here gives reconcile.go the same full-content comparison notes already
 // get via metaContentDigest.
+//
+// The run_id is embedded for the same reason a note's metadata carries
+// metaRunID: gaterun.ComputeOperationDigest (and therefore
+// operation.suboperationID) never includes run_id, so two different runs
+// against the same entity/source_status/gate/envelope legitimately derive
+// the identical suboperation ID. Without run_id in the token,
+// reconcile.go's kickback branch could not filter candidate history records
+// by the run it is reconciling for — the asymmetry with the notes branch
+// two lines above it (code-review round 11 finding) — and could misread a
+// DIFFERENT run's durably-applied kickback as this run's own completed
+// suboperation.
 const kickbackTokenPrefix = "[gatepersist:sub="
 
-var kickbackTokenPattern = regexp.MustCompile(`\[gatepersist:sub=([0-9a-f]{64}):digest=([0-9a-f]{64})\]`)
+var kickbackTokenPattern = regexp.MustCompile(`\[gatepersist:sub=([0-9a-f]{64}):digest=([0-9a-f]{64}):run=([A-Za-z0-9._-]{1,128})\]`)
 
-// buildKickbackReason appends the bounded suboperation token and content
-// digest to reason.
-func buildKickbackReason(reason, suboperationID, contentDigest string) string {
-	return strings.TrimSpace(reason) + " " + kickbackTokenPrefix + suboperationID + ":digest=" + contentDigest + "]"
+// buildKickbackReason appends the bounded suboperation token, content
+// digest, and run ID to reason.
+func buildKickbackReason(reason, suboperationID, contentDigest, runID string) string {
+	return strings.TrimSpace(reason) + " " + kickbackTokenPrefix + suboperationID + ":digest=" + contentDigest + ":run=" + runID + "]"
 }
 
-// parseKickbackToken extracts the suboperation ID and content digest
-// embedded by buildKickbackReason from a history entry's Notes field, if
+// parseKickbackToken extracts the suboperation ID, content digest, and run
+// ID embedded by buildKickbackReason from a history entry's Notes field, if
 // present.
-func parseKickbackToken(notes string) (suboperationID, contentDigest string, ok bool) {
+func parseKickbackToken(notes string) (suboperationID, contentDigest, runID string, ok bool) {
 	m := kickbackTokenPattern.FindStringSubmatch(notes)
 	if m == nil {
-		return "", "", false
+		return "", "", "", false
 	}
-	return m[1], m[2], true
+	return m[1], m[2], m[3], true
 }

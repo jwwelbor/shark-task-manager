@@ -50,6 +50,28 @@ func TestValidateKickbacks_TargetEntityWorkflowMembership(t *testing.T) {
 			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
 			wantErr:    true,
 		},
+		{
+			// authorization-bypass-via-key-aliasing (code-review round 11):
+			// a slugged alias of the bound main entity must be rejected by
+			// the same "must differ from main entity" invariant as an
+			// exact-string match, since production key resolution
+			// (TaskRepository.GetByKey / parseSluggedKey) treats both as the
+			// same database row.
+			name:       "slugged alias of the bound main entity is rejected regardless of status validity",
+			kickbacks:  []gateresult.Kickback{{EntityKey: "T-E01-F02-003-some-descriptive-slug", TargetStatus: "todo", Reason: "r"}},
+			mainEntity: "T-E01-F02-003",
+			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:    true,
+			wantKind:   "targets_main",
+		},
+		{
+			name:       "short-form task alias of the bound main entity is rejected",
+			kickbacks:  []gateresult.Kickback{{EntityKey: "E01-F02-003", TargetStatus: "todo", Reason: "r"}},
+			mainEntity: "T-E01-F02-003",
+			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:    true,
+			wantKind:   "targets_main",
+		},
 	}
 
 	for _, tt := range tests {
@@ -74,8 +96,9 @@ func TestValidateKickbacks_TargetEntityWorkflowMembership(t *testing.T) {
 func TestKickbackReasonTokenRoundTrip(t *testing.T) {
 	subID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  // 64 hex chars, like a real sha256 suboperation ID
 	digest := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" // 64 hex chars, like a real sha256 content digest
-	reason := buildKickbackReason("please fix the caller", subID, digest)
-	gotSub, gotDigest, ok := parseKickbackToken(reason)
+	runID := "run-abc123"
+	reason := buildKickbackReason("please fix the caller", subID, digest, runID)
+	gotSub, gotDigest, gotRunID, ok := parseKickbackToken(reason)
 	if !ok {
 		t.Fatalf("expected token to parse from %q", reason)
 	}
@@ -85,10 +108,13 @@ func TestKickbackReasonTokenRoundTrip(t *testing.T) {
 	if gotDigest != digest {
 		t.Fatalf("parseKickbackToken() digest = %q, want %q", gotDigest, digest)
 	}
+	if gotRunID != runID {
+		t.Fatalf("parseKickbackToken() runID = %q, want %q", gotRunID, runID)
+	}
 }
 
 func TestKickbackReasonTokenAbsent(t *testing.T) {
-	if _, _, ok := parseKickbackToken("a plain reason with no token"); ok {
+	if _, _, _, ok := parseKickbackToken("a plain reason with no token"); ok {
 		t.Fatalf("expected no token to be found")
 	}
 }

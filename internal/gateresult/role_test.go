@@ -39,6 +39,44 @@ func TestValidateRole_MainEntityKickbackRejectedRegardlessOfRole(t *testing.T) {
 	}
 }
 
+// TestValidateRole_SluggedAliasOfMainEntityRejected locks the
+// authorization-bypass-via-key-aliasing fix (code-review round 11): a
+// kickback whose entity_key is a slugged alias of the bound main entity
+// (same canonical entity, different textual key) must be rejected exactly
+// like an exact-string self-kickback. Before the fix, ValidateRole's `==`
+// comparison let this through because boundedText performs no key-shape
+// validation and a slugged alias never textually equals the bare main
+// entity key.
+func TestValidateRole_SluggedAliasOfMainEntityRejected(t *testing.T) {
+	aliases := []string{
+		mainEntity + "-implement-jwt-token-validation", // T-E34-F05-001-<slug>
+		"E34-F05-001-implement-jwt-token-validation",   // short-form task key + slug
+		"e34-f05-001",   // short-form task key, different case
+		"t-e34-f05-001", // lowercase full form
+	}
+	for _, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			payload := validPayload()
+			payload["findings"] = []interface{}{}
+			payload["kickbacks"] = []interface{}{
+				map[string]interface{}{
+					"entity_key":    alias,
+					"target_status": "todo",
+					"reason":        "aliased self-kickback must be rejected",
+				},
+			}
+			payload["no_kickback_reason"] = "n/a"
+			result, err := Decode(encode(t, payload))
+			if err != nil {
+				t.Fatalf("fixture must decode: %v", err)
+			}
+			if err := ValidateRole(RoleKickbackRework, result, mainEntity); err == nil {
+				t.Fatalf("expected kickback entity_key %q (a canonical alias of main entity %q) to be rejected", alias, mainEntity)
+			}
+		})
+	}
+}
+
 func TestValidateRole_Success(t *testing.T) {
 	t.Run("no kickback no open finding accepted", func(t *testing.T) {
 		payload := validPayload()
