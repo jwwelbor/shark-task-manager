@@ -104,7 +104,7 @@ func TestAcquireRunLease_DryRunSkipsClaim(t *testing.T) {
 	mock := &mockRunClaimService{}
 	withRunClaimSvcOverride(t, mock)
 
-	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", true)
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", true, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("acquireRunLease dry-run: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestRunLease_ReleasesAcquiredSession(t *testing.T) {
 	mock := &mockRunClaimService{}
 	withRunClaimSvcOverride(t, mock)
 
-	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", false)
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", false, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("acquireRunLease: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestRunLeasePreflight_BlockedCandidateSkipsActionAndClaim_TC307_TC308(t *te
 					}
 					return &services.QuestionBlock{QuestionKey: "Q001", Summary: "Gate", ResolutionOwner: "owner", CurrentResponder: "alice"}, nil
 				}),
-				"feature", "E39-F03", dryRun,
+				"feature", "E39-F03", dryRun, services.HarnessIdentity{},
 			)
 			if err != nil {
 				t.Fatalf("blocked run preflight error = %v", err)
@@ -207,7 +207,7 @@ func TestAcquireRunLeaseForRunnableActionPropagatesQuestionBlockerCheckError(t *
 		questionBlockerFunc(func(context.Context, models.EntityType, string) (*services.QuestionBlock, error) {
 			return nil, checkErr
 		}),
-		"feature", "E39-F03", false,
+		"feature", "E39-F03", false, services.HarnessIdentity{},
 	)
 	if err == nil {
 		t.Fatal("acquireRunLeaseForRunnableAction() error = nil, want the propagated Question blocker error")
@@ -339,7 +339,7 @@ func TestRunLeasePreflight_TopLevelQuestionPauseSkipsResponderClaim_TC104(t *tes
 		return &config.OrchestratorAction{Action: config.ActionPause}, nil
 	}}
 
-	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false)
+	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("top-level Question pause preflight: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestRunLeasePreflight_CascadeReadyQuestionSkipsActionAndClaim_TC104(t *test
 		return nil, nil
 	}}
 
-	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false)
+	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("cascade ready Question preflight: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestRunLeasePreflight_QuestionNoResponderParity_TC104(t *testing.T) {
 						return nil, nil
 					}}
 
-					lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", dryRun)
+					lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", dryRun, services.HarnessIdentity{})
 					if err != nil {
 						t.Fatalf("Question %s preflight: %v", status, err)
 					}
