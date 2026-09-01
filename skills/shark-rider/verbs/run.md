@@ -230,6 +230,36 @@ lapse while a responder is pending.
   record a blocker note quoting the envelope's `evidence`, then advance
   with outcome `blocked`.
 
+### `gate_result_v1` steps — shared ingestion CLI, not directive parsing
+
+Check `response.result_contract` (from `shark next {KEY} --json`,
+T-E34-F05-005) before parsing the worker's final response. A step whose
+`result_contract` is `gate_result_v1` never goes through the directive
+markers below (steps 1-6) — parsing `RECOMMENDED OUTCOME:`/`PARENT NOTE:`/
+kickback lines out of that worker's response, or advancing directly, would
+be a second, Rider-only implementation of what `internal/runner.IngestGateResult`
+already validates and persists for the core runner. Instead:
+
+1. Establish the worker's terminal completion exactly as in step 2 below
+   (awaited foreground worker, or a documented native retirement operation).
+2. Write the worker's raw terminal response (the whole trimmed `kind: final`
+   envelope, `gate_result` included — see
+   `context/worker-control-schema.yaml`'s `example_final_gate_result`) to a
+   result file.
+3. Call the shared ingestion CLI surface with that file, the durable
+   `run_id` this dispatch is using, and the authorized session id — the
+   same call the core runner makes directly for its own synchronous
+   dispatch (`context/host-adapter-contract.md`'s "`result_contract`-gated
+   dispatch" section has the full field list). It validates the envelope
+   and nested `gate_result` against the step's `outcome_roles`, persists
+   notes/kickbacks/impacts, and applies the transition — fail closed (no
+   transition) on any validation error.
+4. Release the lease with the ingested outcome, then return to Step 1 with
+   the original `{KEY}`.
+
+A step whose `result_contract` is absent or `legacy` is unaffected — continue
+with the directive parsing below exactly as before.
+
 When the worker returns, parse its final response for the directive markers
 the workflow prompts emit, apply them in this order, then advance:
 
@@ -361,3 +391,16 @@ Re-invoke `/shark-rider run {KEY}`. The loop calls `shark next {KEY} --json` and
 up from the current workflow state. Use `shark claims` to see live work; expired
 leases are reclaimed automatically, and an administrative `shark release {KEY}`
 can clear a dead parent lease when needed.
+
+### Resuming an interrupted `gate_result_v1` dispatch
+
+If a `gate_result_v1` dispatch was interrupted after the worker returned its
+terminal envelope but before the parent confirmed the ingestion call
+completed, do not re-run the worker and do not resend the envelope — the
+durable `run_id` sidecar (T-E34-F05-002) already holds it. Call the resume
+CLI surface with that same `run_id` and the authorized session id (no new
+result bytes accepted). It reports the durable resume decision and, when the
+persisted state is not yet fully applied, re-ingests the stored envelope
+through the same boundary the initial dispatch used — one resume
+implementation shared by the core runner's own crash recovery and this
+loop's recovery, not a second Rider-specific one.
