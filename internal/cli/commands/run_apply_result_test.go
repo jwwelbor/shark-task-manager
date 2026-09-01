@@ -82,6 +82,24 @@ func (fakeParityLeaseReleaser) Release(context.Context, string, string, string, 
 	return true, nil
 }
 
+// trackingLeaseReleaser records whether Release was called, so a test can
+// assert on release behavior (fakeParityLeaseReleaser above always reports
+// success but never records the call).
+type trackingLeaseReleaser struct{ released bool }
+
+func (r *trackingLeaseReleaser) Release(context.Context, string, string, string, string, bool) (bool, error) {
+	r.released = true
+	return true, nil
+}
+
+// fakeTerminalStatusChecker is a minimal terminalStatusChecker stub: it
+// reports every status in terminal as terminal, everything else as not.
+type fakeTerminalStatusChecker struct{ terminal map[string]bool }
+
+func (c fakeTerminalStatusChecker) IsTerminalStatus(status string) bool {
+	return c.terminal[status]
+}
+
 const parityEnvelope = `{
 	"kind": "final",
 	"recommended_outcome": "pass",
@@ -137,6 +155,7 @@ func TestApplyResultIngest_ParityWithDirectCoreIngestion(t *testing.T) {
 		EntityKey:    entityKey,
 		SessionID:    "sess-rider",
 		OutcomeRoles: outcomeRoles,
+		WorkflowSvc:  fakeTerminalStatusChecker{},
 	}, []byte(parityEnvelope))
 
 	if coreErr != nil || riderErr != nil {
@@ -192,6 +211,7 @@ func TestApplyResultIngest_MalformedEnvelopeFailsClosedSameAsCore(t *testing.T) 
 		EntityKey:    entityKey,
 		SessionID:    "sess-rider",
 		OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		WorkflowSvc:  fakeTerminalStatusChecker{},
 	}, malformed)
 	if riderErr == nil {
 		t.Fatal("expected rider path to reject malformed envelope")
@@ -249,6 +269,7 @@ func TestApplyResultIngest_ConflictingReplayFailsClosedSameAsCore(t *testing.T) 
 		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "todo"}, outcomes: outcomes},
 		Coordinator:  riderCoordinator, ProjectRoot: riderProjectRoot, RunID: runID,
 		EntityType: "task", EntityKey: entityKey, SessionID: "sess-rider", OutcomeRoles: outcomeRoles,
+		WorkflowSvc: fakeTerminalStatusChecker{},
 	}, []byte(parityEnvelope)); err != nil {
 		t.Fatalf("expected rider path's first ingestion to succeed: %v", err)
 	}
@@ -256,7 +277,89 @@ func TestApplyResultIngest_ConflictingReplayFailsClosedSameAsCore(t *testing.T) 
 		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "in_review"}, outcomes: outcomes},
 		Coordinator:  riderCoordinator, ProjectRoot: riderProjectRoot, RunID: runID,
 		EntityType: "task", EntityKey: entityKey, SessionID: "sess-rider", OutcomeRoles: outcomeRoles,
+		WorkflowSvc: fakeTerminalStatusChecker{},
 	}, conflicting); err == nil {
 		t.Fatal("expected rider path's conflicting replay to fail closed, same as core")
+	}
+}
+
+// TestApplyResultIngest_ReleasesLeaseOnTerminalOutcome is the code-review
+// round-7 Finding 2 regression guard (recorded as a note on
+// T-E34-F05-004): applyResultIngest built runner.GateIngestRequest without
+// ever setting RetirementConfirmed or RunConcluded, unlike
+// internal/runner/controller.go's ingestGateResultForDispatch, which
+// resolves IsTerminalStatus and re-ingests with both flags true before
+// releasing the lease. Every `shark run --apply-result` invocation left the
+// claim/lease held even on a terminal outcome, until TTL expiry. This
+// asserts the lease IS released once the resolved target status is
+// terminal.
+func TestApplyResultIngest_ReleasesLeaseOnTerminalOutcome(t *testing.T) {
+	entityKey := "E01-F01-001"
+	outcomeRoles := map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}
+	outcomes := map[string]string{"pass": "completed"}
+
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "in_review"}}
+	releaser := &trackingLeaseReleaser{}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser,
+	)
+
+	result, err := applyResultIngest(context.Background(), applyResultDeps{
+		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "in_review"}, outcomes: outcomes},
+		Coordinator:  coordinator,
+		ProjectRoot:  t.TempDir(),
+		RunID:        "run-terminal1234567890abcdef1234567891",
+		EntityType:   "task",
+		EntityKey:    entityKey,
+		SessionID:    "sess-rider",
+		OutcomeRoles: outcomeRoles,
+		WorkflowSvc:  fakeTerminalStatusChecker{terminal: map[string]bool{"completed": true}},
+	}, []byte(parityEnvelope))
+	if err != nil {
+		t.Fatalf("expected ingestion to succeed: %v", err)
+	}
+	if result.ToStatus != "completed" {
+		t.Fatalf("expected ToStatus=completed, got %q", result.ToStatus)
+	}
+	if !releaser.released {
+		t.Fatal("expected --apply-result to release the lease on a terminal outcome, but it was not released")
+	}
+}
+
+// TestApplyResultIngest_DoesNotReleaseLeaseOnNonTerminalOutcome is the
+// sibling of the above: a non-terminal target status must NOT release the
+// lease (mirrors ingestGateResultForDispatch's own non-terminal guard).
+func TestApplyResultIngest_DoesNotReleaseLeaseOnNonTerminalOutcome(t *testing.T) {
+	entityKey := "E01-F01-001"
+	outcomeRoles := map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}
+	outcomes := map[string]string{"pass": "qa"}
+
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "code_review"}}
+	releaser := &trackingLeaseReleaser{}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser,
+	)
+
+	result, err := applyResultIngest(context.Background(), applyResultDeps{
+		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "code_review"}, outcomes: outcomes},
+		Coordinator:  coordinator,
+		ProjectRoot:  t.TempDir(),
+		RunID:        "run-nonterminal1234567890abcdef123456",
+		EntityType:   "task",
+		EntityKey:    entityKey,
+		SessionID:    "sess-rider",
+		OutcomeRoles: outcomeRoles,
+		WorkflowSvc:  fakeTerminalStatusChecker{terminal: map[string]bool{"completed": true}},
+	}, []byte(parityEnvelope))
+	if err != nil {
+		t.Fatalf("expected ingestion to succeed: %v", err)
+	}
+	if result.ToStatus != "qa" {
+		t.Fatalf("expected ToStatus=qa, got %q", result.ToStatus)
+	}
+	if releaser.released {
+		t.Fatal("expected --apply-result to leave the lease held on a non-terminal outcome, but it was released")
 	}
 }

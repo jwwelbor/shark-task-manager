@@ -121,6 +121,7 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		EntityKey:    entityKey,
 		SessionID:    runSession,
 		OutcomeRoles: applyResultOutcomeRolesOverride,
+		WorkflowSvc:  cli.GetWorkflowService(),
 	}, envelopeBytes)
 	if err != nil {
 		return fmt.Errorf("apply-result ingestion failed: %w", err)
@@ -152,6 +153,21 @@ type applyResultDeps struct {
 	EntityKey    string
 	SessionID    string
 	OutcomeRoles map[string]gateresult.OutcomeRole
+
+	// WorkflowSvc resolves whether the ingested gate result's target status
+	// is terminal, mirroring internal/runner/controller.go's
+	// ingestGateResultForDispatch resolve-terminal-then-re-ingest-with-both-
+	// flags pattern (code-review round-7 Finding 2). Required: applyResultIngest
+	// fails loud rather than silently never confirming retirement when nil.
+	WorkflowSvc terminalStatusChecker
+}
+
+// terminalStatusChecker is the narrow interface applyResultIngest needs to
+// decide whether an ingested gate result's resolved target status is
+// terminal. Defined at point of use per project convention
+// (.claude/rules/go/patterns.md); *workflow.Service satisfies it.
+type terminalStatusChecker interface {
+	IsTerminalStatus(status string) bool
 }
 
 // applyResultIngest is the pure, directly-testable core of --apply-result:
@@ -160,6 +176,10 @@ type applyResultDeps struct {
 // parity test compares against a direct runner.IngestGateResult call for
 // the same fixture (T-E34-F05-004's REQ-F-005 acceptance criterion).
 func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes []byte) (*runner.GateIngestResult, error) {
+	if deps.WorkflowSvc == nil {
+		return nil, fmt.Errorf("apply-result ingestion: WorkflowSvc dependency is required to resolve terminal status")
+	}
+
 	nextInfo, err := deps.Transitioner.GetNextStatus(ctx, deps.EntityKey)
 	if err != nil {
 		return nil, fmt.Errorf("get status for %s before --apply-result: %w", deps.EntityKey, err)
@@ -175,7 +195,7 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		outcomeRoles = nextInfo.OutcomeRoles
 	}
 
-	return runner.IngestGateResult(ctx, runner.GateIngestRequest{
+	baseReq := runner.GateIngestRequest{
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   deps.Coordinator,
 		ProjectRoot:   deps.ProjectRoot,
@@ -187,7 +207,38 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		Session:       gatepersist.Session{ID: deps.SessionID},
 		OutcomeRoles:  outcomeRoles,
 		Outcomes:      nextInfo.Outcomes,
-	})
+	}
+
+	req := baseReq
+	req.RetirementConfirmed = false
+	result, err := runner.IngestGateResult(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// code-review round-7 Finding 2: --apply-result previously left
+	// RetirementConfirmed/RunConcluded at their zero value (false)
+	// unconditionally, unlike internal/runner/controller.go's
+	// ingestGateResultForDispatch, so the claim/lease was never released on
+	// this path — even on a terminal outcome — until TTL expiry. Mirror that
+	// method's resolve-terminal-then-re-ingest-with-both-flags pattern:
+	// --apply-result is a standalone, single-shot invocation for exactly one
+	// gate stage (unlike the core runner's multi-stage Run() loop), so
+	// RunConcluded is unconditionally true alongside RetirementConfirmed
+	// once the resolved target status is terminal. The second call is safe
+	// and non-duplicating — see ingestGateResultForDispatch's doc comment.
+	if deps.WorkflowSvc.IsTerminalStatus(result.ToStatus) {
+		retireReq := baseReq
+		retireReq.RetirementConfirmed = true
+		retireReq.RunConcluded = true
+		retireResult, retireErr := runner.IngestGateResult(ctx, retireReq)
+		if retireErr != nil {
+			return nil, retireErr
+		}
+		result = retireResult
+	}
+
+	return result, nil
 }
 
 type applyResultOutput struct {
