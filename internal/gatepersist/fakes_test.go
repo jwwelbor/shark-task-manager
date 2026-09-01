@@ -209,6 +209,50 @@ func (v *fakeStatusValidator) IsValidStatus(entityType models.EntityType, status
 	return v.valid[entityType][status]
 }
 
+// fakeIdentityResolver is a minimal in-memory IdentityResolver, good enough
+// for unit-level validateKickbacks/coordinator tests that don't need a real
+// database. By default it derives a stable synthetic ID from
+// "entityType|entityKey" (via entityIDFor), so distinct keys never
+// collide and every existing test (which uses arbitrary fake keys with no
+// real aliasing relationship) keeps working unchanged. alias() registers an
+// EXTRA fold this fake cannot express on its own -- e.g. a feature's bare
+// "F05" suffix resolving to the same row as "E34-F05" -- mirroring
+// FeatureRepository.GetByKey's suffix-match resolution, for the round-12
+// regression test. notFound() simulates a kickback target that does not
+// exist in the repository, so the "unresolvable kickback fails closed" path
+// is exercised too. Unregistered keys never error (matching fakeWorld's own
+// "unknown key defaults rather than errors" convention), so this fake never
+// breaks an existing test for reasons unrelated to identity resolution.
+type fakeIdentityResolver struct {
+	aliases map[string]string
+	missing map[string]bool
+}
+
+func newFakeIdentityResolver() *fakeIdentityResolver {
+	return &fakeIdentityResolver{aliases: map[string]string{}, missing: map[string]bool{}}
+}
+
+func (f *fakeIdentityResolver) alias(entityType models.EntityType, key, canonicalKey string) *fakeIdentityResolver {
+	f.aliases[string(entityType)+"|"+key] = string(entityType) + "|" + canonicalKey
+	return f
+}
+
+func (f *fakeIdentityResolver) notFound(entityType models.EntityType, key string) *fakeIdentityResolver {
+	f.missing[string(entityType)+"|"+key] = true
+	return f
+}
+
+func (f *fakeIdentityResolver) ResolveEntityID(_ context.Context, entityType models.EntityType, entityKey string) (int64, error) {
+	k := string(entityType) + "|" + entityKey
+	if f.missing[k] {
+		return 0, fmt.Errorf("fakeIdentityResolver: %s %s not found", entityType, entityKey)
+	}
+	if canon, ok := f.aliases[k]; ok {
+		k = canon
+	}
+	return entityIDFor(k), nil
+}
+
 // fakeClaimVerifier implements gatepersist.ClaimVerifier for the UAT
 // round-2 Finding 1 (TOCTOU) tests: getCalls records how many times Get was
 // invoked, and each entry in claims is returned in order, one per call

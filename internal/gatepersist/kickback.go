@@ -1,6 +1,7 @@
 package gatepersist
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -61,23 +62,42 @@ func kickbackEntityType(entityKey string) (models.EntityType, error) {
 // rejected without partial mutation." It returns the resolved entity type
 // for each kickback (by entity key) so the caller does not re-derive it.
 //
-// It also re-checks, defense-in-depth, that no kickback targets the bound
-// main entity — internal/gateresult.ValidateRole already enforces this
-// role-independently before this package is reached, but a gate worker must
-// never be able to bypass the guarded main-entity transition through a
-// kickback, so this coordinator does not trust that upstream check alone.
-func validateKickbacks(kickbacks []gateresult.Kickback, mainEntityKey string, validator StatusValidator) (map[string]models.EntityType, error) {
+// It also re-checks, in two layers, that no kickback targets the bound main
+// entity — internal/gateresult.ValidateRole already enforces a syntactic
+// version of this role-independently before this package is reached, but a
+// gate worker must never be able to bypass the guarded main-entity
+// transition through a kickback, so this coordinator does not trust that
+// upstream check alone:
+//
+//  1. A cheap syntactic (keys.KeyService.Normalize) comparison, same as
+//     ValidateRole's — catches slugged/short-form/T-prefixed aliases without
+//     a repository round-trip.
+//  2. The AUTHORITATIVE check: resolve both the main entity and every
+//     kickback target through resolver (IdentityResolver), the same
+//     repository-backed key resolution production transitions use, and
+//     compare resolved (entityType, id). Normalize alone cannot fold every
+//     alias production resolution folds — e.g. a feature's bare "F05"
+//     suffix has no epic context for Normalize to fold into "E34-F05", but
+//     FeatureRepository.GetByKey's suffix-match resolves both to the same
+//     row (code-review round 12 finding, reopening round 11's fix for
+//     feature-typed gates specifically). Every kickback is resolved
+//     (not only same-type ones), so an unresolvable kickback target also
+//     fails closed here, before any write.
+func validateKickbacks(ctx context.Context, kickbacks []gateresult.Kickback, mainEntityType models.EntityType, mainEntityKey string, validator StatusValidator, resolver IdentityResolver) (map[string]models.EntityType, error) {
 	ks := keys.NewKeyService()
 	canonicalMain := ks.Normalize(mainEntityKey)
+
+	mainID, err := resolver.ResolveEntityID(ctx, mainEntityType, mainEntityKey)
+	if err != nil {
+		return nil, fmt.Errorf("gatepersist: resolve bound main entity %s %s: %w", mainEntityType, mainEntityKey, err)
+	}
+
 	entityTypes := make(map[string]models.EntityType, len(kickbacks))
 	for _, k := range kickbacks {
-		// Canonical-identity-aware comparison, not raw string equality: see
-		// internal/gateresult.ValidateRole's matching check for why a
-		// slugged/short-form alias of mainEntityKey must be rejected here
-		// too (authorization-bypass-via-key-aliasing, code-review round 11).
-		// This defense-in-depth re-check does not trust the upstream
-		// ValidateRole call alone, so it applies the same canonicalization
-		// rather than a raw `==`.
+		// Layer 1: syntactic. See internal/gateresult.ValidateRole's
+		// matching check for why a slugged/short-form alias of
+		// mainEntityKey must be rejected here too
+		// (authorization-bypass-via-key-aliasing, code-review round 11).
 		if ks.Normalize(k.EntityKey) == canonicalMain {
 			return nil, fmt.Errorf("gatepersist: kickback entity_key %q must differ from the bound main entity", k.EntityKey)
 		}
@@ -85,6 +105,20 @@ func validateKickbacks(kickbacks []gateresult.Kickback, mainEntityKey string, va
 		if err != nil {
 			return nil, err
 		}
+
+		// Layer 2: authoritative, repository-backed. Resolved for every
+		// kickback regardless of whether entityType matches
+		// mainEntityType, so a kickback naming a nonexistent entity also
+		// fails closed here rather than surfacing later at Transition time
+		// after other writes have already landed.
+		kickbackID, err := resolver.ResolveEntityID(ctx, entityType, k.EntityKey)
+		if err != nil {
+			return nil, fmt.Errorf("gatepersist: resolve kickback entity_key %q: %w", k.EntityKey, err)
+		}
+		if entityType == mainEntityType && kickbackID == mainID {
+			return nil, fmt.Errorf("gatepersist: kickback entity_key %q resolves to the bound main entity %q via repository-backed key resolution; a kickback must target a different entity", k.EntityKey, mainEntityKey)
+		}
+
 		if !validator.IsValidStatus(entityType, k.TargetStatus) {
 			return nil, &KickbackValidationError{EntityKey: k.EntityKey, TargetStatus: k.TargetStatus}
 		}

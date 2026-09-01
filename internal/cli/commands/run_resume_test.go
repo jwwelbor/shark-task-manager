@@ -197,7 +197,7 @@ func TestRunResumeRun_GateResultV1ResumeTransitionReIngestsStoredEnvelope(t *tes
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{},
+		fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{}, transition,
 	)
 
 	runResumeID = runID
@@ -269,7 +269,7 @@ func TestRunResumeRun_PartialPersistenceResumeCompletesTransition(t *testing.T) 
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{},
+		fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{}, transition,
 	)
 
 	runResumeID = runID
@@ -378,7 +378,7 @@ func TestRunResumeRun_AlreadyTransitionedVerifiesAndReleasesLease(t *testing.T) 
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, releaser,
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
 	)
 
 	runResumeID = runID
@@ -433,7 +433,7 @@ func TestRunResumeRun_AlreadyTransitionedFailsClosedOnDivergedStatus(t *testing.
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, releaser,
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
 	)
 
 	runResumeID = runID
@@ -496,7 +496,7 @@ func TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus(t *testing.T) {
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, releaser,
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
 	)
 
 	runResumeID = runID
@@ -572,7 +572,7 @@ func TestRunResumeRun_AlreadyTransitionedWiringReachesCoordinator(t *testing.T) 
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, releaser,
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
 	)
 
 	runResumeID = runID

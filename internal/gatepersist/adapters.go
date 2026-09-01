@@ -101,6 +101,24 @@ func (t *EntityServiceTransitioner) CurrentStatus(ctx context.Context, entityTyp
 	return t.workflowSvc.ForLevel(string(entityType)).NormalizeStatus(entity.GetStatus()), nil
 }
 
+// ResolveEntityID implements IdentityResolver, reusing the same registry
+// lookup CurrentStatus/Transition use. Returning the resolved entity's raw
+// database ID (rather than its key) makes this the authoritative "same
+// entity" check: GetByKey's alias/suffix-match resolution (e.g.
+// FeatureRepository's bare "F05" suffix match) determines the ID, not any
+// syntactic property of entityKey itself.
+func (t *EntityServiceTransitioner) ResolveEntityID(ctx context.Context, entityType models.EntityType, entityKey string) (int64, error) {
+	repo, err := t.registry.GetRepository(entityType)
+	if err != nil {
+		return 0, fmt.Errorf("gatepersist: resolve repository for %s: %w", entityType, err)
+	}
+	entity, err := repo.GetByKey(ctx, entityKey)
+	if err != nil {
+		return 0, fmt.Errorf("gatepersist: get %s %s: %w", entityType, entityKey, err)
+	}
+	return entity.GetID(), nil
+}
+
 // Transition implements Transitioner. guard's SessionID/FromStatus/Outcome
 // are wired into services.TransitionOptions alongside GuardAdvance: true, so
 // EntityService's advance_guard replay/CAS protection engages for this

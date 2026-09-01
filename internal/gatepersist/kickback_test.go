@@ -1,6 +1,7 @@
 package gatepersist
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -14,41 +15,47 @@ import (
 // coordinator-level tests) idempotent vs. conflicting retry.
 func TestValidateKickbacks_TargetEntityWorkflowMembership(t *testing.T) {
 	tests := []struct {
-		name       string
-		kickbacks  []gateresult.Kickback
-		mainEntity string
-		validator  *fakeStatusValidator
-		wantErr    bool
-		wantKind   string // "" | "invalid_status" | "targets_main"
+		name           string
+		kickbacks      []gateresult.Kickback
+		mainEntityType models.EntityType
+		mainEntity     string
+		validator      *fakeStatusValidator
+		resolver       *fakeIdentityResolver
+		wantErr        bool
+		wantKind       string // "" | "invalid_status" | "targets_main"
 	}{
 		{
-			name:       "valid target status is accepted",
-			kickbacks:  []gateresult.Kickback{{EntityKey: "T-E01-F01-001", TargetStatus: "todo", Reason: "r"}},
-			mainEntity: "E01-F02",
-			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			name:           "valid target status is accepted",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F01-001", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
 		},
 		{
-			name:       "unknown target status is rejected",
-			kickbacks:  []gateresult.Kickback{{EntityKey: "T-E01-F01-001", TargetStatus: "not_a_status", Reason: "r"}},
-			mainEntity: "E01-F02",
-			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
-			wantErr:    true,
-			wantKind:   "invalid_status",
+			name:           "unknown target status is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F01-001", TargetStatus: "not_a_status", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
+			wantKind:       "invalid_status",
 		},
 		{
-			name:       "kickback targeting the bound main entity is rejected regardless of status validity",
-			kickbacks:  []gateresult.Kickback{{EntityKey: "E01-F02", TargetStatus: "todo", Reason: "r"}},
-			mainEntity: "E01-F02",
-			validator:  newFakeStatusValidator().allow(models.EntityTypeFeature, "todo"),
-			wantErr:    true,
-			wantKind:   "targets_main",
+			name:           "kickback targeting the bound main entity is rejected regardless of status validity",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "E01-F02", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeFeature, "todo"),
+			wantErr:        true,
+			wantKind:       "targets_main",
 		},
 		{
-			name:       "unrecognized key shape is rejected",
-			kickbacks:  []gateresult.Kickback{{EntityKey: "not-a-key-shape", TargetStatus: "todo", Reason: "r"}},
-			mainEntity: "E01-F02",
-			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
-			wantErr:    true,
+			name:           "unrecognized key shape is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "not-a-key-shape", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
 		},
 		{
 			// authorization-bypass-via-key-aliasing (code-review round 11):
@@ -57,26 +64,64 @@ func TestValidateKickbacks_TargetEntityWorkflowMembership(t *testing.T) {
 			// exact-string match, since production key resolution
 			// (TaskRepository.GetByKey / parseSluggedKey) treats both as the
 			// same database row.
-			name:       "slugged alias of the bound main entity is rejected regardless of status validity",
-			kickbacks:  []gateresult.Kickback{{EntityKey: "T-E01-F02-003-some-descriptive-slug", TargetStatus: "todo", Reason: "r"}},
-			mainEntity: "T-E01-F02-003",
-			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
-			wantErr:    true,
-			wantKind:   "targets_main",
+			name:           "slugged alias of the bound main entity is rejected regardless of status validity",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F02-003-some-descriptive-slug", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeTask,
+			mainEntity:     "T-E01-F02-003",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
+			wantKind:       "targets_main",
 		},
 		{
-			name:       "short-form task alias of the bound main entity is rejected",
-			kickbacks:  []gateresult.Kickback{{EntityKey: "E01-F02-003", TargetStatus: "todo", Reason: "r"}},
-			mainEntity: "T-E01-F02-003",
-			validator:  newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
-			wantErr:    true,
-			wantKind:   "targets_main",
+			name:           "short-form task alias of the bound main entity is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "E01-F02-003", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeTask,
+			mainEntity:     "T-E01-F02-003",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
+			wantKind:       "targets_main",
+		},
+		{
+			// code-review round 12 (reopening round 11's fix): a feature's
+			// bare suffix form ("F05") is textually distinct from its full
+			// form ("E34-F05") under keys.KeyService.Normalize (no epic
+			// context to fold against), so the syntactic layer-1 check
+			// alone does NOT catch this. But
+			// FeatureRepository.GetByKey's suffix-match resolves both to
+			// the SAME database row in production — the resolver fake
+			// below models exactly that via alias(), proving the new
+			// DB-backed layer-2 check (not the syntactic one) is what
+			// rejects it.
+			name:           "bare feature-suffix alias of the bound main entity is rejected via repository-backed identity",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "F05", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E34-F05",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeFeature, "todo"),
+			resolver:       newFakeIdentityResolver().alias(models.EntityTypeFeature, "F05", "E34-F05"),
+			wantErr:        true,
+			wantKind:       "targets_main",
+		},
+		{
+			// A kickback naming an entity the repository cannot resolve at
+			// all must fail closed here too, before any write -- not only
+			// once Transition itself later fails to find it.
+			name:           "kickback target that does not resolve in the repository is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F03-009", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			resolver:       newFakeIdentityResolver().notFound(models.EntityTypeTask, "T-E01-F03-009"),
+			wantErr:        true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := validateKickbacks(tt.kickbacks, tt.mainEntity, tt.validator)
+			resolver := tt.resolver
+			if resolver == nil {
+				resolver = newFakeIdentityResolver()
+			}
+			_, err := validateKickbacks(context.Background(), tt.kickbacks, tt.mainEntityType, tt.mainEntity, tt.validator, resolver)
 			if tt.wantErr && err == nil {
 				t.Fatalf("expected an error, got nil")
 			}

@@ -74,6 +74,7 @@ func TestIngestGateResultForDispatch_ValidEnvelopeTransitions(t *testing.T) {
 		transitioner,
 		transitioner,
 		&fakeLeaseReleaser{},
+		transitioner,
 	)
 
 	controller, err := NewRunController(RunControllerDeps{
@@ -132,7 +133,7 @@ func TestIngestGateResultForDispatch_NonTerminalTargetDoesNotReleaseLease(t *tes
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"todo": true, "in_review": true}},
-		transitioner, transitioner, releaser,
+		transitioner, transitioner, releaser, transitioner,
 	)
 
 	controller, err := NewRunController(RunControllerDeps{
@@ -201,7 +202,7 @@ func TestIngestGateResultForDispatch_NonTaskEntityTerminalStatusReleasesLease(t 
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"in_progress": true, "resolved": true}},
-		transitioner, transitioner, releaser,
+		transitioner, transitioner, releaser, transitioner,
 	)
 
 	controller, err := NewRunController(RunControllerDeps{
@@ -262,7 +263,7 @@ func TestIngestGateResultForDispatch_TerminalTargetReleasesLease(t *testing.T) {
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"in_review": true, "completed": true}},
-		transitioner, transitioner, releaser,
+		transitioner, transitioner, releaser, transitioner,
 	)
 
 	controller, err := NewRunController(RunControllerDeps{
@@ -328,7 +329,7 @@ func TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID(t *test
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true, "completed": true}},
-		transitioner, transitioner, &fakeLeaseReleaser{},
+		transitioner, transitioner, &fakeLeaseReleaser{}, transitioner,
 	)
 
 	controller, err := NewRunController(RunControllerDeps{
@@ -420,7 +421,7 @@ func TestIngestGateResultForDispatch_CascadeSiblingsDoNotCollide(t *testing.T) {
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}},
-		transitioner, transitioner, &fakeLeaseReleaser{},
+		transitioner, transitioner, &fakeLeaseReleaser{}, transitioner,
 	)
 	controller, err := NewRunController(RunControllerDeps{
 		Transitioner: &oneShotStatusTransitioner{},
@@ -497,7 +498,7 @@ func TestIngestGateResultForDispatch_SameStageConflictingReplayStillFailsClosed(
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}},
-		transitioner, transitioner, &fakeLeaseReleaser{},
+		transitioner, transitioner, &fakeLeaseReleaser{}, transitioner,
 	)
 	controller, err := NewRunController(RunControllerDeps{
 		Transitioner: &oneShotStatusTransitioner{},
@@ -564,7 +565,7 @@ func TestIngestGateResultForDispatch_SameStageIdenticalReplayIsIdempotent(t *tes
 	coordinator := gatepersist.NewCoordinator(
 		notes, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}},
-		transitioner, transitioner, &fakeLeaseReleaser{},
+		transitioner, transitioner, &fakeLeaseReleaser{}, transitioner,
 	)
 	controller, err := NewRunController(RunControllerDeps{
 		Transitioner: &oneShotStatusTransitioner{},
@@ -630,7 +631,7 @@ func TestIngestGateResultForDispatch_MalformedEnvelopeFailsClosed(t *testing.T) 
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"todo": true, "in_review": true}},
-		transitioner, transitioner, &fakeLeaseReleaser{},
+		transitioner, transitioner, &fakeLeaseReleaser{}, transitioner,
 	)
 	controller, err := NewRunController(RunControllerDeps{
 		Transitioner: &oneShotStatusTransitioner{},

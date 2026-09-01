@@ -52,6 +52,26 @@ func ValidateRole(role OutcomeRole, result *GateResult, mainEntityKey string) er
 	// requiring database access at this structural-validation layer. An
 	// unrecognized key shape normalizes to its uppercased self, which still
 	// correctly compares equal only to an identical unrecognized string.
+	//
+	// IMPORTANT — this check is a SYNTACTIC FIRST PASS ONLY, not the
+	// authoritative one: this package has no database access (by design —
+	// it is the pure model/parser layer), and keys.KeyService.Normalize
+	// cannot fold every alias production repository resolution folds. In
+	// particular a feature's bare suffix form ("F05") has no epic context
+	// for Normalize to resolve against, but
+	// internal/repository/feature.FeatureRepository.GetByKey's suffix-match
+	// resolves it to the same row as its full form ("E34-F05") — a gap this
+	// check cannot catch (code-review round 12 finding, which reopened
+	// round 11's fix for feature-typed gates specifically). The
+	// authoritative check lives in internal/gatepersist.validateKickbacks,
+	// which has repository access via its injected
+	// gatepersist.IdentityResolver and resolves both the main entity and
+	// every kickback target through the SAME repository-backed lookup
+	// production transitions use before comparing identity. Any caller with
+	// database access that needs to know "is this the same entity" MUST use
+	// that pattern (resolve-then-compare via IdentityResolver), not a
+	// Normalize-based string comparison — this check here exists only to
+	// reject cheaply, defense-in-depth, before gatepersist is ever reached.
 	ks := keys.NewKeyService()
 	canonicalMain := ks.Normalize(mainEntityKey)
 	for i, k := range result.Kickbacks {

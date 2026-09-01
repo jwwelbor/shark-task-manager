@@ -67,6 +67,29 @@ func (t *fakeTransitioner) CurrentStatus(_ context.Context, _ models.EntityType,
 	return t.status[entityKey], nil
 }
 
+// ResolveEntityID implements gatepersist.IdentityResolver with a stable
+// per-key synthetic ID -- these tests don't exercise the round-12
+// repository-backed identity collision, so distinct keys just need
+// distinct IDs (see gatepersist's own fakeIdentityResolver for the fake
+// purpose-built to exercise that collision).
+func (t *fakeTransitioner) ResolveEntityID(_ context.Context, entityType models.EntityType, entityKey string) (int64, error) {
+	return fakeEntityID(entityType, entityKey), nil
+}
+
+// fakeEntityID derives a stable synthetic numeric ID from an entity
+// type+key pair, shared by every fake gatepersist.IdentityResolver in this
+// package.
+func fakeEntityID(entityType models.EntityType, entityKey string) int64 {
+	var sum int64
+	for _, r := range string(entityType) + "|" + entityKey {
+		sum = sum*31 + int64(r)
+	}
+	if sum < 0 {
+		sum = -sum
+	}
+	return sum + 1
+}
+
 type fakeLeaseReleaser struct{ released bool }
 
 func (l *fakeLeaseReleaser) Release(context.Context, string, string, string, string, bool) (bool, error) {
@@ -85,6 +108,7 @@ func newFakeCoordinator(mainEntity string) *gatepersist.Coordinator {
 		transitioner,
 		transitioner,
 		&fakeLeaseReleaser{},
+		transitioner,
 	)
 }
 

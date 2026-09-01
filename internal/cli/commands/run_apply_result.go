@@ -306,7 +306,7 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	// exact same claim state run.go's initial verifyClaimSession checked.
 	claimSvc := getRunClaimService()
 
-	coordinator := gatepersist.NewCoordinator(noteSvc, noteSvc, history, validator, transitioner, transitioner, claimSvc)
+	coordinator := gatepersist.NewCoordinator(noteSvc, noteSvc, history, validator, transitioner, transitioner, claimSvc, transitioner)
 	// UAT round-2 Finding 1: fold a second claim-ownership check into
 	// Persist's own critical section (the per-run lock), immediately before
 	// its mutating writes — closing the TOCTOU window between run.go's

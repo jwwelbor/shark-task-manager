@@ -74,6 +74,13 @@ func (t *e2eGateTransitioner) CurrentStatus(_ context.Context, _ models.EntityTy
 	return t.status[entityKey], nil
 }
 
+// gatepersist.IdentityResolver -- a stable per-key synthetic ID. This test
+// doesn't exercise the round-12 repository-backed identity collision, so
+// distinct keys just need distinct IDs.
+func (t *e2eGateTransitioner) ResolveEntityID(_ context.Context, entityType models.EntityType, entityKey string) (int64, error) {
+	return fakeEntityID(entityType, entityKey), nil
+}
+
 // TestRunController_Run_GateResultV1StepRoutesThroughGateIngest drives a
 // full controller.Run() loop for a step whose resolved result_contract is
 // gate_result_v1: the dispatcher returns a worker-control envelope on
@@ -92,7 +99,7 @@ func TestRunController_Run_GateResultV1StepRoutesThroughGateIngest(t *testing.T)
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"todo": true, "in_review": true}},
-		shared, shared, &fakeLeaseReleaser{},
+		shared, shared, &fakeLeaseReleaser{}, shared,
 	)
 
 	envelope := `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
@@ -243,6 +250,11 @@ func (t *multiStageE2EGateTransitioner) CurrentStatus(_ context.Context, _ model
 	return t.status[entityKey], nil
 }
 
+// gatepersist.IdentityResolver -- see e2eGateTransitioner.ResolveEntityID.
+func (t *multiStageE2EGateTransitioner) ResolveEntityID(_ context.Context, entityType models.EntityType, entityKey string) (int64, error) {
+	return fakeEntityID(entityType, entityKey), nil
+}
+
 // TestRunController_Run_MultiStageGateResultV1DispatchDoesNotReuseRunID is
 // the full-loop (controller.Run()) counterpart of
 // TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID: it
@@ -256,7 +268,7 @@ func TestRunController_Run_MultiStageGateResultV1DispatchDoesNotReuseRunID(t *te
 	coordinator := gatepersist.NewCoordinator(
 		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
 		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true, "completed": true}},
-		shared, shared, &fakeLeaseReleaser{},
+		shared, shared, &fakeLeaseReleaser{}, shared,
 	)
 
 	callCount := 0

@@ -78,6 +78,29 @@ func (t *fakeParityTransition) CurrentStatus(_ context.Context, _ models.EntityT
 	return t.status[entityKey], nil
 }
 
+// ResolveEntityID implements gatepersist.IdentityResolver with a stable
+// per-key synthetic ID -- these tests don't exercise the round-12
+// repository-backed identity collision, so distinct keys just need
+// distinct IDs (see gatepersist's own fakeIdentityResolver for the fake
+// purpose-built to exercise that collision).
+func (t *fakeParityTransition) ResolveEntityID(_ context.Context, entityType models.EntityType, entityKey string) (int64, error) {
+	return fakeParityEntityID(entityType, entityKey), nil
+}
+
+// fakeParityEntityID derives a stable synthetic numeric ID from an entity
+// type+key pair, shared by every fake gatepersist.IdentityResolver in this
+// file.
+func fakeParityEntityID(entityType models.EntityType, entityKey string) int64 {
+	var sum int64
+	for _, r := range string(entityType) + "|" + entityKey {
+		sum = sum*31 + int64(r)
+	}
+	if sum < 0 {
+		sum = -sum
+	}
+	return sum + 1
+}
+
 type fakeParityLeaseReleaser struct{}
 
 func (fakeParityLeaseReleaser) Release(context.Context, string, string, string, string, bool) (bool, error) {
@@ -125,7 +148,7 @@ func TestApplyResultIngest_ParityWithDirectCoreIngestion(t *testing.T) {
 		transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
 		return gatepersist.NewCoordinator(
 			&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-			fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{},
+			fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{}, transition,
 		)
 	}
 
@@ -189,7 +212,7 @@ func TestApplyResultIngest_MalformedEnvelopeFailsClosedSameAsCore(t *testing.T) 
 
 	_, coreErr := runner.IngestGateResult(context.Background(), runner.GateIngestRequest{
 		EnvelopeBytes: malformed,
-		Coordinator:   gatepersist.NewCoordinator(&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{}, fakeParityStatusValidator{}, &fakeParityTransition{status: map[string]string{}}, &fakeParityTransition{status: map[string]string{}}, fakeParityLeaseReleaser{}),
+		Coordinator:   gatepersist.NewCoordinator(&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{}, fakeParityStatusValidator{}, &fakeParityTransition{status: map[string]string{}}, &fakeParityTransition{status: map[string]string{}}, fakeParityLeaseReleaser{}, &fakeParityTransition{status: map[string]string{}}),
 		ProjectRoot:   t.TempDir(),
 		RunID:         "run-parity1234567890abcdef1234567891",
 		EntityKey:     entityKey,
@@ -206,7 +229,7 @@ func TestApplyResultIngest_MalformedEnvelopeFailsClosedSameAsCore(t *testing.T) 
 
 	_, riderErr := applyResultIngest(context.Background(), applyResultDeps{
 		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "todo"}, outcomes: map[string]string{"pass": "in_review"}},
-		Coordinator:  gatepersist.NewCoordinator(&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{}, fakeParityStatusValidator{}, &fakeParityTransition{status: map[string]string{}}, &fakeParityTransition{status: map[string]string{}}, fakeParityLeaseReleaser{}),
+		Coordinator:  gatepersist.NewCoordinator(&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{}, fakeParityStatusValidator{}, &fakeParityTransition{status: map[string]string{}}, &fakeParityTransition{status: map[string]string{}}, fakeParityLeaseReleaser{}, &fakeParityTransition{status: map[string]string{}}),
 		ProjectRoot:  t.TempDir(),
 		RunID:        "run-parity1234567890abcdef1234567891",
 		EntityType:   "task",
@@ -242,7 +265,7 @@ func TestApplyResultIngest_ConflictingReplayFailsClosedSameAsCore(t *testing.T) 
 		transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
 		return gatepersist.NewCoordinator(
 			&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-			fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{},
+			fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{}, transition,
 		)
 	}
 
@@ -304,7 +327,7 @@ func TestApplyResultIngest_ReleasesLeaseOnTerminalOutcome(t *testing.T) {
 	releaser := &trackingLeaseReleaser{}
 	coordinator := gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, releaser,
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
 	)
 
 	result, err := applyResultIngest(context.Background(), applyResultDeps{
@@ -341,7 +364,7 @@ func TestApplyResultIngest_DoesNotReleaseLeaseOnNonTerminalOutcome(t *testing.T)
 	releaser := &trackingLeaseReleaser{}
 	coordinator := gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, releaser,
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
 	)
 
 	result, err := applyResultIngest(context.Background(), applyResultDeps{
@@ -394,7 +417,7 @@ func TestApplyResultIngest_NonTaskEntityTerminalStatusReleasesLease(t *testing.T
 	releaser := &trackingLeaseReleaser{}
 	coordinator := gatepersist.NewCoordinator(
 		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
-		fakeParityStatusValidator{}, transition, transition, releaser,
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
 	)
 
 	result, err := applyResultIngest(context.Background(), applyResultDeps{

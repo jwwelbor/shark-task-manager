@@ -119,7 +119,7 @@ func newTestRunDir(t *testing.T) string {
 }
 
 func newTestCoordinator(w *fakeWorld, v StatusValidator) *Coordinator {
-	return NewCoordinator(w, w, w, v, w, w, w)
+	return NewCoordinator(w, w, w, v, w, w, w, newFakeIdentityResolver())
 }
 
 func defaultValidator() *fakeStatusValidator {

@@ -84,6 +84,24 @@ type StatusReader interface {
 	CurrentStatus(ctx context.Context, entityType models.EntityType, entityKey string) (string, error)
 }
 
+// IdentityResolver resolves an entity key to the database row it identifies
+// (its primary key), via the SAME repository-backed key resolution
+// production transitions use (registry.GetRepository(entityType).GetByKey).
+// This is the authoritative "same entity" check for kickback self-target
+// validation (code-review round 12 finding): keys.KeyService.Normalize is a
+// SYNTACTIC-ONLY canonicalization with no database access, so it cannot
+// fold every alias production resolution folds. In particular a feature's
+// bare suffix form ("F05") has no epic context for Normalize to fold into
+// its full form ("E34-F05"), but FeatureRepository.GetByKey's suffix-match
+// resolves both to the same row — a gap Normalize-only comparison (still
+// used as a cheap first-pass reject, see gateresult.ValidateRole and
+// validateKickbacks' own defense-in-depth check) cannot catch. A caller
+// that needs "is this the same entity production would resolve it to"
+// MUST go through IdentityResolver rather than key-string comparison alone.
+type IdentityResolver interface {
+	ResolveEntityID(ctx context.Context, entityType models.EntityType, entityKey string) (int64, error)
+}
+
 // ClaimVerifier re-verifies that Request.Session.ID still names the ACTIVE
 // claim/lease session on Request.EntityKey. Persist calls this immediately
 // after acquiring the per-run lock and before any mutating write (UAT

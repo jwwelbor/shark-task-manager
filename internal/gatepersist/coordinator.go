@@ -21,6 +21,14 @@ type Coordinator struct {
 	Transition Transitioner
 	Status     StatusReader
 	Lease      LeaseReleaser
+	// Identity is the authoritative, repository-backed "same entity" check
+	// validateKickbacks uses for its round-12 self-kickback comparison (see
+	// IdentityResolver's doc comment). Required, not optional: unlike
+	// ClaimVerifier's TOCTOU re-check (a NEW protection where nil safely
+	// reproduces prior behavior), a nil Identity here would silently fall
+	// back to the Normalize-only comparison round 12 proved insufficient —
+	// a documented path back to the exact vulnerability being fixed.
+	Identity IdentityResolver
 
 	// ClaimVerifier, when set, re-verifies Request.Session's claim ownership
 	// immediately after Persist acquires the per-run lock (UAT round-2
@@ -37,7 +45,7 @@ type Coordinator struct {
 // APIs for a gate result (per its component-boundary contract), so a
 // missing dependency is a wiring bug that must fail at construction, not
 // silently degrade at persist time.
-func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryReader, validator StatusValidator, transition Transitioner, status StatusReader, lease LeaseReleaser) *Coordinator {
+func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryReader, validator StatusValidator, transition Transitioner, status StatusReader, lease LeaseReleaser, identity IdentityResolver) *Coordinator {
 	switch {
 	case notes == nil:
 		panic("gatepersist: NewCoordinator requires a non-nil NoteWriter")
@@ -53,6 +61,8 @@ func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryRead
 		panic("gatepersist: NewCoordinator requires a non-nil StatusReader")
 	case lease == nil:
 		panic("gatepersist: NewCoordinator requires a non-nil LeaseReleaser")
+	case identity == nil:
+		panic("gatepersist: NewCoordinator requires a non-nil IdentityResolver")
 	}
 	return &Coordinator{
 		Notes:      notes,
@@ -62,6 +72,7 @@ func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryRead
 		Transition: transition,
 		Status:     status,
 		Lease:      lease,
+		Identity:   identity,
 	}
 }
 
@@ -112,7 +123,7 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	// contract (there is no rewrite path — a corrected envelope needs a new
 	// run_id otherwise). This is "rejected without partial mutation" applied
 	// to the sidecar transport itself, not just target-store writes.
-	kickbackEntityTypes, err := validateKickbacks(req.Result.Kickbacks, req.EntityKey, c.Validator)
+	kickbackEntityTypes, err := validateKickbacks(ctx, req.Result.Kickbacks, req.EntityType, req.EntityKey, c.Validator, c.Identity)
 	if err != nil {
 		return nil, err
 	}
