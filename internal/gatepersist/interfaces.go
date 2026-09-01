@@ -2,6 +2,7 @@ package gatepersist
 
 import (
 	"context"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -81,4 +82,31 @@ type LeaseReleaser interface {
 // already durably recorded applied.
 type StatusReader interface {
 	CurrentStatus(ctx context.Context, entityType models.EntityType, entityKey string) (string, error)
+}
+
+// ClaimVerifier re-verifies that Request.Session.ID still names the ACTIVE
+// claim/lease session on Request.EntityKey. Persist calls this immediately
+// after acquiring the per-run lock and before any mutating write (UAT
+// round-2 Finding 1, T-E34-F05-004 rework round 4): the CLI-level
+// authorization gate (run.go's verifyClaimSession) is checked exactly once,
+// at the top of the command, before the envelope file is read and before
+// this coordinator is even constructed. A claim that expires via TTL, or is
+// force-reclaimed by another process, in the window between that check and
+// Persist's actual writes would otherwise still have the stale session's
+// writes applied. Folding the re-check into the same critical section the
+// per-run file lock (gaterun.AcquireRunLock) already uses to serialize this
+// run_id's writes narrows that window as far as the existing lock
+// discipline supports, without requiring a new distributed-lock primitive.
+//
+// A nil Coordinator.ClaimVerifier skips this re-check entirely, preserving
+// today's single-check behavior for every existing caller/test that never
+// wires one; production callers that hold a claim/lease system (Rider's
+// --apply-result/--resume-run surfaces) must set it.
+//
+// Its method set matches *services.ClaimService's Get/TTL methods exactly,
+// so that concrete service satisfies this interface with no adapter
+// needed.
+type ClaimVerifier interface {
+	Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error)
+	TTL() time.Duration
 }

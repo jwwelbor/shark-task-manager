@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -206,4 +207,40 @@ func (v *fakeStatusValidator) allow(entityType models.EntityType, statuses ...st
 
 func (v *fakeStatusValidator) IsValidStatus(entityType models.EntityType, status string) bool {
 	return v.valid[entityType][status]
+}
+
+// fakeClaimVerifier implements gatepersist.ClaimVerifier for the UAT
+// round-2 Finding 1 (TOCTOU) tests: getCalls records how many times Get was
+// invoked, and each entry in claims is returned in order, one per call
+// (with the last entry reused for any call beyond len(claims)) -- this is
+// what lets a test simulate "the claim was still valid when run.go's
+// verifyClaimSession checked it, but expired/was reclaimed by the time
+// Persist's own re-check ran": the first Get() (the CLI-level check) and
+// the second Get() (Persist's re-check) return different claim states.
+type fakeClaimVerifier struct {
+	mu       sync.Mutex
+	ttl      time.Duration
+	claims   []*models.EntityClaim
+	getCalls int
+}
+
+func (v *fakeClaimVerifier) Get(_ context.Context, _, _ string) (*models.EntityClaim, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	idx := v.getCalls
+	if idx >= len(v.claims) {
+		idx = len(v.claims) - 1
+	}
+	v.getCalls++
+	if idx < 0 {
+		return nil, nil
+	}
+	return v.claims[idx], nil
+}
+
+func (v *fakeClaimVerifier) TTL() time.Duration {
+	if v.ttl > 0 {
+		return v.ttl
+	}
+	return time.Hour
 }

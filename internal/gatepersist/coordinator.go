@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 )
@@ -20,6 +21,15 @@ type Coordinator struct {
 	Transition Transitioner
 	Status     StatusReader
 	Lease      LeaseReleaser
+
+	// ClaimVerifier, when set, re-verifies Request.Session's claim ownership
+	// immediately after Persist acquires the per-run lock (UAT round-2
+	// Finding 1). See its doc comment (interfaces.go) for why this is a
+	// separate, optional field rather than a NewCoordinator parameter: it
+	// defaults to nil so every existing caller/test keeps today's behavior
+	// unchanged, and production wiring (internal/cli/commands.buildGateCoordinator)
+	// sets it explicitly.
+	ClaimVerifier ClaimVerifier
 }
 
 // NewCoordinator constructs a Coordinator. Every dependency is required —
@@ -85,6 +95,16 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, fmt.Errorf("gatepersist: acquire run lock: %w", err)
 	}
 	defer func() { _ = lock.Release() }()
+
+	// UAT round-2 Finding 1: re-verify the claim/lease session INSIDE the
+	// per-run lock's critical section, immediately before any write below
+	// (CreateResult, note/kickback writes, the guarded transition) — closing
+	// the TOCTOU window between run.go's one-time verifyClaimSession check
+	// and these actual mutating calls. See ClaimVerifier's doc comment for
+	// why a nil ClaimVerifier skips this (back-compat for existing callers).
+	if err := c.verifyClaimSession(ctx, req); err != nil {
+		return nil, err
+	}
 
 	// Kickback validation runs before this run_id ever accepts a durable
 	// result: a run whose result would be rejected must not permanently burn
@@ -258,6 +278,36 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	}
 
 	return result, nil
+}
+
+// verifyClaimSession re-checks req.Session.ID against the live claim/lease
+// state, mirroring internal/cli/commands.verifyClaimSession's four checks
+// exactly (non-empty session, an active claim exists, the session matches
+// it, and it has not TTL-expired) so a caller cannot distinguish which of
+// the two checks rejected it. A nil c.ClaimVerifier is a deliberate no-op
+// (see the field's doc comment).
+func (c *Coordinator) verifyClaimSession(ctx context.Context, req Request) error {
+	if c.ClaimVerifier == nil {
+		return nil
+	}
+	sessionID := strings.TrimSpace(req.Session.ID)
+	if sessionID == "" {
+		return fmt.Errorf("gatepersist: re-verify claim session: a session id is required")
+	}
+	claim, err := c.ClaimVerifier.Get(ctx, string(req.EntityType), req.EntityKey)
+	if err != nil {
+		return fmt.Errorf("gatepersist: re-verify claim ownership for %s %s: %w", req.EntityType, req.EntityKey, err)
+	}
+	if claim == nil {
+		return fmt.Errorf("gatepersist: no active claim on %s %s: refusing to persist without a live claim", req.EntityType, req.EntityKey)
+	}
+	if claim.SessionID != sessionID {
+		return fmt.Errorf("gatepersist: session no longer matches the active claim session on %s %s", req.EntityType, req.EntityKey)
+	}
+	if claim.IsExpired(time.Now().UTC(), c.ClaimVerifier.TTL()) {
+		return fmt.Errorf("gatepersist: the claim session on %s %s has expired; refusing to persist", req.EntityType, req.EntityKey)
+	}
+	return nil
 }
 
 // applyOperation performs one target write: a typed note (gate summary,

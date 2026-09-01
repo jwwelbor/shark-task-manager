@@ -11,6 +11,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
 var (
@@ -47,6 +49,33 @@ func runApplyResultSet() bool {
 	return runApplyResultPath != ""
 }
 
+// readBoundedEnvelopeFile reads path bounded at
+// workercontrol.MaxEnvelopeBytes+1 bytes (UAT round-2 Finding 2): the prior
+// unconditional os.ReadFile buffered the ENTIRE file into memory before
+// workercontrol.Decode ever evaluated MaxEnvelopeBytes, so a maliciously
+// huge --apply-result file was still fully read into memory first, defeating
+// the point of that bound. The "+1" (rather than exactly MaxEnvelopeBytes)
+// lets this distinguish "too large" from "exactly at the limit" the same
+// way internal/gaterun's own readRegularBounded does for the sidecar
+// transport's own file reads (fsio.go) — this is the CLI-supplied-path
+// mirror of that same pattern, not a second bound.
+func readBoundedEnvelopeFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(f, int64(workercontrol.MaxEnvelopeBytes)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > workercontrol.MaxEnvelopeBytes {
+		return nil, fmt.Errorf("exceeds the maximum envelope size of %d bytes", workercontrol.MaxEnvelopeBytes)
+	}
+	return data, nil
+}
+
 func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 	if runApplyRunID == "" {
 		return fmt.Errorf("--apply-result requires --run-id=<run_id>")
@@ -64,7 +93,7 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		return fmt.Errorf("apply-result authorization failed: %w", err)
 	}
 
-	envelopeBytes, err := os.ReadFile(runApplyResultPath)
+	envelopeBytes, err := readBoundedEnvelopeFile(runApplyResultPath)
 	if err != nil {
 		return fmt.Errorf("read --apply-result file %q: %w", runApplyResultPath, err)
 	}
@@ -194,7 +223,20 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	transitioner := gatepersist.NewEntityServiceTransitioner(entitySvc, registry, workflowSvc)
 	validator := gatepersist.NewWorkflowStatusValidator(workflowSvc)
 	history := cli.GetEntityHistoryService()
-	claimSvc := cli.GetClaimService()
+	// getRunClaimService() (not cli.GetClaimService() directly) so tests can
+	// inject a mocked claim store via runClaimSvcOverride (the CLI-tests
+	// golden rule: never a real database in a CLI-command test) and so this
+	// coordinator's re-verification (ClaimVerifier, below) reads from the
+	// exact same claim state run.go's initial verifyClaimSession checked.
+	claimSvc := getRunClaimService()
 
-	return gatepersist.NewCoordinator(noteSvc, noteSvc, history, validator, transitioner, transitioner, claimSvc), nil
+	coordinator := gatepersist.NewCoordinator(noteSvc, noteSvc, history, validator, transitioner, transitioner, claimSvc)
+	// UAT round-2 Finding 1: fold a second claim-ownership check into
+	// Persist's own critical section (the per-run lock), immediately before
+	// its mutating writes — closing the TOCTOU window between run.go's
+	// one-time verifyClaimSession call (above, before this coordinator is
+	// even built) and Persist's actual writes. See
+	// gatepersist.ClaimVerifier's doc comment.
+	coordinator.ClaimVerifier = claimSvc
+	return coordinator, nil
 }

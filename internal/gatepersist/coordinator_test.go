@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
@@ -614,5 +616,175 @@ func TestPersist_RequiresRunDirEntityFileSystem(t *testing.T) {
 	req := baseRequest(t, filepath.Join(blocker, "run-1"))
 	if _, err := coord.Persist(context.Background(), req); err == nil {
 		t.Fatalf("expected acquiring a run lock under a non-directory path to fail")
+	}
+}
+
+// ─── UAT round-2 Finding 1: ClaimVerifier re-check closes the TOCTOU window ───
+//
+// These tests exercise Coordinator.Persist directly (not through run.go's
+// verifyClaimSession, which only runs once at the CLI-command layer before
+// this coordinator is even built). fakeClaimVerifier.claims lets a test
+// script a DIFFERENT claim answer for Persist's own Get() call than
+// whatever a prior, separate verifyClaimSession-style check would have
+// seen -- simulating a claim that expired or was force-reclaimed in the
+// window between that earlier check and Persist's actual writes.
+
+func TestPersist_ClaimVerifierNil_SkipsReCheck_BackwardCompatible(t *testing.T) {
+	// Every other Persist test in this file relies on this: a Coordinator
+	// built without ClaimVerifier (the zero value, nil) must behave exactly
+	// as before this fix -- no re-check, no new failure mode.
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	if coord.ClaimVerifier != nil {
+		t.Fatalf("expected ClaimVerifier to default to nil")
+	}
+
+	req := baseRequest(t, runDir)
+	if _, err := coord.Persist(context.Background(), req); err != nil {
+		t.Fatalf("Persist with nil ClaimVerifier: %v", err)
+	}
+}
+
+func TestPersist_ClaimVerifier_SessionNoLongerMatchesRejectedWithoutWrites(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	coord.ClaimVerifier = &fakeClaimVerifier{
+		claims: []*models.EntityClaim{
+			// The claim now belongs to a DIFFERENT session than req.Session.ID
+			// ("sess-1", from baseRequest) -- as if a second caller force-
+			// reclaimed the entity after run.go's own check passed but before
+			// this Persist call ran.
+			{EntityType: string(models.EntityTypeTask), EntityKey: mainEntityKey, SessionID: "a-different-reclaiming-session", LastHeartbeat: time.Now().UTC()},
+		},
+	}
+
+	req := baseRequest(t, runDir)
+	if _, err := coord.Persist(context.Background(), req); err == nil {
+		t.Fatal("expected Persist to reject a session that no longer matches the active claim")
+	} else if !strings.Contains(err.Error(), "no longer matches") {
+		t.Fatalf("error = %v, want a message naming the session mismatch", err)
+	}
+
+	if len(world.notes) != 0 || len(world.transitionCalls) != 0 {
+		t.Fatalf("expected ZERO writes on a rejected re-check, got %d notes and %d transitions", len(world.notes), len(world.transitionCalls))
+	}
+}
+
+func TestPersist_ClaimVerifier_ExpiredRejectedWithoutWrites(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	coord.ClaimVerifier = &fakeClaimVerifier{
+		ttl: time.Minute,
+		claims: []*models.EntityClaim{
+			{EntityType: string(models.EntityTypeTask), EntityKey: mainEntityKey, SessionID: "sess-1", LastHeartbeat: time.Now().UTC().Add(-time.Hour)},
+		},
+	}
+
+	req := baseRequest(t, runDir)
+	if _, err := coord.Persist(context.Background(), req); err == nil {
+		t.Fatal("expected Persist to reject an expired claim session")
+	} else if !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("error = %v, want a message naming the expired claim", err)
+	}
+
+	if len(world.notes) != 0 || len(world.transitionCalls) != 0 {
+		t.Fatalf("expected ZERO writes on a rejected re-check, got %d notes and %d transitions", len(world.notes), len(world.transitionCalls))
+	}
+}
+
+func TestPersist_ClaimVerifier_NoActiveClaimRejectedWithoutWrites(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	coord.ClaimVerifier = &fakeClaimVerifier{claims: []*models.EntityClaim{nil}}
+
+	req := baseRequest(t, runDir)
+	if _, err := coord.Persist(context.Background(), req); err == nil {
+		t.Fatal("expected Persist to reject with no active claim")
+	} else if !strings.Contains(err.Error(), "no active claim") {
+		t.Fatalf("error = %v, want a message naming the missing claim", err)
+	}
+
+	if len(world.notes) != 0 || len(world.transitionCalls) != 0 {
+		t.Fatalf("expected ZERO writes on a rejected re-check, got %d notes and %d transitions", len(world.notes), len(world.transitionCalls))
+	}
+}
+
+// TestPersist_ClaimVerifier_TOCTOUWindowClosed is the direct regression
+// test for UAT round-2 Finding 1: it simulates an initial (separate,
+// CLI-level) verifyClaimSession-style check succeeding against the FIRST
+// claim state, and then the claim expiring/being reclaimed (the SECOND
+// state) strictly between that check and Persist's own call -- proving
+// Persist's re-check (not the initial check) is what catches it.
+func TestPersist_ClaimVerifier_TOCTOUWindowClosed(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	verifier := &fakeClaimVerifier{
+		claims: []*models.EntityClaim{
+			// Call 1: an initial, separate authorization check (mirroring
+			// run.go's verifyClaimSession) sees a live, matching claim.
+			{EntityType: string(models.EntityTypeTask), EntityKey: mainEntityKey, SessionID: "sess-1", LastHeartbeat: time.Now().UTC()},
+			// Call 2 (Persist's own re-check): the claim has since been
+			// force-reclaimed by a different session.
+			{EntityType: string(models.EntityTypeTask), EntityKey: mainEntityKey, SessionID: "a-different-reclaiming-session", LastHeartbeat: time.Now().UTC()},
+		},
+	}
+	coord.ClaimVerifier = verifier
+
+	req := baseRequest(t, runDir)
+
+	// Simulate the initial CLI-level check: it consumes Get() call #1 and
+	// passes, exactly as run.go's verifyClaimSession would have.
+	initialClaim, err := verifier.Get(context.Background(), string(req.EntityType), req.EntityKey)
+	if err != nil || initialClaim == nil || initialClaim.SessionID != req.Session.ID {
+		t.Fatalf("setup: expected the initial check to see a matching live claim, got claim=%+v err=%v", initialClaim, err)
+	}
+
+	// The actual call under test: Persist's own re-check consumes Get() call
+	// #2 -- the reclaimed state -- and must fail closed with zero writes,
+	// proving the CRITICAL-fix-era initial check alone was not enough.
+	if _, err := coord.Persist(context.Background(), req); err == nil {
+		t.Fatal("expected Persist to reject a session reclaimed after the initial authorization check but before Persist's own writes")
+	} else if !strings.Contains(err.Error(), "no longer matches") {
+		t.Fatalf("error = %v, want a message naming the session mismatch", err)
+	}
+
+	if len(world.notes) != 0 || len(world.transitionCalls) != 0 {
+		t.Fatalf("expected ZERO writes once the TOCTOU window is closed, got %d notes and %d transitions", len(world.notes), len(world.transitionCalls))
+	}
+	if verifier.getCalls != 2 {
+		t.Fatalf("expected exactly 2 Get() calls (initial check + Persist's re-check), got %d", verifier.getCalls)
+	}
+}
+
+func TestPersist_ClaimVerifier_MatchingLiveSessionSucceeds(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	coord.ClaimVerifier = &fakeClaimVerifier{
+		claims: []*models.EntityClaim{
+			{EntityType: string(models.EntityTypeTask), EntityKey: mainEntityKey, SessionID: "sess-1", LastHeartbeat: time.Now().UTC()},
+		},
+	}
+
+	req := baseRequest(t, runDir)
+	req.RetirementConfirmed = true
+	req.RunConcluded = true
+	res, err := coord.Persist(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Persist with a matching live claim: %v", err)
+	}
+	if !res.TransitionApplied {
+		t.Fatalf("expected the transition to still apply when the claim re-check passes")
 	}
 }
