@@ -112,8 +112,19 @@ type CreateQuestionInput struct {
 
 // QuestionClaimReader is the read-only portion of ClaimService needed by the
 // Question domain. It intentionally cannot claim, release, or heartbeat.
+//
+// Get returns the raw claim row (used by RecordResponse to check session/
+// responder identity against an already-known-active lease). IsClaimable
+// applies the lease's TTL/expiry policy (mirrors SprintClaimReader and
+// StandalonePlanClaimReader, both backed by the same *ClaimService.IsClaimable)
+// and is the only correct source for "is this entity actively claimed right
+// now" — GetNextStatus's IsClaimed must be computed from IsClaimable, not
+// from a bare claim-row-exists check, or an expired-but-unswept claim would
+// wrongly keep blocking dispatch forever (stale-lease-as-live-input defect
+// class, T-E34-F01-003 UAT rejection).
 type QuestionClaimReader interface {
 	Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error)
+	IsClaimable(ctx context.Context, entityType, entityKey string) (bool, error)
 }
 
 // QuestionFocusedRelationshipReader is the bounded direct-edge seam used only
@@ -555,11 +566,15 @@ func (s *QuestionService) GetNextStatus(ctx context.Context, key string) (*NextS
 		if s.claimReader == nil {
 			return info, nil
 		}
-		claim, err := s.claimReader.Get(ctx, string(models.EntityTypeQuestion), question.Key)
+		// IsClaimable applies the lease TTL/expiry policy (stale-lease-as-
+		// live-input defect fix, T-E34-F01-003 rework): a bare "claim row
+		// exists" check would keep IsClaimed true forever for an
+		// expired-but-unswept claim, permanently pausing dispatch.
+		claimable, err := s.claimReader.IsClaimable(ctx, string(models.EntityTypeQuestion), question.Key)
 		if err != nil {
-			return nil, fmt.Errorf("get next status for question %s: load claim: %w", key, err)
+			return nil, fmt.Errorf("get next status for question %s: check claim: %w", key, err)
 		}
-		info.IsClaimed = claim != nil
+		info.IsClaimed = !claimable
 		return info, nil
 	}
 	return &NextStatusInfo{
