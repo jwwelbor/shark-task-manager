@@ -75,13 +75,19 @@ type gateStepResolver interface {
 	GetOutcomeRoles(status string) map[string]gateresult.OutcomeRole
 }
 
-// runResumeWorkflowServiceOverride/runResumeCoordinatorOverride let tests
-// inject a mocked gateStepResolver/gatepersist.Coordinator instead of the
-// real cli.Get*Service()-backed ones (per the CLI-tests golden rule: never a
-// real database in a CLI-command test). Production callers leave both nil.
+// runResumeWorkflowServiceOverride/runResumeCoordinatorOverride/
+// runResumeTransitionerOverride let tests inject a mocked
+// gateStepResolver/gatepersist.Coordinator/runner.EntityTransitioner
+// instead of the real cli.Get*Service()-backed ones (per the CLI-tests
+// golden rule: never a real database in a CLI-command test). Production
+// callers leave all three nil. runResumeTransitionerOverride is consumed
+// only by resumeGateIngestForUninitializedState — see its doc comment for
+// why that one branch needs the entity's *current* status rather than a
+// durably recorded gate step name.
 var (
 	runResumeWorkflowServiceOverride gateStepResolver
 	runResumeCoordinatorOverride     *gatepersist.Coordinator
+	runResumeTransitionerOverride    runner.EntityTransitioner
 )
 
 // runResumeRun is the RunE-called entry point for the --resume-run branch.
@@ -112,6 +118,19 @@ func runResumeRun(ctx context.Context, entityType, entityKey string) error {
 	// so this no longer short-circuits on decision.Action.
 	if decision.State != nil {
 		if err := resumeGateIngestIfConfigured(ctx, projectRoot, entityType, entityKey, decision, out); err != nil {
+			return fmt.Errorf("resume gate ingestion failed: %w", err)
+		}
+	} else {
+		// Sibling of the F-2 defect class, swept in the same pass: the
+		// create-once-result/before-state-init crash window
+		// (gaterun.DecideResume's nil-State ResumeActionResumeNextOperation
+		// case — result.json committed, operation-state.json never
+		// written) must also reach the coordinator, or a crash in this
+		// narrower window leaves the lease held forever exactly like F-2.
+		// See resumeGateIngestForUninitializedState's doc comment for why
+		// it derives SourceStatus/Gate differently from
+		// resumeGateIngestIfConfigured.
+		if err := resumeGateIngestForUninitializedState(ctx, projectRoot, entityType, entityKey, decision, out); err != nil {
 			return fmt.Errorf("resume gate ingestion failed: %w", err)
 		}
 	}
@@ -180,6 +199,72 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 		Session:             gatepersist.Session{ID: runSession},
 		OutcomeRoles:        resolver.GetOutcomeRoles(decision.State.Gate),
 		Outcomes:            resolver.GetOutcomes(decision.State.Gate),
+		RetirementConfirmed: true,
+	})
+	if err != nil {
+		return err
+	}
+
+	out.Ingested = true
+	out.ToStatus = result.ToStatus
+	out.Transitioned = result.Transitioned
+	out.LeaseReleased = result.LeaseReleased
+	return nil
+}
+
+// resumeGateIngestForUninitializedState handles the sibling of F-2's crash
+// window: gaterun.DecideResume's nil-State ResumeActionResumeNextOperation
+// case, where result.json committed durably but operation-state.json was
+// never written at all (the create-once-result/before-state-init window).
+// There is no durably recorded gate/source_status to key off of yet — but
+// unlike resumeGateIngestIfConfigured's already_transitioned case, the
+// entity has NOT transitioned in this window (operation-state.json never
+// even reached PersistenceStateComplete, let alone the transition), so its
+// live current status IS the source status: a
+// transitioner.GetNextStatus(entityKey) lookup is correct here, the one
+// case where it would be wrong for resumeGateIngestIfConfigured.
+// gatepersist.Coordinator.Persist's own !exists branch
+// (coordinator.go) initializes a fresh OperationState from the
+// SourceStatus/Gate/digest this call supplies, exactly closing this window.
+func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, entityType, entityKey string, decision *gaterun.ResumeDecision, out *resumeRunOutput) error {
+	transitioner := runResumeTransitionerOverride
+	if transitioner == nil {
+		var err error
+		transitioner, err = buildTransitioner(ctx, entityType)
+		if err != nil {
+			return fmt.Errorf("build transitioner: %w", err)
+		}
+	}
+
+	nextInfo, err := transitioner.GetNextStatus(ctx, entityKey)
+	if err != nil {
+		return fmt.Errorf("get status for %s: %w", entityKey, err)
+	}
+	if nextInfo.ResultContract != resultContractGateResultV1 {
+		return nil
+	}
+
+	coordinator := runResumeCoordinatorOverride
+	if coordinator == nil {
+		var err error
+		coordinator, err = buildGateCoordinator(ctx)
+		if err != nil {
+			return fmt.Errorf("build GateResult persistence coordinator: %w", err)
+		}
+	}
+
+	result, err := runner.IngestGateResult(ctx, runner.GateIngestRequest{
+		EnvelopeBytes:       decision.Result,
+		Coordinator:         coordinator,
+		ProjectRoot:         projectRoot,
+		RunID:               runResumeID,
+		EntityKey:           entityKey,
+		EntityType:          models.EntityType(entityType),
+		SourceStatus:        nextInfo.CurrentStatus,
+		Gate:                nextInfo.CurrentStatus,
+		Session:             gatepersist.Session{ID: runSession},
+		OutcomeRoles:        nextInfo.OutcomeRoles,
+		Outcomes:            nextInfo.Outcomes,
 		RetirementConfirmed: true,
 	})
 	if err != nil {

@@ -444,3 +444,75 @@ func TestRunResumeRun_AlreadyTransitionedFailsClosedOnDivergedStatus(t *testing.
 		t.Fatalf("expected no lease release when verification fails closed, got %d calls", len(releaser.calls))
 	}
 }
+
+// TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus is the sibling
+// of F-2, swept in the same pass (T-E34-F05-004 rework): the
+// create-once-result/before-state-init crash window (result.json committed,
+// operation-state.json never written — gaterun.DecideResume's nil-State
+// resume_next_operation case) must also reach the coordinator, or a crash
+// in this narrower window leaves the parent's lease held forever exactly
+// like F-2. Unlike the already_transitioned case, the entity has NOT
+// transitioned here, so its live current status is the correct source
+// status/gate to key off of.
+func TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origTransitioner, origCoordinator := runResumeTransitionerOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeTransitionerOverride, runResumeCoordinatorOverride = origTransitioner, origCoordinator
+	}()
+
+	entityKey := "E01-F01-001"
+	runID := "run-uninit1234567890abcdef1234567890"
+	root := t.TempDir()
+	dir, err := gaterun.RunDir(root, runID)
+	if err != nil {
+		t.Fatalf("RunDir: %v", err)
+	}
+	// result.json only — operation-state.json is never written, matching
+	// the create-once-result/before-state-init crash window.
+	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {
+		t.Fatalf("CreateResult: %v", err)
+	}
+
+	out, decision, err := resolveResumeStatusAndDecision(root, runID, "task", entityKey, time.Now())
+	if err != nil {
+		t.Fatalf("resolveResumeStatusAndDecision: %v", err)
+	}
+	if decision.Action != gaterun.ResumeActionResumeNextOperation || decision.State != nil {
+		t.Fatalf("expected resume_next_operation with nil State, got action=%s state=%+v", decision.Action, decision.State)
+	}
+
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
+	releaser := &fakeCountingLeaseReleaser{}
+	runResumeTransitionerOverride = &fakeParityTransitioner{
+		status:         map[string]string{entityKey: "todo"},
+		outcomes:       map[string]string{"pass": "in_review"},
+		resultContract: "gate_result_v1",
+		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser,
+	)
+
+	runResumeID = runID
+	runSession = "sess-resume"
+
+	if err := resumeGateIngestForUninitializedState(context.Background(), root, "task", entityKey, decision, out); err != nil {
+		t.Fatalf("resumeGateIngestForUninitializedState: %v", err)
+	}
+
+	if !out.Ingested || out.ToStatus != "in_review" || !out.Transitioned {
+		t.Fatalf("expected a completed transition to in_review, got %+v", out)
+	}
+	if !out.LeaseReleased {
+		t.Fatal("expected LeaseReleased=true")
+	}
+	if len(releaser.calls) != 1 {
+		t.Fatalf("expected exactly 1 lease release call, got %d", len(releaser.calls))
+	}
+	if transition.status[entityKey] != "in_review" {
+		t.Fatalf("expected the coordinator's transitioner to record in_review, got %q", transition.status[entityKey])
+	}
+}
