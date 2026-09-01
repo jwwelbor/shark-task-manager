@@ -26,6 +26,8 @@ var (
 	runVerbose  bool
 	runWorkDir  string
 	runWorktree bool
+	runResumeID string
+	runSession  string
 )
 
 type runClaimServicer interface {
@@ -87,6 +89,8 @@ func init() {
 		"",
 		"Override the resolved harness model; wins over the active claim and SHARK_HARNESS_MODEL",
 	)
+	runCmd.Flags().StringVar(&runResumeID, "resume-run", "", "Report durable resume status for an existing run_id's GateResult sidecar (T-E34-F05-002); accepts no new result bytes and does not dispatch or transition")
+	runCmd.Flags().StringVar(&runSession, "session", "", "Authorized session id for --resume-run")
 	cli.RootCmd.AddCommand(runCmd)
 }
 
@@ -116,6 +120,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
 		return fmt.Errorf("invalid entity key %q: %w", entityKey, err)
+	}
+
+	// T-E34-F05-002: --resume-run reports the durable GateResult sidecar's
+	// resume status and returns without dispatching an agent, claiming a
+	// lease, or applying any transition — it "accepts no new result bytes"
+	// per the task spec. Full resume (re-applying the guarded transition
+	// and releasing the lease) is T-E34-F05-003/004's persistence
+	// coordinator; this is the read-only status/decision surface it and
+	// operators consume. Short-circuits before any claim/dispatch state is
+	// touched.
+	if runResumeID != "" {
+		return runResumeRun(entityType, normalizedKey)
 	}
 
 	// Read the --harness/--harness-version/--harness-model override flags
