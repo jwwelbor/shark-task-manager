@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,9 +37,14 @@ steps:
     phase: development
     action: spawn_agent
     agent: developer
+    result_contract: gate_result_v1
     outcomes:
       pass: completed
       fail: draft
+      blocked: blocked
+    outcome_roles:
+      pass: success
+      fail: route_rework
       blocked: blocked
   blocked:
     phase: blocked
@@ -89,6 +95,69 @@ func TestEntityService_NextStatus_OutcomesPopulated(t *testing.T) {
 			t.Error("expected IsTerminal=true for completed step")
 		}
 	})
+}
+
+// TestEntityService_NextStatus_ResultContractAndOutcomeRoles asserts
+// REQ-F-006: a step configured with result_contract: gate_result_v1
+// resolves both ResultContract and a complete OutcomeRoles map on
+// NextStatusInfo, a step with no result_contract resolves "legacy" with a
+// nil role map, and both GetNextStatus and GetNextStatusForEntity (the two
+// construction sites `shark next` and the core runner ultimately read from)
+// agree.
+func TestEntityService_NextStatus_ResultContractAndOutcomeRoles(t *testing.T) {
+	svc := newRouteBasedTaskEntityService(t)
+
+	t.Run("gate_result_v1 step resolves contract and roles", func(t *testing.T) {
+		task := &models.Task{Status: "development"}
+		info := svc.GetNextStatusForEntity(models.EntityTypeTask, "E01-F01-001", task, nil)
+		if info.ResultContract != "gate_result_v1" {
+			t.Errorf("expected result_contract=gate_result_v1, got %q", info.ResultContract)
+		}
+		if len(info.OutcomeRoles) != 3 {
+			t.Fatalf("expected 3 outcome roles, got %#v", info.OutcomeRoles)
+		}
+		if info.OutcomeRoles["pass"] != "success" || info.OutcomeRoles["fail"] != "route_rework" || info.OutcomeRoles["blocked"] != "blocked" {
+			t.Errorf("unexpected outcome roles: %#v", info.OutcomeRoles)
+		}
+	})
+
+	t.Run("legacy step resolves legacy with no roles", func(t *testing.T) {
+		task := &models.Task{Status: "draft"}
+		info := svc.GetNextStatusForEntity(models.EntityTypeTask, "E01-F01-001", task, nil)
+		if info.ResultContract != "legacy" {
+			t.Errorf("expected result_contract=legacy for an unconfigured step, got %q", info.ResultContract)
+		}
+		if len(info.OutcomeRoles) != 0 {
+			t.Errorf("expected no outcome roles for a legacy step, got %#v", info.OutcomeRoles)
+		}
+	})
+
+	t.Run("GetNextStatus (DB-backed path) agrees with GetNextStatusForEntity", func(t *testing.T) {
+		info, err := svc.GetNextStatus(context.Background(), &stubEntityRepo{status: "development"}, models.EntityTypeTask, "E01-F01-001", nil)
+		if err != nil {
+			t.Fatalf("GetNextStatus: %v", err)
+		}
+		if info.ResultContract != "gate_result_v1" {
+			t.Errorf("expected result_contract=gate_result_v1 via GetNextStatus, got %q", info.ResultContract)
+		}
+		if len(info.OutcomeRoles) != 3 {
+			t.Errorf("expected 3 outcome roles via GetNextStatus, got %#v", info.OutcomeRoles)
+		}
+	})
+}
+
+// stubEntityRepo is a minimal EntityRepository stub (embedding the
+// package's existing noopEntityRepo for the methods this test doesn't
+// exercise) so TestEntityService_NextStatus_ResultContractAndOutcomeRoles
+// can exercise GetNextStatus (the DB-backed path `shark next`/the core
+// runner actually call) without a real database.
+type stubEntityRepo struct {
+	noopEntityRepo
+	status string
+}
+
+func (r *stubEntityRepo) GetByKey(_ context.Context, _ string) (models.Entity, error) {
+	return &models.Task{Status: models.TaskStatus(r.status)}, nil
 }
 
 // TestEntityService_NextStatus_LegacyHasNoOutcomes asserts a legacy

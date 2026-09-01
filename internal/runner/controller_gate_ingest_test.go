@@ -12,18 +12,45 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
-// TestResultContractFor_AlwaysLegacyUntilT_E34_F05_005 is a characterization
-// test (REQ-F-006's compatibility requirement): every step resolves to
-// "legacy" today because T-E34-F05-005 has not yet added the schema field
-// this function will read. This pins the current stub behavior so a future
-// change to it is deliberate, not accidental.
-func TestResultContractFor_AlwaysLegacyUntilT_E34_F05_005(t *testing.T) {
-	contract, err := resultContractFor(&config.PopulatedAction{})
+// TestResultContractFor_DefaultsToLegacy pins REQ-F-006's compatibility
+// default: a nil stepInfo or a step whose ResultContract is unset/omitted
+// resolves to "legacy".
+func TestResultContractFor_DefaultsToLegacy(t *testing.T) {
+	contract, err := resultContractFor(nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if contract != resultContractLegacy {
-		t.Fatalf("expected result_contract to resolve to %q, got %q", resultContractLegacy, contract)
+		t.Fatalf("expected nil stepInfo to resolve to %q, got %q", resultContractLegacy, contract)
+	}
+
+	contract, err = resultContractFor(&services.NextStatusInfo{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if contract != resultContractLegacy {
+		t.Fatalf("expected an empty ResultContract to resolve to %q, got %q", resultContractLegacy, contract)
+	}
+}
+
+// TestResultContractFor_ResolvesGateResultV1 proves resultContractFor reads
+// the workflow-resolved ResultContract field once populated (T-E34-F05-005).
+func TestResultContractFor_ResolvesGateResultV1(t *testing.T) {
+	contract, err := resultContractFor(&services.NextStatusInfo{ResultContract: resultContractGateResultV1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if contract != resultContractGateResultV1 {
+		t.Fatalf("expected %q, got %q", resultContractGateResultV1, contract)
+	}
+}
+
+// TestResultContractFor_RejectsUnknownValue proves an unrecognized
+// result_contract value fails closed rather than silently defaulting.
+func TestResultContractFor_RejectsUnknownValue(t *testing.T) {
+	_, err := resultContractFor(&services.NextStatusInfo{ResultContract: "some_future_contract"})
+	if err == nil {
+		t.Fatalf("expected an error for an unknown result_contract value")
 	}
 }
 

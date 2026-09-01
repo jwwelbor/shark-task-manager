@@ -33,6 +33,7 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -173,6 +174,16 @@ type NextResponse struct {
 	Harness        string `json:"harness,omitempty"`
 	HarnessVersion string `json:"harness_version,omitempty"`
 	HarnessModel   string `json:"harness_model,omitempty"`
+
+	// ResultContract is the REQ-F-006 resolved worker-result contract for
+	// the current step: "legacy" or "gate_result_v1". Always populated
+	// (never omitted) so both the core runner and Rider consume the exact
+	// same resolved value instead of deriving it independently.
+	ResultContract string `json:"result_contract"`
+
+	// OutcomeRoles maps each of the current step's configured outcome keys
+	// to its REQ-F-006 semantic role. Empty/omitted for a "legacy" step.
+	OutcomeRoles map[string]gateresult.OutcomeRole `json:"outcome_roles,omitempty"`
 
 	Prompt string `json:"prompt"` // fully-rendered, skill-inlined prompt
 
@@ -569,10 +580,11 @@ func resolveEntity(
 ) (NextResponse, error) {
 	if depth > maxCascadeDepth {
 		return NextResponse{
-			EntityKey:  normalizedKey,
-			EntityType: entityType,
-			Action:     "error",
-			Error:      fmt.Sprintf("cascade depth limit (%d) exceeded — likely a misconfigured workflow", maxCascadeDepth),
+			EntityKey:      normalizedKey,
+			EntityType:     entityType,
+			Action:         "error",
+			Error:          fmt.Sprintf("cascade depth limit (%d) exceeded — likely a misconfigured workflow", maxCascadeDepth),
+			ResultContract: configworkflow.ResultContractLegacy,
 		}, nil
 	}
 
@@ -599,9 +611,11 @@ func resolveEntity(
 	currentStatus := nextInfo.CurrentStatus
 
 	resp := NextResponse{
-		EntityKey:  normalizedKey,
-		EntityType: entityType,
-		Status:     currentStatus,
+		EntityKey:      normalizedKey,
+		EntityType:     entityType,
+		Status:         currentStatus,
+		ResultContract: resolvedResultContract(nextInfo),
+		OutcomeRoles:   nextInfo.OutcomeRoles,
 	}
 	// Terminal status: nothing to dispatch.
 	if nextInfo.IsTerminal || isArchivedStatus(entityType, currentStatus) {
@@ -795,6 +809,19 @@ func resolveEntity(
 	resp.PromptBytes = len(attached)
 
 	return resp, nil
+}
+
+// resolvedResultContract returns nextInfo's REQ-F-006 result_contract,
+// defaulting to "legacy" when nil or unset — e.g. a NextStatusInfo built by
+// a caller that predates the field (Question's handoff literals in
+// question_service.go) or a legacy (non-route-based) workflow. This keeps
+// the "always populated, legacy by default" wire contract even though not
+// every NextStatusInfo constructor sets ResultContract explicitly.
+func resolvedResultContract(nextInfo *services.NextStatusInfo) string {
+	if nextInfo == nil || nextInfo.ResultContract == "" {
+		return configworkflow.ResultContractLegacy
+	}
+	return nextInfo.ResultContract
 }
 
 func actionRequiresInstruction(internalAction string) bool {

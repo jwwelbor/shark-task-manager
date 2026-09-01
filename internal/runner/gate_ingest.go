@@ -12,8 +12,9 @@
 // worker-control envelope (internal/workercontrol), requiring kind: final,
 // decoding/validating the nested gate_result payload
 // (internal/gateresult), resolving its semantic role via the caller-supplied
-// outcome_roles map (REQ-F-006; a stub until T-E34-F05-005 lands — see
-// resultContractFor), resolving the configured target status for the
+// outcome_roles map (REQ-F-006, resolved per step from the workflow's
+// `outcome_roles` YAML field — T-E34-F05-005 — see resultContractFor),
+// resolving the configured target status for the
 // recommended outcome, and delegating persistence + the guarded transition
 // to internal/gatepersist.Coordinator. It never falls back to the legacy
 // recommendedOutcome parser on any failure (REQ-F-006: "must not fall back
@@ -57,10 +58,9 @@ type GateIngestRequest struct {
 
 	// OutcomeRoles maps each configured outcome key to its parent-owned
 	// semantic role (REQ-F-006 outcome_roles). Populated by the caller from
-	// workflow configuration; T-E34-F05-005 has not yet added the schema
-	// field this is read from, so every caller in this codebase currently
-	// passes an empty map, which correctly fails closed for any
-	// recommended_outcome (see resultContractFor's TODO).
+	// the dispatched step's workflow configuration (T-E34-F05-005); an empty
+	// map correctly fails closed for any recommended_outcome (no configured
+	// role to validate against).
 	OutcomeRoles map[string]gateresult.OutcomeRole
 	// Outcomes maps each configured outcome key to its resolved target
 	// status (services.NextStatusInfo.Outcomes).

@@ -36,11 +36,17 @@ steps:
     model: opus
     skills: [quality]
     prompt: _shared/code_review.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
       fail: development
       on_hold: on_hold
       pass: qa
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      on_hold: hold
+      pass: success
   completed:
     phase: done
     color: green
@@ -65,11 +71,17 @@ steps:
     model: sonnet
     skills: [implementation]
     prompt: change/development.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
       fail: draft
       on_hold: on_hold
       pass: code_review
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      on_hold: hold
+      pass: success
   draft:
     phase: planning
     color: gray
@@ -110,11 +122,17 @@ steps:
     model: sonnet
     skills: [quality]
     prompt: _shared/qa.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
       fail: development
       on_hold: on_hold
       pass: completed
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      on_hold: hold
+      pass: success
   research:
     phase: research
     color: purple

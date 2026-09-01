@@ -11,6 +11,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/entitytype"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -684,6 +685,40 @@ func (s *Service) GetOutcomes(status string) map[string]string {
 		return nil
 	}
 	return st.Outcomes
+}
+
+// GetResultContract returns the resolved REQ-F-006 result_contract for the
+// given step/status ("legacy" or "gate_result_v1"). Always resolves to
+// "legacy" for a nil/legacy workflow or an unknown/omitted step value.
+func (s *Service) GetResultContract(status string) string {
+	if s.workflow == nil {
+		return config.ResultContractLegacy
+	}
+	status = s.aliasResolve(status)
+	return s.workflow.GetResultContract(status)
+}
+
+// GetOutcomeRoles returns the step's REQ-F-006 outcome_roles map, resolved
+// to internal/gateresult.OutcomeRole values. Returns nil for a nil/legacy
+// workflow, an unknown step, or a step with no configured roles (i.e. a
+// "legacy" step). An outcome key whose configured role string is not one of
+// gateresult's closed set is omitted — that condition is a workflow
+// validation error the loader/validator rejects before a Service ever wraps
+// the config, so callers here can assume every present entry is valid.
+func (s *Service) GetOutcomeRoles(status string) map[string]gateresult.OutcomeRole {
+	if s.workflow == nil {
+		return nil
+	}
+	status = s.aliasResolve(status)
+	raw := s.workflow.GetOutcomeRoles(status)
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]gateresult.OutcomeRole, len(raw))
+	for outcome, role := range raw {
+		out[outcome] = gateresult.OutcomeRole(role)
+	}
+	return out
 }
 
 // GetValidOutcomes returns the sorted outcome names defined for a step/status.

@@ -33,11 +33,10 @@ func init() {
 }
 
 // applyResultOutcomeRolesOverride lets tests inject a resolved outcome_roles
-// map without a real workflow config source. T-E34-F05-005 owns the schema
-// field a non-test build will read; until it lands, production callers get
-// an empty map here (mirroring internal/runner/controller.go's
-// resultContractFor stub) — every gate_result_v1 outcome fails closed with
-// "no configured outcome role" rather than guessing a role.
+// map without a real workflow config source. Production callers leave this
+// nil so applyResultIngest falls back to nextInfo.OutcomeRoles — the
+// workflow-resolved map from the step's `outcome_roles` YAML field
+// (T-E34-F05-005) — instead of guessing a role.
 var applyResultOutcomeRolesOverride map[string]gateresult.OutcomeRole
 
 // runApplyResultSet reports whether --apply-result was provided, so runRun
@@ -127,6 +126,16 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		return nil, fmt.Errorf("get status for %s before --apply-result: %w", deps.EntityKey, err)
 	}
 
+	// T-E34-F05-005: prefer the workflow-resolved outcome_roles map
+	// (nextInfo.OutcomeRoles) so Rider's --apply-result path and the core
+	// runner's gate_result_v1 branch enforce the exact same per-step role
+	// map. deps.OutcomeRoles remains available for tests/operators that need
+	// to override the resolved map explicitly.
+	outcomeRoles := deps.OutcomeRoles
+	if len(outcomeRoles) == 0 {
+		outcomeRoles = nextInfo.OutcomeRoles
+	}
+
 	return runner.IngestGateResult(ctx, runner.GateIngestRequest{
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   deps.Coordinator,
@@ -137,7 +146,7 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		SourceStatus:  nextInfo.CurrentStatus,
 		Gate:          nextInfo.CurrentStatus,
 		Session:       gatepersist.Session{ID: deps.SessionID},
-		OutcomeRoles:  deps.OutcomeRoles,
+		OutcomeRoles:  outcomeRoles,
 		Outcomes:      nextInfo.Outcomes,
 	})
 }

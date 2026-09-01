@@ -23,16 +23,19 @@ import (
 // GateIngestDeps carries T-E34-F05-004's shared GateResult ingestion
 // coordinator and outcome-role resolution for gate_result_v1 steps. Optional
 // on RunControllerDeps: nil is safe as long as no configured step's
-// result_contract resolves to gate_result_v1 (today, resultContractFor
-// always resolves "legacy", so this is unreachable via real dispatch until
-// T-E34-F05-005 lands the schema field it will read).
+// result_contract resolves to gate_result_v1 — dispatch reaches this branch
+// only for a step whose `result_contract: gate_result_v1` YAML resolves
+// through resultContractFor (T-E34-F05-005).
 type GateIngestDeps struct {
 	// Coordinator persists a validated GateResult and applies the guarded
 	// main-entity transition (T-E34-F05-003).
 	Coordinator *gatepersist.Coordinator
-	// OutcomeRoles maps every configured outcome key to its REQ-F-006
-	// semantic role. TODO(T-E34-F05-005): resolve this per-step from the
-	// workflow's outcome_roles map instead of one flat, run-wide map.
+	// OutcomeRoles is a fallback flat, run-wide outcome-role map used only
+	// when a dispatched step's own resolved NextStatusInfo.OutcomeRoles is
+	// empty (e.g. tests wiring a coordinator without a real workflow config
+	// source). Real dispatch resolves outcome_roles per step from the
+	// workflow's `outcome_roles` YAML map (T-E34-F05-005); see
+	// ingestGateResultForDispatch.
 	OutcomeRoles map[string]gateresult.OutcomeRole
 }
 
@@ -953,16 +956,17 @@ const (
 )
 
 // resultContractFor resolves the REQ-F-006 `result_contract` for the
-// dispatched step. T-E34-F05-005 owns adding the schema field this should
-// read (config.PopulatedAction has no such field yet); until it lands, every
-// step resolves to "legacy" — REQ-F-006's own default for omission — so the
-// gate_result_v1 wiring below exists and is directly unit-testable without
-// being reachable through real workflow config yet. Swap this single body
-// for a config.PopulatedAction field read when T-E34-F05-005 lands; every
-// other caller in this file goes through this one function, so that is a
-// one-place change.
-func resultContractFor(_ *config.PopulatedAction) (string, error) {
+// dispatched step from stepInfo — the NextStatusInfo the workflow layer
+// resolved for the entity's pre-dispatch status (services.EntityService
+// populates ResultContract from the step's `result_contract` YAML field,
+// defaulting to "legacy" on omission — T-E34-F05-005). Every caller in this
+// file goes through this one function, so a future contract value only
+// needs a case added here.
+func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
 	contract := resultContractLegacy
+	if stepInfo != nil && stepInfo.ResultContract != "" {
+		contract = stepInfo.ResultContract
+	}
 	switch contract {
 	case resultContractLegacy, resultContractGateResultV1:
 		return contract, nil
@@ -989,6 +993,16 @@ func (c *RunController) ingestGateResultForDispatch(
 		return "", fmt.Errorf("gate_result_v1 step %s requires a configured GateResult persistence coordinator", key)
 	}
 
+	// T-E34-F05-005: the workflow layer now resolves outcome_roles per step
+	// (nextInfo.OutcomeRoles, from the step's own `outcome_roles` YAML map).
+	// c.gateIngest.OutcomeRoles is kept only as a fallback for callers that
+	// still inject a flat run-wide override (e.g. existing tests) when the
+	// resolved step map is empty.
+	outcomeRoles := nextInfo.OutcomeRoles
+	if len(outcomeRoles) == 0 {
+		outcomeRoles = c.gateIngest.OutcomeRoles
+	}
+
 	ingestResult, err := IngestGateResult(ctx, GateIngestRequest{
 		EnvelopeBytes:       []byte(strings.TrimSpace(dispatchResult.Stdout)),
 		Coordinator:         c.gateIngest.Coordinator,
@@ -999,7 +1013,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		SourceStatus:        currentStatus,
 		Gate:                currentStatus,
 		Session:             gatepersist.Session{ID: opts.SessionID},
-		OutcomeRoles:        c.gateIngest.OutcomeRoles,
+		OutcomeRoles:        outcomeRoles,
 		Outcomes:            nextInfo.Outcomes,
 		RetirementConfirmed: true,
 	})
@@ -1202,6 +1216,15 @@ func (c *RunController) handleSpawnAgent(
 	result *RunResult, stageStart, startTime time.Time,
 	stageN int, transcriptDisabled *bool,
 ) stageOutcome {
+	// stepInfo pins the dispatched step's own NextStatusInfo (currentStatus's
+	// result_contract/outcome_roles/outcomes) before nextInfo is reassigned
+	// below to the POST-dispatch read. The gate_result_v1 branch resolves its
+	// contract and role map from this pinned snapshot, not the reassigned
+	// variable, so a step can never be validated against a different step's
+	// configuration even if the entity's status already moved by the time the
+	// post-dispatch read runs (e.g. an out-of-band transition mid-dispatch).
+	stepInfo := nextInfo
+
 	dispatcher, err := c.selectDispatcher(action.Provider)
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -1443,7 +1466,9 @@ func (c *RunController) handleSpawnAgent(
 	// touching either transition path. A gate_result_v1 step never falls
 	// through to the legacy parser below on any ingestion failure — it fails
 	// closed instead (see ingestGateResultForDispatch/IngestGateResult).
-	contract, err := resultContractFor(action)
+	// Resolved from stepInfo (the dispatched step's own pinned snapshot, see
+	// above), never from the post-dispatch nextInfo reassigned above.
+	contract, err := resultContractFor(stepInfo)
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,
@@ -1457,7 +1482,7 @@ func (c *RunController) handleSpawnAgent(
 
 	var toStatus string
 	if contract == resultContractGateResultV1 {
-		toStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, nextInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
+		toStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
 		if err != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 				EntityKey: key,

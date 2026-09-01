@@ -516,6 +516,16 @@ func (g SweepGuard) validate(prefix string) error {
 	return nil
 }
 
+// ValidateChangeImpactSet validates a standalone I-04 ChangeImpactSet v1
+// payload outside of a GateResult (REQ-F-006's `shark impact record` ADR
+// adoption boundary). It reuses the exact same field-level bounds and
+// required-shape checks GateResult.Validate applies to each entry of its
+// change_impacts collection; standalone callers get one validation error
+// class, not a second parser.
+func ValidateChangeImpactSet(c ChangeImpactSet) error {
+	return c.validate(0)
+}
+
 func (c ChangeImpactSet) validate(index int) error {
 	prefix := fmt.Sprintf("change_impacts[%d]", index)
 	// source_kind's literal token set (question/tech_debt/change_card/adr/...)

@@ -41,12 +41,19 @@ steps:
     model: sonnet
     skills: [implementation, test-driven-development]
     prompt: tech_debt/in_progress.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: identified
       cancelled: cancelled
       fail: identified
       pass: resolved
       wont_fix: wont_fix
+    outcome_roles:
+      blocked: blocked
+      cancelled: cancelled
+      fail: route_rework
+      pass: success
+      wont_fix: cancelled
   resolved:
     phase: done
     color: green
@@ -71,12 +78,19 @@ steps:
     model: sonnet
     skills: [implementation, test-driven-development]
     prompt: tech_debt/triaged.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: identified
       cancelled: cancelled
       fail: identified
       pass: in_progress
       wont_fix: wont_fix
+    outcome_roles:
+      blocked: blocked
+      cancelled: cancelled
+      fail: route_rework
+      pass: success
+      wont_fix: cancelled
   wont_fix:
     phase: done
     color: red
