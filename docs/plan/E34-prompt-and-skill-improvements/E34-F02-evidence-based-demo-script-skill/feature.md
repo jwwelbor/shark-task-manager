@@ -42,7 +42,7 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
 
 **Acceptance Criteria**:
 - [ ] The action accepts epic, feature, or sprint keys and reads their relevant scope, statuses, acceptance criteria, notes, related documents, completed child work, latest UAT assessor verdict, separate owner decision, open conditions, and integration activation state.
-- [ ] The resulting script groups epic work into user journeys rather than a raw feature inventory, and feature work into its outcomes and relevant integrations.
+- [ ] The resulting script groups epic work into user journeys rather than a raw feature inventory, feature work into its outcomes and relevant integrations, and sprint work by the underlying epic/feature journeys or outcomes of its assigned backlog items rather than by sprint backlog order.
 - [ ] Incomplete work is explicitly placed under “Not demonstrated” rather than presented as complete.
 - [ ] Completed status is treated as context rather than proof; a contract-only obligation or owner-overridden rejection cannot become a verified normal-mode claim.
 

@@ -572,17 +572,21 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 
 // TestE34F02DemoTargetSetIsClosed is a structural guard from the round-2
 // code-review rework: the shipped demo target set (epic, feature, sprint)
-// must stay identical everywhere it is documented. It extracts the exact
-// target token list from every usage line rather than doing a substring
-// Contains check, so a future undocumented 4th target fails this test
-// instead of silently drifting past it, the way the sprint target once
-// drifted past the feature/spec docs.
+// must stay identical everywhere it is documented — including the E34-F02
+// planning docs (feature.md/spec.md) that originally lagged the shipped
+// content and caused the kickback. It extracts the exact target token list
+// from every usage line rather than doing a substring Contains check, so a
+// future undocumented 4th target fails this test instead of silently
+// drifting past it, and a future edit to the shipped content that isn't
+// mirrored into spec.md/feature.md fails too.
 func TestE34F02DemoTargetSetIsClosed(t *testing.T) {
 	repoRoot := findRepoRootForInteractionTest(t)
+	featureDir := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "E34-F02-evidence-based-demo-script-skill")
 	paths := map[string]string{
 		"demo procedure": filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "demo.md"),
 		"rider router":   filepath.Join(repoRoot, "skills", "shark-rider", "SKILL.md"),
 		"static help":    filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "help.md"),
+		"feature spec":   filepath.Join(featureDir, "spec.md"),
 	}
 
 	wantTargets := []string{"epic-key", "feature-key", "sprint-key"}
@@ -613,6 +617,15 @@ func TestE34F02DemoTargetSetIsClosed(t *testing.T) {
 	require.NoError(t, err, "demo-script skill should be shipped")
 	normalizedSkill := regexp.MustCompile(`\s+`).ReplaceAllString(string(skillBody), " ")
 	require.Contains(t, normalizedSkill, "for an epic, feature, or sprint.")
+
+	// feature.md has no usage line; guard its prose acceptance-criteria
+	// wording directly so the planning doc cannot silently regress to the
+	// old "only epic or feature" scope while shipped content documents
+	// sprint too.
+	featureBody, err := os.ReadFile(filepath.Join(featureDir, "feature.md"))
+	require.NoError(t, err, "feature.md should be shipped")
+	require.Contains(t, string(featureBody), "accepts epic, feature, or sprint keys")
+	require.NotContains(t, string(featureBody), "accepts only epic or feature keys")
 }
 
 func TestSolutionWalkthroughRiderProcedure(t *testing.T) {

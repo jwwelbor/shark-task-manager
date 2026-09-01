@@ -802,11 +802,12 @@ func TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007(t *testing.T) {
 
 // TestE34F02DemoScriptScenarioGrouping is a structural guard from the
 // round-2 code-review rework: feature.md Story 1 requires the demo script to
-// group epic work into user journeys (not a raw feature inventory) and
-// feature work into its outcomes and relevant integrations (not a raw task
-// list), but the shipped demo-script skill had no such instruction. This
-// fails if that grouping instruction is ever silently dropped from the
-// embedded skill content.
+// group epic work into user journeys (not a raw feature inventory), feature
+// work into its outcomes and relevant integrations (not a raw task list),
+// and sprint work by the underlying epic/feature journeys or outcomes of its
+// assigned backlog items (not by sprint backlog order), but the shipped
+// demo-script skill had no such instruction. This fails if that grouping
+// instruction is ever silently dropped from the embedded skill content.
 func TestE34F02DemoScriptScenarioGrouping(t *testing.T) {
 	skill := readEmbeddedString(t, "skills/demo-script/SKILL.md")
 	normalized := regexp.MustCompile(`\s+`).ReplaceAllString(skill, " ")
@@ -815,6 +816,7 @@ func TestE34F02DemoScriptScenarioGrouping(t *testing.T) {
 		"groups epic work into user journeys",
 		"rather than a raw feature inventory",
 		"groups feature work into its outcomes and relevant integrations",
+		"groups scenarios by the underlying epic/feature journeys or outcomes of the assigned backlog items",
 	} {
 		assert.Contains(t, normalized, want)
 	}
