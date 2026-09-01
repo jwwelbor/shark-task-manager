@@ -1,12 +1,15 @@
 package gaterun
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func newRunDir(t *testing.T) string {
@@ -251,6 +254,151 @@ func TestWriteOperationState_RejectsSymlinkTarget(t *testing.T) {
 	}
 	if err := WriteOperationState(dir, []byte(`{"phase":"x"}`)); err == nil {
 		t.Fatal("WriteOperationState over symlinked target: want error, got nil")
+	}
+}
+
+// TestReadResult_RejectsSymlinkTarget closes the TOCTOU class the write path
+// already defeats (see TestCreateResult_RejectsSymlinkTarget): a symlink
+// planted at result.json must never be transparently followed by a read.
+// Before the fix, readRegularBounded performed a separate os.Lstat followed
+// by a plain os.Open, which *does* follow symlinks — a same-UID concurrent
+// process could swap the lstat'd target for a symlink in the window between
+// the two syscalls and have it silently dereferenced. This test uses a
+// symlink planted before the read (rather than a live race) to deterministically
+// prove the read path rejects it via a no-follow open, per the guidance that a
+// true race test would be flaky.
+func TestReadResult_RejectsSymlinkTarget(t *testing.T) {
+	dir := newRunDir(t)
+	outside := filepath.Join(t.TempDir(), "elsewhere.json")
+	if err := os.WriteFile(outside, []byte(`{"a":1}`), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	link := filepath.Join(dir, resultFileName)
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if _, _, err := ReadResult(dir); err == nil {
+		t.Fatal("ReadResult over symlinked target: want error, got nil")
+	} else {
+		var unsafeErr *UnsafePathError
+		if !errors.As(err, &unsafeErr) {
+			t.Errorf("ReadResult over symlinked target error = %v, want *UnsafePathError", err)
+		}
+	}
+}
+
+// TestReadOperationState_RejectsSymlinkTarget is the operation-state.json
+// counterpart of TestReadResult_RejectsSymlinkTarget — see that test's
+// comment for the defect this closes.
+func TestReadOperationState_RejectsSymlinkTarget(t *testing.T) {
+	dir := newRunDir(t)
+	outside := filepath.Join(t.TempDir(), "elsewhere.json")
+	if err := os.WriteFile(outside, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	link := filepath.Join(dir, operationStateFileName)
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if _, _, err := ReadOperationState(dir); err == nil {
+		t.Fatal("ReadOperationState over symlinked target: want error, got nil")
+	} else {
+		var unsafeErr *UnsafePathError
+		if !errors.As(err, &unsafeErr) {
+			t.Errorf("ReadOperationState over symlinked target error = %v, want *UnsafePathError", err)
+		}
+	}
+}
+
+// TestReadResult_RejectsFIFOTarget guards against the no-follow open
+// blocking indefinitely on a FIFO opened for read with no writer connected
+// (a plain os.OpenFile(O_RDONLY) on a FIFO blocks until a writer appears).
+// The fix must open with O_NONBLOCK so this returns promptly with an
+// UnsafePathError instead of hanging the test (and, in production, the
+// calling command).
+func TestReadResult_RejectsFIFOTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("FIFOs are not available on windows")
+	}
+	dir := newRunDir(t)
+	path := filepath.Join(dir, resultFileName)
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, _, err := ReadResult(dir); err == nil {
+			t.Error("ReadResult over a FIFO target: want error, got nil")
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReadResult over a FIFO target blocked instead of returning an error")
+	}
+}
+
+// TestReadResult_SymlinkSwapRaceNeverFollowsLink is the actual TOCTOU
+// reproduction: the two static "rejects symlink" tests above only prove the
+// read path catches a symlink that is *already* at result.json when the read
+// starts — which the buggy Lstat-then-Open code also caught, since Lstat
+// alone rejects a link seen at rest. The real defect is the window between
+// that Lstat and the later Open: a same-UID concurrent process can swap the
+// lstat'd regular file for a symlink to secretPath after the Lstat check
+// passes but before Open runs, and a plain os.Open (which follows symlinks)
+// silently dereferences it. This test races a goroutine that continuously
+// swaps result.json between a regular file and a symlink to an outside
+// "secret" file against a tight ReadResult loop; against the pre-fix code it
+// reliably observes the secret content within the budget below, and against
+// the fixed no-follow-open code it must never observe it.
+func TestReadResult_SymlinkSwapRaceNeverFollowsLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink-swap race targets the POSIX no-follow-open fix")
+	}
+	dir := newRunDir(t)
+	path := filepath.Join(dir, resultFileName)
+
+	secretDir := t.TempDir()
+	secretPath := filepath.Join(secretDir, "secret.json")
+	secret := []byte(`{"secret":true}`)
+	if err := os.WriteFile(secretPath, secret, 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+	legit := []byte(`{"legit":true}`)
+	if err := os.WriteFile(path, legit, 0o600); err != nil {
+		t.Fatalf("write initial legit result.json: %v", err)
+	}
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		linkTmp := path + ".linktmp"
+		regTmp := path + ".regtmp"
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// Swap in a symlink to the secret file.
+			_ = os.Remove(linkTmp)
+			if err := os.Symlink(secretPath, linkTmp); err == nil {
+				_ = os.Rename(linkTmp, path)
+			}
+			// Swap back to a legit regular file.
+			if err := os.WriteFile(regTmp, legit, 0o600); err == nil {
+				_ = os.Rename(regTmp, path)
+			}
+		}
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		data, exists, err := ReadResult(dir)
+		if err == nil && exists && bytes.Contains(data, []byte("secret")) {
+			t.Fatal("ReadResult returned the symlink target's content: TOCTOU symlink follow observed")
+		}
 	}
 }
 

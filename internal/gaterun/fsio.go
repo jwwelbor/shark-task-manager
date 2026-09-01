@@ -17,24 +17,16 @@ const (
 	operationStateFileName = "operation-state.json"
 )
 
-// readRegularBounded reads path after verifying it is a real (non-symlink)
-// regular file, bounding the read at maxBytes+1 so an oversized target is
-// rejected rather than exhausting memory.
+// readRegularBounded reads path after verifying, via a no-follow open plus
+// an fstat on the resulting descriptor (see openRegularNoFollow), that it is
+// a real (non-symlink) regular file, bounding the read at maxBytes+1 so an
+// oversized target is rejected rather than exhausting memory. Because the
+// safety check and the read share one already-open descriptor, there is no
+// TOCTOU window between verifying the target and reading it.
 func readRegularBounded(path string, maxBytes int) ([]byte, error) {
-	fi, err := os.Lstat(path)
+	f, err := openRegularNoFollow(path)
 	if err != nil {
-		return nil, fmt.Errorf("gaterun: stat %s: %w", path, err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return nil, &UnsafePathError{Path: path, Reason: "refusing to follow symlink"}
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, &UnsafePathError{Path: path, Reason: "target is not a regular file"}
-	}
-
-	f, err := os.Open(path) // #nosec G304 -- path is joined from a validated run dir, and is Lstat-verified above.
-	if err != nil {
-		return nil, fmt.Errorf("gaterun: open %s: %w", path, err)
+		return nil, err
 	}
 	defer f.Close()
 
