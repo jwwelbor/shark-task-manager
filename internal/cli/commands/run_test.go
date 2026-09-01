@@ -787,3 +787,62 @@ func TestRunRunLivenessStartPrecedesPreflight(t *testing.T) {
 		t.Errorf("rec.Start() at %s must precede acquireRunLeaseForRunnableAction at %s", fset.Position(recStartPos), fset.Position(leasePos))
 	}
 }
+
+// TestRunRunRunControllerDepsAlwaysSetsGateIngest is F-1's regression guard
+// (T-E34-F05-004 rework, code-review-20260901T061603Z-E34-F05.md): every
+// runner.RunControllerDeps{...} composite literal runRun constructs — the
+// top-level controller and the cascade-child controller inside the runChild
+// closure — must set a non-nil GateIngest field. Before this fix neither
+// site set it at all, so RunController.gateIngest stayed nil and every
+// gate_result_v1 step (including the shipped change.code_review/change.qa
+// steps) failed closed inside ingestGateResultForDispatch with "requires a
+// configured GateResult persistence coordinator" the moment a real operator
+// ran `shark run` in the foreground — only --apply-result/--resume-run
+// (which call buildGateCoordinator directly) were reachable. Every existing
+// controller-level gate test hand-builds RunControllerDeps with GateIngest
+// pre-populated, which is exactly why this shipped undetected: this test
+// inspects run.go's own actual construction sites via go/parser (the
+// existing D7 source-invariant convention for a function with no mock
+// seam — see the "AST source-guard test infrastructure" comment above)
+// instead of a hand-built RunControllerDeps.
+func TestRunRunRunControllerDepsAlwaysSetsGateIngest(t *testing.T) {
+	_, runRunDecl := parseRunGoSource(t)
+
+	var sitesChecked int
+	ast.Inspect(runRunDecl, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		sel, ok := lit.Type.(*ast.SelectorExpr)
+		if !ok || sel.Sel == nil || sel.Sel.Name != "RunControllerDeps" {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != "runner" {
+			return true
+		}
+		sitesChecked++
+
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != "GateIngest" {
+				continue
+			}
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
+				t.Fatalf("runner.RunControllerDeps{} at %v sets GateIngest to a literal nil", lit.Pos())
+			}
+			return true
+		}
+		t.Fatalf("runner.RunControllerDeps{} at %v does not set GateIngest at all — every gate_result_v1 step will fail closed with \"requires a configured GateResult persistence coordinator\" through this construction site", lit.Pos())
+		return true
+	})
+
+	if sitesChecked < 2 {
+		t.Fatalf("expected to find 2 runner.RunControllerDeps{} construction sites in runRun (top-level + cascade child), found %d — this test's own detection may have broken", sitesChecked)
+	}
+}

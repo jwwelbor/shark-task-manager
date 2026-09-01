@@ -112,6 +112,7 @@ func defaultValidator() *fakeStatusValidator {
 func TestPersist_OrderingAndContent(t *testing.T) {
 	runDir := t.TempDir()
 	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
 	req := baseRequest(t, runDir)
 	req.RetirementConfirmed = true
@@ -196,6 +197,7 @@ func TestPersist_OrderingAndContent(t *testing.T) {
 func TestPersist_EvidenceFoldedIntoGateSummaryNote(t *testing.T) {
 	runDir := t.TempDir()
 	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
 
 	req := baseRequest(t, runDir)
@@ -220,6 +222,7 @@ func TestPersist_EvidenceFoldedIntoGateSummaryNote(t *testing.T) {
 func TestPersist_FailureInjectionResumesWithoutDuplicates(t *testing.T) {
 	runDir := t.TempDir()
 	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	req := baseRequest(t, runDir)
 
 	// Inject a "crash" right after the finding note is durably committed,
@@ -257,6 +260,7 @@ func TestPersist_FailureInjectionResumesWithoutDuplicates(t *testing.T) {
 func TestPersist_KickbackFailureInjectionResumesWithoutReapplying(t *testing.T) {
 	runDir := t.TempDir()
 	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	req := baseRequest(t, runDir)
 
 	world.failTransitionTo[string(models.EntityTypeTask)+"|T-E34-F05-100|blocked"] = true
@@ -288,6 +292,7 @@ func TestPersist_KickbackFailureInjectionResumesWithoutReapplying(t *testing.T) 
 func TestPersist_ConflictingReplayRejected(t *testing.T) {
 	runDir := t.TempDir()
 	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
 
 	req := baseRequest(t, runDir)
@@ -318,6 +323,7 @@ func TestPersist_ConflictingReplayRejected(t *testing.T) {
 func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
 	runDir := t.TempDir()
 	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
 
 	req := baseRequest(t, runDir)
@@ -379,6 +385,7 @@ func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
 func TestPersist_AlreadyTransitionedResumeFailsClosedOnDivergedStatus(t *testing.T) {
 	runDir := t.TempDir()
 	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
 
 	req := baseRequest(t, runDir)
@@ -410,6 +417,68 @@ func TestPersist_AlreadyTransitionedResumeFailsClosedOnDivergedStatus(t *testing
 	}
 	if len(world.releaseCalls) != 0 {
 		t.Fatalf("expected no lease release when verification fails closed")
+	}
+}
+
+// TestPersist_PreTransitionFailsClosedOnDivergedSourceStatus is F-3
+// (T-E34-F05-004 rework): the pre-transition path must verify the main
+// entity's live status equals the recorded SourceStatus (or, for a resumed
+// call landing between Transition returning and MarkTransitionApplied's
+// save, TargetStatus) before transitioning — REQ-F-002's "transition
+// exactly once from the recorded source." Without this check, a kickback
+// note or another concurrent writer that moved the entity off "in_review"
+// between dispatch and this Persist call would still be blindly
+// transitioned from wherever it now sits.
+func TestPersist_PreTransitionFailsClosedOnDivergedSourceStatus(t *testing.T) {
+	runDir := t.TempDir()
+	world := newFakeWorld()
+	// Diverged: SourceStatus is "in_review" (baseRequest), but something
+	// else already moved the entity to "blocked" before this Persist call.
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "blocked")
+	coord := newTestCoordinator(world, defaultValidator())
+
+	req := baseRequest(t, runDir)
+	if _, err := coord.Persist(context.Background(), req); err == nil {
+		t.Fatalf("expected Persist to fail closed when the live status diverges from the recorded source status")
+	}
+
+	// The kickback transition is part of the six-step persistence order,
+	// which runs (and durably commits) before the main-entity transition's
+	// source-status check — only the *main* transition is guarded here.
+	mainTransitions := 0
+	for _, c := range world.transitionCalls {
+		if c.entityKey == mainEntityKey {
+			mainTransitions++
+		}
+	}
+	if mainTransitions != 0 {
+		t.Fatalf("expected no main-entity transition call before the source-status check, got %d: %+v", mainTransitions, world.transitionCalls)
+	}
+}
+
+// TestPersist_PreTransitionAcceptsTargetStatusFromResumedCall covers the
+// crash window between Transition returning (coordinator.go's Complete
+// branch) and MarkTransitionApplied's state.Save: a resumed call whose
+// sidecar still reads PersistenceStateComplete must not fail closed just
+// because the entity is already durably sitting at TargetStatus from the
+// call that crashed before recording it.
+func TestPersist_PreTransitionAcceptsTargetStatusFromResumedCall(t *testing.T) {
+	runDir := t.TempDir()
+	world := newFakeWorld()
+	// The entity is already at TargetStatus ("ready_for_qa") — as if a
+	// prior call applied the transition but crashed before
+	// MarkTransitionApplied's state.Save.
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "ready_for_qa")
+	coord := newTestCoordinator(world, defaultValidator())
+
+	req := baseRequest(t, runDir)
+	req.RetirementConfirmed = true
+	res, err := coord.Persist(context.Background(), req)
+	if err != nil {
+		t.Fatalf("expected Persist to accept the entity already at TargetStatus, got error: %v", err)
+	}
+	if !res.TransitionApplied || res.ToStatus != "ready_for_qa" {
+		t.Fatalf("expected transition applied to ready_for_qa, got %+v", res)
 	}
 }
 

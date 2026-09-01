@@ -214,6 +214,19 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	placeholderGen := buildPlaceholderGenerator(ctx, entityType)
 
+	// T-E34-F05-004 rework (F-1): every gate_result_v1 step's persistence
+	// depends on a real GateResult coordinator, not just the transitioner
+	// above. Build it once, before any lease is acquired, so a wiring
+	// failure here aborts the run before touching claim state — and share
+	// it between the top-level controller and every cascade-child controller
+	// runChild constructs below, matching buildGateCoordinator's existing
+	// single-coordinator-per-run contract (run_apply_result.go/run_resume.go
+	// build their own per CLI invocation for the same reason).
+	gateIngestDeps, err := buildRunControllerGateIngestDeps(ctx)
+	if err != nil {
+		return fmt.Errorf("build gate result ingestion dependencies: %w", err)
+	}
+
 	// Step 3: Get shared services. Narrow the action service to this entity
 	// type so status lookups in the run loop resolve against the right
 	// per-entity workflow (cross-entity status name collisions like
@@ -283,6 +296,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			QuestionResponses: buildQuestionResponsePersister(childType),
 			QuestionBlocker:   questionBlocker,
 			HarnessResolver:   cli.GetHarnessResolver(),
+			GateIngest:        gateIngestDeps,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cascade child controller for %s %s: %w", childType, key, err)
@@ -361,6 +375,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		QuestionResponses: buildQuestionResponsePersister(entityType),
 		QuestionBlocker:   questionBlocker,
 		HarnessResolver:   cli.GetHarnessResolver(),
+		GateIngest:        gateIngestDeps,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)
@@ -741,6 +756,25 @@ func setupWorktree(ctx context.Context, entityKey string, creator runner.Worktre
 		return "", "", fmt.Errorf("git worktree add failed: %w", createErr)
 	}
 	return worktreePath, worktreePath, nil
+}
+
+// buildRunControllerGateIngestDeps wires the runner.GateIngestDeps every
+// RunControllerDeps construction site in this file must set (T-E34-F05-004
+// rework, F-1): without it, RunController.gateIngest is nil and every
+// gate_result_v1 step fails closed inside ingestGateResultForDispatch with
+// "requires a configured GateResult persistence coordinator" the moment a
+// real operator runs `shark run` in the foreground — only
+// --apply-result/--resume-run (run_apply_result.go/run_resume.go) reused
+// buildGateCoordinator directly; this file's own controller construction
+// never did. Reuses the exact same buildGateCoordinator wiring those two
+// surfaces already call, so all three callers share one coordinator
+// construction path rather than three independently-verified copies.
+func buildRunControllerGateIngestDeps(ctx context.Context) (*runner.GateIngestDeps, error) {
+	coordinator, err := buildGateCoordinator(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("build GateResult persistence coordinator: %w", err)
+	}
+	return &runner.GateIngestDeps{Coordinator: coordinator}, nil
 }
 
 // buildTransitioner returns an EntityTransitioner for the given entity type.

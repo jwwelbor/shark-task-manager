@@ -120,6 +120,24 @@ func TestResolveResumeStatus_AlreadyTransitioned(t *testing.T) {
 	}
 }
 
+// fakeGateStepResolver is a minimal, no-database gateStepResolver fake:
+// resumeGateIngestIfConfigured resolves a step's result_contract/outcomes/
+// outcome_roles by an explicit status argument (the durably recorded gate
+// step, decision.State.Gate), so this fake ignores the status parameter and
+// always returns its fixed configuration — matching how the production
+// *workflow.Service is used here (one resolved step per test fixture).
+type fakeGateStepResolver struct {
+	resultContract string
+	outcomes       map[string]string
+	outcomeRoles   map[string]gateresult.OutcomeRole
+}
+
+func (f *fakeGateStepResolver) GetResultContract(string) string      { return f.resultContract }
+func (f *fakeGateStepResolver) GetOutcomes(string) map[string]string { return f.outcomes }
+func (f *fakeGateStepResolver) GetOutcomeRoles(string) map[string]gateresult.OutcomeRole {
+	return f.outcomeRoles
+}
+
 func TestRunResumeRun_RequiresSession(t *testing.T) {
 	origResumeID, origSession := runResumeID, runSession
 	defer func() { runResumeID, runSession = origResumeID, origSession }()
@@ -140,10 +158,10 @@ func TestRunResumeRun_RequiresSession(t *testing.T) {
 // status.
 func TestRunResumeRun_GateResultV1ResumeTransitionReIngestsStoredEnvelope(t *testing.T) {
 	origResumeID, origSession := runResumeID, runSession
-	origTransitioner, origCoordinator := runResumeTransitionerOverride, runResumeCoordinatorOverride
+	origResolver, origCoordinator := runResumeWorkflowServiceOverride, runResumeCoordinatorOverride
 	defer func() {
 		runResumeID, runSession = origResumeID, origSession
-		runResumeTransitionerOverride, runResumeCoordinatorOverride = origTransitioner, origCoordinator
+		runResumeWorkflowServiceOverride, runResumeCoordinatorOverride = origResolver, origCoordinator
 	}()
 
 	entityKey := "E01-F01-001"
@@ -169,10 +187,9 @@ func TestRunResumeRun_GateResultV1ResumeTransitionReIngestsStoredEnvelope(t *tes
 	}
 
 	transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
-	runResumeTransitionerOverride = &fakeParityTransitioner{
-		status:         map[string]string{entityKey: "todo"},
-		outcomes:       map[string]string{"pass": "in_review"},
+	runResumeWorkflowServiceOverride = &fakeGateStepResolver{
 		resultContract: "gate_result_v1",
+		outcomes:       map[string]string{"pass": "in_review"},
 		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
@@ -214,10 +231,10 @@ func TestRunResumeRun_GateResultV1ResumeTransitionReIngestsStoredEnvelope(t *tes
 // a fresh ingestion of that same envelope would.
 func TestRunResumeRun_PartialPersistenceResumeCompletesTransition(t *testing.T) {
 	origResumeID, origSession := runResumeID, runSession
-	origTransitioner, origCoordinator := runResumeTransitionerOverride, runResumeCoordinatorOverride
+	origResolver, origCoordinator := runResumeWorkflowServiceOverride, runResumeCoordinatorOverride
 	defer func() {
 		runResumeID, runSession = origResumeID, origSession
-		runResumeTransitionerOverride, runResumeCoordinatorOverride = origTransitioner, origCoordinator
+		runResumeWorkflowServiceOverride, runResumeCoordinatorOverride = origResolver, origCoordinator
 	}()
 
 	entityKey := "E01-F01-001"
@@ -242,10 +259,9 @@ func TestRunResumeRun_PartialPersistenceResumeCompletesTransition(t *testing.T) 
 	}
 
 	transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
-	runResumeTransitionerOverride = &fakeParityTransitioner{
-		status:         map[string]string{entityKey: "todo"},
-		outcomes:       map[string]string{"pass": "in_review"},
+	runResumeWorkflowServiceOverride = &fakeGateStepResolver{
 		resultContract: "gate_result_v1",
+		outcomes:       map[string]string{"pass": "in_review"},
 		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
 	}
 	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
@@ -276,13 +292,20 @@ func TestRunResumeRun_PartialPersistenceResumeCompletesTransition(t *testing.T) 
 	}
 }
 
-// TestRunResumeRun_AlreadyTransitionedSkipsGateIngest asserts an
-// already_transitioned decision performs no re-ingestion — the transition is
-// already durably applied and must not be repeated.
-func TestRunResumeRun_AlreadyTransitionedSkipsGateIngest(t *testing.T) {
-	entityKey := "E01-F01-001"
-	runID := "run-alreadydone1234567890abcdef123456"
-	root := t.TempDir()
+// fakeCountingLeaseReleaser records every Release call so a test can assert
+// the lease was released exactly once — never zero times (F-2's defect) and
+// never more than once (a double-release would be its own bug).
+type fakeCountingLeaseReleaser struct {
+	calls []runReleaseCall
+}
+
+func (f *fakeCountingLeaseReleaser) Release(_ context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error) {
+	f.calls = append(f.calls, runReleaseCall{entityType: entityType, entityKey: entityKey, sessionID: sessionID, outcome: outcome, force: force})
+	return true, nil
+}
+
+func setUpAlreadyTransitionedFixture(t *testing.T, entityKey, runID, root string) *gaterun.ResumeDecision {
+	t.Helper()
 	dir, err := gaterun.RunDir(root, runID)
 	if err != nil {
 		t.Fatalf("RunDir: %v", err)
@@ -290,7 +313,11 @@ func TestRunResumeRun_AlreadyTransitionedSkipsGateIngest(t *testing.T) {
 	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {
 		t.Fatalf("CreateResult: %v", err)
 	}
-	s := gaterun.NewOperationState(runID, entityKey, "task", "todo", "todo", "digest")
+	digest, err := gaterun.ComputeOperationDigest(entityKey, "task", "todo", "todo", []byte(parityEnvelope))
+	if err != nil {
+		t.Fatalf("ComputeOperationDigest: %v", err)
+	}
+	s := gaterun.NewOperationState(runID, entityKey, "task", "todo", "todo", digest)
 	if err := s.MarkPersistenceComplete(); err != nil {
 		t.Fatalf("mark persistence complete: %v", err)
 	}
@@ -308,7 +335,112 @@ func TestRunResumeRun_AlreadyTransitionedSkipsGateIngest(t *testing.T) {
 	if decision.Action != gaterun.ResumeActionAlreadyTransitioned {
 		t.Fatalf("expected already_transitioned, got %s", decision.Action)
 	}
-	if out.Ingested {
-		t.Fatal("expected no ingestion to have been attempted for an already_transitioned decision")
+	_ = out
+	return decision
+}
+
+// TestRunResumeRun_AlreadyTransitionedVerifiesAndReleasesLease is F-2
+// (T-E34-F05-004 rework): gaterun/resume.go documents
+// ResumeActionAlreadyTransitioned's contract as "verify the expected live
+// target state and release the lease; it must not repeat the transition."
+// Before this fix, --resume-run skipped gate ingestion entirely for this
+// action, so gatepersist.Coordinator — which owns lease release per
+// run_resume.go's own doc comment — was never invoked, leaving the parent's
+// lease held forever in the "transition succeeded, crashed before release"
+// crash window feature.md's "Replay a committed result" acceptance scenario
+// names.
+func TestRunResumeRun_AlreadyTransitionedVerifiesAndReleasesLease(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origResolver, origCoordinator := runResumeWorkflowServiceOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeWorkflowServiceOverride, runResumeCoordinatorOverride = origResolver, origCoordinator
+	}()
+
+	entityKey := "E01-F01-001"
+	runID := "run-alreadydone1234567890abcdef123456"
+	root := t.TempDir()
+	decision := setUpAlreadyTransitionedFixture(t, entityKey, runID, root)
+
+	// The entity already sits at the recorded target ("in_review",
+	// parityEnvelope's "pass" outcome) — the expected live state for a
+	// resume landing after the transition succeeded but before the lease
+	// was released.
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "in_review"}}
+	releaser := &fakeCountingLeaseReleaser{}
+	runResumeWorkflowServiceOverride = &fakeGateStepResolver{
+		resultContract: "gate_result_v1",
+		outcomes:       map[string]string{"pass": "in_review"},
+		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser,
+	)
+
+	runResumeID = runID
+	runSession = "sess-resume"
+
+	out := &resumeRunOutput{}
+	if err := resumeGateIngestIfConfigured(context.Background(), root, "task", entityKey, decision, out); err != nil {
+		t.Fatalf("resumeGateIngestIfConfigured: %v", err)
+	}
+
+	if out.ToStatus != "in_review" {
+		t.Fatalf("expected ToStatus=in_review, got %q", out.ToStatus)
+	}
+	if !out.LeaseReleased {
+		t.Fatal("expected LeaseReleased=true")
+	}
+	if len(releaser.calls) != 1 {
+		t.Fatalf("expected exactly 1 lease release call, got %d: %+v", len(releaser.calls), releaser.calls)
+	}
+	if releaser.calls[0].sessionID != "sess-resume" {
+		t.Fatalf("expected release for session sess-resume, got %+v", releaser.calls[0])
+	}
+}
+
+// TestRunResumeRun_AlreadyTransitionedFailsClosedOnDivergedStatus proves the
+// other half of F-2's contract: an already_transitioned resume must verify
+// the live status before releasing anything — if something else moved the
+// entity away from the recorded target between the crashed run and this
+// resume, the lease must NOT be released, mirroring
+// gatepersist.Coordinator's own divergence check.
+func TestRunResumeRun_AlreadyTransitionedFailsClosedOnDivergedStatus(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origResolver, origCoordinator := runResumeWorkflowServiceOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeWorkflowServiceOverride, runResumeCoordinatorOverride = origResolver, origCoordinator
+	}()
+
+	entityKey := "E01-F01-001"
+	runID := "run-alreadydiverged1234567890abcdef12"
+	root := t.TempDir()
+	decision := setUpAlreadyTransitionedFixture(t, entityKey, runID, root)
+
+	// Diverged: recorded target is "in_review", but the entity now sits at
+	// "blocked" (e.g. a human `status set --force`).
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "blocked"}}
+	releaser := &fakeCountingLeaseReleaser{}
+	runResumeWorkflowServiceOverride = &fakeGateStepResolver{
+		resultContract: "gate_result_v1",
+		outcomes:       map[string]string{"pass": "in_review"},
+		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser,
+	)
+
+	runResumeID = runID
+	runSession = "sess-resume"
+
+	out := &resumeRunOutput{}
+	if err := resumeGateIngestIfConfigured(context.Background(), root, "task", entityKey, decision, out); err == nil {
+		t.Fatal("expected resumeGateIngestIfConfigured to fail closed on a diverged live status")
+	}
+	if len(releaser.calls) != 0 {
+		t.Fatalf("expected no lease release when verification fails closed, got %d calls", len(releaser.calls))
 	}
 }

@@ -175,6 +175,23 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	// it since).
 	switch state.PersistenceState {
 	case gaterun.PersistenceStateComplete:
+		// F-3: verify the entity is still where this run left it before
+		// transitioning "exactly once from the recorded source" (REQ-F-002).
+		// Accept either SourceStatus (the normal case) or TargetStatus
+		// (a resumed call landing in the window between Transition
+		// returning below and MarkTransitionApplied's state.Save — the
+		// transition already applied, the sidecar just hasn't caught up
+		// yet) and fail closed on anything else, mirroring the
+		// PersistenceStateTransitioned verification below rather than
+		// trusting Transitioner's own idempotency to stand in for it.
+		current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
+		if err != nil {
+			return nil, fmt.Errorf("gatepersist: verify source status before main transition: %w", err)
+		}
+		if !strings.EqualFold(current, req.SourceStatus) && !strings.EqualFold(current, req.TargetStatus) {
+			return nil, fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
+		}
+
 		reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
 		fromStatus, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent)
 		if err != nil {
