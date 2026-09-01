@@ -101,15 +101,30 @@ func (t *EntityServiceTransitioner) CurrentStatus(ctx context.Context, entityTyp
 	return t.workflowSvc.ForLevel(string(entityType)).NormalizeStatus(entity.GetStatus()), nil
 }
 
-// Transition implements Transitioner.
-func (t *EntityServiceTransitioner) Transition(ctx context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string) (string, bool, error) {
+// Transition implements Transitioner. guard's SessionID/FromStatus/Outcome
+// are wired into services.TransitionOptions alongside GuardAdvance: true, so
+// EntityService's advance_guard replay/CAS protection engages for this
+// coordinator's parent-owned transitions whenever advance_guard.enabled is
+// configured — mirroring internal/runner/controller.go's
+// guardedTransitionOptions pattern for the runner's own dispatch-loop
+// transitions. EntityService ANDs GuardAdvance with the configured
+// advance_guard.enabled flag itself (shouldUseAdvanceGuard), so passing it
+// unconditionally is safe for legacy/unguarded deployments.
+func (t *EntityServiceTransitioner) Transition(ctx context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string, guard TransitionGuard) (string, bool, error) {
 	repo, err := t.registry.GetRepository(entityType)
 	if err != nil {
 		return "", false, fmt.Errorf("gatepersist: resolve repository for %s: %w", entityType, err)
 	}
 	scoped := t.entitySvc.ForLevel(string(entityType))
 	result, err := scoped.TransitionStatus(ctx, repo, entityType, entityKey, targetStatus,
-		services.TransitionOptions{Reason: reason, Agent: agent},
+		services.TransitionOptions{
+			Reason:       reason,
+			Agent:        agent,
+			SessionID:    guard.SessionID,
+			FromStatus:   guard.FromStatus,
+			Outcome:      guard.Outcome,
+			GuardAdvance: true,
+		},
 		services.SimpleTransitionFeatures(),
 		nil,
 	)

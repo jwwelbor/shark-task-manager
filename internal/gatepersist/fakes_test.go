@@ -45,6 +45,7 @@ type releaseCall struct {
 
 type transitionCall struct {
 	entityType, entityKey, targetStatus, reason, agent string
+	guard                                              TransitionGuard
 }
 
 func newFakeWorld() *fakeWorld {
@@ -118,12 +119,12 @@ func (w *fakeWorld) GetHistory(_ context.Context, entityType models.EntityType, 
 // Transition implements Transitioner, mirroring EntityService.
 // TransitionStatus's own idempotency guarantee: calling it again when
 // already at targetStatus is a no-op success (transitioned=false).
-func (w *fakeWorld) Transition(_ context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string) (string, bool, error) {
+func (w *fakeWorld) Transition(_ context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string, guard TransitionGuard) (string, bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	w.transitionCalls = append(w.transitionCalls, transitionCall{
-		entityType: string(entityType), entityKey: entityKey, targetStatus: targetStatus, reason: reason, agent: agent,
+		entityType: string(entityType), entityKey: entityKey, targetStatus: targetStatus, reason: reason, agent: agent, guard: guard,
 	})
 
 	key := historyKey(entityType, entityKey)

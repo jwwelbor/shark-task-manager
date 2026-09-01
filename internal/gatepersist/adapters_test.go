@@ -2,6 +2,7 @@ package gatepersist
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,35 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// fakeAdvanceGuardRecorder is a minimal in-memory services.AdvanceGuardRecorder,
+// enough to prove EntityServiceTransitioner actually wires a
+// TransitionGuard through to services.EntityService's replay ledger.
+type fakeAdvanceGuardRecorder struct {
+	consumed map[string]bool
+}
+
+func newFakeAdvanceGuardRecorder() *fakeAdvanceGuardRecorder {
+	return &fakeAdvanceGuardRecorder{consumed: make(map[string]bool)}
+}
+
+func (r *fakeAdvanceGuardRecorder) key(entityType string, entityID int64, sessionID, fromStatus, outcome string) string {
+	return entityType + "|" + sessionID + "|" + fromStatus + "|" + outcome
+}
+
+func (r *fakeAdvanceGuardRecorder) WasConsumed(_ context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) (bool, error) {
+	return r.consumed[r.key(entityType, entityID, sessionID, fromStatus, outcome)], nil
+}
+
+func (r *fakeAdvanceGuardRecorder) RecordConsumed(_ context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+	r.consumed[r.key(entityType, entityID, sessionID, fromStatus, outcome)] = true
+	return nil
+}
+
+func (r *fakeAdvanceGuardRecorder) DeleteConsumed(_ context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error {
+	delete(r.consumed, r.key(entityType, entityID, sessionID, fromStatus, outcome))
+	return nil
+}
 
 // fakeTaskRepo is a minimal services.EntityRepository backed by one
 // in-memory *models.Task, enough to exercise EntityServiceTransitioner's
@@ -153,7 +183,7 @@ func TestEntityServiceTransitioner_TransitionAndIdempotency(t *testing.T) {
 
 	transitioner := NewEntityServiceTransitioner(entitySvc, registry, svc)
 
-	from, transitioned, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "moving to review", "agent-1")
+	from, transitioned, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "moving to review", "agent-1", TransitionGuard{})
 	if err != nil {
 		t.Fatalf("Transition: %v", err)
 	}
@@ -168,7 +198,7 @@ func TestEntityServiceTransitioner_TransitionAndIdempotency(t *testing.T) {
 	// re-write, matching the Transitioner interface's documented contract
 	// that Coordinator.Persist relies on for its "verify already-applied
 	// identical target" resume behavior.
-	from2, transitioned2, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "moving to review again", "agent-1")
+	from2, transitioned2, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "moving to review again", "agent-1", TransitionGuard{})
 	if err != nil {
 		t.Fatalf("idempotent Transition: %v", err)
 	}
@@ -212,5 +242,82 @@ func TestEntityServiceTransitioner_CurrentStatusResolvesAlias(t *testing.T) {
 	}
 	if got != "qa" {
 		t.Fatalf("CurrentStatus = %q, want canonical %q (alias-resolved from stored %q)", got, "qa", "ready_for_qa")
+	}
+}
+
+// TestEntityServiceTransitioner_GuardedAdvance_RejectsSessionFromStatusMismatch
+// is this rework round's regression test: code-review round 4 found that
+// EntityServiceTransitioner.Transition dropped guard.SessionID/FromStatus/
+// Outcome/GuardAdvance on the floor, so advance_guard.enabled never actually
+// engaged replay protection for any gatepersist-driven transition, even
+// though the config was on. Before the fix in adapters.go, this test failed
+// with transitioned=true (the guard silently no-op'd); it must now fail
+// closed with services.ErrAdvanceGuardStaleFromStatus, mirroring
+// controller.go's TestGuardedTransitionOptions_BindsRunLeaseAndSourceStatus
+// intent (that test only checks the pure options builder — this one proves
+// the wiring reaches services.EntityService's actual enforcement).
+func TestEntityServiceTransitioner_GuardedAdvance_RejectsSessionFromStatusMismatch(t *testing.T) {
+	svc := testWorkflowService(t)
+	entitySvc := services.NewEntityService(svc)
+	entitySvc.SetAdvanceGuard(config.AdvanceGuardConfig{Enabled: true}, newFakeAdvanceGuardRecorder())
+	registry := services.NewEntityRegistry()
+
+	repo := &fakeTaskRepo{task: &models.Task{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", Title: "t"},
+		Status:     models.TaskStatus("todo"),
+	}}
+	registry.Register(models.EntityTypeTask, repo)
+
+	transitioner := NewEntityServiceTransitioner(entitySvc, registry, svc)
+
+	// The task is actually at "todo", but the guard claims it observed
+	// "in_review" as the pre-transition status — exactly the stale/replayed
+	// session scenario advance_guard exists to reject.
+	guard := TransitionGuard{SessionID: "sess-1", FromStatus: "in_review", Outcome: "pass"}
+	_, transitioned, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "moving to review", "agent-1", guard)
+	if !errors.Is(err, services.ErrAdvanceGuardStaleFromStatus) {
+		t.Fatalf("expected ErrAdvanceGuardStaleFromStatus, got transitioned=%v err=%v", transitioned, err)
+	}
+	if repo.task.GetStatus() != "todo" {
+		t.Fatalf("expected the rejected guarded advance to leave status untouched, got %q", repo.task.GetStatus())
+	}
+}
+
+// TestEntityServiceTransitioner_GuardedAdvance_SucceedsAndRejectsReplay proves
+// the positive path: a correctly-wired guard (matching session/from-status/
+// outcome) is accepted once, and services.EntityService's replay ledger then
+// rejects an identical guarded re-call — the actual protection
+// advance_guard.enabled is supposed to buy gatepersist's parent-owned
+// transitions.
+func TestEntityServiceTransitioner_GuardedAdvance_SucceedsAndRejectsReplay(t *testing.T) {
+	svc := testWorkflowService(t)
+	entitySvc := services.NewEntityService(svc)
+	entitySvc.SetAdvanceGuard(config.AdvanceGuardConfig{Enabled: true}, newFakeAdvanceGuardRecorder())
+	registry := services.NewEntityRegistry()
+
+	repo := &fakeTaskRepo{task: &models.Task{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", Title: "t"},
+		Status:     models.TaskStatus("todo"),
+	}}
+	registry.Register(models.EntityTypeTask, repo)
+
+	transitioner := NewEntityServiceTransitioner(entitySvc, registry, svc)
+
+	guard := TransitionGuard{SessionID: "sess-1", FromStatus: "todo", Outcome: "pass"}
+	from, transitioned, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "moving to review", "agent-1", guard)
+	if err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	if !transitioned || from != "todo" {
+		t.Fatalf("expected transitioned=true from=todo, got transitioned=%v from=%q", transitioned, from)
+	}
+
+	// Same guard tuple replayed against a fresh task back at "todo" (a
+	// concurrent/duplicate worker submission) must be rejected by the ledger
+	// rather than silently re-applied.
+	repo.task.SetStatus("todo")
+	_, _, err = transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "moving to review", "agent-1", guard)
+	if !errors.Is(err, services.ErrAdvanceGuardRepeatRejected) {
+		t.Fatalf("expected ErrAdvanceGuardRepeatRejected on replay, got %v", err)
 	}
 }

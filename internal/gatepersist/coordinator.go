@@ -196,7 +196,12 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		}
 
 		reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
-		fromStatus, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent)
+		guard := TransitionGuard{
+			SessionID:  req.Session.ID,
+			FromStatus: req.SourceStatus,
+			Outcome:    req.OutcomeKey,
+		}
+		fromStatus, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent, guard)
 		if err != nil {
 			return nil, fmt.Errorf("gatepersist: apply main transition: %w", err)
 		}
@@ -304,8 +309,23 @@ func (c *Coordinator) applyKickback(ctx context.Context, op operation, subID str
 	if err != nil {
 		return err
 	}
+	// The kickback target (often a different entity than req.EntityKey) has
+	// no parent-observed SourceStatus the way the main transition does, so
+	// its expected pre-transition status is read fresh here, immediately
+	// before the guarded Transition call — the same narrow
+	// observe-then-transition window guardedTransitionOptions accepts for
+	// the runner's own dispatch-loop transitions.
+	fromStatus, err := c.Status.CurrentStatus(ctx, entityType, k.EntityKey)
+	if err != nil {
+		return fmt.Errorf("gatepersist: read kickback target status for %s: %w", k.EntityKey, err)
+	}
 	reason := buildKickbackReason(k.Reason, subID, op.contentDigest())
-	if _, _, err := c.Transition.Transition(ctx, entityType, k.EntityKey, k.TargetStatus, reason, req.Session.Agent); err != nil {
+	guard := TransitionGuard{
+		SessionID:  req.Session.ID,
+		FromStatus: fromStatus,
+		Outcome:    req.OutcomeKey,
+	}
+	if _, _, err := c.Transition.Transition(ctx, entityType, k.EntityKey, k.TargetStatus, reason, req.Session.Agent, guard); err != nil {
 		return fmt.Errorf("gatepersist: apply kickback to %s: %w", k.EntityKey, err)
 	}
 	return nil

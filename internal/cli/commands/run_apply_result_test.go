@@ -66,7 +66,7 @@ type fakeParityTransition struct {
 	status map[string]string
 }
 
-func (t *fakeParityTransition) Transition(_ context.Context, _ models.EntityType, entityKey, targetStatus, _, _ string) (string, bool, error) {
+func (t *fakeParityTransition) Transition(_ context.Context, _ models.EntityType, entityKey, targetStatus, _, _ string, _ gatepersist.TransitionGuard) (string, bool, error) {
 	from := t.status[entityKey]
 	t.status[entityKey] = targetStatus
 	return from, from != targetStatus, nil

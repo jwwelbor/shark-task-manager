@@ -33,6 +33,28 @@ type StatusValidator interface {
 	IsValidStatus(entityType models.EntityType, status string) bool
 }
 
+// TransitionGuard carries the replay-protection tuple a parent-owned
+// transition must supply so services.EntityService's advance_guard can
+// engage (session id, the expected pre-transition status, and the semantic
+// outcome driving the transition). It mirrors
+// internal/runner/controller.go's guardedTransitionOptions helper for this
+// package's own caller shape: gatepersist has no *services.NextStatusInfo
+// to resolve an outcome name from, so callers supply Outcome directly
+// (Request.OutcomeKey — the worker's own recommended_outcome, the same
+// workflow-outcome-name role guardedTransitionOptions resolves for the
+// runner's dispatch-loop transitions).
+//
+// GuardAdvance is set unconditionally true by every caller in this package,
+// exactly as guardedTransitionOptions does — services.EntityService itself
+// ANDs it with the configured advance_guard.enabled flag
+// (shouldUseAdvanceGuard), so a legacy/unguarded deployment is unaffected
+// and this package never needs its own copy of that config decision.
+type TransitionGuard struct {
+	SessionID  string
+	FromStatus string
+	Outcome    string
+}
+
 // Transitioner applies a workflow status transition to one entity, recording
 // reason and agent on its audit trail. It must be idempotent: calling it
 // again when the entity is already at targetStatus must succeed with
@@ -41,7 +63,7 @@ type StatusValidator interface {
 // path — see EntityService.TransitionStatus's step-2 idempotency check,
 // which the default adapter delegates to).
 type Transitioner interface {
-	Transition(ctx context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string) (fromStatus string, transitioned bool, err error)
+	Transition(ctx context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string, guard TransitionGuard) (fromStatus string, transitioned bool, err error)
 }
 
 // LeaseReleaser releases the parent's claim/lease session on an entity. Its

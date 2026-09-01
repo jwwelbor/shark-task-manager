@@ -54,7 +54,7 @@ type fakeTransitioner struct {
 	status map[string]string
 }
 
-func (t *fakeTransitioner) Transition(_ context.Context, _ models.EntityType, entityKey, targetStatus, _, _ string) (string, bool, error) {
+func (t *fakeTransitioner) Transition(_ context.Context, _ models.EntityType, entityKey, targetStatus, _, _ string, _ gatepersist.TransitionGuard) (string, bool, error) {
 	from := t.status[entityKey]
 	if t.status == nil {
 		t.status = map[string]string{}

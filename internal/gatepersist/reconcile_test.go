@@ -36,7 +36,7 @@ func TestReconciler_MergesDurableNoteAndHistoryRecords(t *testing.T) {
 	world.setStatus(models.EntityTypeTask, kickbackOp.kickback.EntityKey, "in_review")
 	subID := kickbackOp.suboperationID(digest)
 	reason := buildKickbackReason(kickbackOp.kickback.Reason, subID, kickbackOp.contentDigest())
-	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, kickbackOp.kickback.TargetStatus, reason, "agent"); err != nil {
+	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, kickbackOp.kickback.TargetStatus, reason, "agent", TransitionGuard{}); err != nil {
 		t.Fatalf("seed kickback transition: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestReconciler_ConflictingKickbackHistoryFailsClosed(t *testing.T) {
 	world.setStatus(models.EntityTypeTask, kickbackOp.kickback.EntityKey, "in_review")
 	fakeDigest := strings.Repeat("c", 64)
 	conflictingReason := buildKickbackReason("a different reason", subID, fakeDigest)
-	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, "completed", conflictingReason, "agent"); err != nil {
+	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, "completed", conflictingReason, "agent", TransitionGuard{}); err != nil {
 		t.Fatalf("seed conflicting kickback transition: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestReconciler_ConflictingKickbackReasonSameStatusFailsClosed(t *testing.T)
 	world.setStatus(models.EntityTypeTask, kickbackOp.kickback.EntityKey, "in_review")
 	fakeDigest := strings.Repeat("d", 64)
 	conflictingReason := buildKickbackReason("a completely different reason than what was recorded", subID, fakeDigest)
-	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, kickbackOp.kickback.TargetStatus, conflictingReason, "agent"); err != nil {
+	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, kickbackOp.kickback.TargetStatus, conflictingReason, "agent", TransitionGuard{}); err != nil {
 		t.Fatalf("seed conflicting-reason kickback transition: %v", err)
 	}
 
