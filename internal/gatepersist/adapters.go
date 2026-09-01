@@ -55,25 +55,40 @@ func (v *WorkflowStatusValidator) IsValidStatus(entityType models.EntityType, st
 // transition reason — a second, differently-shaped rejection note would
 // duplicate that record under a different identity.
 type EntityServiceTransitioner struct {
-	entitySvc *services.EntityService
-	registry  *services.EntityRegistry
+	entitySvc   *services.EntityService
+	registry    *services.EntityRegistry
+	workflowSvc *workflow.Service
 }
 
 // NewEntityServiceTransitioner constructs an EntityServiceTransitioner.
-func NewEntityServiceTransitioner(entitySvc *services.EntityService, registry *services.EntityRegistry) *EntityServiceTransitioner {
+func NewEntityServiceTransitioner(entitySvc *services.EntityService, registry *services.EntityRegistry, workflowSvc *workflow.Service) *EntityServiceTransitioner {
 	if entitySvc == nil {
 		panic("gatepersist: NewEntityServiceTransitioner requires a non-nil EntityService")
 	}
 	if registry == nil {
 		panic("gatepersist: NewEntityServiceTransitioner requires a non-nil EntityRegistry")
 	}
-	return &EntityServiceTransitioner{entitySvc: entitySvc, registry: registry}
+	if workflowSvc == nil {
+		panic("gatepersist: NewEntityServiceTransitioner requires a non-nil workflow.Service")
+	}
+	return &EntityServiceTransitioner{entitySvc: entitySvc, registry: registry, workflowSvc: workflowSvc}
 }
 
 // CurrentStatus implements StatusReader, reusing the same registry lookup
 // Transition uses. EntityServiceTransitioner therefore satisfies both
 // Transitioner and StatusReader, so callers can wire one instance to both
 // Coordinator fields.
+//
+// The raw stored status is alias-resolved to its canonical step name
+// (route-based-workflow.md §5 "resolve on read") before returning, mirroring
+// EntityService.GetNextStatus's own NormalizeStatus call. Coordinator's
+// pre-transition and already-transitioned verification branches compare
+// this value against Request.SourceStatus/TargetStatus, which callers
+// always populate from NextStatusInfo.CurrentStatus — itself already
+// alias-resolved. Without this, an entity still parked under a
+// pre-migration alias (e.g. "ready_for_qa" for the "qa" step) would compare
+// its raw alias against the canonical name and fail closed on an
+// otherwise-healthy entity.
 func (t *EntityServiceTransitioner) CurrentStatus(ctx context.Context, entityType models.EntityType, entityKey string) (string, error) {
 	repo, err := t.registry.GetRepository(entityType)
 	if err != nil {
@@ -83,7 +98,7 @@ func (t *EntityServiceTransitioner) CurrentStatus(ctx context.Context, entityTyp
 	if err != nil {
 		return "", fmt.Errorf("gatepersist: get %s %s: %w", entityType, entityKey, err)
 	}
-	return entity.GetStatus(), nil
+	return t.workflowSvc.ForLevel(string(entityType)).NormalizeStatus(entity.GetStatus()), nil
 }
 
 // Transition implements Transitioner.

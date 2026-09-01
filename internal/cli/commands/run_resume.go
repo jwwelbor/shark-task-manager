@@ -40,10 +40,14 @@ type resumeRunOutput struct {
 	Action     gaterun.ResumeAction      `json:"resume_action"`
 	Status     *gaterun.StatusProjection `json:"status,omitempty"`
 
-	// Ingested/ToStatus/Transitioned are populated only when this call
-	// performed a gate_result_v1 re-ingestion (T-E34-F05-004): the step's
-	// resolved result_contract was gate_result_v1 and Action was not
-	// already_transitioned.
+	// Ingested/ToStatus/Transitioned are populated whenever this call reached
+	// the coordinator for a gate_result_v1 step (T-E34-F05-004 rework, F-2):
+	// the durably recorded gate step's resolved result_contract was
+	// gate_result_v1, for ANY resume action — including already_transitioned,
+	// which no longer skips this. Transitioned is false for
+	// already_transitioned's own idempotent verify-only branch (the
+	// transition already happened on a prior call); Ingested/ToStatus are
+	// still set because the coordinator ran.
 	Ingested     bool   `json:"ingested,omitempty"`
 	ToStatus     string `json:"to_status,omitempty"`
 	Transitioned bool   `json:"transitioned,omitempty"`

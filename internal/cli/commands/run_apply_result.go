@@ -181,8 +181,9 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	}
 	entitySvc := cli.GetEntityService()
 	registry := cli.GetEntityRegistry()
-	transitioner := gatepersist.NewEntityServiceTransitioner(entitySvc, registry)
-	validator := gatepersist.NewWorkflowStatusValidator(cli.GetWorkflowService())
+	workflowSvc := cli.GetWorkflowService()
+	transitioner := gatepersist.NewEntityServiceTransitioner(entitySvc, registry, workflowSvc)
+	validator := gatepersist.NewWorkflowStatusValidator(workflowSvc)
 	history := cli.GetEntityHistoryService()
 	claimSvc := cli.GetClaimService()
 
