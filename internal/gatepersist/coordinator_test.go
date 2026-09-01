@@ -101,6 +101,21 @@ func baseRequest(t *testing.T, runDir string) Request {
 	}
 }
 
+// newTestRunDir builds a run directory in the shape gaterun.AcquireRunLock's
+// no-follow ancestor verification requires (<project-root>/.shark/runs/<run
+// id>), via gaterun.RunDir itself -- the same primitive every real caller
+// (gate_ingest.go) uses to derive RunDir, rather than handing Persist a bare
+// t.TempDir() path gaterun's symlink-hardened lock acquisition now rejects
+// outright as "not a recognized run directory."
+func newTestRunDir(t *testing.T) string {
+	t.Helper()
+	dir, err := gaterun.RunDir(t.TempDir(), "run-001")
+	if err != nil {
+		t.Fatalf("gaterun.RunDir: %v", err)
+	}
+	return dir
+}
+
 func newTestCoordinator(w *fakeWorld, v StatusValidator) *Coordinator {
 	return NewCoordinator(w, w, w, v, w, w, w)
 }
@@ -110,12 +125,13 @@ func defaultValidator() *fakeStatusValidator {
 }
 
 func TestPersist_OrderingAndContent(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
 	req := baseRequest(t, runDir)
 	req.RetirementConfirmed = true
+	req.RunConcluded = true
 
 	res, err := coord.Persist(context.Background(), req)
 	if err != nil {
@@ -195,7 +211,7 @@ func TestPersist_OrderingAndContent(t *testing.T) {
 }
 
 func TestPersist_EvidenceFoldedIntoGateSummaryNote(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
@@ -220,7 +236,7 @@ func TestPersist_EvidenceFoldedIntoGateSummaryNote(t *testing.T) {
 }
 
 func TestPersist_FailureInjectionResumesWithoutDuplicates(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	req := baseRequest(t, runDir)
@@ -242,6 +258,7 @@ func TestPersist_FailureInjectionResumesWithoutDuplicates(t *testing.T) {
 	// and finding notes must be reconciled, not rewritten.
 	req2 := baseRequest(t, runDir)
 	req2.RetirementConfirmed = true
+	req2.RunConcluded = true
 	res, err := coord.Persist(context.Background(), req2)
 	if err != nil {
 		t.Fatalf("resume Persist: %v", err)
@@ -258,7 +275,7 @@ func TestPersist_FailureInjectionResumesWithoutDuplicates(t *testing.T) {
 }
 
 func TestPersist_KickbackFailureInjectionResumesWithoutReapplying(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	req := baseRequest(t, runDir)
@@ -290,7 +307,7 @@ func TestPersist_KickbackFailureInjectionResumesWithoutReapplying(t *testing.T) 
 }
 
 func TestPersist_ConflictingReplayRejected(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
@@ -321,7 +338,7 @@ func TestPersist_ConflictingReplayRejected(t *testing.T) {
 }
 
 func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
@@ -349,10 +366,11 @@ func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
 		t.Fatalf("expected exactly 1 main transition call, got %d", mainTransitions)
 	}
 
-	// A second call (retirement now confirmed) must release without
-	// repeating the transition.
+	// A second call (retirement now confirmed AND the run itself concluding)
+	// must release without repeating the transition.
 	req2 := baseRequest(t, runDir)
 	req2.RetirementConfirmed = true
+	req2.RunConcluded = true
 	res2, err := coord.Persist(context.Background(), req2)
 	if err != nil {
 		t.Fatalf("second Persist: %v", err)
@@ -375,6 +393,49 @@ func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
 	}
 }
 
+// TestPersist_LeaseHeldAcrossSequentialGateStagesUntilRunConcludes is the
+// direct regression test for the round-2 UAT rejection (F-1's lease-release
+// sibling): a synchronous core-runner dispatch retires its worker process
+// (RetirementConfirmed=true) at the end of EVERY stage of a multi-stage
+// `shark run`, not just the last one. Before this fix, coordinator.go
+// released the lease on the first such stage while the caller's loop went on
+// to dispatch a second stage for the same entity/session under a lease it no
+// longer held. The lease must stay held across stage 1 (worker retired, run
+// not concluding) and release only once stage 2 confirms the run itself is
+// concluding.
+func TestPersist_LeaseHeldAcrossSequentialGateStagesUntilRunConcludes(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+
+	// Stage 1: the dispatched worker process has retired, but the
+	// core-runner loop is about to dispatch a further stage for this same
+	// entity under the same lease -- the run has NOT concluded.
+	req := baseRequest(t, runDir)
+	req.RetirementConfirmed = true
+	req.RunConcluded = false
+	res, err := coord.Persist(context.Background(), req)
+	if err != nil {
+		t.Fatalf("stage 1 Persist: %v", err)
+	}
+	if res.LeaseReleased || len(world.releaseCalls) != 0 {
+		t.Fatalf("expected the lease to remain held after stage 1 despite RetirementConfirmed=true, got %+v (releaseCalls=%d)", res, len(world.releaseCalls))
+	}
+
+	// Stage 2: the run genuinely concludes now.
+	req2 := baseRequest(t, runDir)
+	req2.RetirementConfirmed = true
+	req2.RunConcluded = true
+	res2, err := coord.Persist(context.Background(), req2)
+	if err != nil {
+		t.Fatalf("stage 2 Persist: %v", err)
+	}
+	if !res2.LeaseReleased || len(world.releaseCalls) != 1 {
+		t.Fatalf("expected the lease released exactly once once the run concludes, got %+v (releaseCalls=%d)", res2, len(world.releaseCalls))
+	}
+}
+
 // TestPersist_AlreadyTransitionedResumeFailsClosedOnDivergedStatus proves the
 // already-transitioned resume path (architecture.md step 8: "it must not
 // repeat the transition") verifies the live target rather than blindly
@@ -383,7 +444,7 @@ func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
 // must fail rather than silently transitioning it again from wherever it
 // now is.
 func TestPersist_AlreadyTransitionedResumeFailsClosedOnDivergedStatus(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
 	coord := newTestCoordinator(world, defaultValidator())
@@ -430,7 +491,7 @@ func TestPersist_AlreadyTransitionedResumeFailsClosedOnDivergedStatus(t *testing
 // between dispatch and this Persist call would still be blindly
 // transitioned from wherever it now sits.
 func TestPersist_PreTransitionFailsClosedOnDivergedSourceStatus(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	// Diverged: SourceStatus is "in_review" (baseRequest), but something
 	// else already moved the entity to "blocked" before this Persist call.
@@ -463,7 +524,7 @@ func TestPersist_PreTransitionFailsClosedOnDivergedSourceStatus(t *testing.T) {
 // because the entity is already durably sitting at TargetStatus from the
 // call that crashed before recording it.
 func TestPersist_PreTransitionAcceptsTargetStatusFromResumedCall(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	// The entity is already at TargetStatus ("ready_for_qa") — as if a
 	// prior call applied the transition but crashed before
@@ -483,7 +544,7 @@ func TestPersist_PreTransitionAcceptsTargetStatusFromResumedCall(t *testing.T) {
 }
 
 func TestPersist_KickbackTargetingMainEntityRejected(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	coord := newTestCoordinator(world, defaultValidator())
 
@@ -500,7 +561,7 @@ func TestPersist_KickbackTargetingMainEntityRejected(t *testing.T) {
 }
 
 func TestPersist_InvalidKickbackTargetStatusRejectedWithoutPartialMutation(t *testing.T) {
-	runDir := t.TempDir()
+	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	// Validator does not allow "todo" for task -- only ready_for_qa/completed.
 	v := newFakeStatusValidator().allow(models.EntityTypeTask, "in_review", "ready_for_qa", "completed")

@@ -89,22 +89,33 @@ func validateKickbacks(kickbacks []gateresult.Kickback, mainEntityKey string, va
 // architecture.md step 7: "kickback reasons/history store its bounded
 // machine token." It is appended after the worker-supplied human reason so
 // the reason remains readable while still carrying a durable, parseable
-// suboperation identity for reconciliation (reconcile.go).
+// suboperation identity AND content digest for reconciliation (reconcile.go).
+//
+// The content digest is embedded alongside the suboperation ID because
+// REQ-F-003 requires a conflicting replay to fail closed on a differing
+// target status OR reason, not status alone (round-2 UAT rejection: the
+// original token carried only the suboperation ID, so reconcile.go could
+// only compare target status — TD-178's gap). op.contentDigest() already covers
+// entity key, target status, AND reason (operations.go), so embedding it
+// here gives reconcile.go the same full-content comparison notes already
+// get via metaContentDigest.
 const kickbackTokenPrefix = "[gatepersist:sub="
 
-var kickbackTokenPattern = regexp.MustCompile(`\[gatepersist:sub=([0-9a-f]{64})\]`)
+var kickbackTokenPattern = regexp.MustCompile(`\[gatepersist:sub=([0-9a-f]{64}):digest=([0-9a-f]{64})\]`)
 
-// buildKickbackReason appends the bounded suboperation token to reason.
-func buildKickbackReason(reason, suboperationID string) string {
-	return strings.TrimSpace(reason) + " " + kickbackTokenPrefix + suboperationID + "]"
+// buildKickbackReason appends the bounded suboperation token and content
+// digest to reason.
+func buildKickbackReason(reason, suboperationID, contentDigest string) string {
+	return strings.TrimSpace(reason) + " " + kickbackTokenPrefix + suboperationID + ":digest=" + contentDigest + "]"
 }
 
-// parseKickbackToken extracts the suboperation ID embedded by
-// buildKickbackReason from a history entry's Notes field, if present.
-func parseKickbackToken(notes string) (string, bool) {
+// parseKickbackToken extracts the suboperation ID and content digest
+// embedded by buildKickbackReason from a history entry's Notes field, if
+// present.
+func parseKickbackToken(notes string) (suboperationID, contentDigest string, ok bool) {
 	m := kickbackTokenPattern.FindStringSubmatch(notes)
 	if m == nil {
-		return "", false
+		return "", "", false
 	}
-	return m[1], true
+	return m[1], m[2], true
 }

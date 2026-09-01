@@ -72,19 +72,23 @@ func TestValidateKickbacks_TargetEntityWorkflowMembership(t *testing.T) {
 }
 
 func TestKickbackReasonTokenRoundTrip(t *testing.T) {
-	subID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 64 hex chars, like a real sha256 suboperation ID
-	reason := buildKickbackReason("please fix the caller", subID)
-	got, ok := parseKickbackToken(reason)
+	subID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  // 64 hex chars, like a real sha256 suboperation ID
+	digest := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" // 64 hex chars, like a real sha256 content digest
+	reason := buildKickbackReason("please fix the caller", subID, digest)
+	gotSub, gotDigest, ok := parseKickbackToken(reason)
 	if !ok {
 		t.Fatalf("expected token to parse from %q", reason)
 	}
-	if got != subID {
-		t.Fatalf("parseKickbackToken() = %q, want %q", got, subID)
+	if gotSub != subID {
+		t.Fatalf("parseKickbackToken() subID = %q, want %q", gotSub, subID)
+	}
+	if gotDigest != digest {
+		t.Fatalf("parseKickbackToken() digest = %q, want %q", gotDigest, digest)
 	}
 }
 
 func TestKickbackReasonTokenAbsent(t *testing.T) {
-	if _, ok := parseKickbackToken("a plain reason with no token"); ok {
+	if _, _, ok := parseKickbackToken("a plain reason with no token"); ok {
 		t.Fatalf("expected no token to be found")
 	}
 }

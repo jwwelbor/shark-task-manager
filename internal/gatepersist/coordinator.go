@@ -61,7 +61,10 @@ func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryRead
 // target-entity workflow membership, reconcile and apply the six-step
 // persistence order (skipping already-completed suboperations), apply the
 // guarded main-entity transition exactly once, and release the lease only
-// once RetirementConfirmed is set.
+// once BOTH RetirementConfirmed and RunConcluded are set (see their doc
+// comments on Request: worker-process retirement and run-conclusion are
+// deliberately distinct signals — this coordinator does not infer one from
+// the other, nor trust a caller that conflates them).
 //
 // Persist is safe to call again for the same run_id (see gaterun's
 // create-once/atomic-replace sidecar contract): a resumed call with an
@@ -226,11 +229,22 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 				return nil, fmt.Errorf("gatepersist: save retirement state: %w", err)
 			}
 		}
-		released, err := c.Lease.Release(ctx, string(req.EntityType), req.EntityKey, req.Session.ID, req.OutcomeKey, false)
-		if err != nil {
-			return nil, fmt.Errorf("gatepersist: release lease: %w", err)
+		// The lease itself is released only once RunConcluded ALSO holds —
+		// RetirementConfirmed alone only proves this call's dispatched
+		// worker process exited, which is true for every stage of a
+		// multi-stage run (see Request.RetirementConfirmed's doc comment).
+		// A caller that (incorrectly) passes RetirementConfirmed per-stage
+		// without ever setting RunConcluded simply never releases via this
+		// coordinator — safe by construction, since a stale/leaked lease
+		// still expires via the claim TTL backstop, whereas a premature
+		// release let a concurrent claimant race the still-running loop.
+		if req.RunConcluded {
+			released, err := c.Lease.Release(ctx, string(req.EntityType), req.EntityKey, req.Session.ID, req.OutcomeKey, false)
+			if err != nil {
+				return nil, fmt.Errorf("gatepersist: release lease: %w", err)
+			}
+			result.LeaseReleased = released
 		}
-		result.LeaseReleased = released
 	} else if state.RetirementState == gaterun.RetirementUnknown {
 		state.RetirementState = gaterun.RetirementPending
 		if err := state.Save(req.RunDir); err != nil {
@@ -290,7 +304,7 @@ func (c *Coordinator) applyKickback(ctx context.Context, op operation, subID str
 	if err != nil {
 		return err
 	}
-	reason := buildKickbackReason(k.Reason, subID)
+	reason := buildKickbackReason(k.Reason, subID, op.contentDigest())
 	if _, _, err := c.Transition.Transition(ctx, entityType, k.EntityKey, k.TargetStatus, reason, req.Session.Agent); err != nil {
 		return fmt.Errorf("gatepersist: apply kickback to %s: %w", k.EntityKey, err)
 	}

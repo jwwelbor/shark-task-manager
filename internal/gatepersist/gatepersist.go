@@ -111,11 +111,31 @@ type Request struct {
 	TargetStatus string
 
 	// RetirementConfirmed attests that terminal worker-retirement evidence
-	// (independent of chat notifications) has been observed for this run.
-	// The lease is released only when true (architecture.md step 8);
-	// otherwise Persist completes the transition (if due) and leaves release
-	// pending for a later call once retirement is confirmed.
+	// (independent of chat notifications) has been observed for the worker
+	// process THIS Persist call's dispatch spawned. It does NOT by itself
+	// mean the lease may be released: a synchronous core-runner dispatch
+	// retires its worker process at the end of every stage, so a multi-stage
+	// `shark run` invocation that dispatches several gate stages in sequence
+	// for the same entity/session would have RetirementConfirmed true on
+	// every one of those calls, long before the run itself is done with the
+	// entity's lease. Round-2 UAT (T-E34-F05-003 rework, F-1's lease-release
+	// sibling) rejected exactly that conflation: coordinator.go released the
+	// lease after the FIRST such stage while the caller's loop went on to
+	// dispatch later stages under a lease it no longer held. See
+	// RunConcluded, the distinct signal Persist actually gates release on.
 	RetirementConfirmed bool
+
+	// RunConcluded attests that the parent-owned run process itself is
+	// concluding for this entity — no further Persist call will follow under
+	// the currently-held claim/lease session. This is deliberately a
+	// separate fact from RetirementConfirmed (see its doc comment): a caller
+	// must not derive "safe to release" from worker-process retirement
+	// alone. The lease is released only when both RetirementConfirmed AND
+	// RunConcluded are true (architecture.md step 8's "terminal
+	// worker-retirement evidence" is necessary but, per this rework, no
+	// longer sufficient); otherwise Persist completes the transition (if
+	// due) and leaves release pending for a later call.
+	RunConcluded bool
 
 	// LockTimeout overrides the default run-lock acquisition timeout
 	// (gaterun.DefaultLockTimeout) when non-zero.

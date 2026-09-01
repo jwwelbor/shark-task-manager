@@ -98,7 +98,7 @@ func (r *reconciler) CompletedSuboperationIDs(ctx context.Context, runID string)
 			if h.Notes == nil {
 				continue
 			}
-			subID, ok := parseKickbackToken(*h.Notes)
+			subID, gotDigest, ok := parseKickbackToken(*h.Notes)
 			if !ok {
 				continue
 			}
@@ -106,7 +106,14 @@ func (r *reconciler) CompletedSuboperationIDs(ctx context.Context, runID string)
 			if !ok || op.kind != kindKickback || op.kickback.EntityKey != entityKey {
 				continue
 			}
-			if !strings.EqualFold(h.ToStatus, op.kickback.TargetStatus) {
+			// Compare both target status AND content digest (which itself
+			// covers entity key, target status, and reason — operations.go's
+			// contentDigest). Comparing status alone let a same-status,
+			// different-reason replay through silently (round-2 UAT
+			// rejection of TD-178's gap): REQ-F-003 requires failing closed
+			// on a conflicting target status OR reason, not status alone.
+			wantDigest := op.contentDigest()
+			if !strings.EqualFold(h.ToStatus, op.kickback.TargetStatus) || gotDigest != wantDigest {
 				return nil, &KickbackConflictError{EntityKey: entityKey}
 			}
 			completed = append(completed, subID)
