@@ -41,10 +41,14 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
 **Story 1**: As a project presenter, I want an accurate demo script for a completed epic or feature so that I can show stakeholder value without overstating incomplete or unverified work.
 
 **Acceptance Criteria**:
-- [ ] The action accepts only epic or feature keys and reads their relevant scope, statuses, acceptance criteria, notes, related documents, completed child work, latest UAT assessor verdict, separate owner decision, open conditions, and integration activation state.
+- [ ] The action accepts epic, feature, or sprint keys and reads their relevant scope, statuses, acceptance criteria, notes, related documents, completed child work, latest UAT assessor verdict, separate owner decision, open conditions, and integration activation state.
 - [ ] The resulting script groups epic work into user journeys rather than a raw feature inventory, and feature work into its outcomes and relevant integrations.
 - [ ] Incomplete work is explicitly placed under “Not demonstrated” rather than presented as complete.
 - [ ] Completed status is treated as context rather than proof; a contract-only obligation or owner-overridden rejection cannot become a verified normal-mode claim.
+
+> **Scope note:** Extended 2026-08-31 to include sprint targets, tracking the
+> sprint-demo capability shipped in PR #186 (2026-08-17) for E19 sprint work —
+> see the shark decision note on E34-F02 for the decision record.
 
 **Story 2**: As a maintainer of a CLI, API, library, pipeline, or infrastructure project, I want evidence requirements that match my product surface so that I can demonstrate the delivered behavior without fabricating screenshots.
 

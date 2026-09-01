@@ -570,6 +570,51 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 	}
 }
 
+// TestE34F02DemoTargetSetIsClosed is a structural guard from the round-2
+// code-review rework: the shipped demo target set (epic, feature, sprint)
+// must stay identical everywhere it is documented. It extracts the exact
+// target token list from every usage line rather than doing a substring
+// Contains check, so a future undocumented 4th target fails this test
+// instead of silently drifting past it, the way the sprint target once
+// drifted past the feature/spec docs.
+func TestE34F02DemoTargetSetIsClosed(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	paths := map[string]string{
+		"demo procedure": filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "demo.md"),
+		"rider router":   filepath.Join(repoRoot, "skills", "shark-rider", "SKILL.md"),
+		"static help":    filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "help.md"),
+	}
+
+	wantTargets := []string{"epic-key", "feature-key", "sprint-key"}
+	usageRe := regexp.MustCompile(`demo <([a-zA-Z0-9|-]+)> \[--draft\]`)
+
+	for name, path := range paths {
+		t.Run(name, func(t *testing.T) {
+			body, err := os.ReadFile(path)
+			require.NoError(t, err, "%s should be shipped", name)
+			matches := usageRe.FindAllStringSubmatch(string(body), -1)
+			require.NotEmpty(t, matches, "%s must document the demo usage line", name)
+			for _, m := range matches {
+				targets := strings.Split(m[1], "|")
+				assert.Equal(t, wantTargets, targets,
+					"%s documents a demo target set that no longer matches the closed epic/feature/sprint set", name)
+			}
+		})
+	}
+
+	// The per-verb static help entry and the demo-script skill's purpose
+	// line also name the target set in prose; guard those independently so
+	// a prose-only drift (no usage-line change) is caught too.
+	helpBody, err := os.ReadFile(paths["static help"])
+	require.NoError(t, err)
+	require.Contains(t, string(helpBody), "Prepare an evidence-based demo for an epic, feature, or sprint.")
+
+	skillBody, err := os.ReadFile(filepath.Join(repoRoot, "internal", "sharkdata", "default_data", "skills", "demo-script", "SKILL.md"))
+	require.NoError(t, err, "demo-script skill should be shipped")
+	normalizedSkill := regexp.MustCompile(`\s+`).ReplaceAllString(string(skillBody), " ")
+	require.Contains(t, normalizedSkill, "for an epic, feature, or sprint.")
+}
+
 func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
 	repoRoot := findRepoRootForInteractionTest(t)
 	paths := map[string]string{

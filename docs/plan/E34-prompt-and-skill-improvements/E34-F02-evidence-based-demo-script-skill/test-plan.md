@@ -27,7 +27,7 @@ No drift found. The specification preserves the feature brief's Mode-3 boundary,
 
 ## Existing test infrastructure
 
-- `internal/cli/commands/interaction_prompts_test.go` constructs `templates.NewOrchestratorRenderer(findRepoPromptsDir(t))`, renders shipped prompts with `goldenVars()`, and contains the E34 prompt/reference pattern.
+- `internal/cli/commands/interaction_prompts_test.go` contains the E34 prompt/reference pattern; most cases construct `templates.NewOrchestratorRenderer(findRepoPromptsDir(t))` and render shipped prompts with `goldenVars()`, but the demo-specific cases (TC-001) read `skills/shark-rider/*.md` directly with `os.ReadFile` since Rider verb/help/router files are host procedure prose, not rendered prompt templates.
 - `internal/cli/commands/next_golden_test.go:TestRenderedPromptsGolden` is the golden path when changed Rider content participates in rendered prompts.
 - `internal/sharkdata/embed_test.go` and `shark admin validate-data` are the embedded-bundle manifest/file integrity seams.
 - `make fmt`, `make lint`, and `make test` are the repository quality gate. No DB fixture, browser suite, simulated runtime harness, or helper is required.
@@ -38,10 +38,17 @@ No drift found. The specification preserves the feature brief's Mode-3 boundary,
 
 **Covers:** AC-001, AC-007; REQ-F-001, REQ-NF-003/004.  
 **Technique:** Content-reference enumeration.  
-**Entrypoint:** `TestE34F02DemoBundleAndReferences` in `internal/cli/commands/interaction_prompts_test.go`, using `templates.NewOrchestratorRenderer(findRepoPromptsDir(t))` and `goldenVars()`; direct files `skills/shark-rider/SKILL.md` and `skills/shark-rider/verbs/demo.md`.  
-**Content-only justification:** This validates host procedure prose and real include resolution, not a deterministic production caller.
+**Entrypoint:** `TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008` and
+`TestE34F02DemoTargetSetIsClosed` in
+`internal/cli/commands/interaction_prompts_test.go`, which read the shipped
+files directly with `os.ReadFile` (no template rendering); direct files
+`skills/shark-rider/SKILL.md`, `skills/shark-rider/verbs/help.md`, and
+`skills/shark-rider/verbs/demo.md`.  
+**Content-only justification:** This validates shipped host procedure prose
+and cross-file reference consistency, not a deterministic production caller
+or a rendered-template golden.
 
-**Check:** Render changed Rider prompt templates; assert the router recognizes `demo`, `demo.md` exists, only epic/feature targets plus `--draft` are documented, and the procedure retrieves `demo-script` with `shark skill get` without a `shark demo` or status-advance instruction.
+**Check:** Assert the router recognizes `demo`, `demo.md` exists, epic/feature/sprint targets plus `--draft` are documented as a closed set (no undocumented 4th target), and the procedure retrieves `demo-script` with `shark skill get` without a `shark demo` or status-advance instruction.
 
 **Expected result:** Includes resolve and the content exposes the explicit Mode-3 route/boundary in `spec.md`.
 
@@ -49,7 +56,12 @@ No drift found. The specification preserves the feature brief's Mode-3 boundary,
 
 **Covers:** AC-001, AC-007; REQ-F-001, REQ-NF-004.  
 **Technique:** Content-reference enumeration.  
-**Entrypoint:** `shark admin validate-data`; focused assertions in `internal/sharkdata/embed_test.go`; direct files `internal/sharkdata/default_data/manifest.yaml`, `internal/sharkdata/default_data/skills/demo-script/SKILL.md`, and `internal/sharkdata/default_data/skills/README.md`.  
+**Entrypoint:** `shark admin validate-data`; focused assertions in
+`TestE34F02DemoScriptBundle_TC003_TC004_TC005_TC006_TC007` in
+`internal/sharkdata/embed_test.go`; direct files
+`internal/sharkdata/default_data/manifest.yaml`,
+`internal/sharkdata/default_data/skills/demo-script/SKILL.md`, and
+`internal/sharkdata/default_data/skills/README.md`.  
 **Content-only justification:** Manifest identity and skill layout are static bundle contracts exercised by the real validator.
 
 **Check:** Assert normalized `demo-script` identity agrees across manifest, directory, and frontmatter; validate the bundle; retrieve it with `shark skill get demo-script`.
@@ -60,10 +72,10 @@ No drift found. The specification preserves the feature brief's Mode-3 boundary,
 
 **Covers:** AC-002, AC-003; REQ-F-002, REQ-NF-001/002.  
 **Technique:** Content-surface enumeration.  
-**Entrypoint:** Direct file `internal/sharkdata/default_data/skills/demo-script/context/demo-script-template.md`, checked by the focused bundle/reference test.  
+**Entrypoint:** Direct file `internal/sharkdata/default_data/skills/demo-script/context/demo-script-template.md`, checked by the focused bundle/reference test; scope-grouping check in `TestE34F02DemoScriptScenarioGrouping` (`internal/sharkdata/embed_test.go`) against `internal/sharkdata/default_data/skills/demo-script/SKILL.md`.  
 **Content-only justification:** The template specifies required prose fields and allowed evidence categories; it does not execute or classify data.
 
-**Check:** Verify scenario fields: stakeholder value, source, prerequisites/demo data, presenter actions, observable result, evidence type/path, environment/date, readiness classification, reset/recovery, and limitations. Verify UI, CLI, API, SDK, pipeline, infrastructure, and background-process evidence without a framework, package manager, browser, deployment provider, credential, endpoint, or capture tool.
+**Check:** Verify scenario fields: stakeholder value, source, prerequisites/demo data, presenter actions, observable result, evidence type/path, environment/date, readiness classification, reset/recovery, and limitations. Verify UI, CLI, API, SDK, pipeline, infrastructure, and background-process evidence without a framework, package manager, browser, deployment provider, credential, endpoint, or capture tool. Verify the skill instructs epic scope to be grouped into user journeys (not a raw feature inventory) and feature scope into outcomes and relevant integrations (not a raw task list).
 
 **Expected result:** The reusable template is complete and surface-neutral.
 
