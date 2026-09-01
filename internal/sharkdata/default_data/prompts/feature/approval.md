@@ -45,13 +45,15 @@ REVIEW-FINDING LOG (structured, queryable — only when findings exist, on APPRO
 - round = count of prior UAT reports matching {{.review_base}}uat-*-{{.id}}.md + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
 - Zero-finding APPROVED writes no `review-finding` notes.
 
-ON APPROVED:
-- Include `PARENT NOTE: Feature UAT approved — red-team passed` in your final response
-- End with `RECOMMENDED OUTCOME: pass`
+ON APPROVED: recommended_outcome: pass; gate_result.summary states "Feature UAT approved — red-team passed".
 
-ON REJECTED:
-- In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
-  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
-- Include `PARENT NOTE: UAT rejected — see report, tasks kicked back`
-- End with `RECOMMENDED OUTCOME: fail`
-- Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
+ON REJECTED: recommended_outcome: fail. This outcome's role is `route_rework` —
+the whole feature routes back as a unit, so `gate_result.kickbacks` must stay
+empty; put the defect-class statement, specific findings, and the sweep
+instruction ("before fixing the cited instance, sweep the touched module(s)
+for every other instance of this defect class; fix all; list swept sites in
+the completion note") in `gate_result.summary` and/or `findings[]` instead of
+a per-task kickback line. Do NOT run Shark status commands yourself; the
+parent loop reopens the feature for rework.
+
+{{template "_gate_result_directive" .}}

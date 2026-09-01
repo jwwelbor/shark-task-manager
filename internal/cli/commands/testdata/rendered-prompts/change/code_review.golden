@@ -1,11 +1,6 @@
-All tasks for feature E07-F01 ("Sample feature for golden test") have completed development.
+Verify change E07-F01: "Sample feature for golden test".
 
-Launch tech-lead with quality skill to perform the feature verification gate.
-
-TIER CHECK (determines scope of this gate):
-Read feature metadata: shark get E07-F01 --json → `complexity_tier` (also recorded as a "COMPLEXITY:" decision note from assessment).
-- **SIMPLE / STANDARD** (or tier unknown): this is the ONLY same-model verification gate — perform ALL FOUR parts below in this single pass. Do not slim it: there is no separate QA pass behind you, and tasks receive no per-task review.
-- **COMPLEX**: perform Part 1 (craft review) only; Parts 2–4 run as a separate deep QA gate next.
+CODE REVIEW
 
 
 # Workflow: Code Review (Craft Review)
@@ -380,40 +375,29 @@ If `prior_rejection_count >= 1` for this task at code review, **escalate to the 
 
 
 READ:
-(1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for architecture decisions and acceptance criteria
-(2) Feature test-plan.md for all expected test cases, coverage requirements, and Caller-Path Contracts
-(3) CLAUDE.md for codebase standards and patterns
-(4) All task specs: `shark list E07-F01 --json` → read each task's file_path in sequence
-(5) Full feature diff: `git log --oneline -20` then `git diff $(git merge-base HEAD main)..HEAD`
-(6) Implementation code for all changed files
-(7) Parent interaction map and cross-epic maps if the feature spec declares
-    I-## or X-## rows
+(1) Task spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria
+(2) Feature spec.md for architecture decisions and requirements
+(3) Feature test-plan.md for expected test cases
+(4) Git diff of changes: git log --oneline -5 && git diff HEAD~1
+(5) CLAUDE.md for coding standards
 
-PART 1 — CRAFT REVIEW (all tiers; treat as a single PR review, not per-task):
-- Code quality, security, and adherence to CLAUDE.md across the full changeset
-- Architecture aligns with feature spec decisions (naming, layers, patterns)
-- Cross-task integration — do the task implementations fit together correctly?
-- No regressions or unintended side effects in the combined changeset
-- Flag any drift between feature intent (spec/test-plan) and actual implementation
+REVIEW:
+- [ ] Changes match task scope (no unrelated modifications)
+- [ ] Code follows CLAUDE.md patterns (service layer, error handling, etc.)
+- [ ] Architecture aligns with feature spec.md decisions
+- [ ] No hardcoded values that should be configurable
+- [ ] Error handling follows project conventions
+- [ ] No security vulnerabilities (injection, XSS, etc.)
+- [ ] Acceptance criteria from task spec verified against implementation
+- [ ] TDD compliance — tests from feature test-plan.md are implemented and passing
 
-PART 2 — AC + WIRING VERIFICATION (SIMPLE/STANDARD only — COMPLEX verifies these at the QA gate):
-- All feature acceptance criteria are met in aggregate — cite the AC and the code that satisfies it
-- Wiring coverage matrix: one row per CONTRACT-### and I-## with producer/consumer, contract test, test-exists, test-passes; one row per X-## with contract/shape source and coverage pointer or explicit deferral
-- Any CONTRACT-###, I-##, or X-## row with a missing contract test, a test that does not assert the documented shape, or a failing test is an automatic FAIL
-- For every staged I-##, verify the map-assigned gate mode, counterpart entities
-  and a current status read live from Shark, shared-contract evidence, activation owner, closure key, and
-  review basis match every producer/consumer artifact. Missing or mismatched
-  staged-edge evidence is an automatic FAIL.
-
-PART 3 — SCOPED TEST RUN (SIMPLE/STANDARD only):
-- Run the project's format + lint (from `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo)
-- Targeted unit tests: union changed files from the diff and task Scope sections, map to their test counterparts, run those plus any tests named in the test-plan ACs
-- Targeted integration tests only if the changeset crosses an integration seam (migration, endpoint, service contract, I-##/X-## contract)
-- DO NOT run the full integration suite or any codex red-team (UAT owns red-team)
-
-PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
-- For every TC in the test plan with a Caller-Path Contract (skip `internal — function under test is the production entrypoint`): locate the committed test, confirm it calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam, and mocks nothing on the forbidden list
-- Any violation (or a contracted TC with no locatable test) is a BLOCKER naming the TC-ID → FAIL
+PROMPT-ONLY SCOPE:
+- For embedded prompt, skill, template, or documentation-only changes, verify
+  rendering, include resolution, golden updates, and newly documented file
+  references.
+- Review policy wording against the specification. Do not require wording
+  mutation tests, decision tables, or caller-path contracts unless the change
+  modifies deterministic runtime behavior.
 
 REVIEW OUTPUT POLICY (applies to the report below):
 - If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
@@ -427,42 +411,25 @@ REVIEW OUTPUT POLICY (applies to the report below):
   - any finding -> one-line fail/triage summary plus report path
 
 
-PRODUCE verification report to docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md:
+PRODUCE code review report at docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md:
 - If zero findings: compact PASS artifact only
-  - Verdict: PASS, and which parts ran (tier)
-  - Scope reviewed: spec, test-plan, task set, diff, and implementation surface
-  - Checks run: format/lint/tests/caller-path sweep summarized, not pasted
-  - AC count reviewed and wiring row counts reviewed (SIMPLE/STANDARD)
+  - Verdict: PASS
+  - Scope reviewed: task spec, feature context, diff, and implementation surface
+  - Checks run: review checklist and tests/commands referenced, summarized
+  - AC count reviewed
   - Duration if known
   - `0 defects found`
-- If any blocker, failed command/test, missing AC or wiring proof, spec drift, or non-blocking observation exists: full detailed report
-  - Verdict: PASS or FAIL, and which parts ran (tier)
-  - AC verification: list each AC with the code/test that satisfies it (SIMPLE/STANDARD)
-  - Integration verification: I-##/X-## rows with implementation owner, contract/shape source, coverage pointer or deferral (SIMPLE/STANDARD)
-  - Test run summary and caller-path compliance results (SIMPLE/STANDARD)
-  - Findings grouped by task with file paths, evidence, failed commands/tests, affected AC/TC/I-##/X-## IDs, defect-class statements for blocking findings, and concrete fix guidance
-  - Notes on any non-blocking observations
+- If any blocker or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL
+  - Findings with file paths, evidence, failed commands/tests if any, affected ACs, and concrete fix guidance
+  - AC verification status
 
-REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS or FAIL):
-- One note per finding: shark create note E07-F01 "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"code_review","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- round = how many times this gate has run for this feature (count prior code-review reports in docs/review/E07/E07-F01/). The fingerprint lets the same finding resurfacing across rounds group mechanically.
-- Zero-finding PASS writes no `review-finding` notes.
-
-ON PASS: gate_result.summary states "Feature verification gate passed — see report".
-- SIMPLE / STANDARD → recommended_outcome: pass
-- COMPLEX → recommended_outcome: deep_verify
-
-ON FAIL (blockers, spec drift, missing ACs, contract violations): recommended_outcome: fail.
-- Write the detailed report with findings grouped by task
-  - Verdict: FAIL
-  - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
-- This outcome's role is `kickback_rework` — `gate_result.kickbacks` must
-  contain one entry per task that needs to reopen (`entity_key`: the task
-  key, `target_status`: development, `reason`: "<defect-class statement> —
-  <specific findings>. Before fixing the cited instance, sweep the touched
-  module(s) for every other instance of this defect class; fix all; list
-  swept sites in the completion note.")
-- Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
+DECISION:
+- ALL PASS -> recommended_outcome: pass
+- ANY FAIL -> recommended_outcome: fail. This outcome's role is `route_rework`
+  — `gate_result.kickbacks` must stay empty; state the specific findings to
+  fix in `gate_result.summary`. (Check report at docs/review/E07/E07-F01/ on resume)
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
 
 FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
 Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOTE: <text>` line, or a bare `<entity-id> -> <status> --reason "<why>"` kickback line — those are the legacy free-form directive grammar and this step does not use it. Instead, the ENTIRE trimmed final response must be exactly one worker-control envelope (`kind: final`), with a nested `gate_result` payload:
@@ -510,3 +477,4 @@ not restate it. Two rules this step's outcomes commonly need:
 Write your full narrative report to the file this step already directs
 (unchanged); the envelope's `summary` is a compact verdict statement, not a
 duplicate of that report.
+

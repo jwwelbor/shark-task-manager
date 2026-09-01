@@ -1,4 +1,4 @@
-{{define "_qa_process"}}{{include: skills/quality/SKILL.md}}
+{{define "_qa_process_body"}}{{include: skills/quality/SKILL.md}}
 
 READ:
 (1) Task spec at {{.file_path}} for acceptance criteria and **Scope file list**
@@ -66,9 +66,20 @@ PRODUCE QA report at {{.review_base}}qa-<timestamp>-{{.id}}.md:
   - AC verification status — name the test that proves each AC
   - Edge cases tested
   - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
-
+{{end}}
+{{define "_qa_process"}}{{template "_qa_process_body" .}}
 DECISION:
 - ALL PASS → end with `RECOMMENDED OUTCOME: pass`
 - ANY FAIL → end with `RECOMMENDED OUTCOME: fail` and include the specific failures to fix in your final summary
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
+{{end}}
+{{define "_qa_process_gate_result"}}{{template "_qa_process_body" .}}
+DECISION:
+- ALL PASS -> recommended_outcome: pass
+- ANY FAIL -> recommended_outcome: fail. This outcome's role is `route_rework`
+  — `gate_result.kickbacks` must stay empty; state the specific failures to
+  fix in `gate_result.summary`.
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
+
+{{template "_gate_result_directive" .}}
 {{end}}

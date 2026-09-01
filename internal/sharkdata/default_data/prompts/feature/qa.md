@@ -87,19 +87,19 @@ REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS 
 - One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"qa","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
 - Zero-finding PASS writes no `review-finding` notes.
 
-ON PASS:
-- End with `RECOMMENDED OUTCOME: pass`
+ON PASS: recommended_outcome: pass.
 - Do NOT run Shark status commands yourself; the parent loop will advance the feature.
-ON FAIL:
-- In your final response, list the exact task kickbacks the parent loop should apply:
-  `<task-id> -> development --reason "<specific failures>"`
+ON FAIL: recommended_outcome: fail. This outcome's role is `kickback_rework` —
+`gate_result.kickbacks` must contain one entry per task that needs to reopen
+(`entity_key`: the task key, `target_status`: development, `reason`:
+"<specific failures>"):
 - For a missing or broken I-## contract test: reopen the producer task in this
-  feature and explicitly name each consuming feature that needs a blocker note:
-  `Cross-feature I-## contract test failing at producer feature {{.id}}`
+  feature; the kickback's `reason` names each consuming feature that needs a
+  blocker note: "Cross-feature I-## contract test failing at producer feature {{.id}}"
 - For a missing or broken X-## contract test or handoff test: reopen the
-  producer or validating task in this feature, name the consuming features
-  that need blocker notes, and describe the failed X-## coverage status the
+  producer or validating task; the kickback's `reason` names the consuming
+  features that need blocker notes and the failed X-## coverage status the
   parent loop should append to docs/product/progress.md
-- Include `PARENT NOTE: QA failed — see report, tasks kicked back`
-- End with `RECOMMENDED OUTCOME: fail`
 - Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
+
+{{template "_gate_result_directive" .}}

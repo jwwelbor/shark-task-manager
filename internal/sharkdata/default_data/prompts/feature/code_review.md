@@ -68,17 +68,20 @@ REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS 
 - round = how many times this gate has run for this feature (count prior code-review reports in {{.review_base}}). The fingerprint lets the same finding resurfacing across rounds group mechanically.
 - Zero-finding PASS writes no `review-finding` notes.
 
-ON PASS:
-- Include `PARENT NOTE: Feature verification gate passed — see report` in your final response
-- SIMPLE / STANDARD → end with `RECOMMENDED OUTCOME: pass`
-- COMPLEX → end with `RECOMMENDED OUTCOME: deep_verify`
+ON PASS: gate_result.summary states "Feature verification gate passed — see report".
+- SIMPLE / STANDARD → recommended_outcome: pass
+- COMPLEX → recommended_outcome: deep_verify
 
-ON FAIL (blockers, spec drift, missing ACs, contract violations):
+ON FAIL (blockers, spec drift, missing ACs, contract violations): recommended_outcome: fail.
 - Write the detailed report with findings grouped by task
   - Verdict: FAIL
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
-- In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
-  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
-- Include `PARENT NOTE: Verification gate failed — see report, tasks kicked back`
-- End with `RECOMMENDED OUTCOME: fail`
+- This outcome's role is `kickback_rework` — `gate_result.kickbacks` must
+  contain one entry per task that needs to reopen (`entity_key`: the task
+  key, `target_status`: development, `reason`: "<defect-class statement> —
+  <specific findings>. Before fixing the cited instance, sweep the touched
+  module(s) for every other instance of this defect class; fix all; list
+  swept sites in the completion note.")
 - Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
+
+{{template "_gate_result_directive" .}}

@@ -1,18 +1,4 @@
-
-After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
-
-RESUME tech debt resolution for E07-F01: "Sample feature for golden test".
-
-Category: feature | Severity: medium
-
-Check for existing resolution: review recent git changes. If resolution exists and the project quality gate passes (see `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo), advance immediately.
-
-Otherwise, continue with resolution per triaged instructions.
-
-DECISION: same as `tech_debt/triaged.md` — pass/blocked/wont_fix/fail, with
-fail's `route_rework` role requiring empty `gate_result.kickbacks`.
-
-FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
+{{define "_gate_result_directive"}}FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
 Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOTE: <text>` line, or a bare `<entity-id> -> <status> --reason "<why>"` kickback line — those are the legacy free-form directive grammar and this step does not use it. Instead, the ENTIRE trimmed final response must be exactly one worker-control envelope (`kind: final`), with a nested `gate_result` payload:
 
 ```
@@ -37,7 +23,7 @@ not restate it. Two rules this step's outcomes commonly need:
 
 - Whether `kickbacks` must be empty or non-empty for a given outcome depends
   on that outcome's configured semantic role (`outcome_roles`, visible via
-  `shark get E07-F01 --json` or `shark next E07-F01 --json` ->
+  `shark get {{.id}} --json` or `shark next {{.id}} --json` ->
   `result_contract`/`outcome_roles`), not on this prompt's own text:
   - role `success` (typically `pass`): zero `kickbacks`, and no `findings`
     left with `disposition: open` or `severity_conflict`.
@@ -57,4 +43,4 @@ not restate it. Two rules this step's outcomes commonly need:
 
 Write your full narrative report to the file this step already directs
 (unchanged); the envelope's `summary` is a compact verdict statement, not a
-duplicate of that report.
+duplicate of that report.{{end}}

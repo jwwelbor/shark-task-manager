@@ -35,7 +35,7 @@ steps:
     provider: anthropic
     model: opus
     skills: [quality]
-    prompt: _shared/code_review.md
+    prompt: change/code_review.md
     result_contract: gate_result_v1
     outcomes:
       blocked: blocked
@@ -121,7 +121,7 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [quality]
-    prompt: _shared/qa.md
+    prompt: change/qa.md
     result_contract: gate_result_v1
     outcomes:
       blocked: blocked

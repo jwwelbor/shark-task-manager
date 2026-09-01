@@ -125,3 +125,11 @@ EXIT GATE:
   "Cross-epic integrations" section with producer/consumer feature ownership,
   matching contract / shape source, UX / CX handoff notes, and test coverage
   pointer or explicit progress-log deferral
+
+DECISION:
+- Exit gate met -> recommended_outcome: pass
+- Exit gate not met -> recommended_outcome: fail. This outcome's role is
+  `route_rework` — `gate_result.kickbacks` must stay empty; state the
+  specific gaps in `gate_result.summary`.
+
+{{template "_gate_result_directive" .}}
