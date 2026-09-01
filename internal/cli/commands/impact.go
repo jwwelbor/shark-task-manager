@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -26,7 +25,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
 // recordKindChangeImpact mirrors gatepersist's unexported
@@ -63,6 +64,28 @@ func impactNoteWriter(ctx context.Context) (gatepersist.NoteWriter, error) {
 		return impactNoteWriterOverride, nil
 	}
 	return cli.GetNoteService(ctx)
+}
+
+// readBoundedImpactFile reads --impact-file through gaterun's shared
+// no-follow-open + fstat-regular-file-check + size-bound helper (code-review
+// round-6 finding: the sibling gap this rework closes). It mirrors
+// run_apply_result.go's readBoundedEnvelopeFile — same helper, same
+// workercontrol.MaxEnvelopeBytes bound, since internal/gateresult defines
+// only per-field text bounds for ChangeImpactSet (SummaryMaxBytes,
+// PointerMaxBytes, IdentityMaxBytes), not a bound on the serialized file as a
+// whole. A plain os.ReadFile here would buffer the entire file into memory
+// before ValidateChangeImpactSet's field-level bounds are ever evaluated,
+// and would silently follow a symlink target or hang on a FIFO with no
+// writer connected.
+func readBoundedImpactFile(path string) ([]byte, error) {
+	data, err := gaterun.ReadBoundedRegularFile(path, workercontrol.MaxEnvelopeBytes)
+	if err != nil {
+		if strings.Contains(err.Error(), "byte bound") {
+			return nil, fmt.Errorf("--impact-file %q exceeds the maximum size of %d bytes", path, workercontrol.MaxEnvelopeBytes)
+		}
+		return nil, fmt.Errorf("read --impact-file %q: %w", path, err)
+	}
+	return data, nil
 }
 
 var impactCmd = &cobra.Command{
@@ -106,9 +129,9 @@ func runImpactRecord(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not determine entity type for key %q", entityKey)
 	}
 
-	raw, err := os.ReadFile(impactFile)
+	raw, err := readBoundedImpactFile(impactFile)
 	if err != nil {
-		return fmt.Errorf("read --impact-file %q: %w", impactFile, err)
+		return err
 	}
 
 	var impact gateresult.ChangeImpactSet
