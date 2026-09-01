@@ -131,6 +131,21 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, fmt.Errorf("gatepersist: load operation state: %w", err)
 	}
 	if !exists {
+		// Entity identity here (req.EntityKey/req.EntityType) is established
+		// entirely from THIS call's Request — there is no pre-existing durable
+		// record for this run_id to check it against yet (that is exactly what
+		// this branch is creating). This is intentional and identical to how
+		// identity is bound on any brand-new run_id's first-ever Persist call
+		// (the ordinary, non-resume dispatch path): the caller's verified
+		// claim/session on req.EntityKey (checked above by verifyClaimSession
+		// and, before this call, by run.go's verifyClaimSession) is this
+		// coordinator's sole source of truth for "which entity does this call
+		// concern." See run_resume.go's resumeGateIngestForUninitializedState
+		// doc comment for the accepted-risk analysis of the one case where
+		// this matters differently: a caller who names a run_id belonging to
+		// a DIFFERENT entity that crashed in the create-once-result/
+		// before-state-init window (this exact branch, reached via
+		// --resume-run instead of a fresh dispatch).
 		state = gaterun.NewOperationState(req.RunID, req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, digest)
 		if err := state.Save(req.RunDir); err != nil {
 			return nil, fmt.Errorf("gatepersist: initialize operation state: %w", err)
