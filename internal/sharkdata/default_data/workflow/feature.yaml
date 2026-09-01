@@ -259,7 +259,22 @@ steps:
       pass: active
     outcome_roles:
       blocked: blocked
-      fail: kickback_rework
+      # F-01 (T-E34-F05-004 rework): this was kickback_rework, contradicting
+      # feature/task_review.md's DECISION section, which has always told the
+      # worker "the whole feature routes back to task generation as a unit,
+      # so gate_result.kickbacks must stay empty" — a route_rework outcome,
+      # not a per-task kickback one. A worker following the prompt literally
+      # emits zero kickbacks, which gateresult.ValidateRole's
+      # RoleKickbackRework case then rejected ("requires at least one
+      # kickback"), fail-closed, on every FAIL verdict this gate ever
+      # returned. task_review reviews the task DECOMPOSITION as a whole
+      # (coverage/ordering/quality of the generated task list), not each
+      # task's implementation — unlike code_review/qa (which correctly stay
+      # kickback_rework and target specific tasks), a decomposition defect
+      # has no single task to kick back to; the whole feature re-routes to
+      # task_generation, matching approval/specification/test_planning's
+      # existing route_rework pattern.
+      fail: route_rework
       on_hold: hold
       pass: success
   test_planning:
