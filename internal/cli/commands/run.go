@@ -131,7 +131,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// operators consume. Short-circuits before any claim/dispatch state is
 	// touched.
 	if runResumeID != "" {
-		return runResumeRun(entityType, normalizedKey)
+		return runResumeRun(ctx, entityType, normalizedKey)
 	}
 
 	// T-E34-F05-004: --apply-result is Rider's initial-ingestion surface. It

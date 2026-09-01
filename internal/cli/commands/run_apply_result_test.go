@@ -18,12 +18,19 @@ import (
 // see .claude/rules/testing/cli-tests.md).
 
 type fakeParityTransitioner struct {
-	status   map[string]string
-	outcomes map[string]string
+	status         map[string]string
+	outcomes       map[string]string
+	resultContract string
+	outcomeRoles   map[string]gateresult.OutcomeRole
 }
 
 func (t *fakeParityTransitioner) GetNextStatus(_ context.Context, key string) (*services.NextStatusInfo, error) {
-	return &services.NextStatusInfo{CurrentStatus: t.status[key], Outcomes: t.outcomes}, nil
+	return &services.NextStatusInfo{
+		CurrentStatus:  t.status[key],
+		Outcomes:       t.outcomes,
+		ResultContract: t.resultContract,
+		OutcomeRoles:   t.outcomeRoles,
+	}, nil
 }
 
 func (t *fakeParityTransitioner) TransitionStatus(_ context.Context, key string, targetStatus string, _ services.TransitionOptions) (*services.TransitionResult, error) {
