@@ -3,8 +3,8 @@ package gaterun
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -29,36 +29,45 @@ const lockPollInterval = 5 * time.Millisecond
 const DefaultLockTimeout = 30 * time.Second
 
 // RunLock is a held per-run advisory lock. Release must be called exactly
-// once to free it.
+// once to free it. It holds the same no-follow-verified run-directory
+// handle AcquireRunLock derived the lock file from, so Release unlinks the
+// lock file relative to that descriptor rather than re-deriving and
+// separately reusing the run directory's path.
 type RunLock struct {
-	path string
+	dh *os.File
 }
 
 // AcquireRunLock acquires the advisory per-run lock for dir (a directory
 // returned by RunDir), blocking and retrying until either the lock is
 // acquired or timeout elapses. The lock is implemented as an O_EXCL-created
-// sentinel file: creation is atomic at the syscall level, so it is safe
-// across both goroutines within one process and separate processes sharing
-// the same run directory (e.g. a restarted parent).
+// sentinel file relative to a no-follow-verified run-directory handle:
+// creation is atomic at the syscall level, so it is safe across both
+// goroutines within one process and separate processes sharing the same run
+// directory (e.g. a restarted parent).
 //
 // A held lock is never silently stolen: on timeout, AcquireRunLock returns
 // an error rather than breaking another holder's lock. Operators recovering
 // from a genuinely crashed holder must remove the stale lock file directly.
 func AcquireRunLock(dir string, timeout time.Duration) (*RunLock, error) {
-	path := filepath.Join(dir, lockFileName)
+	dh, err := openRunDirNoFollow(dir)
+	if err != nil {
+		return nil, fmt.Errorf("gaterun: acquire run lock: %w", err)
+	}
 	deadline := time.Now().Add(timeout)
 
 	for {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- dir is validated by RunDir.
+		f, err := createExclAt(dh, lockFileName, 0o600)
 		if err == nil {
 			_ = f.Close()
-			return &RunLock{path: path}, nil
+			return &RunLock{dh: dh}, nil
 		}
-		if !errors.Is(err, os.ErrExist) {
-			return nil, fmt.Errorf("gaterun: acquire run lock %s: %w", path, err)
+		if !errors.Is(err, fs.ErrExist) {
+			_ = dh.Close()
+			return nil, fmt.Errorf("gaterun: acquire run lock %s/%s: %w", dir, lockFileName, err)
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("gaterun: timed out waiting for run lock %s", path)
+			_ = dh.Close()
+			return nil, fmt.Errorf("gaterun: timed out waiting for run lock %s/%s", dir, lockFileName)
 		}
 		time.Sleep(lockPollInterval)
 	}
@@ -67,8 +76,15 @@ func AcquireRunLock(dir string, timeout time.Duration) (*RunLock, error) {
 // Release frees the lock. It is safe to call once; a second call returns an
 // error rather than silently succeeding, so a double-release bug surfaces.
 func (l *RunLock) Release() error {
-	if err := os.Remove(l.path); err != nil {
-		return fmt.Errorf("gaterun: release run lock %s: %w", l.path, err)
+	if l.dh == nil {
+		return fmt.Errorf("gaterun: release run lock: already released")
+	}
+	dh := l.dh
+	l.dh = nil
+	defer func() { _ = dh.Close() }()
+
+	if err := removeAt(dh, lockFileName); err != nil {
+		return fmt.Errorf("gaterun: release run lock %s/%s: %w", dh.Name(), lockFileName, err)
 	}
 	return nil
 }

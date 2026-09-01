@@ -3,7 +3,23 @@ package gaterun
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
+)
+
+// Worker-phase values gaterun itself is authoritative for: the durable
+// persistence phase this package's own state machine is in. This is a
+// derived, honest projection of gaterun's own PersistenceState — not a
+// stub — for REQ-F-003/Deliverables' "live parent/operator progress
+// visibility" surface (see status.go's StatusProjection). A richer value
+// describing what the caller's dispatch loop or worker is doing (e.g. a
+// specific note being written) can still be layered on top via
+// SetWorkerPhase/SetNestedOperation; these constants are only the floor
+// every run gets for free.
+const (
+	workerPhasePersisting    = "persisting"
+	workerPhaseTransitioning = "transitioning"
+	workerPhaseRetiring      = "retiring"
 )
 
 // PersistenceState is the REQ-F-003 durable phase of a run's operation
@@ -79,10 +95,30 @@ func NewOperationState(runID, entityKey, entityType, sourceStatus, gate, operati
 		OperationDigest:          operationDigest,
 		PersistenceState:         PersistenceStatePending,
 		CompletedSuboperationIDs: nil,
+		WorkerPhase:              workerPhasePersisting,
 		RetirementState:          RetirementUnknown,
 		StartedAt:                now,
 		UpdatedAt:                now,
 	}
+}
+
+// SetWorkerPhase records a caller-supplied, richer worker-phase value (e.g.
+// from the active dispatch context) than the durable-persistence-phase
+// default this package populates on its own. It is optional: a caller that
+// never calls it still gets a non-empty, honest WorkerPhase from
+// NewOperationState/MarkPersistenceComplete/MarkTransitionApplied.
+func (s *OperationState) SetWorkerPhase(phase string) {
+	s.WorkerPhase = phase
+	s.UpdatedAt = time.Now().UTC()
+}
+
+// SetNestedOperation records a caller-supplied, richer nested-operation
+// value (e.g. the specific note kind or kickback currently being applied)
+// than the suboperation-ID default AddCompletedSuboperation populates on its
+// own.
+func (s *OperationState) SetNestedOperation(op string) {
+	s.NestedOperation = op
+	s.UpdatedAt = time.Now().UTC()
 }
 
 // HasCompleted reports whether suboperationID is already recorded complete.
@@ -102,6 +138,14 @@ func (s *OperationState) AddCompletedSuboperation(suboperationID string) bool {
 	}
 	s.completed[suboperationID] = struct{}{}
 	s.CompletedSuboperationIDs = append(s.CompletedSuboperationIDs, suboperationID)
+	// Fall back to the suboperation ID as an honest, non-empty
+	// NestedOperation default only when the caller has not already recorded
+	// a richer value via SetNestedOperation — a caller-supplied value (e.g.
+	// a human-readable "note kind:item" description) is never clobbered by
+	// this default.
+	if s.NestedOperation == "" {
+		s.NestedOperation = suboperationID
+	}
 	s.UpdatedAt = time.Now().UTC()
 	return true
 }
@@ -123,6 +167,7 @@ func (s *OperationState) MarkPersistenceComplete() error {
 	switch s.PersistenceState {
 	case PersistenceStatePending:
 		s.PersistenceState = PersistenceStateComplete
+		s.WorkerPhase = workerPhaseTransitioning
 		s.UpdatedAt = time.Now().UTC()
 		return nil
 	case PersistenceStateComplete, PersistenceStateTransitioned:
@@ -139,6 +184,7 @@ func (s *OperationState) MarkTransitionApplied() error {
 	switch s.PersistenceState {
 	case PersistenceStateComplete:
 		s.PersistenceState = PersistenceStateTransitioned
+		s.WorkerPhase = workerPhaseRetiring
 		s.UpdatedAt = time.Now().UTC()
 		return nil
 	case PersistenceStateTransitioned:
@@ -158,8 +204,13 @@ func (s *OperationState) Marshal() ([]byte, error) {
 }
 
 // Save writes s to dir/operation-state.json via WriteOperationState
-// (atomic replace).
+// (atomic replace). It also (re-)populates ResultLocation from dir — the
+// one piece of the REQ-F-003/Deliverables operator-status surface fully
+// derivable inside this package, since dir is exactly the run directory
+// result.json lives in — before marshaling, so ResultLocation is never left
+// unpopulated on any path that persists state at all.
 func (s *OperationState) Save(dir string) error {
+	s.ResultLocation = filepath.Join(dir, resultFileName)
 	data, err := s.Marshal()
 	if err != nil {
 		return err
