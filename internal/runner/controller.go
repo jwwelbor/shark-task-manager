@@ -1011,6 +1011,42 @@ func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
 // out retirement — it does not repeat any note write or the transition
 // itself (the same pattern run_resume.go's resumeGateIngestIfConfigured
 // already documents and relies on).
+// gateStageRunID scopes gaterun's create-once persistence identity
+// (gaterun.RunDir/CreateResult, and the durable "run_id" note-metadata tag
+// used for reconciliation) to ONE dispatched gate_result_v1 stage, rather
+// than reusing runID (opts.RunID) — the single correlation identifier
+// generated once at the top of a `shark run` invocation and threaded
+// unchanged through every stage's observability events — as the persistence
+// identity too.
+//
+// code-review round-7 Finding 1: gaterun.CreateResult's create-once contract
+// treats a run_id as identifying exactly ONE persist operation and returns a
+// *gaterun.ConflictError when a second, differently-digested envelope is
+// written under the same run_id. Run()'s main loop (controller.go's
+// `for { ... currentStatus = outcome.nextStatus }`) keeps opts.RunID
+// constant across every iteration of one invocation, so a workflow with two
+// or more consecutive gate_result_v1 steps for the same entity in one
+// invocation (e.g. code_review -> qa) reused opts.RunID for both stages and
+// the second stage's envelope collided with the first stage's
+// already-accepted result.json.
+//
+// stageN (the 1-based dispatch iteration counter, already passed to this
+// function for transcript naming) is a stable, monotonically-increasing
+// per-stage discriminator: every retry of ingestGateResultForDispatch WITHIN
+// one dispatched stage (its own initial ingest call plus a possible
+// follow-up retirement-confirm call, both inside this one function
+// invocation) computes the identical gateStageRunID, so gaterun's own
+// replay/idempotent-resume semantics for a SINGLE stage are unaffected. A
+// later, different stage is a different iteration and therefore gets its
+// own run directory, unable to collide with an earlier stage's accepted
+// result. opts.RunID itself is left untouched everywhere else in this file
+// (every emitStage*/transcript call keeps using opts.RunID directly) so a
+// full `shark run` invocation remains greppable from shark.log by one
+// correlation id.
+func gateStageRunID(runID string, stageN int) string {
+	return fmt.Sprintf("%s-g%d", runID, stageN)
+}
+
 func (c *RunController) ingestGateResultForDispatch(
 	ctx context.Context, key, currentStatus string,
 	nextInfo *services.NextStatusInfo, action *config.PopulatedAction, opts RunOptions,
@@ -1035,7 +1071,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   c.gateIngest.Coordinator,
 		ProjectRoot:   opts.ProjectRoot,
-		RunID:         opts.RunID,
+		RunID:         gateStageRunID(opts.RunID, stageN),
 		EntityKey:     key,
 		EntityType:    models.EntityType(opts.EntityType),
 		SourceStatus:  currentStatus,

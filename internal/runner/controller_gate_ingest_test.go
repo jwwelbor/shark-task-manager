@@ -8,6 +8,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -231,6 +232,230 @@ func TestIngestGateResultForDispatch_TerminalTargetReleasesLease(t *testing.T) {
 	}
 	if !releaser.released {
 		t.Fatal("expected the lease to be released once the resolved target status is terminal (Run()'s loop is about to stop for this entity), but it was not")
+	}
+}
+
+// TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID is the
+// code-review round-7 Finding 1 regression guard: `shark run` generates a
+// single opts.RunID once per invocation and (before this fix) threaded it
+// unchanged into gaterun.RunDir/CreateResult for EVERY gate_result_v1 stage
+// dispatched for the same entity within that invocation. But
+// gaterun.CreateResult's create-once contract treats run_id as identifying
+// exactly ONE persisted result — a second, differently-digested envelope
+// under the same run_id returns a *gaterun.ConflictError. Any workflow with
+// two or more consecutive gate_result_v1 steps for the same entity in one
+// `shark run` invocation (e.g. code_review -> qa) failed on the second gate
+// stage. This drives ingestGateResultForDispatch twice with the SAME
+// opts.RunID (mirroring Run()'s loop, which keeps opts.RunID constant across
+// iterations) but two different stages (different currentStatus, different
+// stageN, different envelope content) and asserts the second stage persists
+// successfully rather than colliding with the first.
+func TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID(t *testing.T) {
+	key := "E01-F01-001"
+	transitioner := &fakeTransitioner{status: map[string]string{key: "code_review"}}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true, "completed": true}},
+		transitioner, transitioner, &fakeLeaseReleaser{},
+	)
+
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &oneShotStatusTransitioner{},
+		ActionSvc:    &MockActionService{},
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  map[string]AgentDispatcher{"anthropic": &MockDispatcher{}},
+		GateIngest: &GateIngestDeps{
+			Coordinator:  coordinator,
+			OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	action := &config.PopulatedAction{Provider: "anthropic"}
+	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-multi-stage-same-id", EntityType: "task", SessionID: "sess-1"}
+	disabled := false
+
+	// Stage 1: code_review -> qa.
+	stage1NextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "qa"}}},
+		Outcomes:             map[string]string{"pass": "qa"},
+	}
+	stage1Dispatch := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "code review passed"}}`,
+		Duration: time.Millisecond,
+	}
+	toStatus1, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), key, "code_review", stage1NextInfo, action, opts, stage1Dispatch, &disabled, 1,
+	)
+	if err != nil {
+		t.Fatalf("stage 1 (code_review) gate ingestion failed: %v", err)
+	}
+	if toStatus1 != "qa" {
+		t.Fatalf("expected stage 1 to transition to qa, got %q", toStatus1)
+	}
+
+	// Stage 2: qa -> completed, dispatched under the SAME opts.RunID
+	// (mirroring Run()'s loop, which never changes opts.RunID between
+	// iterations) but a different stage. Before the fix this collided with
+	// stage 1's already-accepted result.json under the same run directory.
+	stage2NextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}}},
+		Outcomes:             map[string]string{"pass": "completed"},
+	}
+	stage2Dispatch := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "qa passed"}}`,
+		Duration: time.Millisecond,
+	}
+	toStatus2, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), key, "qa", stage2NextInfo, action, opts, stage2Dispatch, &disabled, 2,
+	)
+	if err != nil {
+		t.Fatalf("stage 2 (qa) gate ingestion failed (expected no collision with stage 1's persisted result under the same run_id): %v", err)
+	}
+	if toStatus2 != "completed" {
+		t.Fatalf("expected stage 2 to transition to completed, got %q", toStatus2)
+	}
+}
+
+// TestIngestGateResultForDispatch_SameStageConflictingReplayStillFailsClosed
+// is the discriminating counterpart of the multi-stage test above: it proves
+// gateStageRunID's per-stage scoping did NOT weaken gaterun's create-once
+// contract for retries WITHIN a single stage (the rework brief's explicit
+// constraint — "must not break gaterun's existing create-once/idempotent-
+// replay guarantee for a SINGLE stage's own retries"). Two calls with the
+// SAME stageN and SAME opts.RunID but DIFFERENT envelope content must still
+// collide with a *gaterun.ConflictError, exactly as before this fix.
+func TestIngestGateResultForDispatch_SameStageConflictingReplayStillFailsClosed(t *testing.T) {
+	key := "E01-F01-001"
+	transitioner := &fakeTransitioner{status: map[string]string{key: "code_review"}}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}},
+		transitioner, transitioner, &fakeLeaseReleaser{},
+	)
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &oneShotStatusTransitioner{},
+		ActionSvc:    &MockActionService{},
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  map[string]AgentDispatcher{"anthropic": &MockDispatcher{}},
+		GateIngest: &GateIngestDeps{
+			Coordinator:  coordinator,
+			OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	nextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "qa"}}},
+		Outcomes:             map[string]string{"pass": "qa"},
+	}
+	action := &config.PopulatedAction{Provider: "anthropic"}
+	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-same-stage-conflict", EntityType: "task", SessionID: "sess-1"}
+	disabled := false
+
+	first := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "first attempt"}}`,
+		Duration: time.Millisecond,
+	}
+	if _, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), key, "code_review", nextInfo, action, opts, first, &disabled, 1,
+	); err != nil {
+		t.Fatalf("expected the first attempt at stage 1 to succeed: %v", err)
+	}
+
+	conflicting := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "a DIFFERENT attempt at the SAME stage"}}`,
+		Duration: time.Millisecond,
+	}
+	_, _, err = controller.ingestGateResultForDispatch(
+		context.Background(), key, "code_review", nextInfo, action, opts, conflicting, &disabled, 1,
+	)
+	if err == nil {
+		t.Fatal("expected a conflicting replay at the SAME stage (same stageN, same opts.RunID) to fail closed")
+	}
+	if !gaterun.IsConflict(err) {
+		t.Fatalf("expected a *gaterun.ConflictError (create-once contract preserved for same-stage retries), got: %v", err)
+	}
+}
+
+// TestIngestGateResultForDispatch_SameStageIdenticalReplayIsIdempotent is the
+// idempotent-replay sibling of the conflict test above: a second call with
+// the SAME stageN/opts.RunID and BYTE-IDENTICAL envelope content must
+// succeed without error and without writing a second gate-summary note —
+// gaterun's create-once contract treats a byte-identical replay as
+// idempotent success, and gateStageRunID must preserve that for a single
+// stage's own retries.
+func TestIngestGateResultForDispatch_SameStageIdenticalReplayIsIdempotent(t *testing.T) {
+	key := "E01-F01-001"
+	transitioner := &fakeTransitioner{status: map[string]string{key: "code_review"}}
+	notes := &fakeNoteWriter{}
+	coordinator := gatepersist.NewCoordinator(
+		notes, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}},
+		transitioner, transitioner, &fakeLeaseReleaser{},
+	)
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &oneShotStatusTransitioner{},
+		ActionSvc:    &MockActionService{},
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  map[string]AgentDispatcher{"anthropic": &MockDispatcher{}},
+		GateIngest: &GateIngestDeps{
+			Coordinator:  coordinator,
+			OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	nextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "qa"}}},
+		Outcomes:             map[string]string{"pass": "qa"},
+	}
+	action := &config.PopulatedAction{Provider: "anthropic"}
+	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-same-stage-idempotent", EntityType: "task", SessionID: "sess-1"}
+	disabled := false
+	identical := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "identical every time"}}`,
+		Duration: time.Millisecond,
+	}
+
+	toStatus1, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), key, "code_review", nextInfo, action, opts, identical, &disabled, 1,
+	)
+	if err != nil {
+		t.Fatalf("expected the first attempt at stage 1 to succeed: %v", err)
+	}
+	notesAfterFirst := len(notes.notes)
+	if notesAfterFirst == 0 {
+		t.Fatal("expected the first attempt to write at least one gate-summary note")
+	}
+
+	toStatus2, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), key, "code_review", nextInfo, action, opts, identical, &disabled, 1,
+	)
+	if err != nil {
+		t.Fatalf("expected a byte-identical replay at the SAME stage to succeed idempotently, got error: %v", err)
+	}
+	if toStatus1 != toStatus2 {
+		t.Fatalf("expected both attempts to resolve the same target status, got %q then %q", toStatus1, toStatus2)
+	}
+	if len(notes.notes) != notesAfterFirst {
+		t.Fatalf("expected the idempotent replay to write no additional notes, had %d notes after first attempt, %d after replay", notesAfterFirst, len(notes.notes))
 	}
 }
 
