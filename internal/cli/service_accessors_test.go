@@ -369,3 +369,86 @@ func TestGetClaimService_UsesConfigClaimTTLSeconds(t *testing.T) {
 		}
 	})
 }
+
+// TestGetHarnessResolver_UsesConfigClaimTTLSeconds pins the T-E34-F01-003
+// rework's TTL-authority-alignment fix (advisor-flagged gap): GetHarnessResolver
+// must read the same claim_ttl_seconds config GetClaimService reads
+// (TestGetClaimService_UsesConfigClaimTTLSeconds above), not silently fall
+// back to its own default. Without this, a project configuring
+// claim_ttl_seconds differently from the env-derived default would have its
+// ClaimService and HarnessResolver disagree about whether a given lease is
+// still active.
+func TestGetHarnessResolver_UsesConfigClaimTTLSeconds(t *testing.T) {
+	t.Run("zero disables expiry", func(t *testing.T) {
+		ResetDB()
+		tmpDir := t.TempDir()
+		testDB := filepath.Join(tmpDir, "harness-ttl-zero.db")
+		configContent := `{
+			"database": {
+				"backend": "local",
+				"url": "` + testDB + `"
+			},
+			"claim_ttl_seconds": 0
+		}`
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to write test config: %v", err)
+		}
+
+		origWd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get working directory: %v", err)
+		}
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to chdir to tmpDir: %v", err)
+		}
+		defer func() {
+			ResetDB()
+			if err := os.Chdir(origWd); err != nil {
+				t.Errorf("Failed to restore working directory: %v", err)
+			}
+		}()
+
+		resolver := GetHarnessResolver()
+		if got := resolver.TTL(); got != 0 {
+			t.Fatalf("TTL() = %v, want 0", got)
+		}
+	})
+
+	t.Run("config overrides env", func(t *testing.T) {
+		ResetDB()
+		t.Setenv("SHARK_CLAIM_TTL_SECONDS", "7")
+		tmpDir := t.TempDir()
+		testDB := filepath.Join(tmpDir, "harness-ttl-config.db")
+		configContent := `{
+			"database": {
+				"backend": "local",
+				"url": "` + testDB + `"
+			},
+			"claim_ttl_seconds": 120
+		}`
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to write test config: %v", err)
+		}
+
+		origWd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get working directory: %v", err)
+		}
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to chdir to tmpDir: %v", err)
+		}
+		defer func() {
+			ResetDB()
+			if err := os.Chdir(origWd); err != nil {
+				t.Errorf("Failed to restore working directory: %v", err)
+			}
+		}()
+
+		resolver := GetHarnessResolver()
+		if got := resolver.TTL(); got != 120*time.Second {
+			t.Fatalf("TTL() = %v, want 120s", got)
+		}
+	})
+}
