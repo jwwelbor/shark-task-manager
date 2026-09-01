@@ -55,6 +55,36 @@ func openRegularNoFollowAt(dh *os.File, name string) (*os.File, error) {
 	return f, nil
 }
 
+// openRegularNoFollowPath is the absolute/bare-path counterpart of
+// openRegularNoFollowAt, for callers that only have a plain path (e.g. a
+// CLI-flag-supplied file) rather than an already-open directory handle to
+// open relative to. It applies the exact same O_NOFOLLOW-open-then-fstat
+// safety check and O_NONBLOCK FIFO-hang avoidance.
+func openRegularNoFollowPath(path string) (*os.File, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) {
+			return nil, &UnsafePathError{Path: path, Reason: "refusing to follow symlink"}
+		}
+		if errors.Is(err, unix.ENOENT) {
+			return nil, fmt.Errorf("gaterun: open %s: %w", path, os.ErrNotExist)
+		}
+		return nil, fmt.Errorf("gaterun: open %s: %w", path, err)
+	}
+	f := os.NewFile(uintptr(fd), path)
+
+	fi, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("gaterun: fstat %s: %w", path, err)
+	}
+	if !fi.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, &UnsafePathError{Path: path, Reason: "target is not a regular file"}
+	}
+	return f, nil
+}
+
 // createExclAt creates name relative to dh with O_CREAT|O_EXCL|O_WRONLY,
 // failing if it already exists (regardless of what it is).
 func createExclAt(dh *os.File, name string, mode os.FileMode) (*os.File, error) {

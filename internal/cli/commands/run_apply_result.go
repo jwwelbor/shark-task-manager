@@ -11,8 +11,7 @@ package commands
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -54,24 +53,24 @@ func runApplyResultSet() bool {
 // unconditional os.ReadFile buffered the ENTIRE file into memory before
 // workercontrol.Decode ever evaluated MaxEnvelopeBytes, so a maliciously
 // huge --apply-result file was still fully read into memory first, defeating
-// the point of that bound. The "+1" (rather than exactly MaxEnvelopeBytes)
-// lets this distinguish "too large" from "exactly at the limit" the same
-// way internal/gaterun's own readRegularBounded does for the sidecar
-// transport's own file reads (fsio.go) — this is the CLI-supplied-path
-// mirror of that same pattern, not a second bound.
+// the point of that bound.
+//
+// It delegates to gaterun.ReadBoundedRegularFile (code-review round-6
+// finding), which gives this CLI-flag-supplied path the exact same
+// no-follow-open + fstat-regular-file-check safety internal/gaterun's own
+// readRegularBounded uses for the sidecar transport's file reads (fsio.go).
+// The prior plain os.Open here silently followed a symlink target, and would
+// hang indefinitely if pointed at a FIFO with no writer connected — the size
+// bound via io.LimitReader doesn't help there, since it still blocks reading
+// from an open FIFO below the limit. See fsio_path.go's doc comment for why
+// this is a shared entry point rather than a duplicated implementation.
 func readBoundedEnvelopeFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	data, err := gaterun.ReadBoundedRegularFile(path, workercontrol.MaxEnvelopeBytes)
 	if err != nil {
+		if strings.Contains(err.Error(), "byte bound") {
+			return nil, fmt.Errorf("exceeds the maximum envelope size of %d bytes", workercontrol.MaxEnvelopeBytes)
+		}
 		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(f, int64(workercontrol.MaxEnvelopeBytes)+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > workercontrol.MaxEnvelopeBytes {
-		return nil, fmt.Errorf("exceeds the maximum envelope size of %d bytes", workercontrol.MaxEnvelopeBytes)
 	}
 	return data, nil
 }

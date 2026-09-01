@@ -48,6 +48,31 @@ func openRegularNoFollowAt(dh *os.File, name string) (*os.File, error) {
 	return f, nil
 }
 
+// openRegularNoFollowPath is the absolute/bare-path counterpart of
+// openRegularNoFollowAt, for callers that only have a plain path (e.g. a
+// CLI-flag-supplied file) rather than an already-open directory handle to
+// open relative to. Like openRegularNoFollowAt above, this Windows build
+// falls back to a separate Lstat-then-Open, leaving the same documented
+// TOCTOU gap unaddressed on this platform.
+func openRegularNoFollowPath(path string) (*os.File, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("gaterun: stat %s: %w", path, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return nil, &UnsafePathError{Path: path, Reason: "refusing to follow symlink"}
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, &UnsafePathError{Path: path, Reason: "target is not a regular file"}
+	}
+
+	f, err := os.Open(path) // #nosec G304 -- path is Lstat-verified above.
+	if err != nil {
+		return nil, fmt.Errorf("gaterun: open %s: %w", path, err)
+	}
+	return f, nil
+}
+
 func createExclAt(dh *os.File, name string, mode os.FileMode) (*os.File, error) {
 	path := joinAt(dh, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode) // #nosec G304 -- path is joined from a validated run dir.
