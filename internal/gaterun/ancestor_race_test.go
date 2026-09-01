@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -146,8 +147,14 @@ func TestCreateResult_AncestorSymlinkSwapRace_NeverFollowsLink(t *testing.T) {
 	}
 
 	stop := make(chan struct{})
-	defer close(stop)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer func() {
+		close(stop)
+		wg.Wait()
+	}()
 	go func() {
+		defer wg.Done()
 		linkTmp := runsDir + ".linktmp"
 		for {
 			select {

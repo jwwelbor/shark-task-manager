@@ -371,8 +371,14 @@ func TestReadResult_SymlinkSwapRaceNeverFollowsLink(t *testing.T) {
 	}
 
 	stop := make(chan struct{})
-	defer close(stop)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer func() {
+		close(stop)
+		wg.Wait()
+	}()
 	go func() {
+		defer wg.Done()
 		linkTmp := path + ".linktmp"
 		regTmp := path + ".regtmp"
 		for {
