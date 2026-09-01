@@ -35,7 +35,7 @@ func TestReconciler_MergesDurableNoteAndHistoryRecords(t *testing.T) {
 
 	world.setStatus(models.EntityTypeTask, kickbackOp.kickback.EntityKey, "in_review")
 	subID := kickbackOp.suboperationID(digest)
-	reason := buildKickbackReason(kickbackOp.kickback.Reason, subID, kickbackOp.contentDigest())
+	reason := buildKickbackReason(kickbackOp.kickback.Reason, subID, kickbackOp.contentDigest(), "run-x")
 	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, kickbackOp.kickback.TargetStatus, reason, "agent", TransitionGuard{}); err != nil {
 		t.Fatalf("seed kickback transition: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestReconciler_ConflictingKickbackHistoryFailsClosed(t *testing.T) {
 	// acceptance criterion.
 	world.setStatus(models.EntityTypeTask, kickbackOp.kickback.EntityKey, "in_review")
 	fakeDigest := strings.Repeat("c", 64)
-	conflictingReason := buildKickbackReason("a different reason", subID, fakeDigest)
+	conflictingReason := buildKickbackReason("a different reason", subID, fakeDigest, "run-x")
 	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, "completed", conflictingReason, "agent", TransitionGuard{}); err != nil {
 		t.Fatalf("seed conflicting kickback transition: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestReconciler_ConflictingKickbackReasonSameStatusFailsClosed(t *testing.T)
 	// op.contentDigest() covers entity key, target status, AND reason.
 	world.setStatus(models.EntityTypeTask, kickbackOp.kickback.EntityKey, "in_review")
 	fakeDigest := strings.Repeat("d", 64)
-	conflictingReason := buildKickbackReason("a completely different reason than what was recorded", subID, fakeDigest)
+	conflictingReason := buildKickbackReason("a completely different reason than what was recorded", subID, fakeDigest, "run-x")
 	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, kickbackOp.kickback.TargetStatus, conflictingReason, "agent", TransitionGuard{}); err != nil {
 		t.Fatalf("seed conflicting-reason kickback transition: %v", err)
 	}
@@ -184,6 +184,57 @@ func TestReconciler_ConflictingNoteContentFailsClosed(t *testing.T) {
 	_, err := rec.CompletedSuboperationIDs(context.Background(), "run-x")
 	if err == nil {
 		t.Fatalf("expected conflicting note content to fail closed")
+	}
+}
+
+// TestReconciler_KickbackFromDifferentRunNotTreatedAsCompleted closes the
+// notes/kickback reconciliation asymmetry (code-review round 11 finding): the
+// notes branch (two lines above the kickback branch in CompletedSuboperationIDs)
+// filters candidate records by the run_id it was given; the kickback branch
+// did not, even though a kickback transition's suboperation ID does not
+// itself encode the run that produced it (gaterun.ComputeOperationDigest
+// never includes run_id, so two different runs against the same entity/
+// source_status/gate/envelope legitimately derive the identical
+// suboperation ID). Without the filter, a kickback durably applied by a
+// DIFFERENT run could be misread as "this run already completed it",
+// silently short-circuiting this run's own persistence of that suboperation.
+func TestReconciler_KickbackFromDifferentRunNotTreatedAsCompleted(t *testing.T) {
+	world := newFakeWorld()
+	digest := "digest-5"
+	ops := buildOperations(fixtureResult(), "summary text")
+	kickbackOp := ops[len(ops)-1]
+	subID := kickbackOp.suboperationID(digest)
+
+	// A DIFFERENT run ("other-run") already durably applied this exact
+	// kickback (same subID/content digest, since both runs would derive the
+	// same operation digest from identical entity/source_status/gate/
+	// envelope inputs). This run is "run-x", not "other-run".
+	world.setStatus(models.EntityTypeTask, kickbackOp.kickback.EntityKey, "in_review")
+	reason := buildKickbackReason(kickbackOp.kickback.Reason, subID, kickbackOp.contentDigest(), "other-run")
+	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickbackOp.kickback.EntityKey, kickbackOp.kickback.TargetStatus, reason, "agent", TransitionGuard{}); err != nil {
+		t.Fatalf("seed other-run kickback transition: %v", err)
+	}
+
+	rec := &reconciler{
+		noteReader:     world,
+		historyReader:  world,
+		mainEntityType: models.EntityTypeTask,
+		mainEntityKey:  mainEntityKey,
+		kickbackEntities: map[string]models.EntityType{
+			kickbackOp.kickback.EntityKey: models.EntityTypeTask,
+		},
+		ops:             ops,
+		operationDigest: digest,
+	}
+
+	ids, err := rec.CompletedSuboperationIDs(context.Background(), "run-x")
+	if err != nil {
+		t.Fatalf("CompletedSuboperationIDs: %v", err)
+	}
+	for _, id := range ids {
+		if id == subID {
+			t.Fatalf("expected kickback suboperation %s written by a different run (other-run) not to be reconciled as completed for run-x, got %v", subID, ids)
+		}
 	}
 }
 

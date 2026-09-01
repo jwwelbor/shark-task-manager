@@ -384,7 +384,7 @@ func (c *Coordinator) applyKickback(ctx context.Context, op operation, subID str
 	if err != nil {
 		return fmt.Errorf("gatepersist: read kickback target status for %s: %w", k.EntityKey, err)
 	}
-	reason := buildKickbackReason(k.Reason, subID, op.contentDigest())
+	reason := buildKickbackReason(k.Reason, subID, op.contentDigest(), req.RunID)
 	guard := TransitionGuard{
 		SessionID:  req.Session.ID,
 		FromStatus: fromStatus,

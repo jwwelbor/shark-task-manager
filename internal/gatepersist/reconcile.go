@@ -98,8 +98,17 @@ func (r *reconciler) CompletedSuboperationIDs(ctx context.Context, runID string)
 			if h.Notes == nil {
 				continue
 			}
-			subID, gotDigest, ok := parseKickbackToken(*h.Notes)
+			subID, gotDigest, gotRunID, ok := parseKickbackToken(*h.Notes)
 			if !ok {
+				continue
+			}
+			if gotRunID != runID {
+				// Mirrors the notes branch's run_id filter above: a
+				// suboperation ID alone does not identify which run
+				// produced it (ComputeOperationDigest never includes
+				// run_id), so a history record from a DIFFERENT run must
+				// never be misread as this run's own completed
+				// suboperation (code-review round 11 finding).
 				continue
 			}
 			op, ok := opByID[subID]
