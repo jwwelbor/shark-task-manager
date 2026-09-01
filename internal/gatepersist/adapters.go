@@ -70,6 +70,22 @@ func NewEntityServiceTransitioner(entitySvc *services.EntityService, registry *s
 	return &EntityServiceTransitioner{entitySvc: entitySvc, registry: registry}
 }
 
+// CurrentStatus implements StatusReader, reusing the same registry lookup
+// Transition uses. EntityServiceTransitioner therefore satisfies both
+// Transitioner and StatusReader, so callers can wire one instance to both
+// Coordinator fields.
+func (t *EntityServiceTransitioner) CurrentStatus(ctx context.Context, entityType models.EntityType, entityKey string) (string, error) {
+	repo, err := t.registry.GetRepository(entityType)
+	if err != nil {
+		return "", fmt.Errorf("gatepersist: resolve repository for %s: %w", entityType, err)
+	}
+	entity, err := repo.GetByKey(ctx, entityKey)
+	if err != nil {
+		return "", fmt.Errorf("gatepersist: get %s %s: %w", entityType, entityKey, err)
+	}
+	return entity.GetStatus(), nil
+}
+
 // Transition implements Transitioner.
 func (t *EntityServiceTransitioner) Transition(ctx context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string) (string, bool, error) {
 	repo, err := t.registry.GetRepository(entityType)

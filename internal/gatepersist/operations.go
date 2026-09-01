@@ -53,6 +53,7 @@ const (
 	metaParentSession   = "parent_session"
 	metaOutcomeKey      = "outcome_key"
 	metaRole            = "role"
+	metaEvidence        = "evidence"
 )
 
 // note-only finding metadata fields (REQ-F-002's required finding metadata).

@@ -102,7 +102,7 @@ func baseRequest(t *testing.T, runDir string) Request {
 }
 
 func newTestCoordinator(w *fakeWorld, v StatusValidator) *Coordinator {
-	return NewCoordinator(w, w, w, v, w, w)
+	return NewCoordinator(w, w, w, v, w, w, w)
 }
 
 func defaultValidator() *fakeStatusValidator {
@@ -190,6 +190,30 @@ func TestPersist_OrderingAndContent(t *testing.T) {
 
 	if len(world.releaseCalls) != 1 {
 		t.Fatalf("expected exactly 1 release call, got %d", len(world.releaseCalls))
+	}
+}
+
+func TestPersist_EvidenceFoldedIntoGateSummaryNote(t *testing.T) {
+	runDir := t.TempDir()
+	world := newFakeWorld()
+	coord := newTestCoordinator(world, defaultValidator())
+
+	req := baseRequest(t, runDir)
+	req.Evidence = json.RawMessage(`[{"kind":"command","pointer":"artifacts/test.log","summary":"go test ./...","exit_code":0}]`)
+
+	if _, err := coord.Persist(context.Background(), req); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+	if len(world.notes) == 0 {
+		t.Fatalf("expected at least the gate-summary note")
+	}
+	summaryMeta, ok := decodeMetadata(*world.notes[0].Metadata)
+	if !ok {
+		t.Fatalf("expected gate-summary note metadata to decode")
+	}
+	evidence, ok := summaryMeta[metaEvidence].([]interface{})
+	if !ok || len(evidence) != 1 {
+		t.Fatalf("expected gate-summary note metadata to carry the evidence array, got %v", summaryMeta[metaEvidence])
 	}
 }
 
@@ -337,11 +361,55 @@ func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
 			mainTransitions++
 		}
 	}
-	if mainTransitions != 2 {
-		t.Fatalf("expected the idempotent verify-call on resume (2 total main-transition calls, second a no-op), got %d", mainTransitions)
+	if mainTransitions != 1 {
+		t.Fatalf("expected the second call to VERIFY (not repeat) the already-applied transition: still exactly 1 transition call total, got %d", mainTransitions)
 	}
 	if world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)] != "ready_for_qa" {
 		t.Fatalf("expected main entity to remain at ready_for_qa, not re-transitioned elsewhere")
+	}
+}
+
+// TestPersist_AlreadyTransitionedResumeFailsClosedOnDivergedStatus proves the
+// already-transitioned resume path (architecture.md step 8: "it must not
+// repeat the transition") verifies the live target rather than blindly
+// re-applying it: if something else moved the entity away from
+// TargetStatus between the first and second Persist call, the second call
+// must fail rather than silently transitioning it again from wherever it
+// now is.
+func TestPersist_AlreadyTransitionedResumeFailsClosedOnDivergedStatus(t *testing.T) {
+	runDir := t.TempDir()
+	world := newFakeWorld()
+	coord := newTestCoordinator(world, defaultValidator())
+
+	req := baseRequest(t, runDir)
+	if _, err := coord.Persist(context.Background(), req); err != nil {
+		t.Fatalf("first Persist: %v", err)
+	}
+	if world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)] != "ready_for_qa" {
+		t.Fatalf("setup: expected main entity at ready_for_qa after first Persist")
+	}
+
+	// Something external (a human `status set --force`, a cascade) moves the
+	// entity away from the recorded target between calls.
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "todo")
+
+	req2 := baseRequest(t, runDir)
+	req2.RetirementConfirmed = true
+	if _, err := coord.Persist(context.Background(), req2); err == nil {
+		t.Fatalf("expected the already-transitioned resume to fail closed on a diverged live status")
+	}
+
+	mainTransitions := 0
+	for _, c := range world.transitionCalls {
+		if c.entityKey == mainEntityKey {
+			mainTransitions++
+		}
+	}
+	if mainTransitions != 1 {
+		t.Fatalf("expected the verify-only path to never call Transition again, got %d main-transition calls", mainTransitions)
+	}
+	if len(world.releaseCalls) != 0 {
+		t.Fatalf("expected no lease release when verification fails closed")
 	}
 }
 
@@ -382,20 +450,15 @@ func TestPersist_InvalidKickbackTargetStatusRejectedWithoutPartialMutation(t *te
 		t.Fatalf("expected no writes at all before kickback validation, got %d notes, %d transitions", len(world.notes), len(world.transitionCalls))
 	}
 
-	// Sanity: the run directory itself must not have accepted a durable
-	// result either -- validation runs after CreateResult in this
-	// implementation, so document and assert that explicitly instead of
-	// silently relying on it.
-	if _, exists, _ := gaterun.ReadResult(runDir); !exists {
-		t.Fatalf("expected result.json to exist (validation runs after create-once accept, by design)")
+	// Kickback validation runs before this run_id ever accepts a durable
+	// result, so a rejected kickback must not permanently burn the run_id
+	// under gaterun.CreateResult's create-once/no-rewrite contract: a caller
+	// can retry the SAME run_id with a corrected envelope.
+	if _, exists, _ := gaterun.ReadResult(runDir); exists {
+		t.Fatalf("expected no result.json to have been accepted before kickback validation ran")
 	}
-	// But operation-state must never reach persistence_complete/transitioned.
-	state, exists, err := gaterun.LoadOperationState(runDir)
-	if err != nil {
-		t.Fatalf("LoadOperationState: %v", err)
-	}
-	if exists && state.PersistenceState != gaterun.PersistenceStatePending {
-		t.Fatalf("expected operation state to remain pending after a rejected kickback, got %q", state.PersistenceState)
+	if _, exists, _ := gaterun.LoadOperationState(runDir); exists {
+		t.Fatalf("expected no operation-state.json to exist before kickback validation ran")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 )
@@ -17,6 +18,7 @@ type Coordinator struct {
 	History    HistoryReader
 	Validator  StatusValidator
 	Transition Transitioner
+	Status     StatusReader
 	Lease      LeaseReleaser
 }
 
@@ -25,7 +27,7 @@ type Coordinator struct {
 // APIs for a gate result (per its component-boundary contract), so a
 // missing dependency is a wiring bug that must fail at construction, not
 // silently degrade at persist time.
-func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryReader, validator StatusValidator, transition Transitioner, lease LeaseReleaser) *Coordinator {
+func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryReader, validator StatusValidator, transition Transitioner, status StatusReader, lease LeaseReleaser) *Coordinator {
 	switch {
 	case notes == nil:
 		panic("gatepersist: NewCoordinator requires a non-nil NoteWriter")
@@ -37,6 +39,8 @@ func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryRead
 		panic("gatepersist: NewCoordinator requires a non-nil StatusValidator")
 	case transition == nil:
 		panic("gatepersist: NewCoordinator requires a non-nil Transitioner")
+	case status == nil:
+		panic("gatepersist: NewCoordinator requires a non-nil StatusReader")
 	case lease == nil:
 		panic("gatepersist: NewCoordinator requires a non-nil LeaseReleaser")
 	}
@@ -46,6 +50,7 @@ func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryRead
 		History:    history,
 		Validator:  validator,
 		Transition: transition,
+		Status:     status,
 		Lease:      lease,
 	}
 }
@@ -78,6 +83,17 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	}
 	defer func() { _ = lock.Release() }()
 
+	// Kickback validation runs before this run_id ever accepts a durable
+	// result: a run whose result would be rejected must not permanently burn
+	// its run_id under gaterun.CreateResult's create-once/first-writer-wins
+	// contract (there is no rewrite path — a corrected envelope needs a new
+	// run_id otherwise). This is "rejected without partial mutation" applied
+	// to the sidecar transport itself, not just target-store writes.
+	kickbackEntityTypes, err := validateKickbacks(req.Result.Kickbacks, req.EntityKey, c.Validator)
+	if err != nil {
+		return nil, err
+	}
+
 	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
 	if err != nil {
 		return nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
@@ -97,11 +113,6 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 			return nil, fmt.Errorf("gatepersist: initialize operation state: %w", err)
 		}
 	} else if err := gaterun.VerifyResumeIdentity(state, req.EntityKey, string(req.EntityType), req.SourceStatus, digest); err != nil {
-		return nil, err
-	}
-
-	kickbackEntityTypes, err := validateKickbacks(req.Result.Kickbacks, req.EntityKey, c.Validator)
-	if err != nil {
 		return nil, err
 	}
 
@@ -153,13 +164,17 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	result.CompletedSuboperations = append([]string(nil), state.CompletedSuboperationIDs...)
 	result.PersistenceComplete = state.PersistenceState == gaterun.PersistenceStateComplete || state.PersistenceState == gaterun.PersistenceStateTransitioned
 
-	// Both "persistence just completed this call" and "already
-	// persistence_complete from a prior call" resume here; both
-	// "already transition_applied" also re-enters this idempotent call so
-	// its only effect is the verify-no-write path EntityService.
-	// TransitionStatus's own idempotency check guarantees (see the
-	// Transitioner interface doc comment) — it never repeats a write.
-	if state.PersistenceState == gaterun.PersistenceStateComplete || state.PersistenceState == gaterun.PersistenceStateTransitioned {
+	// "persistence just completed this call" and "already persistence_complete
+	// from a prior call" both apply the guarded transition exactly once here.
+	// "already transition_applied" (a prior call already recorded it) must
+	// NOT repeat the transition call (architecture.md step 8: "it must not
+	// repeat the transition") — it only verifies the expected live target
+	// state via StatusReader and fails closed on any mismatch, since nothing
+	// guarantees the entity is still where this run last left it (a human
+	// `status set --force`, a cascade, or a concurrent run could have moved
+	// it since).
+	switch state.PersistenceState {
+	case gaterun.PersistenceStateComplete:
 		reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
 		fromStatus, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent)
 		if err != nil {
@@ -173,6 +188,14 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		}
 		if err := state.Save(req.RunDir); err != nil {
 			return nil, fmt.Errorf("gatepersist: save operation state after transition applied: %w", err)
+		}
+	case gaterun.PersistenceStateTransitioned:
+		current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
+		if err != nil {
+			return nil, fmt.Errorf("gatepersist: verify already-applied transition target: %w", err)
+		}
+		if !strings.EqualFold(current, req.TargetStatus) {
+			return nil, fmt.Errorf("gatepersist: entity %s is recorded transition_applied to %q but is currently at %q; refusing to repeat or silently diverge from the recorded transition", req.EntityKey, req.TargetStatus, current)
 		}
 	}
 	result.ToStatus = req.TargetStatus
@@ -223,6 +246,13 @@ func (c *Coordinator) writeNote(ctx context.Context, op operation, subID, digest
 	if op.kind == kindGateSummary {
 		meta[metaOutcomeKey] = req.OutcomeKey
 		meta[metaRole] = string(req.Role)
+		if len(req.Evidence) > 0 {
+			var evidence interface{}
+			if err := json.Unmarshal(req.Evidence, &evidence); err != nil {
+				return fmt.Errorf("gatepersist: decode evidence for gate-summary note: %w", err)
+			}
+			meta[metaEvidence] = evidence
+		}
 	}
 
 	encoded, err := json.Marshal(meta)

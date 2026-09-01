@@ -92,6 +92,19 @@ type Request struct {
 	// OutcomeKey is the opaque configured outcome the worker returned.
 	OutcomeKey string
 
+	// Evidence is the outer worker-control envelope's common EvidenceRef
+	// collection (architecture.md "The outer final envelope's EvidenceRef
+	// contains kind, pointer, and an optional bounded summary..."), already
+	// decoded and bounded by the caller's envelope validation (this package
+	// does not parse the outer envelope — see gatepersist.go's package doc).
+	// When non-empty it is folded into the gate-summary note's metadata, so
+	// the persisted "review" note carries the summary AND its evidence per
+	// REQ-F-002's "gate-summary/evidence review note." It is opaque JSON
+	// here rather than a typed slice because this package intentionally has
+	// no EvidenceRef type of its own to avoid duplicating the outer
+	// envelope's shape ahead of T-E34-F05-004's parity work.
+	Evidence json.RawMessage
+
 	// TargetStatus is the resolved main-entity transition target for
 	// OutcomeKey, already resolved by the caller from workflow configuration
 	// (this package never selects a status from an opaque outcome key).

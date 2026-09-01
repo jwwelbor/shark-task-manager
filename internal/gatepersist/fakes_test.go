@@ -152,6 +152,16 @@ func (w *fakeWorld) Transition(_ context.Context, entityType models.EntityType, 
 	return from, true, nil
 }
 
+// CurrentStatus implements StatusReader.
+func (w *fakeWorld) CurrentStatus(_ context.Context, entityType models.EntityType, entityKey string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if s, ok := w.statuses[historyKey(entityType, entityKey)]; ok {
+		return s, nil
+	}
+	return "todo", nil
+}
+
 // Release implements LeaseReleaser.
 func (w *fakeWorld) Release(_ context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error) {
 	w.mu.Lock()

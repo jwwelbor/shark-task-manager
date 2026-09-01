@@ -49,3 +49,14 @@ type Transitioner interface {
 type LeaseReleaser interface {
 	Release(ctx context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error)
 }
+
+// StatusReader reads an entity's current live status. It is used only on
+// the already-transitioned resume path (state.PersistenceState ==
+// gaterun.PersistenceStateTransitioned): architecture.md step 8 requires
+// that path to "verify the expected live target state" without repeating
+// the transition call, so this coordinator never trusts Transitioner's own
+// idempotency to stand in for that verification once a transition is
+// already durably recorded applied.
+type StatusReader interface {
+	CurrentStatus(ctx context.Context, entityType models.EntityType, entityKey string) (string, error)
+}
