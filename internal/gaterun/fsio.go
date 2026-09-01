@@ -28,6 +28,19 @@ const (
 // Unix, every step from the ancestor directories down through the leaf
 // operation shares one openat-derived descriptor chain, closing the
 // ancestor-directory TOCTOU a plain Lstat-then-path-reopen would leave open.
+//
+// Precondition: dir must be a value returned by RunDir (or an equal string
+// derived from the same projectRoot/runID pair) — i.e.
+// <projectRoot>/.shark/runs/<runID>. openRunDirNoFollow re-derives the
+// ancestor chain from dir's own path components (see dirhandle_unix.go /
+// dirhandle_windows.go), so a dir whose last three components are not
+// exactly ".shark", "runs", and a ValidateRunID-accepted run ID is rejected
+// before any file operation is attempted, rather than silently operating
+// against an unrecognized location. Both of this package's real callers
+// (internal/gatepersist's Request.RunDir and internal/runner's ingest path)
+// obtain dir exclusively via RunDir, so this precondition holds in
+// production; it is new relative to the pre-rework code, which accepted any
+// existing directory here.
 
 // readRegularBounded reads name (relative to dh) after verifying, via a
 // no-follow open plus an fstat on the resulting descriptor, that it is a
