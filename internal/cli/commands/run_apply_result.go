@@ -121,7 +121,11 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		EntityKey:    entityKey,
 		SessionID:    runSession,
 		OutcomeRoles: applyResultOutcomeRolesOverride,
-		WorkflowSvc:  cli.GetWorkflowService(),
+		// code-review round-8 finding: scope to entityType so
+		// applyResultIngest's terminal-status check uses this entity's own
+		// workflow level (e.g. tech_debt's resolved/wont_fix), not the
+		// unscoped task-level default.
+		WorkflowSvc: cli.GetWorkflowService().ForLevel(entityType),
 	}, envelopeBytes)
 	if err != nil {
 		return fmt.Errorf("apply-result ingestion failed: %w", err)

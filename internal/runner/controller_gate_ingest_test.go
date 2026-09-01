@@ -177,6 +177,78 @@ func TestIngestGateResultForDispatch_NonTerminalTargetDoesNotReleaseLease(t *tes
 	}
 }
 
+// TestIngestGateResultForDispatch_NonTaskEntityTerminalStatusReleasesLease is
+// the code-review round-8 regression guard for the task-level-vs-entity-level
+// IsTerminalStatus gap: ingestGateResultForDispatch called
+// c.workflowSvc.IsTerminalStatus (the controller's UNSCOPED, task-level-
+// default workflow.Service) instead of scoping it to the dispatched entity's
+// own type via .ForLevel(opts.EntityType). This was masked for task/feature/
+// epic/bug/change entities because their terminal status names all happen to
+// be "completed"/"cancelled" — but tech-debt's own default workflow
+// (shark-data/workflow/tech-debt.yaml, wired by this same feature's
+// T-E34-F05-005) uses "resolved"/"wont_fix" as its terminal names instead.
+// Before the fix, a gate_result_v1 stage resolving a tech_debt entity to
+// "resolved" was never recognized as terminal by the unscoped task-level
+// service (which only knows "completed"/"cancelled"), so the lease was never
+// released here — reproducing round 7's Finding 2 defect class for a
+// different EntityType. This test constructs the controller's workflowSvc
+// with the task-level default (level="") — exactly like every other test in
+// this file — and drives a tech_debt entity resolving to "resolved" to prove
+// the lease-release decision now consults the tech_debt-scoped service.
+func TestIngestGateResultForDispatch_NonTaskEntityTerminalStatusReleasesLease(t *testing.T) {
+	transitioner := &fakeTransitioner{status: map[string]string{"TD-001": "in_progress"}}
+	releaser := &fakeLeaseReleaser{}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"in_progress": true, "resolved": true}},
+		transitioner, transitioner, releaser,
+	)
+
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &oneShotStatusTransitioner{},
+		ActionSvc:    &MockActionService{},
+		// Task-level default (level=""), matching every other test in this
+		// file — the bug is that ingestGateResultForDispatch used this
+		// unscoped service directly instead of scoping it per-entity.
+		WorkflowSvc: defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{"anthropic": &MockDispatcher{}},
+		GateIngest: &GateIngestDeps{
+			Coordinator:  coordinator,
+			OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	nextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "resolved"}}},
+		Outcomes:             map[string]string{"pass": "resolved"},
+	}
+	action := &config.PopulatedAction{Provider: "anthropic"}
+	dispatchResult := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "all checks passed"}}`,
+		Duration: time.Millisecond,
+	}
+	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-techdebt123def456abc123def456", EntityType: "tech_debt", SessionID: "sess-1"}
+	disabled := false
+
+	toStatus, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), "TD-001", "in_progress", nextInfo, action, opts, dispatchResult, &disabled, 1,
+	)
+	if err != nil {
+		t.Fatalf("expected successful gate ingestion, got error: %v", err)
+	}
+	if toStatus != "resolved" {
+		t.Fatalf("expected transition to resolved, got %q", toStatus)
+	}
+	if !releaser.released {
+		t.Fatal("expected the lease to be released once the tech_debt-scoped terminal status (resolved) is reached, but it was not — IsTerminalStatus was evaluated against the unscoped task-level default, which does not know 'resolved' is terminal")
+	}
+}
+
 // TestIngestGateResultForDispatch_TerminalTargetReleasesLease is the sibling
 // of the above: when the resolved target status IS terminal (Run()'s loop is
 // about to stop dispatching this entity in this invocation), the lease must

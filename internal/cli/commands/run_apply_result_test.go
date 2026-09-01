@@ -9,6 +9,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // The fakes below are local, minimal implementations of
@@ -361,5 +362,63 @@ func TestApplyResultIngest_DoesNotReleaseLeaseOnNonTerminalOutcome(t *testing.T)
 	}
 	if releaser.released {
 		t.Fatal("expected --apply-result to leave the lease held on a non-terminal outcome, but it was released")
+	}
+}
+
+// TestApplyResultIngest_NonTaskEntityTerminalStatusReleasesLease is the
+// code-review round-8 regression guard for run_apply_result.go's half of the
+// task-level-vs-entity-level IsTerminalStatus gap: runApplyResult (the
+// production `shark run --apply-result` command handler) previously wired
+// applyResultDeps.WorkflowSvc from the UNSCOPED cli.GetWorkflowService()
+// instead of scoping it to the dispatched entity's own type via
+// .ForLevel(entityType). That unscoped default only recognizes task's
+// "completed"/"cancelled" as terminal, so a tech_debt entity resolving to
+// "resolved" (tech-debt's own terminal name, wired by this same feature's
+// T-E34-F05-005) never released its lease via --apply-result — the same
+// defect class as the core runner's ingestGateResultForDispatch gap, for the
+// CLI ingestion path instead.
+//
+// applyResultIngest itself is a pure function of whatever WorkflowSvc it is
+// given (per the CLI-tests golden rule, no real database/command dispatch
+// here), so this test builds deps.WorkflowSvc the same way the fixed
+// runApplyResult now does — a real *workflow.Service scoped with
+// .ForLevel("tech_debt") — and proves the lease is actually released once
+// the tech_debt-scoped terminal status ("resolved") is reached.
+func TestApplyResultIngest_NonTaskEntityTerminalStatusReleasesLease(t *testing.T) {
+	entityKey := "TD-001"
+	outcomeRoles := map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}
+	outcomes := map[string]string{"pass": "resolved"}
+
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "in_progress"}}
+	releaser := &trackingLeaseReleaser{}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser,
+	)
+
+	result, err := applyResultIngest(context.Background(), applyResultDeps{
+		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "in_progress"}, outcomes: outcomes},
+		Coordinator:  coordinator,
+		ProjectRoot:  t.TempDir(),
+		RunID:        "run-techdebt1234567890abcdef1234567892",
+		EntityType:   "tech_debt",
+		EntityKey:    entityKey,
+		SessionID:    "sess-rider",
+		OutcomeRoles: outcomeRoles,
+		// Mirrors the fixed production wiring in runApplyResult:
+		// cli.GetWorkflowService().ForLevel(entityType). A real, tech_debt-
+		// scoped workflow.Service — not a mock — is the object under test
+		// here: the bug was in scoping this dependency, not in
+		// applyResultIngest's own logic.
+		WorkflowSvc: workflow.NewService(t.TempDir()).ForLevel("tech_debt"),
+	}, []byte(parityEnvelope))
+	if err != nil {
+		t.Fatalf("expected ingestion to succeed: %v", err)
+	}
+	if result.ToStatus != "resolved" {
+		t.Fatalf("expected ToStatus=resolved, got %q", result.ToStatus)
+	}
+	if !releaser.released {
+		t.Fatal("expected --apply-result to release the lease once the tech_debt-scoped terminal status (resolved) is reached, but it was not — WorkflowSvc must be scoped via .ForLevel(entityType), not the unscoped task-level default")
 	}
 }

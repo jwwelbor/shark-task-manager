@@ -866,7 +866,7 @@ func (c *RunController) autoAdvanceCascadeParent(
 			return stageOutcome{done: true}
 		}
 		result.FinalStatus = currentStatus
-		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime, opts.EntityType)
 	}
 
 	transitionResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
@@ -894,7 +894,7 @@ func (c *RunController) autoAdvanceCascadeParent(
 		Duration:  time.Since(stageStart),
 	})
 	result.StagesCompleted++
-	if c.workflowSvc.IsTerminalStatus(transitionResult.ToStatus) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(transitionResult.ToStatus) {
 		result.FinalStatus = transitionResult.ToStatus
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
@@ -926,7 +926,7 @@ func (c *RunController) handleAdvanceStatus(
 		if !ok {
 			return stageOutcome{done: true}
 		}
-		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime, opts.EntityType)
 	}
 
 	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
@@ -979,7 +979,7 @@ func (c *RunController) handleAdvanceStatus(
 	})
 	result.StagesCompleted++
 
-	if c.workflowSvc.IsTerminalStatus(transResult.ToStatus) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(transResult.ToStatus) {
 		result.FinalStatus = transResult.ToStatus
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
@@ -1036,8 +1036,8 @@ func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
 // So: ingest once with RetirementConfirmed: false to learn the resolved
 // target status, then — only if that status is terminal (i.e. only if the
 // Run() loop is actually about to stop for this entity, mirroring the
-// `c.workflowSvc.IsTerminalStatus(toStatus)` check immediately below this
-// function's call site) — ingest again with RetirementConfirmed: true to
+// `c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(toStatus)` check
+// immediately below this function's call site) — ingest again with RetirementConfirmed: true to
 // finalize retirement. The second call is safe and non-duplicating: per
 // gatepersist.Coordinator.Persist's PersistenceStateTransitioned branch, it
 // only re-verifies the already-applied transition and (idempotently) closes
@@ -1125,7 +1125,7 @@ func (c *RunController) ingestGateResultForDispatch(
 	// target status is terminal — i.e. only when the Run() loop is about to
 	// stop dispatching this entity in this invocation, not merely because
 	// this one gate stage finished.
-	if c.workflowSvc.IsTerminalStatus(ingestResult.ToStatus) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) {
 		retireReq := baseReq
 		retireReq.RetirementConfirmed = true
 		// RunConcluded: true — this IS the Run() loop's last dispatch for
@@ -1257,6 +1257,7 @@ func (c *RunController) dryRunNextOutcome(
 	nextInfo *services.NextStatusInfo,
 	result *RunResult,
 	startTime time.Time,
+	entityType string,
 ) stageOutcome {
 	if nextInfo == nil || nextInfo.IsTerminal || len(nextInfo.AvailableTransitions) == 0 {
 		result.FinalStatus = currentStatus
@@ -1268,11 +1269,17 @@ func (c *RunController) dryRunNextOutcome(
 	nextStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 	return stageOutcome{
 		nextStatus: nextStatus,
-		nextInfo:   c.simulatedDryRunNextStatus(nextStatus),
+		nextInfo:   c.simulatedDryRunNextStatus(nextStatus, entityType),
 	}
 }
 
-func (c *RunController) simulatedDryRunNextStatus(status string) *services.NextStatusInfo {
+// simulatedDryRunNextStatus's entityType parameter (opts.EntityType from
+// every caller) scopes IsTerminalStatus to the dispatched entity's own
+// workflow level, mirroring the round-8 code-review fix applied to every
+// other IsTerminalStatus call site in this file — a dry run for a non-task
+// entity (e.g. tech_debt, whose terminal names are resolved/wont_fix) must
+// not report IsTerminal using the unscoped task-level default.
+func (c *RunController) simulatedDryRunNextStatus(status, entityType string) *services.NextStatusInfo {
 	transitions := c.workflowSvc.GetTransitionInfo(status)
 	wrapped := make([]services.TransitionInfoWithAction, 0, len(transitions))
 	for _, transition := range transitions {
@@ -1284,7 +1291,7 @@ func (c *RunController) simulatedDryRunNextStatus(status string) *services.NextS
 		EntityKey:            "__dry_run_simulated__",
 		CurrentStatus:        status,
 		AvailableTransitions: wrapped,
-		IsTerminal:           c.workflowSvc.IsTerminalStatus(status),
+		IsTerminal:           c.workflowSvc.ForLevel(entityType).IsTerminalStatus(status),
 	}
 }
 
@@ -1396,7 +1403,7 @@ func (c *RunController) handleSpawnAgent(
 		if !ok {
 			return stageOutcome{done: true}
 		}
-		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime, opts.EntityType)
 	}
 
 	// Emit run.stage.dispatch just before invoking the agent. The command string
@@ -1678,7 +1685,7 @@ func (c *RunController) handleSpawnAgent(
 		toStatus = transResult.ToStatus
 	}
 
-	if c.workflowSvc.IsTerminalStatus(toStatus) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(toStatus) {
 		result.FinalStatus = toStatus
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
