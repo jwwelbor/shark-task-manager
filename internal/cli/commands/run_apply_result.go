@@ -18,6 +18,7 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 )
@@ -96,6 +97,7 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		Role:         string(result.Role),
 		ToStatus:     result.ToStatus,
 		Transitioned: result.Transitioned,
+		Status:       result.Status,
 	})
 }
 
@@ -159,6 +161,11 @@ type applyResultOutput struct {
 	Role         string `json:"role"`
 	ToStatus     string `json:"to_status"`
 	Transitioned bool   `json:"transitioned"`
+
+	// Status is the T-E34-F05-004 REQ-F-005 operator status projection
+	// (worker phase, nested operation, elapsed time, retirement state,
+	// result location), the same shape --resume-run reports.
+	Status *gaterun.StatusProjection `json:"status,omitempty"`
 }
 
 // buildGateCoordinator wires a real gatepersist.Coordinator from the CLI's

@@ -132,6 +132,12 @@ func TestRunController_Run_GateResultV1StepRoutesThroughGateIngest(t *testing.T)
 	if shared.status[key] != "in_review" {
 		t.Fatalf("expected shared status to be updated by the gate coordinator, got %q", shared.status[key])
 	}
+	if len(result.Stages) == 0 || result.Stages[0].GateStatus == nil {
+		t.Fatal("expected the gate stage to carry a GateStatus operator projection (T-E34-F05-004 REQ-F-005 item 5)")
+	}
+	if result.Stages[0].GateStatus.PersistenceState != "transition_applied" {
+		t.Fatalf("expected GateStatus.PersistenceState=transition_applied, got %q", result.Stages[0].GateStatus.PersistenceState)
+	}
 }
 
 // TestRunController_Run_LegacyStepStillRoutesThroughRecommendedOutcome pins

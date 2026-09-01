@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
@@ -75,6 +76,15 @@ type GateIngestResult struct {
 	*gatepersist.Result
 	OutcomeKey string
 	Role       gateresult.OutcomeRole
+
+	// Status is the T-E34-F05-004 REQ-F-005 operator status projection
+	// (worker phase, nested operation, elapsed time, retirement state,
+	// result location) derived from the operation-state.json Persist just
+	// wrote, via the same gaterun.ProjectStatus primitive --resume-run uses
+	// (T-E34-F05-002). Left nil only if the post-persist state load itself
+	// fails — a diagnostics-only concern that must never turn an otherwise
+	// successful ingestion into a failure.
+	Status *gaterun.StatusProjection
 }
 
 // IngestGateResult is the one exported ingestion boundary both execution
@@ -147,7 +157,12 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 		return nil, fmt.Errorf("gate ingestion: persist gate_result: %w", err)
 	}
 
-	return &GateIngestResult{Result: persisted, OutcomeKey: env.RecommendedOutcome, Role: role}, nil
+	out := &GateIngestResult{Result: persisted, OutcomeKey: env.RecommendedOutcome, Role: role}
+	if state, exists, stateErr := gaterun.LoadOperationState(runDir); stateErr == nil && exists {
+		projection := gaterun.ProjectStatus(state, time.Now())
+		out.Status = &projection
+	}
+	return out, nil
 }
 
 // marshalEvidence encodes the outer envelope's common EvidenceRef collection

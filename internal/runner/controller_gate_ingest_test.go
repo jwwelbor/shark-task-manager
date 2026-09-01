@@ -103,7 +103,7 @@ func TestIngestGateResultForDispatch_ValidEnvelopeTransitions(t *testing.T) {
 	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-abc123def456abc123def456abc123", EntityType: "task", SessionID: "sess-1"}
 	disabled := false
 
-	toStatus, err := controller.ingestGateResultForDispatch(
+	toStatus, _, err := controller.ingestGateResultForDispatch(
 		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1,
 	)
 	if err != nil {
@@ -155,7 +155,7 @@ func TestIngestGateResultForDispatch_MalformedEnvelopeFailsClosed(t *testing.T) 
 	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-abc123def456abc123def456abc123", EntityType: "task", SessionID: "sess-1"}
 	disabled := false
 
-	toStatus, err := controller.ingestGateResultForDispatch(
+	toStatus, _, err := controller.ingestGateResultForDispatch(
 		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1,
 	)
 	if err == nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -165,6 +166,12 @@ type StageLog struct {
 	// this stage. It is only populated for successful spawn_agent stages (exit
 	// code 0). Use this field for non-verbose display summaries.
 	OutputSummary string `json:"output_summary,omitempty"`
+
+	// GateStatus is the T-E34-F05-004 REQ-F-005 operator status projection
+	// (worker phase, nested operation, elapsed time, retirement state, result
+	// location) for a gate_result_v1 stage, populated from the same
+	// gaterun.StatusProjection --resume-run reports. Nil for a legacy stage.
+	GateStatus *gaterun.StatusProjection `json:"gate_status,omitempty"`
 }
 
 // EntityTransitioner abstracts per-entity-type status transition dispatch.
@@ -988,9 +995,9 @@ func (c *RunController) ingestGateResultForDispatch(
 	ctx context.Context, key, currentStatus string,
 	nextInfo *services.NextStatusInfo, action *config.PopulatedAction, opts RunOptions,
 	dispatchResult *DispatchResult, transcriptDisabled *bool, stageN int,
-) (string, error) {
+) (string, *gaterun.StatusProjection, error) {
 	if c.gateIngest == nil || c.gateIngest.Coordinator == nil {
-		return "", fmt.Errorf("gate_result_v1 step %s requires a configured GateResult persistence coordinator", key)
+		return "", nil, fmt.Errorf("gate_result_v1 step %s requires a configured GateResult persistence coordinator", key)
 	}
 
 	// T-E34-F05-005: the workflow layer now resolves outcome_roles per step
@@ -1018,7 +1025,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		RetirementConfirmed: true,
 	})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	relPath := c.maybeWriteTranscript(
@@ -1045,7 +1052,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		ToStatus:   ingestResult.ToStatus,
 		RunID:      opts.RunID,
 	})
-	return ingestResult.ToStatus, nil
+	return ingestResult.ToStatus, ingestResult.Status, nil
 }
 
 // targetStatusForDispatch resolves a worker's optional semantic outcome to a
@@ -1482,7 +1489,8 @@ func (c *RunController) handleSpawnAgent(
 
 	var toStatus string
 	if contract == resultContractGateResultV1 {
-		toStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
+		var gateStatus *gaterun.StatusProjection
+		toStatus, gateStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
 		if err != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 				EntityKey: key,
@@ -1492,6 +1500,9 @@ func (c *RunController) handleSpawnAgent(
 				RunID:     opts.RunID,
 			})
 			return stageOutcome{done: true}
+		}
+		if gateStatus != nil && len(result.Stages) > 0 {
+			result.Stages[len(result.Stages)-1].GateStatus = gateStatus
 		}
 	} else {
 		targetStatus, err := targetStatusForDispatch(nextInfo, dispatchResult.Stdout)

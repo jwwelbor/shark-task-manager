@@ -433,6 +433,12 @@ func outputRunResult(result *runner.RunResult) error {
 			if stage.OutputSummary != "" {
 				fmt.Printf("      output: %s\n", runner.TruncateOutput(stage.OutputSummary, 120))
 			}
+			if stage.GateStatus != nil {
+				fmt.Printf("      gate:   phase=%s op=%s retirement=%s elapsed=%.1fs result=%s\n",
+					stage.GateStatus.WorkerPhase, stage.GateStatus.NestedOperation,
+					stage.GateStatus.RetirementState, stage.GateStatus.ElapsedSeconds,
+					stage.GateStatus.ResultLocation)
+			}
 		}
 	}
 
