@@ -12,6 +12,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -188,6 +189,120 @@ func TestRunController_Run_LegacyStepStillRoutesThroughRecommendedOutcome(t *tes
 	}
 	if result.FinalStatus != "in_review" {
 		t.Fatalf("expected FinalStatus=in_review, got %q", result.FinalStatus)
+	}
+}
+
+// multiStageE2EGateTransitioner is a controller-facing EntityTransitioner
+// AND a gatepersist Transitioner/StatusReader driving a two-gate-stage chain
+// (code_review -> qa -> completed), both steps resolving result_contract
+// gate_result_v1. Unlike e2eGateTransitioner (a single-stage chain), this
+// lets a full Run() loop exercise two consecutive gate_result_v1 dispatches
+// for the same entity within one invocation — the code-review round-7
+// Finding 1 scenario (gaterun.CreateResult's create-once contract colliding
+// on a reused run_id across stages).
+type multiStageE2EGateTransitioner struct {
+	status map[string]string
+}
+
+func (t *multiStageE2EGateTransitioner) GetNextStatus(_ context.Context, key string) (*services.NextStatusInfo, error) {
+	status := t.status[key]
+	info := &services.NextStatusInfo{
+		CurrentStatus:  status,
+		IsTerminal:     status == "completed",
+		ResultContract: "gate_result_v1",
+		OutcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	switch status {
+	case "code_review":
+		info.AvailableTransitions = []services.TransitionInfoWithAction{
+			{TransitionInfo: workflow.TransitionInfo{TargetStatus: "qa"}},
+		}
+		info.Outcomes = map[string]string{"pass": "qa"}
+	case "qa":
+		info.AvailableTransitions = []services.TransitionInfoWithAction{
+			{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+		}
+		info.Outcomes = map[string]string{"pass": "completed"}
+	}
+	return info, nil
+}
+
+func (t *multiStageE2EGateTransitioner) TransitionStatus(_ context.Context, _, _ string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+	return nil, errAssertLegacyTransitionNotCalled
+}
+
+// gatepersist.Transitioner
+func (t *multiStageE2EGateTransitioner) Transition(_ context.Context, _ models.EntityType, entityKey, targetStatus, _, _ string, _ gatepersist.TransitionGuard) (string, bool, error) {
+	from := t.status[entityKey]
+	t.status[entityKey] = targetStatus
+	return from, from != targetStatus, nil
+}
+
+// gatepersist.StatusReader
+func (t *multiStageE2EGateTransitioner) CurrentStatus(_ context.Context, _ models.EntityType, entityKey string) (string, error) {
+	return t.status[entityKey], nil
+}
+
+// TestRunController_Run_MultiStageGateResultV1DispatchDoesNotReuseRunID is
+// the full-loop (controller.Run()) counterpart of
+// TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID: it
+// drives TWO consecutive gate_result_v1 stages (code_review -> qa ->
+// completed) for the same entity through one Run() invocation with a SINGLE
+// opts.RunID, proving the branch selection and its per-stage RunID scoping
+// are actually wired together end-to-end, not just correct at the unit level.
+func TestRunController_Run_MultiStageGateResultV1DispatchDoesNotReuseRunID(t *testing.T) {
+	key := "E01-F01-001"
+	shared := &multiStageE2EGateTransitioner{status: map[string]string{key: "code_review"}}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true, "completed": true}},
+		shared, shared, &fakeLeaseReleaser{},
+	)
+
+	callCount := 0
+	dispatchers := map[string]AgentDispatcher{
+		"anthropic": &MockDispatcher{DispatchFunc: func(_ context.Context, _ DispatchInput) (*DispatchResult, error) {
+			callCount++
+			envelope := fmt.Sprintf(
+				`{"kind": "final", "recommended_outcome": "pass", "evidence": [],`+
+					` "gate_result": {"schema_version": 1, "summary": "stage %d passed"}}`,
+				callCount,
+			)
+			return &DispatchResult{ExitCode: 0, Stdout: envelope}, nil
+		}},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(_ context.Context, _ string, _ map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionSpawnAgent, AgentType: "developer", Provider: "anthropic", Instruction: "do work"}, nil
+		},
+	}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: shared,
+		ActionSvc:    actionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  dispatchers,
+		GateIngest:   &GateIngestDeps{Coordinator: coordinator},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	result, err := ctrl.Run(context.Background(), key, RunOptions{ProjectRoot: t.TempDir(), RunID: "run-multi-stage-e2e", SessionID: "sess-1", EntityType: "task"})
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+	if result.Outcome != "completed" {
+		t.Fatalf("expected Outcome=completed, got %s (error=%s)", result.Outcome, result.Error)
+	}
+	if shared.status[key] != "completed" {
+		t.Fatalf("expected both gate stages to apply, got final status %q", shared.status[key])
+	}
+	if callCount != 2 {
+		t.Fatalf("expected exactly 2 agent dispatches (code_review, qa), got %d", callCount)
+	}
+	if len(result.Stages) != 2 {
+		t.Fatalf("expected 2 recorded stages, got %d", len(result.Stages))
 	}
 }
 

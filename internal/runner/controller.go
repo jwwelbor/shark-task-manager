@@ -626,6 +626,39 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		currentStatus = outcome.nextStatus
 		if outcome.nextInfo != nil {
 			nextInfo = outcome.nextInfo
+		} else if !opts.DryRun {
+			// code-review round-7 Finding 1 sweep: handleAdvanceStatus and
+			// handleSpawnAgent's live (non-dry-run) paths return a bare
+			// nextStatus with no nextInfo, so without this refresh the `nextInfo`
+			// this loop hands to the NEXT iteration's handleSpawnAgent would
+			// still be whatever NextStatusInfo was current BEFORE this stage
+			// transitioned — a stale snapshot of an earlier status. handleSpawnAgent
+			// pins that parameter as `stepInfo` and resolves resultContractFor,
+			// outcome_roles, AND the gate_result_v1 target-status Outcomes map
+			// from it, so a second consecutive spawn_agent stage in one Run()
+			// invocation (e.g. code_review -> qa) would silently resolve gate
+			// outcomes against the FIRST stage's configuration instead of its
+			// own — for a self-transition outcome map (a stage whose "pass"
+			// outcome happens to equal its own status) this manifests as an
+			// infinite dispatch loop that never reaches a terminal status,
+			// discovered by TestRunController_Run_MultiStageGateResultV1DispatchDoesNotReuseRunID.
+			// A dry run intentionally skips this: it must not re-read live
+			// entity state (see dryRunPostActionStatus's own doc comment) and
+			// already carries its own simulated nextInfo via
+			// simulatedDryRunNextStatus in every non-terminal dryRunNextOutcome
+			// return.
+			refreshed, err := c.transitioner.GetNextStatus(ctx, key)
+			if err != nil {
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+					EntityKey: key,
+					Status:    currentStatus,
+					Phase:     "next_stage_status",
+					Error:     fmt.Sprintf("failed to refresh status for %s before the next stage: %v", key, err),
+					RunID:     opts.RunID,
+				})
+				return result, nil
+			}
+			nextInfo = refreshed
 		}
 	}
 
