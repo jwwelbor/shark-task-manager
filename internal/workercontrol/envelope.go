@@ -56,6 +56,13 @@ const (
 	// MaxEnvelopeBytes bounds the entire envelope (including any nested
 	// gate_result payload) before it is even parsed.
 	MaxEnvelopeBytes = 256 * 1024
+	// OpaqueJSONMaxBytes bounds each of EvidenceRef's runner-native raw JSON
+	// fields (Counts, ExpectedSkips, UnexpectedSkips) — these are
+	// deliberately shapeless (architecture.md: "runner-native counts"), so
+	// they cannot be bounded by boundedText's string-field contract; this is
+	// the size ceiling applied before their content is walked for forbidden
+	// markers (see validateOpaqueJSON).
+	OpaqueJSONMaxBytes = 4096
 )
 
 // Kind is the closed set of worker-control envelope kinds.
@@ -149,6 +156,15 @@ func (e EvidenceRef) validate(index int) error {
 		if err := boundedText(prefix+".working_directory", e.WorkingDirectory, 1, PointerMaxBytes); err != nil {
 			return err
 		}
+	}
+	if err := validateOpaqueJSON(prefix+".counts", e.Counts); err != nil {
+		return err
+	}
+	if err := validateOpaqueJSON(prefix+".expected_skips", e.ExpectedSkips); err != nil {
+		return err
+	}
+	if err := validateOpaqueJSON(prefix+".unexpected_skips", e.UnexpectedSkips); err != nil {
+		return err
 	}
 	return nil
 }
@@ -403,6 +419,61 @@ func boundedText(field, value string, minBytes, maxBytes int) error {
 	}
 	if containsForbiddenContent(value) {
 		return newValidationError(field, ErrorClassForbiddenContent, "must not contain credential, rendered prompt, or transcript material")
+	}
+	return nil
+}
+
+// validateOpaqueJSON bounds and forbidden-content-checks one of EvidenceRef's
+// runner-native raw JSON fields (Counts, ExpectedSkips, UnexpectedSkips).
+// These fields are declared json.RawMessage rather than a typed struct
+// because their shape is deliberately runner-native/opaque (architecture.md
+// I-02), so boundedText's fixed-shape string contract does not apply
+// directly. REQ-NF-001's forbidden-marker guarantee still must hold end to
+// end: this walks the decoded JSON value irrespective of shape and applies
+// the same containsForbiddenContent check boundedText uses to every string
+// it finds (object keys and string values, at any nesting depth), closing
+// the gap the code-review round-3 report identified — without this pass a
+// forbidden marker embedded in, e.g., counts.notes would flow unchecked into
+// durably persisted note metadata via gatepersist.Coordinator.Persist's
+// writeNote (meta[metaEvidence]).
+func validateOpaqueJSON(field string, raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if len(raw) > OpaqueJSONMaxBytes {
+		return newValidationError(field, ErrorClassBounds, "must not exceed "+strconv.Itoa(OpaqueJSONMaxBytes)+" UTF-8 bytes")
+	}
+	var value interface{}
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return newValidationError(field, ErrorClassShape, "must be a well-formed JSON value")
+	}
+	return walkOpaqueJSONForForbiddenContent(field, value)
+}
+
+// walkOpaqueJSONForForbiddenContent recursively visits every string in a
+// decoded JSON value (object keys, string values, and array elements, at any
+// depth) and rejects the first one that trips containsForbiddenContent.
+func walkOpaqueJSONForForbiddenContent(field string, value interface{}) error {
+	switch v := value.(type) {
+	case string:
+		if containsForbiddenContent(v) {
+			return newValidationError(field, ErrorClassForbiddenContent, "must not contain credential, rendered prompt, or transcript material")
+		}
+	case map[string]interface{}:
+		for key, nested := range v {
+			if containsForbiddenContent(key) {
+				return newValidationError(field, ErrorClassForbiddenContent, "must not contain credential, rendered prompt, or transcript material")
+			}
+			if err := walkOpaqueJSONForForbiddenContent(field, nested); err != nil {
+				return err
+			}
+		}
+	case []interface{}:
+		for _, nested := range v {
+			if err := walkOpaqueJSONForForbiddenContent(field, nested); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

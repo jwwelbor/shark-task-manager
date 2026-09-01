@@ -186,6 +186,60 @@ func TestDecode_EvidenceForbiddenContentRejected(t *testing.T) {
 	}
 }
 
+// TestDecode_EvidenceOpaqueRawFieldsForbiddenContentRejected proves
+// EvidenceRef.Counts/ExpectedSkips/UnexpectedSkips are not a bypass for
+// REQ-NF-001's forbidden-marker guarantee: a forbidden marker embedded
+// anywhere in these runner-native json.RawMessage fields — including nested
+// inside an object value, not just a top-level string — must be rejected the
+// same way a forbidden marker in a typed string field like summary is
+// (code-review round 3 CRITICAL finding).
+func TestDecode_EvidenceOpaqueRawFieldsForbiddenContentRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+	}{
+		{
+			name: "counts",
+			json: `{"kind": "failed", "evidence": [{"kind": "x", "pointer": "p", "counts": {"passed": 3, "note": "Authorization: Bearer abc123"}}]}`,
+		},
+		{
+			name: "expected_skips",
+			json: `{"kind": "failed", "evidence": [{"kind": "x", "pointer": "p", "expected_skips": ["system prompt leak"]}]}`,
+		},
+		{
+			name: "unexpected_skips",
+			json: `{"kind": "failed", "evidence": [{"kind": "x", "pointer": "p", "unexpected_skips": {"reason": "api_key=abc123"}}]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Decode([]byte(tt.json))
+			if err == nil {
+				t.Fatalf("expected error for forbidden content embedded in %s", tt.name)
+			}
+			ve, ok := err.(*ValidationError)
+			if !ok || ve.Class != ErrorClassForbiddenContent {
+				t.Fatalf("expected forbidden_content ValidationError, got %#v", err)
+			}
+		})
+	}
+}
+
+// TestDecode_EvidenceOpaqueRawFieldOversizedRejected proves the same three
+// fields are size-bounded, not just content-checked, so an unbounded
+// runner-native blob cannot inflate persisted note metadata without limit.
+func TestDecode_EvidenceOpaqueRawFieldOversizedRejected(t *testing.T) {
+	huge := `"` + strings.Repeat("a", OpaqueJSONMaxBytes+1) + `"`
+	_, err := Decode([]byte(`{"kind": "failed", "evidence": [{"kind": "x", "pointer": "p", "counts": ` + huge + `}]}`))
+	if err == nil {
+		t.Fatal("expected error for an oversized counts field")
+	}
+	ve, ok := err.(*ValidationError)
+	if !ok || ve.Class != ErrorClassBounds {
+		t.Fatalf("expected bounds ValidationError, got %#v", err)
+	}
+}
+
 func TestDecode_OversizedEnvelopeRejected(t *testing.T) {
 	huge := strings.Repeat("a", MaxEnvelopeBytes+1)
 	_, err := Decode([]byte(`{"kind": "failed", "evidence": [], "pad": "` + huge + `"}`))
