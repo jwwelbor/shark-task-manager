@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -168,7 +169,7 @@ func unsetHarnessEnv(t *testing.T) {
 // template, and the wire response reports harness="claude".
 func TestTC003_HarnessClaimClaudeRendersClaudeBranch(t *testing.T) {
 	unsetHarnessEnv(t)
-	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "claude"}}
+	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "claude", LastHeartbeat: time.Now().UTC()}}
 	cache := harnessTestCache(t, claims, harnessIfTemplate)
 
 	stdout, err := runHarnessNextCommand(t, cache, []string{"E01-F01-001"})
@@ -188,7 +189,7 @@ func TestTC003_HarnessClaimClaudeRendersClaudeBranch(t *testing.T) {
 // also resolves against real vars.
 func TestTC003_IsHarnessGeneralFormAlsoBranchesCorrectly(t *testing.T) {
 	unsetHarnessEnv(t)
-	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "claude"}}
+	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "claude", LastHeartbeat: time.Now().UTC()}}
 	template := `{{if isHarness "claude" .harness}}` + harnessBranchA + `{{else}}` + harnessBranchB + `{{end}}`
 	cache := harnessTestCache(t, claims, template)
 
@@ -207,7 +208,7 @@ func TestTC003_IsHarnessGeneralFormAlsoBranchesCorrectly(t *testing.T) {
 // guards against a helper that defaults to true.
 func TestTC004_HarnessClaimCodexRendersGenericBranch(t *testing.T) {
 	unsetHarnessEnv(t)
-	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex"}}
+	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex", LastHeartbeat: time.Now().UTC()}}
 	cache := harnessTestCache(t, claims, harnessIfTemplate)
 
 	stdout, err := runHarnessNextCommand(t, cache, []string{"E01-F01-001"})
@@ -261,7 +262,7 @@ func TestTC006_FlagBeatsClaimBeatsEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			unsetHarnessEnv(t)
 			t.Setenv("SHARK_HARNESS", tt.envType)
-			claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex"}}
+			claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex", LastHeartbeat: time.Now().UTC()}}
 			cache := harnessTestCache(t, claims, harnessIfTemplate)
 
 			stdout, err := runHarnessNextCommand(t, cache, []string{"E01-F01-001", "--harness=claude"})
@@ -284,7 +285,7 @@ func TestTC006_FlagBeatsClaimBeatsEnv(t *testing.T) {
 func TestTC007_PerFieldPrecedenceClaimTypeEnvVersion(t *testing.T) {
 	unsetHarnessEnv(t)
 	t.Setenv("SHARK_HARNESS_VERSION", "9.9")
-	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex"}} // no version on the claim
+	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex", LastHeartbeat: time.Now().UTC()}} // no version on the claim
 	cache := harnessTestCache(t, claims, harnessIfTemplate)
 
 	stdout, err := runHarnessNextCommand(t, cache, []string{"E01-F01-001"})
@@ -379,6 +380,7 @@ func TestTC017_HarnessTypeAddedAsSpanAttributeVersionModelAreNot(t *testing.T) {
 		Harness:        "claude",
 		HarnessVersion: "2.1.0",
 		HarnessModel:   "opus",
+		LastHeartbeat:  time.Now().UTC(),
 	}}
 	cache := harnessTestCache(t, claims, harnessIfTemplate)
 

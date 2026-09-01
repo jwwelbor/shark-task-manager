@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -138,7 +139,7 @@ func TestTC009_NextRunParity_FlagTier(t *testing.T) {
 // either surface, harness sourced entirely from a claim (harness=codex).
 func TestTC010_NextRunParity_ClaimTier(t *testing.T) {
 	unsetHarnessEnv(t)
-	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex"}}
+	claims := &harnessMockClaimReader{claim: &models.EntityClaim{Harness: "codex", LastHeartbeat: time.Now().UTC()}}
 
 	nextPrompt := renderViaNext(t, claims, harnessIfTemplate, []string{"E01-F01-001"})
 	runPrompt := renderViaRunController(t, claims, harnessIfTemplate, services.HarnessIdentity{})

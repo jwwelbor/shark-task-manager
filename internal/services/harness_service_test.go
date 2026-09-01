@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,7 @@ func TestHarnessResolver_Resolve_FlagBeatsClaimBeatsEnv(t *testing.T) {
 	t.Setenv("SHARK_HARNESS_VERSION", "")
 	t.Setenv("SHARK_HARNESS_MODEL", "")
 
-	reader := &fakeClaimReader{claim: &models.EntityClaim{Harness: "codex"}}
+	reader := &fakeClaimReader{claim: &models.EntityClaim{Harness: "codex", LastHeartbeat: time.Now().UTC()}}
 	resolver := NewHarnessResolver(reader)
 
 	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{Type: "claude"})
@@ -98,7 +99,7 @@ func TestHarnessResolver_Resolve_PerFieldPrecedence(t *testing.T) {
 	t.Setenv("SHARK_HARNESS_VERSION", "9.9")
 	t.Setenv("SHARK_HARNESS_MODEL", "")
 
-	reader := &fakeClaimReader{claim: &models.EntityClaim{Harness: "codex"}}
+	reader := &fakeClaimReader{claim: &models.EntityClaim{Harness: "codex", LastHeartbeat: time.Now().UTC()}}
 	resolver := NewHarnessResolver(reader)
 
 	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{})
@@ -107,6 +108,81 @@ func TestHarnessResolver_Resolve_PerFieldPrecedence(t *testing.T) {
 	assert.Equal(t, "codex", got.Type)
 	assert.Equal(t, "9.9", got.Version)
 	assert.Equal(t, "", got.Model)
+}
+
+// TestHarnessResolver_Resolve_ExpiredClaim_DegradesToZero is the rework
+// regression test for the stale-lease-as-live-input defect found in UAT
+// review of T-E34-F01-003: Resolve originally read the raw claim row via
+// ClaimReader.Get with no expiry check at all, so an expired-but-unswept
+// claim's harness identity still rendered into live prompts — violating
+// REQ-F-002's "active claim" language. This claim's LastHeartbeat is far
+// older than claim_service.go's DefaultClaimTTL (15m), so it must be treated
+// exactly like no claim: degrading to the next precedence tier (env, then
+// zero), the same check ClaimService.IsClaimable/FilterActiveReadOnly
+// already apply via models.EntityClaim.IsExpired.
+func TestHarnessResolver_Resolve_ExpiredClaim_DegradesToZero(t *testing.T) {
+	t.Setenv("SHARK_HARNESS", "")
+	t.Setenv("SHARK_HARNESS_VERSION", "")
+	t.Setenv("SHARK_HARNESS_MODEL", "")
+	t.Setenv("SHARK_CLAIM_TTL_SECONDS", "")
+
+	reader := &fakeClaimReader{claim: &models.EntityClaim{
+		Harness:       "codex",
+		LastHeartbeat: time.Now().UTC().Add(-1 * time.Hour), // well past DefaultClaimTTL (15m)
+	}}
+	resolver := NewHarnessResolver(reader)
+
+	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{})
+
+	require.NoError(t, err)
+	assert.True(t, got.IsZero(), "an expired claim must not supply harness identity; got %+v", got)
+}
+
+// TestHarnessResolver_Resolve_ExpiredClaim_FallsThroughToEnv pins the
+// "degrades to the next precedence tier" half of the fix: an expired claim
+// must not merely blank out to zero, it must fall through to env exactly as
+// if there were no claim row at all (same per-field precedence chain as
+// TestHarnessResolver_Resolve_NoClaimNoEnv_ZeroIdentity's claim:nil case).
+func TestHarnessResolver_Resolve_ExpiredClaim_FallsThroughToEnv(t *testing.T) {
+	t.Setenv("SHARK_HARNESS", "claude")
+	t.Setenv("SHARK_HARNESS_VERSION", "")
+	t.Setenv("SHARK_HARNESS_MODEL", "")
+
+	reader := &fakeClaimReader{claim: &models.EntityClaim{
+		Harness:       "codex",
+		LastHeartbeat: time.Now().UTC().Add(-1 * time.Hour),
+	}}
+	resolver := NewHarnessResolver(reader)
+
+	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude", got.Type, "expired claim must degrade to env, not leak its own value")
+}
+
+// TestHarnessResolver_SetTTL_ZeroDisablesExpiry pins the TTL-authority-
+// alignment half of the rework fix (advisor-flagged gap): GetHarnessResolver
+// mirrors GetClaimService by calling SetTTL from .sharkconfig.json's
+// claim_ttl_seconds, and claim_ttl_seconds: 0 means "never expires"
+// (docs/guides/route-based-workflow.md §4, models.EntityClaim.IsExpired's
+// ttl<=0 branch). Without SetTTL, a resolver stuck on the 15m default would
+// contradict a ClaimService explicitly configured never to expire a lease.
+func TestHarnessResolver_SetTTL_ZeroDisablesExpiry(t *testing.T) {
+	t.Setenv("SHARK_HARNESS", "")
+	t.Setenv("SHARK_HARNESS_VERSION", "")
+	t.Setenv("SHARK_HARNESS_MODEL", "")
+
+	reader := &fakeClaimReader{claim: &models.EntityClaim{
+		Harness:       "codex",
+		LastHeartbeat: time.Now().UTC().Add(-24 * time.Hour), // ancient by any positive TTL
+	}}
+	resolver := NewHarnessResolver(reader)
+	resolver.SetTTL(0)
+
+	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "codex", got.Type, "TTL 0 must disable expiry, matching ClaimService/IsExpired's ttl<=0 contract")
 }
 
 func TestHarnessResolver_Resolve_NoClaimNoEnv_ZeroIdentity(t *testing.T) {

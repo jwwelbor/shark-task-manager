@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -119,7 +120,7 @@ func TestRunController_HarnessResolverNil_InjectsZeroIdentityVars(t *testing.T) 
 // GetStatusActionPopulated runs.
 func TestRunController_HarnessResolverResolvesClaimIntoVars(t *testing.T) {
 	actionSvc := &pauseActionService{}
-	claims := &mockHarnessClaimReader{claim: &models.EntityClaim{Harness: "claude", HarnessVersion: "2.1.0", HarnessModel: "opus"}}
+	claims := &mockHarnessClaimReader{claim: &models.EntityClaim{Harness: "claude", HarnessVersion: "2.1.0", HarnessModel: "opus", LastHeartbeat: time.Now().UTC()}}
 	ctrl, err := NewRunController(RunControllerDeps{
 		Transitioner:    &oneShotStatusTransitioner{status: "in_progress"},
 		ActionSvc:       actionSvc,
@@ -149,7 +150,7 @@ func TestRunController_HarnessResolverResolvesClaimIntoVars(t *testing.T) {
 // the claim per field, matching REQ-F-002/D-F01-04 precedence.
 func TestRunController_HarnessOverrideBeatsClaim(t *testing.T) {
 	actionSvc := &pauseActionService{}
-	claims := &mockHarnessClaimReader{claim: &models.EntityClaim{Harness: "codex"}}
+	claims := &mockHarnessClaimReader{claim: &models.EntityClaim{Harness: "codex", LastHeartbeat: time.Now().UTC()}}
 	ctrl, err := NewRunController(RunControllerDeps{
 		Transitioner:    &oneShotStatusTransitioner{status: "in_progress"},
 		ActionSvc:       actionSvc,
