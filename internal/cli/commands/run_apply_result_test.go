@@ -197,3 +197,66 @@ func TestApplyResultIngest_MalformedEnvelopeFailsClosedSameAsCore(t *testing.T) 
 		t.Fatal("expected rider path to reject malformed envelope")
 	}
 }
+
+// TestApplyResultIngest_ConflictingReplayFailsClosedSameAsCore is the Rider
+// side of the conflicting-replay fixture (internal/runner's
+// TestIngestGateResult_ConflictingReplayFailsClosed): a second
+// --apply-result call under the SAME run_id/entity as an already-persisted
+// first call, but with a DIFFERENT envelope, must fail closed on both paths
+// rather than silently accepting the newer content.
+func TestApplyResultIngest_ConflictingReplayFailsClosedSameAsCore(t *testing.T) {
+	entityKey := "E01-F01-001"
+	runID := "run-conflict1234567890abcdef1234567891"
+	outcomeRoles := map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}
+	outcomes := map[string]string{"pass": "in_review"}
+	conflicting := []byte(`{
+		"kind": "final",
+		"recommended_outcome": "pass",
+		"evidence": [{"kind": "test_run", "pointer": "artifacts/test.log"}],
+		"gate_result": {"schema_version": 1, "summary": "a DIFFERENT summary than the first call"}
+	}`)
+
+	newCoordinator := func() *gatepersist.Coordinator {
+		transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
+		return gatepersist.NewCoordinator(
+			&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+			fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{},
+		)
+	}
+
+	coreCoordinator := newCoordinator()
+	coreProjectRoot := t.TempDir()
+	if _, err := runner.IngestGateResult(context.Background(), runner.GateIngestRequest{
+		EnvelopeBytes: []byte(parityEnvelope), Coordinator: coreCoordinator, ProjectRoot: coreProjectRoot,
+		RunID: runID, EntityKey: entityKey, EntityType: models.EntityTypeTask,
+		SourceStatus: "todo", Gate: "todo", Session: gatepersist.Session{ID: "sess-core"},
+		OutcomeRoles: outcomeRoles, Outcomes: outcomes,
+	}); err != nil {
+		t.Fatalf("expected core path's first ingestion to succeed: %v", err)
+	}
+	if _, err := runner.IngestGateResult(context.Background(), runner.GateIngestRequest{
+		EnvelopeBytes: conflicting, Coordinator: coreCoordinator, ProjectRoot: coreProjectRoot,
+		RunID: runID, EntityKey: entityKey, EntityType: models.EntityTypeTask,
+		SourceStatus: "todo", Gate: "todo", Session: gatepersist.Session{ID: "sess-core"},
+		OutcomeRoles: outcomeRoles, Outcomes: outcomes,
+	}); err == nil {
+		t.Fatal("expected core path's conflicting replay to fail closed")
+	}
+
+	riderCoordinator := newCoordinator()
+	riderProjectRoot := t.TempDir()
+	if _, err := applyResultIngest(context.Background(), applyResultDeps{
+		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "todo"}, outcomes: outcomes},
+		Coordinator:  riderCoordinator, ProjectRoot: riderProjectRoot, RunID: runID,
+		EntityType: "task", EntityKey: entityKey, SessionID: "sess-rider", OutcomeRoles: outcomeRoles,
+	}, []byte(parityEnvelope)); err != nil {
+		t.Fatalf("expected rider path's first ingestion to succeed: %v", err)
+	}
+	if _, err := applyResultIngest(context.Background(), applyResultDeps{
+		Transitioner: &fakeParityTransitioner{status: map[string]string{entityKey: "in_review"}, outcomes: outcomes},
+		Coordinator:  riderCoordinator, ProjectRoot: riderProjectRoot, RunID: runID,
+		EntityType: "task", EntityKey: entityKey, SessionID: "sess-rider", OutcomeRoles: outcomeRoles,
+	}, conflicting); err == nil {
+		t.Fatal("expected rider path's conflicting replay to fail closed, same as core")
+	}
+}

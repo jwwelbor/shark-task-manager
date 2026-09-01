@@ -206,6 +206,76 @@ func TestRunResumeRun_GateResultV1ResumeTransitionReIngestsStoredEnvelope(t *tes
 	}
 }
 
+// TestRunResumeRun_PartialPersistenceResumeCompletesTransition is the
+// partial-resume fixture: operation-state.json records PersistenceStatePending
+// (resume_next_operation — persistence never completed, e.g. a crash right
+// after result.json was durably written). --resume-run must still complete
+// the ingestion via the stored envelope, producing the same final result as
+// a fresh ingestion of that same envelope would.
+func TestRunResumeRun_PartialPersistenceResumeCompletesTransition(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origTransitioner, origCoordinator := runResumeTransitionerOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeTransitionerOverride, runResumeCoordinatorOverride = origTransitioner, origCoordinator
+	}()
+
+	entityKey := "E01-F01-001"
+	runID := "run-partial1234567890abcdef1234567890"
+	root := t.TempDir()
+	dir, err := gaterun.RunDir(root, runID)
+	if err != nil {
+		t.Fatalf("RunDir: %v", err)
+	}
+	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {
+		t.Fatalf("CreateResult: %v", err)
+	}
+	digest, err := gaterun.ComputeOperationDigest(entityKey, "task", "todo", "todo", []byte(parityEnvelope))
+	if err != nil {
+		t.Fatalf("ComputeOperationDigest: %v", err)
+	}
+	// PersistenceStatePending (the NewOperationState default) is the
+	// resume_next_operation case — no MarkPersistenceComplete call.
+	s := gaterun.NewOperationState(runID, entityKey, "task", "todo", "todo", digest)
+	if err := s.Save(dir); err != nil {
+		t.Fatalf("save operation state: %v", err)
+	}
+
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
+	runResumeTransitionerOverride = &fakeParityTransitioner{
+		status:         map[string]string{entityKey: "todo"},
+		outcomes:       map[string]string{"pass": "in_review"},
+		resultContract: "gate_result_v1",
+		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{},
+	)
+
+	runResumeID = runID
+	runSession = "sess-resume"
+
+	out, decision, err := resolveResumeStatusAndDecision(root, runID, "task", entityKey, time.Now())
+	if err != nil {
+		t.Fatalf("resolveResumeStatusAndDecision: %v", err)
+	}
+	if decision.Action != gaterun.ResumeActionResumeNextOperation {
+		t.Fatalf("expected resume_next_operation, got %s", decision.Action)
+	}
+
+	if err := resumeGateIngestIfConfigured(context.Background(), root, "task", entityKey, decision, out); err != nil {
+		t.Fatalf("resumeGateIngestIfConfigured: %v", err)
+	}
+
+	if !out.Ingested || out.ToStatus != "in_review" || !out.Transitioned {
+		t.Fatalf("expected a completed transition to in_review from the partial-resume path, got %+v", out)
+	}
+	if transition.status[entityKey] != "in_review" {
+		t.Fatalf("expected the coordinator's transitioner to record in_review, got %q", transition.status[entityKey])
+	}
+}
+
 // TestRunResumeRun_AlreadyTransitionedSkipsGateIngest asserts an
 // already_transitioned decision performs no re-ingestion — the transition is
 // already durably applied and must not be repeated.

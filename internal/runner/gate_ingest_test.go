@@ -139,6 +139,51 @@ func TestIngestGateResult_MalformedEnvelopeFailsClosed(t *testing.T) {
 	}
 }
 
+// TestIngestGateResult_ConflictingReplayFailsClosed is one of the task
+// spec's Testing Strategy fixtures: a second ingestion call under the SAME
+// run_id/entity as an already-persisted first call, but with a DIFFERENT
+// envelope, must fail closed rather than silently accepting the newer
+// content or re-persisting over the durable record. This is
+// gaterun.VerifyResumeIdentity's operation-digest check, reached through the
+// full IngestGateResult boundary.
+func TestIngestGateResult_ConflictingReplayFailsClosed(t *testing.T) {
+	coordinator := newFakeCoordinator("E01-F01-001")
+	projectRoot := t.TempDir()
+	base := func(envelope []byte) GateIngestRequest {
+		return GateIngestRequest{
+			EnvelopeBytes: envelope,
+			Coordinator:   coordinator,
+			ProjectRoot:   projectRoot,
+			RunID:         "run-conflict1234567890abcdef1234567890",
+			EntityKey:     "E01-F01-001",
+			EntityType:    models.EntityTypeTask,
+			SourceStatus:  "todo",
+			Gate:          "code_review",
+			Session:       gatepersist.Session{ID: "sess-1", Agent: "dev-agent"},
+			OutcomeRoles:  map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+			Outcomes:      map[string]string{"pass": "in_review"},
+		}
+	}
+
+	first, err := IngestGateResult(context.Background(), base(validGateEnvelope()))
+	if err != nil {
+		t.Fatalf("expected the first ingestion to succeed, got: %v", err)
+	}
+	if !first.Transitioned {
+		t.Fatal("expected the first ingestion to transition")
+	}
+
+	conflicting := []byte(`{
+		"kind": "final",
+		"recommended_outcome": "pass",
+		"evidence": [{"kind": "test_run", "pointer": "artifacts/test.log"}],
+		"gate_result": {"schema_version": 1, "summary": "a DIFFERENT summary than the first call"}
+	}`)
+	if _, err := IngestGateResult(context.Background(), base(conflicting)); err == nil {
+		t.Fatal("expected a conflicting replay (same run_id/entity, different envelope) to fail closed")
+	}
+}
+
 func TestIngestGateResult_WrongKindFailsClosed(t *testing.T) {
 	req := baseGateIngestRequest(t, []byte(`{"kind": "failed", "evidence": []}`))
 	_, err := IngestGateResult(context.Background(), req)
