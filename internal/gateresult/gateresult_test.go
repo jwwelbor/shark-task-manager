@@ -238,6 +238,28 @@ func TestDecode_DuplicateChangeImpactSourceRejected(t *testing.T) {
 	}
 }
 
+func TestDecode_DuplicateJSONKeyRejected(t *testing.T) {
+	// REQ-F-001 requires rejecting duplicate envelopes. Standard
+	// encoding/json.Unmarshal silently accepts a duplicate object key
+	// (last one wins), which lets a second, conflicting value for a field
+	// like schema_version or summary slip past every other check in this
+	// package undetected. This must be rejected at decode time regardless
+	// of whether the duplicate values happen to also be individually valid.
+	cases := map[string]string{
+		"top-level duplicate summary":                  `{"schema_version":1,"summary":"first summary value","summary":"second summary value"}`,
+		"top-level duplicate schema_version":           `{"schema_version":1,"schema_version":1,"summary":"a valid summary"}`,
+		"duplicate gate_result-shaped key":             `{"schema_version":1,"summary":"ok","summary":"ok"}`,
+		"duplicate key inside a nested finding object": `{"schema_version":1,"summary":"ok","findings":[{"severity":"minor","severity":"major","class_key":"k","class_statement":"s","fingerprint":"fp","disposition":"open"}]}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode([]byte(raw)); err == nil {
+				t.Fatalf("expected duplicate JSON key to be rejected: %s", raw)
+			}
+		})
+	}
+}
+
 func TestDecode_UnknownTopLevelFieldRejected(t *testing.T) {
 	// This is the "second envelope"/alias case: gate, outcome, and evidence are
 	// deliberately owned by the outer worker-control envelope and must never

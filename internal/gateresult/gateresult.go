@@ -221,6 +221,10 @@ type GateResult struct {
 // the nested payload — the "second envelope"/alias case), malformed JSON
 // shapes, and trailing content after the object.
 func Decode(data []byte) (*GateResult, error) {
+	if err := rejectDuplicateKeys(data); err != nil {
+		return nil, err
+	}
+
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 
@@ -239,6 +243,90 @@ func Decode(data []byte) (*GateResult, error) {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// rejectDuplicateKeys walks the raw JSON token stream and rejects a document
+// that repeats a key within the same JSON object, at any nesting depth.
+// encoding/json.Unmarshal silently accepts a duplicate key (the last value
+// wins) which would let a hostile or malformed second value for, say,
+// schema_version or a nested finding's severity slip past every
+// field-level check in this package undetected. REQ-F-001 requires
+// rejecting duplicate envelopes; this closes that gap at the token level
+// before any typed decoding happens.
+func rejectDuplicateKeys(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		// Malformed JSON is reported by the typed decode that follows.
+		return nil
+	}
+	return walkDuplicateKeys(dec, tok)
+}
+
+// walkDuplicateKeys checks tok (already read from dec) and, if it opens an
+// object or array, recurses into dec to check every nested value as well.
+// Any decode error encountered while walking is deliberately swallowed: the
+// typed decode that runs after this pass is the single source of truth for
+// shape/malformed-JSON errors, so this pass only ever reports duplicate keys.
+func walkDuplicateKeys(dec *json.Decoder, tok json.Token) error {
+	delim, ok := tok.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		return walkDuplicateKeysObject(dec)
+	case '[':
+		return walkDuplicateKeysArray(dec)
+	default:
+		return nil
+	}
+}
+
+func walkDuplicateKeysObject(dec *json.Decoder) error {
+	seen := make(map[string]struct{})
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return nil
+		}
+		if _, exists := seen[key]; exists {
+			return newValidationError(key, ErrorClassDuplicate, "must not appear more than once in the same JSON object")
+		}
+		seen[key] = struct{}{}
+
+		valTok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		if err := walkDuplicateKeys(dec, valTok); err != nil {
+			return err
+		}
+	}
+	if _, err := dec.Token(); err != nil { // consume closing '}'
+		return nil
+	}
+	return nil
+}
+
+func walkDuplicateKeysArray(dec *json.Decoder) error {
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		if err := walkDuplicateKeys(dec, tok); err != nil {
+			return err
+		}
+	}
+	if _, err := dec.Token(); err != nil { // consume closing ']'
+		return nil
+	}
+	return nil
 }
 
 // unknownFieldName extracts the rejected field name from the stdlib
