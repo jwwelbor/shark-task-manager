@@ -113,6 +113,29 @@ func TestValidateKickbacks_TargetEntityWorkflowMembership(t *testing.T) {
 			resolver:       newFakeIdentityResolver().notFound(models.EntityTypeTask, "T-E01-F03-009"),
 			wantErr:        true,
 		},
+		{
+			// code-review round 12: two kickbacks whose entity_key values are
+			// different textual aliases of the SAME real entity both passed
+			// gateresult.Validate()'s raw-string dedup and validateKickbacks'
+			// per-kickback checks (neither compares kickbacks against EACH
+			// OTHER), so both got applied as two sequential, independently
+			// workflow-legal transitions on one real entity within a single
+			// gate result. A feature's bare suffix form ("F05") has no epic
+			// context for keys.KeyService.Normalize to fold into its full
+			// form ("E34-F05") -- the same gap round 12 found for the
+			// main-entity self-kickback check -- so only the resolver-backed
+			// (entityType, id) comparison catches this cross-kickback case.
+			name:           "two kickbacks resolving to the same real entity via repository-backed identity are rejected",
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			kickbacks: []gateresult.Kickback{
+				{EntityKey: "F05", TargetStatus: "todo", Reason: "first"},
+				{EntityKey: "E34-F05", TargetStatus: "in_progress", Reason: "second"},
+			},
+			validator: newFakeStatusValidator().allow(models.EntityTypeFeature, "todo", "in_progress"),
+			resolver:  newFakeIdentityResolver().alias(models.EntityTypeFeature, "F05", "E34-F05"),
+			wantErr:   true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -83,6 +83,14 @@ func kickbackEntityType(entityKey string) (models.EntityType, error) {
 //     feature-typed gates specifically). Every kickback is resolved
 //     (not only same-type ones), so an unresolvable kickback target also
 //     fails closed here, before any write.
+//
+// It also rejects, via the SAME resolver-backed (entityType, id) comparison,
+// any two kickbacks within this result that resolve to the same real
+// entity — the authoritative counterpart of gateresult.Validate()'s own
+// Normalize-based kickback-entity_key dedup, which is syntactic-only for the
+// same reason ValidateRole's main-entity check is (code-review round 12
+// finding: two aliases of one real entity must not each get an
+// independently-applied kickback transition).
 func validateKickbacks(ctx context.Context, kickbacks []gateresult.Kickback, mainEntityType models.EntityType, mainEntityKey string, validator StatusValidator, resolver IdentityResolver) (map[string]models.EntityType, error) {
 	ks := keys.NewKeyService()
 	canonicalMain := ks.Normalize(mainEntityKey)
@@ -91,6 +99,25 @@ func validateKickbacks(ctx context.Context, kickbacks []gateresult.Kickback, mai
 	if err != nil {
 		return nil, fmt.Errorf("gatepersist: resolve bound main entity %s %s: %w", mainEntityType, mainEntityKey, err)
 	}
+
+	// seenKickbackIdentities tracks the resolved (entityType, id) tuple of
+	// every kickback processed so far, for the cross-kickback dedup check
+	// below. This is the AUTHORITATIVE version of the raw-string dedup
+	// gateresult.Validate() performs on entity_key (upgraded to a
+	// Normalize-based comparison as a syntactic first pass, code-review
+	// round 12): two kickbacks whose entity_key values are different
+	// textual aliases of the SAME real entity (e.g. a feature's bare suffix
+	// "F05" vs. its full form "E34-F05", which Normalize alone cannot fold
+	// for the same reason it cannot fold that alias against the main
+	// entity, see IdentityResolver's doc comment) would otherwise both pass
+	// every check above and get applied as two sequential, independently
+	// workflow-legal transitions to one real entity within a single gate
+	// result -- defeating the one-kickback-per-entity design intent.
+	type resolvedIdentity struct {
+		entityType models.EntityType
+		id         int64
+	}
+	seenKickbackIdentities := make(map[resolvedIdentity]string, len(kickbacks))
 
 	entityTypes := make(map[string]models.EntityType, len(kickbacks))
 	for _, k := range kickbacks {
@@ -118,6 +145,16 @@ func validateKickbacks(ctx context.Context, kickbacks []gateresult.Kickback, mai
 		if entityType == mainEntityType && kickbackID == mainID {
 			return nil, fmt.Errorf("gatepersist: kickback entity_key %q resolves to the bound main entity %q via repository-backed key resolution; a kickback must target a different entity", k.EntityKey, mainEntityKey)
 		}
+
+		// Layer 3: cross-kickback authoritative dedup. Every kickback is
+		// checked against every OTHER kickback already processed, resolved
+		// through the same repository-backed lookup, so two aliases of one
+		// real entity fail closed here before any write.
+		identity := resolvedIdentity{entityType: entityType, id: kickbackID}
+		if priorKey, exists := seenKickbackIdentities[identity]; exists {
+			return nil, fmt.Errorf("gatepersist: kickback entity_key %q resolves to the same real entity as kickback entity_key %q via repository-backed key resolution; each kickback must target a distinct entity", k.EntityKey, priorKey)
+		}
+		seenKickbackIdentities[identity] = k.EntityKey
 
 		if !validator.IsValidStatus(entityType, k.TargetStatus) {
 			return nil, &KickbackValidationError{EntityKey: k.EntityKey, TargetStatus: k.TargetStatus}

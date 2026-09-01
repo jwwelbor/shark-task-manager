@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 )
 
 // Bounds shared by every GateResult v1 field, per architecture.md I-02.
@@ -376,15 +378,41 @@ func (r *GateResult) Validate() error {
 	if err := boundCollection("kickbacks", len(r.Kickbacks)); err != nil {
 		return err
 	}
+	// Dedup is canonical-identity-aware, not raw string equality: entity_key
+	// is arbitrary bounded free text (boundedText performs no key-shape
+	// validation), and two kickbacks whose entity_key values are different
+	// textual aliases of the SAME real entity (e.g. a task's short-form vs.
+	// its T-prefixed form) both passing this check let a worker apply two
+	// SEQUENTIAL, independently workflow-legal transitions to one real
+	// entity within a single gate result -- defeating the
+	// one-kickback-per-entity design intent this dedup exists to enforce
+	// (code-review round 12 finding). keys.KeyService.Normalize folds the
+	// slugged/short-form/T-prefixed alias pairs it recognizes to the same
+	// canonical form, matching ValidateRole's main-entity-kickback
+	// comparison immediately above it in this package.
+	//
+	// IMPORTANT -- this is a SYNTACTIC FIRST PASS ONLY, not the authoritative
+	// check: this package has no database access (by design), and Normalize
+	// cannot fold every alias production repository resolution folds -- a
+	// feature's bare suffix form ("F05") has no epic context for Normalize
+	// to resolve against, but FeatureRepository.GetByKey's suffix-match
+	// resolves it to the same row as its full form ("E34-F05"), a gap this
+	// check cannot catch. The authoritative, repository-backed cross-kickback
+	// dedup lives in internal/gatepersist.validateKickbacks via the same
+	// gatepersist.IdentityResolver pattern used for the main-entity
+	// self-kickback check; this check here exists only to reject cheaply,
+	// defense-in-depth, before gatepersist is ever reached.
+	ks := keys.NewKeyService()
 	seenKickbacks := make(map[string]struct{}, len(r.Kickbacks))
 	for i, k := range r.Kickbacks {
 		if err := k.validate(i); err != nil {
 			return err
 		}
-		if _, exists := seenKickbacks[k.EntityKey]; exists {
+		canonical := ks.Normalize(k.EntityKey)
+		if _, exists := seenKickbacks[canonical]; exists {
 			return newValidationError("kickbacks", ErrorClassDuplicate, "entity_key must be unique within the result")
 		}
-		seenKickbacks[k.EntityKey] = struct{}{}
+		seenKickbacks[canonical] = struct{}{}
 	}
 
 	if err := boundCollection("remediation_sweeps", len(r.RemediationSweeps)); err != nil {

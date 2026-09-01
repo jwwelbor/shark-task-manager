@@ -202,6 +202,33 @@ func TestDecode_DuplicateKickbackEntityKeyRejected(t *testing.T) {
 	}
 }
 
+func TestDecode_AliasedDuplicateKickbackEntityKeyRejected(t *testing.T) {
+	// code-review round 12: raw string equality on entity_key let two
+	// textually-different aliases of the SAME real entity ("T-E34-F05-002"
+	// and its short form "E34-F05-002") both pass Validate()'s dedup check,
+	// each getting its own independently-applied kickback transition on one
+	// real entity within a single gate result. keys.KeyService.Normalize
+	// folds the short/T-prefixed task alias pair to the same canonical form,
+	// so this syntactic-layer dedup must reject it -- matching
+	// ValidateRole's main-entity-kickback alias handling.
+	payload := validPayload()
+	payload["kickbacks"] = []interface{}{
+		map[string]interface{}{
+			"entity_key":    "T-E34-F05-002",
+			"target_status": "todo",
+			"reason":        "first",
+		},
+		map[string]interface{}{
+			"entity_key":    "E34-F05-002",
+			"target_status": "todo",
+			"reason":        "second",
+		},
+	}
+	if _, err := Decode(encode(t, payload)); err == nil {
+		t.Fatalf("expected aliased duplicate kickback entity_key (short-form vs T-prefixed) to be rejected")
+	}
+}
+
 func TestDecode_DuplicateSweepClassKeyRejected(t *testing.T) {
 	payload := validPayload()
 	sweep := map[string]interface{}{
