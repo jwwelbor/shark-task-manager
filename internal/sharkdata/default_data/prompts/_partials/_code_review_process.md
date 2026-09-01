@@ -55,5 +55,4 @@ DECISION:
   fix in `gate_result.summary`. (Check report at {{.review_base}} on resume)
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
 
-{{template "_gate_result_directive" .}}
-{{end}}
+{{template "_gate_result_directive" .}}{{end}}

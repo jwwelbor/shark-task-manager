@@ -87,6 +87,7 @@ const (
 	ErrorClassUnknownField     ErrorClass = "unknown_field"
 	ErrorClassBounds           ErrorClass = "bounds"
 	ErrorClassForbiddenContent ErrorClass = "forbidden_content"
+	ErrorClassDuplicate        ErrorClass = "duplicate"
 )
 
 // ValidationError is the one error type this package returns for a
@@ -185,6 +186,10 @@ func Decode(data []byte) (*Envelope, error) {
 		return nil, newValidationError("", ErrorClassBounds, "must not exceed the maximum envelope size")
 	}
 
+	if err := rejectDuplicateKeys(data); err != nil {
+		return nil, err
+	}
+
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 
@@ -246,6 +251,94 @@ func (e *Envelope) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// rejectDuplicateKeys walks the raw JSON token stream and rejects a document
+// that repeats a key within the same JSON object, at any nesting depth.
+// encoding/json.Unmarshal silently accepts a duplicate key (the last value
+// wins), which would let a hostile or malformed second value for, say,
+// recommended_outcome or a nested evidence entry slip past every field-level
+// check in this package undetected — the same class of defect
+// internal/gateresult.rejectDuplicateKeys closes for the nested gate_result
+// payload (T-E34-F05-001). internal/gateresult's implementation is
+// unexported, so this is a local, deliberately identical port rather than an
+// import (T-E34-F05-004 UAT rework, CRITICAL finding sibling #3) — this
+// package's own doc comment already commits to restating gateresult's shared
+// constants rather than importing it, for the same package-boundary reason.
+func rejectDuplicateKeys(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		// Malformed JSON is reported by the typed decode that follows.
+		return nil
+	}
+	return walkDuplicateKeys(dec, tok)
+}
+
+// walkDuplicateKeys checks tok (already read from dec) and, if it opens an
+// object or array, recurses into dec to check every nested value as well.
+// Any decode error encountered while walking is deliberately swallowed: the
+// typed decode that runs after this pass is the single source of truth for
+// shape/malformed-JSON errors, so this pass only ever reports duplicate keys.
+func walkDuplicateKeys(dec *json.Decoder, tok json.Token) error {
+	delim, ok := tok.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		return walkDuplicateKeysObject(dec)
+	case '[':
+		return walkDuplicateKeysArray(dec)
+	default:
+		return nil
+	}
+}
+
+func walkDuplicateKeysObject(dec *json.Decoder) error {
+	seen := make(map[string]struct{})
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return nil
+		}
+		if _, exists := seen[key]; exists {
+			return newValidationError(key, ErrorClassDuplicate, "must not appear more than once in the same JSON object")
+		}
+		seen[key] = struct{}{}
+
+		valTok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		if err := walkDuplicateKeys(dec, valTok); err != nil {
+			return err
+		}
+	}
+	if _, err := dec.Token(); err != nil { // consume closing '}'
+		return nil
+	}
+	return nil
+}
+
+func walkDuplicateKeysArray(dec *json.Decoder) error {
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		if err := walkDuplicateKeys(dec, tok); err != nil {
+			return err
+		}
+	}
+	if _, err := dec.Token(); err != nil { // consume closing ']'
+		return nil
+	}
 	return nil
 }
 

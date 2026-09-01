@@ -988,9 +988,29 @@ func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
 // matching recommendedOutcome's own "whole trimmed value only" safety
 // property) and delegates to the shared IngestGateResult boundary
 // (gate_ingest.go) that Rider's `--apply-result` CLI surface also calls.
-// RetirementConfirmed is always true here: the core runner's dispatch is
-// synchronous, so the worker process has already exited by the time this
-// method runs.
+//
+// RetirementConfirmed is resolved in two phases rather than passed as true
+// unconditionally (T-E34-F05-004 rework, UAT CRITICAL finding #2): the
+// Run() main loop (see the `for { ... currentStatus = outcome.nextStatus }`
+// loop above) keeps dispatching further stages for the SAME entity, SAME
+// claim/lease session, within this SAME `shark run` invocation whenever the
+// resolved target status is non-terminal — a gate_result_v1 step is no
+// different from any other step in that respect. Confirming retirement
+// (which releases the lease via gatepersist.Coordinator's Lease.Release)
+// unconditionally on the first gate stage would free the lease while later
+// stages are still about to dispatch agents against the same entity,
+// exactly the cross-stage lease-lifetime bug the UAT report identified.
+// So: ingest once with RetirementConfirmed: false to learn the resolved
+// target status, then — only if that status is terminal (i.e. only if the
+// Run() loop is actually about to stop for this entity, mirroring the
+// `c.workflowSvc.IsTerminalStatus(toStatus)` check immediately below this
+// function's call site) — ingest again with RetirementConfirmed: true to
+// finalize retirement. The second call is safe and non-duplicating: per
+// gatepersist.Coordinator.Persist's PersistenceStateTransitioned branch, it
+// only re-verifies the already-applied transition and (idempotently) closes
+// out retirement — it does not repeat any note write or the transition
+// itself (the same pattern run_resume.go's resumeGateIngestIfConfigured
+// already documents and relies on).
 func (c *RunController) ingestGateResultForDispatch(
 	ctx context.Context, key, currentStatus string,
 	nextInfo *services.NextStatusInfo, action *config.PopulatedAction, opts RunOptions,
@@ -1010,22 +1030,45 @@ func (c *RunController) ingestGateResultForDispatch(
 		outcomeRoles = c.gateIngest.OutcomeRoles
 	}
 
-	ingestResult, err := IngestGateResult(ctx, GateIngestRequest{
-		EnvelopeBytes:       []byte(strings.TrimSpace(dispatchResult.Stdout)),
-		Coordinator:         c.gateIngest.Coordinator,
-		ProjectRoot:         opts.ProjectRoot,
-		RunID:               opts.RunID,
-		EntityKey:           key,
-		EntityType:          models.EntityType(opts.EntityType),
-		SourceStatus:        currentStatus,
-		Gate:                currentStatus,
-		Session:             gatepersist.Session{ID: opts.SessionID},
-		OutcomeRoles:        outcomeRoles,
-		Outcomes:            nextInfo.Outcomes,
-		RetirementConfirmed: true,
-	})
+	envelopeBytes := []byte(strings.TrimSpace(dispatchResult.Stdout))
+	baseReq := GateIngestRequest{
+		EnvelopeBytes: envelopeBytes,
+		Coordinator:   c.gateIngest.Coordinator,
+		ProjectRoot:   opts.ProjectRoot,
+		RunID:         opts.RunID,
+		EntityKey:     key,
+		EntityType:    models.EntityType(opts.EntityType),
+		SourceStatus:  currentStatus,
+		Gate:          currentStatus,
+		Session:       gatepersist.Session{ID: opts.SessionID},
+		OutcomeRoles:  outcomeRoles,
+		Outcomes:      nextInfo.Outcomes,
+	}
+
+	req := baseReq
+	req.RetirementConfirmed = false
+	ingestResult, err := IngestGateResult(ctx, req)
 	if err != nil {
 		return "", nil, err
+	}
+
+	// Only confirm retirement (and release the lease) when the resolved
+	// target status is terminal — i.e. only when the Run() loop is about to
+	// stop dispatching this entity in this invocation, not merely because
+	// this one gate stage finished.
+	if c.workflowSvc.IsTerminalStatus(ingestResult.ToStatus) {
+		retireReq := baseReq
+		retireReq.RetirementConfirmed = true
+		// RunConcluded: true — this IS the Run() loop's last dispatch for
+		// this entity/session (the terminal status just resolved means the
+		// main loop's `if outcome.done { return }` fires next), so both
+		// signals gatepersist.Coordinator requires for release are true here.
+		retireReq.RunConcluded = true
+		retireResult, retireErr := IngestGateResult(ctx, retireReq)
+		if retireErr != nil {
+			return "", nil, retireErr
+		}
+		ingestResult = retireResult
 	}
 
 	relPath := c.maybeWriteTranscript(

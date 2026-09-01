@@ -55,6 +55,15 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		return fmt.Errorf("--apply-result requires --session=<authorized-session-id>")
 	}
 
+	// REQ-F-002 authorization gate (UAT CRITICAL finding #1): --session must
+	// name the ACTIVE claim/lease session on this entity, not merely be a
+	// non-empty string. Verified before any file read or coordinator
+	// construction so a mismatched/nonexistent/expired session produces zero
+	// writes.
+	if err := verifyClaimSession(cmd.Context(), entityType, entityKey, runSession); err != nil {
+		return fmt.Errorf("apply-result authorization failed: %w", err)
+	}
+
 	envelopeBytes, err := os.ReadFile(runApplyResultPath)
 	if err != nil {
 		return fmt.Errorf("read --apply-result file %q: %w", runApplyResultPath, err)

@@ -114,6 +114,126 @@ func TestIngestGateResultForDispatch_ValidEnvelopeTransitions(t *testing.T) {
 	}
 }
 
+// TestIngestGateResultForDispatch_NonTerminalTargetDoesNotReleaseLease is the
+// T-E34-F05-004 rework's regression guard for UAT CRITICAL finding #2 (the
+// cross-stage lease-lifetime bug): Run()'s main loop (see controller.go's
+// `for { ... currentStatus = outcome.nextStatus }`) keeps dispatching further
+// stages for the SAME entity/session under the SAME lease whenever the
+// resolved target status is non-terminal. Before this fix,
+// ingestGateResultForDispatch passed RetirementConfirmed: true
+// unconditionally, so gatepersist.Coordinator released the lease after the
+// very first gate stage even though the run was about to dispatch another —
+// this test proves a non-terminal target (in_review, not one of the default
+// workflow's terminal statuses) leaves the lease held.
+func TestIngestGateResultForDispatch_NonTerminalTargetDoesNotReleaseLease(t *testing.T) {
+	transitioner := &fakeTransitioner{status: map[string]string{"E01-F01-001": "todo"}}
+	releaser := &fakeLeaseReleaser{}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"todo": true, "in_review": true}},
+		transitioner, transitioner, releaser,
+	)
+
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &oneShotStatusTransitioner{},
+		ActionSvc:    &MockActionService{},
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  map[string]AgentDispatcher{"anthropic": &MockDispatcher{}},
+		GateIngest: &GateIngestDeps{
+			Coordinator:  coordinator,
+			OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	nextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "in_review"}}},
+		Outcomes:             map[string]string{"pass": "in_review"},
+	}
+	action := &config.PopulatedAction{Provider: "anthropic"}
+	dispatchResult := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "all checks passed"}}`,
+		Duration: time.Millisecond,
+	}
+	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-nonterm123def456abc123def456ab", EntityType: "task", SessionID: "sess-1"}
+	disabled := false
+
+	toStatus, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1,
+	)
+	if err != nil {
+		t.Fatalf("expected successful gate ingestion, got error: %v", err)
+	}
+	if toStatus != "in_review" {
+		t.Fatalf("expected transition to in_review, got %q", toStatus)
+	}
+	if releaser.released {
+		t.Fatal("expected the lease to remain held after a non-terminal gate stage (Run()'s loop is about to dispatch another stage for this entity), but it was released")
+	}
+}
+
+// TestIngestGateResultForDispatch_TerminalTargetReleasesLease is the sibling
+// of the above: when the resolved target status IS terminal (Run()'s loop is
+// about to stop dispatching this entity in this invocation), the lease must
+// actually be released — the fix must not simply always withhold retirement.
+// gatepersist.Coordinator (T-E34-F05-003 rework) gates release on BOTH
+// RetirementConfirmed AND the distinct RunConcluded signal; this controller's
+// terminal branch sets both on its second (retire) call.
+func TestIngestGateResultForDispatch_TerminalTargetReleasesLease(t *testing.T) {
+	transitioner := &fakeTransitioner{status: map[string]string{"E01-F01-001": "in_review"}}
+	releaser := &fakeLeaseReleaser{}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"in_review": true, "completed": true}},
+		transitioner, transitioner, releaser,
+	)
+
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &oneShotStatusTransitioner{},
+		ActionSvc:    &MockActionService{},
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  map[string]AgentDispatcher{"anthropic": &MockDispatcher{}},
+		GateIngest: &GateIngestDeps{
+			Coordinator:  coordinator,
+			OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	nextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}}},
+		Outcomes:             map[string]string{"pass": "completed"},
+	}
+	action := &config.PopulatedAction{Provider: "anthropic"}
+	dispatchResult := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "all checks passed"}}`,
+		Duration: time.Millisecond,
+	}
+	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-term123def456abc123def456abcd", EntityType: "task", SessionID: "sess-1"}
+	disabled := false
+
+	toStatus, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), "E01-F01-001", "in_review", nextInfo, action, opts, dispatchResult, &disabled, 1,
+	)
+	if err != nil {
+		t.Fatalf("expected successful gate ingestion, got error: %v", err)
+	}
+	if toStatus != "completed" {
+		t.Fatalf("expected transition to completed, got %q", toStatus)
+	}
+	if !releaser.released {
+		t.Fatal("expected the lease to be released once the resolved target status is terminal (Run()'s loop is about to stop for this entity), but it was not")
+	}
+}
+
 // TestIngestGateResultForDispatch_MalformedEnvelopeFailsClosed asserts the
 // gate_result_v1 path never falls through to the legacy recommendedOutcome
 // parser on a malformed envelope — it must fail with no transition. Proven

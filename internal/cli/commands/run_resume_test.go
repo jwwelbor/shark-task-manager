@@ -10,6 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 func TestResolveResumeStatus_NoDurableResult(t *testing.T) {
@@ -576,6 +577,20 @@ func TestRunResumeRun_AlreadyTransitionedWiringReachesCoordinator(t *testing.T) 
 
 	runResumeID = runID
 	runSession = "sess-resume"
+
+	// T-E34-F05-004 rework: runResumeRun now verifies --session against a
+	// real active claim/lease (REQ-F-002's authorization gate) before doing
+	// anything else, so this real-entry-point test must seed one matching
+	// runSession, or it fails closed before ever reaching the coordinator.
+	withRunClaimSvcOverride(t, &mockRunClaimService{
+		ttl: time.Hour,
+		getClaim: &models.EntityClaim{
+			EntityType:    "task",
+			EntityKey:     entityKey,
+			SessionID:     "sess-resume",
+			LastHeartbeat: time.Now().UTC(),
+		},
+	})
 
 	if err := runResumeRun(context.Background(), "task", entityKey); err != nil {
 		t.Fatalf("runResumeRun: %v", err)

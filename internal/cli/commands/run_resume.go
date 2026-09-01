@@ -101,6 +101,14 @@ func runResumeRun(ctx context.Context, entityType, entityKey string) error {
 		return fmt.Errorf("--resume-run requires --session=<authorized-session-id>")
 	}
 
+	// REQ-F-002 authorization gate (UAT CRITICAL finding #1): --session must
+	// name the ACTIVE claim/lease session on this entity, not merely be a
+	// non-empty string. Verified before any coordinator call/mutation so a
+	// mismatched/nonexistent/expired session produces zero writes.
+	if err := verifyClaimSession(ctx, entityType, entityKey, runSession); err != nil {
+		return fmt.Errorf("resume-run authorization failed: %w", err)
+	}
+
 	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
 		return fmt.Errorf("resolve project root for --resume-run: %w", err)
@@ -200,6 +208,13 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 		OutcomeRoles:        resolver.GetOutcomeRoles(decision.State.Gate),
 		Outcomes:            resolver.GetOutcomes(decision.State.Gate),
 		RetirementConfirmed: true,
+		// RunConcluded: true — --resume-run acquires no claim and dispatches
+		// no agent itself (see this file's package doc comment); this call
+		// is the parent's one and only action for this entity/session, so it
+		// is always the run's last action, matching gatepersist.Coordinator's
+		// requirement (T-E34-F05-003 rework) that release needs BOTH
+		// RetirementConfirmed AND RunConcluded, not RetirementConfirmed alone.
+		RunConcluded: true,
 	})
 	if err != nil {
 		return err
@@ -266,6 +281,13 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 		OutcomeRoles:        nextInfo.OutcomeRoles,
 		Outcomes:            nextInfo.Outcomes,
 		RetirementConfirmed: true,
+		// RunConcluded: true — --resume-run acquires no claim and dispatches
+		// no agent itself (see this file's package doc comment); this call
+		// is the parent's one and only action for this entity/session, so it
+		// is always the run's last action, matching gatepersist.Coordinator's
+		// requirement (T-E34-F05-003 rework) that release needs BOTH
+		// RetirementConfirmed AND RunConcluded, not RetirementConfirmed alone.
+		RunConcluded: true,
 	})
 	if err != nil {
 		return err

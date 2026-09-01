@@ -68,6 +68,19 @@ type GateIngestRequest struct {
 	Outcomes map[string]string
 
 	RetirementConfirmed bool
+
+	// RunConcluded attests that the parent-owned run process itself is
+	// concluding for this entity — no further IngestGateResult/Persist call
+	// will follow under the currently-held claim/lease session. Threaded
+	// straight through to gatepersist.Request.RunConcluded (see its doc
+	// comment): T-E34-F05-003's rework gates lease release on BOTH
+	// RetirementConfirmed AND RunConcluded, deliberately decoupling
+	// worker-process retirement (true on every stage of a synchronous
+	// multi-stage `shark run`) from "the run loop is actually done with this
+	// entity" (true only on the last stage). Every caller of
+	// IngestGateResult owns deciding this the same way it already decides
+	// RetirementConfirmed.
+	RunConcluded bool
 }
 
 // GateIngestResult reports what IngestGateResult did, for the caller's own
@@ -152,6 +165,7 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 		Evidence:            evidenceJSON,
 		TargetStatus:        targetStatus,
 		RetirementConfirmed: req.RetirementConfirmed,
+		RunConcluded:        req.RunConcluded,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gate ingestion: persist gate_result: %w", err)

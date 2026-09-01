@@ -29,6 +29,12 @@ type mockRunClaimService struct {
 	claims     []services.ClaimInput
 	releases   []runReleaseCall
 	heartbeats []runHeartbeatCall
+
+	// getClaim/getErr script Get's return value (T-E34-F05-004 rework:
+	// verifyClaimSession's authorization gate). Both nil by default, i.e. "no
+	// active claim" -- matching the safe fail-closed default.
+	getClaim *models.EntityClaim
+	getErr   error
 }
 
 type mockRunCascadeChildrenService struct {
@@ -82,6 +88,10 @@ func (m *mockRunClaimService) Heartbeat(ctx context.Context, entityType, entityK
 		note:       note,
 	})
 	return nil
+}
+
+func (m *mockRunClaimService) Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
+	return m.getClaim, m.getErr
 }
 
 func (m *mockRunClaimService) TTL() time.Duration {

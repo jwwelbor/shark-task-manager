@@ -71,6 +71,27 @@ func TestDecode_UnknownKindRejected(t *testing.T) {
 	}
 }
 
+func TestDecode_DuplicateJSONKeyRejected(t *testing.T) {
+	// T-E34-F05-004 UAT rework: standard encoding/json.Unmarshal silently
+	// accepts a duplicate object key (last one wins), the same class of
+	// defect internal/gateresult.Decode rejects for the nested gate_result
+	// payload. A hostile or malformed second value for, say,
+	// recommended_outcome or a nested evidence field must not slip past this
+	// package's checks undetected.
+	cases := map[string]string{
+		"top-level duplicate kind":                      `{"kind":"final","kind":"final","recommended_outcome":"pass","evidence":[]}`,
+		"top-level duplicate recommended_outcome":       `{"kind":"final","recommended_outcome":"pass","recommended_outcome":"fail","evidence":[]}`,
+		"duplicate key inside a nested evidence object": `{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"test_run","kind":"other","pointer":"artifacts/test.log"}]}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode([]byte(raw)); err == nil {
+				t.Fatalf("expected duplicate JSON key to be rejected: %s", raw)
+			}
+		})
+	}
+}
+
 func TestDecode_MalformedJSONRejected(t *testing.T) {
 	_, err := Decode([]byte(`{"kind": "final",`))
 	if err == nil {

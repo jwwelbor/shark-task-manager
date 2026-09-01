@@ -34,7 +34,42 @@ type runClaimServicer interface {
 	Claim(ctx context.Context, in services.ClaimInput) (*models.EntityClaim, error)
 	Release(ctx context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error)
 	Heartbeat(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) error
+	Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error)
 	TTL() time.Duration
+}
+
+// verifyClaimSession is the sole authorization gate for a Rider coordinator
+// surface (--apply-result, --resume-run): per REQ-F-002 ("a gate worker
+// cannot claim, advance, release, or force-set workflow state through this
+// coordinator's surface"), a caller must hold the ACTIVE claim/lease on the
+// target entity under the exact session id it supplies. Before this fix,
+// run_apply_result.go and run_resume.go only checked --session for
+// non-emptiness — any caller could durably mutate workflow state (notes,
+// kickbacks, transitions) for any entity by supplying an arbitrary non-empty
+// string, without ever having claimed it. This performs the real check
+// (existing claim, matching session, not TTL-expired) and fails closed with
+// zero writes on any mismatch — callers MUST call this before constructing a
+// gatepersist.Coordinator or touching runner.IngestGateResult at all.
+func verifyClaimSession(ctx context.Context, entityType, entityKey, sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("--session=<authorized-session-id> is required")
+	}
+
+	svc := getRunClaimService()
+	claim, err := svc.Get(ctx, entityType, entityKey)
+	if err != nil {
+		return fmt.Errorf("verify claim ownership for %s %s: %w", entityType, entityKey, err)
+	}
+	if claim == nil {
+		return fmt.Errorf("no active claim on %s %s: --session does not authorize a coordinator mutation without a live claim", entityType, entityKey)
+	}
+	if claim.SessionID != sessionID {
+		return fmt.Errorf("--session does not match the active claim session on %s %s", entityType, entityKey)
+	}
+	if claim.IsExpired(time.Now().UTC(), svc.TTL()) {
+		return fmt.Errorf("the claim session on %s %s has expired; re-claim the entity before mutating workflow state", entityType, entityKey)
+	}
+	return nil
 }
 
 var runClaimSvcOverride runClaimServicer
