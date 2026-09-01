@@ -56,15 +56,21 @@ compounds because the capabilities are shared by every later epic and project.
 | E34-F08 | Tier-consistent gates and final integration review | Draft, fully planned |
 | E34-F09 | Override drift visibility and WWGM reconciliation | Draft, fully planned |
 | E34-F10 | Product critical-path guard for delivery workflows | Draft, fully planned |
+| E34-F11 | Layered skill extraction adoption | Draft, fully planned |
 
 Live lifecycle status remains in Shark; this table describes only the planning
 packet and must not be used as a status cache.
 
-Decision `D-E34-LEGACY-PROMPTS-001` explicitly defers the two earlier unowned
-dev-artifact prompt requests. They are not delivered by F05-F09 and no ignored
-path is claimed. The epic decomposition owner must assign each to a tracked
-Shark feature/task and repository path, or record cancellation, before
-decomposition can pass.
+Decision `D-E34-LEGACY-PROMPTS-001` (resolved 2026-08-31) covered the two
+earlier unowned dev-artifact prompt requests, neither of which was delivered
+by F05-F09. The "earlier ignored dev-artifact review prompt" was confirmed to
+not exist anywhere in the repository and is cancelled — no tracked work is
+created for it. The "skill-workflow-extraction prompt" does exist at
+`dev-artifacts/planning/skill-workflow-extraction-prompt.md` (dated
+2026-06-22) and is tracked as REQ-F-006 reference tooling by `E34-F11`
+(`T-E34-F11-001`). See the E34 decision note referencing
+`D-E34-LEGACY-PROMPTS-001` and `requirements.md` REQ-F-006 for the full
+record.
 
 ## Goals and success criteria (measurable)
 

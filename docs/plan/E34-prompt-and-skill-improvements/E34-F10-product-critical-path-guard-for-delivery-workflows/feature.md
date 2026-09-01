@@ -36,6 +36,11 @@ unresolved prerequisites, and the disposition of side work before dispatch.
 Planning remains tied to one executable next product step instead of backlog volume or
 component-level completion.
 
+## Requirements
+
+- Implements [REQ-F-032, REQ-F-033, REQ-F-034](../requirements.md#area-10-product-critical-path-guard-for-delivery-workflows--e34-f10)
+  (Area 10 in the epic requirements catalog).
+
 ## Triage Breadcrumb
 
 - The intended project inputs are `docs/product/D01-vision-statement.md`,
