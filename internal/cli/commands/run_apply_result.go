@@ -34,6 +34,32 @@ func init() {
 	runCmd.Flags().StringVar(&runApplyRunID, "run-id", "", "Durable run_id for --apply-result")
 }
 
+// resolveApplyResultWorkflowService is the production wiring runApplyResult
+// uses to build applyResultDeps.WorkflowSvc: cli.GetWorkflowService() scoped
+// via .ForLevel(entityType) to this entity's own workflow level
+// (code-review round-8 finding: an unscoped cli.GetWorkflowService() defaults
+// to task-level statuses/terminal set, which are wrong for e.g. tech_debt's
+// resolved/wont_fix outcomes — task-level workflow has no "resolved" status
+// at all, so an unscoped IsTerminalStatus("resolved") silently returns
+// false).
+//
+// Extracted to its own one-line function, rather than left inlined at the
+// applyResultDeps construction site (code-review round-9 Finding 2), so a
+// test can call this exact statement directly and assert its .ForLevel
+// scoping without pulling in runApplyResult's other real-DB-backed
+// dependencies (verifyClaimSession, buildTransitioner, buildGateCoordinator)
+// that the CLI-tests golden rule (never a real database in a CLI-command
+// test; see .claude/rules/testing/cli-tests.md) forbids exercising directly
+// in this package's tests. cli.GetWorkflowService() itself never touches the
+// database — it only reads .sharkconfig.json/workflow YAML (falling back to
+// the embedded default bundle) — so calling it from a test is within the
+// golden rule's bounds; see aliases_test.go/feature_helpers_test.go/
+// status_priority_test.go for existing precedent of CLI-command tests
+// calling cli.GetWorkflowService() directly.
+func resolveApplyResultWorkflowService(entityType string) terminalStatusChecker {
+	return cli.GetWorkflowService().ForLevel(entityType)
+}
+
 // applyResultOutcomeRolesOverride lets tests inject a resolved outcome_roles
 // map without a real workflow config source. Production callers leave this
 // nil so applyResultIngest falls back to nextInfo.OutcomeRoles — the
@@ -121,11 +147,7 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		EntityKey:    entityKey,
 		SessionID:    runSession,
 		OutcomeRoles: applyResultOutcomeRolesOverride,
-		// code-review round-8 finding: scope to entityType so
-		// applyResultIngest's terminal-status check uses this entity's own
-		// workflow level (e.g. tech_debt's resolved/wont_fix), not the
-		// unscoped task-level default.
-		WorkflowSvc: cli.GetWorkflowService().ForLevel(entityType),
+		WorkflowSvc:  resolveApplyResultWorkflowService(entityType),
 	}, envelopeBytes)
 	if err != nil {
 		return fmt.Errorf("apply-result ingestion failed: %w", err)

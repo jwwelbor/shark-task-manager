@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -420,5 +421,52 @@ func TestApplyResultIngest_NonTaskEntityTerminalStatusReleasesLease(t *testing.T
 	}
 	if !releaser.released {
 		t.Fatal("expected --apply-result to release the lease once the tech_debt-scoped terminal status (resolved) is reached, but it was not — WorkflowSvc must be scoped via .ForLevel(entityType), not the unscoped task-level default")
+	}
+}
+
+// TestResolveApplyResultWorkflowService_ScopesToEntityLevel closes the
+// code-review round-9 Finding 2 gap: TestApplyResultIngest_
+// NonTaskEntityTerminalStatusReleasesLease above only proves
+// applyResultIngest behaves correctly when handed an already-.ForLevel-
+// scoped WorkflowSvc built inline by the test — it never calls
+// resolveApplyResultWorkflowService (the actual runApplyResult production
+// wiring statement, run_apply_result.go), so reverting that statement back
+// to the unscoped `cli.GetWorkflowService()` left the whole suite green (the
+// reviewer verified this by A/B test execution against run_apply_result.go
+// at commit 55b9753f~1).
+//
+// This test calls resolveApplyResultWorkflowService itself — the exact
+// production statement, not a hand-built substitute — so it fails the same
+// way a real `shark run --apply-result` against a tech_debt entity would if
+// the .ForLevel(entityType) scoping regressed: task-level's embedded
+// workflow (internal/sharkdata/default_data/workflow/task.yaml) has no
+// "resolved" status at all, so an unscoped
+// cli.GetWorkflowService().IsTerminalStatus("resolved") silently returns
+// false, while tech-debt's own workflow (workflow/tech-debt.yaml) marks
+// "resolved" terminal: true. Verified by reverting
+// resolveApplyResultWorkflowService's body to `return
+// cli.GetWorkflowService()` (dropping .ForLevel(entityType)): this test then
+// fails on the tech_debt assertion below, exactly like the reviewer's A/B
+// check.
+//
+// cli.GetWorkflowService() reads only .sharkconfig.json/embedded workflow
+// YAML — never the database — so calling it here does not violate the
+// CLI-tests golden rule (never a real database in a CLI-command test); see
+// aliases_test.go/feature_helpers_test.go/status_priority_test.go for
+// existing precedent of CLI-command tests calling it directly. This repo's
+// .sharkconfig.json sets no workflow_config, so GetWorkflowService() resolves
+// the embedded default bundle — stable, compiled-in content, not runtime
+// repo state.
+func TestResolveApplyResultWorkflowService_ScopesToEntityLevel(t *testing.T) {
+	defer cli.ResetWorkflowService()
+
+	techDebtSvc := resolveApplyResultWorkflowService("tech_debt")
+	if !techDebtSvc.IsTerminalStatus("resolved") {
+		t.Fatal("expected resolveApplyResultWorkflowService(\"tech_debt\").IsTerminalStatus(\"resolved\") to be true — tech-debt's own workflow marks resolved terminal: true")
+	}
+
+	taskSvc := resolveApplyResultWorkflowService("task")
+	if taskSvc.IsTerminalStatus("resolved") {
+		t.Fatal("expected resolveApplyResultWorkflowService(\"task\").IsTerminalStatus(\"resolved\") to be false — task's workflow has no \"resolved\" status at all; a true result here means .ForLevel(entityType) scoping regressed to an unscoped/shared resolver")
 	}
 }
