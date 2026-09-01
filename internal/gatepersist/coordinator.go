@@ -197,6 +197,7 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		if !strings.EqualFold(current, req.TargetStatus) {
 			return nil, fmt.Errorf("gatepersist: entity %s is recorded transition_applied to %q but is currently at %q; refusing to repeat or silently diverge from the recorded transition", req.EntityKey, req.TargetStatus, current)
 		}
+		result.FromStatus = state.SourceStatus
 	}
 	result.ToStatus = req.TargetStatus
 	result.TransitionApplied = state.PersistenceState == gaterun.PersistenceStateTransitioned
