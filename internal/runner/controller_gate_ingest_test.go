@@ -57,10 +57,12 @@ func TestResultContractFor_RejectsUnknownValue(t *testing.T) {
 // TestIngestGateResultForDispatch_ValidEnvelopeTransitions exercises the
 // controller-level wiring (GateIngestDeps → IngestGateResult →
 // gatepersist.Coordinator) that handleSpawnAgent's gate_result_v1 branch
-// calls. It is invoked directly (rather than through the full Run() loop)
-// because resultContractFor is hard-stubbed to "legacy" until
-// T-E34-F05-005 lands the config field it will read — see that function's
-// doc comment.
+// calls. It is invoked directly against ingestGateResultForDispatch (a
+// focused unit test of that one method's contract); for a test that drives
+// the FULL controller.Run() dispatch loop end-to-end — proving the branch
+// selection in handleSpawnAgent actually reaches this method for a
+// gate_result_v1 step, and that a legacy step still doesn't — see
+// controller_gate_e2e_test.go.
 func TestIngestGateResultForDispatch_ValidEnvelopeTransitions(t *testing.T) {
 	transitioner := &fakeTransitioner{status: map[string]string{"E01-F01-001": "todo"}}
 	coordinator := gatepersist.NewCoordinator(
