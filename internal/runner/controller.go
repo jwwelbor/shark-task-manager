@@ -12,11 +12,29 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// GateIngestDeps carries T-E34-F05-004's shared GateResult ingestion
+// coordinator and outcome-role resolution for gate_result_v1 steps. Optional
+// on RunControllerDeps: nil is safe as long as no configured step's
+// result_contract resolves to gate_result_v1 (today, resultContractFor
+// always resolves "legacy", so this is unreachable via real dispatch until
+// T-E34-F05-005 lands the schema field it will read).
+type GateIngestDeps struct {
+	// Coordinator persists a validated GateResult and applies the guarded
+	// main-entity transition (T-E34-F05-003).
+	Coordinator *gatepersist.Coordinator
+	// OutcomeRoles maps every configured outcome key to its REQ-F-006
+	// semantic role. TODO(T-E34-F05-005): resolve this per-step from the
+	// workflow's outcome_roles map instead of one flat, run-wide map.
+	OutcomeRoles map[string]gateresult.OutcomeRole
+}
 
 // RunOptions controls run loop behavior.
 type RunOptions struct {
@@ -287,6 +305,10 @@ type RunControllerDeps struct {
 	// the zero identity's three empty keys are injected into vars — never
 	// an absent key (D-F01-07).
 	HarnessResolver *services.HarnessResolver
+
+	// GateIngest wires the T-E34-F05-004 gate_result_v1 ingestion path.
+	// Optional — see GateIngestDeps's doc comment.
+	GateIngest *GateIngestDeps
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -307,6 +329,7 @@ type RunController struct {
 	questionResponses QuestionResponsePersister
 	questionBlocker   QuestionBlockChecker
 	harnessResolver   *services.HarnessResolver
+	gateIngest        *GateIngestDeps
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -344,6 +367,7 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		questionResponses: deps.QuestionResponses,
 		questionBlocker:   deps.QuestionBlocker,
 		harnessResolver:   deps.HarnessResolver,
+		gateIngest:        deps.GateIngest,
 	}, nil
 }
 
@@ -921,6 +945,95 @@ func (c *RunController) handleAdvanceStatus(
 	return stageOutcome{nextStatus: transResult.ToStatus}
 }
 
+// resultContractLegacy and resultContractGateResultV1 are the REQ-F-006
+// `result_contract` values a workflow step can select.
+const (
+	resultContractLegacy       = "legacy"
+	resultContractGateResultV1 = "gate_result_v1"
+)
+
+// resultContractFor resolves the REQ-F-006 `result_contract` for the
+// dispatched step. T-E34-F05-005 owns adding the schema field this should
+// read (config.PopulatedAction has no such field yet); until it lands, every
+// step resolves to "legacy" — REQ-F-006's own default for omission — so the
+// gate_result_v1 wiring below exists and is directly unit-testable without
+// being reachable through real workflow config yet. Swap this single body
+// for a config.PopulatedAction field read when T-E34-F05-005 lands; every
+// other caller in this file goes through this one function, so that is a
+// one-place change.
+func resultContractFor(_ *config.PopulatedAction) (string, error) {
+	contract := resultContractLegacy
+	switch contract {
+	case resultContractLegacy, resultContractGateResultV1:
+		return contract, nil
+	default:
+		return "", fmt.Errorf("unknown result_contract %q", contract)
+	}
+}
+
+// ingestGateResultForDispatch is handleSpawnAgent's gate_result_v1
+// continuation: it treats dispatchResult.Stdout as a candidate worker-control
+// envelope (the ENTIRE trimmed stdout must be the envelope JSON object,
+// matching recommendedOutcome's own "whole trimmed value only" safety
+// property) and delegates to the shared IngestGateResult boundary
+// (gate_ingest.go) that Rider's `--apply-result` CLI surface also calls.
+// RetirementConfirmed is always true here: the core runner's dispatch is
+// synchronous, so the worker process has already exited by the time this
+// method runs.
+func (c *RunController) ingestGateResultForDispatch(
+	ctx context.Context, key, currentStatus string,
+	nextInfo *services.NextStatusInfo, action *config.PopulatedAction, opts RunOptions,
+	dispatchResult *DispatchResult, transcriptDisabled *bool, stageN int,
+) (string, error) {
+	if c.gateIngest == nil || c.gateIngest.Coordinator == nil {
+		return "", fmt.Errorf("gate_result_v1 step %s requires a configured GateResult persistence coordinator", key)
+	}
+
+	ingestResult, err := IngestGateResult(ctx, GateIngestRequest{
+		EnvelopeBytes:       []byte(strings.TrimSpace(dispatchResult.Stdout)),
+		Coordinator:         c.gateIngest.Coordinator,
+		ProjectRoot:         opts.ProjectRoot,
+		RunID:               opts.RunID,
+		EntityKey:           key,
+		EntityType:          models.EntityType(opts.EntityType),
+		SourceStatus:        currentStatus,
+		Gate:                currentStatus,
+		Session:             gatepersist.Session{ID: opts.SessionID},
+		OutcomeRoles:        c.gateIngest.OutcomeRoles,
+		Outcomes:            nextInfo.Outcomes,
+		RetirementConfirmed: true,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	relPath := c.maybeWriteTranscript(
+		ctx, opts, transcriptDisabled,
+		key, stageN, currentStatus, action.Provider,
+		dispatchResult.Command, dispatchResult.ExitCode,
+		dispatchResult.Duration.Milliseconds(),
+		dispatchResult.Stdout, dispatchResult.Stderr,
+	)
+	emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+		EntityKey:      key,
+		Status:         currentStatus,
+		AgentType:      action.AgentType,
+		Provider:       action.Provider,
+		ExitCode:       dispatchResult.ExitCode,
+		DurationMS:     dispatchResult.Duration.Milliseconds(),
+		NextStatus:     ingestResult.ToStatus,
+		RunID:          opts.RunID,
+		TranscriptPath: relPath,
+	})
+	emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+		EntityKey:  key,
+		FromStatus: currentStatus,
+		ToStatus:   ingestResult.ToStatus,
+		RunID:      opts.RunID,
+	})
+	return ingestResult.ToStatus, nil
+}
+
 // targetStatusForDispatch resolves a worker's optional semantic outcome to a
 // configured status. Existing prompts that do not emit an outcome retain the
 // pass-first transition contract.
@@ -1326,72 +1439,104 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 
-	targetStatus, err := targetStatusForDispatch(nextInfo, dispatchResult.Stdout)
+	// T-E34-F05-004/REQ-F-006: resolve this step's result contract before
+	// touching either transition path. A gate_result_v1 step never falls
+	// through to the legacy parser below on any ingestion failure — it fails
+	// closed instead (see ingestGateResultForDispatch/IngestGateResult).
+	contract, err := resultContractFor(action)
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,
 			Status:    currentStatus,
-			Phase:     "outcome",
+			Phase:     "result_contract",
 			Error:     err.Error(),
 			RunID:     opts.RunID,
 		})
 		return stageOutcome{done: true}
 	}
 
-	// Write the per-dispatch transcript when capture is enabled. Stdout is
-	// DELIBERATELY excluded from the run.stage.complete event because
-	// transcripts are captured on this separate channel; the complete event
-	// is on a hot path. relPath is "" when capture is disabled, the run-scoped
-	// latch has tripped, or the write failed — matching the contract that
-	// the `transcript_path` attribute is emitted ONLY on success.
-	relPath := c.maybeWriteTranscript(
-		ctx, opts, transcriptDisabled,
-		key, stageN, currentStatus, action.Provider,
-		dispatchResult.Command, dispatchResult.ExitCode,
-		dispatchResult.Duration.Milliseconds(),
-		dispatchResult.Stdout, dispatchResult.Stderr,
-	)
+	var toStatus string
+	if contract == resultContractGateResultV1 {
+		toStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, nextInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "gate_ingest",
+				Error:     err.Error(),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+	} else {
+		targetStatus, err := targetStatusForDispatch(nextInfo, dispatchResult.Stdout)
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "outcome",
+				Error:     err.Error(),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
 
-	// Emit run.stage.complete now that we know the next status.
-	emitStageComplete(ctx, opts.Observability, stageCompleteParams{
-		EntityKey:      key,
-		Status:         currentStatus,
-		AgentType:      action.AgentType,
-		Provider:       action.Provider,
-		ExitCode:       dispatchResult.ExitCode,
-		DurationMS:     dispatchResult.Duration.Milliseconds(),
-		NextStatus:     targetStatus,
-		RunID:          opts.RunID,
-		TranscriptPath: relPath,
-	})
+		// Write the per-dispatch transcript when capture is enabled. Stdout is
+		// DELIBERATELY excluded from the run.stage.complete event because
+		// transcripts are captured on this separate channel; the complete event
+		// is on a hot path. relPath is "" when capture is disabled, the run-scoped
+		// latch has tripped, or the write failed — matching the contract that
+		// the `transcript_path` attribute is emitted ONLY on success.
+		relPath := c.maybeWriteTranscript(
+			ctx, opts, transcriptDisabled,
+			key, stageN, currentStatus, action.Provider,
+			dispatchResult.Command, dispatchResult.ExitCode,
+			dispatchResult.Duration.Milliseconds(),
+			dispatchResult.Stdout, dispatchResult.Stderr,
+		)
 
-	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
-	if err != nil {
-		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-			EntityKey: key,
-			Status:    currentStatus,
-			Phase:     "transition",
-			Error:     fmt.Sprintf("transition to %s failed: %v", targetStatus, err),
-			RunID:     opts.RunID,
+		// Emit run.stage.complete now that we know the next status.
+		emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+			EntityKey:      key,
+			Status:         currentStatus,
+			AgentType:      action.AgentType,
+			Provider:       action.Provider,
+			ExitCode:       dispatchResult.ExitCode,
+			DurationMS:     dispatchResult.Duration.Milliseconds(),
+			NextStatus:     targetStatus,
+			RunID:          opts.RunID,
+			TranscriptPath: relPath,
 		})
-		return stageOutcome{done: true}
+
+		transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "transition",
+				Error:     fmt.Sprintf("transition to %s failed: %v", targetStatus, err),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+
+		// Emit run.stage.transition after a successful transition.
+		emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+			EntityKey:  key,
+			FromStatus: currentStatus,
+			ToStatus:   transResult.ToStatus,
+			RunID:      opts.RunID,
+		})
+		toStatus = transResult.ToStatus
 	}
 
-	// Emit run.stage.transition after a successful transition.
-	emitStageTransition(ctx, opts.Observability, stageTransitionParams{
-		EntityKey:  key,
-		FromStatus: currentStatus,
-		ToStatus:   transResult.ToStatus,
-		RunID:      opts.RunID,
-	})
-
-	if c.workflowSvc.IsTerminalStatus(transResult.ToStatus) {
-		result.FinalStatus = transResult.ToStatus
+	if c.workflowSvc.IsTerminalStatus(toStatus) {
+		result.FinalStatus = toStatus
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
 		return stageOutcome{done: true}
 	}
-	return stageOutcome{nextStatus: transResult.ToStatus}
+	return stageOutcome{nextStatus: toStatus}
 }
 
 // handleQuestionResponseHandoff is handleSpawnAgent's Question-specific

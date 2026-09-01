@@ -134,6 +134,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return runResumeRun(entityType, normalizedKey)
 	}
 
+	// T-E34-F05-004: --apply-result is Rider's initial-ingestion surface. It
+	// calls the same runner.IngestGateResult boundary the core runner calls
+	// directly, and short-circuits before any claim/dispatch state is
+	// touched, matching --resume-run's contract above.
+	if runApplyResultSet() {
+		return runApplyResult(cmd, entityType, normalizedKey)
+	}
+
 	// Read the --harness/--harness-version/--harness-model override flags
 	// once, per spec.md §3.3 AC-T2. Required for REQ-F-006/AC-08: without
 	// this, precedence tier 1 (flags) has no entry point under `shark run`.
