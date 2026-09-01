@@ -168,3 +168,72 @@ func TestClaim_List(t *testing.T) {
 		t.Errorf("len(claims) = %d, want 2", len(claims))
 	}
 }
+
+// TestClaim_HarnessFieldsRoundTrip is T-E34-F01-002's AC-T1: the three
+// harness columns must flow through the real Claim insert, and back out of
+// Get/List/getByID, via parameterized placeholders (spec.md §3.3). This is
+// the repository-level counterpart to the mocked CLI-boundary TC-001 in
+// test-plan.md, which never touches real SQL.
+func TestClaim_HarnessFieldsRoundTrip(t *testing.T) {
+	repo, _ := setup(t)
+	ctx := context.Background()
+
+	c := newClaim("E01-F01-009")
+	c.Harness = "claude"
+	c.HarnessVersion = "2.1.0"
+	c.HarnessModel = "opus"
+
+	created, err := repo.Claim(ctx, c)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if created.Harness != "claude" || created.HarnessVersion != "2.1.0" || created.HarnessModel != "opus" {
+		t.Fatalf("Claim() return value harness fields = %+v", created)
+	}
+
+	// getByID path (exercised internally by Claim's return, but assert Get too).
+	got, err := repo.Get(ctx, "task", "E01-F01-009")
+	if err != nil || got == nil {
+		t.Fatalf("get: %v claim=%v", err, got)
+	}
+	if got.Harness != "claude" || got.HarnessVersion != "2.1.0" || got.HarnessModel != "opus" {
+		t.Errorf("Get() harness fields = %+v, want claude/2.1.0/opus", got)
+	}
+
+	claims, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	found := false
+	for _, lc := range claims {
+		if lc.EntityKey != "E01-F01-009" {
+			continue
+		}
+		found = true
+		if lc.Harness != "claude" || lc.HarnessVersion != "2.1.0" || lc.HarnessModel != "opus" {
+			t.Errorf("List() harness fields = %+v, want claude/2.1.0/opus", lc)
+		}
+	}
+	if !found {
+		t.Fatal("List() did not return the claimed entity")
+	}
+}
+
+// TestClaim_HarnessFieldsUnsetMapToEmptyString covers AC-11/D-F01-03's "NULL
+// maps to empty string" contract: a claim with no harness fields supplied
+// must round-trip as "" (not a sentinel), matching REQ-F-001 bullet 1.
+func TestClaim_HarnessFieldsUnsetMapToEmptyString(t *testing.T) {
+	repo, _ := setup(t)
+	ctx := context.Background()
+
+	if _, err := repo.Claim(ctx, newClaim("E01-F01-010")); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	got, err := repo.Get(ctx, "task", "E01-F01-010")
+	if err != nil || got == nil {
+		t.Fatalf("get: %v claim=%v", err, got)
+	}
+	if got.Harness != "" || got.HarnessVersion != "" || got.HarnessModel != "" {
+		t.Errorf("harness fields = %+v, want all empty strings", got)
+	}
+}

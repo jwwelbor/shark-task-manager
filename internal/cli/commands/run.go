@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -71,6 +72,21 @@ func init() {
 	runCmd.Flags().BoolVar(&runVerbose, "verbose", false, "Show detailed stage progress")
 	runCmd.Flags().StringVar(&runWorkDir, "workdir", "", "Working directory override for agent processes")
 	runCmd.Flags().BoolVar(&runWorktree, "worktree", false, "Create an isolated git worktree for agent dispatch and clean up on completion")
+	runCmd.Flags().String(
+		"harness",
+		"",
+		"Override the resolved harness type (e.g. claude, codex); wins over the active claim and SHARK_HARNESS",
+	)
+	runCmd.Flags().String(
+		"harness-version",
+		"",
+		"Override the resolved harness version; wins over the active claim and SHARK_HARNESS_VERSION",
+	)
+	runCmd.Flags().String(
+		"harness-model",
+		"",
+		"Override the resolved harness model; wins over the active claim and SHARK_HARNESS_MODEL",
+	)
 	cli.RootCmd.AddCommand(runCmd)
 }
 
@@ -100,6 +116,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
 		return fmt.Errorf("invalid entity key %q: %w", entityKey, err)
+	}
+
+	// Read the --harness/--harness-version/--harness-model override flags
+	// once, per spec.md §3.3 AC-T2. Required for REQ-F-006/AC-08: without
+	// this, precedence tier 1 (flags) has no entry point under `shark run`.
+	harnessOverride, err := harnessOverrideFromFlags(cmd)
+	if err != nil {
+		return err
 	}
 
 	// Emit run.start now that we know entity_type.
@@ -190,7 +214,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 		return outputRunResult(runResult)
 	}
-	runLease, questionBlock, preflightStatus, err := acquireRunLeaseForRunnableAction(ctx, transitioner, actionSvc, questionBlocker, entityType, normalizedKey, runDryRun)
+	runLease, questionBlock, preflightStatus, err := acquireRunLeaseForRunnableAction(ctx, transitioner, actionSvc, questionBlocker, entityType, normalizedKey, runDryRun, harnessOverride)
 	if err != nil {
 		return fmt.Errorf("claim %s before run: %w", normalizedKey, err)
 	}
@@ -234,6 +258,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			RunChild:          runChild,
 			QuestionResponses: buildQuestionResponsePersister(childType),
 			QuestionBlocker:   questionBlocker,
+			HarnessResolver:   cli.GetHarnessResolver(),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cascade child controller for %s %s: %w", childType, key, err)
@@ -247,7 +272,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		} else if cascadeBlock != nil {
 			return &runner.RunResult{EntityKey: key, FinalStatus: cascadeStatus, Outcome: "paused", QuestionBlock: cascadeBlock}, nil
 		}
-		childLease, childBlock, childStatus, err := acquireRunLeaseForRunnableAction(ctx, childTransitioner, childActionSvc, questionBlocker, childType, key, childOpts.DryRun)
+		childLease, childBlock, childStatus, err := acquireRunLeaseForRunnableAction(ctx, childTransitioner, childActionSvc, questionBlocker, childType, key, childOpts.DryRun, childOpts.HarnessOverride)
 		if err != nil {
 			if errors.Is(err, claimrepo.ErrAlreadyClaimed) {
 				return &runner.RunResult{
@@ -311,6 +336,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		RunChild:          runChild,
 		QuestionResponses: buildQuestionResponsePersister(entityType),
 		QuestionBlocker:   questionBlocker,
+		HarnessResolver:   cli.GetHarnessResolver(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)
@@ -327,14 +353,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := runner.RunOptions{
-		DryRun:        runDryRun,
-		Verbose:       runVerbose,
-		WorkingDir:    workingDir,
-		RunID:         runID,
-		SessionID:     runSessionID,
-		ProjectRoot:   projectRoot,
-		EntityType:    entityType,
-		Observability: obs,
+		DryRun:          runDryRun,
+		Verbose:         runVerbose,
+		WorkingDir:      workingDir,
+		RunID:           runID,
+		SessionID:       runSessionID,
+		ProjectRoot:     projectRoot,
+		EntityType:      entityType,
+		Observability:   obs,
+		HarnessOverride: harnessOverride,
 	}
 
 	// D6 edit 3: the liveness recorder replaces the inline JSON-gated ticker
@@ -397,16 +424,52 @@ type activeRunLease struct {
 	heartbeatDoneCh <-chan struct{}
 }
 
-func acquireRunLease(ctx context.Context, entityType, entityKey, claimedBy string, dryRun bool) (*activeRunLease, error) {
+// resolveHarnessForClaim computes the harness identity to persist onto the
+// lease this run acquires: the explicit --harness/--harness-version/
+// --harness-model override wins per field (matching the flag tier of
+// REQ-F-002's precedence), else the SHARK_HARNESS/_VERSION/_MODEL env vars —
+// there is no pre-existing claim to consult yet, since this call is what
+// creates the claim. Values are normalized (type trimmed+lowercased;
+// version/model trimmed only) per REQ-F-001, mirroring `shark claim`'s own
+// --harness normalization in claim.go's runClaim, before being handed to
+// ClaimInput.
+//
+// Without this, a claim `shark run` itself creates never carries harness
+// identity, so HarnessResolver.Resolve's claim tier is unreachable for any
+// entity actually driven through `shark run` (as opposed to a claim seeded
+// directly by a test's mocked ClaimReader) — the T-E34-F01-005 rework's
+// defect. Seeding from override-else-env (not override-only) matters: it is
+// what lets the claim tier decide a render on its own, distinct from the
+// flag tier, when this run's own claim outlives the env value that seeded it
+// (see TestRunClaimTierReachableThroughRealAcquisition).
+func resolveHarnessForClaim(override services.HarnessIdentity) services.HarnessIdentity {
+	pick := func(overrideValue, envKey string) string {
+		if overrideValue != "" {
+			return overrideValue
+		}
+		return os.Getenv(envKey)
+	}
+	return services.HarnessIdentity{
+		Type:    strings.ToLower(strings.TrimSpace(pick(override.Type, "SHARK_HARNESS"))),
+		Version: strings.TrimSpace(pick(override.Version, "SHARK_HARNESS_VERSION")),
+		Model:   strings.TrimSpace(pick(override.Model, "SHARK_HARNESS_MODEL")),
+	}
+}
+
+func acquireRunLease(ctx context.Context, entityType, entityKey, claimedBy string, dryRun bool, harnessOverride services.HarnessIdentity) (*activeRunLease, error) {
 	if dryRun {
 		return nil, nil
 	}
 
 	svc := getRunClaimService()
+	harness := resolveHarnessForClaim(harnessOverride)
 	claim, err := svc.Claim(ctx, services.ClaimInput{
-		EntityType: entityType,
-		EntityKey:  entityKey,
-		ClaimedBy:  claimedBy,
+		EntityType:     entityType,
+		EntityKey:      entityKey,
+		ClaimedBy:      claimedBy,
+		Harness:        harness.Type,
+		HarnessVersion: harness.Version,
+		HarnessModel:   harness.Model,
 	})
 	if err != nil {
 		return nil, err
@@ -428,7 +491,7 @@ func acquireRunLease(ctx context.Context, entityType, entityKey, claimedBy strin
 // top-level and cascade runs. It intentionally reads the unpopulated action:
 // deciding whether a lease is needed must not render Question responder
 // placeholders (or derive a responder) for a non-dispatch checkpoint.
-func acquireRunLeaseForRunnableAction(ctx context.Context, transitioner runner.EntityTransitioner, actionSvc config.ActionService, blocker questionBlockChecker, entityType, entityKey string, dryRun bool) (*activeRunLease, *services.QuestionBlock, string, error) {
+func acquireRunLeaseForRunnableAction(ctx context.Context, transitioner runner.EntityTransitioner, actionSvc config.ActionService, blocker questionBlockChecker, entityType, entityKey string, dryRun bool, harnessOverride services.HarnessIdentity) (*activeRunLease, *services.QuestionBlock, string, error) {
 	nextInfo, err := transitioner.GetNextStatus(ctx, entityKey)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("get status for %s before run claim: %w", entityKey, err)
@@ -458,7 +521,7 @@ func acquireRunLeaseForRunnableAction(ctx context.Context, transitioner runner.E
 	if err != nil {
 		return nil, nil, nextInfo.CurrentStatus, err
 	}
-	lease, err := acquireRunLease(ctx, entityType, entityKey, claimedBy, dryRun)
+	lease, err := acquireRunLease(ctx, entityType, entityKey, claimedBy, dryRun, harnessOverride)
 	return lease, nil, nextInfo.CurrentStatus, err
 }
 

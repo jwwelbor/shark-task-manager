@@ -59,6 +59,13 @@ type RunOptions struct {
 	// It is required for cascade child service lookups when the current action
 	// is "cascade".
 	EntityType string
+
+	// HarnessOverride carries the explicit --harness/--harness-version/
+	// --harness-model flag values read once by the CLI command (spec.md
+	// §3.3 AC-T2). It is the top precedence tier for every entity the
+	// controller visits during this run, including cascade children (copied
+	// via childOpts := opts).
+	HarnessOverride services.HarnessIdentity
 }
 
 // RunProgress carries coarse-grained run-loop state for progress callbacks.
@@ -273,6 +280,13 @@ type RunControllerDeps struct {
 	// QuestionBlocker qualifies directly linked open blocking Questions before
 	// placeholder, action, or worker work. Optional for non-CLI embeddings.
 	QuestionBlocker QuestionBlockChecker
+
+	// HarnessResolver resolves harness identity per spec.md REQ-F-002's
+	// flag > claim > env > zero precedence (T-E34-F01-003/005), giving
+	// `shark run` parity with `shark next` (REQ-F-006). Optional: when nil,
+	// the zero identity's three empty keys are injected into vars — never
+	// an absent key (D-F01-07).
+	HarnessResolver *services.HarnessResolver
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -292,6 +306,7 @@ type RunController struct {
 	runChild          CascadeChildRunner
 	questionResponses QuestionResponsePersister
 	questionBlocker   QuestionBlockChecker
+	harnessResolver   *services.HarnessResolver
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -328,6 +343,7 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		runChild:          deps.RunChild,
 		questionResponses: deps.QuestionResponses,
 		questionBlocker:   deps.QuestionBlocker,
+		harnessResolver:   deps.HarnessResolver,
 	}, nil
 }
 
@@ -463,6 +479,39 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			vars = map[string]string{}
 		}
 		templates.AugmentPlaceholderAliases(vars)
+
+		// Resolve harness identity (spec.md REQ-F-006/AC-08) and merge it
+		// into vars before the action renders, mirroring next.go's
+		// resolveEntity so `{{if isClaude .harness}}` branches see the same
+		// values under `shark run` as under `shark next` for identical
+		// inputs. HarnessIdentity.Vars() never omits a key, even when
+		// unresolved (D-F01-07).
+		if c.harnessResolver != nil {
+			identity, hErr := c.harnessResolver.Resolve(ctx, opts.EntityType, key, opts.HarnessOverride)
+			if hErr != nil {
+				// HarnessResolver.Resolve is documented to always return a
+				// nil error (claim-read failures degrade internally per
+				// D-F01-05); this branch exists only to fail loudly if that
+				// contract is ever violated, rather than silently dropping
+				// the error.
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+					EntityKey: key,
+					Status:    currentStatus,
+					Phase:     "harness_resolution",
+					Error:     fmt.Sprintf("failed to resolve harness identity for %s: %v", key, hErr),
+					RunID:     opts.RunID,
+				})
+				return result, nil
+			}
+			for k, v := range identity.Vars() {
+				vars[k] = v
+			}
+		} else {
+			zero := services.HarnessIdentity{}
+			for k, v := range zero.Vars() {
+				vars[k] = v
+			}
+		}
 
 		// Step 4: Get populated orchestrator action for current status.
 		action, err := c.actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)

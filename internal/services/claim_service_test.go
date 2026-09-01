@@ -179,6 +179,77 @@ func TestClaimService_E38F06_SelectedEntityRacePreservesConflict(t *testing.T) {
 	assert.Equal(t, "session-1", claimed.SessionID)
 }
 
+// TestClaimService_Claim_CarriesHarnessFieldsToEntityClaim is the
+// service-layer counterpart to T-E34-F01-002's TC-001/TC-002 (spec.md AC-01):
+// ClaimInput's three harness fields must land on the models.EntityClaim built
+// inside Claim(), whether populated or left empty (not defaulted to a
+// sentinel).
+func TestClaimService_Claim_CarriesHarnessFieldsToEntityClaim(t *testing.T) {
+	tests := []struct {
+		name  string
+		input ClaimInput
+		wantH string
+		wantV string
+		wantM string
+	}{
+		{
+			name: "all three set",
+			input: ClaimInput{
+				EntityType: "task", EntityKey: "E1-F1-001",
+				Harness: "claude", HarnessVersion: "2.1.0", HarnessModel: "opus",
+			},
+			wantH: "claude", wantV: "2.1.0", wantM: "opus",
+		},
+		{
+			name:  "none set",
+			input: ClaimInput{EntityType: "task", EntityKey: "E1-F1-002"},
+			wantH: "", wantV: "", wantM: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured *models.EntityClaim
+			m := &mockClaimRepo{
+				ReclaimFn: func(ctx context.Context, ttl time.Duration) (int64, error) { return 0, nil },
+				ClaimFn: func(ctx context.Context, c *models.EntityClaim) (*models.EntityClaim, error) {
+					captured = c
+					c.ID = 1
+					return c, nil
+				},
+			}
+			svc := NewClaimService(m, durationPtr(time.Minute))
+			_, err := svc.Claim(context.Background(), tt.input)
+			require.NoError(t, err)
+			require.NotNil(t, captured)
+			assert.Equal(t, tt.wantH, captured.Harness)
+			assert.Equal(t, tt.wantV, captured.HarnessVersion)
+			assert.Equal(t, tt.wantM, captured.HarnessModel)
+		})
+	}
+}
+
+// TestClaimService_Claim_RejectsOversizedHarnessBeforeRepositoryCall is the
+// service-layer counterpart to TC-013 (spec.md AC-10, REQ-NF-004): a
+// too-long harness field must be rejected before the repository's Claim is
+// ever invoked, so no partial claim row can be written.
+func TestClaimService_Claim_RejectsOversizedHarnessBeforeRepositoryCall(t *testing.T) {
+	claimCalled := false
+	m := &mockClaimRepo{
+		ReclaimFn: func(ctx context.Context, ttl time.Duration) (int64, error) { return 0, nil },
+		ClaimFn: func(ctx context.Context, c *models.EntityClaim) (*models.EntityClaim, error) {
+			claimCalled = true
+			return c, nil
+		},
+	}
+	svc := NewClaimService(m, durationPtr(time.Minute))
+	_, err := svc.Claim(context.Background(), ClaimInput{
+		EntityType: "task", EntityKey: "E1-F1-003",
+		Harness: strings.Repeat("x", 101),
+	})
+	require.Error(t, err)
+	assert.False(t, claimCalled, "repository Claim must not be invoked when harness validation fails")
+}
+
 func TestClaimService_Claim_ForceSteals(t *testing.T) {
 	released := false
 	claimCalls := 0

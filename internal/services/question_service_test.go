@@ -1017,10 +1017,32 @@ func TestValidateTerminalReasonEnforcesByteBoundaries(t *testing.T) {
 	}
 }
 
-type fakeQuestionClaimReader struct{ claim *models.EntityClaim }
+type fakeQuestionClaimReader struct {
+	claim *models.EntityClaim
+
+	// claimable overrides IsClaimable's result when set, independent of
+	// claim. This is what makes an expired-but-unswept claim representable:
+	// claim non-nil (the row still exists) but claimable true (the real
+	// ClaimService.IsClaimable would say the lease has lapsed). Most tests
+	// leave this nil and get the claim-presence-derived default below.
+	claimable *bool
+}
 
 func (f fakeQuestionClaimReader) Get(context.Context, string, string) (*models.EntityClaim, error) {
 	return f.claim, nil
+}
+
+// IsClaimable mirrors the real ClaimService.IsClaimable's boolean sense
+// ("true" = available to claim). When claimable is unset, it derives from
+// claim presence alone (not staleness) — the shape most of this fake's
+// existing tests exercise. TestQuestionServiceGetNextStatusIsClaimedTracksIsClaimable
+// below sets claimable explicitly to isolate the stale-lease-as-live-input
+// fix (T-E34-F01-003 rework) from claim-presence semantics.
+func (f fakeQuestionClaimReader) IsClaimable(context.Context, string, string) (bool, error) {
+	if f.claimable != nil {
+		return *f.claimable, nil
+	}
+	return f.claim == nil, nil
 }
 
 // TC-013: Creating a Question establishes its initial status in the shared
@@ -1518,6 +1540,51 @@ func TestQuestionServiceParentLeaseLifecycleAdvancesThenRoutesNextResponder_TC10
 	decoded, err := models.DecodeQuestionState(question.ContextData)
 	if err != nil || decoded == nil || decoded.CurrentResponder() != "bob" || info.IsTerminal || info.IsClaimed {
 		t.Fatalf("released Question next state = %#v, info=%#v, err=%v; want only bob pending", decoded, info, err)
+	}
+}
+
+// TestQuestionServiceGetNextStatusIsClaimedTracksIsClaimable is the rework
+// regression test for the stale-lease-as-live-input defect found in UAT
+// review of T-E34-F01-003: GetNextStatus originally derived IsClaimed from a
+// bare "claim row exists" check (`claim != nil`), so an expired-but-unswept
+// claim (the row still present in the claims table, but its lease has
+// lapsed) would keep IsClaimed true forever — permanently pausing dispatch
+// for a Question whose worker crashed without releasing (next.go:619 pauses
+// keyed dispatch whenever IsClaimed is true). The fix derives IsClaimed from
+// IsClaimable instead (the same TTL-aware check SprintClaimReader and
+// StandalonePlanClaimReader already use), so an expired claim must resolve
+// IsClaimed=false even though the raw claim row still exists.
+//
+// This fake's default IsClaimable (claim == nil) cannot distinguish the old
+// code from the new code — both compute IsClaimed=true whenever a claim row
+// is present. Setting claimable explicitly to true alongside a non-nil claim
+// is what discriminates them: the pre-fix `claim != nil` line would still
+// report IsClaimed=true here; only the IsClaimable-derived fix reports false.
+func TestQuestionServiceGetNextStatusIsClaimedTracksIsClaimable(t *testing.T) {
+	state := models.QuestionState{ResolutionOwner: "owner", Responders: []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderPending}}}
+	encoded, err := models.EncodeQuestionState(nil, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	question := &models.Question{BaseEntity: models.BaseEntity{ID: 40, Key: "Q002", ContextData: encoded}, Status: "open"}
+	repo := &mockQuestionRepository{getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil }}
+	svc, err := NewQuestionService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claimable := true // the real ClaimService.IsClaimable's answer for an expired-but-unswept lease
+	svc.SetClaimReader(fakeQuestionClaimReader{
+		claim:     &models.EntityClaim{EntityType: "question", EntityKey: "Q002", ClaimedBy: "alice", SessionID: "session-a"}, // row still exists
+		claimable: &claimable,                                                                                                 // but the lease has expired
+	})
+
+	info, err := svc.GetNextStatus(context.Background(), "Q002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.IsClaimed {
+		t.Fatalf("GetNextStatus().IsClaimed = true for an expired-but-unswept claim; want false (stale-lease-as-live-input defect, T-E34-F01-003 rework)")
 	}
 }
 

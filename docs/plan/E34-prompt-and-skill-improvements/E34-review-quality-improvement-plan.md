@@ -49,11 +49,16 @@ a reason.
 7. **Do not require provider-backed E40 runs.** The operator is shipped; E34
    records pinned follow-up scenarios while implementation proceeds
    independently of paid benchmark execution.
-8. **Defer unowned legacy prompt artifacts.** Decision
-   `D-E34-LEGACY-PROMPTS-001` records that the earlier ignored review and
-   skill-extraction prompts are not delivered by F05-F09. Epic decomposition
-   must assign a tracked Shark owner/path or explicitly cancel them before it
-   can pass; this plan does not claim an ignored dev-artifact exists.
+8. **Resolve unowned legacy prompt artifacts (RESOLVED 2026-08-31).** Decision
+   `D-E34-LEGACY-PROMPTS-001` recorded that the earlier ignored review and
+   skill-extraction prompts were not delivered by F05-F09; this plan never
+   claimed an ignored dev-artifact exists. Epic decomposition has now closed
+   the gap: the "dev-artifact review prompt" was confirmed to not exist
+   anywhere in the repository and is cancelled; the
+   "skill-workflow-extraction prompt" does exist
+   (`dev-artifacts/planning/skill-workflow-extraction-prompt.md`) and is now
+   owned by `E34-F11-layered-skill-extraction-adoption`
+   (`T-E34-F11-001`). See `requirements.md` REQ-F-006 for the full record.
 
 ## Proposal coverage
 
@@ -130,9 +135,11 @@ The dependency graph is stored in Shark and mirrored in
   lifecycle reconciliation; it does not create a parallel set of cards.
 - E40 work remains independent. Add pinned E34 benchmark scenarios through the
   shipped operator without making provider-backed execution an E34 gate.
-- `D-E34-LEGACY-PROMPTS-001` remains a decomposition blocker until the
-  decomposition owner assigns the two legacy prompt requests to a Shark
-  feature/task with tracked paths or records their explicit cancellation.
+- `D-E34-LEGACY-PROMPTS-001` is **RESOLVED 2026-08-31** (see item 8 above):
+  the dev-artifact review prompt was never materialized and is cancelled; the
+  skill-workflow-extraction prompt is tracked at
+  `dev-artifacts/planning/skill-workflow-extraction-prompt.md` and owned by
+  `E34-F11-layered-skill-extraction-adoption` (`T-E34-F11-001`).
 
 ## Explicit exclusions
 

@@ -89,10 +89,27 @@ var claimsCmd = &cobra.Command{
 	RunE:  runClaims,
 }
 
+// claimSvcOverride is non-nil only during tests. It lets tests exercise the
+// real *services.ClaimService (validation, defaults, precedence) against a
+// mocked ClaimRepository, per the E34-F01 test-plan's Caller-Path Contract:
+// mocking ClaimService itself is forbidden.
+var claimSvcOverride *services.ClaimService
+
+// getClaimService returns the service to use, preferring the test override.
+func getClaimService() *services.ClaimService {
+	if claimSvcOverride != nil {
+		return claimSvcOverride
+	}
+	return cli.GetClaimService()
+}
+
 func init() {
 	claimCmd.Flags().String("by", "", "Actor identity holding the claim (default: $SHARK_ACTOR or 'cli')")
 	claimCmd.Flags().String("session", "", "Explicit session id (default: generated)")
 	claimCmd.Flags().Bool("force", false, "Steal an existing (even live) claim")
+	claimCmd.Flags().String("harness", "", "Harness type (e.g. claude, codex); trimmed and lowercased before persisting")
+	claimCmd.Flags().String("harness-version", "", "Harness version string; trimmed only, not normalized")
+	claimCmd.Flags().String("harness-model", "", "Harness model string; trimmed only, not normalized")
 
 	unclaimCmd.Flags().Bool("force", false, "Administrative release without a session id")
 	unclaimCmd.Flags().String("session", "", "Session id for a safe session-scoped release")
@@ -125,13 +142,27 @@ func runClaim(cmd *cobra.Command, args []string) error {
 	session, _ := cmd.Flags().GetString("session")
 	force, _ := cmd.Flags().GetBool("force")
 
-	svc := cli.GetClaimService()
+	// Harness identity (spec.md REQ-F-001): --harness is trimmed and
+	// lowercased before persisting; --harness-version/--harness-model are
+	// trimmed opaque strings only (never lowercased) per
+	// .claude/rules/go/input-sanitization.md.
+	harness, _ := cmd.Flags().GetString("harness")
+	harness = strings.ToLower(strings.TrimSpace(harness))
+	harnessVersion, _ := cmd.Flags().GetString("harness-version")
+	harnessVersion = strings.TrimSpace(harnessVersion)
+	harnessModel, _ := cmd.Flags().GetString("harness-model")
+	harnessModel = strings.TrimSpace(harnessModel)
+
+	svc := getClaimService()
 	claimed, err := svc.Claim(ctx, services.ClaimInput{
-		EntityType: entityType,
-		EntityKey:  key,
-		ClaimedBy:  by,
-		SessionID:  session,
-		Force:      force,
+		EntityType:     entityType,
+		EntityKey:      key,
+		ClaimedBy:      by,
+		SessionID:      session,
+		Force:          force,
+		Harness:        harness,
+		HarnessVersion: harnessVersion,
+		HarnessModel:   harnessModel,
 	})
 	if err != nil {
 		cli.Error(err.Error())
@@ -159,7 +190,7 @@ func runUnclaim(cmd *cobra.Command, args []string) error {
 	outcome, _ := cmd.Flags().GetString("outcome")
 	force, _ := cmd.Flags().GetBool("force")
 
-	svc := cli.GetClaimService()
+	svc := getClaimService()
 	released, err := svc.Release(ctx, entityType, key, session, outcome, force)
 	if err != nil {
 		cli.Error(err.Error())
@@ -198,7 +229,7 @@ func runHeartbeat(cmd *cobra.Command, args []string) error {
 		progress = &p
 	}
 
-	svc := cli.GetClaimService()
+	svc := getClaimService()
 	if err := svc.Heartbeat(ctx, entityType, key, session, progress, note); err != nil {
 		cli.Error(err.Error())
 		return err
@@ -211,7 +242,7 @@ func runClaims(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
-	svc := cli.GetClaimService()
+	svc := getClaimService()
 	claims, err := svc.List(ctx)
 	if err != nil {
 		return err

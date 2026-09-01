@@ -69,6 +69,19 @@ type nextAdapterCache struct {
 	actionSvcRoot   action.ActionService
 	surfaceForks    bool
 	questionBlocker questionBlockChecker
+
+	// harnessResolver resolves harness identity per spec.md REQ-F-002's
+	// flag > claim > env > zero precedence (T-E34-F01-003/004). nil is a
+	// valid, supported state — resolveEntity treats it as "no resolution
+	// available" and merges the zero identity's three empty keys, never an
+	// absent key (D-F01-07).
+	harnessResolver *services.HarnessResolver
+
+	// harnessOverride carries the explicit --harness/--harness-version/
+	// --harness-model flag values read once in runNext (spec.md §3.3); it is
+	// the top precedence tier for every entity resolveEntity visits during
+	// this invocation, including cascade recursion.
+	harnessOverride services.HarnessIdentity
 }
 
 // newNextAdapterCache constructs an empty cache with the root action service
@@ -83,6 +96,7 @@ func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
 		entries:         make(map[string]*nextAdapters),
 		actionSvcRoot:   root,
 		questionBlocker: cli.GetQuestionBlocker(),
+		harnessResolver: cli.GetHarnessResolver(),
 	}, nil
 }
 
@@ -149,7 +163,18 @@ type NextResponse struct {
 	Provider   string `json:"provider"`         // AI provider (e.g., "anthropic", "openai")
 	Model      string `json:"model"`            // model override
 	Effort     string `json:"effort,omitempty"` // reasoning-effort override (low, medium, high, xhigh)
-	Prompt     string `json:"prompt"`           // fully-rendered, skill-inlined prompt
+
+	// Harness, HarnessVersion, and HarnessModel carry the resolved harness
+	// identity (spec.md §3.2 AC-T1) used to branch prompt rendering via the
+	// `isHarness`/`isClaude`/`isCodex` template helpers. All three are
+	// additive and `omitempty` so a run with no resolvable harness metadata
+	// (no claim, no flag, no env var — spec.md AC-04) emits a JSON object
+	// byte-identical to today's (REQ-NF-001).
+	Harness        string `json:"harness,omitempty"`
+	HarnessVersion string `json:"harness_version,omitempty"`
+	HarnessModel   string `json:"harness_model,omitempty"`
+
+	Prompt string `json:"prompt"` // fully-rendered, skill-inlined prompt
 
 	// PromptSHA256 is the hex-encoded SHA-256 digest of the exact Prompt bytes
 	// (REQ-F-011). It is computed once, immediately after assembleDispatchPrompt,
@@ -207,7 +232,7 @@ type NextResponse struct {
 var nextCmd = newNextCommand()
 
 func newNextCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "next <entity-key>",
 		Short: "Get the next entity dispatch step as JSON",
 		Long: `Return the next dispatch step for the given entity as JSON, then exit.
@@ -266,6 +291,37 @@ Errors:
 		Args: requireNextEntityKey,
 		RunE: runNext,
 	}
+	// Flags are registered on the *cobra.Command instance here, inside the
+	// constructor, rather than in init() against the package-level nextCmd
+	// singleton — so every newNextCommand() construction, including the
+	// fresh instances CLI tests build to swap in mocked adapters, carries a
+	// complete, self-contained flag set (spec.md §3.3).
+	cmd.Flags().Bool(
+		"sequential",
+		false,
+		"Collapse a keyed-next fork to its first eligible candidate",
+	)
+	cmd.Flags().String(
+		"prompt-out",
+		"",
+		"Write the exact UTF-8 prompt bytes to <path> (no trailing newline); fails loudly if the target is unwritable",
+	)
+	cmd.Flags().String(
+		"harness",
+		"",
+		"Override the resolved harness type (e.g. claude, codex); wins over the active claim and SHARK_HARNESS",
+	)
+	cmd.Flags().String(
+		"harness-version",
+		"",
+		"Override the resolved harness version; wins over the active claim and SHARK_HARNESS_VERSION",
+	)
+	cmd.Flags().String(
+		"harness-model",
+		"",
+		"Override the resolved harness model; wins over the active claim and SHARK_HARNESS_MODEL",
+	)
+	return cmd
 }
 
 // requireNextEntityKey rejects bare `shark next` before any portfolio,
@@ -279,17 +335,31 @@ func requireNextEntityKey(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	nextCmd.Flags().Bool(
-		"sequential",
-		false,
-		"Collapse a keyed-next fork to its first eligible candidate",
-	)
-	nextCmd.Flags().String(
-		"prompt-out",
-		"",
-		"Write the exact UTF-8 prompt bytes to <path> (no trailing newline); fails loudly if the target is unwritable",
-	)
+	// Flags are registered inside newNextCommand() itself (see there) so
+	// every constructed instance — including fresh test instances — is
+	// self-contained; init() only wires the package singleton into the root
+	// command.
 	cli.RootCmd.AddCommand(nextCmd)
+}
+
+// harnessOverrideFromFlags reads the --harness/--harness-version/
+// --harness-model flags into a HarnessIdentity override (spec.md §3.3). Flag
+// values are read verbatim (no trimming/normalization here) — HarnessResolver
+// treats non-empty as "set" per-field precedence (D-F01-04).
+func harnessOverrideFromFlags(cmd *cobra.Command) (services.HarnessIdentity, error) {
+	harnessType, err := cmd.Flags().GetString("harness")
+	if err != nil {
+		return services.HarnessIdentity{}, fmt.Errorf("read --harness flag: %w", err)
+	}
+	harnessVersion, err := cmd.Flags().GetString("harness-version")
+	if err != nil {
+		return services.HarnessIdentity{}, fmt.Errorf("read --harness-version flag: %w", err)
+	}
+	harnessModel, err := cmd.Flags().GetString("harness-model")
+	if err != nil {
+		return services.HarnessIdentity{}, fmt.Errorf("read --harness-model flag: %w", err)
+	}
+	return services.HarnessIdentity{Type: harnessType, Version: harnessVersion, Model: harnessModel}, nil
 }
 
 func runNext(cmd *cobra.Command, args []string) error {
@@ -323,6 +393,13 @@ func runNext(cmd *cobra.Command, args []string) error {
 	}
 
 	adapters.surfaceForks = !resolveSequentialDispatch(cmd)
+
+	harnessOverride, err := harnessOverrideFromFlags(cmd)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	adapters.harnessOverride = harnessOverride
 
 	resp, err := resolveNext(ctx, adapters, entityType, normalizedKey, 0)
 	if err != nil {
@@ -395,6 +472,11 @@ func runNext(cmd *cobra.Command, args []string) error {
 		attribute.String("action", resp.Action),
 		attribute.String("agent_type", resp.AgentType),
 		attribute.String("model", resp.Model),
+		// harness (not harness_version/harness_model) is added as a span
+		// attribute per spec.md §5: the harness type is a small, bounded
+		// vocabulary ("claude", "codex", ...), while version/model are
+		// free-text and would risk unbounded attribute cardinality.
+		attribute.String("harness", resp.Harness),
 		attribute.Int("prompt_bytes", resp.PromptBytes),
 		attribute.Int("unresolved_placeholders", len(resp.UnresolvedPlaceholders)),
 		attribute.String("exit_status", "ok"),
@@ -570,6 +652,35 @@ func resolveEntity(
 		vars = map[string]string{}
 	}
 	templates.AugmentPlaceholderAliases(vars)
+
+	// Resolve harness identity (spec.md §3.2/§3.4 AC-T2) and merge it into
+	// vars before the template renders, so `{{if isClaude .harness}}`
+	// branches see real values. All three vars keys are always present —
+	// HarnessIdentity.Vars() never omits a key, even when unresolved
+	// (D-F01-07) — and resp.Harness/Version/Model mirror the resolution onto
+	// the wire response (`omitempty` keeps an unresolved run byte-identical
+	// to today's JSON, REQ-NF-001).
+	if cache.harnessResolver != nil {
+		identity, hErr := cache.harnessResolver.Resolve(ctx, entityType, normalizedKey, cache.harnessOverride)
+		if hErr != nil {
+			// HarnessResolver.Resolve is documented to always return a nil
+			// error (claim-read failures degrade internally per D-F01-05);
+			// this branch exists only to fail loudly if that contract is
+			// ever violated, rather than silently dropping the error.
+			return NextResponse{}, fmt.Errorf("failed to resolve harness identity for %s: %w", normalizedKey, hErr)
+		}
+		for k, v := range identity.Vars() {
+			vars[k] = v
+		}
+		resp.Harness = identity.Type
+		resp.HarnessVersion = identity.Version
+		resp.HarnessModel = identity.Model
+	} else {
+		zero := services.HarnessIdentity{}
+		for k, v := range zero.Vars() {
+			vars[k] = v
+		}
+	}
 
 	// Step 6: Get the populated action (template rendered + skills inlined
 	// in Shark 2.0 layouts via the orchestrator renderer's {{include:}} pass).

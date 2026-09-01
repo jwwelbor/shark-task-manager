@@ -1,9 +1,15 @@
 package models
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
+
+// maxHarnessFieldLength is the REQ-NF-004 length cap applied to each harness
+// identity field (harness, harness_version, harness_model). 100 characters is
+// inclusive of the boundary — exactly 100 is valid, 101 is rejected.
+const maxHarnessFieldLength = 100
 
 // EntityClaim is the in-flight lease on an entity (E35-F03, decision D3).
 //
@@ -23,6 +29,14 @@ type EntityClaim struct {
 	LastHeartbeat time.Time `json:"last_heartbeat"`
 	Progress      *float64  `json:"progress,omitempty"`
 	Note          string    `json:"note,omitempty"`
+
+	// Harness identity (E34-F01, spec.md §3.1). All three are open,
+	// normalized strings — no DB enum, no CHECK constraint (D-F01-03) — so
+	// Shark can carry harness types it does not yet know about. NULL in the
+	// database maps to "" here; empty is valid (unknown harness).
+	Harness        string `json:"harness,omitempty"`
+	HarnessVersion string `json:"harness_version,omitempty"`
+	HarnessModel   string `json:"harness_model,omitempty"`
 }
 
 // Validate performs structural validation on a claim (no workflow knowledge).
@@ -38,6 +52,27 @@ func (c *EntityClaim) Validate() error {
 	}
 	if strings.TrimSpace(c.SessionID) == "" {
 		return ErrClaimMissingSession
+	}
+	if err := validateHarnessFieldLength("harness", c.Harness); err != nil {
+		return err
+	}
+	if err := validateHarnessFieldLength("harness_version", c.HarnessVersion); err != nil {
+		return err
+	}
+	if err := validateHarnessFieldLength("harness_model", c.HarnessModel); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateHarnessFieldLength enforces REQ-NF-004's 100-character cap on a
+// single harness identity field. Empty is always valid — there is no enum
+// allowlist (D-F01-03), only a length bound. The error names the field and
+// quotes the offending input with %q, per
+// .claude/rules/go/input-sanitization.md.
+func validateHarnessFieldLength(field, value string) error {
+	if len(value) > maxHarnessFieldLength {
+		return fmt.Errorf("%w: %s %q", ErrClaimHarnessFieldTooLong, field, value)
 	}
 	return nil
 }
