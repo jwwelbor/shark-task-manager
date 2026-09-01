@@ -395,6 +395,94 @@ func TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID(t *test
 	}
 }
 
+// TestIngestGateResultForDispatch_CascadeSiblingsDoNotCollide is the
+// cascade-collision regression test for code-review round-10's Finding: two
+// cascade SIBLINGS (different entities, dispatched as children of the same
+// parent Run() cascade — internal/runner/controller.go's handleCascade loop,
+// which leaves opts.RunID unchanged via `childOpts := opts` and
+// independently restarts each child's own stageN dispatch counter at 1)
+// whose first dispatched step is both gate_result_v1 must NOT collide on the
+// same run directory, even though they share opts.RunID and both dispatch
+// stageN==1. Before the fix (gateStageRunID keyed only on runID+stageN) the
+// second sibling's differently-digested envelope hit gaterun's create-once
+// contract and failed with a *gaterun.ConflictError, aborting the whole
+// cascade. This test calls ingestGateResultForDispatch directly (as
+// handleCascade's per-child Run() invocations effectively do) rather than
+// driving the full cascade dispatch loop, mirroring this file's other
+// ingestGateResultForDispatch-level regression tests.
+func TestIngestGateResultForDispatch_CascadeSiblingsDoNotCollide(t *testing.T) {
+	siblingA := "E01-F01-001"
+	siblingB := "E01-F02-001"
+	transitioner := &fakeTransitioner{status: map[string]string{
+		siblingA: "code_review",
+		siblingB: "code_review",
+	}}
+	coordinator := gatepersist.NewCoordinator(
+		&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{},
+		fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}},
+		transitioner, transitioner, &fakeLeaseReleaser{},
+	)
+	controller, err := NewRunController(RunControllerDeps{
+		Transitioner: &oneShotStatusTransitioner{},
+		ActionSvc:    &MockActionService{},
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers:  map[string]AgentDispatcher{"anthropic": &MockDispatcher{}},
+		GateIngest: &GateIngestDeps{
+			Coordinator:  coordinator,
+			OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunController: %v", err)
+	}
+
+	nextInfo := &services.NextStatusInfo{
+		AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "qa"}}},
+		Outcomes:             map[string]string{"pass": "qa"},
+	}
+	action := &config.PopulatedAction{Provider: "anthropic"}
+	// Same opts.RunID for both children (handleCascade's `childOpts := opts`
+	// never changes RunID) and the same project root, mirroring one parent
+	// cascade dispatching both siblings.
+	opts := RunOptions{ProjectRoot: t.TempDir(), RunID: "run-cascade-parent", EntityType: "task", SessionID: "sess-1"}
+	disabledA := false
+	disabledB := false
+
+	dispatchA := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "sibling A code review passed"}}`,
+		Duration: time.Millisecond,
+	}
+	// Both siblings dispatch stageN==1 — each child's own Run() invocation
+	// independently starts its iteration counter at 1.
+	toStatusA, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), siblingA, "code_review", nextInfo, action, opts, dispatchA, &disabledA, 1,
+	)
+	if err != nil {
+		t.Fatalf("expected cascade sibling A's stage-1 gate ingestion to succeed: %v", err)
+	}
+	if toStatusA != "qa" {
+		t.Fatalf("expected sibling A to transition to qa, got %q", toStatusA)
+	}
+
+	dispatchB := &DispatchResult{
+		ExitCode: 0,
+		Stdout: `{"kind": "final", "recommended_outcome": "pass", "evidence": [],` +
+			` "gate_result": {"schema_version": 1, "summary": "sibling B code review passed instead"}}`,
+		Duration: time.Millisecond,
+	}
+	toStatusB, _, err := controller.ingestGateResultForDispatch(
+		context.Background(), siblingB, "code_review", nextInfo, action, opts, dispatchB, &disabledB, 1,
+	)
+	if err != nil {
+		t.Fatalf("expected cascade sibling B's stage-1 gate ingestion to succeed without colliding with sibling A's persisted result: %v", err)
+	}
+	if toStatusB != "qa" {
+		t.Fatalf("expected sibling B to transition to qa, got %q", toStatusB)
+	}
+}
+
 // TestIngestGateResultForDispatch_SameStageConflictingReplayStillFailsClosed
 // is the discriminating counterpart of the multi-stage test above: it proves
 // gateStageRunID's per-stage scoping did NOT weaken gaterun's create-once

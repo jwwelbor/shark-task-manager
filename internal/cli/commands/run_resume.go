@@ -268,11 +268,15 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 //     .shark/runs/ to enumerate it; either implies access roughly equivalent
 //     to what a caller already has by holding a live claim/session in this
 //     single-project, same-user CLI (not a multi-tenant boundary).
-//  3. A successful cross-application still requires coincidence, not just
-//     access: X's envelope outcome_key must resolve against Y's own
-//     currently-valid Outcomes map (nextInfo.Outcomes, derived from Y's live
-//     status below) and any kickbacks in X's envelope must independently
-//     pass validateKickbacks against Y's own kickback-eligible workflow
+//  3. A successful cross-application still requires more than access alone:
+//     X's envelope outcome_key must resolve against Y's own currently-valid
+//     Outcomes map (nextInfo.Outcomes, derived from Y's live status below) —
+//     not a coincidental match, since pass/fail/blocked are the mandatory
+//     core outcome vocabulary every workable step defines (see the
+//     route-based workflow guide's outcome-routing section), so this
+//     condition is easily satisfied rather than a meaningful additional
+//     barrier — and any kickbacks in X's envelope must independently pass
+//     validateKickbacks against Y's own kickback-eligible workflow
 //     membership — gateresult/gatepersist validation fails closed otherwise.
 //  4. The far more likely real-world trigger is operator error (a stale or
 //     mistyped --resume-run=<run_id> against the wrong entity), which this

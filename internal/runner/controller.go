@@ -1076,8 +1076,35 @@ func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
 // (every emitStage*/transcript call keeps using opts.RunID directly) so a
 // full `shark run` invocation remains greppable from shark.log by one
 // correlation id.
-func gateStageRunID(runID string, stageN int) string {
-	return fmt.Sprintf("%s-g%d", runID, stageN)
+//
+// entityKey is included as a discriminator too (code-review round-10
+// Finding: cascade-sibling collision). handleCascade dispatches each child
+// entity through its own Run()-call-local invocation (controller.go's
+// cascade loop, `childOpts := opts`), which leaves opts.RunID unchanged
+// across children AND independently restarts stageN at 1 for each child's
+// own dispatch loop. Two cascade siblings — different entities, dispatched
+// as children of the SAME parent cascade — whose first dispatched step is
+// both gate_result_v1 therefore computed the identical
+// "<runID>-g1" string before this fix: same run directory, and the second
+// sibling's differently-digested envelope collided with the first's
+// already-accepted result.json (a *gaterun.ConflictError), aborting the
+// whole cascade. Folding entityKey into the identity gives every entity its
+// own subtree under the shared runID regardless of dispatch order/timing,
+// while stageN keeps distinguishing sequential stages for that SAME entity
+// (the property this function originally protected — see the Finding-1
+// comment above). Entity keys are validated at the model layer against
+// hyphen/digit/letter-only patterns (internal/models/validation.go), so the
+// interpolated key can never introduce a character gaterun.ValidateRunID's
+// allowlist (alphanumeric, "-", "_", ".") would reject.
+//
+// --resume-run does not need to know this format: it takes an opaque run_id
+// string (whatever value this function produced, recorded durably in
+// gatepersist's own "run_id" note-metadata tag — see
+// gatepersist/operations.go's metaRunID) and looks it up via
+// gaterun.RunDir(projectRoot, runID) unchanged, so a formula change here
+// requires no change on the resume side.
+func gateStageRunID(runID, entityKey string, stageN int) string {
+	return fmt.Sprintf("%s-%s-g%d", runID, entityKey, stageN)
 }
 
 func (c *RunController) ingestGateResultForDispatch(
@@ -1104,7 +1131,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   c.gateIngest.Coordinator,
 		ProjectRoot:   opts.ProjectRoot,
-		RunID:         gateStageRunID(opts.RunID, stageN),
+		RunID:         gateStageRunID(opts.RunID, key, stageN),
 		EntityKey:     key,
 		EntityType:    models.EntityType(opts.EntityType),
 		SourceStatus:  currentStatus,
