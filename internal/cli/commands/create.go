@@ -338,7 +338,7 @@ func init() {
 	createFeatureCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
 	_ = createFeatureCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
 	createFeatureCmd.Flags().IntVar(&featureCreateExecutionOrder, "order", 0, "Execution order (lower runs first)")
-	createFeatureCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature (e.g., auth, F00). If not provided, auto-generates next F## number")
+	createFeatureCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature: F07 or E01-F07 (must match the parent epic). If not provided, auto-generates next F## number")
 	createFeatureCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
 	createFeatureCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
 	createFeatureCmd.Flags().StringSlice("tag", nil,

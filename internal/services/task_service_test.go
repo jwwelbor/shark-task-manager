@@ -3382,6 +3382,106 @@ func TestTaskService_CreateTask_CreatorSvcPath_DuplicateCustomKey(t *testing.T) 
 	assert.Contains(t, err.Error(), "T-E99-F01-002", "expected next-available key suggested in duplicate-key error")
 }
 
+// TestTaskService_CreateTask_CustomKey_RejectsForeignParentPrefix covers B063
+// BLOCKER-2: a custom task key naming a different epic/feature must be
+// rejected, not persisted against the resolved parent feature. Accepting it
+// produces a row whose key contradicts its feature_id, which corrupts every
+// key-based lookup and hierarchy rollup that assumes the two agree.
+func TestTaskService_CreateTask_CustomKey_RejectsForeignParentPrefix(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	sqlDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	repoDB := repository.NewDB(sqlDB)
+	ctx := context.Background()
+
+	res, err := sqlDB.ExecContext(ctx, `INSERT INTO epics (key, title, status, priority) VALUES ('E98', 'Foreign Key Epic', 'active', 'medium')`)
+	require.NoError(t, err)
+	epicID, _ := res.LastInsertId()
+
+	_, err = sqlDB.ExecContext(ctx, `INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E98-F01', 'Foreign Key Feature', 'active', ?, 'docs/plan/E98/E98-F01/feature.md')`, epicID)
+	require.NoError(t, err)
+
+	taskRepo := repository.NewTaskRepository(repoDB)
+	featureRepo := repository.NewFeatureRepository(repoDB)
+	epicRepo := repository.NewEpicRepository(repoDB)
+	historyRepo := repository.NewTaskHistoryRepository(repoDB) //nolint:staticcheck // Required by taskcreation.Creator constructor
+
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	wfSvc := workflow.NewService(tempDir)
+
+	creator := taskcreation.NewCreator(repoDB, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, wfSvc)
+
+	entitySvc := NewEntityService(wfSvc)
+	svc := NewTaskService(taskRepo, entitySvc, creator)
+	svc.SetEntityHistoryRepo(&mockEntityHistoryRecorder{})
+
+	_, _, err = svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey: "E98", FeatureKey: "F01", Title: "foreign", AgentType: "developer",
+		CustomKey: "T-E42-F07-001",
+	})
+	require.Error(t, err, "custom key naming E42-F07 must not be accepted under E98-F01")
+	assert.Contains(t, err.Error(), "E98-F01")
+
+	// Confirm nothing was persisted under the foreign key.
+	_, getErr := taskRepo.GetByKey(ctx, "T-E42-F07-001")
+	assert.Error(t, getErr, "foreign-parent task key must not have been persisted")
+}
+
+// TestTaskService_CreateTask_CustomKey_AcceptsShortFormAndLowercase covers
+// B063 NB-1 and NB-2: the documented short-form key (E##-F##-###, no T-
+// prefix) and lowercase input must both be accepted and normalized, matching
+// the case-insensitive / short-format key contract documented for epics and
+// features.
+func TestTaskService_CreateTask_CustomKey_AcceptsShortFormAndLowercase(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	sqlDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	repoDB := repository.NewDB(sqlDB)
+	ctx := context.Background()
+
+	res, err := sqlDB.ExecContext(ctx, `INSERT INTO epics (key, title, status, priority) VALUES ('E97', 'Short Form Epic', 'active', 'medium')`)
+	require.NoError(t, err)
+	epicID, _ := res.LastInsertId()
+
+	_, err = sqlDB.ExecContext(ctx, `INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E97-F01', 'Short Form Feature', 'active', ?, 'docs/plan/E97/E97-F01/feature.md')`, epicID)
+	require.NoError(t, err)
+
+	taskRepo := repository.NewTaskRepository(repoDB)
+	featureRepo := repository.NewFeatureRepository(repoDB)
+	epicRepo := repository.NewEpicRepository(repoDB)
+	historyRepo := repository.NewTaskHistoryRepository(repoDB) //nolint:staticcheck // Required by taskcreation.Creator constructor
+
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	wfSvc := workflow.NewService(tempDir)
+
+	creator := taskcreation.NewCreator(repoDB, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, wfSvc)
+
+	entitySvc := NewEntityService(wfSvc)
+	svc := NewTaskService(taskRepo, entitySvc, creator)
+	svc.SetEntityHistoryRepo(&mockEntityHistoryRecorder{})
+
+	// Short form, lowercase: e97-f01-050 (B063.md's own repro step 2, lowercased).
+	task, _, err := svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey: "E97", FeatureKey: "F01", Title: "short form", AgentType: "developer",
+		CustomKey: "e97-f01-050",
+	})
+	require.NoError(t, err, "documented short-form lowercase key must be accepted")
+	require.NotNil(t, task)
+	assert.Equal(t, "T-E97-F01-050", task.Key, "short-form key must be normalized to canonical T- form, uppercased")
+}
+
 // TestTaskService_UpdateTask_ClearSizePrecedence verifies spec D5:
 // ClearSize=true takes precedence over a simultaneously-set Size value.
 // When both ClearSize=true and Size=ptr(8) are provided, the entity.Size is nil.

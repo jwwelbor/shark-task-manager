@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/patterns"
@@ -138,17 +139,31 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	// 3. Generate or use custom task key within the transaction boundary.
 	var key string
 	if input.CustomKey != "" {
+		// B063: normalize (uppercase, accept the documented short form
+		// E##-F##-### by adding the T- prefix) and confirm the key's embedded
+		// epic/feature match the feature this task is actually being created
+		// under, before persisting a row whose key contradicts its feature_id.
+		normalizedKey, normErr := keys.NormalizeTaskKey(input.CustomKey)
+		if normErr != nil {
+			return nil, fmt.Errorf("invalid task key %q: expected format T-%s-### or %s-### (e.g. T-%s-001)",
+				input.CustomKey, validated.NormalizedFeatureKey, validated.NormalizedFeatureKey, validated.NormalizedFeatureKey)
+		}
+		expectedPrefix := "T-" + validated.NormalizedFeatureKey + "-"
+		if !strings.HasPrefix(normalizedKey, expectedPrefix) {
+			return nil, fmt.Errorf("task key %q does not belong to feature %q", normalizedKey, validated.NormalizedFeatureKey)
+		}
+
 		// Validate custom key doesn't already exist
-		existing, err := c.taskRepo.GetByKey(ctx, input.CustomKey)
+		existing, err := c.taskRepo.GetByKey(ctx, normalizedKey)
 		if err == nil && existing != nil {
 			// B063: suggest the next available key. Best-effort — a failure to
 			// compute the suggestion must not mask the original duplicate-key error.
 			if next, suggestErr := c.keygen.GenerateTaskKeyWithTx(ctx, tx, input.EpicKey, validated.NormalizedFeatureKey); suggestErr == nil && next != "" {
-				return nil, fmt.Errorf("task with key %s already exists (next available: %s)", input.CustomKey, next)
+				return nil, fmt.Errorf("task with key %s already exists (next available: %s)", normalizedKey, next)
 			}
-			return nil, fmt.Errorf("task with key %s already exists", input.CustomKey)
+			return nil, fmt.Errorf("task with key %s already exists", normalizedKey)
 		}
-		key = input.CustomKey
+		key = normalizedKey
 	} else {
 		// Auto-generate task key
 		var err error
