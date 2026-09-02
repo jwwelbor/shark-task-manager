@@ -254,6 +254,9 @@ func parseCreateTaskInput(cmd *cobra.Command, args []string) services.CreateTask
 	}
 	createFile, _ := cmd.Flags().GetBool("create")
 	force, _ := cmd.Flags().GetBool("force")
+	// B063: read --key via the flag accessor so a custom task key is honored
+	// (previously registered but never read, so it was silently ignored).
+	customKey, _ := cmd.Flags().GetString("key")
 	// E28-F04 REQ-F-012: read --tag via the flag accessor so repeated test
 	// invocations see a fresh value each time.
 	tags, _ := cmd.Flags().GetStringSlice("tag")
@@ -267,7 +270,7 @@ func parseCreateTaskInput(cmd *cobra.Command, args []string) services.CreateTask
 		EpicKey: epicKey, FeatureKey: featureKey, Title: title,
 		AgentType: agentType, Description: description, Priority: priority,
 		ExecutionOrder: order, DependsOn: dependsOn, FilePath: filePath,
-		CreateFile: createFile, Force: force, Tags: tags,
+		CreateFile: createFile, Force: force, Tags: tags, CustomKey: customKey,
 	}
 }
 

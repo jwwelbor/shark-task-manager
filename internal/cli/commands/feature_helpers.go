@@ -967,6 +967,13 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		return services.CreateFeatureInput{}, "", "", err
 	}
 
+	// B063: honor --key the same way `shark epic create` does.
+	if featureCreateKey != "" {
+		if err := ValidateNoSpaces(featureCreateKey, "feature"); err != nil {
+			return services.CreateFeatureInput{}, "", "", err
+		}
+	}
+
 	input := services.CreateFeatureInput{
 		EpicKey:        featureCreateEpic,
 		Title:          featureTitle,
@@ -974,6 +981,7 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		Status:         statusStr,
 		ExecutionOrder: execOrder,
 		FilePath:       filePath,
+		CustomKey:      featureCreateKey,
 		Force:          featureCreateForce,
 		Tags:           tags,
 		Size:           sizePtr,

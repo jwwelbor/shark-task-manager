@@ -3265,6 +3265,123 @@ func TestTaskService_CreateTask_CreatorSvcPath_PropagatesSize(t *testing.T) {
 	assert.Equal(t, 5, *persisted.Size, "persisted task.Size should equal the input Size value")
 }
 
+// TestTaskService_CreateTask_CreatorSvcPath_CustomKey covers B063: `--key` on
+// `shark task create` was registered as a CLI flag but never read, and
+// services.CreateTaskInput had no CustomKey field, so the plumbing that
+// already existed in taskcreation.CreateTaskInput.CustomKey was unreachable.
+// This proves the supplied key is honored end-to-end through the production
+// creatorSvc path.
+func TestTaskService_CreateTask_CreatorSvcPath_CustomKey(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	sqlDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	repoDB := repository.NewDB(sqlDB)
+	ctx := context.Background()
+
+	res, err := sqlDB.ExecContext(ctx, `INSERT INTO epics (key, title, status, priority) VALUES ('E98', 'Custom Key Epic', 'active', 'medium')`)
+	require.NoError(t, err)
+	epicID, _ := res.LastInsertId()
+
+	_, err = sqlDB.ExecContext(ctx, `INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E98-F01', 'Custom Key Feature', 'active', ?, 'docs/plan/E98/E98-F01/feature.md')`, epicID)
+	require.NoError(t, err)
+
+	taskRepo := repository.NewTaskRepository(repoDB)
+	featureRepo := repository.NewFeatureRepository(repoDB)
+	epicRepo := repository.NewEpicRepository(repoDB)
+	historyRepo := repository.NewTaskHistoryRepository(repoDB) //nolint:staticcheck // Required by taskcreation.Creator constructor
+
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	wfSvc := workflow.NewService(tempDir)
+
+	creator := taskcreation.NewCreator(repoDB, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, wfSvc)
+
+	entitySvc := NewEntityService(wfSvc)
+	svc := NewTaskService(taskRepo, entitySvc, creator)
+	svc.SetEntityHistoryRepo(&mockEntityHistoryRecorder{})
+
+	task, _, err := svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey:    "E98",
+		FeatureKey: "F01",
+		Title:      "Custom key task",
+		AgentType:  "developer",
+		CustomKey:  "T-E98-F01-099",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	assert.Equal(t, "T-E98-F01-099", task.Key, "custom task key must be honored, not silently replaced with an auto-generated key")
+
+	persisted, err := taskRepo.GetByKey(ctx, "T-E98-F01-099")
+	require.NoError(t, err)
+	assert.Equal(t, "T-E98-F01-099", persisted.Key)
+}
+
+// TestTaskService_CreateTask_CreatorSvcPath_DuplicateCustomKey covers B063
+// AC-3: a duplicate custom task key must be rejected, with the next
+// available key suggested in the error so the caller can retry immediately.
+func TestTaskService_CreateTask_CreatorSvcPath_DuplicateCustomKey(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	sqlDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	repoDB := repository.NewDB(sqlDB)
+	ctx := context.Background()
+
+	res, err := sqlDB.ExecContext(ctx, `INSERT INTO epics (key, title, status, priority) VALUES ('E99', 'Dup Key Epic', 'active', 'medium')`)
+	require.NoError(t, err)
+	epicID, _ := res.LastInsertId()
+
+	_, err = sqlDB.ExecContext(ctx, `INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E99-F01', 'Dup Key Feature', 'active', ?, 'docs/plan/E99/E99-F01/feature.md')`, epicID)
+	require.NoError(t, err)
+
+	taskRepo := repository.NewTaskRepository(repoDB)
+	featureRepo := repository.NewFeatureRepository(repoDB)
+	epicRepo := repository.NewEpicRepository(repoDB)
+	historyRepo := repository.NewTaskHistoryRepository(repoDB) //nolint:staticcheck // Required by taskcreation.Creator constructor
+
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	wfSvc := workflow.NewService(tempDir)
+
+	creator := taskcreation.NewCreator(repoDB, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, wfSvc)
+
+	entitySvc := NewEntityService(wfSvc)
+	svc := NewTaskService(taskRepo, entitySvc, creator)
+	svc.SetEntityHistoryRepo(&mockEntityHistoryRecorder{})
+
+	// First task takes T-E99-F01-001 via auto-generation.
+	first, _, err := svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey:    "E99",
+		FeatureKey: "F01",
+		Title:      "First task",
+		AgentType:  "developer",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "T-E99-F01-001", first.Key)
+
+	// Second create request tries to claim the same key explicitly.
+	_, _, err = svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey:    "E99",
+		FeatureKey: "F01",
+		Title:      "Duplicate key task",
+		AgentType:  "developer",
+		CustomKey:  "T-E99-F01-001",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+	assert.Contains(t, err.Error(), "T-E99-F01-002", "expected next-available key suggested in duplicate-key error")
+}
+
 // TestTaskService_UpdateTask_ClearSizePrecedence verifies spec D5:
 // ClearSize=true takes precedence over a simultaneously-set Size value.
 // When both ClearSize=true and Size=ptr(8) are provided, the entity.Size is nil.

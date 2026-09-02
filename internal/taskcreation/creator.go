@@ -141,6 +141,11 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		// Validate custom key doesn't already exist
 		existing, err := c.taskRepo.GetByKey(ctx, input.CustomKey)
 		if err == nil && existing != nil {
+			// B063: suggest the next available key. Best-effort — a failure to
+			// compute the suggestion must not mask the original duplicate-key error.
+			if next, suggestErr := c.keygen.GenerateTaskKeyWithTx(ctx, tx, input.EpicKey, validated.NormalizedFeatureKey); suggestErr == nil && next != "" {
+				return nil, fmt.Errorf("task with key %s already exists (next available: %s)", input.CustomKey, next)
+			}
 			return nil, fmt.Errorf("task with key %s already exists", input.CustomKey)
 		}
 		key = input.CustomKey

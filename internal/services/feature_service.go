@@ -1123,10 +1123,23 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		return nil, fmt.Errorf("epic not found: %s", epicKey)
 	}
 
-	// Generate next feature key
-	featureKey, err := s.nextFeatureKey(ctx, epic.ID, epicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate feature key: %w", err)
+	// Determine feature key (B063: honor a custom key when supplied, following
+	// the same validation/uniqueness pattern as EpicService.CreateEpic).
+	var featureKey string
+	if input.CustomKey != "" {
+		featureKey = strings.ToUpper(strings.TrimSpace(input.CustomKey))
+		existing, err := s.repo.GetByKey(ctx, featureKey)
+		if err == nil && existing != nil {
+			if next := s.suggestNextFeatureKey(ctx, epic.ID, epicKey); next != "" {
+				return nil, fmt.Errorf("feature with key '%s' already exists (next available: %s)", featureKey, next)
+			}
+			return nil, fmt.Errorf("feature with key '%s' already exists", featureKey)
+		}
+	} else {
+		featureKey, err = s.nextFeatureKey(ctx, epic.ID, epicKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate feature key: %w", err)
+		}
 	}
 
 	// Resolve status
@@ -1401,6 +1414,18 @@ func (s *FeatureService) nextFeatureKey(ctx context.Context, epicID int64, epicK
 		}
 	}
 	return fmt.Sprintf("%s-F%02d", epicKey, maxNum+1), nil
+}
+
+// suggestNextFeatureKey returns the next available feature key for use in
+// duplicate-key error messages, or the empty string if it could not be
+// computed. Best-effort: a failure here must not mask the original
+// duplicate-key error (B063).
+func (s *FeatureService) suggestNextFeatureKey(ctx context.Context, epicID int64, epicKey string) string {
+	next, err := s.nextFeatureKey(ctx, epicID, epicKey)
+	if err != nil {
+		return ""
+	}
+	return next
 }
 
 // resolveFeatureFilePath checks for file path collisions and handles force reassignment.

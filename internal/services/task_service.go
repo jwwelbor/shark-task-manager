@@ -366,6 +366,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 			Create:         input.CreateFile,
 			Size:           input.Size,
 			Body:           input.Body,
+			CustomKey:      input.CustomKey,
 		}
 
 		result, err := s.creatorSvc.CreateTask(ctx, creatorInput)

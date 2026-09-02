@@ -1800,6 +1800,85 @@ func TestFeatureService_CreateFeature_EmptyTitle(t *testing.T) {
 	}
 }
 
+// TestFeatureService_CreateFeature_CustomKey covers B063: --key on
+// `shark feature create` was silently ignored because CreateFeatureInput had
+// no CustomKey field and CreateFeature always auto-generated a key. This
+// proves the supplied key is honored (uppercase-normalized), matching the
+// pattern EpicService.CreateEpic already used.
+func TestFeatureService_CreateFeature_CustomKey(t *testing.T) {
+	var capturedFeature *models.Feature
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			// Key doesn't exist yet.
+			return nil, fmt.Errorf("not found")
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"}, Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey:   "E01",
+		Title:     "Custom Key Feature",
+		CustomKey: "e01-f99",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature.Key != "E01-F99" {
+		t.Errorf("expected key 'E01-F99' (uppercase-normalized), got %q", feature.Key)
+	}
+	if capturedFeature == nil {
+		t.Fatal("expected repo.Create to be called")
+	}
+}
+
+// TestFeatureService_CreateFeature_DuplicateCustomKey covers B063 AC-3: a
+// duplicate custom key must be rejected, with the next available key
+// suggested in the error so the caller can retry immediately.
+func TestFeatureService_CreateFeature_DuplicateCustomKey(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			// The requested key is already taken.
+			return &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F02"}}, nil
+		},
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{
+				{BaseEntity: models.BaseEntity{Key: "E01-F01"}},
+				{BaseEntity: models.BaseEntity{Key: "E01-F02"}},
+			}, nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"}, Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, epicLookup)
+
+	_, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey:   "E01",
+		Title:     "Duplicate Feature",
+		CustomKey: "E01-F02",
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate key, got nil")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("expected 'already exists' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "E01-F03") {
+		t.Errorf("expected next-available key 'E01-F03' suggested in error, got: %v", err)
+	}
+}
+
 func TestFeatureService_UpdateFeature_Success(t *testing.T) {
 	var updatedFeature *models.Feature
 	newTitle := "Updated Title"

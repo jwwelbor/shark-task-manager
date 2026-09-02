@@ -518,6 +518,9 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 		// Validate key doesn't already exist
 		existing, err := s.repo.GetByKey(ctx, epicKey)
 		if err == nil && existing != nil {
+			if next := s.suggestNextEpicKey(ctx); next != "" {
+				return nil, fmt.Errorf("epic with key '%s' already exists (next available: %s)", epicKey, next)
+			}
 			return nil, fmt.Errorf("epic with key '%s' already exists", epicKey)
 		}
 	} else {
@@ -1012,6 +1015,17 @@ func (s *EpicService) nextEpicKey(ctx context.Context) (string, error) {
 		}
 	}
 	return fmt.Sprintf("E%02d", maxNum+1), nil
+}
+
+// suggestNextEpicKey returns the next available epic key for use in duplicate-key
+// error messages, or the empty string if it could not be computed. Best-effort: a
+// failure here must not mask the original duplicate-key error (B063).
+func (s *EpicService) suggestNextEpicKey(ctx context.Context) string {
+	next, err := s.nextEpicKey(ctx)
+	if err != nil {
+		return ""
+	}
+	return next
 }
 
 // resolveEpicFilePath checks for file path collisions and handles force reassignment.
