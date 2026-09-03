@@ -1,0 +1,2 @@
+{"ts":"2026-09-02T20:34:08.574150-05:00","sid":"c8f6925c-6255-4b2b-9704-242c62b844d5","event":"agent_spawned","detail":{"hook_event":"SubagentStart","agent_id":"a77bdfb66c75c3a8b","agent_type":"general-purpose"}}
+{"ts":"2026-09-02T20:38:59.822720-05:00","sid":"c8f6925c-6255-4b2b-9704-242c62b844d5","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a77bdfb66c75c3a8b","agent_type":"general-purpose"}}
