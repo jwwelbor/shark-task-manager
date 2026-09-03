@@ -73,6 +73,7 @@ type CreateFeatureInput struct {
 	Status         string  `json:"status,omitempty"`          // Defaults to "draft" if empty
 	ExecutionOrder *int    `json:"execution_order,omitempty"` // Position in feature execution sequence
 	FilePath       *string `json:"file_path,omitempty"`       // Custom file path (relative)
+	CustomKey      string  `json:"custom_key,omitempty"`      // Override auto-generated key (B063)
 	Force          bool    `json:"force,omitempty"`           // Force file reassignment
 
 	// E28-F04 REQ-F-011: Tags attached to the feature on creation. Each
