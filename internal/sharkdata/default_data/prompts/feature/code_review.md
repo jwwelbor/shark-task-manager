@@ -63,11 +63,6 @@ PRODUCE verification report to {{.review_base}}code-review-<timestamp>-{{.id}}.m
   - Findings grouped by task with file paths, evidence, failed commands/tests, affected AC/TC/I-##/X-## IDs, defect-class statements for blocking findings, and concrete fix guidance
   - Notes on any non-blocking observations
 
-REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS or FAIL):
-- One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"code_review","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- round = how many times this gate has run for this feature (count prior code-review reports in {{.review_base}}). The fingerprint lets the same finding resurfacing across rounds group mechanically.
-- Zero-finding PASS writes no `review-finding` notes.
-
 ON PASS: gate_result.summary states "Feature verification gate passed — see report".
 - SIMPLE / STANDARD → recommended_outcome: pass
 - COMPLEX → recommended_outcome: deep_verify

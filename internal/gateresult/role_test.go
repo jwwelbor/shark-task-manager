@@ -95,8 +95,10 @@ func TestValidateRole_Success(t *testing.T) {
 	t.Run("open blocking finding rejected", func(t *testing.T) {
 		payload := validPayload()
 		payload["kickbacks"] = []interface{}{}
-		result := mustResult(t)
-		_ = payload
+		result, err := Decode(encode(t, payload))
+		if err != nil {
+			t.Fatalf("fixture must decode: %v", err)
+		}
 		if err := ValidateRole(RoleSuccess, result, mainEntity); err == nil {
 			t.Fatalf("expected open finding to reject success role")
 		}

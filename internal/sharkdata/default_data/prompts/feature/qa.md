@@ -83,10 +83,6 @@ PRODUCE QA report to {{.review_base}}qa-<timestamp>-{{.id}}.md:
   - Edge cases tested
   - Any pre-existing failures encountered
 
-REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS or FAIL):
-- One note per finding: {{template "create_note" .}} "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"qa","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- Zero-finding PASS writes no `review-finding` notes.
-
 ON PASS: recommended_outcome: pass.
 - Do NOT run Shark status commands yourself; the parent loop will advance the feature.
 ON FAIL: recommended_outcome: fail. This outcome's role is `kickback_rework` —

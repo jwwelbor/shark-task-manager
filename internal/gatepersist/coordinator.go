@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 // Coordinator is the T-E34-F05-003 parent-owned persistence coordinator. All
@@ -97,13 +98,9 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, err
 	}
 
-	lockTimeout := req.LockTimeout
-	if lockTimeout <= 0 {
-		lockTimeout = gaterun.DefaultLockTimeout
-	}
-	lock, err := gaterun.AcquireRunLock(req.RunDir, lockTimeout)
+	lock, err := c.acquireLock(req)
 	if err != nil {
-		return nil, fmt.Errorf("gatepersist: acquire run lock: %w", err)
+		return nil, err
 	}
 	defer func() { _ = lock.Release() }()
 
@@ -117,14 +114,65 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, err
 	}
 
+	digest, kickbackEntityTypes, state, err := c.initializeRun(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	ops := buildOperations(req.Result, summaryFrom(req.Gate, req.Result.Summary))
+	result := &Result{OperationDigest: digest}
+
+	if state.PersistenceState == gaterun.PersistenceStatePending {
+		if err := c.reconcileAndApplyOperations(ctx, req, state, ops, digest, kickbackEntityTypes); err != nil {
+			return nil, err
+		}
+	}
+
+	result.CompletedSuboperations = append([]string(nil), state.CompletedSuboperationIDs...)
+	result.PersistenceComplete = state.PersistenceState == gaterun.PersistenceStateComplete || state.PersistenceState == gaterun.PersistenceStateTransitioned
+
+	if err := c.applyGuardedTransition(ctx, req, state, result); err != nil {
+		return nil, err
+	}
+	result.ToStatus = req.TargetStatus
+	result.TransitionApplied = state.PersistenceState == gaterun.PersistenceStateTransitioned
+
+	if err := c.retire(req, state, result, ctx); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// acquireLock acquires the per-run lock guarding the whole Persist critical
+// section, applying Request.LockTimeout (or gaterun.DefaultLockTimeout when
+// unset).
+func (c *Coordinator) acquireLock(req Request) (*gaterun.RunLock, error) {
+	lockTimeout := req.LockTimeout
+	if lockTimeout <= 0 {
+		lockTimeout = gaterun.DefaultLockTimeout
+	}
+	lock, err := gaterun.AcquireRunLock(req.RunDir, lockTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("gatepersist: acquire run lock: %w", err)
+	}
+	return lock, nil
+}
+
+// initializeRun computes this call's operation digest, durably binds the
+// run's replay identity, validates every kickback's target-entity workflow
+// membership, create-once-writes the accepted result, and loads (or
+// initializes) the operation state — the full REQ-F-003 setup that must
+// happen exactly once, in this order, before any suboperation is applied.
+func (c *Coordinator) initializeRun(ctx context.Context, req Request) (digest string, kickbackEntityTypes map[string]models.EntityType, state *gaterun.OperationState, err error) {
 	// The operation digest is computed here — BEFORE CreateIdentity — so
 	// identity.json's OperationDigest and the OperationDigest this call will
 	// later pass to NewOperationState/VerifyResumeIdentity are always the
 	// SAME computed value for the same call. This is one computation reused
 	// twice, not two independent digest computations that could drift.
-	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
+	digest, err = gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
 	if err != nil {
-		return nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
+		return "", nil, nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
 	}
 
 	// UAT-3-1 fix, extended by UAT round 3+4 (note #2926): durably bind this
@@ -150,7 +198,7 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		Gate:            req.Gate,
 		OperationDigest: digest,
 	}); err != nil {
-		return nil, fmt.Errorf("gatepersist: bind run identity: %w", err)
+		return "", nil, nil, fmt.Errorf("gatepersist: bind run identity: %w", err)
 	}
 
 	// Kickback validation runs before this run_id ever accepts a durable
@@ -159,18 +207,18 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	// contract (there is no rewrite path — a corrected envelope needs a new
 	// run_id otherwise). This is "rejected without partial mutation" applied
 	// to the sidecar transport itself, not just target-store writes.
-	kickbackEntityTypes, err := validateKickbacks(ctx, req.Result.Kickbacks, req.EntityType, req.EntityKey, c.Validator, c.Identity)
+	kickbackEntityTypes, err = validateKickbacks(ctx, req.Result.Kickbacks, req.EntityType, req.EntityKey, c.Validator, c.Identity)
 	if err != nil {
-		return nil, err
+		return "", nil, nil, err
 	}
 
 	if _, err := gaterun.CreateResult(req.RunDir, []byte(req.EnvelopeJSON)); err != nil {
-		return nil, err
+		return "", nil, nil, err
 	}
 
 	state, exists, err := gaterun.LoadOperationState(req.RunDir)
 	if err != nil {
-		return nil, fmt.Errorf("gatepersist: load operation state: %w", err)
+		return "", nil, nil, fmt.Errorf("gatepersist: load operation state: %w", err)
 	}
 	if !exists {
 		// Entity identity here (req.EntityKey/req.EntityType) is no longer
@@ -187,69 +235,73 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		// fails at CreateIdentity, before this state is ever initialized.
 		state = gaterun.NewOperationState(req.RunID, req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, digest)
 		if err := state.Save(req.RunDir); err != nil {
-			return nil, fmt.Errorf("gatepersist: initialize operation state: %w", err)
+			return "", nil, nil, fmt.Errorf("gatepersist: initialize operation state: %w", err)
 		}
 	} else if err := gaterun.VerifyResumeIdentity(state, req.EntityKey, string(req.EntityType), req.SourceStatus, digest); err != nil {
-		return nil, err
+		return "", nil, nil, err
 	}
 
-	ops := buildOperations(req.Result, summaryFrom(req.Gate, req.Result.Summary))
-	result := &Result{OperationDigest: digest}
+	return digest, kickbackEntityTypes, state, nil
+}
 
-	if state.PersistenceState == gaterun.PersistenceStatePending {
-		rec := &reconciler{
-			noteReader:       c.NoteReader,
-			historyReader:    c.History,
-			mainEntityType:   req.EntityType,
-			mainEntityKey:    req.EntityKey,
-			kickbackEntities: kickbackEntityTypes,
-			ops:              ops,
-			operationDigest:  digest,
-		}
-		changed, err := gaterun.ReconcileCompletedSuboperations(ctx, rec, state)
-		if err != nil {
-			return nil, err
-		}
-		if changed {
-			if err := state.Save(req.RunDir); err != nil {
-				return nil, fmt.Errorf("gatepersist: save reconciled operation state: %w", err)
-			}
-		}
-
-		for _, op := range ops {
-			subID := op.suboperationID(digest)
-			if state.HasCompleted(subID) {
-				continue
-			}
-			if err := c.applyOperation(ctx, op, subID, digest, req); err != nil {
-				return nil, err
-			}
-			state.AddCompletedSuboperation(subID)
-			if err := state.Save(req.RunDir); err != nil {
-				return nil, fmt.Errorf("gatepersist: save operation state after suboperation %s: %w", subID, err)
-			}
-		}
-
-		if err := state.MarkPersistenceComplete(); err != nil {
-			return nil, err
-		}
+// reconcileAndApplyOperations reconciles already-completed suboperations
+// (a resumed call may find some already applied at the target store) and
+// then applies every suboperation still pending, saving state after each
+// step so a crash mid-loop resumes from the last completed suboperation
+// rather than repeating already-applied writes.
+func (c *Coordinator) reconcileAndApplyOperations(ctx context.Context, req Request, state *gaterun.OperationState, ops []operation, digest string, kickbackEntityTypes map[string]models.EntityType) error {
+	rec := &reconciler{
+		noteReader:       c.NoteReader,
+		historyReader:    c.History,
+		mainEntityType:   req.EntityType,
+		mainEntityKey:    req.EntityKey,
+		kickbackEntities: kickbackEntityTypes,
+		ops:              ops,
+		operationDigest:  digest,
+	}
+	changed, err := gaterun.ReconcileCompletedSuboperations(ctx, rec, state)
+	if err != nil {
+		return err
+	}
+	if changed {
 		if err := state.Save(req.RunDir); err != nil {
-			return nil, fmt.Errorf("gatepersist: save operation state after persistence complete: %w", err)
+			return fmt.Errorf("gatepersist: save reconciled operation state: %w", err)
 		}
 	}
 
-	result.CompletedSuboperations = append([]string(nil), state.CompletedSuboperationIDs...)
-	result.PersistenceComplete = state.PersistenceState == gaterun.PersistenceStateComplete || state.PersistenceState == gaterun.PersistenceStateTransitioned
+	for _, op := range ops {
+		subID := op.suboperationID(digest)
+		if state.HasCompleted(subID) {
+			continue
+		}
+		if err := c.applyOperation(ctx, op, subID, digest, req); err != nil {
+			return err
+		}
+		state.AddCompletedSuboperation(subID)
+		if err := state.Save(req.RunDir); err != nil {
+			return fmt.Errorf("gatepersist: save operation state after suboperation %s: %w", subID, err)
+		}
+	}
 
-	// "persistence just completed this call" and "already persistence_complete
-	// from a prior call" both apply the guarded transition exactly once here.
-	// "already transition_applied" (a prior call already recorded it) must
-	// NOT repeat the transition call (architecture.md step 8: "it must not
-	// repeat the transition") — it only verifies the expected live target
-	// state via StatusReader and fails closed on any mismatch, since nothing
-	// guarantees the entity is still where this run last left it (a human
-	// `status set --force`, a cascade, or a concurrent run could have moved
-	// it since).
+	if err := state.MarkPersistenceComplete(); err != nil {
+		return err
+	}
+	if err := state.Save(req.RunDir); err != nil {
+		return fmt.Errorf("gatepersist: save operation state after persistence complete: %w", err)
+	}
+	return nil
+}
+
+// applyGuardedTransition applies the main-entity transition exactly once —
+// "persistence just completed this call" and "already persistence_complete
+// from a prior call" both apply it here. "already transition_applied" (a
+// prior call already recorded it) must NOT repeat the transition call
+// (architecture.md step 8: "it must not repeat the transition") — it only
+// verifies the expected live target state via StatusReader and fails closed
+// on any mismatch, since nothing guarantees the entity is still where this
+// run last left it (a human `status set --force`, a cascade, or a
+// concurrent run could have moved it since).
+func (c *Coordinator) applyGuardedTransition(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
 	switch state.PersistenceState {
 	case gaterun.PersistenceStateComplete:
 		// F-3: verify the entity is still where this run left it before
@@ -263,10 +315,10 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		// trusting Transitioner's own idempotency to stand in for it.
 		current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
 		if err != nil {
-			return nil, fmt.Errorf("gatepersist: verify source status before main transition: %w", err)
+			return fmt.Errorf("gatepersist: verify source status before main transition: %w", err)
 		}
 		if !strings.EqualFold(current, req.SourceStatus) && !strings.EqualFold(current, req.TargetStatus) {
-			return nil, fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
+			return fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
 		}
 
 		reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
@@ -277,61 +329,61 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		}
 		fromStatus, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent, guard)
 		if err != nil {
-			return nil, fmt.Errorf("gatepersist: apply main transition: %w", err)
+			return fmt.Errorf("gatepersist: apply main transition: %w", err)
 		}
 		result.FromStatus = fromStatus
 		result.Transitioned = transitioned
 
 		if err := state.MarkTransitionApplied(); err != nil {
-			return nil, err
+			return err
 		}
 		if err := state.Save(req.RunDir); err != nil {
-			return nil, fmt.Errorf("gatepersist: save operation state after transition applied: %w", err)
+			return fmt.Errorf("gatepersist: save operation state after transition applied: %w", err)
 		}
 	case gaterun.PersistenceStateTransitioned:
 		current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
 		if err != nil {
-			return nil, fmt.Errorf("gatepersist: verify already-applied transition target: %w", err)
+			return fmt.Errorf("gatepersist: verify already-applied transition target: %w", err)
 		}
 		if !strings.EqualFold(current, req.TargetStatus) {
-			return nil, fmt.Errorf("gatepersist: entity %s is recorded transition_applied to %q but is currently at %q; refusing to repeat or silently diverge from the recorded transition", req.EntityKey, req.TargetStatus, current)
+			return fmt.Errorf("gatepersist: entity %s is recorded transition_applied to %q but is currently at %q; refusing to repeat or silently diverge from the recorded transition", req.EntityKey, req.TargetStatus, current)
 		}
 		result.FromStatus = state.SourceStatus
 	}
-	result.ToStatus = req.TargetStatus
-	result.TransitionApplied = state.PersistenceState == gaterun.PersistenceStateTransitioned
+	return nil
+}
 
+// retire records worker-process retirement and, once RunConcluded ALSO
+// holds, releases the claim/lease. RetirementConfirmed alone only proves
+// this call's dispatched worker process exited, which is true for every
+// stage of a multi-stage run (see Request.RetirementConfirmed's doc
+// comment); a caller that (incorrectly) passes RetirementConfirmed per-stage
+// without ever setting RunConcluded simply never releases via this
+// coordinator — safe by construction, since a stale/leaked lease still
+// expires via the claim TTL backstop, whereas a premature release let a
+// concurrent claimant race the still-running loop.
+func (c *Coordinator) retire(req Request, state *gaterun.OperationState, result *Result, ctx context.Context) error {
 	if req.RetirementConfirmed {
 		if state.RetirementState != gaterun.RetirementRetired {
 			state.RetirementState = gaterun.RetirementRetired
 			if err := state.Save(req.RunDir); err != nil {
-				return nil, fmt.Errorf("gatepersist: save retirement state: %w", err)
+				return fmt.Errorf("gatepersist: save retirement state: %w", err)
 			}
 		}
-		// The lease itself is released only once RunConcluded ALSO holds —
-		// RetirementConfirmed alone only proves this call's dispatched
-		// worker process exited, which is true for every stage of a
-		// multi-stage run (see Request.RetirementConfirmed's doc comment).
-		// A caller that (incorrectly) passes RetirementConfirmed per-stage
-		// without ever setting RunConcluded simply never releases via this
-		// coordinator — safe by construction, since a stale/leaked lease
-		// still expires via the claim TTL backstop, whereas a premature
-		// release let a concurrent claimant race the still-running loop.
 		if req.RunConcluded {
 			released, err := c.Lease.Release(ctx, string(req.EntityType), req.EntityKey, req.Session.ID, req.OutcomeKey, false)
 			if err != nil {
-				return nil, fmt.Errorf("gatepersist: release lease: %w", err)
+				return fmt.Errorf("gatepersist: release lease: %w", err)
 			}
 			result.LeaseReleased = released
 		}
 	} else if state.RetirementState == gaterun.RetirementUnknown {
 		state.RetirementState = gaterun.RetirementPending
 		if err := state.Save(req.RunDir); err != nil {
-			return nil, fmt.Errorf("gatepersist: save retirement state: %w", err)
+			return fmt.Errorf("gatepersist: save retirement state: %w", err)
 		}
 	}
-
-	return result, nil
+	return nil
 }
 
 // verifyClaimSession re-checks req.Session.ID against the live claim/lease
