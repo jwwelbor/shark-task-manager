@@ -21,6 +21,7 @@ type CreateTaskInput struct {
 	CreateFile     bool     `json:"create_file,omitempty"`     // Create file if it doesn't exist
 	Force          bool     `json:"force,omitempty"`           // Force file reassignment if already claimed
 	Description    string   `json:"description,omitempty"`     // Task description
+	CustomKey      string   `json:"custom_key,omitempty"`      // Override auto-generated key (B063)
 	// Tags lists the names of registered tags to attach after the task is
 	// created. Each name must already exist in the vocabulary
 	// (`shark tags add`) — TaskService resolves each name through

@@ -1756,6 +1756,38 @@ func TestEpicService_CreateEpic_DuplicateCustomKey(t *testing.T) {
 	}
 }
 
+// TestEpicService_CreateEpic_DuplicateCustomKey_SuggestsNextAvailable covers
+// B063 AC-3: the duplicate-key error must suggest the next available key so
+// the caller can retry immediately instead of trial-and-error.
+func TestEpicService_CreateEpic_DuplicateCustomKey_SuggestsNextAvailable(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E05"}}, nil
+		},
+		listFn: func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+			return []*models.Epic{
+				{BaseEntity: models.BaseEntity{Key: "E04"}},
+				{BaseEntity: models.BaseEntity{Key: "E05"}},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{
+		Title:     "Duplicate Epic",
+		CustomKey: "E05",
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate key, got nil")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("expected 'already exists' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "E06") {
+		t.Errorf("expected next-available key 'E06' suggested in error, got: %v", err)
+	}
+}
+
 func TestEpicService_CreateEpic_RepoError(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {

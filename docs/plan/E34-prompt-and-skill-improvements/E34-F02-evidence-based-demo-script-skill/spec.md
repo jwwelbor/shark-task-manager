@@ -29,11 +29,15 @@ The capability map sets these boundaries:
 #### REQ-F-001 — Expose an explicit portable Rider demo action
 
 Extend the Rider router, static help, and capability reference with
-`/shark-rider demo <epic-key|feature-key> [--draft]`. Its host-local procedure
-shall validate the target as an epic or feature, collect only documented Shark
-state and linked project guidance, retrieve `demo-script` with `shark skill
-get`, and coordinate artifact generation. It shall not add a CLI command or
-advance an entity workflow.
+`/shark-rider demo <epic-key|feature-key|sprint-key> [--draft]`. Its
+host-local procedure shall validate the target as an epic, feature, or
+sprint, collect only documented Shark state and linked project guidance,
+retrieve `demo-script` with `shark skill get`, and coordinate artifact
+generation. It shall not add a CLI command or advance an entity workflow.
+
+> **Scope note:** Extended 2026-08-31 to include sprint targets, tracking the
+> sprint-demo capability shipped in PR #186 (2026-08-17) for E19 sprint work —
+> see the shark decision note on E34-F02 for the decision record.
 
 **Traceability:** Feature REQ-F-001; Epic E34 Goal and Success Criteria.
 
@@ -77,10 +81,11 @@ observable scenario shall return an evidence/decomposition gap and a
 The procedure shall write `docs/demos/<entity-key>/demo-script.md` and retain
 supporting evidence below `docs/demos/<entity-key>/evidence/`. After creation,
 it shall use the existing `shark related-docs add` contract to attach the
-script to the selected epic or feature and the existing `shark create note
---type=reference` contract to record the artifact reference. Discovered
-discrepancies remain explicit triage candidates requiring normal deduplication
-and user confirmation.
+script to the selected epic or feature, and the existing `shark create note
+--type=reference` contract to record the artifact reference; for a sprint
+target, which has no related-document parent option, the reference note alone
+records the artifact. Discovered discrepancies remain explicit triage
+candidates requiring normal deduplication and user confirmation.
 
 **Traceability:** Feature REQ-F-003; research Capability map, related-document
 discovery and reference-note linkage.
@@ -104,10 +109,10 @@ discovery and reference-note linkage.
 
 ### Acceptance criteria
 
-- **AC-001:** `/shark-rider demo` recognizes only epic and feature targets,
-  supports `--draft`, retrieves `demo-script` through `shark skill get`, and
-  appears in Rider routing and static help without a `shark demo` command or
-  workflow transition.
+- **AC-001:** `/shark-rider demo` recognizes epic, feature, and sprint
+  targets, supports `--draft`, retrieves `demo-script` through `shark skill
+  get`, and appears in Rider routing and static help without a `shark demo`
+  command or workflow transition.
 - **AC-002:** A normal-mode script has a traceable, observable, existing
   evidence item with environment/date for every `Demonstrated now` scenario;
   each scenario contains all REQ-F-002 fields.
@@ -172,7 +177,7 @@ derive workflow status.
 The host-facing interface is:
 
 ```text
-/shark-rider demo <epic-key|feature-key> [--draft]
+/shark-rider demo <epic-key|feature-key|sprint-key> [--draft]
 ```
 
 `demo.md` must reject every other entity type. In normal mode it must stop
@@ -185,6 +190,8 @@ shark get <key> --json
 shark list <epic> [feature] --json
 shark related-docs list --epic=<epic-key> --json
 shark related-docs list --feature=<feature-key> --json
+shark sprint get <sprint-key> --json
+shark sprint backlog <sprint-key> --all --json
 shark skill get demo-script
 shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --epic=<epic-key>
 shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --feature=<feature-key>

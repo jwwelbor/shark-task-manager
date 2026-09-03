@@ -25,6 +25,7 @@ func newTestTaskCreateCmd() *cobra.Command {
 	cmd.Flags().String("file", "", "File path")
 	cmd.Flags().String("filename", "", "Alias for --file")
 	cmd.Flags().String("path", "", "Alias for --file")
+	cmd.Flags().String("key", "", "Custom task key")
 	return cmd
 }
 
@@ -228,6 +229,22 @@ func TestParseCreateTaskInput_FilenameAlias(t *testing.T) {
 	got := parseCreateTaskInput(cmd, args)
 
 	assertCreateTaskInputField(t, "FilePath", "docs/custom/via-filename.md", got.FilePath)
+}
+
+// TestParseCreateTaskInput_CustomKey covers B063: the --key flag was
+// registered on the task create command but parseCreateTaskInput never read
+// it, so services.CreateTaskInput.CustomKey was always empty and a supplied
+// key was silently ignored.
+func TestParseCreateTaskInput_CustomKey(t *testing.T) {
+	cmd := newTestTaskCreateCmd()
+	if err := cmd.Flags().Set("key", "T-E07-F01-099"); err != nil {
+		t.Fatalf("failed to set key flag: %v", err)
+	}
+	args := []string{"E07", "F01", "Custom Key Task"}
+
+	got := parseCreateTaskInput(cmd, args)
+
+	assertCreateTaskInputField(t, "CustomKey", "T-E07-F01-099", got.CustomKey)
 }
 
 // ---- helpers ----------------------------------------------------------------

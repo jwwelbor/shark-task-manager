@@ -570,6 +570,140 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 	}
 }
 
+// TestE34F02DemoTargetSetIsClosed is a structural guard from the round-2
+// code-review rework: the shipped demo target set (epic, feature, sprint)
+// must stay identical everywhere it is documented — including the E34-F02
+// planning docs (feature.md/spec.md) that originally lagged the shipped
+// content and caused the kickback. It extracts the exact target token list
+// from every usage line rather than doing a substring Contains check, so a
+// future undocumented 4th target fails this test instead of silently
+// drifting past it, and a future edit to the shipped content that isn't
+// mirrored into spec.md/feature.md fails too.
+//
+// Round-3 rework: feature.md's own Solution paragraph documents the demo
+// usage line (`/shark-rider demo <epic|feature|sprint> [--draft]`), so
+// feature.md is registered in the paths map below like every other shipped
+// usage-line location, instead of being checked only by narrow prose
+// substrings. feature.md also carries five additional two-target prose
+// statements (description, Impact bullet, Story 1, REQ-F-001 usage example,
+// Scenario 2) that predate the sprint-target addition and don't match the
+// `demo <...> [--draft]` usage-line shape; those are guarded individually
+// below so each one fails independently if it regresses to the old
+// epic/feature-only wording. feature.md:86 ("discovered from the relevant
+// epic or feature") is intentionally excluded — spec.md:84 deliberately
+// scopes related-docs discovery to epic/feature only, and Scenario 3's
+// "default feature and epic workflows" (line 124) is about workflow-status
+// mechanics, not the demo target set, so it is excluded too.
+func TestE34F02DemoTargetSetIsClosed(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	featureDir := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "E34-F02-evidence-based-demo-script-skill")
+	featureMDPath := filepath.Join(featureDir, "feature.md")
+	paths := map[string]string{
+		"demo procedure": filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "demo.md"),
+		"rider router":   filepath.Join(repoRoot, "skills", "shark-rider", "SKILL.md"),
+		"static help":    filepath.Join(repoRoot, "skills", "shark-rider", "verbs", "help.md"),
+		"feature spec":   filepath.Join(featureDir, "spec.md"),
+		"feature doc":    featureMDPath,
+	}
+
+	wantTargets := []string{"epic-key", "feature-key", "sprint-key"}
+	usageRe := regexp.MustCompile(`demo <([a-zA-Z0-9|-]+)> \[--draft\]`)
+
+	for name, path := range paths {
+		t.Run(name, func(t *testing.T) {
+			body, err := os.ReadFile(path)
+			require.NoError(t, err, "%s should be shipped", name)
+			matches := usageRe.FindAllStringSubmatch(string(body), -1)
+			require.NotEmpty(t, matches, "%s must document the demo usage line", name)
+			for _, m := range matches {
+				targets := strings.Split(m[1], "|")
+				assert.Equal(t, wantTargets, targets,
+					"%s documents a demo target set that no longer matches the closed epic/feature/sprint set", name)
+			}
+		})
+	}
+
+	// The per-verb static help entry and the demo-script skill's purpose
+	// line also name the target set in prose; guard those independently so
+	// a prose-only drift (no usage-line change) is caught too.
+	helpBody, err := os.ReadFile(paths["static help"])
+	require.NoError(t, err)
+	require.Contains(t, string(helpBody), "Prepare an evidence-based demo for an epic, feature, or sprint.")
+
+	skillBody, err := os.ReadFile(filepath.Join(repoRoot, "internal", "sharkdata", "default_data", "skills", "demo-script", "SKILL.md"))
+	require.NoError(t, err, "demo-script skill should be shipped")
+	normalizedSkill := regexp.MustCompile(`\s+`).ReplaceAllString(string(skillBody), " ")
+	require.Contains(t, normalizedSkill, "for an epic, feature, or sprint.")
+
+	// feature.md's usage-line Solution paragraph is covered structurally by
+	// the paths-map loop above. The remaining prose-only two-target
+	// statements don't match the `demo <...> [--draft]` usage-line shape, so
+	// guard each site independently: current wording must be present, and
+	// the pre-fix old-scope wording must be absent. This is the exact set
+	// of six sites fixed in the round-3 rework (feature.md lines 5, 27, 30,
+	// 41, 69, 118); line 27 is re-asserted here too since the usage-line
+	// regex only checks the target tokens, not the surrounding sentence.
+	featureBody, err := os.ReadFile(featureMDPath)
+	require.NoError(t, err, "feature.md should be shipped")
+	featureMD := string(featureBody)
+
+	type featureMDSite struct {
+		label string
+		want  string
+		avoid string
+	}
+	sites := []featureMDSite{
+		{
+			label: "description (line 5)",
+			want:  "turns accepted epic, feature, or sprint evidence into an accurate",
+			avoid: "turns accepted epic or feature evidence into an accurate",
+		},
+		{
+			label: "Solution usage line (line 27)",
+			want:  "/shark-rider demo <epic-key|feature-key|sprint-key> [--draft]",
+			avoid: "/shark-rider demo <epic|feature> [--draft]",
+		},
+		{
+			label: "Impact bullet (line 30)",
+			want:  "generated for epic, feature, and sprint scopes",
+			avoid: "generated for epic and feature scopes",
+		},
+		{
+			label: "Story 1 (line 41)",
+			want:  "demo script for a completed epic, feature, or sprint so that",
+			avoid: "demo script for a completed epic or feature so that",
+		},
+		{
+			label: "REQ-F-001 usage example (line 69)",
+			want:  "`/shark-rider demo <epic-key>`, `/shark-rider demo <feature-key>`, and `/shark-rider demo <sprint-key>` resolve the documented recipe.",
+			avoid: "`/shark-rider demo <epic-key>` and `/shark-rider demo <feature-key>` resolve the documented recipe.",
+		},
+		{
+			label: "Scenario 2 (line 118)",
+			want:  "an eligible epic, feature, or sprint whose architecture documentation",
+			avoid: "an eligible epic or feature whose architecture documentation",
+		},
+	}
+	for _, site := range sites {
+		t.Run("feature.md: "+site.label, func(t *testing.T) {
+			assert.Contains(t, featureMD, site.want,
+				"feature.md must document the closed epic/feature/sprint scope at %s", site.label)
+			assert.NotContains(t, featureMD, site.avoid,
+				"feature.md must not regress to the old epic/feature-only scope at %s", site.label)
+		})
+	}
+
+	// feature.md line 44 already documented the correct closed set before
+	// this rework; keep guarding it so a future edit can't narrow it back.
+	require.Contains(t, featureMD, "accepts epic, feature, or sprint keys")
+	require.NotContains(t, featureMD, "accepts only epic or feature keys")
+
+	// feature.md:86 ("discovered from the relevant epic or feature") is a
+	// deliberate, correct epic/feature-only scoping of related-docs
+	// discovery per spec.md:84 — not a defect, and intentionally NOT
+	// asserted against here.
+}
+
 func TestSolutionWalkthroughRiderProcedure(t *testing.T) {
 	repoRoot := findRepoRootForInteractionTest(t)
 	paths := map[string]string{
