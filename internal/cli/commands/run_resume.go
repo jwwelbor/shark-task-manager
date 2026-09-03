@@ -260,22 +260,46 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 // clear, dedicated rejection before any other side effect (status lookup,
 // kickback validation, etc.) runs.
 //
+// UAT round 4 finding (note #2926, T-E34-F05-004 rework round 13): the
+// interim version of this function only checked EntityKey/EntityType
+// (VerifyRunIdentityOwner) and then unconditionally derived a fresh replay
+// context (SourceStatus/Gate/OperationDigest) from the entity's CURRENT live
+// status via transitioner.GetNextStatus — so a same-entity resume whose
+// original run was bound to a DIFFERENT source status/gate (or whose
+// envelope digest disagrees) sailed through this check and let the
+// coordinator initialize brand-new operation state from the live status,
+// instead of failing closed on the drift. This function now resolves the
+// CURRENT resume attempt's SourceStatus/Gate/OperationDigest FIRST — using
+// nextInfo.CurrentStatus as both SourceStatus and Gate (this branch's live
+// status IS the source status; see the doc comment above) and computing the
+// digest the exact same way gatepersist.Coordinator.Persist does
+// (gaterun.ComputeOperationDigest over EntityKey/EntityType/SourceStatus/
+// Gate/the durable envelope bytes) — and only THEN calls the full
+// gaterun.VerifyRunIdentity (all five non-RunID fields), strictly BEFORE the
+// coordinator is ever built or called, so any drift on source status, gate,
+// or digest is rejected with zero coordinator side effects, exactly like an
+// entity_key mismatch always was.
+//
 // Sibling swept (code-review round-9 rework protocol, re-verified for
-// UAT-3-1): run_apply_result.go's applyResultIngest reaches the same
-// gatepersist.Coordinator.Persist !exists branch through
-// runner.IngestGateResult, but its EnvelopeBytes come from a caller-supplied
-// --apply-result file path, not a durably-read result.json — so
-// gaterun.CreateResult's create-once/first-writer-wins content-hash check
-// (fsio.go) already fails closed on any foreign run_id whose result.json
-// already holds different bytes, and it now also inherits the same
-// CreateIdentity binding/conflict check every Persist call makes.
+// UAT-3-1 and UAT round 4): run_apply_result.go's applyResultIngest and
+// internal/runner/controller.go's own resume/finalize call reach the same
+// gatepersist.Coordinator.Persist branches through runner.IngestGateResult
+// without a pre-flight ReadIdentity/VerifyRunIdentity of their own — but
+// unlike this function, neither pre-empts Persist's own checks: Persist's
+// CreateIdentity call already fails closed on ANY of the five fields
+// disagreeing for the same run_id (gaterun.CreateIdentity's create-once/
+// first-writer-wins content check), and its VerifyResumeIdentity call
+// (once OperationState exists) does the same for the initialized case. This
+// function is the ONLY caller that reads identity.json and derives replay
+// context itself before ever reaching Persist, which is exactly why it
+// needed its own full-contract check — grep confirms
+// gaterun.VerifyRunIdentityOwner has no other production callers left after
+// this fix.
 func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, entityType, entityKey string, decision *gaterun.ResumeDecision, out *resumeRunOutput) error {
-	// UAT-3-1: verify the durable identity.json binding (written before
-	// result.json by gatepersist.Coordinator.Persist) matches the caller's
-	// claimed entity BEFORE any further lookup or coordinator call, so a
-	// caller naming a foreign entity's run_id is rejected with zero side
-	// effects — not merely relying on CreateIdentity's own conflict check
-	// deeper in the coordinator.
+	// UAT-3-1: read the durable identity.json binding (written before
+	// result.json by gatepersist.Coordinator.Persist) so it can be checked
+	// against the CURRENT resume attempt's full replay-identity context
+	// below, before any further lookup or coordinator call.
 	dir, err := gaterun.RunDir(projectRoot, runResumeID)
 	if err != nil {
 		return fmt.Errorf("resolve run directory for run_id %q: %w", runResumeID, err)
@@ -286,16 +310,6 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 	}
 	if !exists {
 		return fmt.Errorf("gaterun: run_id %q has a durable result but no durable identity binding; refusing to resume", runResumeID)
-	}
-	// T-E34-F05-002 rework round 5 (note #2926): this call site still uses
-	// the OWNER-ONLY check (VerifyRunIdentityOwner) rather than the new full
-	// VerifyRunIdentity replay-identity contract — wiring this caller to the
-	// full check (computing SourceStatus/Gate/OperationDigest BEFORE the
-	// transitioner.GetNextStatus call below derives context from live
-	// status) is T-E34-F05-004's scope per the coordinated fix; see
-	// gaterun.VerifyRunIdentity's doc comment.
-	if err := gaterun.VerifyRunIdentityOwner(identity, entityKey, entityType); err != nil {
-		return fmt.Errorf("resume identity mismatch for run_id %q: %w", runResumeID, err)
 	}
 
 	transitioner := runResumeTransitionerOverride
@@ -313,6 +327,28 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 	}
 	if nextInfo.ResultContract != resultContractGateResultV1 {
 		return nil
+	}
+
+	// UAT round 4 finding (note #2926): compute the full replay-identity
+	// contract for THIS resume attempt — SourceStatus/Gate from the entity's
+	// live status (this branch's only source of truth, per the doc comment
+	// above) and OperationDigest the same way
+	// gatepersist.Coordinator.Persist computes it — and verify it against
+	// the durably bound identity.json BEFORE the coordinator is built or
+	// called, so any drift on source status, gate, or digest fails closed
+	// with zero coordinator side effects.
+	digest, err := gaterun.ComputeOperationDigest(entityKey, entityType, nextInfo.CurrentStatus, nextInfo.CurrentStatus, decision.Result)
+	if err != nil {
+		return fmt.Errorf("compute operation digest for run_id %q: %w", runResumeID, err)
+	}
+	if err := gaterun.VerifyRunIdentity(identity, gaterun.RunIdentity{
+		EntityKey:       entityKey,
+		EntityType:      entityType,
+		SourceStatus:    nextInfo.CurrentStatus,
+		Gate:            nextInfo.CurrentStatus,
+		OperationDigest: digest,
+	}); err != nil {
+		return fmt.Errorf("resume identity mismatch for run_id %q: %w", runResumeID, err)
 	}
 
 	coordinator := runResumeCoordinatorOverride

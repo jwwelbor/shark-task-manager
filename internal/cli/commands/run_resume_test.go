@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -608,6 +609,101 @@ func TestRunResumeRun_UninitializedStateRejectsForeignEntityResume(t *testing.T)
 	}
 	if transition.status[foreignEntityKey] != "todo" {
 		t.Fatalf("rejected foreign-entity resume must not transition Y, got status %q", transition.status[foreignEntityKey])
+	}
+}
+
+// TestRunResumeRun_UninitializedStateRejectsDivergedReplayContext is the UAT
+// round 4 regression (note #2926, T-E34-F05-004 rework round 13): the SAME
+// entity supplies the run_id, so the interim EntityKey/EntityType-only check
+// (VerifyRunIdentityOwner) would have passed — but the run's original
+// identity.json was bound to a DIFFERENT source status/gate/digest than
+// what this resume attempt's live status now resolves to (the entity has
+// since drifted off the step the run was originally created under). This
+// must be rejected before resumeGateIngestForUninitializedState ever builds
+// or calls the coordinator, per the kickback's "source status, route, and
+// digest drift are not rejected before coordinator writes" finding.
+func TestRunResumeRun_UninitializedStateRejectsDivergedReplayContext(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origTransitioner, origCoordinator := runResumeTransitionerOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeTransitionerOverride, runResumeCoordinatorOverride = origTransitioner, origCoordinator
+	}()
+
+	entityKey := "E01-F01-001"
+	runID := "run-uninit-diverged1234567890abc"
+	root := t.TempDir()
+	dir, err := gaterun.RunDir(root, runID)
+	if err != nil {
+		t.Fatalf("RunDir: %v", err)
+	}
+	// identity.json bound to the ORIGINAL replay context (source_status/gate
+	// = "code_review", a fixed digest) — result.json committed,
+	// operation-state.json never written, matching the crash window. This
+	// resume attempt's live status (below) has since moved to "todo", which
+	// must NOT be silently accepted as a fresh replay context for the same
+	// run_id.
+	if _, err := gaterun.CreateIdentity(dir, gaterun.RunIdentity{
+		RunID: runID, EntityKey: entityKey, EntityType: "task",
+		SourceStatus: "code_review", Gate: "code_review", OperationDigest: "digest-original",
+	}); err != nil {
+		t.Fatalf("CreateIdentity: %v", err)
+	}
+	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {
+		t.Fatalf("CreateResult: %v", err)
+	}
+
+	out, decision, err := resolveResumeStatusAndDecision(root, runID, "task", entityKey, time.Now())
+	if err != nil {
+		t.Fatalf("resolveResumeStatusAndDecision: %v", err)
+	}
+	if decision.Action != gaterun.ResumeActionResumeNextOperation || decision.State != nil {
+		t.Fatalf("expected resume_next_operation with nil State, got action=%s state=%+v", decision.Action, decision.State)
+	}
+
+	transition := &fakeParityTransition{status: map[string]string{entityKey: "todo"}}
+	releaser := &fakeCountingLeaseReleaser{}
+	runResumeTransitionerOverride = &fakeParityTransitioner{
+		status:         map[string]string{entityKey: "todo"},
+		outcomes:       map[string]string{"pass": "in_review"},
+		resultContract: "gate_result_v1",
+		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
+	)
+
+	runResumeID = runID
+	runSession = "sess-resume-diverged"
+
+	err = resumeGateIngestForUninitializedState(context.Background(), root, "task", entityKey, decision, out)
+	if err == nil {
+		t.Fatal("expected resumeGateIngestForUninitializedState to reject diverged replay context, got nil error")
+	}
+	// This must be THIS function's own pre-flight rejection (a wrapped
+	// gaterun.VerifyRunIdentity mismatch), not merely gatepersist.Coordinator.
+	// Persist's deeper gaterun.CreateIdentity conflict check — the whole
+	// point of the fix is failing closed BEFORE the coordinator is ever
+	// built or called, matching the "before coordinator writes" wording of
+	// the kickback. Against the pre-fix caller (VerifyRunIdentityOwner, an
+	// entity-only check that passes for this same-entity scenario), the
+	// coordinator IS reached and only gatepersist's own defense-in-depth
+	// check rejects it — producing a "gatepersist: bind run identity: ..."
+	// error instead of this one, so this assertion fails against the
+	// unfixed caller.
+	if !strings.Contains(err.Error(), "resume identity mismatch") {
+		t.Fatalf("expected a caller-level %q rejection, got: %v", "resume identity mismatch", err)
+	}
+
+	if out.Ingested {
+		t.Error("out.Ingested = true, want false: rejected resume must not report ingestion")
+	}
+	if len(releaser.calls) != 0 {
+		t.Fatalf("expected zero lease release calls on rejected diverged-context resume, got %d", len(releaser.calls))
+	}
+	if transition.status[entityKey] != "todo" {
+		t.Fatalf("rejected diverged-context resume must not transition the entity, got status %q", transition.status[entityKey])
 	}
 }
 
