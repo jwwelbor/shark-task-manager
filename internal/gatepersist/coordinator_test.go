@@ -370,10 +370,17 @@ func TestPersist_CrossEntityRunIDBindingRejected(t *testing.T) {
 	// Simulate entity X's worker crashing in the create-once-result/
 	// before-state-init window: identity.json and result.json are durably
 	// committed, operation-state.json never is.
+	digestX, err := gaterun.ComputeOperationDigest(reqX.EntityKey, string(reqX.EntityType), reqX.SourceStatus, reqX.Gate, reqX.EnvelopeJSON)
+	if err != nil {
+		t.Fatalf("compute digest for X: %v", err)
+	}
 	if _, err := gaterun.CreateIdentity(runDir, gaterun.RunIdentity{
-		RunID:      reqX.RunID,
-		EntityKey:  reqX.EntityKey,
-		EntityType: string(reqX.EntityType),
+		RunID:           reqX.RunID,
+		EntityKey:       reqX.EntityKey,
+		EntityType:      string(reqX.EntityType),
+		SourceStatus:    reqX.SourceStatus,
+		Gate:            reqX.Gate,
+		OperationDigest: digestX,
 	}); err != nil {
 		t.Fatalf("simulate identity bind for X: %v", err)
 	}
@@ -388,7 +395,7 @@ func TestPersist_CrossEntityRunIDBindingRejected(t *testing.T) {
 	reqY := reqX
 	reqY.EntityKey = foreignEntityKey
 
-	_, err := coord.Persist(context.Background(), reqY)
+	_, err = coord.Persist(context.Background(), reqY)
 	if err == nil {
 		t.Fatal("expected cross-entity run_id rebinding to be rejected")
 	}
@@ -404,6 +411,56 @@ func TestPersist_CrossEntityRunIDBindingRejected(t *testing.T) {
 	}
 	if got != "in_review" {
 		t.Fatalf("rejected cross-entity Persist must not transition Y, got status %q", got)
+	}
+}
+
+// TestPersist_IdentityBindsFullReplayContextMatchingOperationState is the
+// UAT round 3+4 (note #2926) fix's core guarantee: gatepersist.Coordinator.
+// Persist's identity.json binding (gaterun.CreateIdentity) and its
+// operation-state.json (gaterun.NewOperationState) must never disagree on
+// SourceStatus/Gate/OperationDigest for the same run_id, because both are
+// computed from the SAME single gaterun.ComputeOperationDigest call inside
+// Persist. Before the fix, identity.json only recorded EntityKey/EntityType,
+// so this equality could never even be checked at resume time.
+func TestPersist_IdentityBindsFullReplayContextMatchingOperationState(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+
+	req := baseRequest(t, runDir)
+	req.RetirementConfirmed = true
+	if _, err := coord.Persist(context.Background(), req); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+
+	identity, exists, err := gaterun.ReadIdentity(runDir)
+	if err != nil {
+		t.Fatalf("ReadIdentity: %v", err)
+	}
+	if !exists {
+		t.Fatal("ReadIdentity: exists = false, want true")
+	}
+
+	state, exists, err := gaterun.LoadOperationState(runDir)
+	if err != nil {
+		t.Fatalf("LoadOperationState: %v", err)
+	}
+	if !exists {
+		t.Fatal("LoadOperationState: exists = false, want true")
+	}
+
+	if identity.EntityKey != state.EntityKey || identity.EntityType != state.EntityType {
+		t.Errorf("identity entity = %s/%s, operation state entity = %s/%s, want equal", identity.EntityKey, identity.EntityType, state.EntityKey, state.EntityType)
+	}
+	if identity.SourceStatus != state.SourceStatus {
+		t.Errorf("identity.SourceStatus = %q, operation state SourceStatus = %q, want equal", identity.SourceStatus, state.SourceStatus)
+	}
+	if identity.Gate != state.Gate {
+		t.Errorf("identity.Gate = %q, operation state Gate = %q, want equal", identity.Gate, state.Gate)
+	}
+	if identity.OperationDigest == "" || identity.OperationDigest != state.OperationDigest {
+		t.Errorf("identity.OperationDigest = %q, operation state OperationDigest = %q, want equal and non-empty", identity.OperationDigest, state.OperationDigest)
 	}
 }
 

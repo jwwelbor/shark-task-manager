@@ -287,7 +287,14 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 	if !exists {
 		return fmt.Errorf("gaterun: run_id %q has a durable result but no durable identity binding; refusing to resume", runResumeID)
 	}
-	if err := gaterun.VerifyRunIdentity(identity, entityKey, entityType); err != nil {
+	// T-E34-F05-002 rework round 5 (note #2926): this call site still uses
+	// the OWNER-ONLY check (VerifyRunIdentityOwner) rather than the new full
+	// VerifyRunIdentity replay-identity contract — wiring this caller to the
+	// full check (computing SourceStatus/Gate/OperationDigest BEFORE the
+	// transitioner.GetNextStatus call below derives context from live
+	// status) is T-E34-F05-004's scope per the coordinated fix; see
+	// gaterun.VerifyRunIdentity's doc comment.
+	if err := gaterun.VerifyRunIdentityOwner(identity, entityKey, entityType); err != nil {
 		return fmt.Errorf("resume identity mismatch for run_id %q: %w", runResumeID, err)
 	}
 

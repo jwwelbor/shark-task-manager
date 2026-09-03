@@ -476,7 +476,18 @@ func TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus(t *testing.T) {
 	// written, matching the create-once-result/before-state-init crash
 	// window (UAT-3-1 fix: identity.json is durably bound before
 	// result.json in production, via gatepersist.Coordinator.Persist).
-	if _, err := gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: runID, EntityKey: entityKey, EntityType: "task"}); err != nil {
+	// SourceStatus/Gate/digest here mirror exactly what
+	// resumeGateIngestForUninitializedState's own coordinator.Persist call
+	// will (re)compute below (nextInfo.CurrentStatus="todo" for both
+	// SourceStatus and Gate per this call's fakeParityTransitioner, envelope
+	// = the same durable parityEnvelope bytes) — the SAME-run resume case
+	// this test exercises, so CreateIdentity's replay-identity check must
+	// see them agree, not conflict.
+	resumeDigest, err := gaterun.ComputeOperationDigest(entityKey, "task", "todo", "todo", []byte(parityEnvelope))
+	if err != nil {
+		t.Fatalf("ComputeOperationDigest: %v", err)
+	}
+	if _, err := gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: runID, EntityKey: entityKey, EntityType: "task", SourceStatus: "todo", Gate: "todo", OperationDigest: resumeDigest}); err != nil {
 		t.Fatalf("CreateIdentity: %v", err)
 	}
 	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {
@@ -553,7 +564,7 @@ func TestRunResumeRun_UninitializedStateRejectsForeignEntityResume(t *testing.T)
 	}
 	// identity.json bound to the ORIGINAL entity, result.json committed —
 	// operation-state.json never written, matching the crash window.
-	if _, err := gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: runID, EntityKey: originalEntityKey, EntityType: "task"}); err != nil {
+	if _, err := gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: runID, EntityKey: originalEntityKey, EntityType: "task", SourceStatus: "todo", Gate: "code_review", OperationDigest: "digest-parity"}); err != nil {
 		t.Fatalf("CreateIdentity: %v", err)
 	}
 	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {

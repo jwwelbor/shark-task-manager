@@ -117,22 +117,38 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, err
 	}
 
-	// UAT-3-1 fix: durably bind this run_id's owning entity BEFORE
+	// The operation digest is computed here — BEFORE CreateIdentity — so
+	// identity.json's OperationDigest and the OperationDigest this call will
+	// later pass to NewOperationState/VerifyResumeIdentity are always the
+	// SAME computed value for the same call. This is one computation reused
+	// twice, not two independent digest computations that could drift.
+	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
+	if err != nil {
+		return nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
+	}
+
+	// UAT-3-1 fix, extended by UAT round 3+4 (note #2926): durably bind this
+	// run_id's owning entity AND its full replay-identity context BEFORE
 	// result.json (or anything derived from it) ever becomes recoverable.
 	// gaterun.CreateIdentity uses the same create-once/first-writer-wins
 	// protocol as CreateResult: a first call for run_id durably binds
-	// req.EntityKey/EntityType; a later call for the SAME entity is
-	// idempotent (the ordinary resume/replay case); a later call naming a
-	// DIFFERENT entity for the same run_id fails closed with *ConflictError
-	// before any coordinator write — closing the crash window where a
-	// result.json could exist with no durable owner to check a resume
-	// request's caller-supplied entity against (see
+	// req.EntityKey/EntityType/SourceStatus/Gate/digest; a later call whose
+	// fields all agree is idempotent (the ordinary resume/replay case); a
+	// later call disagreeing on ANY of those fields for the same run_id
+	// fails closed with *ConflictError before any coordinator write —
+	// closing the crash window where a result.json could exist with no
+	// durable replay context to check a resume request's caller-supplied
+	// identity against (see
 	// internal/cli/commands.resumeGateIngestForUninitializedState's now-
-	// resolved former accepted-risk comment).
+	// resolved former accepted-risk comment; the full wiring of that
+	// caller's own verification is T-E34-F05-004's scope).
 	if _, err := gaterun.CreateIdentity(req.RunDir, gaterun.RunIdentity{
-		RunID:      req.RunID,
-		EntityKey:  req.EntityKey,
-		EntityType: string(req.EntityType),
+		RunID:           req.RunID,
+		EntityKey:       req.EntityKey,
+		EntityType:      string(req.EntityType),
+		SourceStatus:    req.SourceStatus,
+		Gate:            req.Gate,
+		OperationDigest: digest,
 	}); err != nil {
 		return nil, fmt.Errorf("gatepersist: bind run identity: %w", err)
 	}
@@ -146,11 +162,6 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	kickbackEntityTypes, err := validateKickbacks(ctx, req.Result.Kickbacks, req.EntityType, req.EntityKey, c.Validator, c.Identity)
 	if err != nil {
 		return nil, err
-	}
-
-	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
-	if err != nil {
-		return nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
 	}
 
 	if _, err := gaterun.CreateResult(req.RunDir, []byte(req.EnvelopeJSON)); err != nil {
