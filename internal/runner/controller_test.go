@@ -2098,37 +2098,29 @@ func TestRunController_HappyPath_SingleStage(t *testing.T) {
 // To get 2 stages we need: initial status A (non-terminal) → post-dispatch1 status B with
 // transition to C (non-terminal) → TransitionStatus(C) → loop again → dispatch → post-dispatch2
 // → no transitions → completed.
+//
+// GetNextStatusFunc is driven off the transitioner's OWN live status (updated
+// by TransitionStatusFunc) rather than a fixed call-count sequence: Run()'s
+// loop refreshes nextInfo with an extra GetNextStatus call between stages
+// whenever a stage's stageOutcome doesn't already carry one (code-review
+// round-7 Finding 1 sweep — see controller.go's Run() loop, the `else if
+// !opts.DryRun` branch), so pinning an exact call count here would be
+// coupled to an implementation detail rather than this test's actual intent
+// (a 2-stage transition sequence completing correctly).
 func TestRunController_HappyPath_MultiStage(t *testing.T) {
-	// GetNextStatus call sequence:
-	//   call 0 (pre-loop): in_development, non-terminal
-	//   call 1 (post-dispatch1): in_development, non-terminal, next=ready_for_code_review
-	//   call 2 (post-dispatch2): ready_for_code_review, non-terminal, no transitions → completed
-	callIdx := 0
-	getNextResponses := []struct {
-		status      string
-		isTerminal  bool
-		nextTargets []string
-	}{
-		{"in_development", false, nil},                               // pre-loop
-		{"in_development", false, []string{"ready_for_code_review"}}, // post-dispatch1
-		{"ready_for_code_review", false, nil},                        // post-dispatch2: no transitions → completed
-	}
-
+	status := "in_development"
 	transitioner := &MockTransitioner{
 		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
-			r := getNextResponses[callIdx]
-			callIdx++
-			info := &services.NextStatusInfo{
-				CurrentStatus: r.status,
-				IsTerminal:    r.isTerminal,
-			}
-			for _, t := range r.nextTargets {
-				info.AvailableTransitions = append(info.AvailableTransitions,
-					services.TransitionInfoWithAction{TransitionInfo: workflow.TransitionInfo{TargetStatus: t}})
+			info := &services.NextStatusInfo{CurrentStatus: status, IsTerminal: false}
+			if status == "in_development" {
+				info.AvailableTransitions = []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "ready_for_code_review"}},
+				}
 			}
 			return info, nil
 		},
 		TransitionStatusFunc: func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			status = target
 			return &services.TransitionResult{ToStatus: target}, nil
 		},
 	}

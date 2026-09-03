@@ -46,7 +46,6 @@ func TestReviewPromptsUseCompactSuccessAndDetailedFindingsPolicy(t *testing.T) {
 				"If zero findings: compact PASS artifact only",
 				"`0 defects found`",
 				"If any blocker, failed command/test, missing AC or wiring proof, spec drift, or non-blocking observation exists: full detailed report",
-				"Zero-finding PASS writes no `review-finding` notes.",
 			},
 		},
 		{
@@ -56,7 +55,6 @@ func TestReviewPromptsUseCompactSuccessAndDetailedFindingsPolicy(t *testing.T) {
 				"If zero findings: compact PASS artifact only",
 				"`0 defects found`",
 				"If any failed command/test, missing coverage, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report",
-				"Zero-finding PASS writes no `review-finding` notes.",
 			},
 		},
 		{
@@ -66,7 +64,6 @@ func TestReviewPromptsUseCompactSuccessAndDetailedFindingsPolicy(t *testing.T) {
 				"If zero findings: compact APPROVED artifact only",
 				"`0 defects found`",
 				"If any finding, rejection, failed verification step, or non-blocking observation exists: full detailed report",
-				"Zero-finding APPROVED writes no `review-finding` notes.",
 			},
 		},
 		{

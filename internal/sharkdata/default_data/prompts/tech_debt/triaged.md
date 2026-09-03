@@ -35,3 +35,16 @@ EXIT GATE:
 - Tech debt is resolved
 - Quality gate passes
 - No unrelated changes
+
+DECISION:
+- Exit gate met -> recommended_outcome: pass
+- Cannot resolve (external blocker) -> recommended_outcome: blocked; state
+  the blocker in `gate_result.no_kickback_reason` (this is a single-entity
+  item — there is nothing else to kick back)
+- Determined not worth fixing -> recommended_outcome: wont_fix; state why in
+  `gate_result.no_kickback_reason`
+- Otherwise unresolved -> recommended_outcome: fail. This outcome's role is
+  `route_rework` — `gate_result.kickbacks` must stay empty; state the
+  specific blockers in `gate_result.summary`.
+
+{{template "_gate_result_directive" .}}

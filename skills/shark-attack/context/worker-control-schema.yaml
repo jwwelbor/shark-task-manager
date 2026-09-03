@@ -23,6 +23,28 @@ example_final:
   recommended_outcome: deep_verify
   evidence: []
 
+# gate_result is present on kind: final ONLY when the dispatched step's
+# result_contract is gate_result_v1 (T-E34-F05-005's workflow field; a step
+# omitting result_contract, or set to legacy, never expects this field). It
+# is the I-02 GateResult v1 nested payload — the single canonical shape,
+# validated and typed in internal/gateresult (schema_version, summary,
+# findings[], kickbacks[], remediation_sweeps[], change_impacts[],
+# no_kickback_reason). This file does not restate that field list — see
+# internal/gateresult's own doc comment and architecture.md#i-02-gateresult-v1
+# for the authoritative shape; duplicating it here would drift. A worker
+# dispatched to a gate_result_v1 step emits this envelope on stdout (the
+# ENTIRE trimmed stdout must be the JSON object — prose merely mentioning it
+# is never accepted); the host adapter then calls the shared ingestion CLI
+# surface (see host-adapter-contract.md) rather than parsing a second,
+# Rider-only grammar.
+example_final_gate_result:
+  kind: final
+  recommended_outcome: pass
+  evidence: []
+  gate_result:
+    schema_version: 1
+    summary: <string>
+
 # --- kind: question ------------------------------------------------------
 # The question variant carries NO `question_id` field (D-005): the parent —
 # never the worker — mints the E39 `Q###` identity via `shark create

@@ -17,3 +17,13 @@ EXIT GATE:
 - Change implemented per description
 - Tests pass
 - Quality gate passes
+
+DECISION:
+- Exit gate met -> recommended_outcome: pass
+- Cannot implement (external blocker) -> recommended_outcome: blocked; state
+  the blocker in `gate_result.no_kickback_reason`
+- Otherwise unresolved -> recommended_outcome: fail. This outcome's role is
+  `route_rework` — `gate_result.kickbacks` must stay empty; state the
+  specific blockers in `gate_result.summary`.
+
+{{template "_gate_result_directive" .}}

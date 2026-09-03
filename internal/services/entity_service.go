@@ -626,6 +626,8 @@ func (s *EntityService) GetNextStatus(
 		AvailableTransitions: wrapped,
 		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
 		Outcomes:             s.workflowSvc.GetOutcomes(currentStatus),
+		ResultContract:       s.workflowSvc.GetResultContract(currentStatus),
+		OutcomeRoles:         s.workflowSvc.GetOutcomeRoles(currentStatus),
 	}, nil
 }
 
@@ -662,5 +664,7 @@ func (s *EntityService) GetNextStatusForEntity(
 		AvailableTransitions: wrapped,
 		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
 		Outcomes:             s.workflowSvc.GetOutcomes(currentStatus),
+		ResultContract:       s.workflowSvc.GetResultContract(currentStatus),
+		OutcomeRoles:         s.workflowSvc.GetOutcomeRoles(currentStatus),
 	}
 }

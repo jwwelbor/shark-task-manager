@@ -210,6 +210,22 @@ type Step struct {
 	// sprint view). Route-based analogue of StatusMetadata.SprintBucket. When
 	// nil, the sprint planner derives a bucket from the phase name.
 	SprintBucket *string `json:"sprint_bucket,omitempty"`
+
+	// ResultContract selects the REQ-F-006 worker-result contract this step's
+	// dispatched worker must emit: "legacy" (free-form directives/
+	// RECOMMENDED OUTCOME) or "gate_result_v1" (the structured
+	// internal/gateresult envelope). Empty/omitted resolves to "legacy" —
+	// REQ-F-006's own default for omission. An unknown value fails workflow
+	// validation (see ValidateResultContracts).
+	ResultContract string `json:"result_contract,omitempty"`
+
+	// OutcomeRoles maps every configured outcome key in Outcomes to its
+	// REQ-F-006 parent-owned semantic role — one of the closed set
+	// internal/gateresult.OutcomeRole defines (success, route_rework,
+	// kickback_rework, blocked, hold, cancelled). Required, and required to
+	// exactly cover Outcomes with no missing or extra keys, only when
+	// ResultContract is "gate_result_v1"; ignored for "legacy" steps.
+	OutcomeRoles map[string]string `json:"outcome_roles,omitempty"`
 }
 
 // StatusMetadata provides UI and agent-targeting metadata for a status

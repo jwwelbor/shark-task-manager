@@ -6,7 +6,137 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 )
+
+// REQ-F-006 result_contract values a route step can select.
+const (
+	ResultContractLegacy       = "legacy"
+	ResultContractGateResultV1 = "gate_result_v1"
+)
+
+// validOutcomeRoles is the closed set of REQ-F-006 semantic roles, reusing
+// internal/gateresult.OutcomeRole's tokens exactly — no separate role
+// vocabulary is introduced here.
+var validOutcomeRoles = map[string]bool{
+	string(gateresult.RoleSuccess):        true,
+	string(gateresult.RoleRouteRework):    true,
+	string(gateresult.RoleKickbackRework): true,
+	string(gateresult.RoleBlocked):        true,
+	string(gateresult.RoleHold):           true,
+	string(gateresult.RoleCancelled):      true,
+}
+
+// GetResultContract returns the resolved REQ-F-006 result_contract for
+// status: the step's configured value, or "legacy" when omitted, unknown to
+// the workflow, or the config is not route-based.
+func (w *WorkflowConfig) GetResultContract(status string) string {
+	if w == nil {
+		return ResultContractLegacy
+	}
+	st, ok := w.GetStep(status)
+	if !ok || st == nil || st.ResultContract == "" {
+		return ResultContractLegacy
+	}
+	return st.ResultContract
+}
+
+// GetOutcomeRoles returns the step's configured outcome_roles map (raw
+// strings), or nil when the config is not route-based, the step is unknown,
+// or it declares no roles (i.e. a legacy step).
+func (w *WorkflowConfig) GetOutcomeRoles(status string) map[string]string {
+	if w == nil {
+		return nil
+	}
+	st, ok := w.GetStep(status)
+	if !ok || st == nil {
+		return nil
+	}
+	return st.OutcomeRoles
+}
+
+// ResultContractError describes one step's result_contract/outcome_roles
+// validation failure.
+type ResultContractError struct {
+	Step    string
+	Message string
+}
+
+func (e *ResultContractError) Error() string {
+	return fmt.Sprintf("step %q: %s", e.Step, e.Message)
+}
+
+// ValidateResultContracts checks REQ-F-006's schema-level invariants for
+// every step:
+//   - result_contract, when set, must be "legacy" or "gate_result_v1"
+//   - a "gate_result_v1" step must declare outcome_roles covering every
+//     configured outcome exactly (no missing key, no extra key)
+//   - every outcome_roles value must be one of gateresult.OutcomeRole's
+//     closed set
+//
+// Returns one error per offending step; empty when the config is not
+// route-based or every step is compliant.
+func (w *WorkflowConfig) ValidateResultContracts() []error {
+	if w == nil || len(w.Steps) == 0 {
+		return nil
+	}
+	var errs []error
+	for _, name := range sortedStepNames(w) {
+		st := w.Steps[name]
+		if st == nil {
+			continue
+		}
+		switch st.ResultContract {
+		case "", ResultContractLegacy:
+			continue
+		case ResultContractGateResultV1:
+			// fall through to outcome_roles checks below
+		default:
+			errs = append(errs, &ResultContractError{
+				Step:    name,
+				Message: fmt.Sprintf("unknown result_contract %q (must be %q or %q)", st.ResultContract, ResultContractLegacy, ResultContractGateResultV1),
+			})
+			continue
+		}
+
+		missing := make([]string, 0)
+		for outcome := range st.Outcomes {
+			if _, ok := st.OutcomeRoles[outcome]; !ok {
+				missing = append(missing, outcome)
+			}
+		}
+		sort.Strings(missing)
+		if len(missing) > 0 {
+			errs = append(errs, &ResultContractError{
+				Step:    name,
+				Message: fmt.Sprintf("outcome_roles is missing a role for outcome(s): %s", strings.Join(missing, ", ")),
+			})
+		}
+
+		extra := make([]string, 0)
+		for outcome, role := range st.OutcomeRoles {
+			if _, ok := st.Outcomes[outcome]; !ok {
+				extra = append(extra, outcome)
+				continue
+			}
+			if !validOutcomeRoles[role] {
+				errs = append(errs, &ResultContractError{
+					Step:    name,
+					Message: fmt.Sprintf("outcome_roles[%q] is not a supported role: %q", outcome, role),
+				})
+			}
+		}
+		sort.Strings(extra)
+		if len(extra) > 0 {
+			errs = append(errs, &ResultContractError{
+				Step:    name,
+				Message: fmt.Sprintf("outcome_roles declares role(s) for outcome(s) not configured on this step: %s", strings.Join(extra, ", ")),
+			})
+		}
+	}
+	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
+	return errs
+}
 
 // Core outcome vocabulary (E35-F02, decision D7). Every non-terminal,
 // non-parking step is expected to define these; steps may add extras

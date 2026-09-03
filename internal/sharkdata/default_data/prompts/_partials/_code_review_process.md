@@ -1,4 +1,4 @@
-{{define "_code_review_process"}}{{include: skills/quality/workflows/review-code.md}}
+{{define "_code_review_process_body"}}{{include: skills/quality/workflows/review-code.md}}
 
 READ:
 (1) Task spec at {{.file_path}} for acceptance criteria
@@ -39,10 +39,20 @@ PRODUCE code review report at {{.review_base}}code-review-<timestamp>-{{.id}}.md
   - Verdict: PASS or FAIL
   - Findings with file paths, evidence, failed commands/tests if any, affected ACs, and concrete fix guidance
   - AC verification status
-
+{{end}}
+{{define "_code_review_process"}}{{template "_code_review_process_body" .}}
 DECISION:
 - ALL PASS → end with `RECOMMENDED OUTCOME: pass`
 - ANY FAIL → end with `RECOMMENDED OUTCOME: fail` and include the specific findings to fix in your final summary
   (Check report at {{.review_base}} on resume)
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
 {{end}}
+{{define "_code_review_process_gate_result"}}{{template "_code_review_process_body" .}}
+DECISION:
+- ALL PASS -> recommended_outcome: pass
+- ANY FAIL -> recommended_outcome: fail. This outcome's role is `route_rework`
+  — `gate_result.kickbacks` must stay empty; state the specific findings to
+  fix in `gate_result.summary`. (Check report at {{.review_base}} on resume)
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
+
+{{template "_gate_result_directive" .}}{{end}}

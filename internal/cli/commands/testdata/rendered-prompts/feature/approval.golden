@@ -50,18 +50,60 @@ PRODUCE UAT report to docs/review/E07/E07-F01/uat-<timestamp>-E07-F01.md:
   - Concrete fix guidance for each finding
   - End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
 
-REVIEW-FINDING LOG (structured, queryable — only when findings exist, on APPROVED or REJECTED):
-- One note per finding: shark create note E07-F01 "<one-line finding summary>" --type=review-finding --created-by="codex" --metadata='{"gate":"uat","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- round = count of prior UAT reports matching docs/review/E07/E07-F01/uat-*-E07-F01.md + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
-- Zero-finding APPROVED writes no `review-finding` notes.
+ON APPROVED: recommended_outcome: pass; gate_result.summary states "Feature UAT approved — red-team passed".
 
-ON APPROVED:
-- Include `PARENT NOTE: Feature UAT approved — red-team passed` in your final response
-- End with `RECOMMENDED OUTCOME: pass`
+ON REJECTED: recommended_outcome: fail. This outcome's role is `route_rework` —
+the whole feature routes back as a unit, so `gate_result.kickbacks` must stay
+empty; put the defect-class statement, specific findings, and the sweep
+instruction ("before fixing the cited instance, sweep the touched module(s)
+for every other instance of this defect class; fix all; list swept sites in
+the completion note") in `gate_result.summary` and/or `findings[]` instead of
+a per-task kickback line. Do NOT run Shark status commands yourself; the
+parent loop reopens the feature for rework.
 
-ON REJECTED:
-- In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
-  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
-- Include `PARENT NOTE: UAT rejected — see report, tasks kicked back`
-- End with `RECOMMENDED OUTCOME: fail`
-- Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
+FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
+Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOTE: <text>` line, or a bare `<entity-id> -> <status> --reason "<why>"` kickback line — those are the legacy free-form directive grammar and this step does not use it. Instead, the ENTIRE trimmed final response must be exactly one worker-control envelope (`kind: final`), with a nested `gate_result` payload:
+
+```
+{
+  "kind": "final",
+  "recommended_outcome": "<the outcome key you are recommending, e.g. pass or fail>",
+  "evidence": [],
+  "gate_result": {
+    "schema_version": 1,
+    "summary": "<one paragraph: verdict and why>",
+    "findings": [ ... ],
+    "kickbacks": [ ... ],
+    "no_kickback_reason": "<only when required — see below>"
+  }
+}
+```
+
+The nested `gate_result` shape is validated and typed in `internal/gateresult`
+(see its doc comment for the full field list — `findings[]`,
+`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
+not restate it. Two rules this step's outcomes commonly need:
+
+- Whether `kickbacks` must be empty or non-empty for a given outcome depends
+  on that outcome's configured semantic role (`outcome_roles`, visible via
+  `shark get E07-F01 --json` or `shark next E07-F01 --json` ->
+  `result_contract`/`outcome_roles`), not on this prompt's own text:
+  - role `success` (typically `pass`): zero `kickbacks`, and no `findings`
+    left with `disposition: open` or `severity_conflict`.
+  - role `kickback_rework` (a per-item rework outcome): at least one
+    `kickbacks` entry (`entity_key`, `target_status`, `reason`) — one per
+    item that must reopen, replacing the legacy
+    `<entity-id> -> <status> --reason "<why>"` line format.
+  - role `route_rework` (this step's own main entity re-routes as a whole):
+    zero `kickbacks` — the configured route itself is the rework path; do
+    not also emit per-item kickbacks for this role.
+  - roles `blocked`/`hold`/`cancelled`: either at least one kickback or a
+    non-empty `no_kickback_reason` explaining why none applies.
+- A blocking finding you are reporting (not fixing) must carry
+  `disposition: open` (or `severity_conflict` when reviewers disagree);
+  every other GateResult field constraint is enforced the same way
+  regardless of which role this outcome carries.
+
+Write your full narrative report to the file this step already directs
+(unchanged); the envelope's `summary` is a compact verdict statement, not a
+duplicate of that report.

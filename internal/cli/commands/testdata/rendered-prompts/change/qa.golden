@@ -1,0 +1,213 @@
+QA testing for change E07-F01: "Sample feature for golden test".
+
+
+# Quality Skill
+
+This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
+
+## Outcome contract
+
+Every quality response includes one semantic `outcome`: `pass`, `fail`, or
+`blocked`. `pass` and `fail` describe a completed validation decision; `blocked`
+means required evidence, environment access, or authority is unavailable. The
+host, not this craft skill, maps the outcome to workflow state.
+
+## Workflow Selection
+
+Based on what needs validation, invoke the appropriate workflow:
+
+### Design Document Validation
+**When**: Validating feature design documentation before task generation
+**Invoke**: `workflows/validate-design.md`
+**Output**: Validation report for design documents
+**Use case**: Ensure all required design docs exist and are complete
+
+### Task Readiness Validation
+**When**: Validating tasks are complete and ready for implementation
+**Invoke**: `workflows/validate-tasks.md`
+**Output**: Task readiness report with dependency analysis
+**Use case**: Verify tasks are properly structured and sequenced
+
+### Code Review
+**When**: Reviewing code implementation against requirements and standards
+**Invoke**: `workflows/review-code.md`
+**Output**: Comprehensive code review report
+**Use case**: Assess code quality, PRD alignment, and engineering standards
+
+### Test Planning (Shift-Left QA)
+**When**: Reviewing task specifications BEFORE development begins
+**Invoke**: `workflows/test-planning.md`
+**Output**: Spec drift analysis + concrete acceptance test cases
+**Use case**: Compare task spec against feature PRD for drift, write test plan that becomes the developer's source of truth. This is the quality gate between planning and development.
+
+### QA Testing (Post-Development)
+**When**: Validating implementation after code review
+**Invoke**: `workflows/qa-testing.md`
+**Output**: QA test results and exploratory findings
+**Use case**: Validate implementation against pre-written test plan and acceptance criteria
+
+## Quality Resources
+
+All workflows reference these quality criteria files:
+
+- `context/design-validation-criteria.md` - Design document requirements
+- `context/task-validation-criteria.md` - Task completeness checks
+- `context/review-rubric.md` - Code review standards
+- `context/quality-gates.md` - General quality standards
+
+## Usage Pattern
+
+Commands and agents reference this skill using:
+
+```markdown
+## Your Process
+1. Analyze what needs validation
+2. Invoke quality skill: quality/workflows/validate-{type}.md
+3. Apply criteria from quality/context/{criteria-name}.md
+4. Generate validation report with actionable feedback
+```
+
+## Quality Standards
+
+All validation activities must:
+- Be objective and measurable
+- Provide clear pass/fail criteria
+- Include actionable feedback for failures
+- Reference specific standards and requirements
+- Generate consistent, structured reports
+
+---
+
+*For detailed usage instructions, see [README.md](./README.md)*
+
+
+READ:
+(1) Task spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria and **Scope file list**
+(2) Feature test-plan.md for test cases mapped to this task
+(3) Feature spec.md for feature-level intent
+(4) Code review report from docs/review/E07/E07-F01/code-review-*-E07-F01.md
+(5) Implementation code and existing test results
+(6) `git diff` of the task's changes to derive the actual touched paths
+
+SCOPED TEST RUN (single pass; do NOT run the full suite):
+
+The full integration suite may have pre-existing failures unrelated to any single task. Running it adds significant wall time and produces noise that obscures real regressions. Instead:
+
+1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
+
+2. **Targeted unit tests (always run):**
+   - Identify changed source files from `git diff` AND from the task's Scope section
+   - Map each changed source file to its test counterparts using the project's test layout (see `docs/architecture/file-system.md` / `tech-stack.md`)
+   - Add any tests explicitly named in the task's Test Cases / Acceptance Criteria
+   - Run only those with the project's test runner
+
+3. **Targeted integration tests (run only if the change crosses an integration seam):**
+   - DB migration / schema change → corresponding integration tests and any test using the changed table
+   - API endpoint change → integration tests for that route
+   - Service contract change consumed by another service → tests for the consumer
+   - If the change is purely intra-service or doc/comment-only, **skip integration tests entirely**
+
+4. **Sanity unit-suite spot-check (only if changes are broad):**
+   - For changes touching a shared module / interface used by many consumers, run the project's full unit suite once (using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo)
+   - For localized changes (single service / single API route / doc-only), skip this — the targeted run above is sufficient.
+
+5. **Prompt-only bundle checks:**
+   - For embedded prompt, skill, template, or documentation-only changes, use
+     the shipped renderer to verify changed templates and includes resolve.
+   - Verify newly documented local bundle or project-file references exist.
+   - Treat policy wording as a manual specification-review concern. Do not
+     require wording mutations, decision tables, or caller-path contracts
+     unless the change modifies deterministic runtime behavior.
+
+VALIDATE:
+- Quality gates pass (fmt, lint)
+- All targeted tests pass (zero failures introduced by this task)
+- Acceptance criteria from the feature test plan are exercised by the tests you ran (cite test names)
+- Edge cases identified in the test plan are covered
+- No regressions in the targeted scope
+
+DO NOT RUN:
+- Full integration suite (too slow for per-task QA; may have pre-existing failures)
+- Codex red-team (UAT owns red-team; running it here is redundant)
+
+REVIEW OUTPUT POLICY (applies to the report below):
+- If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
+- Compact success artifact must include: verdict; exact scope reviewed; commands/tests/checks run (summarized, not raw logs); counts or totals reviewed; duration if known; explicit line `0 defects found`.
+- Do NOT echo full checklists, full coverage matrices, or raw command logs in a zero-finding artifact.
+- Summarize command output. Include raw log paths only when failures or findings exist.
+- If there is ANY blocker, rejection, failed command/test, broken contract, missing coverage, non-blocking observation, or other finding, write the full detailed report with file paths, evidence, affected AC/TC/CONTRACT/I-##/X-## IDs, defect-class statements where the prompt asks for them, and concrete fix guidance.
+- If this prompt uses review-finding notes, emit them only when findings exist.
+- Console output stays terse:
+  - zero-finding PASS/APPROVED -> one-line summary plus report path
+  - any finding -> one-line fail/triage summary plus report path
+
+
+PRODUCE QA report at docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md:
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: task scope, touched paths, feature context, and targeted test surface
+  - Checks run: format/lint/tests summarized, not pasted
+  - AC count reviewed
+  - Duration if known
+  - `0 defects found`
+- If any failed command/test, missing AC proof, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL
+  - Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
+  - Test results summary (counts, durations)
+  - AC verification status — name the test that proves each AC
+  - Edge cases tested
+  - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
+
+DECISION:
+- ALL PASS -> recommended_outcome: pass
+- ANY FAIL -> recommended_outcome: fail. This outcome's role is `route_rework`
+  — `gate_result.kickbacks` must stay empty; state the specific failures to
+  fix in `gate_result.summary`.
+- Do NOT run Shark status commands yourself; the parent loop will apply the outcome.
+
+FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
+Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOTE: <text>` line, or a bare `<entity-id> -> <status> --reason "<why>"` kickback line — those are the legacy free-form directive grammar and this step does not use it. Instead, the ENTIRE trimmed final response must be exactly one worker-control envelope (`kind: final`), with a nested `gate_result` payload:
+
+```
+{
+  "kind": "final",
+  "recommended_outcome": "<the outcome key you are recommending, e.g. pass or fail>",
+  "evidence": [],
+  "gate_result": {
+    "schema_version": 1,
+    "summary": "<one paragraph: verdict and why>",
+    "findings": [ ... ],
+    "kickbacks": [ ... ],
+    "no_kickback_reason": "<only when required — see below>"
+  }
+}
+```
+
+The nested `gate_result` shape is validated and typed in `internal/gateresult`
+(see its doc comment for the full field list — `findings[]`,
+`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
+not restate it. Two rules this step's outcomes commonly need:
+
+- Whether `kickbacks` must be empty or non-empty for a given outcome depends
+  on that outcome's configured semantic role (`outcome_roles`, visible via
+  `shark get E07-F01 --json` or `shark next E07-F01 --json` ->
+  `result_contract`/`outcome_roles`), not on this prompt's own text:
+  - role `success` (typically `pass`): zero `kickbacks`, and no `findings`
+    left with `disposition: open` or `severity_conflict`.
+  - role `kickback_rework` (a per-item rework outcome): at least one
+    `kickbacks` entry (`entity_key`, `target_status`, `reason`) — one per
+    item that must reopen, replacing the legacy
+    `<entity-id> -> <status> --reason "<why>"` line format.
+  - role `route_rework` (this step's own main entity re-routes as a whole):
+    zero `kickbacks` — the configured route itself is the rework path; do
+    not also emit per-item kickbacks for this role.
+  - roles `blocked`/`hold`/`cancelled`: either at least one kickback or a
+    non-empty `no_kickback_reason` explaining why none applies.
+- A blocking finding you are reporting (not fixing) must carry
+  `disposition: open` (or `severity_conflict` when reviewers disagree);
+  every other GateResult field constraint is enforced the same way
+  regardless of which role this outcome carries.
+
+Write your full narrative report to the file this step already directs
+(unchanged); the envelope's `summary` is a compact verdict statement, not a
+duplicate of that report.
