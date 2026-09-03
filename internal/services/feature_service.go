@@ -1137,9 +1137,9 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		existing, err := s.repo.GetByKey(ctx, featureKey)
 		if err == nil && existing != nil {
 			if next := s.suggestNextFeatureKey(ctx, epic.ID, epicKey); next != "" {
-				return nil, fmt.Errorf("feature with key '%s' already exists (next available: %s)", featureKey, next)
+				return nil, fmt.Errorf("feature with key %q already exists (next available: %s)", featureKey, next)
 			}
-			return nil, fmt.Errorf("feature with key '%s' already exists", featureKey)
+			return nil, fmt.Errorf("feature with key %q already exists", featureKey)
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("failed to check existing feature key %s: %w", featureKey, err)

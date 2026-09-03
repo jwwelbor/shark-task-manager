@@ -519,9 +519,9 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 		existing, err := s.repo.GetByKey(ctx, epicKey)
 		if err == nil && existing != nil {
 			if next := s.suggestNextEpicKey(ctx); next != "" {
-				return nil, fmt.Errorf("epic with key '%s' already exists (next available: %s)", epicKey, next)
+				return nil, fmt.Errorf("epic with key %q already exists (next available: %s)", epicKey, next)
 			}
-			return nil, fmt.Errorf("epic with key '%s' already exists", epicKey)
+			return nil, fmt.Errorf("epic with key %q already exists", epicKey)
 		}
 	} else {
 		// Auto-generate next epic key
