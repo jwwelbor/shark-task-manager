@@ -3,113 +3,101 @@
 package gaterun
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"golang.org/x/sys/windows"
 )
 
-// This file is the Windows fallback for the fd-relative primitives
+// This file is the Windows counterpart of the fd-relative primitives
 // fsio_nofollow_unix.go implements via openat/linkat/renameat/unlinkat/
-// fstatat. The standard library exposes no portable no-follow or
-// directory-relative ("*at") primitives on this platform, so each operation
-// here falls back to a plain path join off dh's directory name plus the
-// ordinary os.* path-based call — the same approach, and the same residual
-// TOCTOU gap, this package has always documented for Windows (see
-// dirhandle_windows.go and the existing leaf-file fallback below).
+// fstatat. Every operation here delegates to ntfs_windows.go, which opens
+// (or creates) its target relative to dh via NtCreateFile with
+// FILE_OPEN_REPARSE_POINT and checks the resulting handle's own attributes
+// — never a separate Lstat/GetFileAttributes-by-path call whose result is
+// discarded in favor of reopening the same name by string. That is what
+// closes the check-then-path-use TOCTOU window this package's previous
+// Windows fallback (a plain Lstat, then a fresh path-joined os.Open/
+// os.OpenFile/os.Link/os.Rename/os.Remove) left open (TD-187 / UAT-3-2).
 
-func joinAt(dh *os.File, name string) string {
-	return filepath.Join(dh.Name(), name)
-}
-
-// openRegularNoFollowAt is the Windows fallback: it falls back to a separate
-// Lstat-then-Open, leaving the TOCTOU window this package's Unix build
-// closes (see fsio_nofollow_unix.go) unaddressed on Windows; symlink
-// creation there requires elevated privileges by default, and the existing
-// test suite skips the symlink-swap-race regression test on windows for the
-// same reason.
 func openRegularNoFollowAt(dh *os.File, name string) (*os.File, error) {
-	path := joinAt(dh, name)
-	fi, err := os.Lstat(path)
+	h, err := openFileRelNoFollow(windows.Handle(dh.Fd()), name, windows.FILE_GENERIC_READ)
 	if err != nil {
-		return nil, fmt.Errorf("gaterun: stat %s: %w", path, err)
+		return nil, err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return nil, &UnsafePathError{Path: path, Reason: "refusing to follow symlink"}
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, &UnsafePathError{Path: path, Reason: "target is not a regular file"}
-	}
-
-	f, err := os.Open(path) // #nosec G304 -- path is joined from a validated run dir, and is Lstat-verified above.
-	if err != nil {
-		return nil, fmt.Errorf("gaterun: open %s: %w", path, err)
-	}
-	return f, nil
+	return os.NewFile(uintptr(h), name), nil
 }
 
 // openRegularNoFollowPath is the absolute/bare-path counterpart of
 // openRegularNoFollowAt, for callers that only have a plain path (e.g. a
 // CLI-flag-supplied file) rather than an already-open directory handle to
-// open relative to. Like openRegularNoFollowAt above, this Windows build
-// falls back to a separate Lstat-then-Open, leaving the same documented
-// TOCTOU gap unaddressed on this platform.
+// open relative to — the same role fsio_nofollow_unix.go's
+// openRegularNoFollowPath plays there. It opens path in a single
+// CreateFile call with FILE_FLAG_OPEN_REPARSE_POINT (the Win32-layer
+// equivalent of O_NOFOLLOW) and verifies the resulting handle's own
+// attributes, so the final path component is never separately stat'd and
+// then reopened by name. Like its Unix counterpart, this protects only the
+// final path component — ancestor directories in an arbitrary CLI-supplied
+// path are trusted the same way on both platforms; this is an unchanged,
+// pre-existing scope boundary, not a new gap.
 func openRegularNoFollowPath(path string) (*os.File, error) {
-	fi, err := os.Lstat(path)
+	pathPtr, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return nil, fmt.Errorf("gaterun: stat %s: %w", path, err)
+		return nil, fmt.Errorf("gaterun: encode %s: %w", path, err)
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
+	h, err := windows.CreateFile(
+		pathPtr,
+		windows.GENERIC_READ,
+		uint32(windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE),
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		if err == windows.ERROR_FILE_NOT_FOUND || err == windows.ERROR_PATH_NOT_FOUND { //nolint:errorlint // syscall.Errno comparison by value is the documented pattern for these constants.
+			return nil, fmt.Errorf("gaterun: open %s: %w", path, os.ErrNotExist)
+		}
+		return nil, fmt.Errorf("gaterun: open %s: %w", path, err)
+	}
+	f := os.NewFile(uintptr(h), path)
+
+	info, ierr := getFileAttributesByHandle(h)
+	if ierr != nil {
+		_ = f.Close()
+		return nil, ierr
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		_ = f.Close()
 		return nil, &UnsafePathError{Path: path, Reason: "refusing to follow symlink"}
 	}
-	if !fi.Mode().IsRegular() {
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
+		_ = f.Close()
 		return nil, &UnsafePathError{Path: path, Reason: "target is not a regular file"}
-	}
-
-	f, err := os.Open(path) // #nosec G304 -- path is Lstat-verified above.
-	if err != nil {
-		return nil, fmt.Errorf("gaterun: open %s: %w", path, err)
 	}
 	return f, nil
 }
 
-func createExclAt(dh *os.File, name string, mode os.FileMode) (*os.File, error) {
-	path := joinAt(dh, name)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode) // #nosec G304 -- path is joined from a validated run dir.
+func createExclAt(dh *os.File, name string, _ os.FileMode) (*os.File, error) {
+	h, err := createExclRel(windows.Handle(dh.Fd()), name)
 	if err != nil {
-		return nil, fmt.Errorf("gaterun: create %s: %w", path, err)
+		return nil, err
 	}
-	return f, nil
+	return os.NewFile(uintptr(h), name), nil
 }
 
 func linkAt(dh *os.File, oldname, newname string) error {
-	if err := os.Link(joinAt(dh, oldname), joinAt(dh, newname)); err != nil {
-		return fmt.Errorf("gaterun: link %s to %s: %w", oldname, newname, err)
-	}
-	return nil
+	return linkRelNoFollow(windows.Handle(dh.Fd()), oldname, newname)
 }
 
 func renameAt(dh *os.File, oldname, newname string) error {
-	if err := os.Rename(joinAt(dh, oldname), joinAt(dh, newname)); err != nil {
-		return fmt.Errorf("gaterun: rename %s to %s: %w", oldname, newname, err)
-	}
-	return nil
+	return renameRelNoFollow(windows.Handle(dh.Fd()), oldname, newname)
 }
 
 func removeAt(dh *os.File, name string) error {
-	if err := os.Remove(joinAt(dh, name)); err != nil {
-		return fmt.Errorf("gaterun: remove %s: %w", name, err)
-	}
-	return nil
+	return removeRelNoFollow(windows.Handle(dh.Fd()), name)
 }
 
 func existingTargetKindAt(dh *os.File, name string) (exists, isSymlink, isRegular bool, err error) {
-	fi, statErr := os.Lstat(joinAt(dh, name))
-	if statErr != nil {
-		if errors.Is(statErr, os.ErrNotExist) {
-			return false, false, false, nil
-		}
-		return false, false, false, fmt.Errorf("gaterun: stat %s: %w", name, statErr)
-	}
-	return true, fi.Mode()&os.ModeSymlink != 0, fi.Mode().IsRegular(), nil
+	return statRelNoFollow(windows.Handle(dh.Fd()), name)
 }

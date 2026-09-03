@@ -3,20 +3,22 @@
 // before gateresult.ValidateChangeImpactSet ever applied its field-level
 // bounds — the same defect class T-E34-F05-004's rework closed for
 // --apply-result (run_apply_result_symlink_fifo_test.go). A plain
-// os.ReadFile also silently follows a symlink target and can hang
-// indefinitely on a FIFO with no writer connected. These tests prove both
-// are now rejected via the shared gaterun.ReadBoundedRegularFile helper
+// os.ReadFile also silently follows a symlink target. This test proves that
+// is now rejected via the shared gaterun.ReadBoundedRegularFile helper
 // (fsio_path.go).
+//
+// The companion FIFO regression (--impact-file=<fifo> hanging the CLI
+// process) lives in impact_fifo_unix_test.go: syscall.Mkfifo has no Windows
+// implementation, so it is split into its own POSIX-only file rather than
+// making this file (which also covers the cross-platform symlink case) fail
+// go vet/go build on GOOS=windows.
 package commands
 
 import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
-	"syscall"
 	"testing"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 )
@@ -41,32 +43,5 @@ func TestReadBoundedImpactFile_RejectsSymlinkTarget(t *testing.T) {
 	var unsafeErr *gaterun.UnsafePathError
 	if !errors.As(err, &unsafeErr) {
 		t.Errorf("readBoundedImpactFile over a symlinked --impact-file error = %v, want *gaterun.UnsafePathError", err)
-	}
-}
-
-// TestReadBoundedImpactFile_RejectsFIFOTarget proves --impact-file pointing
-// at a FIFO with no writer connected returns an error promptly instead of
-// hanging the CLI process. A 5s deadline bounds the test itself in case the
-// fix regresses.
-func TestReadBoundedImpactFile_RejectsFIFOTarget(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FIFOs are not available on windows")
-	}
-	path := filepath.Join(t.TempDir(), "impact.json")
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatalf("mkfifo: %v", err)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if _, err := readBoundedImpactFile(path); err == nil {
-			t.Error("readBoundedImpactFile over a FIFO --impact-file: want error, got nil")
-		}
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("readBoundedImpactFile over a FIFO --impact-file blocked instead of returning an error")
 	}
 }

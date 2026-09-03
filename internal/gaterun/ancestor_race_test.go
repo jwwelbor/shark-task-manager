@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -31,10 +30,6 @@ import (
 // dir string refuses to follow the swapped ancestor rather than silently
 // operating inside the attacker directory.
 func TestAncestorSymlinkSwap_NeverFollowsLink(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("ancestor no-follow descent targets the POSIX openat(O_NOFOLLOW|O_DIRECTORY) fix; windows keeps the documented TD-181 residual gap")
-	}
-
 	newSwappedDir := func(t *testing.T) (dir, attacker string) {
 		t.Helper()
 		root := t.TempDir()
@@ -128,10 +123,6 @@ func TestAncestorSymlinkSwap_NeverFollowsLink(t *testing.T) {
 // the budget below; against the fixed openat(O_NOFOLLOW|O_DIRECTORY) descent
 // it must never happen.
 func TestCreateResult_AncestorSymlinkSwapRace_NeverFollowsLink(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("ancestor no-follow descent targets the POSIX openat(O_NOFOLLOW|O_DIRECTORY) fix")
-	}
-
 	root := t.TempDir()
 	dir, err := RunDir(root, "run-1")
 	if err != nil {

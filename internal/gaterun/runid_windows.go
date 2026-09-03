@@ -6,65 +6,67 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"golang.org/x/sys/windows"
 )
 
-// ensureRunDirTree is the Windows fallback for runid_unix.go's
-// openat(O_NOFOLLOW|O_DIRECTORY) descriptor-chain implementation. The
-// standard library exposes no portable O_NOFOLLOW-equivalent open flag on
-// this platform, so each ancestor component is verified with a plain
-// Lstat-then-path-reuse instead — leaving the same ancestor-directory TOCTOU
-// window the Unix build closes unaddressed on Windows. This is a residual,
-// documented gap (TD-181), consistent with this package's existing leaf-file
-// Windows fallback (fsio_nofollow_windows.go) and its test suite, which
-// skips the symlink-swap-race regression tests on windows for the same
-// reason.
+// ensureRunDirTree is the Windows counterpart of runid_unix.go's
+// openat(O_NOFOLLOW|O_DIRECTORY) descriptor-chain implementation: each
+// ancestor component is opened-or-created (FILE_OPEN_IF) and verified real
+// via NtCreateFile relative to the handle for the level above it (see
+// ensureDirRelNoFollow / ntfs_windows.go), never via a separate
+// Lstat-then-path-reuse step. This closes the ancestor-directory TOCTOU
+// window the package's previous Windows fallback (Lstat, then Mkdir or
+// os.Chmod against the same path string) left open (TD-187 / UAT-3-2).
+//
+// Unlike the pre-fix fallback, this does not issue a trailing path-based
+// os.Chmod(leaf, ...) to reinforce owner-only mode: Windows has no
+// permission-bit analogue of POSIX 0700 that os.Chmod actually enforces
+// (it only toggles the read-only DOS attribute), so that call was already
+// a no-op for the security property it claimed to provide while
+// reintroducing exactly the same by-path TOCTOU this function closes for
+// every other step. The leaf directory's real-directory / no-follow
+// guarantee comes entirely from the verified handle chain above.
 func ensureRunDirTree(projectRoot, runID string) (string, error) {
+	anchor, err := os.Open(projectRoot) // #nosec G304 -- projectRoot is the caller-trusted anchor RunDir has always accepted.
+	if err != nil {
+		return "", fmt.Errorf("gaterun: open project root %s: %w", projectRoot, err)
+	}
+	defer func() { _ = anchor.Close() }()
+	anchorHandle := windows.Handle(anchor.Fd())
+
 	sharkDir := filepath.Join(projectRoot, ".shark")
-	if err := ensureRealDir(sharkDir, 0o755); err != nil {
+	sharkHandle, err := ensureDirRelNoFollow(anchorHandle, ".shark", sharkDir)
+	if err != nil {
 		return "", err
 	}
+	defer func() { _ = windows.CloseHandle(sharkHandle) }()
+
 	runsDir := filepath.Join(sharkDir, "runs")
-	if err := ensureRealDir(runsDir, 0o755); err != nil {
+	runsHandle, err := ensureDirRelNoFollow(sharkHandle, "runs", runsDir)
+	if err != nil {
 		return "", err
 	}
+	defer func() { _ = windows.CloseHandle(runsHandle) }()
+
 	leaf := filepath.Join(runsDir, runID)
-	if err := ensureRealDir(leaf, 0o700); err != nil {
+	leafHandle, err := ensureDirRelNoFollow(runsHandle, runID, leaf)
+	if err != nil {
 		return "", err
 	}
-	if err := os.Chmod(leaf, 0o700); err != nil {
-		return "", fmt.Errorf("gaterun: chmod run dir %s: %w", leaf, err)
-	}
+	defer func() { _ = windows.CloseHandle(leafHandle) }()
+
 	return leaf, nil
 }
 
-// ensureRealDir verifies path is a real (non-symlink) directory, creating it
-// with mode when absent. It never follows a symlink at path, and rejects any
-// existing non-directory target.
-func ensureRealDir(path string, mode os.FileMode) error {
-	fi, err := os.Lstat(path)
+// ensureDirRelNoFollow opens name as a directory relative to parent,
+// creating it when absent, and verifies — via the resulting handle, never a
+// separate Lstat — that it is a real (non-reparse-point) directory.
+// displayPath is used only for error messages.
+func ensureDirRelNoFollow(parent windows.Handle, name, displayPath string) (windows.Handle, error) {
+	h, err := openDirRelNoFollow(parent, name, true, false)
 	if err != nil {
-		if os.IsNotExist(err) {
-			if mkErr := os.Mkdir(path, mode); mkErr != nil {
-				// Tolerate a concurrent creator; re-check below.
-				if !os.IsExist(mkErr) {
-					return fmt.Errorf("gaterun: create dir %s: %w", path, mkErr)
-				}
-			} else {
-				return nil
-			}
-			fi, err = os.Lstat(path)
-			if err != nil {
-				return fmt.Errorf("gaterun: stat dir %s after create race: %w", path, err)
-			}
-		} else {
-			return fmt.Errorf("gaterun: stat %s: %w", path, err)
-		}
+		return 0, fmt.Errorf("gaterun: create dir %s: %w", displayPath, err)
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return &UnsafePathError{Path: path, Reason: "refusing to follow symlink"}
-	}
-	if !fi.IsDir() {
-		return &UnsafePathError{Path: path, Reason: "exists and is not a directory"}
-	}
-	return nil
+	return h, nil
 }

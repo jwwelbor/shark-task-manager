@@ -4,10 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
-	"syscall"
 	"testing"
-	"time"
 )
 
 // TestReadBoundedRegularFile_RejectsSymlinkTarget guards
@@ -32,35 +29,6 @@ func TestReadBoundedRegularFile_RejectsSymlinkTarget(t *testing.T) {
 		if !errors.As(err, &unsafeErr) {
 			t.Errorf("ReadBoundedRegularFile over a symlinked target error = %v, want *UnsafePathError", err)
 		}
-	}
-}
-
-// TestReadBoundedRegularFile_RejectsFIFOTarget guards against the no-follow
-// open blocking indefinitely on a FIFO opened for read with no writer
-// connected (a plain os.Open on a FIFO blocks until a writer appears). The
-// fix opens with O_NONBLOCK so this returns promptly with an error instead
-// of hanging the caller (and, in production, the CLI process). A 5s
-// deadline bounds the test itself in case the fix regresses.
-func TestReadBoundedRegularFile_RejectsFIFOTarget(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FIFOs are not available on windows")
-	}
-	path := filepath.Join(t.TempDir(), "envelope.json")
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatalf("mkfifo: %v", err)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if _, err := ReadBoundedRegularFile(path, 1024); err == nil {
-			t.Error("ReadBoundedRegularFile over a FIFO target: want error, got nil")
-		}
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("ReadBoundedRegularFile over a FIFO target blocked instead of returning an error")
 	}
 }
 

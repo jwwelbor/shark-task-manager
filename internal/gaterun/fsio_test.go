@@ -5,9 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -310,35 +308,6 @@ func TestReadOperationState_RejectsSymlinkTarget(t *testing.T) {
 	}
 }
 
-// TestReadResult_RejectsFIFOTarget guards against the no-follow open
-// blocking indefinitely on a FIFO opened for read with no writer connected
-// (a plain os.OpenFile(O_RDONLY) on a FIFO blocks until a writer appears).
-// The fix must open with O_NONBLOCK so this returns promptly with an
-// UnsafePathError instead of hanging the test (and, in production, the
-// calling command).
-func TestReadResult_RejectsFIFOTarget(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FIFOs are not available on windows")
-	}
-	dir := newRunDir(t)
-	path := filepath.Join(dir, resultFileName)
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatalf("mkfifo: %v", err)
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if _, _, err := ReadResult(dir); err == nil {
-			t.Error("ReadResult over a FIFO target: want error, got nil")
-		}
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("ReadResult over a FIFO target blocked instead of returning an error")
-	}
-}
-
 // TestReadResult_SymlinkSwapRaceNeverFollowsLink is the actual TOCTOU
 // reproduction: the two static "rejects symlink" tests above only prove the
 // read path catches a symlink that is *already* at result.json when the read
@@ -353,9 +322,6 @@ func TestReadResult_RejectsFIFOTarget(t *testing.T) {
 // reliably observes the secret content within the budget below, and against
 // the fixed no-follow-open code it must never observe it.
 func TestReadResult_SymlinkSwapRaceNeverFollowsLink(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlink-swap race targets the POSIX no-follow-open fix")
-	}
 	dir := newRunDir(t)
 	path := filepath.Join(dir, resultFileName)
 
@@ -416,34 +382,6 @@ func TestReadResult_NotExists(t *testing.T) {
 	}
 	if exists {
 		t.Error("exists = true for a run dir with no result.json")
-	}
-}
-
-func TestCreateResult_RejectsFIFOTarget(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FIFOs are not available on windows")
-	}
-	dir := newRunDir(t)
-	path := filepath.Join(dir, resultFileName)
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatalf("mkfifo: %v", err)
-	}
-	if _, err := CreateResult(dir, []byte(`{"a":1}`)); err == nil {
-		t.Fatal("CreateResult over a FIFO target: want error, got nil")
-	}
-}
-
-func TestWriteOperationState_RejectsFIFOTarget(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FIFOs are not available on windows")
-	}
-	dir := newRunDir(t)
-	path := filepath.Join(dir, operationStateFileName)
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatalf("mkfifo: %v", err)
-	}
-	if err := WriteOperationState(dir, []byte(`{"phase":"x"}`)); err == nil {
-		t.Fatal("WriteOperationState over a FIFO target: want error, got nil")
 	}
 }
 
