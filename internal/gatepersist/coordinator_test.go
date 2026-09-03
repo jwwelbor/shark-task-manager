@@ -339,6 +339,74 @@ func TestPersist_ConflictingReplayRejected(t *testing.T) {
 	}
 }
 
+// TestPersist_CrossEntityRunIDBindingRejected is the UAT-3-1 regression.
+// UAT-3-1's fix guidance: "Add a recovery test that attempts X's pre-state
+// artifact with Y's valid claim and proves zero notes, kickbacks, or
+// transitions on Y."
+//
+// It reproduces the exact crash window the finding named: entity X's worker
+// durably commits identity.json and result.json (gaterun.CreateIdentity then
+// gaterun.CreateResult — the same order gatepersist.Coordinator.Persist now
+// uses) but crashes before operation-state.json is ever written
+// (gaterun.DecideResume's nil-State ResumeActionResumeNextOperation case).
+// Entity Y then attempts to Persist under the SAME run_id/run directory,
+// re-supplying X's own already-durable envelope bytes unchanged — exactly
+// what run_resume.go's resumeGateIngestForUninitializedState does with
+// decision.Result (never new caller-supplied bytes). Before the fix, nothing
+// stopped gatepersist.Coordinator.Persist's !exists branch from binding a
+// fresh OperationState to Y's identity and applying X's envelope under Y's
+// own outcome/kickback role mapping; the fix's CreateIdentity call must
+// reject this before any target write.
+func TestPersist_CrossEntityRunIDBindingRejected(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	foreignEntityKey := "T-E34-F05-777"
+	world.setStatus(models.EntityTypeTask, foreignEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+
+	reqX := baseRequest(t, runDir)
+
+	// Simulate entity X's worker crashing in the create-once-result/
+	// before-state-init window: identity.json and result.json are durably
+	// committed, operation-state.json never is.
+	if _, err := gaterun.CreateIdentity(runDir, gaterun.RunIdentity{
+		RunID:      reqX.RunID,
+		EntityKey:  reqX.EntityKey,
+		EntityType: string(reqX.EntityType),
+	}); err != nil {
+		t.Fatalf("simulate identity bind for X: %v", err)
+	}
+	if _, err := gaterun.CreateResult(runDir, []byte(reqX.EnvelopeJSON)); err != nil {
+		t.Fatalf("simulate result commit for X: %v", err)
+	}
+
+	// Entity Y (a different, but otherwise validly claimed/authorized
+	// entity) now attempts to Persist the SAME run_id/run directory with
+	// X's own durable envelope bytes, under Y's own EntityKey/EntityType.
+	// This must be rejected before any note, kickback, or transition on Y.
+	reqY := reqX
+	reqY.EntityKey = foreignEntityKey
+
+	_, err := coord.Persist(context.Background(), reqY)
+	if err == nil {
+		t.Fatal("expected cross-entity run_id rebinding to be rejected")
+	}
+	if !gaterun.IsConflict(err) {
+		t.Fatalf("expected a gaterun.ConflictError for the identity mismatch, got %v", err)
+	}
+	if len(world.notes) != 0 {
+		t.Fatalf("rejected cross-entity Persist must add zero notes on Y, got %d notes", len(world.notes))
+	}
+	got, statusErr := world.CurrentStatus(context.Background(), models.EntityTypeTask, foreignEntityKey)
+	if statusErr != nil {
+		t.Fatalf("CurrentStatus: %v", statusErr)
+	}
+	if got != "in_review" {
+		t.Fatalf("rejected cross-entity Persist must not transition Y, got status %q", got)
+	}
+}
+
 func TestPersist_TransitionAppliedThenReleaseGatedOnRetirement(t *testing.T) {
 	runDir := newTestRunDir(t)
 	world := newFakeWorld()

@@ -117,6 +117,26 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, err
 	}
 
+	// UAT-3-1 fix: durably bind this run_id's owning entity BEFORE
+	// result.json (or anything derived from it) ever becomes recoverable.
+	// gaterun.CreateIdentity uses the same create-once/first-writer-wins
+	// protocol as CreateResult: a first call for run_id durably binds
+	// req.EntityKey/EntityType; a later call for the SAME entity is
+	// idempotent (the ordinary resume/replay case); a later call naming a
+	// DIFFERENT entity for the same run_id fails closed with *ConflictError
+	// before any coordinator write — closing the crash window where a
+	// result.json could exist with no durable owner to check a resume
+	// request's caller-supplied entity against (see
+	// internal/cli/commands.resumeGateIngestForUninitializedState's now-
+	// resolved former accepted-risk comment).
+	if _, err := gaterun.CreateIdentity(req.RunDir, gaterun.RunIdentity{
+		RunID:      req.RunID,
+		EntityKey:  req.EntityKey,
+		EntityType: string(req.EntityType),
+	}); err != nil {
+		return nil, fmt.Errorf("gatepersist: bind run identity: %w", err)
+	}
+
 	// Kickback validation runs before this run_id ever accepts a durable
 	// result: a run whose result would be rejected must not permanently burn
 	// its run_id under gaterun.CreateResult's create-once/first-writer-wins
@@ -142,21 +162,18 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, fmt.Errorf("gatepersist: load operation state: %w", err)
 	}
 	if !exists {
-		// Entity identity here (req.EntityKey/req.EntityType) is established
-		// entirely from THIS call's Request — there is no pre-existing durable
-		// record for this run_id to check it against yet (that is exactly what
-		// this branch is creating). This is intentional and identical to how
-		// identity is bound on any brand-new run_id's first-ever Persist call
-		// (the ordinary, non-resume dispatch path): the caller's verified
-		// claim/session on req.EntityKey (checked above by verifyClaimSession
-		// and, before this call, by run.go's verifyClaimSession) is this
-		// coordinator's sole source of truth for "which entity does this call
-		// concern." See run_resume.go's resumeGateIngestForUninitializedState
-		// doc comment for the accepted-risk analysis of the one case where
-		// this matters differently: a caller who names a run_id belonging to
-		// a DIFFERENT entity that crashed in the create-once-result/
-		// before-state-init window (this exact branch, reached via
-		// --resume-run instead of a fresh dispatch).
+		// Entity identity here (req.EntityKey/req.EntityType) is no longer
+		// established solely from THIS call's Request (the UAT-3-1 gap): the
+		// CreateIdentity call above already durably bound req.RunID to
+		// req.EntityKey/EntityType before CreateResult ever ran, and fails
+		// closed with *ConflictError if a prior call already bound this
+		// run_id to a DIFFERENT entity — so reaching this branch at all
+		// means req.EntityKey/EntityType is either this run_id's first
+		// binding or already matches its one durable owner. This closes the
+		// window run_resume.go's resumeGateIngestForUninitializedState used
+		// to accept as risk: a caller naming a DIFFERENT entity's run_id that
+		// crashed in the create-once-result/before-state-init window now
+		// fails at CreateIdentity, before this state is ever initialized.
 		state = gaterun.NewOperationState(req.RunID, req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, digest)
 		if err := state.Save(req.RunDir); err != nil {
 			return nil, fmt.Errorf("gatepersist: initialize operation state: %w", err)

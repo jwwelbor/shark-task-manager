@@ -11,11 +11,16 @@ import (
 	"os"
 )
 
-// resultFileName and operationStateFileName are the two sidecar files this
-// package owns under a run directory.
+// resultFileName, operationStateFileName, and identityFileName are the
+// sidecar files this package owns under a run directory.
 const (
 	resultFileName         = "result.json"
 	operationStateFileName = "operation-state.json"
+	// identityFileName holds the create-once RunIdentity binding (identity.go,
+	// UAT-3-1 fix): it is created before result.json ever becomes durable, so
+	// any run directory that has a result.json also, by construction, already
+	// has its owning entity/run identity durably and immutably bound.
+	identityFileName = "identity.json"
 )
 
 // Every exported function below re-derives a fresh no-follow-verified run
@@ -148,8 +153,18 @@ func CreateResult(dir string, data []byte) (created bool, err error) {
 	if len(data) == 0 {
 		return false, fmt.Errorf("gaterun: result data must not be empty")
 	}
+	return createOnceSidecar(dir, resultFileName, ".result-", data)
+}
+
+// createOnceSidecar implements the shared create-once, no-replace,
+// first-writer-wins protocol every immutable sidecar file in this package
+// uses (result.json via CreateResult, identity.json via CreateIdentity):
+// see CreateResult's doc comment for the full write-complete-temp-then-
+// hardlink rationale, which applies identically here regardless of which
+// fileName is being created.
+func createOnceSidecar(dir, fileName, tempPrefix string, data []byte) (created bool, err error) {
 	if len(data) > maxSidecarBytes {
-		return false, fmt.Errorf("gaterun: result data exceeds the %d byte bound", maxSidecarBytes)
+		return false, fmt.Errorf("gaterun: %s data exceeds the %d byte bound", fileName, maxSidecarBytes)
 	}
 
 	dh, err := openRunDirNoFollow(dir)
@@ -158,21 +173,21 @@ func CreateResult(dir string, data []byte) (created bool, err error) {
 	}
 	defer func() { _ = dh.Close() }()
 
-	tmpName, tmp, err := createTempAt(dh, ".result-", ".tmp")
+	tmpName, tmp, err := createTempAt(dh, tempPrefix, ".tmp")
 	if err != nil {
-		return false, fmt.Errorf("gaterun: create temp result file: %w", err)
+		return false, fmt.Errorf("gaterun: create temp %s file: %w", fileName, err)
 	}
 	defer func() { _ = removeAt(dh, tmpName) }() // always cleaned up: linked content keeps its own inode.
 
 	if cherr := tmp.Chmod(0o600); cherr != nil {
 		_ = tmp.Close()
-		return false, fmt.Errorf("gaterun: chmod temp result file: %w", cherr)
+		return false, fmt.Errorf("gaterun: chmod temp %s file: %w", fileName, cherr)
 	}
 	if werr := writeSyncClose(tmp, data); werr != nil {
 		return false, werr
 	}
 
-	linkErr := linkAt(dh, tmpName, resultFileName)
+	linkErr := linkAt(dh, tmpName, fileName)
 	if linkErr == nil {
 		if dErr := fsyncDir(dh); dErr != nil {
 			return false, dErr
@@ -183,17 +198,17 @@ func CreateResult(dir string, data []byte) (created bool, err error) {
 		return false, linkErr
 	}
 
-	// Another writer already won the race (or result.json pre-dates this
+	// Another writer already won the race (or fileName pre-dates this
 	// call). Its content is guaranteed complete by construction — verify it
 	// is safe, then decide idempotent-success vs conflict.
-	existing, readErr := readRegularBounded(dh, resultFileName, maxSidecarBytes)
+	existing, readErr := readRegularBounded(dh, fileName, maxSidecarBytes)
 	if readErr != nil {
 		return false, readErr
 	}
 	if bytes.Equal(existing, data) {
 		return false, nil
 	}
-	return false, &ConflictError{Path: dir + string(os.PathSeparator) + resultFileName}
+	return false, &ConflictError{Path: dir + string(os.PathSeparator) + fileName}
 }
 
 func writeSyncClose(f *os.File, data []byte) (err error) {
@@ -218,13 +233,19 @@ func writeSyncClose(f *os.File, data []byte) (err error) {
 // exactly one error taxonomy regardless of which of the two calls in this
 // package's flow first observes the path.
 func ReadResult(dir string) (data []byte, exists bool, err error) {
+	return readOnceSidecar(dir, resultFileName)
+}
+
+// readOnceSidecar is ReadResult/ReadIdentity's shared implementation: read
+// dir/fileName, or report (nil, false, nil) if it does not exist yet.
+func readOnceSidecar(dir, fileName string) (data []byte, exists bool, err error) {
 	dh, err := openRunDirNoFollow(dir)
 	if err != nil {
 		return nil, false, err
 	}
 	defer func() { _ = dh.Close() }()
 
-	data, err = readRegularBounded(dh, resultFileName, maxSidecarBytes)
+	data, err = readRegularBounded(dh, fileName, maxSidecarBytes)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, false, nil

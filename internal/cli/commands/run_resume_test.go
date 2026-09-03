@@ -472,8 +472,13 @@ func TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunDir: %v", err)
 	}
-	// result.json only — operation-state.json is never written, matching
-	// the create-once-result/before-state-init crash window.
+	// identity.json + result.json only — operation-state.json is never
+	// written, matching the create-once-result/before-state-init crash
+	// window (UAT-3-1 fix: identity.json is durably bound before
+	// result.json in production, via gatepersist.Coordinator.Persist).
+	if _, err := gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: runID, EntityKey: entityKey, EntityType: "task"}); err != nil {
+		t.Fatalf("CreateIdentity: %v", err)
+	}
 	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {
 		t.Fatalf("CreateResult: %v", err)
 	}
@@ -517,6 +522,81 @@ func TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus(t *testing.T) {
 	}
 	if transition.status[entityKey] != "in_review" {
 		t.Fatalf("expected the coordinator's transitioner to record in_review, got %q", transition.status[entityKey])
+	}
+}
+
+// TestRunResumeRun_UninitializedStateRejectsForeignEntityResume is the
+// UAT-3-1 regression at the CLI layer. A run_id's result.json (and, per the
+// fix, its identity.json) were durably committed for entity X while the
+// process crashed before operation-state.json was ever written — the exact
+// window TestRunResumeRun_UninitializedStateReIngestsUsingLiveStatus
+// exercises for the legitimate same-entity resume. Here a DIFFERENT entity Y
+// (holding its own genuinely valid claim/session) supplies X's run_id to
+// --resume-run. This must be rejected before resumeGateIngestForUninitializedState
+// reaches the coordinator at all — zero notes, kickbacks, or transitions on
+// Y, per UAT-3-1's fix guidance.
+func TestRunResumeRun_UninitializedStateRejectsForeignEntityResume(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origTransitioner, origCoordinator := runResumeTransitionerOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeTransitionerOverride, runResumeCoordinatorOverride = origTransitioner, origCoordinator
+	}()
+
+	originalEntityKey := "E01-F01-001"
+	foreignEntityKey := "E01-F01-999"
+	runID := "run-uninit-foreign1234567890abcdef"
+	root := t.TempDir()
+	dir, err := gaterun.RunDir(root, runID)
+	if err != nil {
+		t.Fatalf("RunDir: %v", err)
+	}
+	// identity.json bound to the ORIGINAL entity, result.json committed —
+	// operation-state.json never written, matching the crash window.
+	if _, err := gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: runID, EntityKey: originalEntityKey, EntityType: "task"}); err != nil {
+		t.Fatalf("CreateIdentity: %v", err)
+	}
+	if _, err := gaterun.CreateResult(dir, []byte(parityEnvelope)); err != nil {
+		t.Fatalf("CreateResult: %v", err)
+	}
+
+	out, decision, err := resolveResumeStatusAndDecision(root, runID, "task", foreignEntityKey, time.Now())
+	if err != nil {
+		t.Fatalf("resolveResumeStatusAndDecision: %v", err)
+	}
+	if decision.Action != gaterun.ResumeActionResumeNextOperation || decision.State != nil {
+		t.Fatalf("expected resume_next_operation with nil State, got action=%s state=%+v", decision.Action, decision.State)
+	}
+
+	transition := &fakeParityTransition{status: map[string]string{foreignEntityKey: "todo"}}
+	releaser := &fakeCountingLeaseReleaser{}
+	runResumeTransitionerOverride = &fakeParityTransitioner{
+		status:         map[string]string{foreignEntityKey: "todo"},
+		outcomes:       map[string]string{"pass": "in_review"},
+		resultContract: "gate_result_v1",
+		outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+		&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+		fakeParityStatusValidator{}, transition, transition, releaser, transition,
+	)
+
+	runResumeID = runID
+	runSession = "sess-resume-foreign"
+
+	err = resumeGateIngestForUninitializedState(context.Background(), root, "task", foreignEntityKey, decision, out)
+	if err == nil {
+		t.Fatal("expected resumeGateIngestForUninitializedState to reject a foreign-entity resume, got nil error")
+	}
+
+	if out.Ingested {
+		t.Error("out.Ingested = true, want false: rejected resume must not report ingestion")
+	}
+	if len(releaser.calls) != 0 {
+		t.Fatalf("expected zero lease release calls on rejected foreign-entity resume, got %d", len(releaser.calls))
+	}
+	if transition.status[foreignEntityKey] != "todo" {
+		t.Fatalf("rejected foreign-entity resume must not transition Y, got status %q", transition.status[foreignEntityKey])
 	}
 }
 

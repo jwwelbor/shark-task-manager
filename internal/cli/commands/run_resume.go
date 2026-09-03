@@ -242,59 +242,55 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 // (coordinator.go) initializes a fresh OperationState from the
 // SourceStatus/Gate/digest this call supplies, exactly closing this window.
 //
-// Accepted risk (code-review round-9 Finding 1, investigated — not fixed):
-// unlike resumeGateIngestIfConfigured's decision.State != nil path, there is
-// no durably recorded entity identity for this run_id to check the caller's
-// entityType/entityKey against — that is exactly what this call is
-// initializing. A caller holding a genuinely valid, live claim/session on
-// entity Y who also names a DIFFERENT entity X's run_id (one that crashed in
-// this exact create-once-result/before-state-init window) will have
-// gatepersist.Coordinator.Persist bind Y's identity to X's already-durable
-// result.json bytes (decision.Result — never new caller-supplied bytes; see
-// this file's package doc comment) and apply X's envelope under Y's own
-// outcome/kickback role mapping.
+// UAT-3-1 fix (was: "Accepted risk", code-review round-9 Finding 1): unlike
+// resumeGateIngestIfConfigured's decision.State != nil path, there was no
+// durably recorded entity identity for this run_id to check the caller's
+// entityType/entityKey against at the time that finding was written — that
+// is exactly what this call used to initialize with no prior check. The
+// crash-recovery persistence coordinator (gatepersist.Coordinator.Persist)
+// now durably binds a run_id's owning entity via gaterun.CreateIdentity
+// BEFORE gaterun.CreateResult ever makes result.json recoverable (see
+// coordinator.go's Persist), so a genuine crash in this exact window always
+// leaves identity.json bound to the entity that actually produced the
+// result. The explicit gaterun.ReadIdentity/VerifyRunIdentity check below
+// re-verifies that binding here too — failing closed with zero coordinator
+// writes on a mismatch — rather than relying solely on
+// gatepersist.Coordinator.Persist's own CreateIdentity call to reject it
+// deeper in the stack, so a caller naming a foreign entity's run_id gets a
+// clear, dedicated rejection before any other side effect (status lookup,
+// kickback validation, etc.) runs.
 //
-// This is accepted rather than fixed here because:
-//  1. There is no durable record to check against pre-init — closing it for
-//     real requires a schema change (recording run_id -> entity/claim binding
-//     at run-creation time, e.g. on the claim itself) verified independently
-//     of this call, which is a design change out of scope for this fix-only
-//     rework round, not a local guard this function can add.
-//  2. run_id is a cryptographically unguessable uuid.New() minted once per
-//     top-level `shark run` invocation (internal/gaterun/runid.go) — this is
-//     the same capability-token trust model this feature already relies on
-//     elsewhere (claim SessionID). Reaching this window at all requires
-//     either possessing that exact run_id or filesystem read access to
-//     .shark/runs/ to enumerate it; either implies access roughly equivalent
-//     to what a caller already has by holding a live claim/session in this
-//     single-project, same-user CLI (not a multi-tenant boundary).
-//  3. A successful cross-application still requires more than access alone:
-//     X's envelope outcome_key must resolve against Y's own currently-valid
-//     Outcomes map (nextInfo.Outcomes, derived from Y's live status below) —
-//     not a coincidental match, since pass/fail/blocked are the mandatory
-//     core outcome vocabulary every workable step defines (see the
-//     route-based workflow guide's outcome-routing section), so this
-//     condition is easily satisfied rather than a meaningful additional
-//     barrier — and any kickbacks in X's envelope must independently pass
-//     validateKickbacks against Y's own kickback-eligible workflow
-//     membership — gateresult/gatepersist validation fails closed otherwise.
-//  4. The far more likely real-world trigger is operator error (a stale or
-//     mistyped --resume-run=<run_id> against the wrong entity), which this
-//     reasoning does not make safe to ignore going forward — a future
-//     rework that adds the run_id->entity binding from point 1 should remove
-//     this comment and add the real check.
-//
-// Sibling swept (code-review round-9 rework protocol): run_apply_result.go's
-// applyResultIngest reaches the same gatepersist.Coordinator.Persist !exists
-// branch through runner.IngestGateResult, but its EnvelopeBytes come from a
-// caller-supplied --apply-result file path, not a durably-read result.json —
-// so gaterun.CreateResult's create-once/first-writer-wins content-hash check
-// (fsio.go) fails closed on any foreign run_id whose result.json already
-// holds different bytes. The same residual risk exists there only if the
-// caller reproduces a foreign entity's exact original envelope bytes
-// byte-for-byte, which needs the same read access as this window's exposure
-// — not fixed separately for the same reasons as points 1-2 above.
+// Sibling swept (code-review round-9 rework protocol, re-verified for
+// UAT-3-1): run_apply_result.go's applyResultIngest reaches the same
+// gatepersist.Coordinator.Persist !exists branch through
+// runner.IngestGateResult, but its EnvelopeBytes come from a caller-supplied
+// --apply-result file path, not a durably-read result.json — so
+// gaterun.CreateResult's create-once/first-writer-wins content-hash check
+// (fsio.go) already fails closed on any foreign run_id whose result.json
+// already holds different bytes, and it now also inherits the same
+// CreateIdentity binding/conflict check every Persist call makes.
 func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, entityType, entityKey string, decision *gaterun.ResumeDecision, out *resumeRunOutput) error {
+	// UAT-3-1: verify the durable identity.json binding (written before
+	// result.json by gatepersist.Coordinator.Persist) matches the caller's
+	// claimed entity BEFORE any further lookup or coordinator call, so a
+	// caller naming a foreign entity's run_id is rejected with zero side
+	// effects — not merely relying on CreateIdentity's own conflict check
+	// deeper in the coordinator.
+	dir, err := gaterun.RunDir(projectRoot, runResumeID)
+	if err != nil {
+		return fmt.Errorf("resolve run directory for run_id %q: %w", runResumeID, err)
+	}
+	identity, exists, err := gaterun.ReadIdentity(dir)
+	if err != nil {
+		return fmt.Errorf("read run identity for run_id %q: %w", runResumeID, err)
+	}
+	if !exists {
+		return fmt.Errorf("gaterun: run_id %q has a durable result but no durable identity binding; refusing to resume", runResumeID)
+	}
+	if err := gaterun.VerifyRunIdentity(identity, entityKey, entityType); err != nil {
+		return fmt.Errorf("resume identity mismatch for run_id %q: %w", runResumeID, err)
+	}
+
 	transitioner := runResumeTransitionerOverride
 	if transitioner == nil {
 		var err error
