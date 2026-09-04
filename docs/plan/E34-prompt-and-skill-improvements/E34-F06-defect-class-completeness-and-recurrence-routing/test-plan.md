@@ -76,8 +76,14 @@ test case above instead names its concrete entrypoint:
   is workflow content, not an agent persona).
 - **New test helpers needed**: none. TC-002/TC-004/TC-010 are one-line grep
   assertions addable to `embed_test.go` or a lightweight companion test file
-  in the same package; TC-005 through TC-009 are manual review checklist
-  items recorded in the code-review/UAT report for this feature, not
+  in the same package (TC-010 is implemented as
+  `TestDefectClassSweepNoGoPersistenceIntroduced` in
+  `internal/sharkdata/embed_test.go`, scoped to non-test Go source under
+  `internal/`); TC-005 through TC-009 are manual review checklist
+  items recorded in the code-review/UAT report for this feature — the
+  reviewed-evidence record is
+  `E34-F06-defect-class-completeness-and-recurrence-routing/scenario-review-TC-005-TC-009.md`
+  — not
   automated Go tests (no fixture-execution harness exists for prose
   "decision procedures," consistent with E34-F05's precedent of not building
   one either).

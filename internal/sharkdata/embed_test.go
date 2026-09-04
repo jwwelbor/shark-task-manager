@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -974,6 +975,58 @@ func TestDefectClassSweepNoWWGMOrToolLeakage(t *testing.T) {
 			t.Errorf("%s contains leaked WWGM/tool/path reference: %q", rel, match)
 		}
 	}
+}
+
+// TestDefectClassSweepNoGoPersistenceIntroduced is test-plan.md TC-010
+// (task T-E34-F06-003, AC-T2): confirms REQ-NF-001 — this feature stayed
+// content-only and did not introduce a Go persistence layer (a new type,
+// struct field, table, or repository method) for the I-03 DefectClassSweep
+// shape. Equivalent to `grep -rln "DefectClassSweep\|class_key" internal/`
+// restricted to non-test Go source; any match there signals scope creep into
+// a real Go persistence layer.
+//
+// Test files are excluded from the scan by design, not oversight: TC-001/
+// TC-002's own tests (`internal/templates/includes_test.go`'s
+// TestIncludeResolverWithEmbed_DefectClassSweepRenders and this file's
+// TestDefectClassSweep* functions, added by T-E34-F06-001/002) legitimately
+// name the workflow in Go identifiers and comments while verifying it
+// renders/is referenced — that is expected test coverage, not a persistence
+// layer, and matching REQ-NF-001's "signals scope creep into a Go
+// persistence layer" against test-only identifiers would be a false
+// positive on the very tests this task's own scope requires.
+func TestDefectClassSweepNoGoPersistenceIntroduced(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller(0) failed; cannot locate repo root")
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
+	internalDir := filepath.Join(repoRoot, "internal")
+
+	pattern := regexp.MustCompile(`DefectClassSweep|class_key`)
+	var hits []string
+
+	err := filepath.WalkDir(internalDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if pattern.Match(data) {
+			rel, relErr := filepath.Rel(repoRoot, path)
+			if relErr != nil {
+				rel = path
+			}
+			hits = append(hits, rel)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, hits,
+		"no non-test Go source under internal/ should reference DefectClassSweep or class_key (found: %v) — REQ-NF-001 requires this feature to stay content-only", hits)
 }
 
 func readEmbeddedString(t *testing.T, rel string) string {
