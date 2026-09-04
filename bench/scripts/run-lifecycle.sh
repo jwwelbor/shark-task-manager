@@ -61,6 +61,10 @@ class LeaseLoss(RuntimeError):
     """Raised when the parent cannot renew its returned Shark session."""
 
 
+class ResourceLimit(RuntimeError):
+    """Raised when an in-flight provider exceeds the scenario wall deadline."""
+
+
 def usage():
     print(
         "usage: run-lifecycle.sh --scenario <package.yaml> --run-id <id> "
@@ -136,6 +140,47 @@ def stage_snapshot_digest(snapshot):
     return "sha256:" + sha256_bytes(json.dumps(payload, sort_keys=True).encode("utf-8"))
 
 
+def tree_digest(root):
+    material = bytearray()
+    for path in sorted(Path(root).rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        if ".git" in path.relative_to(root).parts:
+            continue
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            kind, payload = "symlink", os.readlink(path).encode("utf-8")
+        elif path.is_file():
+            kind, payload = "file", path.read_bytes()
+        elif path.is_dir():
+            kind, payload = "directory", b""
+        else:
+            continue
+        material.extend(relative.encode("utf-8") + b"\0" + kind.encode("ascii") + b"\0" + payload + b"\0")
+    return sha256_bytes(bytes(material))
+
+
+DEEP_REVIEW_FILES = (
+    "skills/shark-rider/skills/deep-review/SKILL.md",
+    "skills/shark-rider/skills/deep-review/references/angle-a-bugs.md",
+    "skills/shark-rider/skills/deep-review/references/angle-b-behavior.md",
+    "skills/shark-rider/skills/deep-review/references/angle-c-sibling.md",
+    "skills/shark-rider/skills/deep-review/references/angle-d-cleanup.md",
+    "skills/shark-rider/skills/deep-review/references/angle-e-tests.md",
+    "skills/shark-rider/skills/deep-review/references/angle-f-standards.md",
+    "skills/shark-rider/skills/deep-review/references/consolidator.md",
+    "skills/shark-rider/skills/deep-review/scripts/get_diff.sh",
+)
+
+
+def deep_review_digest(repo_root):
+    material = bytearray()
+    for relative in DEEP_REVIEW_FILES:
+        path = Path(repo_root) / relative
+        if not path.is_file():
+            raise RuntimeError(f"deep-review identity source is missing: {path}")
+        material.extend(relative.encode("utf-8") + b"\0" + path.read_bytes() + b"\0")
+    return sha256_bytes(bytes(material))
+
+
 def git_bytes(repo_root, args):
     try:
         completed = subprocess.run(
@@ -148,25 +193,35 @@ def git_bytes(repo_root, args):
 
 def candidate_identity(repo_root):
     """Derive comparison identity from the actual committed and dirty state."""
-    base_commit = git_bytes(repo_root, ["merge-base", "HEAD", "main"]).decode().strip()
+    base_commit = git_bytes(repo_root, ["rev-parse", "HEAD"]).decode().strip()
     if not base_commit:
         raise RuntimeError("git merge-base returned an empty base commit")
-    tracked_paths = git_bytes(repo_root, ["diff", "--name-only", "-z", "main...HEAD"])
-    binary_diff = git_bytes(repo_root, ["diff", "--binary", "main...HEAD"])
+    tracked_paths = git_bytes(repo_root, ["diff", "--name-only", "-z", base_commit])
+    binary_diff = git_bytes(repo_root, ["diff", "--binary", base_commit])
     dirty_manifest = git_bytes(repo_root, ["status", "--porcelain=v1", "--untracked-files=all"])
-    test_paths = git_bytes(repo_root, ["ls-files", "-z", "--", "*_test.go", "**/*_test.go"])
+    all_paths = git_bytes(repo_root, ["ls-files", "-z"])
+    test_paths = [path for path in all_paths.decode().split("\0") if path and "test" in path.lower()]
     test_material = bytearray()
-    for path in sorted(filter(None, test_paths.decode().split("\0"))):
+    for path in sorted(test_paths):
+        tracked_path = Path(repo_root) / path
         test_material.extend(path.encode("utf-8"))
         test_material.append(0)
-        test_material.extend((Path(repo_root) / path).read_bytes())
+        # git ls-files includes tracked symlinks. read_bytes() follows a
+        # symlink and crashes when its target is a directory; the identity
+        # of a tracked symlink is its link payload, exactly as Git records it.
+        if tracked_path.is_symlink():
+            test_material.extend(os.readlink(tracked_path).encode("utf-8"))
+        elif tracked_path.is_file():
+            test_material.extend(tracked_path.read_bytes())
+        else:
+            raise RuntimeError(f"tracked test identity source is not a file or symlink: {tracked_path}")
         test_material.append(0)
     components = {
         "base_commit": base_commit,
         "tree_digest": sha256_bytes(git_bytes(repo_root, ["rev-parse", "HEAD^{tree}"])),
         "binary_diff_digest": sha256_bytes(binary_diff),
         "changed_path_digest": sha256_bytes(tracked_paths),
-        "dirty_untracked_manifest": sha256_bytes(dirty_manifest),
+        "dirty_untracked_manifest": dirty_manifest.decode(errors="replace").splitlines(),
         "test_suite_digest": sha256_bytes(bytes(test_material)),
     }
     candidate = dict(components)
@@ -199,9 +254,11 @@ def scratch_content_digest(root):
 
 def refresh_candidate(candidate, scratch):
     candidate["scratch_content_digest"] = scratch_content_digest(scratch)
-    candidate["identity_digest"] = canonical_digest(
-        {key: value for key, value in candidate.items() if key not in {"identity_digest", "snapshot_digest"}}
-    )
+    identity_fields = {
+        key: candidate[key]
+        for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")
+    }
+    candidate["identity_digest"] = canonical_digest(identity_fields)
     candidate["snapshot_digest"] = canonical_digest(candidate)
 
 
@@ -228,21 +285,30 @@ def load_json(stdout, label):
         raise RuntimeError(f"{label} returned non-JSON output: {exc}") from exc
 
 
-def run_command(shark, args, cwd):
+def run_command(shark, args, cwd, *, expect_json=True):
+    command_args = list(args)
+    if "--json" not in command_args:
+        command_args.append("--json")
     try:
-        completed = subprocess.run([shark, *args], cwd=cwd, text=True, capture_output=True, check=False)
+        completed = subprocess.run([shark, *command_args], cwd=cwd, text=True, capture_output=True, check=False)
     except OSError as exc:
-        raise RuntimeError(f"unable to execute shark {' '.join(args)}: {exc}") from exc
+        raise RuntimeError(f"unable to execute shark {' '.join(command_args)}: {exc}") from exc
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
-        raise RuntimeError(f"shark {' '.join(args)} failed ({completed.returncode}): {detail}")
-    return load_json(completed.stdout, f"shark {' '.join(args)}")
+        raise RuntimeError(f"shark {' '.join(command_args)} failed ({completed.returncode}): {detail}")
+    if expect_json:
+        return load_json(completed.stdout, f"shark {' '.join(command_args)}")
+    output = completed.stdout.strip()
+    if not output:
+        return {}
+    try:
+        return load_json(output, f"shark {' '.join(command_args)}")
+    except RuntimeError:
+        return {"output": output[:512]}
 
 
-def pre_dispatch_gates(scenario_path, scenario, scratch):
-    fixture = scenario.get("fixture") or {}
-    fixture_root = Path(fixture.get("submodule_path", scenario_path.parent)).resolve()
-    evaluator_root = (scenario_path.parent / "evaluator").resolve()
+def pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch):
+    evaluator_root = scenario_path.parent.resolve()
     replay_reference = scenario.get("replay_reference")
     if scenario.get("entity_family") == "feature":
         if not isinstance(replay_reference, str) or not replay_reference.strip():
@@ -269,6 +335,15 @@ def pre_dispatch_gates(scenario_path, scenario, scratch):
         if process.returncode != 0:
             detail = process.stderr.strip() or process.stdout.strip()
             raise RuntimeError(f"replay isolation gate rejected the roots: {detail}")
+
+    guard = Path(os.environ["LIFECYCLE_BENCH_DIR"]) / "scripts" / "verify-evidence-roots.sh"
+    process = subprocess.run(
+        [str(guard), str(scenario_path), str(fixture_root), str(scratch), str(evaluator_root)],
+        text=True, capture_output=True, check=False,
+    )
+    if process.returncode != 0:
+        detail = process.stderr.strip() or process.stdout.strip()
+        raise RuntimeError(f"evaluator disclosure gate rejected the roots: {detail}")
 
 
 def write_partial(path, record):
@@ -303,7 +378,7 @@ def content_digest(root):
     return hasher.hexdigest()
 
 
-def scenario_identity(scenario_path, scenario, scratch):
+def scenario_identity(scenario_path, scenario, scratch, fixture_root, limits):
     fixture = scenario.get("fixture") or {}
     adapter = scenario.get("adapter") or {}
     version = scenario.get("scenario_version", "1")
@@ -330,17 +405,23 @@ def scenario_identity(scenario_path, scenario, scratch):
         "scenario_id": str(scenario.get("scenario_id", scenario_path.stem)),
         "scenario_version": str(version),
         "fixture_id": str(fixture.get("fixture_id", "unknown")),
-        "fixture_digest": sha256_file(scenario_path),
+        "fixture_digest": tree_digest(fixture_root),
         "adapter_id": str(adapter.get("name", "unknown")),
         "adapter_version": str(adapter.get("version", "unknown")),
         "shark_binary_digest": "0" * 64,
         "content_root": content_root,
         "content_digest_scheme": "walk_v1",
         "shark_content_digest": content_digest_value,
+        "toolchain_identity": scenario.get("toolchain_identity") or [],
+        "rendered_prompt_digests": [],
+        "provider_identity": [],
+        "judge_identity": {"model": "not_applicable", "configuration": "not_applicable"},
+        "reference_digests": [sha256_file(scenario_path)],
+        "resource_policy_digest": canonical_digest(limits),
         "roots": {
-            "agent_fixture_checkout": str(Path(fixture.get("submodule_path", scenario_path.parent)).resolve()),
+            "agent_fixture_checkout": str(fixture_root),
             "scratch_shark_project": "",
-            "evaluator_only": str((scenario_path.parent / "evaluator").resolve()),
+            "evaluator_only": str(scenario_path.parent.resolve()),
         },
     }
 
@@ -349,7 +430,7 @@ def candidate_template():
     raise RuntimeError("candidate_template requires a derived candidate identity")
 
 
-def make_record(identity, root, scratch, limits):
+def make_record(identity, root, scratch, limits, repo_root):
     return {
         "identity": identity,
         "entity_graph": {
@@ -359,9 +440,12 @@ def make_record(identity, root, scratch, limits):
         },
         "dispatches": [], "stages": [],
         "workflow_policy": {
-            "enabled_gates": [], "gate_order": [],
-            "reviewer": {"provider": "unknown", "model": "unknown", "effort": ""},
-            "prompt_digest": "0" * 64, "review_bundle_digest": "0" * 64,
+            "enabled_gates": ["code_review", "qa", "uat"],
+            "gate_order": ["code_review", "qa", "uat"],
+            "reviewer": {"provider": "unknown", "model": "unknown", "effort": "unknown"},
+            "prompt_digest": "0" * 64, "rendered_prompt_digest": "0" * 64,
+            "review_bundle_digest": deep_review_digest(repo_root),
+            "deep_review_bundle_digest": deep_review_digest(repo_root),
             "fixes_allowed_between_gates": False,
         },
         "review_gates": [], "questions": [],
@@ -377,12 +461,17 @@ def make_record(identity, root, scratch, limits):
 
 
 def stage_record(dispatch, candidate):
+    usage = dict((dispatch.get("worker") or {}).get("usage") or {})
+    usage.update({
+        "provider": dispatch["response"].get("provider", "unknown"),
+        "model": dispatch["response"].get("model", "unknown"),
+    })
     return {
         "dispatch_ordinal": dispatch["ordinal"], "stage": dispatch["response"].get("status", "development"),
-        "category": "code", "snapshot_digest": candidate["snapshot_digest"],
+        "category": stage_category(dispatch["response"].get("status", "development")), "snapshot_digest": candidate["snapshot_digest"],
         "prompt_digest": dispatch["response"].get("prompt_sha256", "0" * 64),
         "input_lineage": [], "replay_lineage": [], "output_paths": [], "output_digests": [],
-        "usage": {"provider": dispatch["response"].get("provider", "unknown"), "model": dispatch["response"].get("model", "unknown")},
+        "usage": usage,
         "cost_usd": dispatch.get("cost_usd", 0.0), "elapsed_seconds": dispatch.get("elapsed_seconds", 0.0),
         "errors": [], "rework": False, "intervals": [], "candidate": candidate,
         "artifacts": [], "access_events": [],
@@ -1024,7 +1113,22 @@ def fork_candidates(response):
     return sorted(normalized, key=lambda item: item["entity_key"])
 
 
-def adapter_result(adapter, request, cwd, mode, shark, timing):
+def allowed_outcomes(scratch, response):
+    entity_type = str(response.get("entity_type", "")).replace("_", "-")
+    candidates = [entity_type, entity_type.replace("-card", "")]
+    for name in candidates:
+        path = scratch / "shark-data" / "workflow" / f"{name}.yaml"
+        if not path.is_file():
+            continue
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        step = ((workflow.get("steps") or {}).get(str(response.get("status"))) or {})
+        outcomes = step.get("outcomes") or {}
+        if isinstance(outcomes, dict) and outcomes:
+            return sorted(str(value) for value in outcomes)
+    return ["blocked", "fail", "on_hold", "pass"]
+
+
+def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, deadline):
     """`timing` is the caller's per-dispatch accumulator (see
     `reconcile_time_ledger()`): a mutable dict this function appends real
     `time.monotonic_ns()` observations into (T-E40-F12-003, REQ-F-005). It is
@@ -1032,11 +1136,15 @@ def adapter_result(adapter, request, cwd, mode, shark, timing):
     -- including a heartbeat retry backoff window recorded right before a
     `LeaseLoss` this function itself raises -- survives whichever exception
     path the caller takes (never lost the way a return-value-only tuple
-    would be on a raise)."""
+    would be on a raise). `deadline` (time.monotonic()) enforces the
+    scenario's max_wall_clock_seconds ceiling on the in-flight provider
+    process itself, not just the dispatch loop around it."""
     if mode in {"contract", "dry-run"}:
         return ({"worker_id": "offline-worker", "session_id": request["session_id"], "kind": "final", "recommended_outcome": "pass", "evidence": {"mode": mode}}, [])
     try:
-        process = subprocess.Popen([adapter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, text=True)
+        adapter_env = dict(os.environ)
+        adapter_env["E40_AGENT_FIXTURE_CHECKOUT"] = str(fixture_root)
+        process = subprocess.Popen([adapter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=adapter_env, text=True)
         process.stdin.write(json.dumps(request, separators=(",", ":")))
         process.stdin.close()
     except OSError as exc:
@@ -1062,6 +1170,14 @@ def adapter_result(adapter, request, cwd, mode, shark, timing):
     try:
         while process.poll() is None:
             now = time.monotonic()
+            if now >= deadline:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+                raise ResourceLimit("resource ceiling exceeded during provider dispatch: max_wall_clock_seconds")
             if now - last_heartbeat >= heartbeat_interval:
                 try:
                     heartbeat = run_command(shark, heartbeat_args_base, cwd)
@@ -1120,8 +1236,9 @@ def route_worker_question(worker_result, entity, session, runner_id, cwd, shark)
         shark,
         ["question", "configure-workflow", question_key, "--resolution-owner", runner_id, "--responder", runner_id],
         cwd,
+        expect_json=False,
     )
-    run_command(shark, ["link", question_key, entity, "--type", "question_blocks"], cwd)
+    run_command(shark, ["link", question_key, entity, "--type", "question_blocks"], cwd, expect_json=False)
     return question_key
 
 
@@ -1426,6 +1543,10 @@ def main(argv):
             raise RuntimeError(f"shark executable not found on PATH: {shark}")
         return resolve_route(args, scenario_path, scenario, scratch, shark)
 
+    fixture_decl = (scenario.get("fixture") or {}).get("submodule_path", scenario_path.parent)
+    fixture_root = Path(fixture_decl).resolve()
+    if not fixture_root.is_dir() or not (fixture_root / ".git").exists():
+        raise RuntimeError(f"agent fixture checkout is not a git checkout: {fixture_root}")
     default_output = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "runs" / args["run_id"] / "lifecycle.jsonl"
     output = Path(args["output"]).resolve() if args["output"] else Path(os.environ.get("LIFECYCLE_OUTPUT", str(default_output))).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1439,12 +1560,17 @@ def main(argv):
     if not resolved_shark:
         raise RuntimeError(f"shark executable not found on PATH: {shark}")
 
-    identity = scenario_identity(scenario_path, scenario, scratch)
+    repo_root = Path(os.environ["LIFECYCLE_BENCH_DIR"]).parent.resolve()
+    identity = scenario_identity(scenario_path, scenario, scratch, fixture_root, limits)
     identity["run_id"] = args["run_id"]
+    identity["dispatch_id"] = f"{args['run_id']}:1"
+    identity["dispatch_ordinal"] = 1
+    identity["scenario_path"] = str(scenario_path)
     identity["roots"]["scratch_shark_project"] = str(scratch)
     identity["shark_binary_digest"] = sha256_file(Path(resolved_shark))
-    pre_dispatch_gates(scenario_path, scenario, scratch)
-    record = make_record(identity, args["root"], scratch, limits)
+    identity["shark_content_digest"] = tree_digest(scratch / "shark-data")
+    pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch)
+    record = make_record(identity, args["root"], scratch, limits, repo_root)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
     i05_writer = None
@@ -1454,7 +1580,7 @@ def main(argv):
     generated = 0
     started = time.monotonic()
     queue = [args["root"]]
-    processed = set()
+    generated_entities = set()
     terminal = "complete"
     reason = "all eligible dispatches completed"
     active_lease = {"entity": "", "session": ""}
@@ -1462,7 +1588,7 @@ def main(argv):
     def release_on_signal(signum, _frame):
         if active_lease["session"]:
             try:
-                run_command(shark, ["release", active_lease["entity"], "--session", active_lease["session"], "--outcome", "cancellation"], scratch)
+                run_command(shark, ["release", active_lease["entity"], "--session", active_lease["session"], "--outcome", "cancellation"], scratch, expect_json=False)
             except RuntimeError:
                 pass
         # T-E40-F12-004 (REQ-F-009, AC-014's own implementation-contract
@@ -1488,9 +1614,7 @@ def main(argv):
     try:
         while queue:
             requested = queue.pop(0)
-            if requested in processed:
-                continue
-            processed.add(requested)
+            pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch)
             prompt_path = scratch / "prompts" / f"{ordinal + 1:04d}"
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
             # REQ-F-005/§2.5: `stage_start` is captured immediately before
@@ -1504,8 +1628,9 @@ def main(argv):
                 record["entity_graph"]["selected_keys"].extend(item["entity_key"] for item in candidates)
                 record["entity_graph"]["selected_types"].extend(item["entity_type"] for item in candidates)
                 record["entity_graph"]["resolved_via"] = "fork_response"
-                queue[0:0] = [item["entity_key"] for item in candidates]
-                queue.sort()
+                queue[0:0] = [*[item["entity_key"] for item in candidates], requested]
+                continue
+            if response.get("action") == "archive":
                 continue
             if response.get("action") != "spawn_agent":
                 terminal = str(response.get("action", "error")) if response.get("action") in STOP_OUTCOMES else "error"
@@ -1523,7 +1648,11 @@ def main(argv):
             if prompt_path.read_bytes() != actual:
                 raise RuntimeError(f"prompt-out bytes differ from response for {entity}")
             ci_start_ns = time.monotonic_ns()
-            candidate = candidate_identity(Path.cwd())
+            # T-E40-F09 first code-review round: candidate identity must
+            # reflect the fixture checkout the agent actually modifies, not
+            # this harness's own working directory (Path.cwd() lags fixture
+            # edits entirely -- the exact defect that review round found).
+            candidate = candidate_identity(fixture_root)
             timing = {"stage_start": stage_start_ns, "claimed": [("tool_and_test", ci_start_ns, time.monotonic_ns())]}
 
             response_record = bounded(response)
@@ -1531,10 +1660,13 @@ def main(argv):
             dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": candidate["snapshot_digest"]}}
             record["dispatches"].append(dispatch)
             record["entity_graph"]["ordinals"].append(dispatch["ordinal"])
-            if requested != args["root"]:
-                generated += 1
+            if entity != args["root"] and response.get("entity_type") == "task":
+                generated_entities.add(entity)
+                generated = len(generated_entities)
             session = ""
             worker_result = {}
+            advanced = False
+            stage_started_ns = time.monotonic_ns()
             try:
                 claim_start_ns = time.monotonic_ns()
                 claim = run_command(shark, ["claim", entity, "--by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"]), "--json"], scratch)
@@ -1548,11 +1680,15 @@ def main(argv):
                 request = dict(response)
                 request["session_id"] = session
                 request["runner_id"] = os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])
-                worker_result, heartbeats = adapter_result(adapter, request, scratch, args["mode"], shark, timing)
+                request["allowed_outcomes"] = allowed_outcomes(scratch, response)
+                worker_result, heartbeats = adapter_result(
+                    adapter, request, scratch, args["mode"], shark, timing, fixture_root,
+                    started + limits["max_wall_clock_seconds"],
+                )
                 dispatch["heartbeats"] = heartbeats
                 if worker_result.get("session_id") not in {None, session}:
                     raise RuntimeError(f"worker session mismatch for {entity}")
-                dispatch["worker"] = {"worker_id": worker_result.get("worker_id", ""), "session_id": worker_result.get("session_id", session), "kind": worker_result.get("kind", ""), "recommended_outcome": worker_result.get("recommended_outcome"), "evidence": bounded(worker_result.get("evidence", {}))}
+                dispatch["worker"] = {"worker_id": worker_result.get("worker_id", ""), "session_id": worker_result.get("session_id", session), "kind": worker_result.get("kind", ""), "recommended_outcome": worker_result.get("recommended_outcome"), "evidence": bounded(worker_result.get("evidence", {})), "usage": bounded(worker_result.get("usage", {})), "cost_usd": worker_result.get("cost_usd", 0.0)}
                 kind = worker_result.get("kind")
                 if kind == "question":
                     question_start_ns = time.monotonic_ns()
@@ -1576,6 +1712,12 @@ def main(argv):
                     dispatch["outcome"] = str(outcome)
                     advance_response = run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}", "--json"], scratch)
                     dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", ""), "to_status": str(advance_response.get("new_status", ""))}
+                    advanced = True
+            except ResourceLimit as exc:
+                terminal = "resource_limit"
+                record["limits"]["first_exceeded"] = "max_wall_clock_seconds"
+                reason = str(exc)
+                dispatch["outcome"] = terminal
             except LeaseLoss as exc:
                 terminal = "lease_loss"
                 reason = str(exc)
@@ -1599,6 +1741,7 @@ def main(argv):
                     active_lease["entity"] = ""
                     active_lease["session"] = ""
             dispatch["ended_at"] = timestamp()
+            stage_ended_ns = time.monotonic_ns()
             elapsed = max(0.0, time.monotonic() - started)
             cost = float(worker_result.get("cost_usd", (worker_result.get("usage") or {}).get("cost_usd", 0.0)) or 0.0)
             dispatch["cost_usd"] = cost
@@ -1614,10 +1757,30 @@ def main(argv):
             timing["stage_end"] = time.monotonic_ns()
             timing["claimed"].append(("tool_and_test", rc_start_ns, timing["stage_end"]))
             stage_candidate = dict(candidate)
-            dispatch["evidence_refs"]["candidate_snapshot_digest"] = stage_candidate["snapshot_digest"]
-            record["stages"].append(stage_record(dispatch, stage_candidate))
+            stage_elapsed_seconds = (stage_ended_ns - stage_started_ns) / 1_000_000_000
+            lifecycle_stage = stage_record(dispatch, stage_candidate)
+            # I-05's time ledger is explicitly nanosecond-valued, while I-07's
+            # intervals reconcile against elapsed_seconds and are consumed by F10
+            # as seconds. Keep the two contracts distinct at this boundary.
+            lifecycle_stage["intervals"] = [
+                {"category": "provider_active", "start": 0.0, "end": stage_elapsed_seconds}
+            ]
+            lifecycle_stage["elapsed_seconds"] = stage_elapsed_seconds
+            record["stages"].append(lifecycle_stage)
             if i05_writer is not None:
                 i05_writer.record_stage(dispatch, stage_candidate, shark, scratch, worker_result, timing)
+            prompt_digest = str(response.get("prompt_sha256"))
+            record["identity"]["rendered_prompt_digests"].append(prompt_digest)
+            effort = str(response.get("effort") or "default")
+            record["identity"]["provider_identity"].append({
+                "stage": str(response.get("status")), "provider": str(response.get("provider")),
+                "model": str(response.get("model")), "effort": effort,
+            })
+            record["workflow_policy"]["reviewer"] = {
+                "provider": str(response.get("provider")), "model": str(response.get("model")), "effort": effort,
+            }
+            record["workflow_policy"]["prompt_digest"] = prompt_digest
+            record["workflow_policy"]["rendered_prompt_digest"] = prompt_digest
             ordinal += 1
             write_partial(output, record)
             if terminal != "complete" and terminal != "resource_limit":
@@ -1634,11 +1797,15 @@ def main(argv):
                 record["limits"]["first_exceeded"] = exceeded
                 reason = f"resource ceiling exceeded: {exceeded}"
                 break
-        record["outcome"] = {"terminal": terminal, "reason": "" if terminal == "complete" else reason, "partial_evidence": bool(record["dispatches"]), "publication_eligible": terminal == "complete"}
+            if advanced and args["mode"] != "dry-run":
+                queue.insert(0, requested)
+        record["outcome"] = {"terminal": terminal, "reason": "completed with complete evidence" if terminal == "complete" else reason, "partial_evidence": terminal != "complete" and bool(record["dispatches"]), "publication_eligible": terminal == "complete"}
     except (RuntimeError, OSError, ValueError, TypeError) as exc:
         terminal = "error"
         reason = str(exc)
         record["outcome"] = {"terminal": terminal, "reason": reason, "partial_evidence": bool(record["dispatches"]), "publication_eligible": False}
+    policy = record["workflow_policy"]
+    policy["workflow_policy_identity_digest"] = canonical_digest({key: value for key, value in policy.items() if key != "workflow_policy_identity_digest"})
     if i05_writer is not None:
         i05_writer.finalize(terminal, reason)
     output.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")

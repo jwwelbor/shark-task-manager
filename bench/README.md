@@ -1944,18 +1944,18 @@ identity without invoking a config-selected binary. A changed `shark_binary`
 path or digest is refused before preview starts.
 
 The generated config is intentionally not provider-ready. A real run still
-needs both of these inputs:
+needs a lifecycle adapter:
 
 - Set `runtime.lifecycle_adapter` to an executable that accepts F08 lifecycle
-  requests on standard input and returns the documented worker result.
-- Set each `scenario_roots.<scenario-id>.i05_bundle_dir` to run-matched I-05
-  stage evidence. A directory that merely exists is not sufficient; the F09
-  evaluator rejects evidence whose run and dispatch identity do not match.
+  requests on standard input and returns the documented worker result. The
+  repository-owned `bench/scripts/lifecycle-worker-adapter.sh` provides the
+  Claude CLI route; another adapter may implement the same envelope.
 
-The repository does not currently provide the production authority that
-wires those two inputs together for repeated provider runs. Do not substitute
-fixtures, reuse evidence across repetitions, or present a configured path as
-proof that the caller chain exists.
+For every provider-backed pair, `run-lifecycle.sh` now writes the run-matched
+I-05 bundle alongside I-07. `run-lifecycle-batch.sh` passes that generated
+bundle to F09 and retains it; a configured `i05_bundle_dir` remains only as a
+compatibility fallback for fixture runners. Never reuse I-05 evidence across
+repetitions.
 
 Every provider-backed manifest binds the lifecycle-adapter path and bytes,
 the provider-command digest, and each selected scenario's I-05 path and tree

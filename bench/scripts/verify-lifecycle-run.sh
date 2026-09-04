@@ -44,7 +44,6 @@ CANDIDATE_IDENTITY_FIELDS = (
     "changed_path_digest",
     "dirty_untracked_manifest",
     "test_suite_digest",
-    "scratch_content_digest",
 )
 
 
@@ -248,8 +247,8 @@ def validate_record(record, schema):
         ordinals.append(ordinal)
         response = dispatch["response"]
         validate_vocabulary(dispatch["outcome"], schema.get("dispatch_outcome", []), f"{path}/outcome")
-        if "resolved_via" in response:
-            validate_vocabulary(response["resolved_via"], schema.get("resolved_via", []), f"{path}/response/resolved_via", "malformed_field")
+        if "resolved_via" in response and not isinstance(response["resolved_via"], list):
+            fail("malformed_field", f"{path}/response/resolved_via", "keyed dispatch traversal must be an array when present")
         if response["entity_key"] != dispatch["requested_key"] and dispatch["requested_key"] != graph["root_key"]:
             fail("identity_mismatch", f"{path}/response/entity_key", "returned entity does not match requested key")
         if not response["model"].strip() or not response["provider"].strip():

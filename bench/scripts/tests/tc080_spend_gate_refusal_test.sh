@@ -481,6 +481,15 @@ python3 - "$@" <<'PY'
 import hashlib, json, os, sys
 args = sys.argv[1:]
 if args[:2] == ["next", "ROOT-001"]:
+    state_path = os.path.join(os.getcwd(), ".tc080-next-count")
+    try:
+        count = int(open(state_path).read()) + 1
+    except (OSError, ValueError):
+        count = 1
+    open(state_path, "w").write(str(count))
+    if count > 1:
+        print(json.dumps({"action":"archive","entity_key":"ROOT-001","entity_type":"task"}, separators=(",", ":")))
+        raise SystemExit(0)
     prompt = "work ROOT-001\n"
     response = {
         "entity_key": "ROOT-001", "entity_type": "task", "status": "development",
@@ -561,6 +570,9 @@ chmod +x "$UAT_R2_01_WORKDIR/run-lifecycle-wrapper.sh"
 # never constructed.
 UAT_R2_01_SCENARIO_ID="scenario-uat-r2-01"
 mkdir -p "$UAT_R2_01_WORKDIR/index/packages/$UAT_R2_01_SCENARIO_ID"
+cp -a "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/evaluator" \
+    "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/input" \
+    "$UAT_R2_01_WORKDIR/index/packages/$UAT_R2_01_SCENARIO_ID/"
 python3 - "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
 	"$UAT_R2_01_WORKDIR/index/packages/$UAT_R2_01_SCENARIO_ID/package.yaml" "$UAT_R2_01_SCENARIO_ID" <<'PY'
 import sys

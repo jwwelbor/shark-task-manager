@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # TC-095 (B057): verify-lifecycle-run.sh must accept the candidate.identity_digest
 # that run-lifecycle.sh actually produces. Before the fix, run-lifecycle.sh's
-# refresh_candidate() folded scratch_content_digest into identity_digest (7
-# components) while verify-lifecycle-run.sh's expected_identity recomputed
-# over only the original six identity components, so every real run failed
-# identity_mismatch.
+# refresh_candidate() folded scratch_content_digest into identity_digest while
+# verify-lifecycle-run.sh's expected_identity recomputed over only the six
+# comparison-identity components, so every real run failed identity_mismatch.
 #
 # This builds a minimal, schema-valid lifecycle record by hand (rather than
 # driving the full dispatch loop) so the assertion is isolated to the
@@ -216,7 +215,7 @@ fi
 
 echo "TC-095: pass (verify-lifecycle-run.sh rejects a candidate whose identity_digest disagrees with its identity fields)"
 
-# Negative case: a candidate entirely missing one of the seven named identity
+# Negative case: a candidate entirely missing one of the six named identity
 # fields must be rejected with a clear diagnostic, not an unhandled crash.
 MISSING_FIELD="$WORKDIR/lifecycle-missing-field.jsonl"
 python3 - "$RECORD" "$MISSING_FIELD" <<'PY'
@@ -227,15 +226,15 @@ record_path, missing_field_path = sys.argv[1:3]
 with open(record_path, encoding="utf-8") as stream:
     record = json.loads(stream.readline())
 
-del record["stages"][0]["candidate"]["scratch_content_digest"]
+del record["stages"][0]["candidate"]["test_suite_digest"]
 
 with open(missing_field_path, "w", encoding="utf-8") as stream:
     stream.write(json.dumps(record, separators=(",", ":")) + "\n")
 PY
 
 missing_field_output="$("$VERIFIER" "$MISSING_FIELD" --schema "$SCHEMA" 2>&1)" && \
-    fail "verify-lifecycle-run.sh accepted a candidate missing scratch_content_digest"
-echo "$missing_field_output" | grep -q "scratch_content_digest" \
-    || fail "verify-lifecycle-run.sh's missing-field diagnostic did not name scratch_content_digest: $missing_field_output"
+    fail "verify-lifecycle-run.sh accepted a candidate missing test_suite_digest"
+echo "$missing_field_output" | grep -q "test_suite_digest" \
+    || fail "verify-lifecycle-run.sh's missing-field diagnostic did not name test_suite_digest: $missing_field_output"
 
 echo "TC-095: pass (verify-lifecycle-run.sh rejects a candidate missing a named identity field)"

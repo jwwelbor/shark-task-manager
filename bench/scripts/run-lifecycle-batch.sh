@@ -61,20 +61,14 @@
 #                                             # never share mutable DB state
 #                                             # and a preview never leaves a
 #                                             # side effect on the template.
-#       i05_bundle_dir: "<dir>"              # optional; the I-05
-#                                             # stage-evidence bundle
-#                                             # directory evaluate-lifecycle.sh
-#                                             # reads via --i05. F10 reuses
-#                                             # I-05 read-only (ADR-F10-04)
-#                                             # and does not produce it; a
-#                                             # scenario without this
-#                                             # configured is dispatched
-#                                             # (run-lifecycle.sh still
-#                                             # runs) but its pair cannot be
-#                                             # evaluated and is classified
-#                                             # `failed`, named as such.
+#       i05_bundle_dir: "<dir>"              # optional compatibility input
+#                                             # for fixture/stub runners. The
+#                                             # production runner writes a
+#                                             # run-matched I-05 bundle and
+#                                             # that generated bundle always
+#                                             # takes precedence.
 #
-# root_key/scratch_root/i05_bundle_dir are operator-prepared inputs, not
+# root_key/scratch_root are operator-prepared inputs, not
 # something this driver bootstraps: creating a scratch Shark project and its
 # seed entity is out of F10's scope (component-changes table: F10 invokes
 # run-lifecycle.sh/evaluate-lifecycle.sh with their EXISTING signatures; it
@@ -95,6 +89,7 @@ BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # resolution for anything else this script calls.
 RUN_LIFECYCLE_BIN="${RUN_LIFECYCLE_BIN:-$SCRIPT_DIR/run-lifecycle.sh}"
 EVALUATE_LIFECYCLE_BIN="${EVALUATE_LIFECYCLE_BIN:-$SCRIPT_DIR/evaluate-lifecycle.sh}"
+CHECKOUT_SCENARIO_FIXTURE_BIN="${CHECKOUT_SCENARIO_FIXTURE_BIN:-$SCRIPT_DIR/checkout-scenario-fixture.sh}"
 # UAT-R3-01 fix (T-E40-F10-004): the real producer for retain_pair's
 # entity-history.json artifact -- see export-entity-history.sh's own header.
 ENTITY_HISTORY_EXPORT_BIN="${ENTITY_HISTORY_EXPORT_BIN:-$SCRIPT_DIR/export-entity-history.sh}"
@@ -842,6 +837,18 @@ dispatch_pair() {
 	local pair_work
 	pair_work="$(mktemp -d)"
 	local ephemeral="$pair_work/scratch"
+	local fixture_checkout="$pair_work/fixture"
+	preserve_failed_pair() {
+		local reason="$1"
+		local failed_root="$out_root_canon/.failed-attempts/$scenario_id"
+		local failed_dest="$failed_root/rep${rep}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$reason"
+		mkdir -p "$failed_root"
+		if mv "$pair_work" "$failed_dest"; then
+			echo "run-lifecycle-batch: retained failed pair evidence at $failed_dest" >&2
+		else
+			echo "run-lifecycle-batch: WARNING: could not retain failed pair evidence from $pair_work" >&2
+		fi
+	}
 	# Source-side symlink policy, invariant 2 (path-safety.sh scope-freeze
 	# paragraph): a symlinked scratch_root -- top-level (code-review-2026-08-
 	# 21T1335-E40-F10.md round-5 finding 2) or NESTED anywhere inside a real
@@ -872,7 +879,18 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "scratch_root_copy_failed"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "scratch-copy"
+		return 0
+	fi
+	local fixture_id fixture_base_sha
+	fixture_id="$(python3 -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["fixture"]["fixture_id"])' "$package_path")"
+	fixture_base_sha="$(python3 -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["fixture"]["base_sha"])' "$package_path")"
+	if ! "$CHECKOUT_SCENARIO_FIXTURE_BIN" "$fixture_id" "$fixture_base_sha" "$fixture_checkout"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep FAILED (fixture checkout failed)" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "fixture_checkout_failed"
+		overall_bad="true"
+		preserve_failed_pair "fixture-checkout"
 		return 0
 	fi
 	local lifecycle_out="$pair_work/lifecycle.jsonl"
@@ -910,9 +928,19 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "lifecycle_run_failed"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "lifecycle-run"
 		return 0
 	fi
+
+	if [[ ! -f "$i05_bundle_dir/bundle.json" ]]; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: lifecycle runner did not produce I-05 at $i05_bundle_dir; cannot evaluate, recorded failed" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "i05_bundle_not_produced"
+		overall_bad="true"
+		preserve_failed_pair "i05-missing"
+		return 0
+	fi
+
 
 	local evaluation_out="$pair_work/evaluation.jsonl"
 	set +e
@@ -926,7 +954,7 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "evaluation_failed"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "evaluation"
 		return 0
 	fi
 
@@ -948,7 +976,7 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "required_artifact_source_unavailable"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "entity-history"
 		return 0
 	fi
 
@@ -957,7 +985,7 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "required_artifact_source_unavailable"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "retention"
 		return 0
 	fi
 	append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "$success_label"

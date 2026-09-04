@@ -1474,7 +1474,6 @@ def setup_config(
             "provider_command": None,
             "missing_real_runtime_inputs": [
                 "runtime.lifecycle_adapter: executable accepting one run-lifecycle request on stdin",
-                "scenario_roots.<scenario>.i05_bundle_dir: run-matched I-05 evidence source",
             ],
         },
         "resource_policy": {
