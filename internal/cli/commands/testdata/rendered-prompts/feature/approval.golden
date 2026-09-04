@@ -12,7 +12,7 @@ READ:
 
 RED-TEAM REVIEW:
 - Independently verify EVERY feature acceptance criterion against the actual code (not just reports)
-- ENUMERATE, don't iterate: for each AC, list ALL violations within each defect class in this pass — finding one issue per round produces a rejection spiral
+- Apply `skills/quality/workflows/defect-class-sweep.md`'s "Enumeration procedure" per AC (see `skills/uat/references/redteam-rubric.md` "ENUMERATE — DO NOT ITERATE")
 - Look for gaps between what the spec required and what was implemented
 - Check for cross-task integration issues that per-task review would miss
 - Verify error handling under adversarial and edge-case inputs
@@ -20,7 +20,7 @@ RED-TEAM REVIEW:
 - Verify the feature integrates correctly with the broader system
 - Challenge assumptions in the code review and QA reports — they may have missed things
 
-RE-VERIFICATION ROUND (a prior UAT report matching docs/review/E07/E07-F01/uat-*-E07-F01.md exists)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
+RE-VERIFICATION ROUND (a prior UAT report matching docs/review/E07/E07-F01/uat-*-E07-F01.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run the full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
 
 REVIEW OUTPUT POLICY (applies to the report below):
 - If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
@@ -61,7 +61,7 @@ ON APPROVED:
 
 ON REJECTED:
 - In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
-  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
+  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Apply the defect-class sweep procedure (skills/quality/workflows/defect-class-sweep.md) before re-fixing; list swept sites in the completion note."`
 - Include `PARENT NOTE: UAT rejected — see report, tasks kicked back`
 - End with `RECOMMENDED OUTCOME: fail`
 - Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.

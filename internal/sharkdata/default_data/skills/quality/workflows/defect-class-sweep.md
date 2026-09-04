@@ -158,7 +158,7 @@ divergence evidence is itself a class instance of "the rework guessed instead
 of searching."
 
 Preserve an existing disposition on a matching fingerprint unless new
-evidence contradicts it — do not silently re-open or re-decide a
+evidence contradicts it — do not silently re-open or re-decide an
 already-dispositioned instance without a stated reason.
 
 ## Recurrence classification
@@ -181,6 +181,18 @@ previously-`complete` class with an overlapping `search_scope`:
 No round-count field or round-counting logic is used anywhere in this
 classification — recurrence is decided by fingerprint, `class_key`, and scope
 membership, never by "this is the Nth time we've seen a finding here."
+
+Recurrence has no dedicated I-03 field — it is recorded inside the matched
+instance's existing `evidence` string: state the recurrence explicitly (e.g.
+"recurrence of `<fingerprint>` from `<prior class_key>`, completed
+`<search_scope>` reference") rather than only describing the current-round
+repro. This keeps `instances[].disposition` inside `{fixed, dispositioned,
+open}` per Disposition and severity-conflict routing, below, while still
+making the recurrence durably auditable from the existing schema. Whether I-02/
+I-03 should eventually carry an explicit `recurrence` field is a shared-schema
+question spanning every consumer of that contract, not a per-feature one — file
+it as tech debt against the owning schema rather than widening the shared
+contract from a single consumer.
 
 ## Disposition and severity-conflict routing
 
@@ -309,6 +321,9 @@ produces.
 - [ ] Recurrence classification used fingerprint, `class_key`, and scope
       membership only (both `class_key` match and scope membership required
       for a new fingerprint) — no round-count field appears anywhere.
+- [ ] Any instance classified as recurrence states that explicitly in its
+      `evidence` field (fingerprint/class_key/scope it recurs from) — no new
+      I-03 field is used to record it.
 - [ ] Any severity conflict is routed to `question-management` or the
       multi-specialist council deliberation workflow (not resolved
       unilaterally) and recorded as the outer `GateResult.Finding.disposition

@@ -921,26 +921,36 @@ func TestDefectClassSweepBundleIndexRegistration(t *testing.T) {
 		"skills/README.md quality row must name the new workflow file")
 }
 
+// enumeratedListPattern matches an enumerated-procedure marker — "(a)"/"(b)",
+// "1."/"2." at the start of an item, or "Then do all N:" — the shape a
+// restated multi-step procedure takes regardless of exact wording. UAT round
+// 4 found that round 3's exact-string blacklist (a fixed list of old
+// sentences) missed a *new* paraphrase of the same restated procedure, since
+// an exact-string list can never anticipate every future rewording. This
+// structural pattern instead flags the shape of a restated enumerated
+// procedure near a canonical-workflow reference, independent of wording.
+var enumeratedListPattern = regexp.MustCompile(`(?im)(^|\s)\(?[a-cA-C1-3]\)\s|Then do all (three|\d+):`)
+
 // TestDefectClassSweepConsolidatedNotDuplicated is test-plan.md TC-002: the
-// three gate call sites (code_review.md, approval.md, redteam-rubric.md)
-// must reference the canonical defect-class-sweep.md workflow instead of
-// restating its sweep procedure inline. This guards against the exact prose
-// drift T-E34-F06-002 fixed re-creeping back in.
+// five gate/prompt call sites (code_review.md, approval.md, qa.md,
+// development.md, redteam-rubric.md) must reference the canonical
+// defect-class-sweep.md workflow instead of restating its sweep procedure
+// inline. AC-2 requires no duplicated sweep-procedure prose remain in any of
+// these five files.
+//
+// This replaced an exact-string blacklist (UAT rounds 1-4): each restated-
+// prose fix event added the newly-discovered wording as a fixed string to
+// NotContains, and each time a *different* paraphrase of the same restated
+// procedure survived because it was worded differently than every string on
+// the list. A blacklist of specific sentences cannot anticipate every future
+// paraphrase, so this test instead asserts the STRUCTURAL shape the AC
+// actually forbids: the paragraph containing the canonical-workflow
+// reference must be short (a bare pointer, not a restatement) and must not
+// itself contain an enumerated list of steps — restating a canonical
+// multi-step procedure inline necessarily takes an enumerated-list shape,
+// while a bare reference sentence does not, regardless of exact wording.
 func TestDefectClassSweepConsolidatedNotDuplicated(t *testing.T) {
-	oldDuplicatedProse := []string{
-		// The old inline kickback-reason template restated in both
-		// code_review.md and approval.md before consolidation.
-		"Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class",
-		// The old three-part re-verification list restated in
-		// redteam-rubric.md before consolidation.
-		"Full-rubric sanity pass** — re-run the verification checks above over the feature surface",
-		// UAT round-3 finding 4: a paraphrased (not exact-string) restatement
-		// of the same three-part re-verification procedure that round-1's
-		// exact-string check above did not catch. Guards against the same
-		// paraphrase class recurring.
-		"Then do all three:",
-		"(a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance",
-	}
+	const maxReferenceLineWords = 90
 
 	// Every prompt/skill file this feature wired to reference the canonical
 	// workflow (round 1: code_review/approval/redteam-rubric; round 1 HIGH-1:
@@ -953,16 +963,37 @@ func TestDefectClassSweepConsolidatedNotDuplicated(t *testing.T) {
 		"skills/uat/references/redteam-rubric.md",
 	}
 
+	const marker = "skills/quality/workflows/defect-class-sweep.md"
+
 	for _, rel := range files {
 		content := readEmbeddedString(t, rel)
-
-		for _, prose := range oldDuplicatedProse {
-			assert.NotContains(t, content, prose,
-				"%s must not restate the old duplicated sweep prose %q", rel, prose)
-		}
-
-		assert.Contains(t, content, "skills/quality/workflows/defect-class-sweep.md",
+		assert.Contains(t, content, marker,
 			"%s must reference the canonical defect-class-sweep.md workflow", rel)
+
+		// Check the specific line(s) that mention the canonical workflow, not
+		// the whole surrounding paragraph — a kickback-reason command
+		// template line legitimately cites the file path inline alongside
+		// unrelated bullets in the same markdown block, and those neighboring
+		// bullets aren't part of the reference itself.
+		var referencingLines int
+		for _, line := range strings.Split(content, "\n") {
+			if !strings.Contains(line, marker) {
+				continue
+			}
+			referencingLines++
+
+			if enumeratedListPattern.MatchString(line) {
+				t.Errorf("%s: line referencing %s contains an enumerated-list pattern — a"+
+					" restated procedure, not a bare reference:\n%s", rel, marker, line)
+			}
+
+			wordCount := len(strings.Fields(line))
+			assert.LessOrEqualf(t, wordCount, maxReferenceLineWords,
+				"%s: line referencing %s is %d words — too long for a bare reference, suggests restated procedure:\n%s",
+				rel, marker, wordCount, line)
+		}
+		assert.Greater(t, referencingLines, 0,
+			"%s: expected at least one line referencing %s", rel, marker)
 	}
 }
 
@@ -1086,19 +1117,34 @@ func TestDefectClassSweepNoGoPersistenceIntroduced(t *testing.T) {
 // workflow rather than duplicate its procedure. T-E34-F06-002 only wired
 // code_review.md/approval.md/redteam-rubric.md; this asserts the QA
 // (feature/qa.md) and development (task/development.md) prompts, plus
-// uat/SKILL.md's own rejection-routing prose, also reference it.
+// uat/SKILL.md's own rejection-routing prose, also reference it — and, per
+// spec.md's Architecture "Component changes" table, that qa.md and
+// development.md each point at their *specific* section of the workflow
+// (qa.md re-review rounds need "Full-class re-verification"; a
+// development-caller rework pass needs "Enumeration procedure"), not just
+// the bare filename. A bare-filename-only check would pass even if qa.md
+// pointed at the wrong section.
 func TestDefectClassSweepQAAndDevelopmentPromptsReference(t *testing.T) {
+	const marker = "skills/quality/workflows/defect-class-sweep.md"
+
 	files := []string{
 		"prompts/feature/qa.md",
 		"prompts/task/development.md",
 		"skills/uat/SKILL.md",
 	}
-
 	for _, rel := range files {
 		content := readEmbeddedString(t, rel)
-		assert.Contains(t, content, "skills/quality/workflows/defect-class-sweep.md",
+		assert.Contains(t, content, marker,
 			"%s must reference the canonical defect-class-sweep.md workflow", rel)
 	}
+
+	qaContent := readEmbeddedString(t, "prompts/feature/qa.md")
+	assert.Contains(t, qaContent, "Full-class re-verification",
+		"qa.md's re-review round must point at the workflow's \"Full-class re-verification\" section specifically, not just the bare filename")
+
+	devContent := readEmbeddedString(t, "prompts/task/development.md")
+	assert.Contains(t, devContent, "Enumeration procedure",
+		"development.md's rework branch must point at the workflow's \"Enumeration procedure\" section specifically, not just the bare filename")
 }
 
 // TestDefectClassSweepCallingGateIncludesQA is the UAT-kickback (HIGH-1)

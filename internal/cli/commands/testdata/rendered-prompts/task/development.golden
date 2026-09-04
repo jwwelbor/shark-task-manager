@@ -5,7 +5,7 @@ Develop task E07-F01: "Sample feature for golden test".
 
 Check for existing implementation: review git diff and test files. If implementation exists and passes quality gate, advance immediately.
 
-REWORK? If the task spec contains a rejection section (e.g. "## UAT Rejection") or the kickback reason names a defect class: BEFORE fixing the cited instance, enumerate every code site in the touched module(s) matching that defect class, fix ALL of them, and list the swept sites in your completion note. A point fix that leaves sibling instances of the same class costs another full review round.
+REWORK? If the task spec contains a rejection section (e.g. "## UAT Rejection") or the kickback reason names a defect class: BEFORE fixing the cited instance, apply the defect-class sweep procedure (`skills/quality/workflows/defect-class-sweep.md`) — enumerate every site in the touched module(s) matching that defect class per its "Enumeration procedure" section, fix ALL of them, and list the swept sites in your completion note. A point fix that leaves sibling instances of the same class costs another full review round.
 
 ---
 

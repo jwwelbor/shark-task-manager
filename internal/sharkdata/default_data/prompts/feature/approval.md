@@ -12,7 +12,7 @@ READ:
 
 RED-TEAM REVIEW:
 - Independently verify EVERY feature acceptance criterion against the actual code (not just reports)
-- ENUMERATE, don't iterate: for each AC, list ALL violations within each defect class in this pass — finding one issue per round produces a rejection spiral
+- Apply `skills/quality/workflows/defect-class-sweep.md`'s "Enumeration procedure" per AC (see `skills/uat/references/redteam-rubric.md` "ENUMERATE — DO NOT ITERATE")
 - Look for gaps between what the spec required and what was implemented
 - Check for cross-task integration issues that per-task review would miss
 - Verify error handling under adversarial and edge-case inputs

@@ -15,10 +15,12 @@ OVERRIDE — loop-guard escalation for this gate: the included workflow's
 "Loop-guard awareness" section escalates on raw `prior_rejection_count >= 1`.
 For this feature-level gate, that raw round count is superseded by
 `skills/quality/workflows/defect-class-sweep.md`'s evidence-based recurrence
-classification (same `class_key` **and** in a previously completed sweep's
-scope): escalate to the user only when a finding classifies as genuine
-recurrence per that workflow, never on round count alone. A new, non-recurring
-finding on a later round is ordinary rework, not a loop.
+classification: escalate to the user only when a finding is genuine
+recurrence per that workflow — the same fingerprint resurfacing after a
+recorded repair, or a new fingerprint sharing both the same `class_key` and
+scope membership in a previously completed sweep — never on round count
+alone. A new, non-recurring finding on a later round is ordinary rework, not
+a loop.
 
 READ:
 (1) Feature spec at {{.file_path}} for architecture decisions and acceptance criteria

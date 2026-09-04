@@ -104,8 +104,25 @@ membership), and no round-count field appears in the classification logic.
 
 ## TC-007 — Route a severity conflict
 
-**Fixture:** Fresh evidence materially changes risk on a previously-accepted
-fingerprint (HIGH finding conflicts with a prior accepted LOW decision).
+**Fixture 7a (bounded, single-owner):** Fresh evidence materially changes
+risk on a previously-accepted fingerprint (HIGH finding conflicts with a
+prior accepted LOW decision), and the disagreement is between one reviewer
+and one prior decision-owner with no cross-entity or specialist dimension —
+per "Disposition and severity-conflict routing," this routes through
+`question-management`.
+
+**Fixture 7b (specialist/cross-entity):** The same conflicting-evidence
+shape as 7a, but the disagreement crosses specialist domains (e.g. security
+vs. performance), touches multiple entities' dispositions, or carries high
+blast radius/irreversibility — per the same section, this routes through the
+project's multi-specialist council deliberation workflow instead of
+`question-management`.
+
+Both fixtures share the underlying routing mechanics below; they differ only
+in which of the two named mechanisms the workflow content directs the
+conflict to, per the criteria the section itself states (bounded
+single-owner vs. specialist disagreement/cross-entity/blast-radius/
+irreversibility/no-safe-evidence-path).
 
 **Walkthrough:** "Disposition and severity-conflict routing" covers exactly
 this shape: "When a finding's disposition would conflict with a prior
@@ -138,11 +155,15 @@ section that permits silent routing; every conflict is required to resolve
 via the outer `Finding.disposition = severity_conflict` plus a block, while
 the instance itself stays `open`.
 
-**Verdict: PASS.** The workflow content records the conflicted instance as
-`open` inside `instances`, routes the conflict to the outer
-`GateResult.Finding.disposition = severity_conflict` with a
-`disposition_pointer`, blocks normal advancement, and references both the
-Question and council mechanisms by name.
+**Verdict: PASS.** For both fixtures, the workflow content records the
+conflicted instance as `open` inside `instances`, routes the conflict to the
+outer `GateResult.Finding.disposition = severity_conflict` with a
+`disposition_pointer`, and blocks normal advancement identically; the
+section's own criteria correctly partition 7a to `question-management`
+(bounded, single-owner) and 7b to the council workflow (specialist/
+cross-entity/blast-radius/irreversibility), so the two mechanisms are not
+interchangeable or ambiguous for a reviewer applying this content. It
+references both the Question and council mechanisms by name.
 
 ## TC-008 — Zero remaining instances
 
