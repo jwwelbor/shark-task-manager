@@ -61,7 +61,9 @@ record = {
     "dispatches": [{"transition": "development"}, {"transition": "code_review"}],
     "stages": [
         {"category": "code", "input_lineage": lineage, "artifacts": [
-            {"path": "artifacts/0001.patch", "digest": digest("artifact-1")},
+            {"path": "artifacts/0001.patch", "digest": digest("artifact-1"), "consumers": [
+                {"consuming_stage": "review", "edge_kind": "read"},
+            ]},
         ]},
         {"stage": "review", "category": "review", "input_lineage": lineage + [
             {"source_kind": "prior_stage_artifact", "path": "artifacts/0001.patch", "digest": digest("artifact-1")},

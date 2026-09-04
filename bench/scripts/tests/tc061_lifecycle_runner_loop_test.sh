@@ -288,13 +288,18 @@ for stage_index, stage in enumerate(record["stages"]):
     )
     assert observed_prior == expected_prior, stage
     for artifact in stage["artifacts"]:
-        expected_consumers = {
+        expected_consumers = sorted(
             later["stage"] for later in record["stages"][stage_index + 1:]
-        }
-        observed_consumers = {
+        )
+        observed_consumers = sorted(
             edge["consuming_stage"] for edge in artifact["consumers"]
-        }
+        )
         assert observed_consumers == expected_consumers, artifact
+        assert all(
+            set(edge) == {"consuming_stage", "edge_kind", "observed_at"}
+            and edge["edge_kind"] == "read" and edge["observed_at"]
+            for edge in artifact["consumers"]
+        ), artifact
         snapshot_entry = next(
             item for item in bundle["stages"]
             if item["dispatch_ordinal"] == stage["dispatch_ordinal"]
