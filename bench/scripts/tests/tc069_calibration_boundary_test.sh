@@ -332,11 +332,24 @@ candidate["dirty_untracked_manifest"] = []
 candidate["identity_digest"] = canonical_digest({**candidate_fields, "dirty_untracked_manifest": []})
 candidate["snapshot_digest"] = sha("snapshot_digest")
 
+gate_policies = []
+for gate_id in ("code", "review"):
+    gate_policy = {
+        "gate_id": gate_id, "provider": "anthropic", "model": "claude-sonnet",
+        "effort": "high", "prompt_source_digest": sha(f"{gate_id}-source"),
+        "rendered_prompt_digest": sha(f"{gate_id}-rendered"),
+        "deep_review_bundle_digest": bundle_digest, "fixes_allowed": True,
+        "reached": False,
+    }
+    gate_policy["policy_digest"] = canonical_digest(gate_policy)
+    gate_policies.append(gate_policy)
+
 workflow_policy = {
     "enabled_gates": ["code", "review"], "gate_order": ["code", "review"],
     "reviewer": {"provider": "anthropic", "model": "claude-sonnet", "effort": "high"},
     "prompt_digest": sha("prompt_digest"), "rendered_prompt_digest": sha("rendered_prompt_digest"),
     "deep_review_bundle_digest": bundle_digest, "fixes_allowed_between_gates": True,
+    "gate_policies": gate_policies,
 }
 workflow_policy["workflow_policy_identity_digest"] = canonical_digest(workflow_policy)
 
@@ -356,8 +369,21 @@ dispatches = [{"dispatch_id": "dispatch-1", "dispatch_ordinal": 1, "transition":
 
 lifecycle = {
     "identity": identity, "outcome": {"terminal": "complete"}, "entity_graph": {"nodes": ["run"]},
-    "dispatches": dispatches, "workflow_policy": workflow_policy, "review_gates": [],
-    "stages": [{"stage": "code", "category": "code", "candidate": candidate, "input_lineage": []}],
+    "dispatches": dispatches, "workflow_policy": workflow_policy,
+    "review_gates": [
+        {"gate_id": policy["gate_id"], "state": "not_reached", "policy_ref": {"policy_digest": policy["policy_digest"]}, "findings": []}
+        for policy in gate_policies
+    ],
+    "stages": [{
+        "stage": "code", "category": "code", "candidate": candidate,
+        "input_lineage": [
+            {"source_kind": kind, "path": f"/{kind}", "digest": sha(kind)}
+            for kind in (
+                "scenario_package", "rendered_prompt", "fixture_checkout",
+                "shark_content", "execution_adapter", "lifecycle_adapter",
+            )
+        ],
+    }],
 }
 (eligible_dir / "i07.jsonl").write_text(json.dumps(lifecycle) + "\n")
 

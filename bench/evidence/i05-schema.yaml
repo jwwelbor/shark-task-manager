@@ -114,6 +114,7 @@ error_kind:
   - artifact_field_missing
   - usage_slot_unavailable
   - unmapped_provider
+  - test_suite_unavailable
   - unverified_required_slot
   - evaluator_access_out_of_order
   - isolation_violation

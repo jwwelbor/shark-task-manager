@@ -893,8 +893,14 @@ def identity():
             "path": "/fixture/i05/scale-fixture-scenario",
             "digest": token("i05-bundle"),
         }],
+        "i06_replay_results": [{
+            "scenario_id": scenario_id,
+            "path": "/fixture/i06/scale-fixture-scenario.json",
+            "digest": token("i06-replay"),
+        }],
     }
     execution_inputs["i05_bundle_set_digest"] = digest(execution_inputs["i05_bundles"])
+    execution_inputs["i06_replay_set_digest"] = digest(execution_inputs["i06_replay_results"])
     execution_inputs["execution_input_digest"] = digest(execution_inputs)
     value = {
         "scenario_set_digest": token("scenario-set"),
@@ -925,6 +931,7 @@ def refresh_identity(value):
     value["provider_routing"]["routing_digest"] = digest({k: v for k, v in value["provider_routing"].items() if k != "routing_digest"})
     execution_inputs = value["execution_inputs"]
     execution_inputs["i05_bundle_set_digest"] = digest(execution_inputs["i05_bundles"])
+    execution_inputs["i06_replay_set_digest"] = digest(execution_inputs["i06_replay_results"])
     execution_inputs["execution_input_digest"] = digest({k: v for k, v in execution_inputs.items() if k != "execution_input_digest"})
     value["identity_digest"] = digest({k: v for k, v in value.items() if k != "identity_digest"})
 

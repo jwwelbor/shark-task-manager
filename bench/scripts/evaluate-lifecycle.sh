@@ -325,7 +325,8 @@ def validate_workflow_policy_identity(workflow_policy, reasons):
     required_policy = (
         "enabled_gates", "gate_order", "reviewer", "prompt_digest",
         "rendered_prompt_digest", "deep_review_bundle_digest",
-        "fixes_allowed_between_gates", "workflow_policy_identity_digest",
+        "fixes_allowed_between_gates", "gate_policies",
+        "workflow_policy_identity_digest",
     )
     for field in required_policy:
         value = workflow_policy.get(field)
@@ -345,6 +346,41 @@ def validate_workflow_policy_identity(workflow_policy, reasons):
         reasons.append(reason("source_missing", "/workflow_policy/deep_review_bundle_digest", "repository deep-review bundle is incomplete"))
     elif workflow_policy.get("deep_review_bundle_digest") != expected_bundle_digest:
         reasons.append(reason("identity_mismatch", "/workflow_policy/deep_review_bundle_digest", "deep-review bundle digest disagrees with repository-owned files"))
+    gate_policies = workflow_policy.get("gate_policies")
+    if isinstance(gate_policies, list):
+        policy_ids = []
+        for index, policy in enumerate(gate_policies):
+            if not isinstance(policy, dict) or not policy.get("gate_id"):
+                reasons.append(reason("identity_missing", f"/workflow_policy/gate_policies/{index}", "gate policy must name its gate"))
+                continue
+            policy_ids.append(policy["gate_id"])
+            expected = canonical_digest({key: value for key, value in policy.items() if key != "policy_digest"})
+            if policy.get("policy_digest") != expected:
+                reasons.append(reason("identity_mismatch", f"/workflow_policy/gate_policies/{index}/policy_digest", "gate policy digest does not match retained policy content"))
+        if policy_ids != workflow_policy.get("enabled_gates") or policy_ids != workflow_policy.get("gate_order"):
+            reasons.append(reason("identity_mismatch", "/workflow_policy/gate_policies", "gate policy order disagrees with enabled_gates or gate_order"))
+
+
+def validate_review_gate_policy_refs(lifecycle, reasons):
+    workflow_policy = lifecycle.get("workflow_policy") or {}
+    policies = {
+        item.get("policy_digest"): item
+        for item in workflow_policy.get("gate_policies") or []
+        if isinstance(item, dict) and item.get("policy_digest")
+    }
+    gates = lifecycle.get("review_gates") or []
+    observed_gate_ids = set()
+    for index, gate in enumerate(gates):
+        if not isinstance(gate, dict):
+            reasons.append(reason("source_malformed", f"/review_gates/{index}", "review gate must be an object"))
+            continue
+        observed_gate_ids.add(gate.get("gate_id"))
+        policy_digest = (gate.get("policy_ref") or {}).get("policy_digest")
+        if policy_digest not in policies:
+            reasons.append(reason("missing_join", f"/review_gates/{index}/policy_ref", "review gate policy_ref does not resolve to retained gate policy content"))
+    for gate_id in workflow_policy.get("enabled_gates") or []:
+        if gate_id not in observed_gate_ids:
+            reasons.append(reason("missing_join", "/review_gates", f"configured gate {gate_id} has no reached or not_reached record"))
 
 
 def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
@@ -352,13 +388,46 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
 
     A missing check remains a failure rather than an inferred pass.
     """
+    required_lineage_kinds = {
+        "scenario_package", "rendered_prompt", "fixture_checkout",
+        "shark_content", "execution_adapter", "lifecycle_adapter",
+    }
+
+    def valid_lineage(stage):
+        lineage = stage.get("input_lineage")
+        if not isinstance(lineage, list) or not lineage:
+            return False
+        kinds = set()
+        for entry in lineage:
+            if not isinstance(entry, dict) or set(entry) != {"source_kind", "path", "digest"}:
+                return False
+            if not all(isinstance(entry[key], str) and entry[key] for key in entry):
+                return False
+            if not digest(entry["digest"]):
+                return False
+            kinds.add(entry["source_kind"])
+        return required_lineage_kinds <= kinds
+
+    stages = [item for item in lifecycle.get("stages", []) if isinstance(item, dict)]
+    for index, stage in enumerate(stages):
+        if stage.get("errors"):
+            reasons.append(reason(
+                "source_malformed", f"/stages/{index}/errors",
+                "stage reports unavailable or unmapped required evidence",
+            ))
+        if not valid_lineage(stage):
+            reasons.append(reason(
+                "source_malformed", f"/stages/{index}/input_lineage",
+                "stage input lineage must identify every consumed source by kind, path, and digest",
+            ))
+
     checks = {
         "required_artifacts": bool(i05.get("stages") or i05.get("artifacts")),
         "ownership": bool(i05.get("roots")),
         "links": bool(i05.get("access_events") or i05.get("artifacts") or lifecycle.get("stages")),
         "dependencies": bool(lifecycle.get("entity_graph")),
         "status_transitions": bool(lifecycle.get("dispatches")) and all(isinstance(item, dict) and item.get("transition") is not None for item in lifecycle.get("dispatches", [])),
-        "traceability": bool(lifecycle.get("stages")) and all(isinstance(item, dict) and (item.get("input_lineage") is not None or item.get("evidence_refs") is not None) for item in lifecycle.get("stages", [])),
+        "traceability": bool(stages) and all(valid_lineage(item) for item in stages),
         "executable_task": bool(lifecycle.get("stages")) and any(item.get("category") == "code" for item in lifecycle.get("stages", []) if isinstance(item, dict)),
     }
     structural_checks = [{"check_id": key, "applicability": "applicable", "stage": "lifecycle", "entity": "run", "result": "pass" if value else "fail", "evidence_refs": ["i05", "i07"] if value else [], "reason": None if value else "required evidence is absent"} for key, value in checks.items()]
@@ -658,6 +727,7 @@ try:
     candidate_snapshots, workflow_policy = validate_candidate_snapshots(i05, lifecycle, identity, reasons)
     validate_producer_identity(identity, reasons)
     validate_workflow_policy_identity(workflow_policy, reasons)
+    validate_review_gate_policy_refs(lifecycle, reasons)
     structural = run_structural_checks(i05, lifecycle, lifecycle_rows, reasons)
     judge = run_judge(package, reasons)
     oracle_result = run_oracle(i05, lifecycle, reasons)

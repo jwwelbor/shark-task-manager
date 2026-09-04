@@ -33,7 +33,7 @@ command -v python3 >/dev/null 2>&1 || {
 	exit 2
 }
 
-LIFECYCLE_BENCH_DIR="$BENCH_DIR" python3 - "$@" <<'PY'
+LIFECYCLE_BENCH_DIR="$BENCH_DIR" exec python3 - "$@" <<'PY'
 import hashlib
 import json
 import os
@@ -198,18 +198,31 @@ def git_bytes(repo_root, args):
     return completed.stdout
 
 
-def adapter_json(adapter, capability, fixture_root):
-    process = subprocess.run(
+def adapter_json(adapter, capability, fixture_root, deadline=None):
+    process = subprocess.Popen(
         [str(adapter), capability, "--checkout", str(fixture_root)],
-        text=True, capture_output=True, check=False,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True,
     )
+    timeout = None if deadline is None else max(0.001, deadline - time.monotonic())
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        stop_process_group(process)
+        raise ResourceLimit(
+            f"resource ceiling exceeded during execution-adapter {capability}: "
+            "max_wall_clock_seconds"
+        ) from exc
     if process.returncode != 0:
-        detail = process.stderr.strip() or process.stdout.strip()
+        detail = stderr.strip() or stdout.strip()
         raise RuntimeError(f"execution adapter {capability} failed ({process.returncode}): {detail}")
-    return load_json(process.stdout, f"execution adapter {capability}")
+    return load_json(stdout, f"execution adapter {capability}")
 
 
-def candidate_identity(repo_root, execution_adapter, adapter_name, adapter_version, toolchain_identity):
+def candidate_identity(
+    repo_root, execution_adapter, adapter_name, adapter_version,
+    toolchain_identity, deadline=None,
+):
     """Derive comparison identity from the post-dispatch checkout and adapter test inventory."""
     base_commit = git_bytes(repo_root, ["rev-parse", "HEAD"]).decode().strip()
     if not base_commit:
@@ -219,9 +232,17 @@ def candidate_identity(repo_root, execution_adapter, adapter_name, adapter_versi
     tracked = {
         path for path in git_bytes(repo_root, ["ls-files", "-z"]).decode().split("\0") if path
     }
+    # Include ignored files as well as ordinary untracked files. Replay scans
+    # the complete checkout, so omitting provider-created caches would make a
+    # freshly captured snapshot report drift immediately.
     untracked = {
-        path for path in git_bytes(repo_root, ["ls-files", "--others", "--exclude-standard", "-z"]).decode().split("\0") if path
+        path for path in git_bytes(repo_root, ["ls-files", "--others", "-z"]).decode().split("\0") if path
     }
+    untracked.update({
+        path for path in git_bytes(
+            repo_root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]
+        ).decode().split("\0") if path
+    })
     manifest = []
     for path in sorted(tracked | untracked):
         candidate_path = Path(repo_root) / path
@@ -240,22 +261,35 @@ def candidate_identity(repo_root, execution_adapter, adapter_name, adapter_versi
             "tracked": path in tracked,
         })
 
-    test_document = adapter_json(execution_adapter, "test", repo_root)
-    entries = test_document.get("entries")
-    if not isinstance(entries, list):
-        raise RuntimeError("execution adapter test result omitted entries array")
-    test_ids = sorted({
-        str(entry["id"])
-        for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]
-    })
-    if len(test_ids) != len(entries):
-        raise RuntimeError("execution adapter test result contains malformed or duplicate test ids")
+    # Test discovery uses the adapter's real test capability, but it runs in
+    # an isolated copy so cache and bytecode side effects do not mutate the
+    # candidate whose identity is being recorded.
+    test_identity_error = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="e40-test-identity-") as temporary:
+            isolated_checkout = Path(temporary) / "checkout"
+            shutil.copytree(repo_root, isolated_checkout, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+            test_document = adapter_json(execution_adapter, "test", isolated_checkout, deadline)
+        entries = test_document.get("entries")
+        if not isinstance(entries, list):
+            raise RuntimeError("execution adapter test result omitted entries array")
+        test_ids = sorted({
+            str(entry["id"])
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]
+        })
+        if len(test_ids) != len(entries):
+            raise RuntimeError("execution adapter test result contains malformed or duplicate test ids")
+    except (ResourceLimit, RuntimeError) as exc:
+        test_ids = []
+        test_identity_error = str(exc)
     test_identity = {
         "adapter": {"name": adapter_name, "version": adapter_version},
         "toolchain_identity": toolchain_identity,
         "test_ids": test_ids,
     }
+    if test_identity_error:
+        test_identity["error"] = test_identity_error
     top_levels = {
         test_id.split("::", 1)[0].replace("\\", "/").split("/", 1)[0].split(".", 1)[0]
         for test_id in test_ids
@@ -270,6 +304,8 @@ def candidate_identity(repo_root, execution_adapter, adapter_name, adapter_versi
     }
     candidate = dict(components)
     candidate["test_suite_ids"] = test_ids
+    if test_identity_error:
+        candidate["test_identity_error"] = test_identity_error
     if len(top_levels) == 1:
         candidate["test_suite_dir"] = next(iter(top_levels))
     candidate["identity_digest"] = canonical_digest(components)
@@ -299,12 +335,16 @@ def scratch_content_digest(root):
     return sha256_bytes(bytes(material))
 
 
-def refresh_candidate(candidate, fixture_root, scratch, execution_adapter, adapter_name, adapter_version, toolchain_identity):
+def refresh_candidate(
+    candidate, fixture_root, scratch, execution_adapter, adapter_name,
+    adapter_version, toolchain_identity, deadline=None,
+):
     # The stage snapshot is a post-dispatch observation. Re-derive every
     # fixture identity field after the worker returns so an edit made by this
     # stage cannot first appear in the following stage's evidence.
     current = candidate_identity(
-        fixture_root, execution_adapter, adapter_name, adapter_version, toolchain_identity
+        fixture_root, execution_adapter, adapter_name, adapter_version,
+        toolchain_identity, deadline,
     )
     candidate.clear()
     candidate.update(current)
@@ -561,6 +601,73 @@ def workflow_level_for(entity_type):
     return WORKFLOW_LEVEL_NORMALIZE.get(entity_type, entity_type)
 
 
+def stage_input_lineage(record, dispatch, fixture_root, fixture_digest, execution_adapter, lifecycle_adapter):
+    """Return the typed identities for every external input consumed by a stage."""
+    identity = record["identity"]
+    scratch_root = Path(identity["roots"]["scratch_shark_project"])
+    prompt_path = scratch_root / "prompts" / f"{dispatch['ordinal']:04d}"
+    inputs = [
+        {
+            "source_kind": "scenario_package",
+            "path": identity["scenario_path"],
+            "digest": sha256_file(Path(identity["scenario_path"])),
+        },
+        {
+            "source_kind": "rendered_prompt",
+            "path": str(prompt_path),
+            "digest": str(dispatch["response"]["prompt_sha256"]),
+        },
+        {
+            "source_kind": "fixture_checkout",
+            "path": str(fixture_root),
+            "digest": fixture_digest,
+        },
+        {
+            "source_kind": "shark_content",
+            "path": str(scratch_root / "shark-data"),
+            "digest": identity["shark_content_digest"],
+        },
+        {
+            "source_kind": "execution_adapter",
+            "path": str(execution_adapter),
+            "digest": sha256_file(Path(execution_adapter)),
+        },
+    ]
+    if lifecycle_adapter:
+        inputs.append({
+            "source_kind": "lifecycle_adapter",
+            "path": str(Path(lifecycle_adapter).resolve()),
+            "digest": sha256_file(Path(lifecycle_adapter).resolve()),
+        })
+    prelude = record.get("prelude") or {}
+    if prelude.get("path") and prelude.get("digest"):
+        inputs.append({
+            "source_kind": "prelude_result",
+            "path": str(prelude["path"]),
+            "digest": str(prelude["digest"]),
+        })
+    return sorted(inputs, key=lambda item: (item["source_kind"], item["path"]))
+
+
+def stage_category(status):
+    normalized = str(status).lower()
+    if "research" in normalized or "discover" in normalized:
+        return "discovery"
+    if "spec" in normalized or "refin" in normalized:
+        return "specification"
+    if "plan" in normalized or "ready" in normalized:
+        return "planning"
+    if "review" in normalized:
+        return "review"
+    if normalized == "qa" or "quality" in normalized:
+        return "qa"
+    if "uat" in normalized or "accept" in normalized or "approval" in normalized:
+        return "uat"
+    if "ship" in normalized or "complete" in normalized:
+        return "shipping"
+    return "code"
+
+
 _STAGE_CATEGORY_MAP_CACHE = {}
 
 
@@ -582,6 +689,16 @@ def stage_category_map():
 
 
 _USAGE_MAPPING_CACHE = {}
+
+
+def mapped_provider(response):
+    """A dispatched step's `response["provider"]` is the short label the
+    workflow step config declares (e.g. "anthropic"), not the specific
+    usage-mapping.yaml provider key it corresponds to (e.g.
+    "anthropic_claude_cli") -- normalize before calling `resolve_usage()`,
+    never look up the bare label directly."""
+    provider = str(response.get("provider", "")).lower()
+    return "anthropic_claude_cli" if "anthropic" in provider or "claude" in provider else provider
 
 
 def usage_mapping_providers():
@@ -1020,7 +1137,10 @@ class I05BundleWriter:
         except OSError as exc:
             raise RuntimeError(f"failed to write I-05 bundle.json {path}: {exc}") from exc
 
-    def record_stage(self, dispatch, stage_candidate, shark, cwd, worker_envelope, timing):
+    def record_stage(
+        self, dispatch, stage_candidate, shark, cwd, worker_envelope, timing,
+        fixture_root, fixture_input_digest, execution_adapter, lifecycle_adapter,
+    ):
         """Called immediately after `record["stages"].append(...)` for the
         same dispatch (ADR-F12-01): writes one immutable stage snapshot file
         carrying every bench/README.md "Stage-snapshot field reference"
@@ -1041,7 +1161,11 @@ class I05BundleWriter:
         (`{"stage_start": ns, "stage_end": ns, "claimed": [(category, start, end), ...]}`)
         the caller's dispatch loop and `adapter_result()` both appended real
         `time.monotonic_ns()` observations into, including on every
-        exception path -- see `reconcile_time_ledger()`."""
+        exception path -- see `reconcile_time_ledger()`.
+
+        Returns the snapshot's own `errors` list so the caller can fold
+        evidence-unavailability signals (e.g. `test_suite_unavailable`,
+        `unknown_stage_category`) into its own end-of-run trust gate."""
         ordinal = dispatch["ordinal"]
         response = dispatch["response"]
         stage_key = str(response.get("status", "")) or "unknown"
@@ -1056,8 +1180,13 @@ class I05BundleWriter:
             errors.append(category_error)
         if not provider:
             errors.append({"kind": "missing_provider"})
-        usage, usage_errors = resolve_usage(provider, worker_envelope if isinstance(worker_envelope, dict) else {})
+        usage, usage_errors = resolve_usage(mapped_provider(response), worker_envelope if isinstance(worker_envelope, dict) else {})
         errors.extend(usage_errors)
+        if stage_candidate.get("test_identity_error"):
+            errors.append({
+                "kind": "test_suite_unavailable",
+                "detail": str(stage_candidate["test_identity_error"]),
+            })
 
         visit_key = (entity_key, stage_key)
         rework_count = self._stage_visit_counts.get(visit_key, 0)
@@ -1068,7 +1197,10 @@ class I05BundleWriter:
             "entity": entity,
             "stage_key": stage_key,
             "prompt_digest": str(dispatch["evidence_refs"].get("prompt_sha256", "")),
-            "input_lineage": [],
+            "input_lineage": stage_input_lineage(
+                self.record, dispatch, fixture_root, fixture_input_digest,
+                execution_adapter, lifecycle_adapter,
+            ),
             "artifacts": [],
             "usage": usage,
             "time_ledger": reconcile_time_ledger(self.origin_ns, timing),
@@ -1137,6 +1269,8 @@ class I05BundleWriter:
             write_ms = (time.monotonic_ns() - write_start_ns) / 1_000_000
             print(f"i05_write_ms={write_ms:.3f}", file=sys.stderr)
 
+        return errors
+
     def finalize(self, terminal, reason):
         """REQ-F-002's termination rewrite: the full §2.6 stop-outcome
         eligibility triad, via the top-level `stop_outcome_triad()`
@@ -1150,24 +1284,29 @@ class I05BundleWriter:
 
 def capture_review_gate(
     shark, scratch, bundle_dir, entity, response, candidate, round_number,
-    seen_note_ids, repo_root,
+    seen_note_ids, repo_root, policy,
 ):
     gate_id = str(response.get("status", "review"))
-    policy = {
+    policy = dict(policy)
+    policy.update({
         "gate_id": gate_id,
         "provider": str(response.get("provider", "unknown")),
         "model": str(response.get("model", "unknown")),
         "effort": str(response.get("effort") or "default"),
-        "prompt_digest": str(response.get("prompt_sha256", "")),
+        "reached": True,
+        "rendered_prompt_digest": str(response.get("prompt_sha256", "")),
         "deep_review_bundle_digest": deep_review_digest(repo_root),
-    }
+    })
+    policy["policy_digest"] = canonical_digest({
+        key: value for key, value in policy.items() if key != "policy_digest"
+    })
     gate = {
         "gate_id": gate_id,
         "reached": True,
         "round": round_number,
         "collector_status": "complete",
         "candidate_ref": {"snapshot_digest": candidate["snapshot_digest"]},
-        "policy_ref": {"policy_digest": canonical_digest(policy)},
+        "policy_ref": {"policy_digest": policy["policy_digest"]},
         "findings": [],
     }
     try:
@@ -1281,6 +1420,110 @@ def allowed_outcomes(scratch, response):
         if isinstance(outcomes, dict) and outcomes:
             return sorted(str(value) for value in outcomes)
     return ["blocked", "fail", "on_hold", "pass"]
+
+
+def configured_gate_policies(scratch, entity_family, repo_root):
+    """Read the configured pass path and retain every review-like gate up front."""
+    family_name = str(entity_family).replace("_", "-")
+    candidates = [family_name, family_name.replace("-card", "")]
+    workflow_path = next(
+        (scratch / "shark-data" / "workflow" / f"{name}.yaml" for name in candidates
+         if (scratch / "shark-data" / "workflow" / f"{name}.yaml").is_file()),
+        None,
+    )
+    if workflow_path is None:
+        return []
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+    steps = workflow.get("steps") or {}
+    current = workflow.get("start")
+    visited = set()
+    policies = []
+    gate_phases = {"code_review", "review", "qa", "uat", "approval"}
+    while isinstance(current, str) and current and current not in visited:
+        visited.add(current)
+        step = steps.get(current) or {}
+        phase = str(step.get("phase") or "")
+        if step.get("action") == "spawn_agent" and phase in gate_phases:
+            prompt_source = str(step.get("prompt") or "")
+            prompt_path = scratch / "shark-data" / "prompts" / prompt_source
+            prompt_source_digest = sha256_file(prompt_path) if prompt_path.is_file() else "0" * 64
+            policy = {
+                "gate_id": current,
+                "phase": phase,
+                "provider": str(step.get("provider") or "unknown"),
+                "model": str(step.get("model") or "unknown"),
+                "effort": str(step.get("effort") or "default"),
+                "prompt_source": prompt_source,
+                "prompt_source_digest": prompt_source_digest,
+                "rendered_prompt_digest": None,
+                "deep_review_bundle_digest": deep_review_digest(repo_root),
+                "fixes_allowed": "fail" in (step.get("outcomes") or {}),
+                "reached": False,
+            }
+            policy["policy_digest"] = canonical_digest(policy)
+            policies.append(policy)
+        outcomes = step.get("outcomes") or {}
+        if not isinstance(outcomes, dict) or "pass" not in outcomes:
+            break
+        current = outcomes["pass"]
+    return policies
+
+
+def refresh_workflow_policy(record):
+    policy = record["workflow_policy"]
+    gate_policies = policy.get("gate_policies") or []
+    policy["enabled_gates"] = [item["gate_id"] for item in gate_policies]
+    policy["gate_order"] = list(policy["enabled_gates"])
+    if len(gate_policies) == 1:
+        item = gate_policies[0]
+        policy["reviewer"] = {
+            "provider": item["provider"], "model": item["model"], "effort": item["effort"],
+        }
+    elif gate_policies:
+        policy["reviewer"] = {
+            "provider": "per_gate", "model": "per_gate", "effort": "per_gate",
+        }
+    policy["prompt_digest"] = canonical_digest([
+        item["prompt_source_digest"] for item in gate_policies
+    ]) if gate_policies else "0" * 64
+    policy["rendered_prompt_digest"] = canonical_digest([
+        item.get("rendered_prompt_digest") for item in gate_policies
+    ]) if gate_policies else "0" * 64
+    policy["fixes_allowed_between_gates"] = any(
+        bool(item.get("fixes_allowed")) for item in gate_policies
+    )
+
+
+def gate_policy_for(record, response, repo_root):
+    gate_id = str(response.get("status", "review"))
+    for policy in record["workflow_policy"].get("gate_policies") or []:
+        if policy.get("gate_id") == gate_id:
+            return policy
+    fallback = {
+        "gate_id": gate_id,
+        "phase": stage_category(gate_id),
+        "provider": str(response.get("provider") or "unknown"),
+        "model": str(response.get("model") or "unknown"),
+        "effort": str(response.get("effort") or "default"),
+        "prompt_source": "unavailable",
+        "prompt_source_digest": "0" * 64,
+        "rendered_prompt_digest": None,
+        "deep_review_bundle_digest": deep_review_digest(repo_root),
+        "fixes_allowed": False,
+        "reached": False,
+    }
+    fallback["policy_digest"] = canonical_digest(fallback)
+    record["workflow_policy"].setdefault("gate_policies", []).append(fallback)
+    return fallback
+
+
+def replace_gate_policy(record, replacement):
+    policies = record["workflow_policy"].get("gate_policies") or []
+    for index, policy in enumerate(policies):
+        if policy.get("gate_id") == replacement.get("gate_id"):
+            policies[index] = replacement
+            return
+    policies.append(replacement)
 
 
 def stop_process_group(process):
@@ -1761,6 +2004,10 @@ def main(argv):
     record = make_record(identity, args["root"], scratch, limits, repo_root)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
+    record["workflow_policy"]["gate_policies"] = configured_gate_policies(
+        scratch, scenario.get("entity_family", "unknown"), repo_root,
+    )
+    refresh_workflow_policy(record)
     i05_writer = None
     if args["i05_bundle_dir"]:
         i05_writer = I05BundleWriter(args["i05_bundle_dir"], scenario_path, scenario, identity, args["run_id"], record)
@@ -1813,6 +2060,7 @@ def main(argv):
     stage_visits = {}
     review_rounds = {}
     seen_review_note_ids = set()
+    evidence_errors = []
     terminal = prelude_stop or "complete"
     reason = prelude_reason or "all eligible dispatches completed"
     active_lease = {"entity": "", "session": "", "adapter_process": None}
@@ -1887,6 +2135,7 @@ def main(argv):
             session = ""
             worker_result = {}
             advanced = False
+            fixture_input_digest = tree_digest(fixture_root)
             try:
                 claim_start_ns = time.monotonic_ns()
                 claim = run_command(shark, ["claim", entity, "--by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"]), "--json"], scratch)
@@ -1965,16 +2214,15 @@ def main(argv):
                     active_lease["entity"] = ""
                     active_lease["session"] = ""
             dispatch["ended_at"] = timestamp()
-            elapsed = max(0.0, time.monotonic() - started)
             cost = float(worker_result.get("cost_usd", (worker_result.get("usage") or {}).get("cost_usd", 0.0)) or 0.0)
             dispatch["cost_usd"] = cost
             record["limits"]["observed_cost_usd"] += cost
-            record["limits"]["observed_wall_clock_seconds"] = elapsed
             record["limits"]["observed_generated_tasks"] = generated
             rc_start_ns = time.monotonic_ns()
             refresh_candidate(
                 candidate, fixture_root, scratch, execution_adapter,
                 adapter_name, adapter_version, toolchain_identity,
+                started + limits["max_wall_clock_seconds"],
             )
             # REQ-F-005/§2.5: `stage_end` is captured immediately after
             # `refresh_candidate()` completes -- the producer's own
@@ -1982,6 +2230,8 @@ def main(argv):
             # deliberately outside the stage window (spec.md §2.5).
             timing["stage_end"] = time.monotonic_ns()
             timing["claimed"].append(("tool_and_test", rc_start_ns, timing["stage_end"]))
+            elapsed = max(0.0, time.monotonic() - started)
+            record["limits"]["observed_wall_clock_seconds"] = elapsed
             stage_candidate = dict(candidate)
             visit_key = (entity, str(response.get("status", "development")))
             rework_count = stage_visits.get(visit_key, 0)
@@ -2009,13 +2259,36 @@ def main(argv):
             # own record_stage() makes for this dispatch's snapshot, so I-07's
             # stage errors[] reflects the identical usage-mapping outcome
             # rather than staying an empty placeholder.
-            _usage, usage_errors = resolve_usage(str(response.get("provider", "")), worker_result if isinstance(worker_result, dict) else {})
+            _usage, usage_errors = resolve_usage(mapped_provider(response), worker_result if isinstance(worker_result, dict) else {})
             lifecycle_stage["errors"] = usage_errors
+            # Same stage_input_lineage() call I05BundleWriter's own
+            # record_stage() makes for this dispatch's snapshot, so I-07's
+            # stage input_lineage[] reflects the identical typed input
+            # identities rather than staying an empty placeholder.
+            lifecycle_stage["input_lineage"] = stage_input_lineage(
+                record, dispatch, fixture_root, fixture_input_digest,
+                execution_adapter, adapter,
+            )
             record["stages"].append(lifecycle_stage)
             gate_category = None
             if i05_writer is not None:
-                i05_writer.record_stage(dispatch, stage_candidate, shark, scratch, worker_result, timing)
+                stage_errors = i05_writer.record_stage(
+                    dispatch, stage_candidate, shark, scratch, worker_result, timing,
+                    fixture_root, fixture_input_digest, execution_adapter, adapter,
+                )
                 gate_category = i05_writer._stages_index[-1]["stage_category"]
+                # unmapped_provider means the provider is legitimately outside
+                # X-09's coverage today (e.g. openai_codex_cli, or a fixture
+                # stub in tests) -- a known, non-fatal gap. Every other kind
+                # (usage_slot_unavailable for a MAPPED provider, missing_
+                # provider, test_suite_unavailable, unknown_stage_category)
+                # means required evidence for evidence THAT SHOULD be
+                # collectible went missing -- fatal to publication eligibility.
+                evidence_errors.extend(
+                    {"dispatch_ordinal": dispatch["ordinal"], **item}
+                    for item in stage_errors
+                    if item.get("kind") != "unmapped_provider"
+                )
             prompt_digest = str(response.get("prompt_sha256"))
             record["identity"]["rendered_prompt_digests"].append(prompt_digest)
             effort = str(response.get("effort") or "default")
@@ -2026,25 +2299,23 @@ def main(argv):
             if gate_category in {"review", "qa", "uat"}:
                 gate_id = str(response.get("status", "review"))
                 review_rounds[gate_id] = review_rounds.get(gate_id, 0) + 1
-                gate, _gate_policy = capture_review_gate(
+                gate, captured_policy = capture_review_gate(
                     shark, scratch, i05_writer.dir, entity, response, stage_candidate,
                     review_rounds[gate_id], seen_review_note_ids, repo_root,
+                    gate_policy_for(record, response, repo_root),
                 )
                 record["review_gates"].append(gate)
-                if gate_id not in record["workflow_policy"]["enabled_gates"]:
-                    record["workflow_policy"]["enabled_gates"].append(gate_id)
-                    record["workflow_policy"]["gate_order"].append(gate_id)
-                record["workflow_policy"]["reviewer"] = {
-                    "provider": str(response.get("provider")),
-                    "model": str(response.get("model")),
-                    "effort": effort,
-                }
-                record["workflow_policy"]["prompt_digest"] = prompt_digest
-                record["workflow_policy"]["rendered_prompt_digest"] = prompt_digest
-                record["workflow_policy"]["fixes_allowed_between_gates"] = (
-                    record["workflow_policy"]["fixes_allowed_between_gates"]
+                captured_policy["fixes_allowed"] = (
+                    captured_policy.get("fixes_allowed")
                     or "fail" in request.get("allowed_outcomes", [])
                 )
+                captured_policy["policy_digest"] = canonical_digest({
+                    key: value for key, value in captured_policy.items()
+                    if key != "policy_digest"
+                })
+                gate["policy_ref"]["policy_digest"] = captured_policy["policy_digest"]
+                replace_gate_policy(record, captured_policy)
+                refresh_workflow_policy(record)
             ordinal += 1
             write_partial(output, record)
             if terminal != "complete" and terminal != "resource_limit":
@@ -2063,11 +2334,33 @@ def main(argv):
                 break
             if advanced and args["mode"] != "dry-run":
                 queue.insert(0, requested)
+        if terminal == "complete" and evidence_errors:
+            terminal = "error"
+            reason = "required stage evidence is unavailable: " + "; ".join(
+                f"dispatch={item['dispatch_ordinal']} {item['kind']} "
+                f"{item.get('detail') or item.get('status') or item.get('slot') or item.get('provider') or ''}"
+                for item in evidence_errors
+            )
         record["outcome"] = {"terminal": terminal, "reason": "completed with complete evidence" if terminal == "complete" else reason, "partial_evidence": terminal != "complete" and bool(record["dispatches"]), "publication_eligible": terminal == "complete"}
     except (RuntimeError, OSError, ValueError, TypeError) as exc:
         terminal = "cancellation" if isinstance(exc, Cancellation) else "error"
         reason = str(exc)
         record["outcome"] = {"terminal": terminal, "reason": reason, "partial_evidence": bool(record["dispatches"]), "publication_eligible": False}
+    reached_gate_ids = {gate.get("gate_id") for gate in record["review_gates"]}
+    last_snapshot = record["stages"][-1]["candidate"]["snapshot_digest"] if record["stages"] else None
+    for gate_policy in record["workflow_policy"].get("gate_policies") or []:
+        if gate_policy["gate_id"] in reached_gate_ids:
+            continue
+        record["review_gates"].append({
+            "gate_id": gate_policy["gate_id"],
+            "reached": False,
+            "state": "not_reached",
+            "round": 0,
+            "findings": [],
+            "candidate_ref": {"snapshot_digest": last_snapshot},
+            "policy_ref": {"policy_digest": gate_policy["policy_digest"]},
+        })
+    refresh_workflow_policy(record)
     policy = record["workflow_policy"]
     policy["workflow_policy_identity_digest"] = canonical_digest({key: value for key, value in policy.items() if key != "workflow_policy_identity_digest"})
     if i05_writer is not None:

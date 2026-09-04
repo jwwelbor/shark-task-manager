@@ -67,6 +67,9 @@
 #                                             # run-matched I-05 bundle and
 #                                             # that generated bundle always
 #                                             # takes precedence.
+#       replay_result: "<i06-result.json>"    # required for feature scenarios
+#                                             # with applicable D01-D05 stages;
+#                                             # passed unchanged to F08.
 #
 # root_key/scratch_root are operator-prepared inputs, not
 # something this driver bootstraps: creating a scratch Shark project and its
@@ -498,6 +501,9 @@ for scenario_id, pkg_path, pkg in selected:
     i05_bundle_dir = str(entry.get("i05_bundle_dir") or "")
     if i05_bundle_dir and not os.path.isabs(i05_bundle_dir):
         i05_bundle_dir = os.path.join(bench_dir, i05_bundle_dir)
+    replay_result = str(entry.get("replay_result") or "")
+    if replay_result and not os.path.isabs(replay_result):
+        replay_result = os.path.join(bench_dir, replay_result)
     stage_matrix = pkg.get("stage_matrix") or {}
     prelude = stage_matrix.get("prelude") or {}
     lifecycle_mode = (stage_matrix.get("lifecycle") or {}).get("mode", "unknown")
@@ -509,6 +515,7 @@ for scenario_id, pkg_path, pkg in selected:
         "root_key": root_key,
         "scratch_root": scratch_root,
         "i05_bundle_dir": i05_bundle_dir,
+        "replay_result": replay_result,
         "package_path": os.path.abspath(pkg_path),
         "prelude": prelude,
         "lifecycle_mode": lifecycle_mode,
@@ -815,10 +822,10 @@ retain_pair() {
 }
 
 dispatch_pair() {
-	# dispatch_pair <scenario_id> <scenario_version> <family> <rep> <package_path> <root_key> <scratch_root> <i05_bundle_dir> <success_label>
+	# dispatch_pair <scenario_id> <scenario_version> <family> <rep> <package_path> <root_key> <scratch_root> <i05_bundle_dir> <replay_result> <success_label>
 	assert_retention_root_identity
 	local scenario_id="$1" scenario_version="$2" family="$3" rep="$4" package_path="$5"
-	local root_key="$6" scratch_root="$7" i05_bundle_dir="$8" success_label="$9"
+	local root_key="$6" scratch_root="$7" i05_bundle_dir="$8" replay_result="$9" success_label="${10}"
 
 	if [[ -z "$root_key" || -z "$scratch_root" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep: root_key/scratch_root not configured; recorded failed, batch proceeds" >&2
@@ -921,9 +928,15 @@ dispatch_pair() {
 	# spend_gate_check_all already validated) through to run-lifecycle.sh's
 	# own execution-time enforcement/recording -- never left to fall through
 	# to the scenario package's resource_policy default.
-	"$RUN_LIFECYCLE_BIN" --scenario "$package_path" --run-id "${scenario_id}-rep${rep}" \
-		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out" \
-		--limits "$OPERATOR_LIMITS_FILE" --i05-bundle-dir "$i05_bundle_dir" </dev/null
+	local -a lifecycle_args=(
+		--scenario "$package_path" --run-id "${scenario_id}-rep${rep}"
+		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out"
+		--limits "$OPERATOR_LIMITS_FILE" --i05-bundle-dir "$i05_bundle_dir"
+	)
+	if [[ -n "$replay_result" ]]; then
+		lifecycle_args+=(--replay "$replay_result")
+	fi
+	"$RUN_LIFECYCLE_BIN" "${lifecycle_args[@]}" </dev/null
 	local run_rc=$?
 	set -e
 
@@ -1157,6 +1170,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 	root_key="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["root_key"])' "$row_json")"
 	scratch_root="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["scratch_root"])' "$row_json")"
 	i05_bundle_dir="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["i05_bundle_dir"])' "$row_json")"
+	replay_result="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["replay_result"])' "$row_json")"
 	package_path="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["package_path"])' "$row_json")"
 
 	for ((rep = 1; rep <= reps; rep++)); do
@@ -1224,7 +1238,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 					overall_bad="true"
 				else
 					dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-						"$root_key" "$scratch_root" "$i05_bundle_dir" "quarantined_and_rerun"
+						"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "quarantined_and_rerun"
 				fi
 			else
 				echo "run-lifecycle-batch: $scenario_id rep $rep is an incomplete prior attempt (directory present, evaluation.jsonl absent); skipping (pass --reclaim-incomplete to quarantine and re-run)" >&2
@@ -1234,7 +1248,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 			;;
 		pending)
 			dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-				"$root_key" "$scratch_root" "$i05_bundle_dir" "pending_run"
+				"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "pending_run"
 			;;
 		esac
 	done

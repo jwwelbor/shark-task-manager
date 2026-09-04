@@ -118,6 +118,9 @@ required_fields:
   - /workflow_policy/prompt_digest
   - /workflow_policy/review_bundle_digest
   - /workflow_policy/fixes_allowed_between_gates
+  - /workflow_policy/gate_policies
+  - /workflow_policy/gate_policies[]/gate_id
+  - /workflow_policy/gate_policies[]/policy_digest
   - /review_gates
   - /review_gates[]/gate_id
   - /review_gates[]/state
@@ -188,6 +191,7 @@ properties:
   /workflow_policy/prompt_digest: digest
   /workflow_policy/review_bundle_digest: digest
   /workflow_policy/fixes_allowed_between_gates: boolean
+  /workflow_policy/gate_policies: array
   /review_gates: array
   /questions: array
   /prelude: object
@@ -302,4 +306,5 @@ error_kind:
   - prompt_digest_mismatch
   - candidate_snapshot_mismatch
   - artifact_consumption_record_missing
+  - stage_evidence_incomplete
   - unsupported_schema_version

@@ -54,6 +54,10 @@ chmod +x "$WORKDIR/bin/shark"
 cat >"$WORKDIR/adapter.sh" <<'ADAPTER'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "test" ]]; then
+	printf '%s\n' '{"entries":[{"id":"tests.test_due_date::test_due_today_is_overdue","outcome":"pass"}]}'
+	exit 0
+fi
 if [[ "${HANG_ADAPTER:-}" == "1" ]]; then
 	python3 - "$CHILD_PID" "$CHILD_HEARTBEAT" <<'PY' &
 import os, pathlib, sys, time
@@ -153,3 +157,48 @@ assert bundle["stop_outcome"] == "resource_limit", bundle
 assert bundle["publication_eligible"] is False, bundle
 PY
 echo "TC-062: pass (deadline kills adapter descendants and emits retained resource_limit evidence)"
+
+echo "TC-062: SIGTERM terminates the adapter process group and retains cancellation evidence"
+cat >"$WORKDIR/signal-limits.yaml" <<'YAML'
+max_cost_usd: 10
+max_wall_clock_seconds: 30
+max_generated_tasks: 10
+YAML
+mkdir -p "$WORKDIR/signal-scratch"
+: >"$WORKDIR/signal-events.ndjson"
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/signal-events.ndjson" \
+HANG_ADAPTER=1 CHILD_PID="$WORKDIR/signal-child.pid" CHILD_HEARTBEAT="$WORKDIR/signal-child.heartbeat" \
+SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
+    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --run-id tc062-signal --root ROOT-001 --scratch-root "$WORKDIR/signal-scratch" \
+    --limits "$WORKDIR/signal-limits.yaml" --i05-bundle-dir "$WORKDIR/signal-i05" \
+    --output "$WORKDIR/signal.jsonl" >/dev/null &
+runner_pid=$!
+for _ in $(seq 1 500); do
+	[[ -s "$WORKDIR/signal-child.pid" && -e "$WORKDIR/signal-child.heartbeat" ]] && break
+	sleep 0.02
+done
+[[ -s "$WORKDIR/signal-child.pid" && -e "$WORKDIR/signal-child.heartbeat" ]] || fail "signal adapter child never started"
+signal_child_pid="$(cat "$WORKDIR/signal-child.pid")"
+kill -TERM "$runner_pid"
+set +e
+wait "$runner_pid"
+runner_status=$?
+set -e
+[[ "$runner_status" -eq 0 ]] || fail "signal stop exited $runner_status instead of retaining a named stop"
+if kill -0 "$signal_child_pid" 2>/dev/null; then
+	fail "adapter descendant PID $signal_child_pid survived SIGTERM handling"
+fi
+python3 - "$WORKDIR/signal.jsonl" "$WORKDIR/signal-i05/bundle.json" "$WORKDIR/signal-events.ndjson" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+bundle = json.load(open(sys.argv[2], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8")]
+assert record["outcome"]["terminal"] == "cancellation", record["outcome"]
+assert record["outcome"]["publication_eligible"] is False, record["outcome"]
+assert record["dispatches"][0]["release"], record["dispatches"][0]
+assert bundle["stop_outcome"] == "cancellation", bundle
+assert sum(event["argv"][0] == "release" for event in events) == 1, events
+PY
+echo "TC-062: pass (SIGTERM kills adapter descendants and emits retained cancellation evidence)"
