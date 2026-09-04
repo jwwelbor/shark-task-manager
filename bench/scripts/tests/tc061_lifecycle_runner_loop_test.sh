@@ -249,7 +249,7 @@ for stage_index, stage in enumerate(record["stages"]):
         assert observed_consumers == expected_consumers, artifact
         assert all(
             set(edge) == {"consuming_stage", "edge_kind", "observed_at"}
-            and edge["edge_kind"] == "read" and edge["observed_at"]
+            and edge["edge_kind"] == "read" and edge["observed_at"].strip()
             for edge in artifact["consumers"]
         ), artifact
         snapshot_entry = next(
@@ -312,6 +312,63 @@ if "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/missing-consumer.jsonl" \
 fi
 grep -q "consumer graph disagrees" "$WORKDIR/missing-consumer.err" || \
 	fail "verifier did not name the artifact-consumer graph contradiction"
+python3 - "$WORKDIR/lifecycle.jsonl" "$WORKDIR/whitespace-consumer.jsonl" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+record["stages"][0]["artifacts"][0]["consumers"][0]["observed_at"] = "   "
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+if "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/whitespace-consumer.jsonl" \
+    --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >"$WORKDIR/whitespace-consumer.out" 2>"$WORKDIR/whitespace-consumer.err"; then
+	fail "verifier accepted a typed consumer edge with whitespace-only observed_at"
+fi
+grep -q "consumer fields must be non-empty strings" "$WORKDIR/whitespace-consumer.err" || \
+	fail "verifier did not name the whitespace-only typed consumer field"
+python3 - "$WORKDIR/lifecycle.jsonl" "$WORKDIR" <<'PY'
+import copy, json, os, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+mutations = {
+    "missing-observed-at": lambda edge: edge.pop("observed_at"),
+    "unknown-edge-kind": lambda edge: edge.__setitem__("edge_kind", "invented"),
+    "unexpected-edge-field": lambda edge: edge.__setitem__("unexpected", True),
+}
+for name, mutate in mutations.items():
+    variant = copy.deepcopy(record)
+    mutate(variant["stages"][0]["artifacts"][0]["consumers"][0])
+    with open(os.path.join(sys.argv[2], f"{name}.jsonl"), "w", encoding="utf-8") as stream:
+        stream.write(json.dumps(variant, separators=(",", ":")) + "\n")
+PY
+for invalid_edge_case in missing-observed-at unknown-edge-kind unexpected-edge-field; do
+	if "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/$invalid_edge_case.jsonl" \
+	    --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >"$WORKDIR/$invalid_edge_case.out" 2>"$WORKDIR/$invalid_edge_case.err"; then
+		fail "verifier accepted malformed typed consumer edge: $invalid_edge_case"
+	fi
+done
+grep -q "must contain only consuming_stage, edge_kind, and observed_at" "$WORKDIR/missing-observed-at.err" || \
+	fail "verifier did not name the missing typed consumer field"
+grep -q "edge_kind is not in the I-05 vocabulary" "$WORKDIR/unknown-edge-kind.err" || \
+	fail "verifier did not reject the unknown typed consumer edge_kind"
+grep -q "must contain only consuming_stage, edge_kind, and observed_at" "$WORKDIR/unexpected-edge-field.err" || \
+	fail "verifier did not reject the unexpected typed consumer field"
+python3 - "$WORKDIR/lifecycle.jsonl" "$WORKDIR/deduplicated-consumers.jsonl" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+consumers = record["stages"][0]["artifacts"][0]["consumers"]
+seen = set()
+record["stages"][0]["artifacts"][0]["consumers"] = [
+    edge for edge in consumers
+    if edge["consuming_stage"] not in seen and not seen.add(edge["consuming_stage"])
+]
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+if "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/deduplicated-consumers.jsonl" \
+    --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >"$WORKDIR/deduplicated-consumers.out" 2>"$WORKDIR/deduplicated-consumers.err"; then
+	fail "verifier accepted consumer edges collapsed to unique stage names"
+fi
+grep -q "consumer graph disagrees" "$WORKDIR/deduplicated-consumers.err" || \
+	fail "verifier did not detect lost repeated-dispatch consumer multiplicity"
 "$SCRIPTS_DIR/replay-stage-evidence.sh" "$WORKDIR/evidence" \
 	--checkout "$WORKDIR/fixture" --adapter "$SCRIPTS_DIR/../adapters/python/adapter.sh" >/dev/null
 

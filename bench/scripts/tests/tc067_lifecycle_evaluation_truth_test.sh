@@ -62,7 +62,7 @@ record = {
     "stages": [
         {"category": "code", "input_lineage": lineage, "artifacts": [
             {"path": "artifacts/0001.patch", "digest": digest("artifact-1"), "consumers": [
-                {"consuming_stage": "review", "edge_kind": "read"},
+                {"consuming_stage": "review", "edge_kind": "read", "observed_at": "   "},
             ]},
         ]},
         {"stage": "review", "category": "review", "input_lineage": lineage + [

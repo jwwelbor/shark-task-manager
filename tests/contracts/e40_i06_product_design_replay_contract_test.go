@@ -418,6 +418,22 @@ func TestTC052_I06ProductDesignReplayContract(t *testing.T) {
 			}
 		})
 
+		t.Run("typed_consumer_fields_reject_whitespace_and_extras", func(t *testing.T) {
+			artifacts := []interface{}{map[string]interface{}{
+				"artifact_type": "document", "path": "artifact.md", "digest": "sha256:fixture",
+				"size_bytes": float64(1), "produced_at": "2026-08-19T00:00:00Z",
+				"revision_index": float64(1), "prompt_digest": "sha256:prompt",
+				"input_digests": []interface{}{}, "consumed_entries": []interface{}{},
+				"consumers": []interface{}{map[string]interface{}{
+					"consuming_stage": "D03", "edge_kind": "read", "observed_at": "   ", "unexpected": true,
+				}},
+			}}
+			errs := e40I06ValidateArtifactRecords([]interface{}{map[string]interface{}{"artifacts": artifacts}}, schema)
+			if !e40ContainsErrorMatching(errs, "observed_at") || !e40ContainsErrorMatching(errs, "unexpected") {
+				t.Fatalf("malformed typed consumer edge was not fully rejected: %v", errs)
+			}
+		})
+
 		t.Run("valid_result_minimal_artifact_records", func(t *testing.T) {
 			// result-minimal.json's own artifact record (T-E40-F07-001)
 			// must also satisfy this task's field-inventory validation --
@@ -1567,8 +1583,16 @@ func e40I06ValidateArtifactRecords(stages []interface{}, schema *e40I06Schema) [
 					errs = append(errs, fmt.Sprintf("field_malformed: stages[%d].artifacts[%d].consumers[%d] must be an object", si, ai, ci))
 					continue
 				}
+				for field := range edge {
+					switch field {
+					case "consuming_stage", "edge_kind", "observed_at":
+					default:
+						errs = append(errs, fmt.Sprintf("field_unexpected: stages[%d].artifacts[%d].consumers[%d].%s", si, ai, ci, field))
+					}
+				}
 				for _, f := range []string{"consuming_stage", "edge_kind", "observed_at"} {
-					if _, present := edge[f]; !present {
+					value, present := edge[f].(string)
+					if !present || strings.TrimSpace(value) == "" {
 						errs = append(errs, fmt.Sprintf("field_missing: stages[%d].artifacts[%d].consumers[%d].%s", si, ai, ci, f))
 					}
 				}

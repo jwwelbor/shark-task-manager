@@ -1144,12 +1144,14 @@ for scenario_id, rep, rep_dir in pair_dirs:
             pair_consumed_count += 1
             distinct_consuming_stages = set()
             for c_idx, consumer in enumerate(consumers):
-                if not isinstance(consumer, dict):
-                    fail(f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}] is not an object")
-                consuming_stage = require(
-                    consumer, "consuming_stage", f"{pair_label} stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}]"
-                )
-                edge_kind = consumer.get("edge_kind")
+                consumer_context = f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}]"
+                required_consumer_fields = {"consuming_stage", "edge_kind", "observed_at"}
+                if not isinstance(consumer, dict) or set(consumer) != required_consumer_fields:
+                    fail(f"{consumer_context} must contain only consuming_stage, edge_kind, and observed_at")
+                if not all(isinstance(consumer[field], str) and consumer[field].strip() for field in required_consumer_fields):
+                    fail(f"{consumer_context} fields must be non-empty strings")
+                consuming_stage = consumer["consuming_stage"]
+                edge_kind = consumer["edge_kind"]
                 if edge_kind not in EDGE_KINDS:
                     fail(
                         f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}].edge_kind "
