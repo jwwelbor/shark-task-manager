@@ -30,15 +30,22 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 mkdir -p "$WORKDIR/scratch"
 printf 'hello' >"$WORKDIR/scratch/file.txt"
+cat >"$WORKDIR/adapter.sh" <<'ADAPTER'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == "test" && "$2" == "--checkout" && -n "$3" ]]
+printf '%s\n' '{"entries":[{"id":"tests/test_example.py::test_example"}]}'
+ADAPTER
+chmod +x "$WORKDIR/adapter.sh"
 
 RECORD="$WORKDIR/lifecycle.jsonl"
 
-python3 - "$RUNNER" "$REPO_ROOT" "$WORKDIR/scratch" "$RECORD" <<'PY'
+python3 - "$RUNNER" "$REPO_ROOT" "$WORKDIR/scratch" "$RECORD" "$WORKDIR/adapter.sh" <<'PY'
 import json
 import re
 import sys
 
-runner_path, repo_root, scratch, record_path = sys.argv[1:5]
+runner_path, repo_root, scratch, record_path, adapter_path = sys.argv[1:6]
 
 # Extract the embedded python body (between the `python3 - "$@" <<'PY'` heredoc
 # markers) up to the trailing `try: raise SystemExit(main(...))` driver, so
@@ -50,8 +57,19 @@ assert match, "could not locate run-lifecycle.sh's embedded python body"
 namespace = {"__name__": "run_lifecycle_under_test"}
 exec(compile(match.group(1), runner_path, "exec"), namespace)
 
-candidate = namespace["candidate_identity"](repo_root)
-namespace["refresh_candidate"](candidate, scratch)
+adapter_identity = {
+    "name": "fixture-adapter",
+    "version": "1.0.0",
+    "toolchain": {"language": "python", "version": "3"},
+}
+candidate = namespace["candidate_identity"](
+    repo_root, adapter_path, adapter_identity["name"],
+    adapter_identity["version"], adapter_identity["toolchain"],
+)
+namespace["refresh_candidate"](
+    candidate, repo_root, scratch, adapter_path, adapter_identity["name"],
+    adapter_identity["version"], adapter_identity["toolchain"],
+)
 assert "scratch_content_digest" in candidate, "refresh_candidate did not add scratch_content_digest"
 
 digest64 = lambda seed: __import__("hashlib").sha256(seed.encode()).hexdigest()

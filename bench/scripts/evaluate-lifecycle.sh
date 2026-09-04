@@ -416,6 +416,14 @@ def run_judge(package, reasons):
 
 def run_oracle(i05, lifecycle, reasons):
     """Invoke the held-back oracle when an agent fixture checkout is available."""
+    oracle_output = args.output + ".oracle.json"
+
+    def persist_synthetic_oracle(record):
+        os.makedirs(os.path.dirname(os.path.abspath(oracle_output)), exist_ok=True)
+        with open(oracle_output, "w", encoding="utf-8") as stream:
+            json.dump(record, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+
     terminal = (lifecycle.get("outcome") or {}).get("terminal")
     if terminal in STOP_OUTCOMES:
         stopped = reason(
@@ -424,11 +432,13 @@ def run_oracle(i05, lifecycle, reasons):
             f"held-back oracle is not run for lifecycle terminal outcome {terminal!r}",
         )
         reasons.append(stopped)
-        return {
+        result = {
             "observed_result": "not_run",
             "invalidity_reasons": [stopped],
             "summary": stopped["detail"],
         }
+        persist_synthetic_oracle(result)
+        return result
     checkout = (i05.get("roots") or {}).get("agent_fixture_checkout")
     if isinstance(checkout, dict):
         checkout = checkout.get("path")
@@ -437,8 +447,8 @@ def run_oracle(i05, lifecycle, reasons):
     if not checkout or not os.path.isdir(checkout):
         oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable")]}
         reasons.append(reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable"))
+        persist_synthetic_oracle(oracle_result)
     else:
-        oracle_output = args.output + ".oracle.json"
         process = subprocess.run([oracle, "--scenario", args.scenario, "--i07", args.i07, "--stage-bundle", args.i05, "--checkout", checkout, "--output", oracle_output], capture_output=True, text=True)
         try:
             with open(oracle_output, encoding="utf-8") as stream:
@@ -447,6 +457,9 @@ def run_oracle(i05, lifecycle, reasons):
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "oracle did not produce a result")]}
         if not isinstance(oracle_result, dict):
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("source_malformed", "/execution_oracle", "oracle result must be an object")]}
+            persist_synthetic_oracle(oracle_result)
+        elif not os.path.isfile(oracle_output):
+            persist_synthetic_oracle(oracle_result)
         if process.returncode or oracle_result.get("observed_result") != "pass":
             reasons.extend(oracle_result.get("invalidity_reasons") or [reason("oracle_failure", "/execution_oracle", "held-back oracle failed")])
     return oracle_result

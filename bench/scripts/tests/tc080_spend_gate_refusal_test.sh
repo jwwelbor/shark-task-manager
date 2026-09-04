@@ -511,6 +511,8 @@ elif args[:2] == ["status", "advance"]:
     print('{"advanced":true}')
 elif args[0] == "release":
     print('{"released":true}')
+elif args[:2] == ["history", "ROOT-001"]:
+    print('{"root_key":"ROOT-001","entries":[]}')
 else:
     raise SystemExit("unexpected shark argv: " + repr(args))
 PY
@@ -663,9 +665,13 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-cost-usd "$UAT_R2_01_OPERATOR_COST" --max-wall-clock-seconds "$UAT_R2_01_OPERATOR_WALL" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	>"$UAT_R2_01_WORKDIR/batch-r2.out" 2>"$UAT_R2_01_WORKDIR/batch-r2.err" || batch_r2_rc=$?
-[[ "$batch_r2_rc" -eq 4 ]] || fail "uat-r2-01 batch: expected exit 4 (real dispatch reached, i05_bundle_dir deliberately unconfigured), got $batch_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err")"
-grep -q "evaluation_failed" "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" \
-	|| fail "uat-r2-01 batch: expected the synthetic pair to reach evaluation AFTER a real run-lifecycle.sh dispatch and run-matched I-05 capture, got: $(cat "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" 2>/dev/null); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err" 2>/dev/null); lifecycle: $(cat "$UAT_R2_01_WORKDIR/batch-captured-lifecycle.jsonl" 2>/dev/null)"
+[[ "$batch_r2_rc" -eq 0 ]] || fail "uat-r2-01 batch: expected a valid-but-ineligible evaluation to be retained successfully, got $batch_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err")"
+python3 - "$BATCH_R2_WORKDIR/retention/scenarios/$UAT_R2_01_SCENARIO_ID/1/evaluation.jsonl" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+assert record["eligibility"]["aggregate_eligible"] is False, record["eligibility"]
+assert record["eligibility"]["invalidity_reasons"], record["eligibility"]
+PY
 
 grep -q -- "--limits" "$UAT_R2_01_WORKDIR/batch-spy-argv.log" \
 	|| fail "uat-r2-01 batch: real run-lifecycle-batch.sh invocation of run-lifecycle.sh did not include --limits: $(cat "$UAT_R2_01_WORKDIR/batch-spy-argv.log")"
@@ -757,7 +763,7 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	--max-cost-usd 777 \
 	>"$UAT_R2_01_WORKDIR/batch-dup.out" 2>"$UAT_R2_01_WORKDIR/batch-dup.err" || batch_dup_rc=$?
-[[ "$batch_dup_rc" -eq 4 ]] || fail "uat-r2-01 duplicate-flag: expected exit 4 (real dispatch reached, i05_bundle_dir deliberately unconfigured), got $batch_dup_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-dup.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-dup.err")"
+[[ "$batch_dup_rc" -eq 0 ]] || fail "uat-r2-01 duplicate-flag: expected retained valid-but-ineligible evidence, got $batch_dup_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-dup.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-dup.err")"
 
 # batch.json's own recorded "ceilings" block (this file's pre-existing
 # flag_value() python helper, also first-match) must record the FIRST

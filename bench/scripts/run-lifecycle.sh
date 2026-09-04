@@ -2,7 +2,9 @@
 # run-lifecycle.sh --scenario <package.yaml> --run-id <id> --root <key>
 #                    --scratch-root <dir> [--fixture-root <dir>]
 #                    [--evidence-root <dir>] [--output <lifecycle.jsonl>]
-#                    [--limits <policy.yaml>] [--mode contract|dry-run]
+#                    [--limits <policy.yaml>] [--replay <i06-result.json>]
+#                    [--prelude <prelude.jsonl>]
+#                    [--mode contract|dry-run]
 #
 # Host-side F08 controller. Shark remains the owner of prompt assembly,
 # claims, leases, workflow routing, and Question state; this script only
@@ -25,6 +27,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,24 +53,29 @@ class ResourceLimit(RuntimeError):
     """Raised when an in-flight provider exceeds the scenario wall deadline."""
 
 
+class Cancellation(RuntimeError):
+    """Raised by signal handling after the active provider tree is stopped."""
+
+
 def usage():
     print(
         "usage: run-lifecycle.sh --scenario <package.yaml> --run-id <id> "
         "--root <key> --scratch-root <dir> [--fixture-root <dir>] "
         "[--evidence-root <dir>] [--output <path>] "
-        "[--limits <policy.yaml>] [--mode contract|dry-run]",
+        "[--limits <policy.yaml>] [--replay <i06-result.json>] "
+        "[--prelude <prelude.jsonl>] [--mode contract|dry-run]",
         file=sys.stderr,
     )
     raise SystemExit(2)
 
 
 def parse_args(argv):
-    values = {"mode": "live", "output": "", "limits": "", "fixture_root": "", "evidence_root": ""}
+    values = {"mode": "live", "output": "", "limits": "", "fixture_root": "", "evidence_root": "", "prelude": "", "replay": ""}
     required = {"--scenario": "scenario", "--run-id": "run_id", "--root": "root", "--scratch-root": "scratch_root"}
     index = 0
     while index < len(argv):
         option = argv[index]
-        if option in required or option in {"--output", "--limits", "--mode", "--fixture-root", "--evidence-root"}:
+        if option in required or option in {"--output", "--limits", "--mode", "--fixture-root", "--evidence-root", "--prelude", "--replay"}:
             if index + 1 >= len(argv):
                 usage()
             values[required.get(option, option[2:].replace("-", "_") or "mode")] = argv[index + 1]
@@ -146,40 +154,80 @@ def git_bytes(repo_root, args):
     return completed.stdout
 
 
-def candidate_identity(repo_root):
-    """Derive comparison identity from the actual committed and dirty state."""
+def adapter_json(adapter, capability, fixture_root):
+    process = subprocess.run(
+        [str(adapter), capability, "--checkout", str(fixture_root)],
+        text=True, capture_output=True, check=False,
+    )
+    if process.returncode != 0:
+        detail = process.stderr.strip() or process.stdout.strip()
+        raise RuntimeError(f"execution adapter {capability} failed ({process.returncode}): {detail}")
+    return load_json(process.stdout, f"execution adapter {capability}")
+
+
+def candidate_identity(repo_root, execution_adapter, adapter_name, adapter_version, toolchain_identity):
+    """Derive comparison identity from the post-dispatch checkout and adapter test inventory."""
     base_commit = git_bytes(repo_root, ["rev-parse", "HEAD"]).decode().strip()
     if not base_commit:
         raise RuntimeError("git merge-base returned an empty base commit")
     tracked_paths = git_bytes(repo_root, ["diff", "--name-only", "-z", base_commit])
     binary_diff = git_bytes(repo_root, ["diff", "--binary", base_commit])
-    dirty_manifest = git_bytes(repo_root, ["status", "--porcelain=v1", "--untracked-files=all"])
-    all_paths = git_bytes(repo_root, ["ls-files", "-z"])
-    test_paths = [path for path in all_paths.decode().split("\0") if path and "test" in path.lower()]
-    test_material = bytearray()
-    for path in sorted(test_paths):
-        tracked_path = Path(repo_root) / path
-        test_material.extend(path.encode("utf-8"))
-        test_material.append(0)
-        # git ls-files includes tracked symlinks. read_bytes() follows a
-        # symlink and crashes when its target is a directory; the identity
-        # of a tracked symlink is its link payload, exactly as Git records it.
-        if tracked_path.is_symlink():
-            test_material.extend(os.readlink(tracked_path).encode("utf-8"))
-        elif tracked_path.is_file():
-            test_material.extend(tracked_path.read_bytes())
+    tracked = {
+        path for path in git_bytes(repo_root, ["ls-files", "-z"]).decode().split("\0") if path
+    }
+    untracked = {
+        path for path in git_bytes(repo_root, ["ls-files", "--others", "--exclude-standard", "-z"]).decode().split("\0") if path
+    }
+    manifest = []
+    for path in sorted(tracked | untracked):
+        candidate_path = Path(repo_root) / path
+        if candidate_path.is_symlink():
+            content = os.readlink(candidate_path).encode("utf-8")
+        elif candidate_path.is_file():
+            content = candidate_path.read_bytes()
         else:
-            raise RuntimeError(f"tracked test identity source is not a file or symlink: {tracked_path}")
-        test_material.append(0)
+            # Deleted tracked paths are represented by binary_diff_digest and
+            # changed_path_digest. A file manifest cannot truthfully invent
+            # bytes for an absent path.
+            continue
+        manifest.append({
+            "path": path,
+            "digest": f"sha256:{sha256_bytes(content)}",
+            "tracked": path in tracked,
+        })
+
+    test_document = adapter_json(execution_adapter, "test", repo_root)
+    entries = test_document.get("entries")
+    if not isinstance(entries, list):
+        raise RuntimeError("execution adapter test result omitted entries array")
+    test_ids = sorted({
+        str(entry["id"])
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]
+    })
+    if len(test_ids) != len(entries):
+        raise RuntimeError("execution adapter test result contains malformed or duplicate test ids")
+    test_identity = {
+        "adapter": {"name": adapter_name, "version": adapter_version},
+        "toolchain_identity": toolchain_identity,
+        "test_ids": test_ids,
+    }
+    top_levels = {
+        test_id.split("::", 1)[0].replace("\\", "/").split("/", 1)[0].split(".", 1)[0]
+        for test_id in test_ids
+    }
     components = {
         "base_commit": base_commit,
         "tree_digest": sha256_bytes(git_bytes(repo_root, ["rev-parse", "HEAD^{tree}"])),
         "binary_diff_digest": sha256_bytes(binary_diff),
         "changed_path_digest": sha256_bytes(tracked_paths),
-        "dirty_untracked_manifest": dirty_manifest.decode(errors="replace").splitlines(),
-        "test_suite_digest": sha256_bytes(bytes(test_material)),
+        "dirty_untracked_manifest": manifest,
+        "test_suite_digest": canonical_digest(test_identity),
     }
     candidate = dict(components)
+    candidate["test_suite_ids"] = test_ids
+    if len(top_levels) == 1:
+        candidate["test_suite_dir"] = next(iter(top_levels))
     candidate["identity_digest"] = canonical_digest(components)
     candidate["snapshot_digest"] = canonical_digest(candidate)
     return candidate
@@ -207,13 +255,16 @@ def scratch_content_digest(root):
     return sha256_bytes(bytes(material))
 
 
-def refresh_candidate(candidate, scratch):
+def refresh_candidate(candidate, fixture_root, scratch, execution_adapter, adapter_name, adapter_version, toolchain_identity):
+    # The stage snapshot is a post-dispatch observation. Re-derive every
+    # fixture identity field after the worker returns so an edit made by this
+    # stage cannot first appear in the following stage's evidence.
+    current = candidate_identity(
+        fixture_root, execution_adapter, adapter_name, adapter_version, toolchain_identity
+    )
+    candidate.clear()
+    candidate.update(current)
     candidate["scratch_content_digest"] = scratch_content_digest(scratch)
-    identity_fields = {
-        key: candidate[key]
-        for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")
-    }
-    candidate["identity_digest"] = canonical_digest(identity_fields)
     candidate["snapshot_digest"] = canonical_digest(candidate)
 
 
@@ -349,8 +400,8 @@ def make_record(identity, root, scratch, limits, repo_root):
         },
         "dispatches": [], "stages": [],
         "workflow_policy": {
-            "enabled_gates": ["code_review", "qa", "uat"],
-            "gate_order": ["code_review", "qa", "uat"],
+            "enabled_gates": [],
+            "gate_order": [],
             "reviewer": {"provider": "unknown", "model": "unknown", "effort": "unknown"},
             "prompt_digest": "0" * 64, "rendered_prompt_digest": "0" * 64,
             "review_bundle_digest": deep_review_digest(repo_root),
@@ -388,6 +439,26 @@ def stage_record(dispatch, candidate):
     }
 
 
+def prelude_lineage(record):
+    replay = (record.get("prelude") or {}).get("replay") or {}
+    replay_bundle = replay.get("replay_bundle") or {}
+    reference = replay_bundle.get("bundle_path")
+    lineage = []
+    for stage in replay.get("stages") or []:
+        if not isinstance(stage, dict):
+            continue
+        for artifact in stage.get("artifacts") or []:
+            if not isinstance(artifact, dict):
+                continue
+            for entry in artifact.get("consumed_entries") or []:
+                if isinstance(entry, dict) and entry.get("entry_digest"):
+                    lineage.append({
+                        "replay_reference": reference,
+                        "entry_digest": entry["entry_digest"],
+                    })
+    return sorted(lineage, key=lambda item: (str(item["replay_reference"]), str(item["entry_digest"])))
+
+
 def stage_category(status):
     normalized = str(status).lower()
     if "research" in normalized or "discover" in normalized:
@@ -412,7 +483,136 @@ def mapped_provider(response):
     return "anthropic_claude_cli" if "anthropic" in provider or "claude" in provider else provider
 
 
-def write_stage_evidence(evidence_root, record, dispatch, candidate, fixture_root, started_ns, ended_ns):
+USAGE_BINDINGS = {
+    "total_cost": ("cost_usd", "total_cost_usd", (int, float)),
+    "input_tokens": ("input_tokens", "usage.input_tokens", int),
+    "output_tokens": ("output_tokens", "usage.output_tokens", int),
+    "cache_read_input_tokens": ("cache_read_input_tokens", "usage.cache_read_input_tokens", int),
+    "cache_creation_input_tokens": ("cache_creation_input_tokens", "usage.cache_creation_input_tokens", int),
+    "model_ids": ("model_ids", "sorted(modelUsage keys)", list),
+    "api_active_duration_ms": ("api_active_duration_ms", "duration_api_ms", int),
+    "turn_count": ("turn_count", "num_turns", int),
+    "provider_session_id": ("provider_session_id", "session_id", str),
+}
+
+
+def semantic_usage(provider_name, raw_usage):
+    if provider_name != "anthropic_claude_cli":
+        return {}, [{
+            "kind": "unmapped_provider",
+            "detail": f"provider={provider_name or 'unknown'}",
+        }]
+
+    usage = {}
+    errors = []
+    for slot, (source, envelope_path, expected_type) in USAGE_BINDINGS.items():
+        value = raw_usage.get(source)
+        valid = isinstance(value, expected_type) and not isinstance(value, bool)
+        if slot == "model_ids":
+            valid = valid and all(isinstance(item, str) and item for item in value)
+            if valid:
+                value = sorted(value)
+        elif slot == "provider_session_id":
+            valid = valid and bool(value)
+        else:
+            valid = valid and value >= 0
+        if valid:
+            usage[slot] = float(value) if slot == "total_cost" else value
+        else:
+            errors.append({
+                "kind": "usage_slot_unavailable",
+                "detail": f"slot={slot} envelope_path={envelope_path}",
+            })
+    return usage, errors
+
+
+def capture_review_gate(
+    shark, scratch, evidence_root, entity, response, candidate, round_number,
+    seen_note_ids, repo_root,
+):
+    gate_id = str(response.get("status", "review"))
+    policy = {
+        "gate_id": gate_id,
+        "provider": str(response.get("provider", "unknown")),
+        "model": str(response.get("model", "unknown")),
+        "effort": str(response.get("effort") or "default"),
+        "prompt_digest": str(response.get("prompt_sha256", "")),
+        "deep_review_bundle_digest": deep_review_digest(repo_root),
+    }
+    gate = {
+        "gate_id": gate_id,
+        "reached": True,
+        "round": round_number,
+        "collector_status": "complete",
+        "candidate_ref": {"snapshot_digest": candidate["snapshot_digest"]},
+        "policy_ref": {"policy_digest": canonical_digest(policy)},
+        "findings": [],
+    }
+    try:
+        entity_record = run_command(shark, ["get", entity, "--json"], scratch)
+        notes = entity_record.get("notes") or []
+        if not isinstance(notes, list):
+            raise RuntimeError("entity notes are not an array")
+        fresh = []
+        for note in notes:
+            if not isinstance(note, dict):
+                continue
+            note_id = note.get("id")
+            if note_id in seen_note_ids:
+                continue
+            seen_note_ids.add(note_id)
+            if note.get("note_type") == "review-finding":
+                fresh.append(note)
+        for note in fresh:
+            metadata = note.get("metadata") or {}
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            if not isinstance(metadata, dict):
+                raise RuntimeError("review-finding metadata is not an object")
+            missing = [
+                field for field in ("severity", "defect_class", "fingerprint")
+                if not isinstance(metadata.get(field), str) or not metadata[field].strip()
+            ]
+            if missing:
+                raise RuntimeError(f"review-finding metadata omitted {', '.join(missing)}")
+            raw_bytes = json.dumps(note, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            gate["findings"].append({
+                "gate": str(metadata.get("gate") or gate_id),
+                "round": int(metadata.get("round") or round_number),
+                "severity": metadata["severity"],
+                "defect_class": metadata["defect_class"],
+                "fingerprint": metadata["fingerprint"],
+                "criterion": str(metadata.get("criterion") or "not_reported"),
+                "test": str(metadata.get("test") or "not_reported"),
+                "disposition": str(metadata.get("disposition") or "open"),
+                "metadata": bounded(metadata),
+                "raw_bytes": raw_bytes,
+            })
+    except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        gate["collector_status"] = "failure"
+        gate["collector_error"] = str(exc)
+        gate["findings"] = []
+
+    capture_script = repo_root / "bench" / "scripts" / "review-capture.sh"
+    with tempfile.TemporaryDirectory(dir=evidence_root) as temporary:
+        source = Path(temporary) / "review.json"
+        destination = Path(temporary) / "capture.json"
+        source.write_text(json.dumps({"gates": [gate]}, sort_keys=True) + "\n", encoding="utf-8")
+        process = subprocess.run(
+            [str(capture_script), "--input", str(source), "--output", str(destination)],
+            text=True, capture_output=True, check=False,
+        )
+        if process.returncode != 0:
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise RuntimeError(f"review capture failed ({process.returncode}): {detail}")
+        captured = load_json(destination.read_text(encoding="utf-8"), "review capture")
+    return captured["review_gates"][0], policy
+
+
+def write_stage_evidence(
+    evidence_root, record, dispatch, candidate, fixture_root,
+    started_ns, provider_started_ns, provider_ended_ns, ended_ns, rework_count,
+):
     ordinal = dispatch["ordinal"]
     stage_key = str(dispatch["response"].get("status", "development"))
     category = stage_category(stage_key)
@@ -432,21 +632,35 @@ def write_stage_evidence(evidence_root, record, dispatch, candidate, fixture_roo
         "producer_stage": stage_key, "consumers": [],
     }
     raw_usage = dict((dispatch.get("worker") or {}).get("usage") or {})
-    model_ids = raw_usage.get("model_ids") or [dispatch["response"].get("model", "unknown")]
     provider_name = mapped_provider(dispatch["response"])
-    usage = {}
-    if provider_name == "anthropic_claude_cli":
-        usage = {
-            "total_cost": float(dispatch.get("cost_usd", 0.0)),
-            "input_tokens": int(raw_usage.get("input_tokens", 0)),
-            "output_tokens": int(raw_usage.get("output_tokens", 0)),
-            "cache_read_input_tokens": int(raw_usage.get("cache_read_input_tokens", 0)),
-            "cache_creation_input_tokens": int(raw_usage.get("cache_creation_input_tokens", 0)),
-            "model_ids": sorted(str(value) for value in model_ids),
-            "api_active_duration_ms": int(raw_usage.get("api_active_duration_ms", 0)),
-            "turn_count": int(raw_usage.get("turn_count", 0)),
-        }
+    usage, usage_errors = semantic_usage(provider_name, raw_usage)
     elapsed_ns = max(1, ended_ns - started_ns)
+    provider_start = min(elapsed_ns, max(0, (provider_started_ns or ended_ns) - started_ns))
+    intervals = {
+        # The provider envelope supplies aggregate API-active duration but no
+        # event boundaries. A duration alone cannot establish a genuine
+        # half-open wall interval, so it remains a usage measurement and the
+        # wall span stays explicitly unclassified.
+        "provider_active": [],
+        "tool_and_test": [],
+        "queue_or_claim_wait": [[0, provider_start]] if provider_start > 0 else [],
+        "replay_or_human_gate_wait": [],
+        "retry_or_backoff": [],
+        # Claude reports aggregate API-active duration, not event boundaries.
+        # Keep every unmeasured part of the adapter and controller lifecycle
+        # explicit instead of inventing provider or tool attribution.
+        "unclassified": [[provider_start, elapsed_ns]] if provider_start < elapsed_ns else [],
+    }
+    stage_candidate = {
+        key: candidate[key]
+        for key in (
+            "base_commit", "tree_digest", "binary_diff_digest",
+            "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest",
+        )
+    }
+    for key in ("test_suite_ids", "test_suite_dir"):
+        if key in candidate:
+            stage_candidate[key] = candidate[key]
     stage = {
         "dispatch_ordinal": ordinal,
         "entity": {"entity_key": dispatch["response"].get("entity_key"), "entity_type": dispatch["response"].get("entity_type")},
@@ -454,17 +668,13 @@ def write_stage_evidence(evidence_root, record, dispatch, candidate, fixture_roo
         "provider": provider_name,
         "prompt_digest": dispatch["response"].get("prompt_sha256"),
         "input_lineage": [sha256_file(Path(record["identity"]["scenario_path"]))],
-        "replay_lineage": [], "artifacts": [artifact], "usage": usage,
+        "replay_lineage": prelude_lineage(record), "artifacts": [artifact], "usage": usage,
         "time_ledger": {
             "stage_start": 0, "stage_end": elapsed_ns, "reconciliation_epsilon_ns": 0,
-            "intervals": {
-                "provider_active": [[0, elapsed_ns]], "tool_and_test": [],
-                "queue_or_claim_wait": [], "replay_or_human_gate_wait": [],
-                "retry_or_backoff": [], "unclassified": [],
-            },
+            "intervals": intervals,
         },
-        "candidate": {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")},
-        "errors": [], "rework_count": 0, "evaluator_access": [],
+        "candidate": stage_candidate,
+        "errors": usage_errors, "rework_count": rework_count, "evaluator_access": [],
     }
     stage["snapshot_digest"] = canonical_digest(stage)
     snapshot_relative = f"stages/{ordinal:04d}-{stage_key}.json"
@@ -505,6 +715,7 @@ def write_i05_bundle(evidence_root, record, scenario, initial_roots, stage_index
             "lifecycle": (scenario.get("stage_matrix") or {}).get("lifecycle") or {},
         },
         "dispatches": record["dispatches"], "stages": stage_index,
+        "prelude": record.get("prelude", {}),
         # This bundle is written only after the controller has selected its
         # terminal outcome. A stop outcome is terminal but ineligible; it is
         # not the same thing as an in-progress bundle whose evaluator access
@@ -571,29 +782,54 @@ def allowed_outcomes(scratch, response):
     return ["blocked", "fail", "on_hold", "pass"]
 
 
-def adapter_result(adapter, request, cwd, mode, shark, fixture_root, deadline):
+def stop_process_group(process):
+    if process is None or process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=2)
+
+
+def adapter_result(adapter, request, cwd, mode, shark, fixture_root, deadline, active_state):
     if mode in {"contract", "dry-run"}:
         return ({"worker_id": "offline-worker", "session_id": request["session_id"], "kind": "final", "recommended_outcome": "pass", "evidence": {"mode": mode}}, [])
     try:
         adapter_env = dict(os.environ)
         adapter_env["E40_AGENT_FIXTURE_CHECKOUT"] = str(fixture_root)
-        process = subprocess.Popen([adapter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=adapter_env, text=True)
+        process = subprocess.Popen(
+            [adapter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=cwd, env=adapter_env, text=True, start_new_session=True,
+        )
+        active_state["adapter_process"] = process
         process.stdin.write(json.dumps(request, separators=(",", ":")))
         process.stdin.close()
     except OSError as exc:
+        stop_process_group(locals().get("process"))
+        active_state["adapter_process"] = None
         raise RuntimeError(f"unable to execute lifecycle adapter: {exc}") from exc
     explicit_interval = os.environ.get("LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS")
     if explicit_interval:
         try:
             heartbeat_interval = max(0.001, float(explicit_interval))
         except ValueError as exc:
-            process.terminate()
+            stop_process_group(process)
+            active_state["adapter_process"] = None
             raise RuntimeError(f"invalid LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS: {explicit_interval}") from exc
     else:
         try:
             ttl = float(os.environ.get("SHARK_CLAIM_TTL_SECONDS", "180"))
         except ValueError as exc:
-            process.terminate()
+            stop_process_group(process)
+            active_state["adapter_process"] = None
             raise RuntimeError("invalid SHARK_CLAIM_TTL_SECONDS") from exc
         heartbeat_interval = max(1.0, min(60.0, ttl / 3.0))
     last_heartbeat = time.monotonic()
@@ -602,20 +838,16 @@ def adapter_result(adapter, request, cwd, mode, shark, fixture_root, deadline):
         while process.poll() is None:
             now = time.monotonic()
             if now >= deadline:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2)
+                stop_process_group(process)
+                active_state["adapter_process"] = None
                 raise ResourceLimit("resource ceiling exceeded during provider dispatch: max_wall_clock_seconds")
             if now - last_heartbeat >= heartbeat_interval:
                 try:
                     heartbeat = run_command(shark, ["heartbeat", request["entity_key"], "--session", request["session_id"], "--progress", "0.5", "--note", str(request.get("runner_id", "lifecycle"))], cwd, expect_json=False)
                     heartbeat_events.append({"session_id": request["session_id"], "at": timestamp(), "response": bounded(heartbeat)})
                 except RuntimeError as exc:
-                    process.terminate()
-                    process.wait(timeout=2)
+                    stop_process_group(process)
+                    active_state["adapter_process"] = None
                     raise LeaseLoss(f"heartbeat failed for {request['entity_key']}: {exc}") from exc
                 last_heartbeat = now
             time.sleep(min(0.05, heartbeat_interval / 4.0))
@@ -624,8 +856,10 @@ def adapter_result(adapter, request, cwd, mode, shark, fixture_root, deadline):
         process.wait()
     except (BrokenPipeError, OSError, subprocess.TimeoutExpired) as exc:
         if process.poll() is None:
-            process.terminate()
+            stop_process_group(process)
+        active_state["adapter_process"] = None
         raise RuntimeError(f"lifecycle adapter process failed: {exc}") from exc
+    active_state["adapter_process"] = None
     if process.returncode != 0:
         raise RuntimeError(f"lifecycle adapter failed ({process.returncode}): {stderr.strip()}")
     return load_json(stdout, "lifecycle adapter"), heartbeat_events
@@ -688,6 +922,13 @@ def main(argv):
         raise RuntimeError("LIFECYCLE_ADAPTER is required for live lifecycle runs")
 
     repo_root = Path(os.environ["LIFECYCLE_BENCH_DIR"]).parent.resolve()
+    adapter_decl = scenario.get("adapter") or {}
+    adapter_name = str(adapter_decl.get("name", "unknown"))
+    adapter_version = str(adapter_decl.get("version", "unknown"))
+    execution_adapter = repo_root / "bench" / "adapters" / adapter_name / "adapter.sh"
+    if not execution_adapter.is_file() or not os.access(execution_adapter, os.X_OK):
+        raise RuntimeError(f"registered execution adapter is unavailable: {execution_adapter}")
+    toolchain_identity = scenario.get("toolchain_identity") or []
     identity = scenario_identity(scenario_path, scenario, fixture_root, limits)
     identity["run_id"] = args["run_id"]
     identity["dispatch_id"] = f"{args['run_id']}:1"
@@ -699,6 +940,44 @@ def main(argv):
     pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch)
     record = make_record(identity, args["root"], scratch, limits, repo_root)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
+    prelude_stop = None
+    prelude_reason = ""
+    prelude_path = Path(args["prelude"]).resolve() if args["prelude"] else None
+    if prelude_path is None and isinstance((scenario.get("stage_matrix") or {}).get("prelude"), dict):
+        prelude_path = evidence_root / "prelude.jsonl"
+        prelude_command = [
+            str(repo_root / "bench" / "scripts" / "lifecycle-prelude.sh"),
+            "--scenario", str(scenario_path), "--run-id", args["run_id"],
+            "--output", str(prelude_path), "--fixture-root", str(fixture_root),
+            "--scratch-root", str(scratch), "--evaluator-root", str(scenario_path.parent.resolve()),
+        ]
+        if args["replay"]:
+            prelude_command.extend(["--replay", str(Path(args["replay"]).resolve())])
+        process = subprocess.run(prelude_command, text=True, capture_output=True, check=False)
+        if process.returncode not in {0, 1} or not prelude_path.is_file():
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise RuntimeError(f"lifecycle prelude failed without retained evidence ({process.returncode}): {detail}")
+    if prelude_path is not None:
+        prelude = load_json(prelude_path.read_text(encoding="utf-8"), "lifecycle prelude")
+        if prelude.get("scenario_id") != identity["scenario_id"]:
+            raise RuntimeError("lifecycle prelude scenario_id does not match the scenario package")
+        try:
+            retained_prelude_path = prelude_path.relative_to(evidence_root).as_posix()
+        except ValueError:
+            retained_prelude_path = str(prelude_path)
+        record["prelude"] = {
+            "path": retained_prelude_path,
+            "digest": sha256_file(prelude_path),
+            "terminal_outcome": prelude["terminal_outcome"],
+            "stages": bounded(prelude.get("prelude") or []),
+            "replay": bounded(prelude.get("replay") or {}),
+        }
+        record["questions"] = bounded(prelude.get("questions") or [])
+        identity["reference_digests"].append(sha256_file(prelude_path))
+        if prelude.get("terminal_outcome") not in {"complete", "not_applicable"} or prelude.get("publication_eligible") is not True:
+            prelude_terminal = str(prelude.get("terminal_outcome") or "unresolved_gate")
+            prelude_stop = "unresolved_gate" if prelude_terminal in {"replay_desync", "unresolved_gate"} else "error"
+            prelude_reason = str(prelude.get("reason") or f"prelude stopped with {prelude_terminal}")
     initial_roots = {
         "agent_fixture_checkout": {"path": str(fixture_root), "worker_access": "read_write", "identity_digest": tree_digest(fixture_root)},
         "scratch_shark_project": {"path": str(scratch), "worker_access": "authorized_surfaces_only", "identity_digest": tree_digest(scratch)},
@@ -708,19 +987,19 @@ def main(argv):
     ordinal = 0
     generated = 0
     started = time.monotonic()
-    queue = [args["root"]]
+    queue = [] if prelude_stop else [args["root"]]
     generated_entities = set()
-    terminal = "complete"
-    reason = "all eligible dispatches completed"
-    active_lease = {"entity": "", "session": ""}
+    stage_visits = {}
+    review_rounds = {}
+    seen_review_note_ids = set()
+    terminal = prelude_stop or "complete"
+    reason = prelude_reason or "all eligible dispatches completed"
+    active_lease = {"entity": "", "session": "", "adapter_process": None}
 
     def release_on_signal(signum, _frame):
-        if active_lease["session"]:
-            try:
-                run_command(shark, ["release", active_lease["entity"], "--session", active_lease["session"], "--outcome", "cancellation"], scratch, expect_json=False)
-            except RuntimeError:
-                pass
-        raise SystemExit(128 + signum)
+        stop_process_group(active_lease["adapter_process"])
+        active_lease["adapter_process"] = None
+        raise Cancellation(f"received signal {signum}")
 
     signal.signal(signal.SIGINT, release_on_signal)
     signal.signal(signal.SIGTERM, release_on_signal)
@@ -757,11 +1036,11 @@ def main(argv):
                 raise RuntimeError(f"prompt digest or byte-count mismatch for {entity}")
             if prompt_path.read_bytes() != actual:
                 raise RuntimeError(f"prompt-out bytes differ from response for {entity}")
-            candidate = candidate_identity(fixture_root)
+            candidate = {}
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
-            dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": candidate["snapshot_digest"]}}
+            dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": "0" * 64}}
             record["dispatches"].append(dispatch)
             record["entity_graph"]["ordinals"].append(dispatch["ordinal"])
             if entity != args["root"] and response.get("entity_type") == "task":
@@ -771,6 +1050,8 @@ def main(argv):
             worker_result = {}
             advanced = False
             stage_started_ns = time.monotonic_ns()
+            provider_started_ns = None
+            provider_ended_ns = None
             try:
                 claim = run_command(shark, ["claim", entity, "--by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"]), "--json"], scratch)
                 session = str(claim.get("session_id", ""))
@@ -783,10 +1064,14 @@ def main(argv):
                 request["session_id"] = session
                 request["runner_id"] = os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])
                 request["allowed_outcomes"] = allowed_outcomes(scratch, response)
-                worker_result, heartbeats = adapter_result(
-                    adapter, request, scratch, args["mode"], shark, fixture_root,
-                    started + limits["max_wall_clock_seconds"],
-                )
+                provider_started_ns = time.monotonic_ns()
+                try:
+                    worker_result, heartbeats = adapter_result(
+                        adapter, request, scratch, args["mode"], shark, fixture_root,
+                        started + limits["max_wall_clock_seconds"], active_lease,
+                    )
+                finally:
+                    provider_ended_ns = time.monotonic_ns()
                 dispatch["heartbeats"] = heartbeats
                 if worker_result.get("session_id") not in {None, session}:
                     raise RuntimeError(f"worker session mismatch for {entity}")
@@ -818,6 +1103,10 @@ def main(argv):
                 record["limits"]["first_exceeded"] = "max_wall_clock_seconds"
                 reason = str(exc)
                 dispatch["outcome"] = terminal
+            except Cancellation as exc:
+                terminal = "cancellation"
+                reason = str(exc)
+                dispatch["outcome"] = terminal
             except LeaseLoss as exc:
                 terminal = "lease_loss"
                 reason = str(exc)
@@ -845,10 +1134,18 @@ def main(argv):
             record["limits"]["observed_cost_usd"] += cost
             record["limits"]["observed_wall_clock_seconds"] = elapsed
             record["limits"]["observed_generated_tasks"] = generated
-            refresh_candidate(candidate, scratch)
+            refresh_candidate(
+                candidate, fixture_root, scratch, execution_adapter,
+                adapter_name, adapter_version, toolchain_identity,
+            )
             stage_candidate = dict(candidate)
+            visit_key = (entity, str(response.get("status", "development")))
+            rework_count = stage_visits.get(visit_key, 0)
+            stage_visits[visit_key] = rework_count + 1
             evidence_stage, snapshot_path, artifact = write_stage_evidence(
-                evidence_root, record, dispatch, stage_candidate, fixture_root, stage_started_ns, stage_ended_ns
+                evidence_root, record, dispatch, stage_candidate, fixture_root,
+                stage_started_ns, provider_started_ns, provider_ended_ns, stage_ended_ns,
+                rework_count,
             )
             stage_candidate["snapshot_digest"] = evidence_stage["snapshot_digest"]
             dispatch["evidence_refs"]["candidate_snapshot_digest"] = stage_candidate["snapshot_digest"]
@@ -857,12 +1154,17 @@ def main(argv):
             lifecycle_stage["output_paths"] = [artifact["path"]]
             lifecycle_stage["output_digests"] = [artifact["digest"]]
             lifecycle_stage["artifacts"] = [artifact]
+            lifecycle_stage["errors"] = list(evidence_stage["errors"])
+            lifecycle_stage["rework"] = rework_count > 0
+            lifecycle_stage["replay_lineage"] = list(evidence_stage["replay_lineage"])
             stage_elapsed_seconds = (stage_ended_ns - stage_started_ns) / 1_000_000_000
             # I-05's time ledger is explicitly nanosecond-valued, while I-07's
             # intervals reconcile against elapsed_seconds and are consumed by F10
             # as seconds. Keep the two contracts distinct at this boundary.
             lifecycle_stage["intervals"] = [
-                {"category": "provider_active", "start": 0.0, "end": stage_elapsed_seconds}
+                {"category": category, "start": start / 1_000_000_000, "end": end / 1_000_000_000}
+                for category, ranges in evidence_stage["time_ledger"]["intervals"].items()
+                for start, end in ranges
             ]
             lifecycle_stage["elapsed_seconds"] = stage_elapsed_seconds
             record["stages"].append(lifecycle_stage)
@@ -878,21 +1180,38 @@ def main(argv):
                 "stage": str(response.get("status")), "provider": str(response.get("provider")),
                 "model": str(response.get("model")), "effort": effort,
             })
-            record["workflow_policy"]["reviewer"] = {
-                "provider": str(response.get("provider")), "model": str(response.get("model")), "effort": effort,
-            }
-            record["workflow_policy"]["prompt_digest"] = prompt_digest
-            record["workflow_policy"]["rendered_prompt_digest"] = prompt_digest
+            if evidence_stage["stage_category"] in {"review", "qa", "uat"}:
+                gate_id = evidence_stage["stage_key"]
+                review_rounds[gate_id] = review_rounds.get(gate_id, 0) + 1
+                gate, _gate_policy = capture_review_gate(
+                    shark, scratch, evidence_root, entity, response, stage_candidate,
+                    review_rounds[gate_id], seen_review_note_ids, repo_root,
+                )
+                record["review_gates"].append(gate)
+                if gate_id not in record["workflow_policy"]["enabled_gates"]:
+                    record["workflow_policy"]["enabled_gates"].append(gate_id)
+                    record["workflow_policy"]["gate_order"].append(gate_id)
+                record["workflow_policy"]["reviewer"] = {
+                    "provider": str(response.get("provider")),
+                    "model": str(response.get("model")),
+                    "effort": effort,
+                }
+                record["workflow_policy"]["prompt_digest"] = prompt_digest
+                record["workflow_policy"]["rendered_prompt_digest"] = prompt_digest
+                record["workflow_policy"]["fixes_allowed_between_gates"] = (
+                    record["workflow_policy"]["fixes_allowed_between_gates"]
+                    or "fail" in request.get("allowed_outcomes", [])
+                )
             ordinal += 1
             write_partial(output, record)
             if terminal != "complete" and terminal != "resource_limit":
                 break
             exceeded = None
-            if record["limits"]["observed_cost_usd"] > limits["max_cost_usd"]:
+            if record["limits"]["observed_cost_usd"] >= limits["max_cost_usd"]:
                 exceeded = "max_cost_usd"
-            elif elapsed > limits["max_wall_clock_seconds"]:
+            elif elapsed >= limits["max_wall_clock_seconds"]:
                 exceeded = "max_wall_clock_seconds"
-            elif generated > limits["max_generated_tasks"]:
+            elif generated >= limits["max_generated_tasks"]:
                 exceeded = "max_generated_tasks"
             if exceeded:
                 terminal = "resource_limit"
@@ -903,7 +1222,7 @@ def main(argv):
                 queue.insert(0, requested)
         record["outcome"] = {"terminal": terminal, "reason": "completed with complete evidence" if terminal == "complete" else reason, "partial_evidence": terminal != "complete" and bool(record["dispatches"]), "publication_eligible": terminal == "complete"}
     except (RuntimeError, OSError, ValueError, TypeError) as exc:
-        terminal = "error"
+        terminal = "cancellation" if isinstance(exc, Cancellation) else "error"
         reason = str(exc)
         record["outcome"] = {"terminal": terminal, "reason": reason, "partial_evidence": bool(record["dispatches"]), "publication_eligible": False}
     policy = record["workflow_policy"]
@@ -912,8 +1231,9 @@ def main(argv):
     write_i05_bundle(evidence_root, record, scenario, initial_roots, stage_index, terminal, ended_at)
     output.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     output.with_suffix(output.suffix + ".partial").unlink(missing_ok=True)
-    if terminal != "complete" and terminal != "resource_limit":
-        return 1
+    # Named stop outcomes are valid, retained I-07 results. Their
+    # publication eligibility is false, but that is not a runner execution
+    # error; F09 must still evaluate them and F10 must retain the evidence.
     return 0
 
 

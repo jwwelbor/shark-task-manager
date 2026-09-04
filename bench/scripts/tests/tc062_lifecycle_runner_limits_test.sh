@@ -51,7 +51,17 @@ chmod +x "$WORKDIR/bin/shark"
 cat >"$WORKDIR/adapter.sh" <<'ADAPTER'
 #!/usr/bin/env bash
 set -euo pipefail
-python3 -c 'import json,sys; request=json.load(sys.stdin); cost=0.02 if request["entity_key"] == "TASK-001" else 0.0; print(json.dumps({"worker_id":"worker-062","session_id":request["session_id"],"kind":"final","recommended_outcome":"pass","cost_usd":cost,"evidence":{"summary":"fixture"}}))'
+if [[ "${HANG_ADAPTER:-}" == "1" ]]; then
+	python3 - "$CHILD_PID" "$CHILD_HEARTBEAT" <<'PY' &
+import os, pathlib, sys, time
+pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))
+while True:
+    pathlib.Path(sys.argv[2]).touch()
+    time.sleep(0.02)
+PY
+	wait
+fi
+python3 -c 'import json,sys; request=json.load(sys.stdin); cost=0.01 if request["entity_key"] == "TASK-001" else 0.0; print(json.dumps({"worker_id":"worker-062","session_id":request["session_id"],"kind":"final","recommended_outcome":"pass","cost_usd":cost,"evidence":{"summary":"fixture"}}))'
 ADAPTER
 chmod +x "$WORKDIR/adapter.sh"
 
@@ -99,3 +109,41 @@ assert not any(e["argv"][0] == "next" and e["argv"][1] == "TASK-002" for e in ev
 PY
 
 echo "TC-062: pass (first exceeded ceiling stops scenario and retains partial evidence)"
+
+echo "TC-062: in-flight wall deadline terminates the adapter process group and retains stop evidence"
+cat >"$WORKDIR/deadline-limits.yaml" <<'YAML'
+max_cost_usd: 10
+max_wall_clock_seconds: 1.5
+max_generated_tasks: 10
+YAML
+mkdir -p "$WORKDIR/deadline-scratch"
+: >"$WORKDIR/deadline-events.ndjson"
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/deadline-events.ndjson" \
+HANG_ADAPTER=1 CHILD_PID="$WORKDIR/child.pid" CHILD_HEARTBEAT="$WORKDIR/child.heartbeat" \
+LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
+    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --run-id tc062-deadline --root ROOT-001 --scratch-root "$WORKDIR/deadline-scratch" \
+    --limits "$WORKDIR/deadline-limits.yaml" --evidence-root "$WORKDIR/deadline-evidence" \
+    --output "$WORKDIR/deadline.jsonl"
+
+[[ -s "$WORKDIR/child.pid" && -e "$WORKDIR/child.heartbeat" ]] || fail "deadline adapter child never started"
+child_pid="$(cat "$WORKDIR/child.pid")"
+mtime_before="$(stat -c %Y.%y "$WORKDIR/child.heartbeat")"
+sleep 0.1
+mtime_after="$(stat -c %Y.%y "$WORKDIR/child.heartbeat")"
+[[ "$mtime_before" == "$mtime_after" ]] || fail "adapter descendant remained active after deadline"
+if kill -0 "$child_pid" 2>/dev/null; then
+	fail "adapter descendant PID $child_pid survived process-group termination"
+fi
+python3 - "$WORKDIR/deadline.jsonl" "$WORKDIR/deadline-evidence/bundle.json" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+bundle = json.load(open(sys.argv[2], encoding="utf-8"))
+assert record["outcome"]["terminal"] == "resource_limit", record["outcome"]
+assert record["limits"]["first_exceeded"] == "max_wall_clock_seconds", record["limits"]
+assert record["outcome"]["publication_eligible"] is False, record["outcome"]
+assert record["dispatches"][0]["release"], record["dispatches"][0]
+assert bundle["stop_outcome"] == "resource_limit", bundle
+assert bundle["publication_eligible"] is False, bundle
+PY
+echo "TC-062: pass (deadline kills adapter descendants and emits retained resource_limit evidence)"

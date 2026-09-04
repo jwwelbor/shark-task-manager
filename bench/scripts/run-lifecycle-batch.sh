@@ -776,6 +776,10 @@ dispatch_pair() {
 		local reason="$1"
 		local failed_root="$out_root_canon/.failed-attempts/$scenario_id"
 		local failed_dest="$failed_root/rep${rep}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$reason"
+		if ! assert_no_symlink_in_chain "$out_root_canon" "$failed_dest"; then
+			echo "run-lifecycle-batch: WARNING: refusing failed-attempt move through a symlink; evidence remains at $pair_work" >&2
+			return 1
+		fi
 		mkdir -p "$failed_root"
 		if mv "$pair_work" "$failed_dest"; then
 			echo "run-lifecycle-batch: retained failed pair evidence at $failed_dest" >&2
@@ -873,7 +877,10 @@ dispatch_pair() {
 	local eval_rc=$?
 	set -e
 
-	if [[ "$eval_rc" -ne 0 ]]; then
+	# F09 returns 1 for a well-formed but ineligible I-08 verdict. Retain that
+	# record and its oracle so F10 can diagnose and aggregate its upstream
+	# invalidity reasons. Exit 2+ or a missing record is an execution failure.
+	if [[ "$eval_rc" -gt 1 || ! -s "$evaluation_out" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep FAILED (evaluate-lifecycle.sh exit $eval_rc)" >&2
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "evaluation_failed"

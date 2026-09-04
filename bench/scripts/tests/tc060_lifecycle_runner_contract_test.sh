@@ -61,6 +61,7 @@ assert result == {
     ],
     "prompt_sha256": hashlib.sha256(expected_prompt).hexdigest(),
     "prompt_bytes": len(expected_prompt),
+    "usage": {"provider_session_id": "SID-002"},
 }, result
 
 assert "credential-sentinel" not in result_path.read_text()
@@ -127,6 +128,7 @@ result = {
         "cache_creation_input_tokens": 40,
     },
     "modelUsage": {"claude-haiku-fixture": {"costUSD": 0.125}},
+    "session_id": "provider-session-evidence-only",
 }
 with open(sys.argv[1], "w", encoding="utf-8") as stream:
     json.dump(result, stream)
@@ -152,10 +154,36 @@ assert result["usage"] == {
     "input_tokens": 10,
     "model_ids": ["claude-haiku-fixture"],
     "output_tokens": 20,
+    "provider_session_id": "provider-session-evidence-only",
     "turn_count": 2,
 }, result
 PYEOF
 echo "TC-060(TC-002: structured output and real usage envelope projection) PASS"
+
+echo "TC-060: absent provider usage slots remain absent rather than fabricated as zero"
+PARTIAL_USAGE_RESULT="$WORKDIR/partial-usage-result.json"
+python3 - "$PARTIAL_USAGE_RESULT" <<'PYEOF'
+import json
+import sys
+
+json.dump({
+    "type": "result",
+    "structured_output": {"kind": "final", "recommended_outcome": "pass", "evidence": []},
+    "usage": {"input_tokens": 7},
+}, open(sys.argv[1], "w", encoding="utf-8"))
+PYEOF
+rm -f "$CANARY_LOG" "$OUT"
+LIFECYCLE_CANARY_LOG="$CANARY_LOG" \
+LIFECYCLE_EXPECTED_PROMPT="$PROMPT" \
+LIFECYCLE_WORKER_RESULT="$PARTIAL_USAGE_RESULT" \
+"$ADAPTER" --request "$REQUEST" --provider-command "$TESTDATA/bin/worker-canary" --result-out "$OUT" >/dev/null
+python3 - "$OUT" <<'PYEOF'
+import json, sys
+result = json.load(open(sys.argv[1], encoding="utf-8"))
+assert result["usage"] == {"input_tokens": 7}, result
+assert "cost_usd" not in result, result
+PYEOF
+echo "TC-060(TC-002: missing semantic usage slots are absent, never zero-filled) PASS"
 
 echo "TC-060: legacy advance recommendation maps to the workflow-owned pass outcome"
 ALIAS_REQUEST="$WORKDIR/request-allowed-outcomes.json"
@@ -193,7 +221,7 @@ LIFECYCLE_CANARY_LOG="$CANARY_LOG" \
 LIFECYCLE_EXPECTED_PROMPT="$PROMPT" \
 LIFECYCLE_WORKER_RESULT="$SESSION_RESULT" \
 "$ADAPTER" --request "$REQUEST" --provider-command "$TESTDATA/bin/worker-canary" --result-out "$OUT" >/dev/null
-python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["session_id"] == "SID-002"' "$OUT"
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["session_id"] == "SID-002" and r["usage"]["provider_session_id"] == "provider-invented"' "$OUT"
 echo "TC-060(TC-002: parent claim session remains authoritative over provider metadata) PASS"
 
 echo "TC-060: TC-002 invalid prompt provenance refuses provider dispatch"
