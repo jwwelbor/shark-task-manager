@@ -60,28 +60,47 @@ dispositioned_count` decision for this fixture, and correctly withholds
 - A: same fingerprint resurfaces after a recorded repair.
 - B: new fingerprint, same `class_key`, inside a completed `search_scope`.
 - C: new fingerprint outside that scope.
+- D: new fingerprint, **different** `class_key`, inside a completed
+  `search_scope` (the HIGH-3 boundary case).
 
 **Walkthrough:** "Recurrence classification" defines exactly two buckets:
-**Recurrence** — "the same fingerprint resurfaces after a recorded repair,
-or a new fingerprint appears inside a previously `status: complete` class's
-`search_scope`" — and **Normal finding** — "anything else." Fixture A
-matches the first recurrence clause verbatim (same fingerprint, recorded
-repair). Fixture B matches the second recurrence clause verbatim (new
-fingerprint, inside a completed class's `search_scope`). Fixture C matches
-neither recurrence clause (new fingerprint, outside the completed scope), so
-it falls to "Normal finding" and "routes through ordinary rework, not
-recurrence handling" — the same section's closing sentence.
+**Recurrence** — "the same fingerprint resurfaces after a recorded repair, or
+a new fingerprint belongs to the **same `class_key`** as a previously
+`status: complete` class **and** lies inside that class's recorded
+`search_scope`. Both conjuncts are required" — and **Normal finding** —
+"anything else... A different defect class that merely happens to live
+inside an old scope's file/module footprint is a normal finding, not a
+recurrence." Fixture A matches the first recurrence clause verbatim (same
+fingerprint, recorded repair). Fixture B matches the second recurrence clause
+verbatim (new fingerprint, same `class_key`, inside a completed class's
+`search_scope` — both conjuncts satisfied). Fixture C matches neither
+recurrence clause (new fingerprint, outside the completed scope), so it
+falls to "Normal finding" and "routes through ordinary rework, not
+recurrence handling."
+
+**Edge case (class_key discriminator, UAT HIGH-3 fix):** The section makes
+both conjuncts mandatory: "matching `class_key` alone (outside the recorded
+scope) or scope membership alone (under a different `class_key`) is not
+recurrence." A fourth fixture — D: a new fingerprint under a *different*
+`class_key` that happens to fall inside a completed class's `search_scope` —
+matches scope membership but not `class_key`, so it fails the compound rule
+and classifies as a normal finding, not recurrence. This is exactly the
+boundary case HIGH-3 identified as unenforced before the fix; the corrected
+text now requires both conjuncts, so scope membership alone cannot
+misclassify fixture D as recurrence.
 
 **Edge case (no round-count field):** The same section states explicitly:
 "No round-count field or round-counting logic is used anywhere in this
-classification — recurrence is decided by fingerprint and scope membership,
-never by 'this is the Nth time we've seen a finding here.'" A grep for a
-round-counting concept (`round`, `Nth time`, `attempt number`) against the
-classification logic in this section returns no such field — the only inputs
-named are `fingerprint`, `repair_record`, and `search_scope` membership.
+classification — recurrence is decided by fingerprint, `class_key`, and
+scope membership, never by 'this is the Nth time we've seen a finding
+here.'" A grep for a round-counting concept (`round`, `Nth time`, `attempt
+number`) against the classification logic in this section returns no such
+field — the only inputs named are `fingerprint`, `repair_record`,
+`class_key`, and `search_scope` membership.
 
-**Verdict: PASS.** A/B classify as recurrence, C classifies as a normal
-finding, and no round-count field appears in the classification logic.
+**Verdict: PASS.** A/B classify as recurrence, C and D classify as normal
+findings (D specifically because `class_key` fails to match despite scope
+membership), and no round-count field appears in the classification logic.
 
 ## TC-007 — Route a severity conflict
 
@@ -186,6 +205,62 @@ counterfactual result counts.
 **Verdict: PASS.** All three guard-failure cases are required to fail
 closure until an executable counterfactual proves detection, matching
 TC-009's expected outcome.
+
+## TC-011 — Backward-looking rework: compatible fix or cited divergence (REQ-F-002)
+
+**Fixture:**
+- A: the search surfaces a recorded prior fix design (a decision note) for
+  this class, and the rework implements that design as-is.
+- B: the search surfaces a recorded prior fix design, and the rework
+  implements a *different* fix, citing durable new evidence (a changed
+  requirement) in the instance's `evidence` field as the reason for
+  diverging.
+- C (violation): the search surfaces a recorded prior fix design, and the
+  rework implements a different fix with no cited evidence — it silently
+  diverges.
+- D: the search finds no recorded prior design for this class (first
+  occurrence) — nothing to be compatible with or diverge from.
+
+**Walkthrough:** REQ-F-002 requires three things: search prior treatment
+first, then "Implement a recorded compatible fix design or cite the durable
+evidence that justifies divergence," and "preserve unrelated owner
+decisions; do not reinterpret an existing disposition without new evidence."
+The workflow's "Backward-looking rework" section encodes the search list
+(code/tests, feature/epic decisions, tech-debt records, prior review-finding
+notes, spec/architecture sections, standards docs) and then states: "When
+that search surfaces a recorded prior design or fix for this class ...
+implement that design, or a fix compatible with it. Diverging from a
+recorded design is only valid when the divergence is justified by durable
+evidence ...; cite that evidence in the instance's `evidence` field. A
+repair that silently does something different from a recorded prior design,
+with no cited justification, does not satisfy this section."
+
+Applying the fixtures: (A) implementing the recorded design as-is directly
+satisfies "implement that design" — compliant. (B) implementing a different
+fix while citing durable new evidence in `evidence` satisfies the
+divergence branch — compliant. (C) implementing a different fix with **no**
+cited evidence is the exact failure mode the section names and rejects — "a
+repair that silently does something different ... does not satisfy this
+section" — **non-compliant**, and the section further calls this itself "a
+class instance of 'the rework guessed instead of searching.'" (D) with no
+recorded prior design found, there is nothing to be compatible with or
+diverge from, so neither branch applies and ordinary rework proceeds — this
+is outside the enforcement's scope by construction, not a gap in it.
+
+**Edge case (silent override without a stated reason):** The adjacent
+sentence — "Preserve an existing disposition on a matching fingerprint
+unless new evidence contradicts it — do not silently re-open or re-decide a
+already-dispositioned instance without a stated reason" — reinforces the
+same enforcement for the already-dispositioned case specifically: a fixture
+E (re-deciding a dispositioned instance with no stated new-evidence reason)
+is likewise rejected by this section, not merely discouraged.
+
+**Verdict: PASS.** Fixtures A and B (implement-the-design and
+cite-divergence-evidence) are the two compliant paths; fixture C
+(silent divergence, no cited evidence) is explicitly named and rejected by
+the workflow's own text, not merely implied by the search-first framing;
+fixture D falls outside the rule's scope by construction (no recorded
+design exists to diverge from).
 
 ## TC-I-03-DEFECT-CLASS-CLOSURE cross-reference
 

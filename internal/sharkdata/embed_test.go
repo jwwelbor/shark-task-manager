@@ -980,13 +980,46 @@ func TestDefectClassSweepNoWWGMOrToolLeakage(t *testing.T) {
 	}
 }
 
+// defectClassSweepPersistenceIdentifiers is test-plan.md TC-010's guard
+// pattern (tightened per UAT-kickback MEDIUM-3): the original guard matched
+// only the two literal identifiers `DefectClassSweep` and `class_key`, which
+// a persistence layer could dodge by using a synonym name (`SweepRecord`,
+// `defectKey`, ...) for the same I-03 shape. This list adds the field/type
+// name variants a Go persistence layer for this shape would plausibly use —
+// none of these currently appear anywhere in non-test Go source under
+// internal/ (verified during the rework), so the broadened list adds no
+// false positives today.
+var defectClassSweepPersistenceIdentifiers = regexp.MustCompile(
+	`\b(DefectClassSweep|class_key|ClassKey|defectKey|SweepRecord|RecurrenceRecord|SeverityConflict|InstanceDisposition|DefectClassInstance)\b`,
+)
+
+// defectClassSweepStructDecl is the second, independent signal TC-010 now
+// checks: a new Go struct type whose *name* (not just an exact identifier
+// from the list above) suggests it persists this feature's "sweep" or
+// "defect class" shape under a different vocabulary entirely — e.g.
+// `type sweepEntry struct` or `type DefectRecord struct`. Matching on the
+// `type ... struct` declaration shape, rather than a literal identifier
+// list, is intentionally harder to dodge by renaming than the identifier
+// list alone; combined, the two checks require an evader to avoid both the
+// "sweep"/"defect" word stems in a type name AND every identifier above.
+var defectClassSweepStructDecl = regexp.MustCompile(`(?im)^\s*type\s+\w*(?:[Ss]weep|[Dd]efect)\w*\s+struct\b`)
+
 // TestDefectClassSweepNoGoPersistenceIntroduced is test-plan.md TC-010
 // (task T-E34-F06-003, AC-T2): confirms REQ-NF-001 — this feature stayed
 // content-only and did not introduce a Go persistence layer (a new type,
 // struct field, table, or repository method) for the I-03 DefectClassSweep
-// shape. Equivalent to `grep -rln "DefectClassSweep\|class_key" internal/`
-// restricted to non-test Go source; any match there signals scope creep into
-// a real Go persistence layer.
+// shape.
+//
+// Two independent checks run over the same non-test Go source scan: (1) a
+// synonym-aware identifier list (defectClassSweepPersistenceIdentifiers),
+// broadened from the original two-literal grep per UAT-kickback MEDIUM-3 so
+// a renamed field/type doesn't silently evade it, and (2) a struct-name-shape
+// scan (defectClassSweepStructDecl) that catches a new persistence type named
+// after this feature's vocabulary even under an identifier this list didn't
+// anticipate. Evading both simultaneously — no "sweep"/"defect" word stem in
+// any new type name, and none of the specific field/type synonyms above —
+// is deliberately harder than evading either check alone; this is a
+// materially tightened heuristic, not a claim of airtight coverage.
 //
 // Test files are excluded from the scan by design, not oversight: TC-001/
 // TC-002's own tests (`internal/templates/includes_test.go`'s
@@ -1003,8 +1036,7 @@ func TestDefectClassSweepNoGoPersistenceIntroduced(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	internalDir := filepath.Join(repoRoot, "internal")
 
-	pattern := regexp.MustCompile(`DefectClassSweep|class_key`)
-	var hits []string
+	var identifierHits, structHits []string
 
 	err := filepath.WalkDir(internalDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -1017,19 +1049,24 @@ func TestDefectClassSweepNoGoPersistenceIntroduced(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
-		if pattern.Match(data) {
-			rel, relErr := filepath.Rel(repoRoot, path)
-			if relErr != nil {
-				rel = path
-			}
-			hits = append(hits, rel)
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			rel = path
+		}
+		if defectClassSweepPersistenceIdentifiers.Match(data) {
+			identifierHits = append(identifierHits, rel)
+		}
+		if defectClassSweepStructDecl.Match(data) {
+			structHits = append(structHits, rel)
 		}
 		return nil
 	})
 	require.NoError(t, err)
 
-	assert.Empty(t, hits,
-		"no non-test Go source under internal/ should reference DefectClassSweep or class_key (found: %v) — REQ-NF-001 requires this feature to stay content-only", hits)
+	assert.Empty(t, identifierHits,
+		"no non-test Go source under internal/ should reference DefectClassSweep, class_key, or a known synonym (found: %v) — REQ-NF-001 requires this feature to stay content-only", identifierHits)
+	assert.Empty(t, structHits,
+		"no non-test Go source under internal/ should declare a struct type named after this feature's sweep/defect-class vocabulary (found: %v) — REQ-NF-001 requires this feature to stay content-only", structHits)
 }
 
 // TestDefectClassSweepQAAndDevelopmentPromptsReference is the UAT-kickback
@@ -1125,6 +1162,27 @@ func TestDefectClassSweepSeverityConflictAtFindingLevel(t *testing.T) {
 		"the workflow must state severity_conflict belongs to the outer Finding schema")
 	assert.Contains(t, content, normalizeWhitespace("instances[].disposition` stays within `{fixed, dispositioned, open}`"),
 		"the workflow must keep the I-03 instance disposition enum closed to fixed/dispositioned/open")
+}
+
+// TestDefectClassSweepBackwardLookingReworkRequiresCompatOrDivergence is the
+// UAT-kickback (MEDIUM-1) regression guard for TC-011: REQ-F-002 requires
+// that a repair either implement a recorded compatible prior fix design or
+// cite the durable evidence that justifies diverging from it — not silently
+// override a recorded design with no stated reason. See
+// scenario-review-TC-005-TC-009.md's TC-011 walkthrough for the full
+// fixture-by-fixture analysis this guard backs.
+func TestDefectClassSweepBackwardLookingReworkRequiresCompatOrDivergence(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.Contains(t, content,
+		normalizeWhitespace("implement that design, or a fix compatible with it"),
+		"backward-looking rework must require implementing a recorded compatible design")
+	assert.Contains(t, content,
+		normalizeWhitespace("Diverging from a recorded design is only valid when the divergence is justified by durable evidence"),
+		"backward-looking rework must require durable evidence to justify diverging from a recorded design")
+	assert.Contains(t, content,
+		normalizeWhitespace("A repair that silently does something different from a recorded prior design, with no cited justification, does not satisfy this section"),
+		"backward-looking rework must explicitly reject a silent, uncited divergence from a recorded design")
 }
 
 func readEmbeddedString(t *testing.T, rel string) string {

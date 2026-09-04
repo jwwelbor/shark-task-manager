@@ -145,6 +145,18 @@ this class rather than re-deciding it from scratch:
 - The relevant spec.md/architecture.md sections.
 - Project standards docs, if present.
 
+When that search surfaces a recorded prior design or fix for this class — a
+decision note, a tech-debt record, a prior review finding's accepted repair,
+or a spec/standards-documented pattern — implement that design, or a fix
+compatible with it. Diverging from a recorded design is only valid when the
+divergence is justified by durable evidence (new evidence, a changed
+requirement, a contradicting spec/standards update); cite that evidence in
+the instance's `evidence` field. A repair that silently does something
+different from a recorded prior design, with no cited justification, does
+not satisfy this section — implementing an incompatible fix and citing no
+divergence evidence is itself a class instance of "the rework guessed instead
+of searching."
+
 Preserve an existing disposition on a matching fingerprint unless new
 evidence contradicts it — do not silently re-open or re-decide a
 already-dispositioned instance without a stated reason.
@@ -279,6 +291,10 @@ produces.
       zero-result pass.
 - [ ] Every entry in `instances` has a `fingerprint`, `site_pointer`,
       `disposition`, and `evidence`.
+- [ ] Backward-looking rework either implemented a recorded compatible prior
+      design or cited, in `evidence`, the durable evidence that justifies
+      diverging from it — for every instance where a prior design or
+      disposition was found during the search.
 - [ ] Recurrence classification used fingerprint, `class_key`, and scope
       membership only (both `class_key` match and scope membership required
       for a new fingerprint) — no round-count field appears anywhere.

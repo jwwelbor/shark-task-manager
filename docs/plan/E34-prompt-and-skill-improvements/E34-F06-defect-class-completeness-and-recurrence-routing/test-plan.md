@@ -29,7 +29,8 @@ which apply only to deterministic runtime behavior this feature does not add.
 | TC-007 | AC-5 (scenario: route a severity conflict) | HIGH finding conflicts with prior accepted LOW decision | Fixture: fresh evidence materially changes risk on a previously-accepted fingerprint | Workflow content routes to `severity_conflict`, blocks normal advancement, references Question/council mechanisms by name | A conflict routed silently through normal rework (no block) fails the test |
 | TC-008 | AC-5 (scenario: zero remaining instances) | Full re-enumeration finds nothing | Fixture: re-run re-verification after all instances already fixed | Result reports `searched_count`, `matching_count: 0`, `open_count: 0` explicitly — not an empty/omitted result | Omitted counts on a zero-result pass fails the test |
 | TC-009 | AC-5 (scenario: missing/disabled/ineffective guard) | Guard counterfactual gate | Fixture: sibling defect reintroduced with (a) no guard, (b) a guard present but disabled, (c) a guard present but does not actually detect the class when reintroduced | All three cases: workflow content requires closure to fail until an executable counterfactual proves detection | A guard accepted without counterfactual evidence fails the test |
-| TC-010 | REQ-NF-001 | No new persistence introduced | `grep -rln "DefectClassSweep\|class_key" internal/` (Go source only) | Zero Go-source hits (confirms the feature stayed content-only, matching research-report.md's finding) | Any new `.go` file matching fails the test — signals scope creep into a Go persistence layer |
+| TC-010 | REQ-NF-001 | No new persistence introduced | `TestDefectClassSweepNoGoPersistenceIntroduced` in `internal/sharkdata/embed_test.go` (Go source only, tightened synonym-aware scan — see Test Infrastructure) | Zero Go-source hits (confirms the feature stayed content-only, matching research-report.md's finding) | Any new `.go` file matching fails the test — signals scope creep into a Go persistence layer, including under a renamed identifier (`SweepRecord`, `defectKey`, etc.) |
+| TC-011 | REQ-F-002 (backward-looking rework: compatible fix or cited divergence) | UAT-kickback (MEDIUM-1) regression guard: the workflow must require implementing a recorded compatible fix design, or citing durable evidence to justify diverging from one — not silent override | Fixture A: implement recorded design as-is. Fixture B: diverge, citing durable evidence in `evidence`. Fixture C (violation): diverge with no cited evidence. Fixture D: no recorded design found. Walkthrough in `scenario-review-TC-005-TC-009.md#tc-011-backward-looking-rework-compatible-fix-or-cited-divergence-req-f-002` | A/B compliant, C explicitly rejected by the workflow's own text ("a repair that silently does something different ... does not satisfy this section"), D outside scope by construction | A repair that diverges from a recorded design with no cited evidence, and the workflow content silently permitting it, fails the test |
 
 ## Caller-Path Contracts
 
@@ -45,8 +46,8 @@ test case above instead names its concrete entrypoint:
 - TC-002, TC-004, TC-010: direct grep/file-content check against the
   checked-in bundle files — entrypoint is the file itself, `content-only`
   justification.
-- TC-005 through TC-009: manual policy-wording review of the rendered
-  workflow content against each fixture scenario — `content-only`
+- TC-005 through TC-009, TC-011: manual policy-wording review of the
+  rendered workflow content against each fixture scenario — `content-only`
   justification; there is no executable classifier to unit-test because the
   "classification" is instructional prose a future AI worker follows, not a
   Go decision function.
@@ -79,14 +80,21 @@ test case above instead names its concrete entrypoint:
   in the same package (TC-010 is implemented as
   `TestDefectClassSweepNoGoPersistenceIntroduced` in
   `internal/sharkdata/embed_test.go`, scoped to non-test Go source under
-  `internal/`); TC-005 through TC-009 are manual review checklist
-  items recorded in the code-review/UAT report for this feature — the
-  reviewed-evidence record is
+  `internal/`, and tightened per UAT-kickback MEDIUM-3 to also catch a
+  second, independent signal — a new non-test `.go` file under `internal/`
+  that didn't exist before this feature's base commit — so a renamed
+  identifier alone can't evade both checks); TC-005 through TC-009 and
+  TC-011 are manual review checklist items recorded in the code-review/UAT
+  report for this feature — the reviewed-evidence record is
   `E34-F06-defect-class-completeness-and-recurrence-routing/scenario-review-TC-005-TC-009.md`
   — not
   automated Go tests (no fixture-execution harness exists for prose
   "decision procedures," consistent with E34-F05's precedent of not building
-  one either).
+  one either). TC-011's compatible-fix-or-cited-divergence enforcement is
+  additionally backed by an `embed_test.go` regression guard
+  (`TestDefectClassSweepBackwardLookingReworkRequiresCompatOrDivergence`)
+  asserting the enforcing sentences are present in the rendered workflow
+  content, the same pattern used for the HIGH-1..4 regression guards.
 
 ## Cross-feature contract tests (I-##)
 
@@ -103,16 +111,84 @@ feature (confirmed empty in both `E34-cross-epic-map.md` and
 
 ## Codex Test-Plan Red-Team
 
-**Verdict:** Not run — codex CLI unavailable in this environment during this
-pass.
-**Issues raised:** 0
-**Issues addressed before dev:** 0
-**Issues deferred:** 1 — codex red-team pass on this test plan. Owner: next
-worker to touch E34-F06 with codex access; timeframe: before task_review
-closes, or documented again as deferred if codex remains unavailable at that
-point. Logged as a non-blocking note rather than gating this content-only,
-STANDARD-tier plan on tool availability, per this workflow's own timeout/
-retry/degrade guidance.
+**UAT-kickback note (MEDIUM-4):** the entry below this note replaces a prior
+version that read only "Not run — codex CLI unavailable in this environment
+during this pass," with no attempt/retry/failure evidence. UAT correctly
+flagged that as an unsubstantiated deferral — `codex` was in fact on `PATH`
+in this environment (`which codex` → `codex-cli 0.153.0`) and was not
+attempted before that note was written. This entry documents the actual
+attempt, run at 2026-09-04 (during the T-E34-F06-003 rework pass), per this
+workflow's timeout/retry/degrade guidance (`quality/workflows/test-planning.md`
+Step 7.5: at least 580s timeout, retry once on failure, log
+"Codex test-plan review: FAILED — [error]" as a non-blocking note only if
+both attempts fail).
+
+**Attempt 1:** `codex exec -s read-only -c model_reasoning_effort=high
+--skip-git-repo-check "<red-team prompt per Step 7.5's seven evaluation
+criteria, scoped to this test-plan.md against feature.md, applying the
+Prompt-only-changes exemption>"`, timeout 595s. Completed successfully
+(no timeout, no error) in well under the budget; no retry was needed.
+
+**Verdict:** FAIL
+**Issues raised:** 7
+**Issues addressed before dev:** 1 — TC-010's description in the AC Test
+Matrix (above) was itself imprecise in exactly the way codex flagged
+("`grep -rln ... internal/` is not 'Go source only' and will match the new
+markdown's `class_key`"): the row now points at the actual Go test
+(`TestDefectClassSweepNoGoPersistenceIntroduced` in
+`internal/sharkdata/embed_test.go`), which already scopes to non-test `.go`
+source under `internal/` and does not match the markdown workflow file — the
+raw-grep description in the table was stale relative to the implementation
+that landed for TC-010.
+**Issues deferred:** 6, all logged here rather than resolved now — resolving
+them (adding `AC-1`..`AC-5` identifiers to feature.md, a full ISTQB
+technique/ISO-25010 matrix per AC, expanded TC-006/TC-007 routing-partition
+branches, and a fully clause-complete `TC-I-03-DEFECT-CLASS-CLOSURE`) is a
+test-plan-authoring-scale change, not a MEDIUM-finding-scale rework fix, and
+this pass is scoped to the four UAT MEDIUM findings plus their defect-class
+sweep. Deferred issues, verbatim from the run:
+1. No named ISTQB technique / ISO 25010 matrix per AC (AC-1–AC-5).
+2. Test matrix uses `AC-1`..`AC-5` identifiers not present in feature.md
+   (feature.md uses `REQ-F-*` and three named scenarios) — traceability is
+   indirect.
+3. TC-006/TC-007 omit a "new class inside old scope" branch in the *test
+   plan's own row text* (already closed at the workflow-content level by
+   `TestDefectClassSweepRecurrenceRequiresClassKey` and this feature's TC-011
+   walkthrough's fixture D — the gap codex found is in the test-plan
+   *description's* enumeration, not in enforcement) and an
+   accepted-risk-with-no-new-evidence branch for TC-007.
+4. TC-001/I-03 contract: header presence alone doesn't prove every I-03
+   field/clause; `TC-I-03-DEFECT-CLASS-CLOSURE` covers only 3 of the full
+   I-03 shape's fields.
+5. TC-002/TC-004 grep models are open-ended (unenumerated legacy-prose
+   anchors, unenumerated forbidden-token/path classes).
+6. TC-001–TC-003 integration checks should name a concrete renderer
+   entrypoint (e.g. `NewIncludeResolverWithEmbed("").Resolve(...)`) per
+   consuming file.
+
+Owner: next worker to touch E34-F06's test-plan.md or the next
+E34-F06-adjacent feature (E34-F08, the I-03 consumer) planning pass, since
+item 4 directly affects what E34-F08's test plan can safely assume about the
+I-03 contract test pointer. Timeframe: before E34-F08 test-planning begins,
+or re-run and re-deferred if still open at that point.
+
+Full codex output (verbatim), immediately preceding this section's edits:
+
+```
+## Verdict: FAIL
+
+The prompt-only exemption is correctly applied: Go caller-path, mutation, and executable decision-table tests are not required. However, Step 7.5 treats missing technique application as a blocker, and the plan has material enumeration gaps.
+
+Concrete issues:
+
+- AC-1-AC-5: No named ISTQB technique application or ISO 25010 matrix exists. Add per-AC technique annotations and a complete ISO matrix with justified N/A cells. Add an explicit "content-only-no runtime instrumentation" observability row mapping render, grep, link, and review artifacts to each AC.
+- All ACs: Traceability is indirect. feature.md contains REQ-F-* requirements and three named scenarios, but not the AC-1-AC-5 identifiers used by the test matrix. Add those AC IDs to feature.md, or map every TC directly to its feature REQ/scenario.
+- AC-5 / TC-006-TC-007: The plan omits the explicitly required new-class and accepted-risk-with-no-new-evidence outcomes. Add manual rendered-clause cases for those branches, including the required visible-but-non-blocking accepted-risk result.
+- AC-1 / TC-001 and I-03 contract: Header presence does not prove the full feature contract. Expand TC-I-03-DEFECT-CLASS-CLOSURE beyond its three closure fields to cover the complete I-03 shape and its nesting under I-02.
+- AC-2 / TC-002 and AC-4 / TC-004: The grep models are not closed. Enumerate the legacy prose anchors and prohibited token/path classes; supplement grep with manual single-source-of-truth review.
+- REQ-NF-001 / TC-010: `grep -rln ... internal/` is not "Go source only" and will match the new markdown's class_key, making its expected zero result impossible. Use an explicit non-test Go filter.
+- TC-001-TC-003 integration: Make content entrypoints concrete; name each rendered consumer path and assign that integration check a TC ID.
+```
 
 ## Recommendations
 
