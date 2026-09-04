@@ -107,6 +107,9 @@ func TestTC061_I07LifecycleRunContract(t *testing.T) {
 		{"complete_with_stage_evidence_error", "/errors", func(record map[string]any) {
 			record["stages"].([]any)[0].(map[string]any)["errors"] = []any{map[string]any{"kind": "usage_slot_unavailable"}}
 		}},
+		{"complete_with_missing_worker_result", "/worker/worker_id", func(record map[string]any) {
+			record["dispatches"].([]any)[0].(map[string]any)["worker"].(map[string]any)["worker_id"] = nil
+		}},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -115,6 +118,22 @@ func TestTC061_I07LifecycleRunContract(t *testing.T) {
 			assertValidatorResult(t, repoRoot, fixture, false, tc.want)
 		})
 	}
+
+	t.Run("stopped_dispatch_allows_unobserved_worker_result", func(t *testing.T) {
+		fixture := writeMutationFixture(t, validFixture, func(record map[string]any) {
+			dispatch := record["dispatches"].([]any)[0].(map[string]any)
+			dispatch["outcome"] = "resource_limit"
+			worker := dispatch["worker"].(map[string]any)
+			worker["worker_id"] = nil
+			worker["kind"] = nil
+			outcome := record["outcome"].(map[string]any)
+			outcome["terminal"] = "resource_limit"
+			outcome["reason"] = "provider exceeded wall-clock ceiling before returning a result"
+			outcome["partial_evidence"] = true
+			outcome["publication_eligible"] = false
+		})
+		assertValidatorResult(t, repoRoot, fixture, true, "")
+	})
 }
 
 func writeMutationFixture(t *testing.T, source string, mutate func(map[string]any)) string {

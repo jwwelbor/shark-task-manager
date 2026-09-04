@@ -133,6 +133,8 @@ assert bundle["stop_outcome"] == "resource_limit"
 assert sum(e["argv"][0] == "release" for e in events) == 1
 assert not any(e["argv"][0] == "next" and e["argv"][1] == "TASK-002" for e in events)
 PY
+"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/lifecycle.jsonl" \
+	--schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
 
 echo "TC-062: pass (first exceeded ceiling stops scenario and retains partial evidence)"
 
@@ -170,9 +172,13 @@ assert record["outcome"]["terminal"] == "resource_limit", record["outcome"]
 assert record["limits"]["first_exceeded"] == "max_wall_clock_seconds", record["limits"]
 assert record["outcome"]["publication_eligible"] is False, record["outcome"]
 assert record["dispatches"][0]["release"], record["dispatches"][0]
+worker = record["dispatches"][0]["worker"]
+assert worker == {"worker_id": None, "session_id": "SID-TASK-001", "kind": None, "evidence": []}, worker
 assert bundle["stop_outcome"] == "resource_limit", bundle
 assert bundle["publication_eligible"] is False, bundle
 PY
+"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/deadline.jsonl" \
+	--schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
 echo "TC-062: pass (deadline kills adapter descendants and emits retained resource_limit evidence)"
 
 echo "TC-062: SIGTERM terminates the adapter process group and retains cancellation evidence"
@@ -215,9 +221,13 @@ events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8")]
 assert record["outcome"]["terminal"] == "cancellation", record["outcome"]
 assert record["outcome"]["publication_eligible"] is False, record["outcome"]
 assert record["dispatches"][0]["release"], record["dispatches"][0]
+worker = record["dispatches"][0]["worker"]
+assert worker == {"worker_id": None, "session_id": "SID-TASK-001", "kind": None, "evidence": []}, worker
 assert bundle["stop_outcome"] == "cancellation", bundle
 assert sum(event["argv"][0] == "release" for event in events) == 1, events
 PY
+"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/signal.jsonl" \
+	--schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
 echo "TC-062: pass (SIGTERM kills adapter descendants and emits retained cancellation evidence)"
 
 echo "TC-062: SIGTERM also terminates post-dispatch test-discovery descendants"
@@ -264,9 +274,16 @@ assert bundle["stop_outcome"] == "cancellation", bundle
 assert bundle["publication_eligible"] is False, bundle
 assert sum(event["argv"][0] == "release" for event in events) == 0, events
 PY
+"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/discovery.jsonl" \
+	--schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
 echo "TC-062: pass (SIGTERM kills test-discovery descendants and emits retained cancellation evidence)"
 
 echo "TC-062: wall deadline also terminates post-dispatch test-discovery descendants"
+cat >"$WORKDIR/discovery-deadline-limits.yaml" <<'YAML'
+max_cost_usd: 10
+max_wall_clock_seconds: 5
+max_generated_tasks: 10
+YAML
 mkdir -p "$WORKDIR/discovery-deadline-scratch"
 : >"$WORKDIR/discovery-deadline-events.ndjson"
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/discovery-deadline-events.ndjson" \
@@ -275,7 +292,7 @@ HANG_TEST_DISCOVERY=1 CHILD_PID="$WORKDIR/discovery-deadline-child.pid" CHILD_HE
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
     --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
     --run-id tc062-discovery-deadline --root ROOT-001 --scratch-root "$WORKDIR/discovery-deadline-scratch" \
-    --limits "$WORKDIR/deadline-limits.yaml" --i05-bundle-dir "$WORKDIR/discovery-deadline-i05" \
+    --limits "$WORKDIR/discovery-deadline-limits.yaml" --i05-bundle-dir "$WORKDIR/discovery-deadline-i05" \
     --output "$WORKDIR/discovery-deadline.jsonl" >/dev/null
 [[ -s "$WORKDIR/discovery-deadline-child.pid" && -e "$WORKDIR/discovery-deadline-child.heartbeat" ]] || \
 	fail "deadline test-discovery child never started"
@@ -300,4 +317,6 @@ assert bundle["stop_outcome"] == "resource_limit", bundle
 assert bundle["publication_eligible"] is False, bundle
 assert sum(event["argv"][0] == "release" for event in events) == 1, events
 PY
+"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/discovery-deadline.jsonl" \
+	--schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
 echo "TC-062: pass (deadline kills test-discovery descendants and emits retained resource_limit evidence)"
