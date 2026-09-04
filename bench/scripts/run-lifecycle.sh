@@ -71,6 +71,9 @@ class Cancellation(RuntimeError):
     """Raised by signal handling after the active provider tree is stopped."""
 
 
+MAX_TRANSITION_REJECTIONS_PER_STAGE = 2
+
+
 def usage():
     print(
         "usage: run-lifecycle.sh --scenario <package.yaml> --run-id <id> "
@@ -2108,6 +2111,7 @@ def main(argv):
     queue = [] if prelude_stop else [args["root"]]
     generated_entities = set()
     stage_visits = {}
+    transition_rejections = {}
     review_rounds = {}
     seen_review_note_ids = set()
     evidence_errors = []
@@ -2186,6 +2190,7 @@ def main(argv):
             session = ""
             worker_result = {}
             advanced = False
+            retry_after_transition_rejection = False
             fixture_input_digest = tree_digest(fixture_root)
             try:
                 claim_start_ns = time.monotonic_ns()
@@ -2230,9 +2235,42 @@ def main(argv):
                         dispatch["outcome"] = terminal
                 else:
                     dispatch["outcome"] = str(outcome)
-                    advance_response = run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}", "--json"], scratch)
-                    dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", ""), "to_status": str(advance_response.get("new_status", ""))}
-                    advanced = True
+                    try:
+                        advance_response = run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}", "--json"], scratch)
+                    except RuntimeError as exc:
+                        rejection_key = (entity, str(response.get("status", "")))
+                        rejection_count = transition_rejections.get(rejection_key, 0) + 1
+                        transition_rejections[rejection_key] = rejection_count
+                        retry_after_transition_rejection = rejection_count <= MAX_TRANSITION_REJECTIONS_PER_STAGE
+                        rejection = bounded(str(exc))
+                        dispatch["transition"] = {
+                            "outcome": str(outcome), "session_id": session,
+                            "from_status": response.get("status", ""),
+                            "accepted": False, "rejection": rejection,
+                            "retry_scheduled": retry_after_transition_rejection,
+                            "rejection_attempt": rejection_count,
+                        }
+                        dispatch["outcome"] = "fail" if retry_after_transition_rejection else "worker_failure"
+                        note = (
+                            f"Lifecycle transition rejected worker outcome {outcome!r}: {rejection}. "
+                            "Continue from the existing artifact, correct the named validation failure, "
+                            "and recommend pass only after re-validating it."
+                        )
+                        run_command(
+                            shark,
+                            ["notes", "add", entity, "--type", "testing", note,
+                             "--created-by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])],
+                            scratch, expect_json=False,
+                        )
+                        if not retry_after_transition_rejection:
+                            terminal = "worker_failure"
+                            reason = (
+                                f"status transition for {entity} from {response.get('status', '')} "
+                                f"was rejected {rejection_count} times: {rejection}"
+                            )
+                    else:
+                        dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", ""), "to_status": str(advance_response.get("new_status", ""))}
+                        advanced = True
             except ResourceLimit as exc:
                 terminal = "resource_limit"
                 record["limits"]["first_exceeded"] = "max_wall_clock_seconds"
@@ -2388,7 +2426,7 @@ def main(argv):
                 record["limits"]["first_exceeded"] = exceeded
                 reason = f"resource ceiling exceeded: {exceeded}"
                 break
-            if advanced and args["mode"] != "dry-run":
+            if (advanced or retry_after_transition_rejection) and args["mode"] != "dry-run":
                 queue.insert(0, requested)
         if terminal == "complete" and evidence_errors:
             terminal = "error"
