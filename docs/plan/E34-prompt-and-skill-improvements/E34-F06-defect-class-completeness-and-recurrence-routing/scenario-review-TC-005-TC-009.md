@@ -116,19 +116,32 @@ names the two routing mechanisms by name — `question-management`
 (`skills/question-management/SKILL.md`) for a bounded, single-owner
 disagreement, and "the project's multi-specialist council deliberation
 workflow" for specialist disagreement, cross-entity inconsistency, high
-blast radius, irreversibility, or no safe evidence path — and closes with:
-"Mark the instance's disposition `severity_conflict` and block normal
-advancement until the referenced mechanism resolves it — a conflict must
-never be routed silently through ordinary rework."
+blast radius, irreversibility, or no safe evidence path. It then states the
+corrected routing shape (post-HIGH-4 fix): `severity_conflict` "is an outer
+`GateResult.Finding.disposition` value ..., not an I-03 instance
+disposition — the sweep's own `instances[].disposition` stays within
+`{fixed, dispositioned, open}`." The conflicted instance is recorded as
+`open` inside `instances` (pending the outer conflict's resolution, with
+`evidence` pointing at the conflict), and the calling gate adds or updates a
+`Finding` in its own `GateResult.findings` array with `disposition:
+severity_conflict` and a `disposition_pointer` back to the instance's
+`fingerprint`/`site_pointer`. It closes with: "Block normal advancement at
+the `Finding` level until the referenced mechanism resolves it — a conflict
+must never be routed silently through ordinary rework, and must never be
+closed by marking the I-03 instance itself `severity_conflict`."
 
 **Edge case (silent routing):** The section's closing sentence is an
 explicit prohibition on exactly the failure mode TC-007 tests for — routing
-a conflict through normal rework without a block. There is no code path in
-the section that permits silent routing; every conflict is required to
-resolve to `severity_conflict` plus a block.
+a conflict through normal rework without a block, or closing it by marking
+the I-03 instance itself `severity_conflict`. There is no code path in the
+section that permits silent routing; every conflict is required to resolve
+via the outer `Finding.disposition = severity_conflict` plus a block, while
+the instance itself stays `open`.
 
-**Verdict: PASS.** The workflow content routes the fixture to
-`severity_conflict`, blocks normal advancement, and references both the
+**Verdict: PASS.** The workflow content records the conflicted instance as
+`open` inside `instances`, routes the conflict to the outer
+`GateResult.Finding.disposition = severity_conflict` with a
+`disposition_pointer`, blocks normal advancement, and references both the
 Question and council mechanisms by name.
 
 ## TC-008 — Zero remaining instances
@@ -166,11 +179,13 @@ present but disabled, (c) a guard present but that does not actually detect
 the class when reintroduced.
 
 **Walkthrough:** "Structural guard closure" requires "The selected guard has
-passed a counterfactual verification: it fails to detect the class when the
-defect is deliberately re-introduced, and it passes when the defect is
-absent. Set `guard.status = verified` only after both directions of that
-counterfactual are actually observed — an unverified or merely-plausible
-guard does not count." Applying the three fixture cases:
+passed a counterfactual verification: it catches (flags, fails the build, or
+otherwise blocks) the class when the defect is deliberately re-introduced,
+and it does not flag/fail when the defect is absent. A guard that misses the
+reintroduced defect, or that false-positives when the defect is absent, is
+not verified. Set `guard.status = verified` only after both directions of
+that counterfactual are actually observed — an unverified or
+merely-plausible guard does not count." Applying the three fixture cases:
 
 - (a) **No guard**: "Guard selection" requires selecting "an executable
   guard that would have caught this class"; with none selected, there is no
@@ -179,17 +194,17 @@ guard does not count." Applying the three fixture cases:
   class, the class stays `status: open` and must carry a linked work item
   ... tracking the gap."
 - (b) **Guard present but disabled**: a disabled guard cannot be observed
-  failing-then-passing across the counterfactual's two directions (it can't
-  fail-to-detect when re-introduced if it never runs at all, and "passes
-  when the defect is absent" is likewise unobservable) — the counterfactual
-  is not actually run, so `guard.status = verified` cannot be set on
-  "actually observed" evidence.
+  catching-then-not-flagging across the counterfactual's two directions (it
+  can't catch the class when re-introduced if it never runs at all, and "it
+  does not flag/fail when the defect is absent" is likewise unobservable) —
+  the counterfactual is not actually run, so `guard.status = verified`
+  cannot be set on "actually observed" evidence.
 - (c) **Guard present but ineffective (does not detect the reintroduced
   defect)**: this is precisely the counterfactual's first direction failing
-  — "it fails to detect the class when the defect is deliberately
-  re-introduced" is not satisfied (the guard doesn't fail, i.e. doesn't
-  catch it), so the observed counterfactual result is negative and
-  `guard.status = verified` is withheld.
+  — the guard must catch the class "when the defect is deliberately
+  re-introduced," and "a guard that misses the reintroduced defect ... is
+  not verified" directly covers this fixture — the observed counterfactual
+  result is negative and `guard.status = verified` is withheld.
 
 In all three cases, "Structural guard closure" blocks `status: complete`
 ("If no feasible guard exists ... the class stays `status: open`"; and more
