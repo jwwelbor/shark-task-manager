@@ -154,12 +154,14 @@ def git_bytes(repo_root, args):
     return completed.stdout
 
 
-def adapter_json(adapter, capability, fixture_root, deadline=None):
+def adapter_json(adapter, capability, fixture_root, deadline=None, active_state=None):
     process = subprocess.Popen(
         [str(adapter), capability, "--checkout", str(fixture_root)],
         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True,
     )
+    if active_state is not None:
+        active_state["adapter_process"] = process
     timeout = None if deadline is None else max(0.001, deadline - time.monotonic())
     try:
         stdout, stderr = process.communicate(timeout=timeout)
@@ -169,6 +171,9 @@ def adapter_json(adapter, capability, fixture_root, deadline=None):
             f"resource ceiling exceeded during execution-adapter {capability}: "
             "max_wall_clock_seconds"
         ) from exc
+    finally:
+        if active_state is not None and active_state.get("adapter_process") is process:
+            active_state["adapter_process"] = None
     if process.returncode != 0:
         detail = stderr.strip() or stdout.strip()
         raise RuntimeError(f"execution adapter {capability} failed ({process.returncode}): {detail}")
@@ -177,7 +182,7 @@ def adapter_json(adapter, capability, fixture_root, deadline=None):
 
 def candidate_identity(
     repo_root, execution_adapter, adapter_name, adapter_version,
-    toolchain_identity, deadline=None,
+    toolchain_identity, deadline=None, active_state=None,
 ):
     """Derive comparison identity from the post-dispatch checkout and adapter test inventory."""
     base_commit = git_bytes(repo_root, ["rev-parse", "HEAD"]).decode().strip()
@@ -225,7 +230,9 @@ def candidate_identity(
         with tempfile.TemporaryDirectory(prefix="e40-test-identity-") as temporary:
             isolated_checkout = Path(temporary) / "checkout"
             shutil.copytree(repo_root, isolated_checkout, symlinks=True, ignore=shutil.ignore_patterns(".git"))
-            test_document = adapter_json(execution_adapter, "test", isolated_checkout, deadline)
+            test_document = adapter_json(
+                execution_adapter, "test", isolated_checkout, deadline, active_state,
+            )
         entries = test_document.get("entries")
         if not isinstance(entries, list):
             raise RuntimeError("execution adapter test result omitted entries array")
@@ -236,6 +243,8 @@ def candidate_identity(
         })
         if len(test_ids) != len(entries):
             raise RuntimeError("execution adapter test result contains malformed or duplicate test ids")
+    except Cancellation:
+        raise
     except (ResourceLimit, RuntimeError) as exc:
         test_ids = []
         test_identity_error = str(exc)
@@ -293,14 +302,14 @@ def scratch_content_digest(root):
 
 def refresh_candidate(
     candidate, fixture_root, scratch, execution_adapter, adapter_name,
-    adapter_version, toolchain_identity, deadline=None,
+    adapter_version, toolchain_identity, deadline=None, active_state=None,
 ):
     # The stage snapshot is a post-dispatch observation. Re-derive every
     # fixture identity field after the worker returns so an edit made by this
     # stage cannot first appear in the following stage's evidence.
     current = candidate_identity(
         fixture_root, execution_adapter, adapter_name, adapter_version,
-        toolchain_identity, deadline,
+        toolchain_identity, deadline, active_state,
     )
     candidate.clear()
     candidate.update(current)
@@ -504,11 +513,31 @@ def stage_input_lineage(record, dispatch, fixture_root, fixture_digest, executio
     identity = record["identity"]
     scratch_root = Path(identity["roots"]["scratch_shark_project"])
     prompt_path = scratch_root / "prompts" / f"{dispatch['ordinal']:04d}"
+    scenario_path = Path(identity["scenario_path"])
+    scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8")) or {}
+    agent_visible_relative = str(((scenario.get("input") or {}).get("agent_visible")) or "")
+    if not agent_visible_relative:
+        raise RuntimeError("scenario package omitted input.agent_visible")
+    scenario_root = scenario_path.parent.resolve()
+    agent_visible_path = (scenario_root / agent_visible_relative).resolve()
+    try:
+        agent_visible_path.relative_to(scenario_root)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"scenario input.agent_visible escapes package root: {agent_visible_relative}"
+        ) from exc
+    if not agent_visible_path.is_file():
+        raise RuntimeError(f"scenario input.agent_visible is missing: {agent_visible_path}")
     inputs = [
         {
             "source_kind": "scenario_package",
             "path": identity["scenario_path"],
-            "digest": sha256_file(Path(identity["scenario_path"])),
+            "digest": sha256_file(scenario_path),
+        },
+        {
+            "source_kind": "agent_visible_input",
+            "path": str(agent_visible_path),
+            "digest": sha256_file(agent_visible_path),
         },
         {
             "source_kind": "rendered_prompt",
@@ -544,6 +573,15 @@ def stage_input_lineage(record, dispatch, fixture_root, fixture_digest, executio
             "path": str(prelude["path"]),
             "digest": str(prelude["digest"]),
         })
+    for prior_stage in record.get("stages") or []:
+        for artifact in prior_stage.get("artifacts") or []:
+            if not isinstance(artifact, dict) or not artifact.get("path") or not artifact.get("digest"):
+                raise RuntimeError("prior stage artifact omitted path or digest")
+            inputs.append({
+                "source_kind": "prior_stage_artifact",
+                "path": str(artifact["path"]),
+                "digest": str(artifact["digest"]),
+            })
     return sorted(inputs, key=lambda item: (item["source_kind"], item["path"]))
 
 
@@ -891,7 +929,7 @@ def allowed_outcomes(scratch, response):
 
 
 def configured_gate_policies(scratch, entity_family, repo_root):
-    """Read the configured pass path and retain every review-like gate up front."""
+    """Retain every review-like gate reachable through any workflow outcome."""
     family_name = str(entity_family).replace("_", "-")
     candidates = [family_name, family_name.replace("-card", "")]
     workflow_path = next(
@@ -903,11 +941,14 @@ def configured_gate_policies(scratch, entity_family, repo_root):
         return []
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
     steps = workflow.get("steps") or {}
-    current = workflow.get("start")
     visited = set()
+    pending = [workflow.get("start")]
     policies = []
     gate_phases = {"code_review", "review", "qa", "uat", "approval"}
-    while isinstance(current, str) and current and current not in visited:
+    while pending:
+        current = pending.pop(0)
+        if not isinstance(current, str) or not current or current in visited:
+            continue
         visited.add(current)
         step = steps.get(current) or {}
         phase = str(step.get("phase") or "")
@@ -931,19 +972,29 @@ def configured_gate_policies(scratch, entity_family, repo_root):
             policy["policy_digest"] = canonical_digest(policy)
             policies.append(policy)
         outcomes = step.get("outcomes") or {}
-        if not isinstance(outcomes, dict) or "pass" not in outcomes:
-            break
-        current = outcomes["pass"]
+        if isinstance(outcomes, dict):
+            for target in outcomes.values():
+                if (
+                    isinstance(target, str) and target in steps
+                    and target not in visited and target not in pending
+                ):
+                    pending.append(target)
     return policies
 
 
 def refresh_workflow_policy(record):
     policy = record["workflow_policy"]
     gate_policies = policy.get("gate_policies") or []
-    policy["enabled_gates"] = [item["gate_id"] for item in gate_policies]
+    policy["enabled_gates"] = []
+    for item in gate_policies:
+        if item["gate_id"] not in policy["enabled_gates"]:
+            policy["enabled_gates"].append(item["gate_id"])
     policy["gate_order"] = list(policy["enabled_gates"])
-    if len(gate_policies) == 1:
-        item = gate_policies[0]
+    if len(policy["enabled_gates"]) == 1:
+        item = next(
+            candidate for candidate in reversed(gate_policies)
+            if candidate["gate_id"] == policy["enabled_gates"][0]
+        )
         policy["reviewer"] = {
             "provider": item["provider"], "model": item["model"], "effort": item["effort"],
         }
@@ -985,11 +1036,10 @@ def gate_policy_for(record, response, repo_root):
     return fallback
 
 
-def replace_gate_policy(record, replacement):
+def retain_gate_policy(record, replacement):
     policies = record["workflow_policy"].get("gate_policies") or []
-    for index, policy in enumerate(policies):
-        if policy.get("gate_id") == replacement.get("gate_id"):
-            policies[index] = replacement
+    for policy in policies:
+        if policy.get("policy_digest") == replacement.get("policy_digest"):
             return
     policies.append(replacement)
 
@@ -1352,7 +1402,7 @@ def main(argv):
             refresh_candidate(
                 candidate, fixture_root, scratch, execution_adapter,
                 adapter_name, adapter_version, toolchain_identity,
-                started + limits["max_wall_clock_seconds"],
+                started + limits["max_wall_clock_seconds"], active_lease,
             )
             stage_ended_ns = time.monotonic_ns()
             elapsed = max(0.0, time.monotonic() - started)
@@ -1423,7 +1473,7 @@ def main(argv):
                     if key != "policy_digest"
                 })
                 gate["policy_ref"]["policy_digest"] = captured_policy["policy_digest"]
-                replace_gate_policy(record, captured_policy)
+                retain_gate_policy(record, captured_policy)
                 refresh_workflow_policy(record)
             ordinal += 1
             write_partial(output, record)
@@ -1456,11 +1506,15 @@ def main(argv):
         record["outcome"] = {"terminal": terminal, "reason": reason, "partial_evidence": bool(record["dispatches"]), "publication_eligible": False}
     reached_gate_ids = {gate.get("gate_id") for gate in record["review_gates"]}
     last_snapshot = record["stages"][-1]["candidate"]["snapshot_digest"] if record["stages"] else None
-    for gate_policy in record["workflow_policy"].get("gate_policies") or []:
-        if gate_policy["gate_id"] in reached_gate_ids:
+    for gate_id in record["workflow_policy"].get("enabled_gates") or []:
+        if gate_id in reached_gate_ids:
             continue
+        gate_policy = next(
+            policy for policy in record["workflow_policy"].get("gate_policies") or []
+            if policy["gate_id"] == gate_id
+        )
         record["review_gates"].append({
-            "gate_id": gate_policy["gate_id"],
+            "gate_id": gate_id,
             "reached": False,
             "state": "not_reached",
             "round": 0,

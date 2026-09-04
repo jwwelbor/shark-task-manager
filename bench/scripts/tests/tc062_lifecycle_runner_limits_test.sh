@@ -13,6 +13,23 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch"
 
+cat >"$WORKDIR/bin/python3" <<'PYTHON'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${HANG_TEST_DISCOVERY:-}" == "1" && "$PWD" == */e40-test-identity-*/checkout && "${1:-}" == "-m" && "${2:-}" == "pytest" ]]; then
+	/usr/bin/python3 - "$CHILD_PID" "$CHILD_HEARTBEAT" <<'PY' &
+import os, pathlib, sys, time
+pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))
+while True:
+    pathlib.Path(sys.argv[2]).touch()
+    time.sleep(0.02)
+PY
+	wait
+fi
+exec /usr/bin/python3 "$@"
+PYTHON
+chmod +x "$WORKDIR/bin/python3"
+
 cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -195,3 +212,44 @@ assert bundle["stop_outcome"] == "cancellation", bundle
 assert sum(event["argv"][0] == "release" for event in events) == 1, events
 PY
 echo "TC-062: pass (SIGTERM kills adapter descendants and emits retained cancellation evidence)"
+
+echo "TC-062: SIGTERM also terminates post-dispatch test-discovery descendants"
+mkdir -p "$WORKDIR/discovery-scratch"
+: >"$WORKDIR/discovery-events.ndjson"
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/discovery-events.ndjson" \
+HANG_TEST_DISCOVERY=1 CHILD_PID="$WORKDIR/discovery-child.pid" CHILD_HEARTBEAT="$WORKDIR/discovery-child.heartbeat" \
+LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
+    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --run-id tc062-discovery-signal --root ROOT-001 --scratch-root "$WORKDIR/discovery-scratch" \
+    --limits "$WORKDIR/signal-limits.yaml" --evidence-root "$WORKDIR/discovery-evidence" \
+    --output "$WORKDIR/discovery.jsonl" >/dev/null &
+discovery_runner_pid=$!
+for _ in $(seq 1 500); do
+	[[ -s "$WORKDIR/discovery-child.pid" && -e "$WORKDIR/discovery-child.heartbeat" ]] && break
+	sleep 0.02
+done
+[[ -s "$WORKDIR/discovery-child.pid" && -e "$WORKDIR/discovery-child.heartbeat" ]] || fail "test-discovery child never started"
+discovery_child_pid="$(cat "$WORKDIR/discovery-child.pid")"
+kill -TERM "$discovery_runner_pid"
+set +e
+wait "$discovery_runner_pid"
+discovery_runner_status=$?
+set -e
+[[ "$discovery_runner_status" -eq 0 ]] || fail "test-discovery signal stop exited $discovery_runner_status instead of retaining a named stop"
+if kill -0 "$discovery_child_pid" 2>/dev/null; then
+	fail "test-discovery descendant PID $discovery_child_pid survived SIGTERM handling"
+fi
+python3 - "$WORKDIR/discovery.jsonl" "$WORKDIR/discovery-evidence/bundle.json" "$WORKDIR/discovery-events.ndjson" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+bundle = json.load(open(sys.argv[2], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8")]
+assert record["outcome"]["terminal"] == "cancellation", record["outcome"]
+assert record["outcome"]["publication_eligible"] is False, record["outcome"]
+assert record["dispatches"][0]["release"], record["dispatches"][0]
+assert record["stages"] == [], record["stages"]
+assert bundle["stop_outcome"] == "cancellation", bundle
+assert bundle["publication_eligible"] is False, bundle
+assert sum(event["argv"][0] == "release" for event in events) == 1, events
+PY
+echo "TC-062: pass (SIGTERM kills test-discovery descendants and emits retained cancellation evidence)"
