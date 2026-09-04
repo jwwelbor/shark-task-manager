@@ -427,6 +427,7 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
         return observed_prior == expected_prior
 
     stages = [item for item in lifecycle.get("stages", []) if isinstance(item, dict)]
+    artifact_graph_valid = True
     for index, stage in enumerate(stages):
         if stage.get("errors"):
             reasons.append(reason(
@@ -438,6 +439,34 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
                 "source_malformed", f"/stages/{index}/input_lineage",
                 "stage input lineage must identify every consumed source by kind, path, and digest",
             ))
+    for producer_index, producer_stage in enumerate(stages):
+        for artifact_index, artifact in enumerate(producer_stage.get("artifacts") or []):
+            if not isinstance(artifact, dict):
+                artifact_graph_valid = False
+                continue
+            identity = (artifact.get("path"), artifact.get("digest"))
+            expected_consumers = {
+                later_stage.get("stage")
+                for later_stage in stages[producer_index + 1:]
+                if any(
+                    entry.get("source_kind") == "prior_stage_artifact"
+                    and (entry.get("path"), entry.get("digest")) == identity
+                    for entry in later_stage.get("input_lineage") or []
+                    if isinstance(entry, dict)
+                )
+            }
+            consumers = artifact.get("consumers")
+            observed_consumers = {
+                consumer.get("consuming_stage")
+                for consumer in consumers or [] if isinstance(consumer, dict)
+            } if isinstance(consumers, list) else set()
+            if observed_consumers != expected_consumers:
+                artifact_graph_valid = False
+                reasons.append(reason(
+                    "source_malformed",
+                    f"/stages/{producer_index}/artifacts/{artifact_index}/consumers",
+                    "artifact consumer graph must exactly match later-stage input lineage",
+                ))
 
     checks = {
         "required_artifacts": bool(i05.get("stages") or i05.get("artifacts")),
@@ -445,7 +474,7 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
         "links": bool(i05.get("access_events") or i05.get("artifacts") or lifecycle.get("stages")),
         "dependencies": bool(lifecycle.get("entity_graph")),
         "status_transitions": bool(lifecycle.get("dispatches")) and all(isinstance(item, dict) and item.get("transition") is not None for item in lifecycle.get("dispatches", [])),
-        "traceability": bool(stages) and all(
+        "traceability": bool(stages) and artifact_graph_valid and all(
             valid_lineage(item, index) for index, item in enumerate(stages)
         ),
         "executable_task": bool(lifecycle.get("stages")) and any(item.get("category") == "code" for item in lifecycle.get("stages", []) if isinstance(item, dict)),

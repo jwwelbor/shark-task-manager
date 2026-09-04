@@ -604,6 +604,64 @@ def stage_category(status):
     return "code"
 
 
+def evidence_snapshot_digest(stage):
+    payload = {key: value for key, value in stage.items() if key != "snapshot_digest"}
+    return "sha256:" + sha256_bytes(json.dumps(payload, sort_keys=True).encode("utf-8"))
+
+
+def record_prior_artifact_consumption(
+    record, evidence_root, stage_index, consuming_stage, observed_at,
+):
+    """Join a new stage to every prior artifact in both I-05 and I-07."""
+    edge = {
+        "consuming_stage": consuming_stage,
+        "edge_kind": "read",
+        "observed_at": observed_at,
+    }
+    index_by_ordinal = {
+        item["dispatch_ordinal"]: item for item in stage_index
+    }
+    for lifecycle_stage in record.get("stages") or []:
+        artifacts = lifecycle_stage.get("artifacts") or []
+        if not artifacts:
+            continue
+        for artifact in artifacts:
+            consumers = artifact.get("consumers")
+            if not isinstance(consumers, list):
+                raise RuntimeError("prior stage artifact consumers is not an array")
+            if not any(
+                item.get("consuming_stage") == consuming_stage
+                for item in consumers if isinstance(item, dict)
+            ):
+                consumers.append(dict(edge))
+
+        ordinal = lifecycle_stage["dispatch_ordinal"]
+        index_entry = index_by_ordinal.get(ordinal)
+        if index_entry is None:
+            raise RuntimeError(f"prior stage {ordinal} omitted I-05 index entry")
+        snapshot_path = evidence_root / index_entry["snapshot_path"]
+        snapshot = load_json(snapshot_path.read_text(encoding="utf-8"), "prior stage snapshot")
+        snapshot_artifacts = snapshot.get("artifacts")
+        if not isinstance(snapshot_artifacts, list) or len(snapshot_artifacts) != len(artifacts):
+            raise RuntimeError(f"prior stage {ordinal} artifact graph disagrees between I-05 and I-07")
+        lifecycle_by_identity = {
+            (artifact.get("path"), artifact.get("digest")): artifact
+            for artifact in artifacts
+        }
+        for artifact in snapshot_artifacts:
+            identity = (artifact.get("path"), artifact.get("digest"))
+            lifecycle_artifact = lifecycle_by_identity.get(identity)
+            if lifecycle_artifact is None:
+                raise RuntimeError(f"prior stage {ordinal} artifact identity disagrees between I-05 and I-07")
+            artifact["consumers"] = [dict(item) for item in lifecycle_artifact["consumers"]]
+        snapshot["snapshot_digest"] = evidence_snapshot_digest(snapshot)
+        snapshot_path.write_text(
+            json.dumps(snapshot, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        index_entry["snapshot_digest"] = snapshot["snapshot_digest"]
+
+
 def mapped_provider(response):
     provider = str(response.get("provider", "")).lower()
     return "anthropic_claude_cli" if "anthropic" in provider or "claude" in provider else provider
@@ -820,9 +878,7 @@ def write_stage_evidence(
     # serialization and carries an explicit algorithm prefix. I-07 keeps its
     # own unprefixed digest vocabulary, so the caller strips the prefix at
     # that interface boundary.
-    stage["snapshot_digest"] = "sha256:" + sha256_bytes(
-        json.dumps(stage, sort_keys=True).encode("utf-8")
-    )
+    stage["snapshot_digest"] = evidence_snapshot_digest(stage)
     snapshot_relative = f"stages/{ordinal:04d}-{stage_key}.json"
     (evidence_root / snapshot_relative).write_text(
         json.dumps(stage, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8"
@@ -1411,13 +1467,16 @@ def main(argv):
             visit_key = (entity, str(response.get("status", "development")))
             rework_count = stage_visits.get(visit_key, 0)
             stage_visits[visit_key] = rework_count + 1
+            record_prior_artifact_consumption(
+                record, evidence_root, stage_index,
+                str(response.get("status", "development")), dispatch["started_at"],
+            )
             evidence_stage, snapshot_path, artifact = write_stage_evidence(
                 evidence_root, record, dispatch, stage_candidate, fixture_root,
                 fixture_input_digest, execution_adapter, adapter,
                 stage_started_ns, provider_started_ns, provider_ended_ns, stage_ended_ns,
                 rework_count,
             )
-            stage_candidate["snapshot_digest"] = evidence_stage["snapshot_digest"].removeprefix("sha256:")
             dispatch["evidence_refs"]["candidate_snapshot_digest"] = stage_candidate["snapshot_digest"]
             lifecycle_stage = stage_record(dispatch, stage_candidate)
             lifecycle_stage["snapshot_digest"] = stage_candidate["snapshot_digest"]

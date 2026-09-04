@@ -239,6 +239,26 @@ for stage_index, stage in enumerate(record["stages"]):
         if item["source_kind"] == "prior_stage_artifact"
     )
     assert observed_prior == expected_prior, stage
+    for artifact in stage["artifacts"]:
+        expected_consumers = {
+            later["stage"] for later in record["stages"][stage_index + 1:]
+        }
+        observed_consumers = {
+            edge["consuming_stage"] for edge in artifact["consumers"]
+        }
+        assert observed_consumers == expected_consumers, artifact
+        snapshot_entry = next(
+            item for item in bundle["stages"]
+            if item["dispatch_ordinal"] == stage["dispatch_ordinal"]
+        )
+        snapshot = json.load(open(os.path.join(
+            os.path.dirname(sys.argv[3]), "evidence", snapshot_entry["snapshot_path"],
+        )))
+        snapshot_artifact = next(
+            item for item in snapshot["artifacts"]
+            if (item["path"], item["digest"]) == (artifact["path"], artifact["digest"])
+        )
+        assert snapshot_artifact["consumers"] == artifact["consumers"], (snapshot_artifact, artifact)
 first = record["stages"][0]
 manifest = {entry["path"]: entry for entry in first["candidate"]["dirty_untracked_manifest"]}
 assert manifest["taskmanager/due_date.py"]["tracked"] is True, first
@@ -274,6 +294,19 @@ if "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/missing-prior-lineage.jsonl"
 fi
 grep -q "prior-stage artifact lineage" "$WORKDIR/missing-prior.err" || \
 	fail "verifier did not name missing prior-stage artifact lineage"
+python3 - "$WORKDIR/lifecycle.jsonl" "$WORKDIR/missing-consumer.jsonl" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+record["stages"][0]["artifacts"][0]["consumers"] = []
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+if "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/missing-consumer.jsonl" \
+    --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >"$WORKDIR/missing-consumer.out" 2>"$WORKDIR/missing-consumer.err"; then
+	fail "verifier accepted lineage whose producer still marked the artifact orphaned"
+fi
+grep -q "consumer graph disagrees" "$WORKDIR/missing-consumer.err" || \
+	fail "verifier did not name the artifact-consumer graph contradiction"
 "$SCRIPTS_DIR/replay-stage-evidence.sh" "$WORKDIR/evidence" \
 	--checkout "$WORKDIR/fixture" --adapter "$SCRIPTS_DIR/../adapters/python/adapter.sh" >/dev/null
 

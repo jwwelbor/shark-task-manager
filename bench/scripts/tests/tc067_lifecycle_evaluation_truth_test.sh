@@ -42,9 +42,9 @@ assert oracle["observed_result"] == "not_run", oracle
 assert oracle["invalidity_reasons"], oracle
 PY
 
-# A later stage must explicitly join every earlier artifact. Merely carrying
-# the fixed source-kind inventory is not complete lineage.
-python3 - "$tmp/missing-prior-i07.jsonl" <<'PY'
+# A later stage's prior-artifact lineage and the producer's consumer graph
+# must describe the same observed edge.
+python3 - "$tmp/contradictory-consumer-i07.jsonl" <<'PY'
 import hashlib, json, sys
 digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
 lineage = [
@@ -63,26 +63,28 @@ record = {
         {"category": "code", "input_lineage": lineage, "artifacts": [
             {"path": "artifacts/0001.patch", "digest": digest("artifact-1")},
         ]},
-        {"category": "review", "input_lineage": lineage, "artifacts": []},
+        {"stage": "review", "category": "review", "input_lineage": lineage + [
+            {"source_kind": "prior_stage_artifact", "path": "artifacts/0001.patch", "digest": digest("artifact-1")},
+        ], "artifacts": []},
     ],
     "outcome": {"terminal": "complete"},
 }
 with open(sys.argv[1], "w", encoding="utf-8") as stream:
     stream.write(json.dumps(record, separators=(",", ":")) + "\n")
 PY
-missing_prior_output="$tmp/missing-prior-evaluation.jsonl"
-if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/missing-prior-i07.jsonl" \
+contradictory_consumer_output="$tmp/contradictory-consumer-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/contradictory-consumer-i07.jsonl" \
     --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" \
-    --output "$missing_prior_output" >/dev/null 2>/dev/null; then
-  echo "TC-067: missing prior-stage artifact lineage unexpectedly eligible" >&2
+    --output "$contradictory_consumer_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: contradictory artifact-consumer graph unexpectedly eligible" >&2
   exit 1
 fi
-python3 - "$missing_prior_output" <<'PY'
+python3 - "$contradictory_consumer_output" <<'PY'
 import json, sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))
 reasons = record["eligibility"]["invalidity_reasons"]
 assert any(
-    item["code"] == "source_malformed" and item["path"] == "/stages/1/input_lineage"
+    item["code"] == "source_malformed" and item["path"] == "/stages/0/artifacts/0/consumers"
     for item in reasons
 ), reasons
 PY
