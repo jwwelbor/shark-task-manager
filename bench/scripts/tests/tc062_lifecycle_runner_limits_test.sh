@@ -265,3 +265,39 @@ assert bundle["publication_eligible"] is False, bundle
 assert sum(event["argv"][0] == "release" for event in events) == 0, events
 PY
 echo "TC-062: pass (SIGTERM kills test-discovery descendants and emits retained cancellation evidence)"
+
+echo "TC-062: wall deadline also terminates post-dispatch test-discovery descendants"
+mkdir -p "$WORKDIR/discovery-deadline-scratch"
+: >"$WORKDIR/discovery-deadline-events.ndjson"
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/discovery-deadline-events.ndjson" \
+SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+HANG_TEST_DISCOVERY=1 CHILD_PID="$WORKDIR/discovery-deadline-child.pid" CHILD_HEARTBEAT="$WORKDIR/discovery-deadline-child.heartbeat" \
+LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
+    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --run-id tc062-discovery-deadline --root ROOT-001 --scratch-root "$WORKDIR/discovery-deadline-scratch" \
+    --limits "$WORKDIR/deadline-limits.yaml" --i05-bundle-dir "$WORKDIR/discovery-deadline-i05" \
+    --output "$WORKDIR/discovery-deadline.jsonl" >/dev/null
+[[ -s "$WORKDIR/discovery-deadline-child.pid" && -e "$WORKDIR/discovery-deadline-child.heartbeat" ]] || \
+	fail "deadline test-discovery child never started"
+discovery_deadline_child_pid="$(cat "$WORKDIR/discovery-deadline-child.pid")"
+if kill -0 "$discovery_deadline_child_pid" 2>/dev/null; then
+	fail "test-discovery descendant PID $discovery_deadline_child_pid survived wall deadline"
+fi
+python3 - "$WORKDIR/discovery-deadline.jsonl" "$WORKDIR/discovery-deadline-i05/bundle.json" "$WORKDIR/discovery-deadline-events.ndjson" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+bundle = json.load(open(sys.argv[2], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8")]
+assert record["outcome"]["terminal"] == "resource_limit", record["outcome"]
+assert record["limits"]["first_exceeded"] == "max_wall_clock_seconds", record["limits"]
+assert record["outcome"]["publication_eligible"] is False, record["outcome"]
+assert record["dispatches"][0]["release"], record["dispatches"][0]
+assert any(
+    error["kind"] == "test_suite_unavailable"
+    for stage in record["stages"] for error in stage["errors"]
+), record["stages"]
+assert bundle["stop_outcome"] == "resource_limit", bundle
+assert bundle["publication_eligible"] is False, bundle
+assert sum(event["argv"][0] == "release" for event in events) == 1, events
+PY
+echo "TC-062: pass (deadline kills test-discovery descendants and emits retained resource_limit evidence)"

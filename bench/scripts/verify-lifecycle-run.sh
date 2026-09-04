@@ -317,6 +317,32 @@ def validate_record(record, schema):
             if "consumers" not in artifact:
                 fail("artifact_consumption_record_missing", f"{path}/artifacts[{artifact_index}]/consumers", "artifact consumption evidence is missing; consumers: [] is the explicit empty value")
 
+    for producer_index, producer_stage in enumerate(record["stages"]):
+        for artifact_index, artifact in enumerate(producer_stage.get("artifacts") or []):
+            artifact_path = f"/stages[{producer_index}]/artifacts[{artifact_index}]"
+            artifact_identity = (artifact.get("path"), artifact.get("digest"))
+            expected_consumers = {
+                later_stage["stage"]
+                for later_stage in record["stages"][producer_index + 1:]
+                if any(
+                    entry.get("source_kind") == "prior_stage_artifact"
+                    and (entry.get("path"), entry.get("digest")) == artifact_identity
+                    for entry in later_stage.get("input_lineage") or []
+                    if isinstance(entry, dict)
+                )
+            }
+            consumers = artifact.get("consumers")
+            if not isinstance(consumers, list):
+                fail("artifact_consumption_record_missing", f"{artifact_path}/consumers", "artifact consumers must be an array")
+            observed_consumers = set()
+            for consumer_index, consumer in enumerate(consumers):
+                consumer_path = f"{artifact_path}/consumers[{consumer_index}]"
+                if not isinstance(consumer, dict) or not isinstance(consumer.get("consuming_stage"), str) or not consumer["consuming_stage"]:
+                    fail("artifact_consumption_record_missing", consumer_path, "artifact consumer must name its consuming stage")
+                observed_consumers.add(consumer["consuming_stage"])
+            if observed_consumers != expected_consumers:
+                fail("artifact_consumption_record_missing", f"{artifact_path}/consumers", "artifact consumer graph disagrees with prior-stage input lineage")
+
     if set(stages_by_ordinal) != set(ordinals):
         fail("identity_mismatch", "/stages/dispatch_ordinal", "stage and dispatch ordinal sets disagree")
 

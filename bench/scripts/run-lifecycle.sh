@@ -2311,6 +2311,11 @@ def main(argv):
             # stage errors[] reflects the identical usage-mapping outcome
             # rather than staying an empty placeholder.
             _usage, usage_errors = resolve_usage(mapped_provider(response), worker_result if isinstance(worker_result, dict) else {})
+            if stage_candidate.get("test_identity_error"):
+                usage_errors.append({
+                    "kind": "test_suite_unavailable",
+                    "detail": str(stage_candidate["test_identity_error"]),
+                })
             lifecycle_stage["errors"] = usage_errors
             # Same stage_input_lineage() call I05BundleWriter's own
             # record_stage() makes for this dispatch's snapshot, so I-07's

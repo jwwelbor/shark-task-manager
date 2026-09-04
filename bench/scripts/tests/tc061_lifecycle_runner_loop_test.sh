@@ -287,6 +287,26 @@ for stage_index, stage in enumerate(record["stages"]):
         if item["source_kind"] == "prior_stage_artifact"
     )
     assert observed_prior == expected_prior, stage
+    for artifact in stage["artifacts"]:
+        expected_consumers = {
+            later["stage"] for later in record["stages"][stage_index + 1:]
+        }
+        observed_consumers = {
+            edge["consuming_stage"] for edge in artifact["consumers"]
+        }
+        assert observed_consumers == expected_consumers, artifact
+        snapshot_entry = next(
+            item for item in bundle["stages"]
+            if item["dispatch_ordinal"] == stage["dispatch_ordinal"]
+        )
+        snapshot = json.load(open(os.path.join(
+            os.path.dirname(sys.argv[3]), "evidence", snapshot_entry["snapshot_path"],
+        )))
+        snapshot_artifact = next(
+            item for item in snapshot["artifacts"]
+            if (item["path"], item["digest"]) == (artifact["path"], artifact["digest"])
+        )
+        assert snapshot_artifact["consumers"] == artifact["consumers"], (snapshot_artifact, artifact)
 first = record["stages"][0]
 manifest = {entry["path"]: entry for entry in first["candidate"]["dirty_untracked_manifest"]}
 assert manifest["taskmanager/due_date.py"]["tracked"] is True, first
@@ -320,14 +340,14 @@ PY
 # always show total, spurious drift. tc049 already covers replay-stage-
 # evidence.sh's real contract against a snapshot it actually applies to.
 #
-# Not the "missing prior-stage artifact lineage is rejected" negative test
-# either: every stage's own `artifacts` stays the honest, always-empty
-# placeholder until real artifact population lands (still E40-F07's own
-# scope per record_stage()'s docstring -- see port-list), so there is no
-# real prior_stage_artifact entry to strip from any stage's input_lineage
-# yet; stripping nothing from an already-empty list is not a genuine
-# negative case and would never actually exercise
-# verify-lifecycle-run.sh's new check.
+# Not the "missing prior-stage artifact lineage is rejected" or "missing
+# consumer" negative tests either: every stage's own `artifacts` stays the
+# honest, always-empty placeholder until real artifact population lands
+# (still E40-F07's own scope per record_stage()'s docstring -- see
+# port-list), so there is no real artifact or prior_stage_artifact entry to
+# mutate on any stage yet -- both negative cases would IndexError on an
+# empty artifacts[] before ever reaching verify-lifecycle-run.sh, not
+# genuinely exercise it.
 
 # A mechanically complete workflow with incomplete provider usage must fail
 # closed instead of becoming publication eligible.
