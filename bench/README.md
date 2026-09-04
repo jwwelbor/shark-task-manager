@@ -1899,6 +1899,13 @@ bundle to F09 and retains it; a configured `i05_bundle_dir` remains only as a
 compatibility fallback for fixture runners. Never reuse I-05 evidence across
 repetitions.
 
+Feature scenarios must also set `scenario_roots.<scenario>.replay_result` to
+the admitted I-06 replay result. The batch driver forwards it to the lifecycle
+prelude as `--replay`; omitting it makes an applicable feature prelude fail
+closed before provider dispatch. The replay result path and the selected I-06
+result-set digest are part of the execution-input identity, so changing either
+also makes resume fail closed.
+
 Every provider-backed manifest binds the lifecycle-adapter path and bytes,
 the provider-command digest, and each selected scenario's I-05 path and tree
 digest. It also binds the complete config bytes. A resume recomputes this

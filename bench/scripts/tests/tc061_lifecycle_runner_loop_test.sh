@@ -11,8 +11,37 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
-mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch"
+mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch/shark-data/workflow" "$WORKDIR/scratch/shark-data/prompts/_shared"
 git clone -q "$SCRIPTS_DIR/../fixture-py" "$WORKDIR/fixture"
+cat >"$WORKDIR/scratch/shark-data/workflow/bug.yaml" <<'YAML'
+version: "1.0"
+start: development
+steps:
+  development:
+    phase: development
+    action: spawn_agent
+    provider: anthropic
+    model: fixture-model
+    prompt: bug/development.md
+    outcomes: {pass: code_review}
+  code_review:
+    phase: code_review
+    action: spawn_agent
+    provider: anthropic
+    model: fixture-model
+    prompt: _shared/code_review.md
+    outcomes: {pass: qa, fail: development}
+  qa:
+    phase: qa
+    action: spawn_agent
+    provider: anthropic
+    model: fixture-model
+    prompt: _shared/qa.md
+    outcomes: {pass: completed, fail: development}
+  completed: {phase: done, action: archive, terminal: true}
+YAML
+printf '%s\n' 'review prompt' >"$WORKDIR/scratch/shark-data/prompts/_shared/code_review.md"
+printf '%s\n' 'qa prompt' >"$WORKDIR/scratch/shark-data/prompts/_shared/qa.md"
 
 cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
@@ -24,6 +53,7 @@ with open(os.environ["SHARK_EVENTS"], "a") as f:
     f.write(json.dumps({"argv": args}, separators=(",", ":")) + "\n")
 if args[:2] == ["next", "ROOT-001"]:
     response = json.load(open(os.environ["SHARK_RESPONSE"]))
+    response["provider"] = "anthropic"
     state_path = os.environ["SHARK_STATE"]
     try:
         next_count = int(open(state_path).read())
@@ -75,13 +105,32 @@ with open(os.environ["ADAPTER_REQUEST"], "a", encoding="utf-8") as stream:
 if not os.path.exists(os.environ["ADAPTER_MUTATION_MARKER"]):
     with open(os.path.join(os.environ["E40_AGENT_FIXTURE_CHECKOUT"], "taskmanager", "due_date.py"), "a", encoding="utf-8") as stream:
         stream.write("\n# TC-061 stage-end candidate identity mutation\n")
+    cache_dir = os.path.join(os.environ["E40_AGENT_FIXTURE_CHECKOUT"], "taskmanager", "__pycache__")
+    os.makedirs(cache_dir, exist_ok=True)
+    with open(os.path.join(cache_dir, "provider.cache"), "w", encoding="utf-8") as stream:
+        stream.write("provider-created ignored bytes\n")
     open(os.environ["ADAPTER_MUTATION_MARKER"], "w").close()
+usage = {
+    "cost_usd": 0.0,
+    "input_tokens": 10,
+    "output_tokens": 5,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "model_ids": ["fixture-model"],
+    "api_active_duration_ms": 20,
+    "turn_count": 1,
+    "provider_session_id": "provider-session-061",
+}
+if os.environ.get("PARTIAL_USAGE") == "1":
+    usage = {"input_tokens": 10}
 print(json.dumps({
     "worker_id": "worker-061",
     "session_id": request["session_id"],
     "kind": "final",
     "recommended_outcome": "pass",
     "evidence": {"summary": "fixture complete"},
+    "cost_usd": 0.0,
+    "usage": usage,
 }, separators=(",", ":")))
 PY
 ADAPTER
@@ -126,11 +175,12 @@ assert record["outcome"]["terminal"] == "complete"
 assert record["outcome"]["publication_eligible"] is True
 assert record["prelude"]["terminal_outcome"] == "not_applicable", record.get("prelude")
 assert [item["stage"] for item in record["prelude"]["stages"]] == ["D01", "D02", "D03", "D04", "D05"]
-assert record["workflow_policy"]["enabled_gates"] == ["code_review"], record["workflow_policy"]
-assert record["workflow_policy"]["gate_order"] == ["code_review"], record["workflow_policy"]
-assert record["workflow_policy"]["reviewer"] == {"provider": "fixture", "model": "fixture-model", "effort": "medium"}
-assert len(record["review_gates"]) == 1, record["review_gates"]
+assert record["workflow_policy"]["enabled_gates"] == ["code_review", "qa"], record["workflow_policy"]
+assert record["workflow_policy"]["gate_order"] == ["code_review", "qa"], record["workflow_policy"]
+assert len(record["workflow_policy"]["gate_policies"]) == 2, record["workflow_policy"]
+assert len(record["review_gates"]) == 2, record["review_gates"]
 assert record["review_gates"][0]["state"] == "zero_findings", record["review_gates"]
+assert record["review_gates"][1]["gate_id"] == "qa" and record["review_gates"][1]["state"] == "not_reached", record["review_gates"]
 bundle = json.load(open(os.path.join(os.path.dirname(sys.argv[3]), "evidence", "bundle.json")))
 assert [stage["dispatch_ordinal"] for stage in bundle["stages"]] == [1, 2], bundle
 assert bundle["dispatches"] == record["dispatches"]
@@ -146,11 +196,16 @@ for stage in record["stages"]:
     assert any(interval["category"] == "queue_or_claim_wait" for interval in stage["intervals"]), stage
     assert any(interval["category"] == "unclassified" for interval in stage["intervals"]), stage
     assert not any(interval["category"] == "provider_active" for interval in stage["intervals"]), stage
-    assert stage["errors"] == [{"kind": "unmapped_provider", "detail": "provider=fixture"}], stage
+    assert stage["errors"] == [], stage
+    assert {item["source_kind"] for item in stage["input_lineage"]} >= {
+        "scenario_package", "rendered_prompt", "fixture_checkout",
+        "shark_content", "execution_adapter", "lifecycle_adapter",
+    }, stage
 first = record["stages"][0]
 manifest = {entry["path"]: entry for entry in first["candidate"]["dirty_untracked_manifest"]}
 assert manifest["taskmanager/due_date.py"]["tracked"] is True, first
 assert manifest["taskmanager/due_date.py"]["digest"].startswith("sha256:"), first
+assert manifest["taskmanager/__pycache__/provider.cache"]["tracked"] is False, first
 assert first["candidate"]["binary_diff_digest"] == first["output_digests"][0], first
 stage_snapshot = json.load(open(os.path.join(os.path.dirname(sys.argv[3]), "evidence", "stages", "0001-development.json")))
 assert stage_snapshot["candidate"]["test_suite_ids"] == first["candidate"]["test_suite_ids"], stage_snapshot
@@ -162,5 +217,32 @@ PY
 "$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR/evidence" >/dev/null
 "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/lifecycle.jsonl" \
     --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
+"$SCRIPTS_DIR/replay-stage-evidence.sh" "$WORKDIR/evidence" \
+	--checkout "$WORKDIR/fixture" --adapter "$SCRIPTS_DIR/../adapters/python/adapter.sh" >/dev/null
+
+# A mechanically complete workflow with incomplete provider usage must fail
+# closed instead of becoming publication eligible.
+mkdir -p "$WORKDIR/partial-scratch"
+cp -a "$WORKDIR/scratch/shark-data" "$WORKDIR/partial-scratch/shark-data"
+git clone -q "$SCRIPTS_DIR/../fixture-py" "$WORKDIR/partial-fixture"
+: >"$WORKDIR/partial-events.ndjson"
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/partial-events.ndjson" \
+SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/partial-next-count" ADAPTER_REQUEST="$WORKDIR/partial-requests.ndjson" \
+	ADAPTER_MUTATION_MARKER="$WORKDIR/partial-adapter-mutated" PARTIAL_USAGE=1 \
+LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
+    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+	--run-id tc061-partial --root ROOT-001 --scratch-root "$WORKDIR/partial-scratch" \
+	--fixture-root "$WORKDIR/partial-fixture" \
+    --evidence-root "$WORKDIR/partial-evidence" --output "$WORKDIR/partial-lifecycle.jsonl" >/dev/null
+python3 - "$WORKDIR/partial-lifecycle.jsonl" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+assert record["outcome"]["terminal"] == "error", record["outcome"]
+assert record["outcome"]["publication_eligible"] is False, record["outcome"]
+assert any(
+    error["kind"] == "usage_slot_unavailable"
+    for stage in record["stages"] for error in stage["errors"]
+), record["stages"]
+PY
 
 echo "TC-061: pass (canonical multi-stage claim/heartbeat/transition/release loop through archive)"

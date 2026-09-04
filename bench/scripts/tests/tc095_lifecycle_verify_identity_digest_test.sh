@@ -73,6 +73,13 @@ namespace["refresh_candidate"](
 assert "scratch_content_digest" in candidate, "refresh_candidate did not add scratch_content_digest"
 
 digest64 = lambda seed: __import__("hashlib").sha256(seed.encode()).hexdigest()
+lineage = [
+    {"source_kind": kind, "path": f"/fixture/{kind}", "digest": digest64(kind)}
+    for kind in (
+        "scenario_package", "rendered_prompt", "fixture_checkout",
+        "shark_content", "execution_adapter", "lifecycle_adapter",
+    )
+]
 
 # The real stage producer must emit the object that the I-07 verifier joins to
 # candidate_snapshot_digest. A list here passes shallow required-field checks
@@ -154,7 +161,7 @@ record = {
             "category": "code",
             "snapshot_digest": digest64("stage-snapshot"),
             "prompt_digest": digest64("stage-prompt"),
-            "input_lineage": [],
+            "input_lineage": lineage,
             "replay_lineage": [],
             "output_paths": [],
             "output_digests": [],
@@ -177,6 +184,7 @@ record = {
         "prompt_digest": digest64("policy-prompt"),
         "review_bundle_digest": digest64("policy-bundle"),
         "fixes_allowed_between_gates": False,
+        "gate_policies": [],
     },
     "review_gates": [],
     "questions": [],

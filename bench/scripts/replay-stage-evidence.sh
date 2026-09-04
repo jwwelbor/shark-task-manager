@@ -154,8 +154,10 @@ python3 - "$bundle_dir_abs" "$checkout_abs" "$adapter_abs" <<'PYEOF'
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 bundle_dir, checkout, adapter = sys.argv[1:4]
 
@@ -282,11 +284,22 @@ def check_test_suite_drift(stage_key, candidate, checkout, adapter, verdicts):
         raise ScriptError(
             f"stage={stage_key}: candidate.test_suite_ids present but --adapter not supplied"
         )
-    result = subprocess.run(
-        [adapter, "test", "--checkout", checkout],
-        capture_output=True,
-        text=True,
-    )
+    # Test discovery may create bytecode or framework caches. Run it against
+    # an isolated copy so replay never mutates the checkout whose retained
+    # manifest it is validating.
+    with tempfile.TemporaryDirectory(prefix="e40-replay-test-identity-") as temporary:
+        isolated_checkout = os.path.join(temporary, "checkout")
+        shutil.copytree(
+            checkout,
+            isolated_checkout,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(".git"),
+        )
+        result = subprocess.run(
+            [adapter, "test", "--checkout", isolated_checkout],
+            capture_output=True,
+            text=True,
+        )
     if result.returncode != 0:
         raise ScriptError(
             f"stage={stage_key}: adapter test invocation failed (exit {result.returncode}): "

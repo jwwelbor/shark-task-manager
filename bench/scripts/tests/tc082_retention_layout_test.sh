@@ -199,6 +199,8 @@ echo "placeholder scratch project (never mutated -- run-lifecycle-batch.sh copie
 
 DRIVER_INDEX_DIR="$DRIVER_WORKDIR/index"
 DRIVER_SCENARIO_ID="scenario-tc082-driver"
+DRIVER_REPLAY_RESULT="$DRIVER_WORKDIR/i06-result.json"
+printf '%s\n' '{"terminal_outcome":"complete"}' >"$DRIVER_REPLAY_RESULT"
 mkdir -p "$DRIVER_INDEX_DIR/packages/$DRIVER_SCENARIO_ID"
 cat >"$DRIVER_INDEX_DIR/scenarios.yaml" <<EOF
 schema_version: "1.0"
@@ -209,7 +211,10 @@ cat >"$DRIVER_INDEX_DIR/packages/$DRIVER_SCENARIO_ID/package.yaml" <<EOF
 schema_version: "1.0"
 scenario_id: "$DRIVER_SCENARIO_ID"
 scenario_version: "1"
-entity_family: "family-tc082-driver"
+entity_family: "feature"
+stage_matrix:
+  prelude:
+    D01: {applicable: true, reason: "feature replay"}
 fixture:
   fixture_id: "fixture-tc082-driver"
   base_sha: "fixture-base-tc082-driver"
@@ -223,6 +228,7 @@ scenarios:
     root_key: "ROOT-TC082-DRIVER"
     scratch_root: "$DRIVER_SCRATCH"
     i05_bundle_dir: "$DRIVER_I05_BUNDLE"
+    replay_result: "$DRIVER_REPLAY_RESULT"
     reps: 1
 EOF
 
@@ -239,12 +245,16 @@ cat >"$DRIVER_RUN_STUB" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 output=""
+replay=""
 while [[ \$# -gt 0 ]]; do
 	case "\$1" in
 	--output) output="\$2"; shift 2 ;;
+	--replay) replay="\$2"; shift 2 ;;
 	*) shift ;;
 	esac
 done
+[[ "\$replay" == "$DRIVER_REPLAY_RESULT" ]] || { echo "missing exact I-06 replay forwarding" >&2; exit 2; }
+touch "$DRIVER_WORKDIR/replay-forwarded"
 jq -c --arg scenario "$DRIVER_SCENARIO_ID" '.identity.scenario_id = \$scenario' "$I07_FIXTURE" >"\$output"
 EOF
 chmod +x "$DRIVER_RUN_STUB"
@@ -310,6 +320,7 @@ RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" 
 	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
 	>"$WORKDIR/driver-batch.out" 2>"$WORKDIR/driver-batch.err" || driver_batch_rc=$?
 [[ "$driver_batch_rc" -eq 0 ]] || fail "(a2) driver-path: real run-lifecycle-batch.sh --mode pilot invocation failed: exit $driver_batch_rc; stdout: $(cat "$WORKDIR/driver-batch.out"); stderr: $(cat "$WORKDIR/driver-batch.err")"
+[[ -f "$DRIVER_WORKDIR/replay-forwarded" ]] || fail "(a2) driver-path: pilot did not forward the configured I-06 replay result"
 [[ -f "$DRIVER_ROOT/scenarios/$DRIVER_SCENARIO_ID/1/manifest.json" ]] || fail "(a2) driver-path: real driver did not retain the expected pair directory"
 # invalid/index.jsonl is always created (even on a clean run) but must stay
 # EMPTY here -- a non-empty entry would mean the driver itself classified

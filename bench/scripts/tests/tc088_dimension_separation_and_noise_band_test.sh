@@ -788,6 +788,9 @@ schema_version: "1.0"
 scenario_id: "$E2E_SCENARIO_ID"
 scenario_version: "1"
 entity_family: "family-e2e-comparison"
+fixture:
+  fixture_id: "py"
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
 EOF
 
 E2E_SCRATCH="$E2E_WORKDIR/scratch-template"

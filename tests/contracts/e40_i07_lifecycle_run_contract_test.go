@@ -100,6 +100,13 @@ func TestTC061_I07LifecycleRunContract(t *testing.T) {
 		{"missing_artifact_consumption", "consumption", func(record map[string]any) {
 			delete(record["stages"].([]any)[0].(map[string]any)["artifacts"].([]any)[0].(map[string]any), "consumers")
 		}},
+		{"missing_input_lineage_source", "lifecycle_adapter", func(record map[string]any) {
+			lineage := record["stages"].([]any)[0].(map[string]any)["input_lineage"].([]any)
+			record["stages"].([]any)[0].(map[string]any)["input_lineage"] = lineage[:len(lineage)-1]
+		}},
+		{"complete_with_stage_evidence_error", "/errors", func(record map[string]any) {
+			record["stages"].([]any)[0].(map[string]any)["errors"] = []any{map[string]any{"kind": "usage_slot_unavailable"}}
+		}},
 	}
 	for _, tc := range cases {
 		tc := tc

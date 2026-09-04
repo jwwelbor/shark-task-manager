@@ -268,6 +268,28 @@ def validate_record(record, schema):
         usage = stage["usage"]
         if not isinstance(usage.get("model"), str) or not usage["model"].strip() or not isinstance(usage.get("provider"), str) or not usage["provider"].strip():
             fail("missing_usage_or_model", f"{path}/usage", "stage usage must name provider and model")
+        lineage = stage.get("input_lineage")
+        required_lineage_kinds = {
+            "scenario_package", "rendered_prompt", "fixture_checkout",
+            "shark_content", "execution_adapter", "lifecycle_adapter",
+        }
+        if not isinstance(lineage, list) or not lineage:
+            fail("stage_evidence_incomplete", f"{path}/input_lineage", "stage input lineage is empty")
+        observed_lineage_kinds = set()
+        for lineage_index, entry in enumerate(lineage):
+            lineage_path = f"{path}/input_lineage[{lineage_index}]"
+            if not isinstance(entry, dict) or set(entry) != {"source_kind", "path", "digest"}:
+                fail("stage_evidence_incomplete", lineage_path, "lineage entry must contain only source_kind, path, and digest")
+            if not all(isinstance(entry.get(field), str) and entry[field] for field in ("source_kind", "path", "digest")):
+                fail("stage_evidence_incomplete", lineage_path, "lineage source_kind, path, and digest must be non-empty strings")
+            if not DIGEST.fullmatch(entry["digest"]):
+                fail("stage_evidence_incomplete", f"{lineage_path}/digest", "lineage digest is not a lowercase SHA-256 digest")
+            observed_lineage_kinds.add(entry["source_kind"])
+        missing_lineage = sorted(required_lineage_kinds - observed_lineage_kinds)
+        if missing_lineage:
+            fail("stage_evidence_incomplete", f"{path}/input_lineage", f"stage lineage is missing source kind(s): {', '.join(missing_lineage)}")
+        if record["outcome"]["terminal"] == "complete" and stage.get("errors"):
+            fail("stage_evidence_incomplete", f"{path}/errors", "complete run contains unavailable or unmapped stage evidence")
         candidate = stage["candidate"]
         missing_identity_fields = [field for field in CANDIDATE_IDENTITY_FIELDS if field not in candidate]
         if missing_identity_fields:
@@ -287,8 +309,29 @@ def validate_record(record, schema):
     policy = record["workflow_policy"]
     if not isinstance(policy["reviewer"].get("provider"), str) or not policy["reviewer"].get("provider") or not policy["reviewer"].get("model"):
         fail("missing_usage_or_model", "/workflow_policy/reviewer", "reviewer policy must name provider and model")
+    gate_policy_by_digest = {}
+    for index, gate_policy in enumerate(policy.get("gate_policies") or []):
+        path = f"/workflow_policy/gate_policies[{index}]"
+        if not isinstance(gate_policy, dict) or not gate_policy.get("gate_id"):
+            fail("stage_evidence_incomplete", path, "gate policy must name its gate")
+        expected_policy_digest = canonical_digest({
+            key: value for key, value in gate_policy.items() if key != "policy_digest"
+        })
+        if gate_policy.get("policy_digest") != expected_policy_digest:
+            fail("identity_mismatch", f"{path}/policy_digest", "gate policy digest does not match retained content")
+        gate_policy_by_digest[gate_policy["policy_digest"]] = gate_policy
+    configured_gate_ids = [item["gate_id"] for item in policy.get("gate_policies") or []]
+    if configured_gate_ids != policy["enabled_gates"] or configured_gate_ids != policy["gate_order"]:
+        fail("identity_mismatch", "/workflow_policy/gate_policies", "gate policy order disagrees with enabled_gates or gate_order")
+    observed_gate_ids = set()
     for index, gate in enumerate(record["review_gates"]):
         validate_vocabulary(gate["state"], schema.get("gate_state", []), f"/review_gates[{index}]/state", "malformed_field")
+        observed_gate_ids.add(gate["gate_id"])
+        if (gate.get("policy_ref") or {}).get("policy_digest") not in gate_policy_by_digest:
+            fail("identity_mismatch", f"/review_gates[{index}]/policy_ref", "review gate policy_ref does not resolve to retained gate policy content")
+    missing_gate_records = sorted(set(configured_gate_ids) - observed_gate_ids)
+    if missing_gate_records:
+        fail("stage_evidence_incomplete", "/review_gates", f"configured gates lack reached or not_reached records: {', '.join(missing_gate_records)}")
 
     return {
         "result": "accepted",

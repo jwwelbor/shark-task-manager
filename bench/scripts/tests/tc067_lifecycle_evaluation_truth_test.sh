@@ -27,11 +27,12 @@ if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/i07.jsonl" --scenario "$REPO_ROOT/b
 python3 - "$output" <<'PY'
 import json, sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))
-assert record["structural"]["observed_result"] == "pass"
+assert record["structural"]["observed_result"] == "fail"
 assert record["judge"]["observed_result"] == "not_applicable"
 assert record["execution_oracle"]["observed_result"] == "not_run"
 assert record["eligibility"]["aggregate_eligible"] is False
 assert any(item["code"] == "missing_oracle" for item in record["eligibility"]["invalidity_reasons"])
+assert any(item["code"] == "source_malformed" and item["path"] == "/stages/0/input_lineage" for item in record["eligibility"]["invalidity_reasons"])
 assert any(item["code"] == "identity_missing" and item["path"] == "/identity/toolchain_identity" for item in record["eligibility"]["invalidity_reasons"])
 PY
 python3 - "$output.oracle.json" <<'PY'

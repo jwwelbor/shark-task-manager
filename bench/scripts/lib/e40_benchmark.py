@@ -1015,6 +1015,7 @@ def setup_config(
             "root_key": roots[family],
             "scratch_root": str(scratch),
             "i05_bundle_dir": None,
+            "replay_result": None,
         }
     return {
         "schema_version": "1.0",
@@ -1670,6 +1671,7 @@ def execution_input_identity(
 
     roots = config.get("scenario_roots") or {}
     bundles: list[dict[str, Any]] = []
+    replay_results: list[dict[str, Any]] = []
     for row in matrix:
         entry = roots.get(row["scenario_id"]) if isinstance(roots, dict) else None
         raw = entry.get("i05_bundle_dir") if isinstance(entry, dict) else None
@@ -1695,11 +1697,29 @@ def execution_input_identity(
                     "digest": UNAVAILABLE,
                 }
             )
+        raw_replay = entry.get("replay_result") if isinstance(entry, dict) else None
+        if isinstance(raw_replay, str) and raw_replay:
+            replay_path = resolve_path(raw_replay, config_base)
+            replay_results.append({
+                "scenario_id": row["scenario_id"],
+                "path": str(replay_path),
+                "digest": path_digest(replay_path, f"{row['scenario_id']} I-06 replay result")
+                if replay_path.exists()
+                else UNAVAILABLE,
+            })
+        else:
+            replay_results.append({
+                "scenario_id": row["scenario_id"],
+                "path": UNAVAILABLE,
+                "digest": UNAVAILABLE,
+            })
     result = {
         "lifecycle_adapter": adapter_identity,
         "provider_command_digest": provider_command_digest,
         "i05_bundles": bundles,
         "i05_bundle_set_digest": canonical_digest(bundles),
+        "i06_replay_results": replay_results,
+        "i06_replay_set_digest": canonical_digest(replay_results),
     }
     result["execution_input_digest"] = canonical_digest(result)
     return result
@@ -1843,6 +1863,9 @@ def materialize_batch_policy(
         i05 = entry.get("i05_bundle_dir")
         if isinstance(i05, str) and i05:
             policy_entry["i05_bundle_dir"] = str(resolve_path(i05, config_base))
+        replay_result = entry.get("replay_result")
+        if isinstance(replay_result, str) and replay_result:
+            policy_entry["replay_result"] = str(resolve_path(replay_result, config_base))
         policy["scenarios"][row["scenario_id"]] = policy_entry
     encoded = yaml.safe_dump(policy, sort_keys=False, allow_unicode=True).encode(
         "utf-8"
@@ -2903,6 +2926,7 @@ def comparison_boundary(
             "identity.execution_inputs.lifecycle_adapter.digest",
             "identity.execution_inputs.provider_command_digest",
             "identity.execution_inputs.i05_bundle_set_digest",
+            "identity.execution_inputs.i06_replay_set_digest",
             "identity.execution_inputs.execution_input_digest",
             "identity.resource_policy_digest",
             "identity.candidate.identity_digest",
