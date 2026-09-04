@@ -920,6 +920,62 @@ func TestDefectClassSweepBundleIndexRegistration(t *testing.T) {
 		"skills/README.md quality row must name the new workflow file")
 }
 
+// TestDefectClassSweepConsolidatedNotDuplicated is test-plan.md TC-002: the
+// three gate call sites (code_review.md, approval.md, redteam-rubric.md)
+// must reference the canonical defect-class-sweep.md workflow instead of
+// restating its sweep procedure inline. This guards against the exact prose
+// drift T-E34-F06-002 fixed re-creeping back in.
+func TestDefectClassSweepConsolidatedNotDuplicated(t *testing.T) {
+	oldDuplicatedProse := []string{
+		// The old inline kickback-reason template restated in both
+		// code_review.md and approval.md before consolidation.
+		"Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class",
+		// The old three-part re-verification list restated in
+		// redteam-rubric.md before consolidation.
+		"Full-rubric sanity pass** — re-run the verification checks above over the feature surface",
+	}
+
+	files := []string{
+		"prompts/feature/code_review.md",
+		"prompts/feature/approval.md",
+		"skills/uat/references/redteam-rubric.md",
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+
+		for _, prose := range oldDuplicatedProse {
+			assert.NotContains(t, content, prose,
+				"%s must not restate the old duplicated sweep prose %q", rel, prose)
+		}
+
+		assert.Contains(t, content, "skills/quality/workflows/defect-class-sweep.md",
+			"%s must reference the canonical defect-class-sweep.md workflow", rel)
+	}
+}
+
+// TestDefectClassSweepNoWWGMOrToolLeakage is test-plan.md TC-004: the new
+// workflow file and the three edited call sites must not leak WWGM defect
+// names, Python tooling references, or local filesystem paths — the content
+// must stay project-agnostic and render from `{{project guidance}}` inputs.
+func TestDefectClassSweepNoWWGMOrToolLeakage(t *testing.T) {
+	leakPattern := regexp.MustCompile(`(?i)WWGM|\.py\b|/home/|/Users/`)
+
+	files := []string{
+		"skills/quality/workflows/defect-class-sweep.md",
+		"prompts/feature/code_review.md",
+		"prompts/feature/approval.md",
+		"skills/uat/references/redteam-rubric.md",
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		if match := leakPattern.FindString(content); match != "" {
+			t.Errorf("%s contains leaked WWGM/tool/path reference: %q", rel, match)
+		}
+	}
+}
+
 func readEmbeddedString(t *testing.T, rel string) string {
 	t.Helper()
 	data, err := readEmbeddedAll(rel)

@@ -78,7 +78,7 @@ ON FAIL (blockers, spec drift, missing ACs, contract violations):
   - Verdict: FAIL
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
 - In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
-  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Before fixing the cited instance, sweep the touched module(s) for every other instance of this defect class; fix all; list swept sites in the completion note."`
+  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Apply the defect-class sweep procedure (skills/quality/workflows/defect-class-sweep.md) before re-fixing; list swept sites in the completion note."`
 - Include `PARENT NOTE: Verification gate failed — see report, tasks kicked back`
 - End with `RECOMMENDED OUTCOME: fail`
 - Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
