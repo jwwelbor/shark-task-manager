@@ -155,12 +155,13 @@ sweep. Deferred issues, verbatim from the run:
 2. Test matrix uses `AC-1`..`AC-5` identifiers not present in feature.md
    (feature.md uses `REQ-F-*` and three named scenarios) — traceability is
    indirect.
-3. TC-006/TC-007 omit a "new class inside old scope" branch in the *test
-   plan's own row text* (already closed at the workflow-content level by
-   `TestDefectClassSweepRecurrenceRequiresClassKey` and this feature's TC-011
+3. TC-006 omits a "new class inside old scope" branch in the *test plan's
+   own row text* (already closed at the workflow-content level by
+   `TestDefectClassSweepRecurrenceRequiresClassKey` and this feature's TC-006
    walkthrough's fixture D — the gap codex found is in the test-plan
-   *description's* enumeration, not in enforcement) and an
-   accepted-risk-with-no-new-evidence branch for TC-007.
+   *description's* enumeration, not in enforcement). The accepted-risk-with-
+   no-new-evidence branch for TC-007 is now closed: see TC-012 below, added
+   in the round-3 UAT-kickback rework (finding 6).
 4. TC-001/I-03 contract: header presence alone doesn't prove every I-03
    field/clause; `TC-I-03-DEFECT-CLASS-CLOSURE` covers only 3 of the full
    I-03 shape's fields.
