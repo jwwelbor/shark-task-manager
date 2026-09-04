@@ -61,12 +61,12 @@ if args[:2] == ["next", "ROOT-001"]:
         next_count = 0
     next_count += 1
     open(state_path, "w").write(str(next_count))
-    statuses = {
-        1: "development",
-        2: "code_review",
-        3: "development",
-        4: "code_review",
-    }
+    configured_statuses = os.environ.get("SHARK_STATUSES")
+    statuses = (
+        {index: status for index, status in enumerate(json.loads(configured_statuses), start=1)}
+        if configured_statuses else
+        {1: "development", 2: "code_review", 3: "development", 4: "code_review"}
+    )
     if next_count in statuses:
         response["status"] = statuses[next_count]
         response["prompt"] = f"run {response['status']} round {next_count}\n"
@@ -85,7 +85,19 @@ elif args[:2] == ["claim", "TASK-002"]:
 elif args and args[0] == "heartbeat":
     print('{"ok":true}')
 elif args[:2] == ["status", "advance"]:
+    rejection_mode = os.environ.get("SHARK_REJECT_ADVANCE", "")
+    rejection_marker = os.environ.get("SHARK_REJECTION_MARKER", "")
+    should_reject = rejection_mode == "always" or (
+        rejection_mode == "first" and rejection_marker and not os.path.exists(rejection_marker)
+    )
+    if should_reject:
+        if rejection_marker:
+            open(rejection_marker, "w").close()
+        print(json.dumps({"error": True, "code": "COMMAND_ERROR", "message": "artifact validation failed: missing pattern_contract"}), file=sys.stderr)
+        raise SystemExit(1)
     print('{"advanced":true}')
+elif args[:2] == ["notes", "add"]:
+    print('{"note_added":true}')
 elif args and args[0] == "release":
     print('{"released":true}')
 elif args[:2] == ["get", "TASK-002"]:
@@ -369,6 +381,80 @@ if "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/deduplicated-consumers.jsonl
 fi
 grep -q "consumer graph disagrees" "$WORKDIR/deduplicated-consumers.err" || \
 	fail "verifier did not detect lost repeated-dispatch consumer multiplicity"
+
+# A worker can recommend pass while Shark correctly rejects the transition
+# because the produced artifact fails its phase validator. The controller must
+# retain that attempt, record the rejection as a note, and redispatch the same
+# stage against the still-present scratch artifact instead of terminating the
+# whole benchmark as worker_failure.
+mkdir -p "$WORKDIR/retry-scratch/shark-data/workflow" "$WORKDIR/retry-scratch/shark-data/prompts/_shared"
+cp "$WORKDIR/scratch/shark-data/workflow/bug.yaml" "$WORKDIR/retry-scratch/shark-data/workflow/bug.yaml"
+cp "$WORKDIR/scratch/shark-data/prompts/_shared/"*.md "$WORKDIR/retry-scratch/shark-data/prompts/_shared/"
+git clone -q "$SCRIPTS_DIR/../fixture-py" "$WORKDIR/retry-fixture"
+: >"$WORKDIR/retry-events.ndjson"
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/retry-events.ndjson" \
+SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/retry-next-count" \
+SHARK_STATUSES='["development","development"]' SHARK_REJECT_ADVANCE=first SHARK_REJECTION_MARKER="$WORKDIR/rejection-seen" \
+ADAPTER_REQUEST="$WORKDIR/retry-requests.ndjson" ADAPTER_MUTATION_MARKER="$WORKDIR/retry-adapter-mutated" \
+ADAPTER_REVIEW_MARKER="$WORKDIR/retry-adapter-reviewed" \
+LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
+    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --run-id tc061-transition-retry --root ROOT-001 --scratch-root "$WORKDIR/retry-scratch" \
+    --fixture-root "$WORKDIR/retry-fixture" \
+    --evidence-root "$WORKDIR/retry-evidence" --output "$WORKDIR/retry-lifecycle.jsonl" >/dev/null
+python3 - "$WORKDIR/retry-events.ndjson" "$WORKDIR/retry-lifecycle.jsonl" <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+record = json.load(open(sys.argv[2], encoding="utf-8"))
+assert [stage["stage"] for stage in record["stages"]] == ["development", "development"], record
+assert [stage["rework"] for stage in record["stages"]] == [False, True], record
+assert [dispatch["outcome"] for dispatch in record["dispatches"]] == ["fail", "pass"], record
+rejected = record["dispatches"][0]["transition"]
+assert rejected["accepted"] is False and rejected["retry_scheduled"] is True, rejected
+assert rejected["rejection_attempt"] == 1 and "missing pattern_contract" in rejected["rejection"], rejected
+assert record["outcome"]["terminal"] == "complete" and record["outcome"]["publication_eligible"] is True, record
+note_events = [event for event in events if event["argv"][:2] == ["notes", "add"]]
+assert len(note_events) == 1 and "missing pattern_contract" in " ".join(note_events[0]["argv"]), note_events
+assert sum(event["argv"][:2] == ["status", "advance"] for event in events) == 2, events
+PY
+"$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR/retry-evidence" >/dev/null
+"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/retry-lifecycle.jsonl" \
+    --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
+
+# The recovery is bounded independently of provider cost/time ceilings. Three
+# consecutive transition rejections (initial attempt plus two retries) stop as
+# worker_failure and retain every attempt, rather than spending indefinitely.
+mkdir -p "$WORKDIR/exhausted-scratch/shark-data/workflow" "$WORKDIR/exhausted-scratch/shark-data/prompts/_shared"
+cp "$WORKDIR/scratch/shark-data/workflow/bug.yaml" "$WORKDIR/exhausted-scratch/shark-data/workflow/bug.yaml"
+cp "$WORKDIR/scratch/shark-data/prompts/_shared/"*.md "$WORKDIR/exhausted-scratch/shark-data/prompts/_shared/"
+git clone -q "$SCRIPTS_DIR/../fixture-py" "$WORKDIR/exhausted-fixture"
+: >"$WORKDIR/exhausted-events.ndjson"
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/exhausted-events.ndjson" \
+SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/exhausted-next-count" \
+SHARK_STATUSES='["development","development","development","development"]' SHARK_REJECT_ADVANCE=always \
+SHARK_REJECTION_MARKER="$WORKDIR/exhausted-rejection-seen" ADAPTER_REQUEST="$WORKDIR/exhausted-requests.ndjson" \
+ADAPTER_MUTATION_MARKER="$WORKDIR/exhausted-adapter-mutated" ADAPTER_REVIEW_MARKER="$WORKDIR/exhausted-adapter-reviewed" \
+LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
+    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --run-id tc061-transition-exhausted --root ROOT-001 --scratch-root "$WORKDIR/exhausted-scratch" \
+    --fixture-root "$WORKDIR/exhausted-fixture" \
+    --evidence-root "$WORKDIR/exhausted-evidence" --output "$WORKDIR/exhausted-lifecycle.jsonl" >/dev/null
+python3 - "$WORKDIR/exhausted-events.ndjson" "$WORKDIR/exhausted-lifecycle.jsonl" <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+record = json.load(open(sys.argv[2], encoding="utf-8"))
+assert len(record["dispatches"]) == 3 and len(record["stages"]) == 3, record
+assert [item["outcome"] for item in record["dispatches"]] == ["fail", "fail", "worker_failure"], record
+assert [item["transition"]["rejection_attempt"] for item in record["dispatches"]] == [1, 2, 3], record
+assert record["dispatches"][-1]["transition"]["retry_scheduled"] is False, record
+assert record["outcome"]["terminal"] == "worker_failure" and record["outcome"]["publication_eligible"] is False, record
+assert "rejected 3 times" in record["outcome"]["reason"], record
+assert sum(event["argv"][:2] == ["notes", "add"] for event in events) == 3, events
+assert sum(event["argv"][:2] == ["status", "advance"] for event in events) == 3, events
+PY
+"$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR/exhausted-evidence" >/dev/null
+"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/exhausted-lifecycle.jsonl" \
+    --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
 "$SCRIPTS_DIR/replay-stage-evidence.sh" "$WORKDIR/evidence" \
 	--checkout "$WORKDIR/fixture" --adapter "$SCRIPTS_DIR/../adapters/python/adapter.sh" >/dev/null
 
