@@ -906,6 +906,20 @@ func TestSolutionWalkthroughBundle(t *testing.T) {
 	}
 }
 
+// TestDefectClassSweepBundleIndexRegistration verifies the E34-F06 workflow
+// file (defect-class-sweep.md) is named in both discovery indices: the
+// quality skill's own "Workflow Selection" section and the top-level skills
+// README's quality row file list (test-plan.md TC-003).
+func TestDefectClassSweepBundleIndexRegistration(t *testing.T) {
+	skill := readEmbeddedString(t, "skills/quality/SKILL.md")
+	assert.Contains(t, skill, "workflows/defect-class-sweep.md",
+		"quality SKILL.md Workflow Selection must name the new workflow file")
+
+	readme := readEmbeddedString(t, "skills/README.md")
+	assert.Contains(t, readme, "workflows/defect-class-sweep.md",
+		"skills/README.md quality row must name the new workflow file")
+}
+
 func readEmbeddedString(t *testing.T, rel string) string {
 	t.Helper()
 	data, err := readEmbeddedAll(rel)

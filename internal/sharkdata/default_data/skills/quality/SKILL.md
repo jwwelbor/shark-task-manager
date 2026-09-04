@@ -12,7 +12,7 @@ inputs:
   - design_refs: list of paths to design documents or wireframes (optional)
   - acceptance_criteria: list of acceptance criteria text to validate against
 outputs:
-  - selected_workflow: one of {validate-design, validate-tasks, review-code, test-planning, qa-testing, generate-standards}
+  - selected_workflow: one of {validate-design, validate-tasks, review-code, test-planning, qa-testing, generate-standards, defect-class-sweep}
   - outcome: pass | fail | blocked
   - validation_report: structured validation results (PASS|FAIL)
   - issues_found: list of {severity, description, location, remediation}
@@ -64,6 +64,12 @@ Based on what needs validation, invoke the appropriate workflow:
 **Invoke**: `workflows/qa-testing.md`
 **Output**: QA test results and exploratory findings
 **Use case**: Validate implementation against pre-written test plan and acceptance criteria
+
+### Defect-Class Sweep
+**When**: A code-review or approval kickback, or a UAT/red-team re-review round after a prior rejection
+**Invoke**: `workflows/defect-class-sweep.md`
+**Output**: I-03 `DefectClassSweep` record nested in the calling gate's `remediation_sweeps`
+**Use case**: Generalize one finding into a defect class, enumerate every sibling instance across the declared search scope in one pass, and require a verified guard before the class closes
 
 ## Quality Resources
 

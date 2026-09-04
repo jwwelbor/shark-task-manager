@@ -390,6 +390,32 @@ func TestIncludeResolverWithEmbed_MissingFromBoth(t *testing.T) {
 	assert.Contains(t, err.Error(), "nonexistent/definitely-not-there.md")
 }
 
+// TestIncludeResolverWithEmbed_DefectClassSweepRenders verifies that the
+// checked-in defect-class-sweep workflow file (E34-F06) renders cleanly
+// through the production renderer and carries every section named in
+// spec.md REQ-F-001: class naming, search-scope declaration, enumeration,
+// zero-result reporting, instance evidence, guard selection, closure rule,
+// and the three-part re-verification procedure.
+func TestIncludeResolverWithEmbed_DefectClassSweepRenders(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+
+	out, err := r.Resolve("{{include: skills/quality/workflows/defect-class-sweep.md}}")
+	require.NoError(t, err, "defect-class-sweep.md must render through the production renderer with no errors")
+
+	for _, section := range []string{
+		"## Class naming",
+		"## Search-scope declaration",
+		"## Enumeration procedure",
+		"## Zero-result reporting",
+		"## Instance evidence",
+		"## Guard selection",
+		"## Structural guard closure",
+		"## Full-class re-verification",
+	} {
+		assert.Contains(t, out, section, "defect-class-sweep.md must contain section %q", section)
+	}
+}
+
 // TestNewIncludeResolverWithEmbed_EmptyDataRoot verifies that the embed
 // backstop works even with an empty data root (zero-config consumer mode).
 func TestNewIncludeResolverWithEmbed_EmptyDataRoot(t *testing.T) {
