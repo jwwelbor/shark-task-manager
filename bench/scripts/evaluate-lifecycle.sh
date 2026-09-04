@@ -27,6 +27,9 @@ args = parser.parse_args(sys.argv[3:])
 with open(os.path.join(bench_dir, "runs", "i07-schema.yaml"), encoding="utf-8") as stream:
     i07_schema = yaml.safe_load(stream) or {}
 STOP_OUTCOMES = set(i07_schema.get("stop_outcome") or [])
+with open(os.path.join(bench_dir, "evidence", "i05-schema.yaml"), encoding="utf-8") as stream:
+    i05_schema = yaml.safe_load(stream) or {}
+EDGE_KINDS = set(i05_schema.get("edge_kind") or [])
 
 
 def file_digest(path):
@@ -445,7 +448,7 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
                 artifact_graph_valid = False
                 continue
             identity = (artifact.get("path"), artifact.get("digest"))
-            expected_consumers = {
+            expected_consumers = sorted(
                 later_stage.get("stage")
                 for later_stage in stages[producer_index + 1:]
                 if any(
@@ -454,13 +457,19 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
                     for entry in later_stage.get("input_lineage") or []
                     if isinstance(entry, dict)
                 )
-            }
+            )
             consumers = artifact.get("consumers")
-            observed_consumers = {
-                consumer.get("consuming_stage")
-                for consumer in consumers or [] if isinstance(consumer, dict)
-            } if isinstance(consumers, list) else set()
-            if observed_consumers != expected_consumers:
+            typed_consumers = isinstance(consumers, list) and all(
+                isinstance(consumer, dict)
+                and set(consumer) == {"consuming_stage", "edge_kind", "observed_at"}
+                and all(isinstance(consumer[field], str) and consumer[field] for field in consumer)
+                and consumer["edge_kind"] in EDGE_KINDS
+                for consumer in consumers
+            )
+            observed_consumers = sorted(
+                consumer["consuming_stage"] for consumer in consumers
+            ) if typed_consumers else []
+            if not typed_consumers or observed_consumers != expected_consumers:
                 artifact_graph_valid = False
                 reasons.append(reason(
                     "source_malformed",

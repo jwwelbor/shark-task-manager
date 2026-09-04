@@ -822,7 +822,7 @@ def validate_candidate(stage_key, dispatch_ordinal, stage_category, snapshot):
     }
 
 
-def validate_artifacts(stage_key, dispatch_ordinal, snapshot):
+def validate_artifacts(stage_key, dispatch_ordinal, snapshot, known_edge_kinds):
     """Implements REQ-F-008 / ADR-F06-07 per-artifact consumer verdicts for
     one stage snapshot's `artifacts` array. Returns None when the snapshot
     carries no `artifacts` key at all -- REQ-F-008 does not apply, so a
@@ -872,6 +872,24 @@ def validate_artifacts(stage_key, dispatch_ordinal, snapshot):
                     f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
                     f"consumers must be a list when present"
                 )
+            for consumer_index, consumer in enumerate(consumers):
+                if not isinstance(consumer, dict) or set(consumer) != {"consuming_stage", "edge_kind", "observed_at"}:
+                    raise ScriptError(
+                        f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
+                        f"consumers[{consumer_index}] must contain only consuming_stage, edge_kind, and observed_at"
+                    )
+                for field in ("consuming_stage", "edge_kind", "observed_at"):
+                    if not isinstance(consumer[field], str) or not consumer[field].strip():
+                        raise ScriptError(
+                            f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
+                            f"consumers[{consumer_index}].{field} must be a non-empty string"
+                        )
+                if consumer["edge_kind"] not in known_edge_kinds:
+                    raise ScriptError(
+                        f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
+                        f"consumers[{consumer_index}].edge_kind is not declared in i05-schema.yaml: "
+                        f"{consumer['edge_kind']!r}"
+                    )
             verdict = "orphan" if len(consumers) == 0 else "consumed"
 
         results.append({"path": path, "verdict": verdict})
@@ -964,6 +982,9 @@ def main():
     known_stop_outcomes = schema.get("stop_outcome")
     if not isinstance(known_stop_outcomes, list) or not known_stop_outcomes:
         raise ScriptError(f"i05-schema.yaml declares no stop_outcome vocabulary: {i05_schema_path}")
+    known_edge_kinds = schema.get("edge_kind")
+    if not isinstance(known_edge_kinds, list) or not known_edge_kinds:
+        raise ScriptError(f"i05-schema.yaml declares no edge_kind vocabulary: {i05_schema_path}")
 
     bundle_json_path = os.path.join(bundle_dir, "bundle.json")
     if not os.path.isfile(bundle_json_path):
@@ -1005,7 +1026,9 @@ def main():
         )
         if candidate_result is not None:
             stage_result["candidate"] = candidate_result
-        artifact_results = validate_artifacts(stage_key, dispatch_ordinal, snapshot)
+        artifact_results = validate_artifacts(
+            stage_key, dispatch_ordinal, snapshot, known_edge_kinds,
+        )
         if artifact_results is not None:
             stage_result["artifacts"] = artifact_results
         stage_results.append(stage_result)

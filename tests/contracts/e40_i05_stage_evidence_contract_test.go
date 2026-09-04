@@ -140,6 +140,24 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		}
 	})
 
+	t.Run("artifact_consumer_edge_fields_required", func(t *testing.T) {
+		artifacts := []interface{}{map[string]interface{}{
+			"artifact_type":  "code_diff",
+			"path":           "artifacts/change.patch",
+			"digest":         "sha256:fixture",
+			"size_bytes":     float64(1),
+			"producer_stage": "development",
+			"consumers": []interface{}{map[string]interface{}{
+				"consuming_stage": "code_review",
+				"edge_kind":       "read",
+			}},
+		}}
+		errs := e40I05ValidateArtifacts(artifacts, schema, "typed-edge")
+		if !e40ContainsErrorMatching(errs, "observed_at") {
+			t.Fatalf("consumer missing observed_at was not rejected: %v", errs)
+		}
+	})
+
 	// AC-T1 (task spec): usage-mapping.yaml's own required shape --
 	// schema_version and verified_from present (REQ-F-009), the committed
 	// provider split (anthropic_claude_cli mapped with the full 9-slot
@@ -1197,11 +1215,29 @@ func e40I05ValidateArtifacts(v interface{}, schema *e40I05Schema, label string) 
 			errs = append(errs, fmt.Sprintf("%s: artifact_field_missing: artifacts[%d].producer_stage is required and missing", label, i))
 		}
 		if consumersRaw, present := m["consumers"]; present {
-			consumers, _ := consumersRaw.([]interface{})
+			consumers, ok := consumersRaw.([]interface{})
+			if !ok {
+				errs = append(errs, fmt.Sprintf("%s: artifacts[%d].consumers must be an array when present", label, i))
+				continue
+			}
 			for j, cRaw := range consumers {
 				c, ok := e40I05AsMap(cRaw)
 				if !ok {
+					errs = append(errs, fmt.Sprintf("%s: artifacts[%d].consumers[%d] is not an object", label, i, j))
 					continue
+				}
+				for field := range c {
+					switch field {
+					case "consuming_stage", "edge_kind", "observed_at":
+					default:
+						errs = append(errs, fmt.Sprintf("%s: artifacts[%d].consumers[%d].%s is unexpected", label, i, j, field))
+					}
+				}
+				for _, field := range []string{"consuming_stage", "edge_kind", "observed_at"} {
+					value, _ := c[field].(string)
+					if strings.TrimSpace(value) == "" {
+						errs = append(errs, fmt.Sprintf("%s: artifacts[%d].consumers[%d].%s is required and missing", label, i, j, field))
+					}
 				}
 				edgeKind, _ := c["edge_kind"].(string)
 				if !edgeKindSet[edgeKind] {

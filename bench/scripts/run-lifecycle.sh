@@ -629,11 +629,7 @@ def record_prior_artifact_consumption(
             consumers = artifact.get("consumers")
             if not isinstance(consumers, list):
                 raise RuntimeError("prior stage artifact consumers is not an array")
-            if not any(
-                item.get("consuming_stage") == consuming_stage
-                for item in consumers if isinstance(item, dict)
-            ):
-                consumers.append(dict(edge))
+            consumers.append(dict(edge))
 
         ordinal = lifecycle_stage["dispatch_ordinal"]
         index_entry = index_by_ordinal.get(ordinal)

@@ -22,6 +22,7 @@ command -v python3 >/dev/null 2>&1 || { echo "verify-lifecycle-run: python3 not 
 python3 - "$run_path" "$schema_path" <<'PYEOF'
 import hashlib
 import json
+import os
 import re
 import sys
 
@@ -70,6 +71,23 @@ def load_schema():
         print("verify-lifecycle-run: schema must declare schema_version", file=sys.stderr)
         sys.exit(2)
     return schema
+
+
+def load_edge_kinds():
+    i05_schema_path = os.path.abspath(os.path.join(
+        os.path.dirname(schema_path), "..", "evidence", "i05-schema.yaml",
+    ))
+    try:
+        with open(i05_schema_path, encoding="utf-8") as stream:
+            i05_schema = yaml.safe_load(stream)
+    except (OSError, yaml.YAMLError) as exc:
+        print(f"verify-lifecycle-run: cannot read I-05 schema {i05_schema_path}: {exc}", file=sys.stderr)
+        sys.exit(2)
+    edge_kinds = (i05_schema or {}).get("edge_kind")
+    if not isinstance(edge_kinds, list) or not edge_kinds:
+        print("verify-lifecycle-run: I-05 schema must declare edge_kind", file=sys.stderr)
+        sys.exit(2)
+    return set(edge_kinds)
 
 
 def load_run():
@@ -321,7 +339,7 @@ def validate_record(record, schema):
         for artifact_index, artifact in enumerate(producer_stage.get("artifacts") or []):
             artifact_path = f"/stages[{producer_index}]/artifacts[{artifact_index}]"
             artifact_identity = (artifact.get("path"), artifact.get("digest"))
-            expected_consumers = {
+            expected_consumers = sorted(
                 later_stage["stage"]
                 for later_stage in record["stages"][producer_index + 1:]
                 if any(
@@ -330,17 +348,21 @@ def validate_record(record, schema):
                     for entry in later_stage.get("input_lineage") or []
                     if isinstance(entry, dict)
                 )
-            }
+            )
             consumers = artifact.get("consumers")
             if not isinstance(consumers, list):
                 fail("artifact_consumption_record_missing", f"{artifact_path}/consumers", "artifact consumers must be an array")
-            observed_consumers = set()
+            observed_consumers = []
             for consumer_index, consumer in enumerate(consumers):
                 consumer_path = f"{artifact_path}/consumers[{consumer_index}]"
-                if not isinstance(consumer, dict) or not isinstance(consumer.get("consuming_stage"), str) or not consumer["consuming_stage"]:
-                    fail("artifact_consumption_record_missing", consumer_path, "artifact consumer must name its consuming stage")
-                observed_consumers.add(consumer["consuming_stage"])
-            if observed_consumers != expected_consumers:
+                if not isinstance(consumer, dict) or set(consumer) != {"consuming_stage", "edge_kind", "observed_at"}:
+                    fail("artifact_consumption_record_missing", consumer_path, "artifact consumer must contain only consuming_stage, edge_kind, and observed_at")
+                if not all(isinstance(consumer[field], str) and consumer[field] for field in consumer):
+                    fail("artifact_consumption_record_missing", consumer_path, "artifact consumer fields must be non-empty strings")
+                if consumer["edge_kind"] not in EDGE_KINDS:
+                    fail("artifact_consumption_record_missing", f"{consumer_path}/edge_kind", "artifact consumer edge_kind is not in the I-05 vocabulary")
+                observed_consumers.append(consumer["consuming_stage"])
+            if sorted(observed_consumers) != expected_consumers:
                 fail("artifact_consumption_record_missing", f"{artifact_path}/consumers", "artifact consumer graph disagrees with prior-stage input lineage")
 
     if set(stages_by_ordinal) != set(ordinals):
@@ -387,6 +409,7 @@ def validate_record(record, schema):
 
 
 schema = load_schema()
+EDGE_KINDS = load_edge_kinds()
 try:
     record = load_run()
     validate_declared_fields(record, schema)

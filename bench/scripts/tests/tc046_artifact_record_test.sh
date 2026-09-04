@@ -127,4 +127,25 @@ assert by_path['artifacts/populated-entry.md'] not in ('orphan', 'consumption_ev
 
 echo "TC-046(AC-T1: consumers: [] -> orphan; AC-T2: absent consumers key -> consumption_evidence_missing; AC-T3: neither verdict coerced into the other in either direction) PASS"
 
+cp -a "$FIXTURE" "$WORKDIR/missing-observed-at"
+python3 - "$WORKDIR/missing-observed-at/stages/1-plan.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    snapshot = json.load(stream)
+consumer = next(
+    artifact for artifact in snapshot["artifacts"]
+    if artifact["path"] == "artifacts/populated-entry.md"
+)["consumers"][0]
+consumer.pop("observed_at")
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(snapshot, stream)
+PY
+if "$GUARD" "$WORKDIR/missing-observed-at" >"$WORKDIR/malformed.out" 2>"$WORKDIR/malformed.err"; then
+	fail "guard accepted a populated consumer edge missing observed_at"
+fi
+grep -q "observed_at" "$WORKDIR/malformed.err" || \
+	fail "guard did not name the missing typed consumer field observed_at"
+echo "TC-046(typed consumer edge missing observed_at is rejected by the production guard) PASS"
+
 echo "TC-046: PASS"
