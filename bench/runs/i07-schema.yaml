@@ -207,6 +207,13 @@ properties:
   /outcome/partial_evidence: boolean
   /outcome/publication_eligible: boolean
   /dispatches[]/ordinal: integer
+  # A dispatch can stop after claim but before a provider returns an envelope.
+  # The keys remain required so partial evidence is explicit; null means the
+  # corresponding worker identity/result was not observed before the stop.
+  /dispatches[]/claim/session_id: nullable_string
+  /dispatches[]/worker/worker_id: nullable_string
+  /dispatches[]/worker/session_id: nullable_string
+  /dispatches[]/worker/kind: nullable_string
   /dispatches[]/response/prompt_sha256: digest
   /dispatches[]/response/prompt_bytes: integer
   /dispatches[]/evidence_refs/prompt_sha256: digest

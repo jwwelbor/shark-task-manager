@@ -186,6 +186,7 @@ def adapter_json(adapter, capability, fixture_root, deadline=None, active_state=
 def candidate_identity(
     repo_root, execution_adapter, adapter_name, adapter_version,
     toolchain_identity, deadline=None, active_state=None,
+    test_identity_error=None,
 ):
     """Derive comparison identity from the post-dispatch checkout and adapter test inventory."""
     base_commit = git_bytes(repo_root, ["rev-parse", "HEAD"]).decode().strip()
@@ -228,29 +229,31 @@ def candidate_identity(
     # Test discovery uses the adapter's real test capability, but it runs in
     # an isolated copy so cache and bytecode side effects do not mutate the
     # candidate whose identity is being recorded.
-    test_identity_error = None
-    try:
-        with tempfile.TemporaryDirectory(prefix="e40-test-identity-") as temporary:
-            isolated_checkout = Path(temporary) / "checkout"
-            shutil.copytree(repo_root, isolated_checkout, symlinks=True, ignore=shutil.ignore_patterns(".git"))
-            test_document = adapter_json(
-                execution_adapter, "test", isolated_checkout, deadline, active_state,
-            )
-        entries = test_document.get("entries")
-        if not isinstance(entries, list):
-            raise RuntimeError("execution adapter test result omitted entries array")
-        test_ids = sorted({
-            str(entry["id"])
-            for entry in entries
-            if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]
-        })
-        if len(test_ids) != len(entries):
-            raise RuntimeError("execution adapter test result contains malformed or duplicate test ids")
-    except Cancellation:
-        raise
-    except (ResourceLimit, RuntimeError) as exc:
+    if test_identity_error is not None:
         test_ids = []
-        test_identity_error = str(exc)
+    else:
+        try:
+            with tempfile.TemporaryDirectory(prefix="e40-test-identity-") as temporary:
+                isolated_checkout = Path(temporary) / "checkout"
+                shutil.copytree(repo_root, isolated_checkout, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+                test_document = adapter_json(
+                    execution_adapter, "test", isolated_checkout, deadline, active_state,
+                )
+            entries = test_document.get("entries")
+            if not isinstance(entries, list):
+                raise RuntimeError("execution adapter test result omitted entries array")
+            test_ids = sorted({
+                str(entry["id"])
+                for entry in entries
+                if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]
+            })
+            if len(test_ids) != len(entries):
+                raise RuntimeError("execution adapter test result contains malformed or duplicate test ids")
+        except Cancellation:
+            raise
+        except (ResourceLimit, RuntimeError) as exc:
+            test_ids = []
+            test_identity_error = str(exc)
     test_identity = {
         "adapter": {"name": adapter_name, "version": adapter_version},
         "toolchain_identity": toolchain_identity,
@@ -306,13 +309,14 @@ def scratch_content_digest(root):
 def refresh_candidate(
     candidate, fixture_root, scratch, execution_adapter, adapter_name,
     adapter_version, toolchain_identity, deadline=None, active_state=None,
+    test_identity_error=None,
 ):
     # The stage snapshot is a post-dispatch observation. Re-derive every
     # fixture identity field after the worker returns so an edit made by this
     # stage cannot first appear in the following stage's evidence.
     current = candidate_identity(
         fixture_root, execution_adapter, adapter_name, adapter_version,
-        toolchain_identity, deadline, active_state,
+        toolchain_identity, deadline, active_state, test_identity_error,
     )
     candidate.clear()
     candidate.update(current)
@@ -1372,7 +1376,29 @@ def main(argv):
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
-            dispatch = {"ordinal": ordinal + 1, "requested_key": requested, "response": response_record, "claim": {}, "worker": {}, "heartbeats": [], "outcome": "error", "transition": {}, "release": {}, "started_at": timestamp(), "ended_at": "", "evidence_refs": {"prompt_sha256": expected_digest, "prompt_bytes": expected_bytes, "candidate_snapshot_digest": "0" * 64}}
+            dispatch = {
+                "ordinal": ordinal + 1,
+                "requested_key": requested,
+                "response": response_record,
+                "claim": {"session_id": None},
+                "worker": {
+                    "worker_id": None,
+                    "session_id": None,
+                    "kind": None,
+                    "evidence": [],
+                },
+                "heartbeats": [],
+                "outcome": "error",
+                "transition": {},
+                "release": {},
+                "started_at": timestamp(),
+                "ended_at": "",
+                "evidence_refs": {
+                    "prompt_sha256": expected_digest,
+                    "prompt_bytes": expected_bytes,
+                    "candidate_snapshot_digest": "0" * 64,
+                },
+            }
             record["dispatches"].append(dispatch)
             record["entity_graph"]["ordinals"].append(dispatch["ordinal"])
             if entity != args["root"] and response.get("entity_type") == "task":
@@ -1394,6 +1420,7 @@ def main(argv):
                 active_lease["entity"] = entity
                 active_lease["session"] = session
                 dispatch["claim"] = bounded(claim)
+                dispatch["worker"]["session_id"] = session
                 request = dict(response)
                 request["session_id"] = session
                 request["runner_id"] = os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])
@@ -1507,11 +1534,20 @@ def main(argv):
             dispatch["cost_usd"] = cost
             record["limits"]["observed_cost_usd"] += cost
             record["limits"]["observed_generated_tasks"] = generated
-            refresh_candidate(
-                candidate, fixture_root, scratch, execution_adapter,
-                adapter_name, adapter_version, toolchain_identity,
-                started + limits["max_wall_clock_seconds"], active_lease,
-            )
+            try:
+                refresh_candidate(
+                    candidate, fixture_root, scratch, execution_adapter,
+                    adapter_name, adapter_version, toolchain_identity,
+                    started + limits["max_wall_clock_seconds"], active_lease,
+                )
+            except Cancellation as exc:
+                terminal = "cancellation"
+                reason = str(exc)
+                refresh_candidate(
+                    candidate, fixture_root, scratch, execution_adapter,
+                    adapter_name, adapter_version, toolchain_identity,
+                    test_identity_error=reason,
+                )
             stage_ended_ns = time.monotonic_ns()
             elapsed = max(0.0, time.monotonic() - started)
             record["limits"]["observed_wall_clock_seconds"] = elapsed

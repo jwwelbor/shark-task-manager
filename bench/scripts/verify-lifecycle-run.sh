@@ -265,6 +265,11 @@ def validate_record(record, schema):
         ordinals.append(ordinal)
         response = dispatch["response"]
         validate_vocabulary(dispatch["outcome"], schema.get("dispatch_outcome", []), f"{path}/outcome")
+        worker = dispatch["worker"]
+        if dispatch["outcome"] not in schema.get("stop_outcome", []):
+            for field in ("worker_id", "session_id", "kind"):
+                if not isinstance(worker.get(field), str) or not worker[field].strip():
+                    fail("malformed_field", f"{path}/worker/{field}", "completed worker result must be a non-empty string")
         if "resolved_via" in response and not isinstance(response["resolved_via"], list):
             fail("malformed_field", f"{path}/response/resolved_via", "keyed dispatch traversal must be an array when present")
         if response["entity_key"] != dispatch["requested_key"] and dispatch["requested_key"] != graph["root_key"]:
