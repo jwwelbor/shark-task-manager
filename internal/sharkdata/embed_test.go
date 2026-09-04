@@ -1103,6 +1103,41 @@ func TestDefectClassSweepCallingGateIncludesQA(t *testing.T) {
 		"When to invoke section must name QA as a trigger gate")
 }
 
+// TestDefectClassSweepGateListsNameAllFourGates is the UAT-kickback (round 2,
+// MEDIUM-5) regression guard: every prose sentence in the workflow file that
+// enumerates which gates invoke it (the "Purpose" section and the
+// "Full-class re-verification" section) must name all four gates the
+// `calling_gate` enum declares — code review, QA, approval, and UAT/red-team.
+// Round 1 added `qa` to the enum and to "When to invoke" but left it out of
+// two other gate-list sentences in the same file; this guards against that
+// gap recurring in either of those two sentences, or a future third one.
+func TestDefectClassSweepGateListsNameAllFourGates(t *testing.T) {
+	content := readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md")
+
+	// Gate-list sentences wrap across lines in the checked-in markdown, so
+	// scan paragraphs (blank-line-delimited blocks) rather than single lines.
+	// A paragraph reads as a gate-list enumeration when it mentions "code
+	// review"/"code-review" together with "approval" or "UAT" — every such
+	// paragraph must also mention QA.
+	paragraphs := strings.Split(content, "\n\n")
+	found := 0
+	for _, p := range paragraphs {
+		lower := strings.ToLower(normalizeWhitespace(p))
+		mentionsCodeReview := strings.Contains(lower, "code review") || strings.Contains(lower, "code-review")
+		mentionsApprovalOrUAT := strings.Contains(lower, "approval") || strings.Contains(lower, "uat")
+		if !mentionsCodeReview || !mentionsApprovalOrUAT {
+			continue
+		}
+		found++
+		assert.Contains(t, lower, "qa",
+			"gate-list paragraph must name QA alongside code review/approval/UAT: %q", p)
+	}
+	// Sanity: must have actually found gate-list paragraphs to check (Purpose
+	// and Full-class re-verification sections at minimum), otherwise this
+	// test would pass vacuously.
+	assert.GreaterOrEqual(t, found, 2, "expected at least 2 gate-list paragraphs (Purpose, Full-class re-verification)")
+}
+
 // normalizeWhitespace collapses all runs of whitespace (including newlines
 // introduced by markdown line-wrapping) to a single space, so a test
 // assertion doesn't depend on exact line-wrap columns in prose files.

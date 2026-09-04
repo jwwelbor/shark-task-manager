@@ -44,19 +44,23 @@ and section-level implementation detail feature.md does not carry.
   dispositions absent new evidence.
 - **REQ-F-003 (spec)**: The workflow's "Structural guard closure" section
   requires: every enumerated instance fixed or dispositioned, `open_count = 0`,
-  and a `guard.status = verified` counterfactual (guard fails to detect the
-  class when re-introduced, passes when absent) before the class is reported
-  `complete`. No feasible guard → class stays `open` with a linked Shark work
-  item (task, tech-debt, or note), never silently claimed closed.
+  and a `guard.status = verified` counterfactual (guard catches — flags, fails
+  the build, or otherwise blocks — the class when the defect is deliberately
+  re-introduced, and does not flag/fail when the defect is absent) before the
+  class is reported `complete`. No feasible guard → class stays `open` with a
+  linked Shark work item (task, tech-debt, or note), never silently claimed
+  closed.
 - **REQ-F-004 (spec)**: The workflow's "Full-class re-verification" section
-  is invoked identically by code-review, QA, and UAT re-review rounds; it
-  re-enumerates the full declared `search_scope`, not just the cited fix, and
-  reruns the calling gate's full rubric.
+  is invoked identically by code-review, QA, approval, and UAT re-review
+  rounds; it re-enumerates the full declared `search_scope`, not just the
+  cited fix, and reruns the calling gate's full rubric.
 - **REQ-F-005 (spec)**: Recurrence classification: same fingerprint after a
-  recorded repair = recurrence; new fingerprint inside a previously
-  `status: complete` class's `search_scope` = recurrence; anything else =
-  normal finding. No round-count field or logic is introduced anywhere in the
-  new content.
+  recorded repair = recurrence; a new fingerprint that belongs to the same
+  `class_key` **and** lies inside a previously `status: complete` class's
+  `search_scope` = recurrence (both conjuncts required — matching `class_key`
+  alone outside the recorded scope, or scope membership alone under a
+  different `class_key`, is not recurrence); anything else = normal finding.
+  No round-count field or logic is introduced anywhere in the new content.
 - **REQ-F-006 (spec)**: Disposition/severity-conflict routing references the
   existing `question-management` skill (`skills/question-management/SKILL.md`)
   for a bounded single-owner conflict, and the Shark Attack council workflow
@@ -85,8 +89,10 @@ and section-level implementation detail feature.md does not carry.
 - AC-2: `code_review.md` (line 81 template) and `approval.md` (line 54
   template) reference the new workflow instead of restating sweep prose
   inline; `redteam-rubric.md` "Defect-class sweep" step (lines 44-56)
-  references it too. No duplicated sweep-procedure prose remains in any of
-  the three files after the edit.
+  references it too. `qa.md` and `development.md` also reference the new
+  workflow's "Full-class re-verification" / "Enumeration procedure" sections
+  rather than restating them. No duplicated sweep-procedure prose remains in
+  any of these five files after the edit.
 - AC-3: `skills/quality/SKILL.md` "Workflow Selection" section and
   `skills/README.md` line-21 quality-skill file list both name the new
   workflow file.
@@ -119,6 +125,8 @@ code changes, and replacing the Question/council workflows themselves.
 | `internal/sharkdata/default_data/prompts/feature/code_review.md` | EDIT — replace the inline kickback-reason sweep template (line 81) with a reference to `skills/quality/workflows/defect-class-sweep.md`, keeping only the gate-specific kickback-reason string format |
 | `internal/sharkdata/default_data/prompts/feature/approval.md` | EDIT — same replacement (line 54) |
 | `internal/sharkdata/default_data/skills/uat/references/redteam-rubric.md` | EDIT — replace the "Defect-class sweep" step (lines 44-56) and "ENUMERATE — DO NOT ITERATE" duplication with a reference to the new workflow, keeping UAT-specific framing (red-team stance) |
+| `internal/sharkdata/default_data/prompts/feature/qa.md` | EDIT (added during round-1 rework, HIGH-1) — reference the new workflow's "Full-class re-verification" section for QA re-review rounds |
+| `internal/sharkdata/default_data/prompts/task/development.md` | EDIT (added during round-1 rework, HIGH-1) — reference the new workflow's "Enumeration procedure" for rework kicked back with a named defect class |
 
 No Go source file changes — this is prompt/skill bundle content only, matching
 E34-F05's precedent (also content/schema-only, confirmed via research-report.md
@@ -144,11 +152,12 @@ Cross-feature interactions below.
    (confirmed via research-report.md directory listing); a new file avoids
    overloading `review-code.md` or `qa-testing.md` with cross-cutting concerns
    they don't otherwise own.
-2. **Reference, not duplicate, from the three call sites** — `code_review.md`,
-   `approval.md`, and `redteam-rubric.md` currently each carry independent
-   copies of similar sweep prose; REQ-F-001/REQ-F-002 require consolidating
-   to one canonical source they all reference, eliminating the exact drift
-   risk the feature's Problem statement describes.
+2. **Reference, not duplicate, from every call site** — `code_review.md`,
+   `approval.md`, and `redteam-rubric.md` originally each carried independent
+   copies of similar sweep prose; `qa.md` and `development.md` were added as
+   call sites during this feature's own rework (round 1, HIGH-1). REQ-F-001/
+   REQ-F-002 require consolidating to one canonical source all five reference,
+   eliminating the exact drift risk the feature's Problem statement describes.
 3. **No new Shark schema or Go type** — REQ-NF-001 and the E34-F05 precedent
    both point to reusing `remediation_sweeps: array of I-03` inside the
    existing GateResult envelope rather than adding storage.

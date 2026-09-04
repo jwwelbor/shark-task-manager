@@ -27,8 +27,8 @@ outputs:
 Generalize one finding into a defect class and sweep the whole affected
 surface for sibling instances in a single pass, so a fix and a review round
 close the class instead of one point instance. This is the canonical source
-for the sweep procedure invoked from code review kickback handling, approval
-rejection handling, and UAT/red-team re-verification — those callers
+for the sweep procedure invoked from code review kickback handling, QA and
+approval rejection handling, and UAT/red-team re-verification — those callers
 reference this file rather than restating the procedure.
 
 Produces the I-03 `DefectClassSweep` record nested inside the calling gate's
@@ -243,7 +243,7 @@ instances we found" alone when no guard exists to catch the next one.
 
 ## Full-class re-verification
 
-Every re-review round after a kickback — from code review, approval, or
+Every re-review round after a kickback — from code review, QA, approval, or
 UAT/red-team — runs this same three-part procedure, invoked identically
 regardless of which gate calls it:
 
