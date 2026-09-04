@@ -464,7 +464,7 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
             typed_consumers = isinstance(consumers, list) and all(
                 isinstance(consumer, dict)
                 and set(consumer) == {"consuming_stage", "edge_kind", "observed_at"}
-                and all(isinstance(consumer[field], str) and consumer[field] for field in consumer)
+                and all(isinstance(consumer[field], str) and consumer[field].strip() for field in consumer)
                 and consumer["edge_kind"] in EDGE_KINDS
                 for consumer in consumers
             )

@@ -297,7 +297,7 @@ for stage_index, stage in enumerate(record["stages"]):
         assert observed_consumers == expected_consumers, artifact
         assert all(
             set(edge) == {"consuming_stage", "edge_kind", "observed_at"}
-            and edge["edge_kind"] == "read" and edge["observed_at"]
+            and edge["edge_kind"] == "read" and edge["observed_at"].strip()
             for edge in artifact["consumers"]
         ), artifact
         snapshot_entry = next(
@@ -345,14 +345,18 @@ PY
 # always show total, spurious drift. tc049 already covers replay-stage-
 # evidence.sh's real contract against a snapshot it actually applies to.
 #
-# Not the "missing prior-stage artifact lineage is rejected" or "missing
-# consumer" negative tests either: every stage's own `artifacts` stays the
-# honest, always-empty placeholder until real artifact population lands
-# (still E40-F07's own scope per record_stage()'s docstring -- see
-# port-list), so there is no real artifact or prior_stage_artifact entry to
-# mutate on any stage yet -- both negative cases would IndexError on an
-# empty artifacts[] before ever reaching verify-lifecycle-run.sh, not
-# genuinely exercise it.
+# Not any of the artifact/consumer-edge negative tests either (missing
+# prior-stage artifact lineage, missing/whitespace/malformed/deduplicated
+# consumer edges): every stage's own `artifacts` stays the honest,
+# always-empty placeholder until real artifact population lands (still
+# E40-F07's own scope per record_stage()'s docstring -- see port-list), so
+# there is no real artifact, consumer edge, or prior_stage_artifact entry
+# on any stage to mutate yet -- every one of these cases would IndexError
+# on an empty artifacts[]/consumers[] before ever reaching
+# verify-lifecycle-run.sh, not genuinely exercise it. tc046/tc086 already
+# cover the production guard's/aggregator's own malformed-consumer-edge
+# rejection directly against hand-authored retained fixtures, independent
+# of this limitation.
 
 # A mechanically complete workflow with incomplete provider usage must fail
 # closed instead of becoming publication eligible.

@@ -287,6 +287,31 @@ if proxy["unresolved_gate_count"] != 0:
 print("TC-086(a): consumed/orphan/reused/evidence-missing distinguished with typed edges; replayed_interaction_proxy carries mapped numeric values under its label")
 PYEOF
 
+# Counterfactual: the aggregator is also a direct consumer of retained I-07
+# artifacts, so it must reject the same malformed typed edge even if invoked
+# without a preceding verifier command.
+ROOT_MALFORMED="$WORKDIR/root-malformed-edge"
+cp -a "$ROOT_A" "$ROOT_MALFORMED"
+python3 - "$ROOT_MALFORMED/scenarios/scenario-tc086/1/lifecycle.jsonl" \
+  "$ROOT_MALFORMED/scenarios/scenario-tc086/1/manifest.json" <<'PYEOF'
+import hashlib, json, sys
+path = sys.argv[1]
+record = json.load(open(path, encoding="utf-8"))
+record["stages"][0]["artifacts"][0]["consumers"][0]["observed_at"] = "   "
+with open(path, "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+manifest = json.load(open(sys.argv[2], encoding="utf-8"))
+manifest["artifacts"]["lifecycle.jsonl"]["sha256"] = hashlib.sha256(open(path, "rb").read()).hexdigest()
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
+PYEOF
+if "$AGGREGATOR" --retention-root "$ROOT_MALFORMED" >"$WORKDIR/malformed-edge.out" 2>"$WORKDIR/malformed-edge.err"; then
+	fail "aggregator accepted a typed consumer edge with whitespace-only observed_at"
+fi
+grep -q "fields must be non-empty strings" "$WORKDIR/malformed-edge.err" || \
+	fail "aggregator did not name the malformed typed consumer edge"
+echo "TC-086(counterfactual: aggregator rejects whitespace-only observed_at at its direct I-07 boundary) PASS"
+
 # ===========================================================================
 # (b) Absent-proxy path: metrics.artifact_use IS present (produced/consumed/
 # orphaned), but replayed_interaction_proxies is NOT -- every proxy field

@@ -357,7 +357,7 @@ def validate_record(record, schema):
                 consumer_path = f"{artifact_path}/consumers[{consumer_index}]"
                 if not isinstance(consumer, dict) or set(consumer) != {"consuming_stage", "edge_kind", "observed_at"}:
                     fail("artifact_consumption_record_missing", consumer_path, "artifact consumer must contain only consuming_stage, edge_kind, and observed_at")
-                if not all(isinstance(consumer[field], str) and consumer[field] for field in consumer):
+                if not all(isinstance(consumer[field], str) and consumer[field].strip() for field in consumer):
                     fail("artifact_consumption_record_missing", consumer_path, "artifact consumer fields must be non-empty strings")
                 if consumer["edge_kind"] not in EDGE_KINDS:
                     fail("artifact_consumption_record_missing", f"{consumer_path}/edge_kind", "artifact consumer edge_kind is not in the I-05 vocabulary")
