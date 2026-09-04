@@ -178,8 +178,17 @@ Cross-feature interactions below.
 
 - **I-02** — GateResult v1. Producer: E34-F05. Shape source:
   [architecture.md#i-02-gateresult-v1](../architecture.md#i-02-gateresult-v1).
-  Contract test:
-  `E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`.
+  Contract test: **GAP (verified 2026-09-04)** — `E34-interaction-map.md`
+  names `E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`
+  as "the planned shared contract test" that "F05 test planning must create,"
+  but E34-F05 is already completed and that directory contains no
+  `test-plan.md` and no such pointer exists anywhere in the repo (confirmed
+  by directory listing and grep). This feature does not create that upstream
+  test — it is out of E34-F06's scope, since I-02 is consumed, not produced,
+  here. E34-F06 instead verifies its own I-02 consumption structurally via
+  TC-010 (no new Go persistence layer; nests inside the existing envelope).
+  The missing upstream `TC-I-02-GATERESULT-PARITY` pointer remains an open
+  gap for E34-F05's owner to close.
   This feature's new workflow nests its I-03 output inside I-02's
   `remediation_sweeps` array; it does not modify I-02 itself.
 
@@ -188,7 +197,10 @@ Cross-feature interactions below.
 - **I-03** — DefectClassSweep v1. Consumer: E34-F08. Shape source:
   [architecture.md#i-03-defectclasssweep-v1](../architecture.md#i-03-defectclasssweep-v1).
   Contract test:
-  `E34-F06-defect-class-completeness-and-recurrence-routing/test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE`.
+  `E34-F06-defect-class-completeness-and-recurrence-routing/scenario-review-TC-005-TC-009.md#tc-i-03-defect-class-closure-cross-reference`
+  (the `TC-I-03-DEFECT-CLASS-CLOSURE` anchor lives in this file, not in
+  `test-plan.md` — `test-plan.md` only names the pointer in its
+  cross-feature-contract table; the actual walkthrough evidence is here).
 
 Both IDs and their shape sources/contract-test pointers are taken verbatim
 from `E34-interaction-map.md` (rows I-02, I-03) — no new interaction ID is

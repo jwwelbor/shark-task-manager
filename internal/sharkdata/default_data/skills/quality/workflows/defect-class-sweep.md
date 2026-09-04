@@ -4,7 +4,7 @@ inputs:
   - touched_module_paths: list of module/package paths the finding lives in (defines the default search scope)
   - repair_record: prior fix/disposition history for this class, if any — {class_key, fingerprint, disposition, date} entries
   - decision_sources: paths to search for prior designs — feature/epic notes, tech-debt records, prior review-finding notes, spec/architecture sections, project standards docs (all optional; skip a source that doesn't exist for this project rather than failing)
-  - calling_gate: which gate invoked this workflow — code_review | approval | uat_redteam | qa (drives which rubric re-runs during full-class re-verification)
+  - calling_gate: which gate invoked this workflow — code_review | approval | uat_redteam | qa | development (drives which rubric re-runs during full-class re-verification; `development` is the rework-pass caller named in "When to invoke" below — it does not itself own a `GateResult`, so a development-invoked sweep nests its I-03 output inside the `GateResult` of whichever gate's kickback triggered the rework, not a new envelope of its own)
 outputs:
   - class_key: stable normalized class identity
   - class_statement: one-line general class, not the point instance
@@ -183,6 +183,17 @@ classification — recurrence is decided by fingerprint, `class_key`, and scope
 membership, never by "this is the Nth time we've seen a finding here."
 
 ## Disposition and severity-conflict routing
+
+**Accepted-risk (visible, non-blocking) branch.** When a recurring finding
+matches a fingerprint already covered by a dated, owner-grounded acceptance
+decision, and no material new evidence changes the risk since that decision:
+mark the instance `dispositioned` (not `open`, not `severity_conflict`) with
+`evidence` citing the accepting decision's pointer. Report it in `instances`
+so it stays visible to reviewers, but it does not block advancement and does
+not route through Question or council — the decision already stands. This is
+the disposition-preservation default; only escalate when new evidence
+materially conflicts with that prior decision, per the severity-conflict path
+below.
 
 When a finding's disposition would conflict with a prior accepted decision on
 a matching fingerprint — for example, fresh evidence materially raises the

@@ -20,7 +20,7 @@ RED-TEAM REVIEW:
 - Verify the feature integrates correctly with the broader system
 - Challenge assumptions in the code review and QA reports — they may have missed things
 
-RE-VERIFICATION ROUND (a prior UAT report matching {{.review_base}}uat-*-{{.id}}.md exists)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
+RE-VERIFICATION ROUND (a prior UAT report matching {{.review_base}}uat-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run the full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
 
 {{template "_review_output_policy" .}}
 

@@ -7,7 +7,18 @@ Read feature metadata: {{template "get_json" .}} → `complexity_tier` (also rec
 - **SIMPLE / STANDARD** (or tier unknown): this is the ONLY same-model verification gate — perform ALL FOUR parts below in this single pass. Do not slim it: there is no separate QA pass behind you, and tasks receive no per-task review.
 - **COMPLEX**: perform Part 1 (craft review) only; Parts 2–4 run as a separate deep QA gate next.
 
+RE-REVIEW ROUND (a prior code-review report matching {{.review_base}}code-review-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (Parts 1–4 below) over the feature surface, not only the previously-flagged area.
+
 {{include: skills/quality/workflows/review-code.md}}
+
+OVERRIDE — loop-guard escalation for this gate: the included workflow's
+"Loop-guard awareness" section escalates on raw `prior_rejection_count >= 1`.
+For this feature-level gate, that raw round count is superseded by
+`skills/quality/workflows/defect-class-sweep.md`'s evidence-based recurrence
+classification (same `class_key` **and** in a previously completed sweep's
+scope): escalate to the user only when a finding classifies as genuine
+recurrence per that workflow, never on round count alone. A new, non-recurring
+finding on a later round is ordinary rework, not a loop.
 
 READ:
 (1) Feature spec at {{.file_path}} for architecture decisions and acceptance criteria

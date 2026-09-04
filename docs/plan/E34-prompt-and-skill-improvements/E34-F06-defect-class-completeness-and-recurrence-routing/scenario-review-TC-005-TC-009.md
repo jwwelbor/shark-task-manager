@@ -277,6 +277,39 @@ the workflow's own text, not merely implied by the search-first framing;
 fixture D falls outside the rule's scope by construction (no recorded
 design exists to diverge from).
 
+## TC-012 — Accepted-risk (visible, non-blocking) branch (REQ-F-006)
+
+**Fixture:**
+- A (accepted-risk): a recurring finding matches a fingerprint already
+  covered by a dated, owner-grounded acceptance decision; no material new
+  evidence has appeared since that decision.
+- B (fresh-evidence conflict, contrast with TC-007): the same shape, but
+  fresh evidence materially changes the risk since the acceptance decision.
+
+**Walkthrough:** REQ-F-006 requires: "Keep a recurring finding visible but
+non-blocking when a dated, owner-grounded decision covers the same
+fingerprint and no material new evidence changes the risk." The workflow's
+"Disposition and severity-conflict routing" section's "Accepted-risk
+(visible, non-blocking) branch" paragraph implements this directly: mark the
+instance `dispositioned` (not `open`, not `severity_conflict`) with
+`evidence` citing the accepting decision's pointer; it stays visible in
+`instances` but does not block advancement and does not route through
+Question or council — "the decision already stands." Fixture A satisfies
+this branch exactly.
+
+Fixture B is explicitly distinguished as out of this branch's scope by the
+same paragraph's closing sentence — "only escalate when new evidence
+materially conflicts with that prior decision, per the severity-conflict
+path below" — routing instead to the `severity_conflict` path this
+document's TC-007 already covers (fresh HIGH finding conflicting with a
+prior accepted LOW decision).
+
+**Verdict: PASS.** Fixture A (no new evidence) is visible-but-non-blocking
+via `dispositioned`; fixture B (new evidence) correctly falls through to the
+separate severity-conflict path (TC-007), not this branch — the workflow
+text distinguishes the two by the presence of material new evidence, not by
+severity or recurrence count.
+
 ## TC-I-03-DEFECT-CLASS-CLOSURE cross-reference
 
 Per test-plan.md's Cross-feature contract test table,

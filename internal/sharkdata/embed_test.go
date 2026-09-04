@@ -934,11 +934,22 @@ func TestDefectClassSweepConsolidatedNotDuplicated(t *testing.T) {
 		// The old three-part re-verification list restated in
 		// redteam-rubric.md before consolidation.
 		"Full-rubric sanity pass** — re-run the verification checks above over the feature surface",
+		// UAT round-3 finding 4: a paraphrased (not exact-string) restatement
+		// of the same three-part re-verification procedure that round-1's
+		// exact-string check above did not catch. Guards against the same
+		// paraphrase class recurring.
+		"Then do all three:",
+		"(a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance",
 	}
 
+	// Every prompt/skill file this feature wired to reference the canonical
+	// workflow (round 1: code_review/approval/redteam-rubric; round 1 HIGH-1:
+	// qa/development; round 3: code_review's own re-review branch).
 	files := []string{
 		"prompts/feature/code_review.md",
 		"prompts/feature/approval.md",
+		"prompts/feature/qa.md",
+		"prompts/task/development.md",
 		"skills/uat/references/redteam-rubric.md",
 	}
 
@@ -1160,6 +1171,17 @@ func TestDefectClassSweepGuardCounterfactualDirectionCorrect(t *testing.T) {
 	assert.Contains(t, content,
 		normalizeWhitespace("it catches (flags, fails the build, or otherwise blocks) the class when the defect is deliberately re-introduced"),
 		"the guard counterfactual must require the guard to CATCH the reintroduced defect")
+
+	// UAT round-3 finding 10: the prior version of this test only asserted
+	// the catch-when-reintroduced direction, leaving the does-not-flag-when-
+	// absent direction free to regress silently. Assert both directions.
+	assert.NotContains(t, content,
+		normalizeWhitespace("it passes when the defect is absent"),
+		"the guard counterfactual must not use the old inverted 'passes when absent' phrasing")
+
+	assert.Contains(t, content,
+		normalizeWhitespace("it does not flag/fail when the defect is absent"),
+		"the guard counterfactual must require the guard to NOT flag when the defect is absent")
 }
 
 // TestDefectClassSweepRecurrenceRequiresClassKey is the UAT-kickback (HIGH-3)
