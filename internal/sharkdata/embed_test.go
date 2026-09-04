@@ -967,6 +967,9 @@ func TestDefectClassSweepNoWWGMOrToolLeakage(t *testing.T) {
 		"prompts/feature/code_review.md",
 		"prompts/feature/approval.md",
 		"skills/uat/references/redteam-rubric.md",
+		"prompts/feature/qa.md",
+		"prompts/task/development.md",
+		"skills/uat/SKILL.md",
 	}
 
 	for _, rel := range files {
@@ -1027,6 +1030,101 @@ func TestDefectClassSweepNoGoPersistenceIntroduced(t *testing.T) {
 
 	assert.Empty(t, hits,
 		"no non-test Go source under internal/ should reference DefectClassSweep or class_key (found: %v) — REQ-NF-001 requires this feature to stay content-only", hits)
+}
+
+// TestDefectClassSweepQAAndDevelopmentPromptsReference is the UAT-kickback
+// (HIGH-1) regression guard: REQ-F-001 requires review, QA, UAT, AND
+// development prompts to reference the canonical defect-class-sweep.md
+// workflow rather than duplicate its procedure. T-E34-F06-002 only wired
+// code_review.md/approval.md/redteam-rubric.md; this asserts the QA
+// (feature/qa.md) and development (task/development.md) prompts, plus
+// uat/SKILL.md's own rejection-routing prose, also reference it.
+func TestDefectClassSweepQAAndDevelopmentPromptsReference(t *testing.T) {
+	files := []string{
+		"prompts/feature/qa.md",
+		"prompts/task/development.md",
+		"skills/uat/SKILL.md",
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		assert.Contains(t, content, "skills/quality/workflows/defect-class-sweep.md",
+			"%s must reference the canonical defect-class-sweep.md workflow", rel)
+	}
+}
+
+// TestDefectClassSweepCallingGateIncludesQA is the UAT-kickback (HIGH-1)
+// regression guard for the workflow's own `calling_gate` input enum: it must
+// name `qa` alongside `code_review | approval | uat_redteam` so a QA-gate
+// kickback is a valid caller, and the "When to invoke" section must name a
+// QA gate as a trigger.
+func TestDefectClassSweepCallingGateIncludesQA(t *testing.T) {
+	content := readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md")
+	assert.Contains(t, content, "code_review | approval | uat_redteam | qa",
+		"calling_gate enum must include qa")
+	assert.Contains(t, content, "code-review, QA, or approval gate",
+		"When to invoke section must name QA as a trigger gate")
+}
+
+// normalizeWhitespace collapses all runs of whitespace (including newlines
+// introduced by markdown line-wrapping) to a single space, so a test
+// assertion doesn't depend on exact line-wrap columns in prose files.
+func normalizeWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// TestDefectClassSweepGuardCounterfactualDirectionCorrect is the UAT-kickback
+// (HIGH-2) regression guard: the "Structural guard closure" counterfactual
+// must require the guard to CATCH the reintroduced defect (not miss it) and
+// not false-positive when the defect is absent — the inverse of the
+// originally-shipped (backwards) wording.
+func TestDefectClassSweepGuardCounterfactualDirectionCorrect(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.NotContains(t, content,
+		normalizeWhitespace("it fails to detect the class when the defect is deliberately re-introduced"),
+		"the guard counterfactual must not require the guard to MISS the reintroduced defect")
+
+	assert.Contains(t, content,
+		normalizeWhitespace("it catches (flags, fails the build, or otherwise blocks) the class when the defect is deliberately re-introduced"),
+		"the guard counterfactual must require the guard to CATCH the reintroduced defect")
+}
+
+// TestDefectClassSweepRecurrenceRequiresClassKey is the UAT-kickback (HIGH-3)
+// regression guard: REQ-F-005 requires a new fingerprint to be classified as
+// recurrence only when it shares the same class_key as a previously
+// completed sweep AND lies inside that sweep's search_scope — not scope
+// membership alone.
+func TestDefectClassSweepRecurrenceRequiresClassKey(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.NotContains(t, content,
+		normalizeWhitespace("a new fingerprint appears inside a previously `status: complete` class's `search_scope`"),
+		"recurrence classification must not accept scope membership alone (missing class_key discriminator)")
+
+	assert.Contains(t, content, normalizeWhitespace("same `class_key`** as a previously"),
+		"recurrence classification must require the same class_key")
+	assert.Contains(t, content, "Both conjuncts are required",
+		"recurrence classification must state both class_key and scope membership are required")
+}
+
+// TestDefectClassSweepSeverityConflictAtFindingLevel is the UAT-kickback
+// (HIGH-4) regression guard: per architecture.md's I-02 GateResult schema,
+// `severity_conflict` is an outer `GateResult.Finding.disposition` value, not
+// an I-03 instance disposition. The sweep's own instances[].disposition must
+// stay within {fixed, dispositioned, open} so
+// fixed_count+dispositioned_count+open_count=matching_count keeps
+// reconciling.
+func TestDefectClassSweepSeverityConflictAtFindingLevel(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.NotContains(t, content, "Mark the instance's disposition `severity_conflict`",
+		"severity_conflict must not be assigned as an I-03 instance disposition")
+
+	assert.Contains(t, content, "outer `GateResult.Finding.disposition` value",
+		"the workflow must state severity_conflict belongs to the outer Finding schema")
+	assert.Contains(t, content, normalizeWhitespace("instances[].disposition` stays within `{fixed, dispositioned, open}`"),
+		"the workflow must keep the I-03 instance disposition enum closed to fixed/dispositioned/open")
 }
 
 func readEmbeddedString(t *testing.T, rel string) string {

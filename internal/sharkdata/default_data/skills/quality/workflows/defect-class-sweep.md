@@ -4,7 +4,7 @@ inputs:
   - touched_module_paths: list of module/package paths the finding lives in (defines the default search scope)
   - repair_record: prior fix/disposition history for this class, if any — {class_key, fingerprint, disposition, date} entries
   - decision_sources: paths to search for prior designs — feature/epic notes, tech-debt records, prior review-finding notes, spec/architecture sections, project standards docs (all optional; skip a source that doesn't exist for this project rather than failing)
-  - calling_gate: which gate invoked this workflow — code_review | approval | uat_redteam (drives which rubric re-runs during full-class re-verification)
+  - calling_gate: which gate invoked this workflow — code_review | approval | uat_redteam | qa (drives which rubric re-runs during full-class re-verification)
 outputs:
   - class_key: stable normalized class identity
   - class_statement: one-line general class, not the point instance
@@ -37,11 +37,14 @@ entity, table, or lifecycle status — the parent gate owns persistence.
 
 ## When to invoke
 
-- A code-review or approval gate is about to issue a kickback for a finding
-  that plausibly recurs elsewhere in the touched surface.
+- A code-review, QA, or approval gate is about to issue a kickback for a
+  finding that plausibly recurs elsewhere in the touched surface.
 - A UAT/red-team round is re-reviewing work that was previously rejected
   (every re-verification round runs the full three-part procedure below, not
   just a check of the cited fix).
+- A development/rework pass is starting on a task carrying a rejection
+  section or a kickback reason naming a defect class — enumerate the class
+  before re-fixing the cited instance (see Enumeration procedure, below).
 - A finding's disposition conflicts with a prior accepted decision on a
   matching fingerprint (severity-conflict routing, below).
 
@@ -152,15 +155,20 @@ Classify each matched instance against `repair_record` and any
 previously-`complete` class with an overlapping `search_scope`:
 
 - **Recurrence**: the same fingerprint resurfaces after a recorded repair, or
-  a new fingerprint appears inside a previously `status: complete` class's
-  `search_scope`.
-- **Normal finding**: anything else — a new fingerprint outside every
-  completed class's recorded scope routes through ordinary rework, not
-  recurrence handling.
+  a new fingerprint belongs to the **same `class_key`** as a previously
+  `status: complete` class **and** lies inside that class's recorded
+  `search_scope`. Both conjuncts are required — matching `class_key` alone
+  (outside the recorded scope) or scope membership alone (under a different
+  `class_key`) is not recurrence.
+- **Normal finding**: anything else — a new fingerprint under a different
+  `class_key`, or outside every completed class's recorded scope, routes
+  through ordinary rework, not recurrence handling. A different defect class
+  that merely happens to live inside an old scope's file/module footprint is
+  a normal finding, not a recurrence.
 
 No round-count field or round-counting logic is used anywhere in this
-classification — recurrence is decided by fingerprint and scope membership,
-never by "this is the Nth time we've seen a finding here."
+classification — recurrence is decided by fingerprint, `class_key`, and scope
+membership, never by "this is the Nth time we've seen a finding here."
 
 ## Disposition and severity-conflict routing
 
@@ -176,9 +184,20 @@ conflict unilaterally inside this workflow:
   irreversibility, or no safe evidence path routes through the project's
   multi-specialist council deliberation workflow.
 
-Mark the instance's disposition `severity_conflict` and block normal
-advancement until the referenced mechanism resolves it — a conflict must
-never be routed silently through ordinary rework.
+`severity_conflict` is an outer `GateResult.Finding.disposition` value (see
+architecture.md's I-02 `GateResult` schema), not an I-03 instance
+disposition — the sweep's own `instances[].disposition` stays within
+`{fixed, dispositioned, open}` so `fixed_count + dispositioned_count +
+open_count = matching_count` keeps reconciling cleanly (see Enumeration
+procedure, above). Record the conflicted instance as `open` inside
+`instances` (pending the outer conflict's resolution, with `evidence`
+pointing at the conflict), and have the calling gate add or update a
+`Finding` in its own `GateResult.findings` array with `disposition:
+severity_conflict` and a `disposition_pointer` back to this instance's
+`fingerprint`/`site_pointer`. Block normal advancement at the `Finding` level
+until the referenced mechanism resolves it — a conflict must never be routed
+silently through ordinary rework, and must never be closed by marking the
+I-03 instance itself `severity_conflict`.
 
 ## Guard selection
 
@@ -197,11 +216,13 @@ A class may only report `status: complete` when all of the following hold:
 - Every instance in `instances` is `fixed` or `dispositioned` — `open_count`
   is exactly `0`.
 - `matching_count = fixed_count + dispositioned_count`.
-- The selected guard has passed a counterfactual verification: it fails to
-  detect the class when the defect is deliberately re-introduced, and it
-  passes when the defect is absent. Set `guard.status = verified` only after
-  both directions of that counterfactual are actually observed — an
-  unverified or merely-plausible guard does not count.
+- The selected guard has passed a counterfactual verification: it catches
+  (flags, fails the build, or otherwise blocks) the class when the defect is
+  deliberately re-introduced, and it does not flag/fail when the defect is
+  absent. A guard that misses the reintroduced defect, or that false-positives
+  when the defect is absent, is not verified. Set `guard.status = verified`
+  only after both directions of that counterfactual are actually observed —
+  an unverified or merely-plausible guard does not count.
 
 If no feasible guard exists for this class, the class stays `status: open`
 and must carry a linked work item (a task, a tech-debt record, or a note)
@@ -258,11 +279,17 @@ produces.
       zero-result pass.
 - [ ] Every entry in `instances` has a `fingerprint`, `site_pointer`,
       `disposition`, and `evidence`.
-- [ ] Recurrence classification used fingerprint/scope membership only — no
-      round-count field appears anywhere.
-- [ ] Any severity conflict routed to `question-management` or the
-      multi-specialist council deliberation workflow, not resolved
-      unilaterally.
+- [ ] Recurrence classification used fingerprint, `class_key`, and scope
+      membership only (both `class_key` match and scope membership required
+      for a new fingerprint) — no round-count field appears anywhere.
+- [ ] Any severity conflict is routed to `question-management` or the
+      multi-specialist council deliberation workflow (not resolved
+      unilaterally) and recorded as the outer `GateResult.Finding.disposition
+      = severity_conflict` with a `disposition_pointer` — never as an I-03
+      `instances[].disposition` value.
+- [ ] The guard's counterfactual was verified in the correct direction: it
+      catches the class when the defect is deliberately re-introduced, and
+      does not flag when the defect is absent.
 - [ ] `status: complete` only when `open_count = 0` and `guard.status =
       verified` by an observed counterfactual in both directions; otherwise
       `status: open` with a linked work item.

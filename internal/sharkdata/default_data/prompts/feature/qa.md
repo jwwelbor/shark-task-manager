@@ -13,6 +13,8 @@ READ:
     docs/product/cross-epic-integration-map.md, and spec.md
     "Cross-epic integrations" section if present
 
+RE-REVIEW ROUND (a prior QA report matching {{.review_base}}qa-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (below) over the feature surface, not only the previously-flagged area.
+
 SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
 
 1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
@@ -92,7 +94,7 @@ ON PASS:
 - Do NOT run Shark status commands yourself; the parent loop will advance the feature.
 ON FAIL:
 - In your final response, list the exact task kickbacks the parent loop should apply:
-  `<task-id> -> development --reason "<specific failures>"`
+  `<task-id> -> development --reason "<defect-class statement> — <specific failures>. Apply the defect-class sweep procedure (skills/quality/workflows/defect-class-sweep.md) before re-fixing; list swept sites in the completion note."`
 - For a missing or broken I-## contract test: reopen the producer task in this
   feature and explicitly name each consuming feature that needs a blocker note:
   `Cross-feature I-## contract test failing at producer feature {{.id}}`

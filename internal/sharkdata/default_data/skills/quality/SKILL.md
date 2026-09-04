@@ -66,7 +66,7 @@ Based on what needs validation, invoke the appropriate workflow:
 **Use case**: Validate implementation against pre-written test plan and acceptance criteria
 
 ### Defect-Class Sweep
-**When**: A code-review or approval kickback, or a UAT/red-team re-review round after a prior rejection
+**When**: A code-review, QA, or approval kickback; a UAT/red-team re-review round after a prior rejection; or a development/rework pass on a task carrying a rejection section or a kickback reason naming a defect class
 **Invoke**: `workflows/defect-class-sweep.md`
 **Output**: I-03 `DefectClassSweep` record nested in the calling gate's `remediation_sweeps`
 **Use case**: Generalize one finding into a defect class, enumerate every sibling instance across the declared search scope in one pass, and require a verified guard before the class closes

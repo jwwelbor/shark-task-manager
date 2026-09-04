@@ -104,7 +104,7 @@ The reason Codex is the sole assessor: Claude reviewing Claude's implementation 
 - **Require a delimited verdict line**: "No matter how much investigation time remains, ALWAYS end with a final line `VERDICT: <verdict>`" — this guarantees a parseable verdict under timeout pressure.
 - **Stay outcome-neutral.** Never anchor the reviewer ("third and hopefully final re-verification" is verdict-anchoring). State the round number and scope; never the hoped-for result.
 
-**Re-verification rounds are NEVER fix-scoped.** A round ≥2 prompt always contains all three parts: (a) verify the named fixes, (b) re-run the defect-class sweep over the touched functions/modules, and (c) a full-rubric sanity pass over the feature surface. Narrow asks get narrow answers — every recorded rejection spiral happened because a re-review asked only "confirm finding N is fixed" and codex answered exactly the question asked. Make the broad ask the default so it doesn't depend on the orchestrator remembering.
+**Re-verification rounds are NEVER fix-scoped.** A round ≥2 prompt always runs the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section: (a) verify the named fixes, (b) re-run the full enumeration over the declared search scope, and (c) a full-rubric sanity pass over the feature surface. Narrow asks get narrow answers — every recorded rejection spiral happened because a re-review asked only "confirm finding N is fixed" and codex answered exactly the question asked. Make the broad ask the default so it doesn't depend on the orchestrator remembering.
 
 #### Staged-integration gate integrity
 
@@ -170,7 +170,7 @@ For each failing task:
    **What happened:** <brief description of the failure>
 
    **Fix required:**
-   1. Enumeration sweep FIRST: find every code site in the touched module(s) matching the defect class above; fix all of them, not just the cited instance; list the swept sites in the completion note.
+   1. Apply the defect-class sweep procedure (`skills/quality/workflows/defect-class-sweep.md`) FIRST: enumerate every site in the touched module(s) matching the defect class above per its "Enumeration procedure" section, fix all of them, not just the cited instance, and list the swept sites in the completion note.
    2. <concrete step for the cited instance>
    3. <concrete step>
 
@@ -179,7 +179,7 @@ For each failing task:
 
 4. Return the rejection in `rejected_tasks` (including `defect_class`) so the host workflow can route the task back to development with the appropriate context (bug-fix flag, blocker note, status reset).
 
-**Re-review mandate is class-scoped, never fix-scoped.** When the fixed work returns to UAT, the next codex round re-runs the full rubric over the touched surface plus the defect-class sweep (see the Codex invocation contract in Step 3) — never "confirm finding N is fixed."
+**Re-review mandate is class-scoped, never fix-scoped.** When the fixed work returns to UAT, the next codex round re-runs the full rubric over the touched surface plus the full-class re-verification from `skills/quality/workflows/defect-class-sweep.md` (see the Codex invocation contract in Step 3) — never "confirm finding N is fixed."
 
 ### Step 8 — Triage non-blocking findings (MANDATORY for every verdict)
 
