@@ -110,6 +110,12 @@ func TestTC061_I07LifecycleRunContract(t *testing.T) {
 		{"complete_with_missing_worker_result", "/worker/worker_id", func(record map[string]any) {
 			record["dispatches"].([]any)[0].(map[string]any)["worker"].(map[string]any)["worker_id"] = nil
 		}},
+		{"complete_with_missing_claim_session", "/claim/session_id", func(record map[string]any) {
+			record["dispatches"].([]any)[0].(map[string]any)["claim"].(map[string]any)["session_id"] = nil
+		}},
+		{"complete_with_whitespace_claim_session", "/claim/session_id", func(record map[string]any) {
+			record["dispatches"].([]any)[0].(map[string]any)["claim"].(map[string]any)["session_id"] = "   "
+		}},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -123,8 +129,10 @@ func TestTC061_I07LifecycleRunContract(t *testing.T) {
 		fixture := writeMutationFixture(t, validFixture, func(record map[string]any) {
 			dispatch := record["dispatches"].([]any)[0].(map[string]any)
 			dispatch["outcome"] = "resource_limit"
+			dispatch["claim"].(map[string]any)["session_id"] = nil
 			worker := dispatch["worker"].(map[string]any)
 			worker["worker_id"] = nil
+			worker["session_id"] = nil
 			worker["kind"] = nil
 			outcome := record["outcome"].(map[string]any)
 			outcome["terminal"] = "resource_limit"
@@ -133,6 +141,20 @@ func TestTC061_I07LifecycleRunContract(t *testing.T) {
 			outcome["publication_eligible"] = false
 		})
 		assertValidatorResult(t, repoRoot, fixture, true, "")
+	})
+
+	t.Run("stopped_dispatch_rejects_whitespace_identity", func(t *testing.T) {
+		fixture := writeMutationFixture(t, validFixture, func(record map[string]any) {
+			dispatch := record["dispatches"].([]any)[0].(map[string]any)
+			dispatch["outcome"] = "resource_limit"
+			dispatch["worker"].(map[string]any)["worker_id"] = "   "
+			outcome := record["outcome"].(map[string]any)
+			outcome["terminal"] = "resource_limit"
+			outcome["reason"] = "provider exceeded wall-clock ceiling before returning a result"
+			outcome["partial_evidence"] = true
+			outcome["publication_eligible"] = false
+		})
+		assertValidatorResult(t, repoRoot, fixture, false, "/worker/worker_id")
 	})
 }
 
