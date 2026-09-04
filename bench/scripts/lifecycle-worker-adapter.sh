@@ -266,6 +266,11 @@ def provider_measurements(raw):
         value = document.get(source)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             bounded_usage[target] = value
+    provider_session = document.get("session_id")
+    if isinstance(provider_session, str) and provider_session:
+        # Provider metadata is evidence only. The parent claim session remains
+        # the sole authority used for heartbeat, transition, and release.
+        bounded_usage["provider_session_id"] = provider_session
 
     measurements = {}
     cost = document.get("total_cost_usd")

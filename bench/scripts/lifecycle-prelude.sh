@@ -292,7 +292,15 @@ def main(argv):
             isolation_gate(package_path, args["fixture_root"], args["scratch_root"], args["evaluator_root"])
         if family == FEATURE_FAMILY:
             replay = validate_replay(package, args["replay"], stages)
-            record["replay"] = {"terminal_outcome": replay["terminal_outcome"], "stage_count": len(replay["stages"])}
+            replay_path = Path(args["replay"]).resolve()
+            record["replay"] = {
+                "path": str(replay_path),
+                "digest": hashlib.sha256(replay_path.read_bytes()).hexdigest(),
+                "terminal_outcome": replay["terminal_outcome"],
+                "stage_count": len(replay["stages"]),
+                "replay_bundle": replay.get("replay_bundle") or {},
+                "stages": replay["stages"],
+            }
             record["questions"] = route_questions(replay, args["run_id"], args["scratch_root"] or str(Path(package_path).parent))
         else:
             for stage in record["prelude"]:

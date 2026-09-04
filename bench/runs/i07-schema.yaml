@@ -14,6 +14,7 @@ top_level_fields:
   - workflow_policy
   - review_gates
   - questions
+  - prelude
   - limits
   - outcome
 
@@ -189,6 +190,7 @@ properties:
   /workflow_policy/fixes_allowed_between_gates: boolean
   /review_gates: array
   /questions: array
+  /prelude: object
   /limits/max_cost_usd: number
   /limits/max_wall_clock_seconds: number
   /limits/max_generated_tasks: integer

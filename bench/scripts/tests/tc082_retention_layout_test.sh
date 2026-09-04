@@ -210,6 +210,9 @@ schema_version: "1.0"
 scenario_id: "$DRIVER_SCENARIO_ID"
 scenario_version: "1"
 entity_family: "family-tc082-driver"
+fixture:
+  fixture_id: "fixture-tc082-driver"
+  base_sha: "fixture-base-tc082-driver"
 EOF
 cat >"$DRIVER_WORKDIR/policy.yaml" <<EOF
 schema_version: "1.0"
@@ -242,9 +245,18 @@ while [[ \$# -gt 0 ]]; do
 	*) shift ;;
 	esac
 done
-cp "$I07_FIXTURE" "\$output"
+jq -c --arg scenario "$DRIVER_SCENARIO_ID" '.identity.scenario_id = \$scenario' "$I07_FIXTURE" >"\$output"
 EOF
 chmod +x "$DRIVER_RUN_STUB"
+
+DRIVER_CHECKOUT_STUB="$DRIVER_WORKDIR/checkout-scenario-fixture-stub.sh"
+cat >"$DRIVER_CHECKOUT_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$3"
+printf 'gitdir: fixture-only-test-double\n' >"$3/.git"
+EOF
+chmod +x "$DRIVER_CHECKOUT_STUB"
 
 DRIVER_EVAL_STUB="$DRIVER_WORKDIR/evaluate-lifecycle-stub.sh"
 cat >"$DRIVER_EVAL_STUB" <<EOF
@@ -257,11 +269,16 @@ while [[ \$# -gt 0 ]]; do
 	*) shift ;;
 	esac
 done
-jq -c '.metrics={quality:{},elapsed_time:{},provider_cost:{},rework:{},artifact_use:{}}' "$I08_FIXTURE" >"\$output"
+if [[ "\${EVALUATION_INELIGIBLE:-}" == "true" ]]; then
+	jq -c --arg scenario "$DRIVER_SCENARIO_ID" '.identity.scenario_id = \$scenario | .metrics={quality:{},elapsed_time:{available:true,value:1.0},provider_cost:{available:true,value:0.01},rework:{available:true,value:0},artifact_use:{}} | .execution_oracle={observed_result:"fail",invalidity_reasons:[{code:"oracle_failure",path:"/execution_oracle",detail:"held-back oracle failed"}]} | .eligibility={structural_valid:true,judge_valid:true,oracle_valid:false,aggregate_eligible:false,publication_eligible:false,invalidity_reasons:[{code:"oracle_failure",path:"/execution_oracle",detail:"held-back oracle failed"}]}' "$I08_FIXTURE" >"\$output"
+else
+	jq -c --arg scenario "$DRIVER_SCENARIO_ID" '.identity.scenario_id = \$scenario | .metrics={quality:{},elapsed_time:{},provider_cost:{},rework:{},artifact_use:{}}' "$I08_FIXTURE" >"\$output"
+fi
 # evaluate-lifecycle.sh's own oracle sidecar naming convention
 # (<output>.oracle.json), which lib/retain_pair's copy_artifact("oracle.json",
 # evaluation_jsonl + ".oracle.json") reads verbatim -- never re-derived here.
-python3 -c 'import json,sys; obj={"held_back": True, "observed_result": "pass"}; open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "\$output.oracle.json"
+python3 -c 'import json,os,sys; result="fail" if os.environ.get("EVALUATION_INELIGIBLE") == "true" else "pass"; obj={"held_back": True, "observed_result": result}; open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")' "\$output.oracle.json"
+[[ "\${EVALUATION_INELIGIBLE:-}" != "true" ]] || exit 1
 EOF
 chmod +x "$DRIVER_EVAL_STUB"
 
@@ -286,6 +303,7 @@ chmod +x "$DRIVER_ENTITY_HISTORY_STUB"
 DRIVER_ROOT="$WORKDIR/driver-retention-root"
 driver_batch_rc=0
 RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$DRIVER_CHECKOUT_STUB" \
 	ENTITY_HISTORY_EXPORT_BIN="$DRIVER_ENTITY_HISTORY_STUB" \
 	"$BATCH" --batch "$DRIVER_WORKDIR/policy.yaml" --retention-root "$DRIVER_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
@@ -311,6 +329,34 @@ echo "$out_a2" | grep -q '"verdict":"pass"' || fail "(a2) driver-path: expected 
 echo "$out_a2" | grep -q '"failures":\[\]' || fail "(a2) driver-path: expected an empty failures array, got: $out_a2"
 
 echo "TC-082: a root produced by one real run-lifecycle-batch.sh --mode pilot retention verifies cleanly (Caller-Path Contract)"
+
+# A valid I-08 record uses exit 1 to report an ineligible verdict. The batch
+# must retain that record and its oracle instead of collapsing the upstream
+# diagnosis into a generic evaluation execution failure.
+INELIGIBLE_ROOT="$WORKDIR/driver-ineligible-root"
+ineligible_driver_rc=0
+EVALUATION_INELIGIBLE=true RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$DRIVER_CHECKOUT_STUB" \
+	ENTITY_HISTORY_EXPORT_BIN="$DRIVER_ENTITY_HISTORY_STUB" \
+	"$BATCH" --batch "$DRIVER_WORKDIR/policy.yaml" --retention-root "$INELIGIBLE_ROOT" \
+	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
+	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	>"$WORKDIR/driver-ineligible.out" 2>"$WORKDIR/driver-ineligible.err" || ineligible_driver_rc=$?
+[[ "$ineligible_driver_rc" -eq 0 ]] || fail "(a2-ineligible) driver discarded an exit-1 I-08 record: exit $ineligible_driver_rc; stderr: $(cat "$WORKDIR/driver-ineligible.err")"
+INELIGIBLE_PAIR="$INELIGIBLE_ROOT/scenarios/$DRIVER_SCENARIO_ID/1"
+[[ -f "$INELIGIBLE_PAIR/evaluation.jsonl" && -f "$INELIGIBLE_PAIR/oracle.json" ]] \
+	|| fail "(a2-ineligible) retained I-08 or oracle artifact is missing"
+jq -e '.eligibility.publication_eligible == false and (.eligibility.invalidity_reasons | any(.code == "oracle_failure"))' \
+	"$INELIGIBLE_PAIR/evaluation.jsonl" >/dev/null \
+	|| fail "(a2-ineligible) retained I-08 did not preserve the upstream invalidity reason"
+INELIGIBLE_AGG="$WORKDIR/driver-ineligible-aggregate.json"
+"$SCRIPTS_DIR/aggregate-lifecycle.sh" --retention-root "$INELIGIBLE_ROOT" >"$INELIGIBLE_AGG" \
+	2>"$WORKDIR/driver-ineligible-aggregate.err" \
+	|| fail "(a2-ineligible) aggregate rejected retained ineligible evidence: $(cat "$WORKDIR/driver-ineligible-aggregate.err")"
+jq -e --arg scenario "$DRIVER_SCENARIO_ID" '.invalid | any(.scenario_id == $scenario and (.eligibility.invalidity_reasons | any(.code == "oracle_failure")))' \
+	"$INELIGIBLE_AGG" >/dev/null \
+	|| fail "(a2-ineligible) aggregate did not carry the I-08 invalidity reason verbatim"
+echo "TC-082: valid-but-ineligible evaluator exit 1 is retained and aggregated with its upstream diagnosis"
 
 # ===========================================================================
 # (a3) Symlink write-through refusal (code-review-2026-08-21T0330-E40-F10.md
@@ -1494,6 +1540,9 @@ schema_version: "1.0"
 scenario_id: "$SCRATCH_SYMLINK_SCENARIO"
 scenario_version: "1"
 entity_family: "family-tc082-scratch-symlink"
+fixture:
+  fixture_id: "fixture-tc082-scratch-symlink"
+  base_sha: "fixture-base-tc082-scratch-symlink"
 EOF
 cat >"$WORKDIR/scratch-symlink-batch-policy.yaml" <<EOF
 schema_version: "1.0"
@@ -1567,6 +1616,7 @@ chmod +x "$SCRATCH_SYMLINK_ENTITY_HISTORY_STUB"
 scratch_symlink_rc=0
 RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB" EVALUATE_LIFECYCLE_BIN="$SCRATCH_SYMLINK_EVAL_STUB" \
 	ENTITY_HISTORY_EXPORT_BIN="$SCRATCH_SYMLINK_ENTITY_HISTORY_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$DRIVER_CHECKOUT_STUB" \
 	"$BATCH" --batch "$WORKDIR/scratch-symlink-batch-policy.yaml" --retention-root "$SCRATCH_SYMLINK_ROOT" \
 	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-symlink.out" 2>&1 || scratch_symlink_rc=$?
 [[ "$scratch_symlink_rc" -eq 0 ]] || fail "dispatch_pair scratch_root TOP-LEVEL symlink (round-6 generalization): expected exit 0 (a symlinked scratch_root is now dereferenced and dispatched, not refused), got $scratch_symlink_rc: $(cat "$WORKDIR/scratch-symlink.out")"
@@ -1632,6 +1682,9 @@ schema_version: "1.0"
 scenario_id: "$SCRATCH_NESTED_SCENARIO"
 scenario_version: "1"
 entity_family: "family-tc082-scratch-nested-symlink"
+fixture:
+  fixture_id: "fixture-tc082-scratch-nested-symlink"
+  base_sha: "fixture-base-tc082-scratch-nested-symlink"
 EOF
 cat >"$WORKDIR/scratch-nested-batch-policy.yaml" <<EOF
 schema_version: "1.0"
@@ -1710,6 +1763,7 @@ chmod +x "$SCRATCH_NESTED_ENTITY_HISTORY_STUB"
 scratch_nested_rc=0
 RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB" EVALUATE_LIFECYCLE_BIN="$SCRATCH_NESTED_EVAL_STUB" \
 	ENTITY_HISTORY_EXPORT_BIN="$SCRATCH_NESTED_ENTITY_HISTORY_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$DRIVER_CHECKOUT_STUB" \
 	"$BATCH" --batch "$WORKDIR/scratch-nested-batch-policy.yaml" --retention-root "$SCRATCH_NESTED_ROOT_OUT" \
 	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-nested.out" 2>&1 || scratch_nested_rc=$?
 [[ "$scratch_nested_rc" -eq 0 ]] || fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): expected exit 0 (a real scratch_root with a nested symlink must be dispatched, not refused), got $scratch_nested_rc: $(cat "$WORKDIR/scratch-nested.out")"

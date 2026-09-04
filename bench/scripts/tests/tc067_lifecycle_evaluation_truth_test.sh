@@ -34,6 +34,27 @@ assert record["eligibility"]["aggregate_eligible"] is False
 assert any(item["code"] == "missing_oracle" for item in record["eligibility"]["invalidity_reasons"])
 assert any(item["code"] == "identity_missing" and item["path"] == "/identity/toolchain_identity" for item in record["eligibility"]["invalidity_reasons"])
 PY
+python3 - "$output.oracle.json" <<'PY'
+import json, sys
+oracle = json.load(open(sys.argv[1], encoding="utf-8"))
+assert oracle["observed_result"] == "not_run", oracle
+assert oracle["invalidity_reasons"], oracle
+PY
+
+sed 's/"terminal":"complete"/"terminal":"resource_limit"/' "$tmp/i07.jsonl" >"$tmp/stopped-i07.jsonl"
+stopped_output="$tmp/stopped-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/stopped-i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$stopped_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: resource-limit lifecycle unexpectedly eligible" >&2
+  exit 1
+fi
+python3 - "$stopped_output" "$stopped_output.oracle.json" <<'PY'
+import json, sys
+evaluation = json.load(open(sys.argv[1], encoding="utf-8"))
+oracle = json.load(open(sys.argv[2], encoding="utf-8"))
+assert evaluation["execution_oracle"] == oracle, (evaluation, oracle)
+assert oracle["observed_result"] == "not_run", oracle
+assert any(item["code"] == "aggregate_ineligible" for item in oracle["invalidity_reasons"]), oracle
+PY
 
 # Producer identity is not completed from the scenario package at the join.
 cat > "$tmp/missing-producer-identity-i07.jsonl" <<'JSON'

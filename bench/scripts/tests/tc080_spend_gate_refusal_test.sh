@@ -520,6 +520,8 @@ elif args[:2] == ["status", "advance"]:
     print('{"advanced":true}')
 elif args[0] == "release":
     print('{"released":true}')
+elif args[:2] == ["history", "ROOT-001"]:
+    print('{"root_key":"ROOT-001","entries":[]}')
 else:
     raise SystemExit("unexpected shark argv: " + repr(args))
 PY
@@ -650,7 +652,29 @@ assert int(rec_tasks) == tasks, label + ": I-07 recorded max_generated_tasks=" +
 UAT_R2_01_EVAL_ALWAYS_FAIL="$UAT_R2_01_WORKDIR/evaluate-lifecycle-always-fail.sh"
 cat >"$UAT_R2_01_EVAL_ALWAYS_FAIL" <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
 echo "evaluate-lifecycle-always-fail: deliberate failure (T-E40-F12-006 UAT-R2-01 fixture)" >&2
+output=""
+while [[ $# -gt 0 ]]; do
+	if [[ "$1" == "--output" ]]; then
+		output="$2"
+	fi
+	shift
+done
+[[ -n "$output" ]] || { echo "evaluate-lifecycle-always-fail: --output not supplied" >&2; exit 2; }
+# run-lifecycle-batch.sh's own contract (evaluate-lifecycle.sh's exit 1):
+# a well-formed but ineligible I-08 verdict, not a crash -- exit 1 is only
+# retained as such when $output is non-empty (real record).
+cat >"$output" <<'JSON'
+{"schema_version": "1.0", "evaluation_id": "uat-r2-01-deliberate-fail", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "expected_entity_graph": {"applicability": "not_applicable", "checks": [], "observed_result": "not_applicable", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": false, "judge_valid": false, "oracle_valid": false, "expected_entity_graph_valid": false, "aggregate_eligible": false, "publication_eligible": false, "invalidity_reasons": [{"code": "deliberate_failure", "path": "/judge", "detail": "T-E40-F12-006 UAT-R2-01 fixture forces a deterministic ineligible verdict"}]}}
+JSON
+# retain_pair unconditionally requires "<output>.oracle.json" -- the real
+# evaluate-lifecycle.sh's run_oracle() always persists one, even on its
+# "not_run"/missing-oracle paths (ADR-F10-04); this stub never runs the real
+# oracle at all, so it always takes that same not_run shape.
+cat >"$output.oracle.json" <<'JSON'
+{"observed_result": "not_run", "invalidity_reasons": [{"code": "missing_oracle", "path": "/execution_oracle", "detail": "T-E40-F12-006 UAT-R2-01 fixture never runs the held-back oracle"}]}
+JSON
 exit 1
 EOF
 chmod +x "$UAT_R2_01_EVAL_ALWAYS_FAIL"
@@ -695,9 +719,13 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-cost-usd "$UAT_R2_01_OPERATOR_COST" --max-wall-clock-seconds "$UAT_R2_01_OPERATOR_WALL" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	>"$UAT_R2_01_WORKDIR/batch-r2.out" 2>"$UAT_R2_01_WORKDIR/batch-r2.err" || batch_r2_rc=$?
-[[ "$batch_r2_rc" -eq 4 ]] || fail "uat-r2-01 batch: expected exit 4 (real dispatch reached, evaluation deliberately failed), got $batch_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err")"
-grep -q "evaluation_failed" "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" \
-	|| fail "uat-r2-01 batch: expected the pair to be classified evaluation_failed AFTER a real run-lifecycle.sh dispatch, got: $(cat "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" 2>/dev/null)"
+[[ "$batch_r2_rc" -eq 0 ]] || fail "uat-r2-01 batch: expected a valid-but-ineligible evaluation to be retained successfully, got $batch_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err")"
+python3 - "$BATCH_R2_WORKDIR/retention/scenarios/$UAT_R2_01_SCENARIO_ID/1/evaluation.jsonl" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+assert record["eligibility"]["aggregate_eligible"] is False, record["eligibility"]
+assert record["eligibility"]["invalidity_reasons"], record["eligibility"]
+PY
 
 grep -q -- "--limits" "$UAT_R2_01_WORKDIR/batch-spy-argv.log" \
 	|| fail "uat-r2-01 batch: real run-lifecycle-batch.sh invocation of run-lifecycle.sh did not include --limits: $(cat "$UAT_R2_01_WORKDIR/batch-spy-argv.log")"
@@ -803,7 +831,7 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	--max-cost-usd 777 \
 	>"$UAT_R2_01_WORKDIR/batch-dup.out" 2>"$UAT_R2_01_WORKDIR/batch-dup.err" || batch_dup_rc=$?
-[[ "$batch_dup_rc" -eq 4 ]] || fail "uat-r2-01 duplicate-flag: expected exit 4 (real dispatch reached, evaluation deliberately failed), got $batch_dup_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-dup.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-dup.err")"
+[[ "$batch_dup_rc" -eq 0 ]] || fail "uat-r2-01 duplicate-flag: expected retained valid-but-ineligible evidence, got $batch_dup_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-dup.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-dup.err")"
 
 # batch.json's own recorded "ceilings" block (this file's pre-existing
 # flag_value() python helper, also first-match) must record the FIRST

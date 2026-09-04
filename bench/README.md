@@ -125,9 +125,9 @@ require a generated artifact.
    next/claim/advance/release seam is intact — no API spend. The written
    `lifecycle.jsonl` is the per-step log: one record per dispatch, with the
    claim, worker result, heartbeats, transition, release, and timestamps for
-   each step — enough to see exactly which step failed and why. A non-zero
-   exit does not mean the script failed to run; read the record's own
-   `outcome` block first (see the known-limitation note above).
+   each step — enough to see exactly which step failed and why. Named stop
+   outcomes are retained records and therefore exit zero; a non-zero exit
+   means the runner itself could not produce its evidence contract.
 
 4. **Validate the record.**
 
@@ -164,6 +164,13 @@ require a generated artifact.
    operator workflow (E40-F10 section) only when you need a repeatable,
    publication-grade baseline to compare variants against — not for a
    one-off "does this still work" pass.
+
+   Feature-family scenarios also require `--replay <i06-result.json>`.
+   Before the first lifecycle dispatch, the runner passes that result through
+   `lifecycle-prelude.sh`, records the D01-D05 result and routed Questions,
+   and stops without provider dispatch if the replay is unresolved. Other
+   families record the five explicit `not_applicable` prelude stages
+   automatically.
 
 ## Manifest schema (REQ-F-002)
 

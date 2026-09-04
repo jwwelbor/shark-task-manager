@@ -30,6 +30,21 @@
           "transitions": []
         },
         {
+          "name": "code_review",
+          "description": "Awaiting code review",
+          "phase": "code_review",
+          "color": "cyan",
+          "transitions": [
+            "completed",
+            "development",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "reviewer"
+          ]
+        },
+        {
           "name": "development",
           "description": "Ready for TDD implementation",
           "phase": "development",
@@ -78,8 +93,8 @@
           "draft"
         ]
       },
-      "status_count": 6,
-      "transition_count": 13
+      "status_count": 7,
+      "transition_count": 17
     }
   ],
   "config_path": "/tmp/shark-scratch-e40f12scratch-8JDPhh/.sharkconfig.json"
