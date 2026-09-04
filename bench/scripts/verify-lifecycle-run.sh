@@ -265,11 +265,20 @@ def validate_record(record, schema):
         ordinals.append(ordinal)
         response = dispatch["response"]
         validate_vocabulary(dispatch["outcome"], schema.get("dispatch_outcome", []), f"{path}/outcome")
-        worker = dispatch["worker"]
-        if dispatch["outcome"] not in schema.get("stop_outcome", []):
-            for field in ("worker_id", "session_id", "kind"):
-                if not isinstance(worker.get(field), str) or not worker[field].strip():
-                    fail("malformed_field", f"{path}/worker/{field}", "completed worker result must be a non-empty string")
+        allows_unobserved_identity = dispatch["outcome"] in schema.get("stop_outcome", [])
+        for container, field in (
+            ("claim", "session_id"),
+            ("worker", "worker_id"),
+            ("worker", "session_id"),
+            ("worker", "kind"),
+        ):
+            value = dispatch[container][field]
+            identity_path = f"{path}/{container}/{field}"
+            if value is None:
+                if not allows_unobserved_identity:
+                    fail("malformed_field", identity_path, "completed dispatch identity must be a non-empty string")
+            elif not isinstance(value, str) or not value.strip():
+                fail("malformed_field", identity_path, "observed dispatch identity must be a non-empty string")
         if "resolved_via" in response and not isinstance(response["resolved_via"], list):
             fail("malformed_field", f"{path}/response/resolved_via", "keyed dispatch traversal must be an array when present")
         if response["entity_key"] != dispatch["requested_key"] and dispatch["requested_key"] != graph["root_key"]:
