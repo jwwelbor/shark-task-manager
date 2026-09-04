@@ -365,6 +365,15 @@ def run_command(shark, args, cwd, *, expect_json=True):
         return {"output": output[:512]}
 
 
+def is_repairable_research_rejection(error, response, entity):
+    """Identify Shark's research-evidence validator failure contract."""
+    if str(response.get("status", "")) != "research":
+        return False
+    entity_type = str(response.get("entity_type", ""))
+    marker = f"cannot advance {entity_type} {entity} from research:"
+    return bool(entity_type) and marker in str(error)
+
+
 def pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch):
     evaluator_root = scenario_path.parent.resolve()
     replay_reference = scenario.get("replay_reference")
@@ -1423,11 +1432,19 @@ def main(argv):
                     try:
                         run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}"], scratch, expect_json=False)
                     except RuntimeError as exc:
+                        rejection = bounded(str(exc))
+                        if not is_repairable_research_rejection(exc, response, entity):
+                            dispatch["transition"] = {
+                                "outcome": str(outcome), "session_id": session,
+                                "from_status": response.get("status", ""),
+                                "accepted": False, "rejection": rejection,
+                                "retry_scheduled": False,
+                            }
+                            raise
                         rejection_key = (entity, str(response.get("status", "")))
                         rejection_count = transition_rejections.get(rejection_key, 0) + 1
                         transition_rejections[rejection_key] = rejection_count
                         retry_after_transition_rejection = rejection_count <= MAX_TRANSITION_REJECTIONS_PER_STAGE
-                        rejection = bounded(str(exc))
                         dispatch["transition"] = {
                             "outcome": str(outcome), "session_id": session,
                             "from_status": response.get("status", ""),
@@ -1436,18 +1453,19 @@ def main(argv):
                             "rejection_attempt": rejection_count,
                         }
                         dispatch["outcome"] = "fail" if retry_after_transition_rejection else "worker_failure"
-                        note = (
-                            f"Lifecycle transition rejected worker outcome {outcome!r}: {rejection}. "
-                            "Continue from the existing artifact, correct the named validation failure, "
-                            "and recommend pass only after re-validating it."
-                        )
-                        run_command(
-                            shark,
-                            ["notes", "add", entity, "--type", "testing", note,
-                             "--created-by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])],
-                            scratch, expect_json=False,
-                        )
-                        if not retry_after_transition_rejection:
+                        if retry_after_transition_rejection:
+                            note = (
+                                f"Lifecycle transition rejected worker outcome {outcome!r}: {rejection}. "
+                                "Continue from the existing artifact, correct the named validation failure, "
+                                "and recommend pass only after re-validating it."
+                            )
+                            run_command(
+                                shark,
+                                ["notes", "add", entity, "--type", "testing", note,
+                                 "--created-by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])],
+                                scratch, expect_json=False,
+                            )
+                        else:
                             terminal = "worker_failure"
                             reason = (
                                 f"status transition for {entity} from {response.get('status', '')} "

@@ -24,6 +24,13 @@ steps:
     model: fixture-model
     prompt: bug/development.md
     outcomes: {pass: code_review}
+  research:
+    phase: research
+    action: spawn_agent
+    provider: anthropic
+    model: fixture-model
+    prompt: _shared/research.md
+    outcomes: {pass: completed}
   code_review:
     phase: code_review
     action: spawn_agent
@@ -42,6 +49,7 @@ steps:
 YAML
 printf '%s\n' 'review prompt' >"$WORKDIR/scratch/shark-data/prompts/_shared/code_review.md"
 printf '%s\n' 'qa prompt' >"$WORKDIR/scratch/shark-data/prompts/_shared/qa.md"
+printf '%s\n' 'research prompt' >"$WORKDIR/scratch/shark-data/prompts/_shared/research.md"
 
 cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
@@ -93,7 +101,12 @@ elif args[:2] == ["status", "advance"]:
     if should_reject:
         if rejection_marker:
             open(rejection_marker, "w").close()
-        print(json.dumps({"error": True, "code": "COMMAND_ERROR", "message": "artifact validation failed: missing pattern_contract"}), file=sys.stderr)
+        message = os.environ.get(
+            "SHARK_REJECTION_MESSAGE",
+            "failed to transition status: cannot advance task TASK-002 from research: "
+            "research rigor standard requires pattern_contract or dependency_impact",
+        )
+        print(json.dumps({"error": True, "code": "COMMAND_ERROR", "message": message}), file=sys.stderr)
         raise SystemExit(1)
     print('{"advanced":true}')
 elif args[:2] == ["notes", "add"]:
@@ -394,7 +407,7 @@ git clone -q "$SCRIPTS_DIR/../fixture-py" "$WORKDIR/retry-fixture"
 : >"$WORKDIR/retry-events.ndjson"
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/retry-events.ndjson" \
 SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/retry-next-count" \
-SHARK_STATUSES='["development","development"]' SHARK_REJECT_ADVANCE=first SHARK_REJECTION_MARKER="$WORKDIR/rejection-seen" \
+SHARK_STATUSES='["research","research"]' SHARK_REJECT_ADVANCE=first SHARK_REJECTION_MARKER="$WORKDIR/rejection-seen" \
 ADAPTER_REQUEST="$WORKDIR/retry-requests.ndjson" ADAPTER_MUTATION_MARKER="$WORKDIR/retry-adapter-mutated" \
 ADAPTER_REVIEW_MARKER="$WORKDIR/retry-adapter-reviewed" \
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
@@ -406,15 +419,15 @@ python3 - "$WORKDIR/retry-events.ndjson" "$WORKDIR/retry-lifecycle.jsonl" <<'PY'
 import json, sys
 events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
 record = json.load(open(sys.argv[2], encoding="utf-8"))
-assert [stage["stage"] for stage in record["stages"]] == ["development", "development"], record
+assert [stage["stage"] for stage in record["stages"]] == ["research", "research"], record
 assert [stage["rework"] for stage in record["stages"]] == [False, True], record
 assert [dispatch["outcome"] for dispatch in record["dispatches"]] == ["fail", "pass"], record
 rejected = record["dispatches"][0]["transition"]
 assert rejected["accepted"] is False and rejected["retry_scheduled"] is True, rejected
-assert rejected["rejection_attempt"] == 1 and "missing pattern_contract" in rejected["rejection"], rejected
+assert rejected["rejection_attempt"] == 1 and "pattern_contract" in rejected["rejection"], rejected
 assert record["outcome"]["terminal"] == "complete" and record["outcome"]["publication_eligible"] is True, record
 note_events = [event for event in events if event["argv"][:2] == ["notes", "add"]]
-assert len(note_events) == 1 and "missing pattern_contract" in " ".join(note_events[0]["argv"]), note_events
+assert len(note_events) == 1 and "pattern_contract" in " ".join(note_events[0]["argv"]), note_events
 assert sum(event["argv"][:2] == ["status", "advance"] for event in events) == 2, events
 PY
 "$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR/retry-evidence" >/dev/null
@@ -431,7 +444,7 @@ git clone -q "$SCRIPTS_DIR/../fixture-py" "$WORKDIR/exhausted-fixture"
 : >"$WORKDIR/exhausted-events.ndjson"
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/exhausted-events.ndjson" \
 SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/exhausted-next-count" \
-SHARK_STATUSES='["development","development","development","development"]' SHARK_REJECT_ADVANCE=always \
+SHARK_STATUSES='["research","research","research","research"]' SHARK_REJECT_ADVANCE=always \
 SHARK_REJECTION_MARKER="$WORKDIR/exhausted-rejection-seen" ADAPTER_REQUEST="$WORKDIR/exhausted-requests.ndjson" \
 ADAPTER_MUTATION_MARKER="$WORKDIR/exhausted-adapter-mutated" ADAPTER_REVIEW_MARKER="$WORKDIR/exhausted-adapter-reviewed" \
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
@@ -449,12 +462,59 @@ assert [item["transition"]["rejection_attempt"] for item in record["dispatches"]
 assert record["dispatches"][-1]["transition"]["retry_scheduled"] is False, record
 assert record["outcome"]["terminal"] == "worker_failure" and record["outcome"]["publication_eligible"] is False, record
 assert "rejected 3 times" in record["outcome"]["reason"], record
-assert sum(event["argv"][:2] == ["notes", "add"] for event in events) == 3, events
+assert sum(event["argv"][:2] == ["notes", "add"] for event in events) == 2, events
 assert sum(event["argv"][:2] == ["status", "advance"] for event in events) == 3, events
 PY
 "$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR/exhausted-evidence" >/dev/null
 "$SCRIPTS_DIR/verify-lifecycle-run.sh" "$WORKDIR/exhausted-lifecycle.jsonl" \
     --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
+
+# Failures outside Shark's research-evidence validator contract are not
+# provider-repairable. They must stop after one attempt without a feedback note
+# or a second paid dispatch, even when they occur while leaving research.
+generic_failure_messages=(
+	'failed to transition status: database is locked'
+	'failed to transition status: stale from-status research'
+	'failed to transition status: claim/session mismatch'
+	'failed to transition status: invalid outcome pass'
+	'panic: simulated shark CLI crash'
+)
+generic_failure_names=(database stale session outcome cli-crash)
+for generic_index in "${!generic_failure_messages[@]}"; do
+	generic_name="${generic_failure_names[$generic_index]}"
+	generic_root="$WORKDIR/generic-$generic_name"
+	mkdir -p "$generic_root/scratch/shark-data/workflow" "$generic_root/scratch/shark-data/prompts/_shared"
+	cp "$WORKDIR/scratch/shark-data/workflow/bug.yaml" "$generic_root/scratch/shark-data/workflow/bug.yaml"
+	cp "$WORKDIR/scratch/shark-data/prompts/_shared/"*.md "$generic_root/scratch/shark-data/prompts/_shared/"
+	git clone -q "$SCRIPTS_DIR/../fixture-py" "$generic_root/fixture"
+	: >"$generic_root/events.ndjson"
+	PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$generic_root/events.ndjson" \
+	SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$generic_root/next-count" \
+	SHARK_STATUSES='["research","research"]' SHARK_REJECT_ADVANCE=always \
+	SHARK_REJECTION_MESSAGE="${generic_failure_messages[$generic_index]}" \
+	ADAPTER_REQUEST="$generic_root/requests.ndjson" ADAPTER_MUTATION_MARKER="$generic_root/adapter-mutated" \
+	ADAPTER_REVIEW_MARKER="$generic_root/adapter-reviewed" LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" \
+	LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
+	    --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+	    --run-id "tc061-generic-$generic_name" --root ROOT-001 --scratch-root "$generic_root/scratch" \
+	    --fixture-root "$generic_root/fixture" --evidence-root "$generic_root/evidence" \
+	    --output "$generic_root/lifecycle.jsonl" >/dev/null
+	python3 - "$generic_root/events.ndjson" "$generic_root/lifecycle.jsonl" "$generic_name" <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+record = json.load(open(sys.argv[2], encoding="utf-8"))
+assert len(record["dispatches"]) == 1 and len(record["stages"]) == 1, (sys.argv[3], record)
+assert record["dispatches"][0]["transition"]["retry_scheduled"] is False, (sys.argv[3], record)
+assert record["outcome"]["terminal"] == "worker_failure", (sys.argv[3], record)
+assert record["outcome"]["publication_eligible"] is False, (sys.argv[3], record)
+assert sum(event["argv"][:2] == ["notes", "add"] for event in events) == 0, (sys.argv[3], events)
+assert sum(event["argv"][:2] == ["status", "advance"] for event in events) == 1, (sys.argv[3], events)
+assert sum(event["argv"][0] == "next" for event in events) == 1, (sys.argv[3], events)
+PY
+	"$SCRIPTS_DIR/verify-stage-evidence.sh" "$generic_root/evidence" >/dev/null
+	"$SCRIPTS_DIR/verify-lifecycle-run.sh" "$generic_root/lifecycle.jsonl" \
+	    --schema "$SCRIPTS_DIR/../runs/i07-schema.yaml" >/dev/null
+done
 "$SCRIPTS_DIR/replay-stage-evidence.sh" "$WORKDIR/evidence" \
 	--checkout "$WORKDIR/fixture" --adapter "$SCRIPTS_DIR/../adapters/python/adapter.sh" >/dev/null
 
