@@ -272,6 +272,7 @@ def validate_record(record, schema):
         required_lineage_kinds = {
             "scenario_package", "rendered_prompt", "fixture_checkout",
             "shark_content", "execution_adapter", "lifecycle_adapter",
+            "agent_visible_input",
         }
         if not isinstance(lineage, list) or not lineage:
             fail("stage_evidence_incomplete", f"{path}/input_lineage", "stage input lineage is empty")
@@ -288,6 +289,19 @@ def validate_record(record, schema):
         missing_lineage = sorted(required_lineage_kinds - observed_lineage_kinds)
         if missing_lineage:
             fail("stage_evidence_incomplete", f"{path}/input_lineage", f"stage lineage is missing source kind(s): {', '.join(missing_lineage)}")
+        expected_prior_artifacts = sorted(
+            (str(artifact.get("path")), str(artifact.get("digest")))
+            for prior_stage in record["stages"][:index]
+            for artifact in prior_stage.get("artifacts") or []
+            if isinstance(artifact, dict)
+        )
+        observed_prior_artifacts = sorted(
+            (entry["path"], entry["digest"])
+            for entry in lineage
+            if entry["source_kind"] == "prior_stage_artifact"
+        )
+        if observed_prior_artifacts != expected_prior_artifacts:
+            fail("stage_evidence_incomplete", f"{path}/input_lineage", "prior-stage artifact lineage does not exactly match earlier stage artifacts")
         if record["outcome"]["terminal"] == "complete" and stage.get("errors"):
             fail("stage_evidence_incomplete", f"{path}/errors", "complete run contains unavailable or unmapped stage evidence")
         candidate = stage["candidate"]
@@ -310,6 +324,7 @@ def validate_record(record, schema):
     if not isinstance(policy["reviewer"].get("provider"), str) or not policy["reviewer"].get("provider") or not policy["reviewer"].get("model"):
         fail("missing_usage_or_model", "/workflow_policy/reviewer", "reviewer policy must name provider and model")
     gate_policy_by_digest = {}
+    configured_gate_ids = []
     for index, gate_policy in enumerate(policy.get("gate_policies") or []):
         path = f"/workflow_policy/gate_policies[{index}]"
         if not isinstance(gate_policy, dict) or not gate_policy.get("gate_id"):
@@ -319,8 +334,11 @@ def validate_record(record, schema):
         })
         if gate_policy.get("policy_digest") != expected_policy_digest:
             fail("identity_mismatch", f"{path}/policy_digest", "gate policy digest does not match retained content")
+        if gate_policy["policy_digest"] in gate_policy_by_digest:
+            fail("identity_mismatch", f"{path}/policy_digest", "gate policy digest is duplicated")
         gate_policy_by_digest[gate_policy["policy_digest"]] = gate_policy
-    configured_gate_ids = [item["gate_id"] for item in policy.get("gate_policies") or []]
+        if gate_policy["gate_id"] not in configured_gate_ids:
+            configured_gate_ids.append(gate_policy["gate_id"])
     if configured_gate_ids != policy["enabled_gates"] or configured_gate_ids != policy["gate_order"]:
         fail("identity_mismatch", "/workflow_policy/gate_policies", "gate policy order disagrees with enabled_gates or gate_order")
     observed_gate_ids = set()

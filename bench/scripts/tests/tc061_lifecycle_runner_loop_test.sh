@@ -48,7 +48,7 @@ steps:
     provider: anthropic
     model: fixture-model
     prompt: _shared/code_review.md
-    outcomes: {pass: qa, fail: development}
+    outcomes: {deep_verify: qa, fail: development, pass: completed}
   qa:
     phase: qa
     action: spawn_agent
@@ -65,7 +65,7 @@ cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
 set -euo pipefail
 python3 - "$@" <<'PY'
-import json, os, sys
+import hashlib, json, os, sys
 args = sys.argv[1:]
 with open(os.environ["SHARK_EVENTS"], "a") as f:
     f.write(json.dumps({"argv": args}, separators=(",", ":")) + "\n")
@@ -79,9 +79,19 @@ if args[:2] == ["next", "ROOT-001"]:
         next_count = 0
     next_count += 1
     open(state_path, "w").write(str(next_count))
-    if next_count == 2:
-        response["status"] = "code_review"
-    elif next_count > 2:
+    statuses = {
+        1: "development",
+        2: "code_review",
+        3: "development",
+        4: "code_review",
+    }
+    if next_count in statuses:
+        response["status"] = statuses[next_count]
+        response["prompt"] = f"run {response['status']} round {next_count}\n"
+        encoded = response["prompt"].encode()
+        response["prompt_sha256"] = hashlib.sha256(encoded).hexdigest()
+        response["prompt_bytes"] = len(encoded)
+    else:
         response = {"action": "archive", "entity_key": "ROOT-001", "entity_type": "bug"}
     if response["action"] == "spawn_agent":
         path = args[args.index("--prompt-out") + 1]
@@ -138,11 +148,15 @@ usage = {
     "cache_read_input_tokens": 0,
     "cache_creation_input_tokens": 0,
 }
+outcome = "pass"
+if request["status"] == "code_review" and not os.path.exists(os.environ["ADAPTER_REVIEW_MARKER"]):
+    open(os.environ["ADAPTER_REVIEW_MARKER"], "w").close()
+    outcome = "fail"
 envelope = {
     "worker_id": "worker-061",
     "session_id": request["session_id"],
     "kind": "final",
-    "recommended_outcome": "pass",
+    "recommended_outcome": outcome,
     "evidence": {"summary": "fixture complete"},
     "cost_usd": 0.0,
     "total_cost_usd": 0.0,
@@ -166,6 +180,7 @@ PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
 SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/next-count" ADAPTER_REQUEST="$WORKDIR/requests.ndjson" \
 SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
 ADAPTER_MUTATION_MARKER="$WORKDIR/adapter-mutated" \
+ADAPTER_REVIEW_MARKER="$WORKDIR/adapter-reviewed" \
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
     --scenario "$SCENARIO" \
     --run-id tc061 --root ROOT-001 --scratch-root "$WORKDIR/scratch" \
@@ -181,7 +196,7 @@ names = [e["argv"][0] for e in events]
 # T-E40-F12-002: record_stage()'s own phase lookup (`admin workflow list`)
 # runs after the dispatch's claim/heartbeat/status/release sequence
 # completes, and capture_review_gate()'s own note lookup (`get TASK-002`)
-# runs after that for the code_review dispatch -- both legitimately append
+# runs after that for a code_review/qa dispatch -- both legitimately append
 # trailing events here, excluded from this test's own claim/heartbeat/
 # transition/release ordering assertion, which is what TC-061 actually
 # covers.
@@ -189,10 +204,14 @@ non_i05_events = [e for e in events if e["argv"][0] not in ("admin", "get")]
 non_i05_names = [e["argv"][0] for e in non_i05_events]
 assert non_i05_names[0:2] == ["next", "claim"], events
 # The loop's final "next" resolves the archive action (queue drains without
-# a third real dispatch), so the second (code_review) dispatch's own
+# a fifth real dispatch), so the fourth (code_review) dispatch's own
 # status/release is followed by exactly this one trailing lookup, not the
 # loop's own last real-dispatch event.
 assert non_i05_names[-3:] == ["status", "release", "next"], events
+assert names.count("next") == 5, events
+assert names.count("claim") == 4, events
+assert names.count("status") == 4, events
+assert names.count("release") == 4, events
 assert names.count("heartbeat") >= 1, events
 assert events[0]["argv"][:4] == ["next", "ROOT-001", "--json", "--prompt-out"]
 assert events[1]["argv"][1] == "TASK-002"
@@ -203,44 +222,44 @@ def session_of(argv):
 heartbeats = [e for e in events if e["argv"][0] == "heartbeat"]
 assert all(e["argv"][1] == "TASK-002" for e in heartbeats), heartbeats
 heartbeat_sessions = {session_of(e["argv"]) for e in heartbeats}
-assert heartbeat_sessions == {"SID-001", "SID-002"}, heartbeats
-
-status_events = {session_of(e["argv"]): e for e in non_i05_events if e["argv"][0] == "status"}
-release_events = {session_of(e["argv"]): e for e in non_i05_events if e["argv"][0] == "release"}
-assert "development" in status_events["SID-001"]["argv"], status_events
-assert "code_review" in status_events["SID-002"]["argv"], status_events
-for session, event in release_events.items():
-    assert event["argv"][1] == "TASK-002" and session in event["argv"], event
-assert record["dispatches"][0]["heartbeats"]
-assert all(item["session_id"] == "SID-001" for item in record["dispatches"][0]["heartbeats"])
-assert record["dispatches"][-1]["heartbeats"]
-assert all(item["session_id"] == "SID-002" for item in record["dispatches"][-1]["heartbeats"])
-assert len(requests) == 2, requests
-request = requests[-1]
-assert request["session_id"] == "SID-002", request
-assert request["prompt"] == "run exact bytes\n"
-assert request["prompt_sha256"] == hashlib.sha256(request["prompt"].encode()).hexdigest()
-assert request["prompt_bytes"] == len(request["prompt"].encode())
-assert not any(k in request for k in ("claim", "heartbeat", "advance", "release"))
+assert heartbeat_sessions <= {f"SID-{index:03d}" for index in range(1, 5)}, heartbeats
+assert len(requests) == 4, requests
+for index, request in enumerate(requests, start=1):
+    assert request["session_id"] == f"SID-{index:03d}", request
+    assert request["prompt"] == f"run {request['status']} round {index}\n"
+    assert request["prompt_sha256"] == hashlib.sha256(request["prompt"].encode()).hexdigest()
+    assert request["prompt_bytes"] == len(request["prompt"].encode())
+    assert not any(k in request for k in ("claim", "heartbeat", "advance", "release"))
 assert record["dispatches"][0]["response"]["resolved_via"] == ["ROOT-001"]
 assert "prompt" not in record["dispatches"][0]["response"]
-assert [item["response"]["status"] for item in record["dispatches"]] == ["development", "code_review"], record["dispatches"]
+assert [item["response"]["status"] for item in record["dispatches"]] == [
+    "development", "code_review", "development", "code_review",
+], record["dispatches"]
+assert [item["outcome"] for item in record["dispatches"]] == ["pass", "fail", "pass", "pass"], record["dispatches"]
 assert record["outcome"]["terminal"] == "complete"
 assert record["outcome"]["publication_eligible"] is True
 assert record["prelude"]["terminal_outcome"] == "not_applicable", record.get("prelude")
 assert [item["stage"] for item in record["prelude"]["stages"]] == ["D01", "D02", "D03", "D04", "D05"]
 assert record["workflow_policy"]["enabled_gates"] == ["code_review", "qa"], record["workflow_policy"]
 assert record["workflow_policy"]["gate_order"] == ["code_review", "qa"], record["workflow_policy"]
-assert len(record["workflow_policy"]["gate_policies"]) == 2, record["workflow_policy"]
-assert len(record["review_gates"]) == 2, record["review_gates"]
-assert record["review_gates"][0]["state"] == "zero_findings", record["review_gates"]
-assert record["review_gates"][1]["gate_id"] == "qa" and record["review_gates"][1]["state"] == "not_reached", record["review_gates"]
+policies = record["workflow_policy"]["gate_policies"]
+assert len(policies) == 4, record["workflow_policy"]
+assert [item["gate_id"] for item in policies] == ["code_review", "qa", "code_review", "code_review"], policies
+assert len({item["policy_digest"] for item in policies}) == 4, policies
+assert len(record["review_gates"]) == 3, record["review_gates"]
+assert [gate["gate_id"] for gate in record["review_gates"]] == ["code_review", "code_review", "qa"], record["review_gates"]
+assert [gate["round"] for gate in record["review_gates"][:2]] == [1, 2], record["review_gates"]
+assert all(gate["state"] == "zero_findings" for gate in record["review_gates"][:2]), record["review_gates"]
+assert record["review_gates"][2]["state"] == "not_reached", record["review_gates"]
+policy_digests = {item["policy_digest"] for item in policies}
+assert all(gate["policy_ref"]["policy_digest"] in policy_digests for gate in record["review_gates"]), record["review_gates"]
+assert record["review_gates"][0]["policy_ref"] != record["review_gates"][1]["policy_ref"], record["review_gates"]
 i05_dir = os.path.join(os.path.dirname(sys.argv[3]), "i05")
 bundle = json.load(open(os.path.join(i05_dir, "bundle.json")))
-assert [stage["dispatch_ordinal"] for stage in bundle["stages"]] == [1, 2], bundle
+assert [stage["dispatch_ordinal"] for stage in bundle["stages"]] == [1, 2, 3, 4], bundle
 assert bundle["dispatches"] == record["dispatches"]
 assert bundle["prelude"] == record["prelude"]
-for stage in record["stages"]:
+for stage_index, stage in enumerate(record["stages"]):
     candidate = stage["candidate"]
     assert candidate["base_commit"] != "0" * 40
     assert all(candidate[field] != "0" * 64 for field in ("tree_digest", "binary_diff_digest", "changed_path_digest", "test_suite_digest", "identity_digest", "snapshot_digest"))
@@ -255,7 +274,19 @@ for stage in record["stages"]:
     assert {item["source_kind"] for item in stage["input_lineage"]} >= {
         "scenario_package", "rendered_prompt", "fixture_checkout",
         "shark_content", "execution_adapter", "lifecycle_adapter",
+        "agent_visible_input",
     }, stage
+    expected_prior = sorted(
+        (artifact["path"], artifact["digest"])
+        for prior_stage in record["stages"][:stage_index]
+        for artifact in prior_stage["artifacts"]
+    )
+    observed_prior = sorted(
+        (item["path"], item["digest"])
+        for item in stage["input_lineage"]
+        if item["source_kind"] == "prior_stage_artifact"
+    )
+    assert observed_prior == expected_prior, stage
 first = record["stages"][0]
 manifest = {entry["path"]: entry for entry in first["candidate"]["dirty_untracked_manifest"]}
 assert manifest["taskmanager/due_date.py"]["tracked"] is True, first
@@ -271,7 +302,10 @@ stage_snapshot = json.load(open(os.path.join(i05_dir, "stages", "1-development.j
 assert stage_snapshot["candidate"]["test_suite_ids"], stage_snapshot
 assert stage_snapshot["candidate"]["test_suite_dir"], stage_snapshot
 transcript_dir = os.path.join(i05_dir, "transcripts")
-assert sorted(os.listdir(transcript_dir)) == ["1-development.txt", "2-code_review.txt"]
+assert sorted(os.listdir(transcript_dir)) == [
+    "1-development.txt", "2-code_review.txt",
+    "3-development.txt", "4-code_review.txt",
+]
 PY
 
 "$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR/i05" >/dev/null
@@ -285,6 +319,15 @@ PY
 # diffing it against `<python-adapter> test --checkout <fixture>` would
 # always show total, spurious drift. tc049 already covers replay-stage-
 # evidence.sh's real contract against a snapshot it actually applies to.
+#
+# Not the "missing prior-stage artifact lineage is rejected" negative test
+# either: every stage's own `artifacts` stays the honest, always-empty
+# placeholder until real artifact population lands (still E40-F07's own
+# scope per record_stage()'s docstring -- see port-list), so there is no
+# real prior_stage_artifact entry to strip from any stage's input_lineage
+# yet; stripping nothing from an already-empty list is not a genuine
+# negative case and would never actually exercise
+# verify-lifecycle-run.sh's new check.
 
 # A mechanically complete workflow with incomplete provider usage must fail
 # closed instead of becoming publication eligible.
@@ -300,6 +343,7 @@ PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/partial-events.ndjson" \
 SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/partial-next-count" ADAPTER_REQUEST="$WORKDIR/partial-requests.ndjson" \
 	ADAPTER_MUTATION_MARKER="$WORKDIR/partial-adapter-mutated" PARTIAL_USAGE=1 \
 	SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+	ADAPTER_REVIEW_MARKER="$WORKDIR/partial-adapter-reviewed" \
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
     --scenario "$PARTIAL_SCENARIO" \
 	--run-id tc061-partial --root ROOT-001 --scratch-root "$WORKDIR/partial-scratch" \

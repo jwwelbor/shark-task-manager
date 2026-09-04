@@ -349,14 +349,20 @@ def validate_workflow_policy_identity(workflow_policy, reasons):
     gate_policies = workflow_policy.get("gate_policies")
     if isinstance(gate_policies, list):
         policy_ids = []
+        policy_digests = set()
         for index, policy in enumerate(gate_policies):
             if not isinstance(policy, dict) or not policy.get("gate_id"):
                 reasons.append(reason("identity_missing", f"/workflow_policy/gate_policies/{index}", "gate policy must name its gate"))
                 continue
-            policy_ids.append(policy["gate_id"])
+            if policy["gate_id"] not in policy_ids:
+                policy_ids.append(policy["gate_id"])
             expected = canonical_digest({key: value for key, value in policy.items() if key != "policy_digest"})
             if policy.get("policy_digest") != expected:
                 reasons.append(reason("identity_mismatch", f"/workflow_policy/gate_policies/{index}/policy_digest", "gate policy digest does not match retained policy content"))
+            elif policy["policy_digest"] in policy_digests:
+                reasons.append(reason("identity_mismatch", f"/workflow_policy/gate_policies/{index}/policy_digest", "gate policy digest is duplicated"))
+            else:
+                policy_digests.add(policy["policy_digest"])
         if policy_ids != workflow_policy.get("enabled_gates") or policy_ids != workflow_policy.get("gate_order"):
             reasons.append(reason("identity_mismatch", "/workflow_policy/gate_policies", "gate policy order disagrees with enabled_gates or gate_order"))
 
@@ -391,9 +397,10 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
     required_lineage_kinds = {
         "scenario_package", "rendered_prompt", "fixture_checkout",
         "shark_content", "execution_adapter", "lifecycle_adapter",
+        "agent_visible_input",
     }
 
-    def valid_lineage(stage):
+    def valid_lineage(stage, stage_index):
         lineage = stage.get("input_lineage")
         if not isinstance(lineage, list) or not lineage:
             return False
@@ -406,7 +413,20 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
             if not digest(entry["digest"]):
                 return False
             kinds.add(entry["source_kind"])
-        return required_lineage_kinds <= kinds
+        if not required_lineage_kinds <= kinds:
+            return False
+        expected_prior = sorted(
+            (str(artifact.get("path")), str(artifact.get("digest")))
+            for prior_stage in stages[:stage_index]
+            for artifact in prior_stage.get("artifacts") or []
+            if isinstance(artifact, dict)
+        )
+        observed_prior = sorted(
+            (entry["path"], entry["digest"])
+            for entry in lineage
+            if entry["source_kind"] == "prior_stage_artifact"
+        )
+        return observed_prior == expected_prior
 
     stages = [item for item in lifecycle.get("stages", []) if isinstance(item, dict)]
     for index, stage in enumerate(stages):
@@ -415,7 +435,7 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
                 "source_malformed", f"/stages/{index}/errors",
                 "stage reports unavailable or unmapped required evidence",
             ))
-        if not valid_lineage(stage):
+        if not valid_lineage(stage, index):
             reasons.append(reason(
                 "source_malformed", f"/stages/{index}/input_lineage",
                 "stage input lineage must identify every consumed source by kind, path, and digest",
@@ -427,7 +447,9 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
         "links": bool(i05.get("access_events") or i05.get("artifacts") or lifecycle.get("stages")),
         "dependencies": bool(lifecycle.get("entity_graph")),
         "status_transitions": bool(lifecycle.get("dispatches")) and all(isinstance(item, dict) and item.get("transition") is not None for item in lifecycle.get("dispatches", [])),
-        "traceability": bool(stages) and all(valid_lineage(item) for item in stages),
+        "traceability": bool(stages) and all(
+            valid_lineage(item, index) for index, item in enumerate(stages)
+        ),
         "executable_task": bool(lifecycle.get("stages")) and any(item.get("category") == "code" for item in lifecycle.get("stages", []) if isinstance(item, dict)),
     }
     structural_checks = [{"check_id": key, "applicability": "applicable", "stage": "lifecycle", "entity": "run", "result": "pass" if value else "fail", "evidence_refs": ["i05", "i07"] if value else [], "reason": None if value else "required evidence is absent"} for key, value in checks.items()]

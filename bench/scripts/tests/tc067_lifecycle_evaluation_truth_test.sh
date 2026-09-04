@@ -42,6 +42,51 @@ assert oracle["observed_result"] == "not_run", oracle
 assert oracle["invalidity_reasons"], oracle
 PY
 
+# A later stage must explicitly join every earlier artifact. Merely carrying
+# the fixed source-kind inventory is not complete lineage.
+python3 - "$tmp/missing-prior-i07.jsonl" <<'PY'
+import hashlib, json, sys
+digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
+lineage = [
+    {"source_kind": kind, "path": f"/{kind}", "digest": digest(kind)}
+    for kind in (
+        "scenario_package", "rendered_prompt", "fixture_checkout",
+        "shark_content", "execution_adapter", "lifecycle_adapter",
+        "agent_visible_input",
+    )
+]
+record = {
+    "identity": {"run_id": "tc067", "scenario_id": "py-bug-due-date-boundary"},
+    "entity_graph": {"nodes": ["T"]},
+    "dispatches": [{"transition": "development"}, {"transition": "code_review"}],
+    "stages": [
+        {"category": "code", "input_lineage": lineage, "artifacts": [
+            {"path": "artifacts/0001.patch", "digest": digest("artifact-1")},
+        ]},
+        {"category": "review", "input_lineage": lineage, "artifacts": []},
+    ],
+    "outcome": {"terminal": "complete"},
+}
+with open(sys.argv[1], "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+missing_prior_output="$tmp/missing-prior-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/missing-prior-i07.jsonl" \
+    --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --output "$missing_prior_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: missing prior-stage artifact lineage unexpectedly eligible" >&2
+  exit 1
+fi
+python3 - "$missing_prior_output" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+reasons = record["eligibility"]["invalidity_reasons"]
+assert any(
+    item["code"] == "source_malformed" and item["path"] == "/stages/1/input_lineage"
+    for item in reasons
+), reasons
+PY
+
 sed 's/"terminal":"complete"/"terminal":"resource_limit"/' "$tmp/i07.jsonl" >"$tmp/stopped-i07.jsonl"
 stopped_output="$tmp/stopped-evaluation.jsonl"
 if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/stopped-i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$stopped_output" >/dev/null 2>/dev/null; then

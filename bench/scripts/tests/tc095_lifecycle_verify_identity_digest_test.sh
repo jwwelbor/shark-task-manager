@@ -78,6 +78,7 @@ lineage = [
     for kind in (
         "scenario_package", "rendered_prompt", "fixture_checkout",
         "shark_content", "execution_adapter", "lifecycle_adapter",
+        "agent_visible_input",
     )
 ]
 
