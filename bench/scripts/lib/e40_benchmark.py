@@ -1034,7 +1034,6 @@ def setup_config(
             "provider_command": None,
             "missing_real_runtime_inputs": [
                 "runtime.lifecycle_adapter: executable accepting one run-lifecycle request on stdin",
-                "scenario_roots.<scenario>.i05_bundle_dir: run-matched I-05 evidence source",
             ],
         },
         "resource_policy": {
@@ -1203,6 +1202,30 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
         "seed demo epic",
     )
     epic_key = str(epic.get("key") or "")
+    packages_by_family = {
+        str(package["entity_family"]): (package_path, package)
+        for package_path, package in scenario_packages(DEFAULT_SCENARIO_INDEX)
+    }
+
+    def scenario_seed(family: str) -> tuple[str, str]:
+        package_path, package = packages_by_family[family]
+        input_relative = str((package.get("input") or {}).get("agent_visible") or "")
+        input_path = (package_path.parent / input_relative).resolve()
+        if not input_path.is_file() or package_path.parent not in input_path.parents:
+            raise OperatorError(
+                f"scenario {package.get('scenario_id')} has no safe agent-visible prompt: {input_path}"
+            )
+        contract = (
+            "\n\nBenchmark execution contract: implementation source is the separate git "
+            "checkout named by $E40_AGENT_FIXTURE_CHECKOUT. Read and modify code only "
+            "there. Keep Shark planning artifacts in this scratch project."
+        )
+        return str(package["scenario_id"]), input_path.read_text(encoding="utf-8") + contract
+
+    feature_title, feature_description = scenario_seed("feature")
+    bug_title, bug_description = scenario_seed("bug")
+    change_title, change_description = scenario_seed("change_card")
+    tech_debt_title, tech_debt_description = scenario_seed("tech_debt")
     feature = shark_json(
         scratch_binary,
         scratch,
@@ -1210,9 +1233,9 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
             "create",
             "feature",
             epic_key,
-            "E40 benchmark feature root",
+            feature_title,
             "--description",
-            "Isolated E40 lifecycle benchmark root",
+            feature_description,
             "--size",
             "S",
         ],
@@ -1224,9 +1247,9 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
         [
             "create",
             "bug",
-            "E40 benchmark bug root",
+            bug_title,
             "--description",
-            "Isolated E40 lifecycle benchmark root",
+            bug_description,
             "--severity",
             "medium",
             "--size",
@@ -1240,9 +1263,9 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
         [
             "create",
             "change",
-            "E40 benchmark change root",
+            change_title,
             "--description",
-            "Isolated E40 lifecycle benchmark root",
+            change_description,
             "--size",
             "S",
         ],
@@ -1254,9 +1277,9 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
         [
             "create",
             "tech-debt",
-            "E40 benchmark tech-debt root",
+            tech_debt_title,
             "--description",
-            "Isolated E40 lifecycle benchmark root",
+            tech_debt_description,
             "--category",
             "code-quality",
             "--severity",
@@ -1607,21 +1630,6 @@ def runtime_readiness(
             blockers.append(
                 f"runtime.lifecycle_adapter is not executable: {adapter_path}"
             )
-    roots = config.get("scenario_roots") or {}
-    for row in matrix:
-        entry = roots.get(row["scenario_id"]) if isinstance(roots, dict) else None
-        i05 = entry.get("i05_bundle_dir") if isinstance(entry, dict) else None
-        if not isinstance(i05, str) or not i05:
-            blockers.append(
-                f"scenario_roots.{row['scenario_id']}.i05_bundle_dir is not configured"
-            )
-        else:
-            i05_path = resolve_path(i05, config_base)
-            if i05_path.is_symlink() or not i05_path.is_dir():
-                blockers.append(
-                    f"scenario_roots.{row['scenario_id']}.i05_bundle_dir is not a real directory: "
-                    f"{i05_path}"
-                )
     return not blockers, blockers
 
 

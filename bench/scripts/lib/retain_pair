@@ -359,6 +359,27 @@ def copy_dir_artifact(name, source_dir, exclude_top_level=()):
     artifacts[name] = {"source_path": str(source_path), "sha256": digest_of_path(target)}
 
 
+# Refuse a missing required source before installing any artifact. This keeps
+# the destination empty and reclaimable when a late-listed source (notably
+# transcripts or the oracle sidecar) is absent.
+required_sources = (
+    ("package.yaml", package_path, "file"),
+    ("lifecycle.jsonl", lifecycle_jsonl, "file"),
+    ("evaluation.jsonl", evaluation_jsonl, "file"),
+    ("entity-history.json", entity_history_json, "file"),
+    ("oracle.json", evaluation_jsonl + ".oracle.json", "file"),
+    ("evidence", i05_bundle_dir, "directory"),
+    ("transcripts", os.path.join(i05_bundle_dir, "transcripts") if i05_bundle_dir else "", "directory"),
+)
+for artifact_name, source, source_kind in required_sources:
+    source_path = Path(source) if source else None
+    available = source_path is not None and (
+        source_path.is_file() if source_kind == "file" else source_path.is_dir()
+    )
+    if not available:
+        refuse_missing_source(artifact_name, repr(source))
+
+
 copy_artifact("package.yaml", package_path)
 copy_artifact("lifecycle.jsonl", lifecycle_jsonl)
 copy_artifact("evaluation.jsonl", evaluation_jsonl)

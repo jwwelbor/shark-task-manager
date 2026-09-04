@@ -478,9 +478,18 @@ cat >"$UAT_R2_01_WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
 set -euo pipefail
 python3 - "$@" <<'PY'
-import hashlib, json, sys
+import hashlib, json, os, sys
 args = sys.argv[1:]
 if args[:2] == ["next", "ROOT-001"]:
+    state_path = os.path.join(os.getcwd(), ".tc080-next-count")
+    try:
+        count = int(open(state_path).read()) + 1
+    except (OSError, ValueError):
+        count = 1
+    open(state_path, "w").write(str(count))
+    if count > 1:
+        print(json.dumps({"action":"archive","entity_key":"ROOT-001","entity_type":"task"}, separators=(",", ":")))
+        raise SystemExit(0)
     prompt = "work ROOT-001\n"
     response = {
         "entity_key": "ROOT-001", "entity_type": "task", "status": "development",
@@ -552,6 +561,9 @@ chmod +x "$UAT_R2_01_WORKDIR/run-lifecycle-wrapper.sh"
 # never constructed.
 UAT_R2_01_SCENARIO_ID="scenario-uat-r2-01"
 mkdir -p "$UAT_R2_01_WORKDIR/index/packages/$UAT_R2_01_SCENARIO_ID"
+cp -a "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/evaluator" \
+    "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/input" \
+    "$UAT_R2_01_WORKDIR/index/packages/$UAT_R2_01_SCENARIO_ID/"
 python3 - "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
 	"$UAT_R2_01_WORKDIR/index/packages/$UAT_R2_01_SCENARIO_ID/package.yaml" "$UAT_R2_01_SCENARIO_ID" <<'PY'
 import sys
@@ -652,8 +664,8 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	>"$UAT_R2_01_WORKDIR/batch-r2.out" 2>"$UAT_R2_01_WORKDIR/batch-r2.err" || batch_r2_rc=$?
 [[ "$batch_r2_rc" -eq 4 ]] || fail "uat-r2-01 batch: expected exit 4 (real dispatch reached, i05_bundle_dir deliberately unconfigured), got $batch_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err")"
-grep -q "i05_bundle_not_configured" "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" \
-	|| fail "uat-r2-01 batch: expected the pair to be classified i05_bundle_not_configured AFTER a real run-lifecycle.sh dispatch, got: $(cat "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" 2>/dev/null)"
+grep -q "evaluation_failed" "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" \
+	|| fail "uat-r2-01 batch: expected the synthetic pair to reach evaluation AFTER a real run-lifecycle.sh dispatch and run-matched I-05 capture, got: $(cat "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" 2>/dev/null); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err" 2>/dev/null); lifecycle: $(cat "$UAT_R2_01_WORKDIR/batch-captured-lifecycle.jsonl" 2>/dev/null)"
 
 grep -q -- "--limits" "$UAT_R2_01_WORKDIR/batch-spy-argv.log" \
 	|| fail "uat-r2-01 batch: real run-lifecycle-batch.sh invocation of run-lifecycle.sh did not include --limits: $(cat "$UAT_R2_01_WORKDIR/batch-spy-argv.log")"

@@ -414,6 +414,8 @@ missing_source_rc=$?
 set -e
 [[ "$missing_source_rc" -eq 4 ]] || fail "missing-source dispatch expected exit 4 (batch completed with a failed pair), got $missing_source_rc: $(cat "$WORKDIR/missing-source.out")"
 [[ ! -f "$MISSING_SOURCE_ROOT/scenarios/py-bug-due-date-boundary/1/manifest.json" ]] || fail "missing-source dispatch retained manifest.json -- expected the whole pair refused, never a fabricated placeholder"
+find "$MISSING_SOURCE_ROOT/.failed-attempts/py-bug-due-date-boundary" -type f -print -quit | grep -q . \
+	|| fail "missing-source dispatch discarded its partial diagnostic evidence"
 grep -q '"classification": "failed"' "$MISSING_SOURCE_ROOT/batch.json" || fail "missing-source dispatch not classified failed: $(cat "$MISSING_SOURCE_ROOT/batch.json")"
 grep -q "required_artifact_source_unavailable" "$MISSING_SOURCE_ROOT/invalid/index.jsonl" || fail "missing-source dispatch invalid/index.jsonl missing required_artifact_source_unavailable: $(cat "$MISSING_SOURCE_ROOT/invalid/index.jsonl")"
 

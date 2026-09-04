@@ -81,6 +81,121 @@ for secret in ("run exact bytes", "credential-sentinel", "provider-secret-sentin
 PYEOF
 echo "TC-060(TC-002: exact prompt bytes, identity/session, outcome, bounded evidence, and no authority/leak) PASS"
 
+echo "TC-060: controller stdin request path reaches the real adapter"
+rm -f "$CANARY_LOG" "$OUT"
+LIFECYCLE_CANARY_LOG="$CANARY_LOG" \
+LIFECYCLE_EXPECTED_PROMPT="$PROMPT" \
+LIFECYCLE_WORKER_RESULT="$RESULT_FIXTURE" \
+LIFECYCLE_WORKER_ID="worker-canary-001" \
+"$ADAPTER" --provider-command "$TESTDATA/bin/worker-canary" --result-out "$OUT" <"$REQUEST"
+python3 - "$OUT" "$CANARY_LOG" <<'PYEOF'
+import json
+import pathlib
+import sys
+
+result_path, log_path = map(pathlib.Path, sys.argv[1:])
+result = json.loads(result_path.read_text())
+entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+assert result["recommended_outcome"] == "deep_verify", result
+assert len(entries) == 1, entries
+assert entries[0]["entity_key"] == "E40-F08-CHILD-001", entries[0]
+PYEOF
+echo "TC-060(TC-002: stdin request path matches run-lifecycle.sh caller contract) PASS"
+
+echo "TC-060: structured provider envelope preserves bounded usage"
+STRUCTURED_RESULT="$WORKDIR/structured-result.json"
+python3 - "$STRUCTURED_RESULT" <<'PYEOF'
+import json
+import sys
+
+result = {
+    "type": "result",
+    "subtype": "success",
+    "is_error": False,
+    "structured_output": {
+        "kind": "final",
+        "recommended_outcome": "pass",
+        "evidence": [],
+    },
+    "total_cost_usd": 0.125,
+    "duration_api_ms": 1234,
+    "num_turns": 2,
+    "usage": {
+        "input_tokens": 10,
+        "output_tokens": 20,
+        "cache_read_input_tokens": 30,
+        "cache_creation_input_tokens": 40,
+    },
+    "modelUsage": {"claude-haiku-fixture": {"costUSD": 0.125}},
+}
+with open(sys.argv[1], "w", encoding="utf-8") as stream:
+    json.dump(result, stream)
+PYEOF
+rm -f "$CANARY_LOG" "$OUT"
+LIFECYCLE_CANARY_LOG="$CANARY_LOG" \
+LIFECYCLE_EXPECTED_PROMPT="$PROMPT" \
+LIFECYCLE_WORKER_RESULT="$STRUCTURED_RESULT" \
+"$ADAPTER" --request "$REQUEST" --provider-command "$TESTDATA/bin/worker-canary" --result-out "$OUT" >/dev/null
+python3 - "$OUT" <<'PYEOF'
+import json
+import sys
+
+result = json.load(open(sys.argv[1], encoding="utf-8"))
+assert result["worker_id"] == "fixture-fixture-model", result
+assert result["recommended_outcome"] == "pass", result
+assert result["cost_usd"] == 0.125, result
+assert result["usage"] == {
+    "api_active_duration_ms": 1234,
+    "cache_creation_input_tokens": 40,
+    "cache_read_input_tokens": 30,
+    "cost_usd": 0.125,
+    "input_tokens": 10,
+    "model_ids": ["claude-haiku-fixture"],
+    "output_tokens": 20,
+    "turn_count": 2,
+}, result
+PYEOF
+echo "TC-060(TC-002: structured output and real usage envelope projection) PASS"
+
+echo "TC-060: legacy advance recommendation maps to the workflow-owned pass outcome"
+ALIAS_REQUEST="$WORKDIR/request-allowed-outcomes.json"
+ALIAS_RESULT="$WORKDIR/alias-result.json"
+python3 - "$REQUEST" "$ALIAS_REQUEST" "$ALIAS_RESULT" <<'PYEOF'
+import json
+import sys
+
+request = json.load(open(sys.argv[1], encoding="utf-8"))
+request["allowed_outcomes"] = ["blocked", "fail", "on_hold", "pass"]
+json.dump(request, open(sys.argv[2], "w", encoding="utf-8"), sort_keys=True)
+json.dump({"kind": "final", "recommended_outcome": "advance", "evidence": []}, open(sys.argv[3], "w", encoding="utf-8"))
+PYEOF
+rm -f "$CANARY_LOG" "$OUT"
+LIFECYCLE_CANARY_LOG="$CANARY_LOG" \
+LIFECYCLE_EXPECTED_PROMPT="$PROMPT" \
+LIFECYCLE_WORKER_RESULT="$ALIAS_RESULT" \
+"$ADAPTER" --request "$ALIAS_REQUEST" --provider-command "$TESTDATA/bin/worker-canary" --result-out "$OUT" >/dev/null
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["recommended_outcome"] == "pass"' "$OUT"
+echo "TC-060(TC-002: adapter projects legacy prose outcome onto the workflow-owned outcome vocabulary) PASS"
+
+echo "TC-060: provider session metadata cannot replace parent claim authority"
+SESSION_RESULT="$WORKDIR/session-result.json"
+python3 - "$SESSION_RESULT" <<'PYEOF'
+import json
+import sys
+
+json.dump(
+    {"kind": "final", "recommended_outcome": "deep_verify", "session_id": "provider-invented", "evidence": []},
+    open(sys.argv[1], "w", encoding="utf-8"),
+)
+PYEOF
+rm -f "$CANARY_LOG" "$OUT"
+LIFECYCLE_CANARY_LOG="$CANARY_LOG" \
+LIFECYCLE_EXPECTED_PROMPT="$PROMPT" \
+LIFECYCLE_WORKER_RESULT="$SESSION_RESULT" \
+"$ADAPTER" --request "$REQUEST" --provider-command "$TESTDATA/bin/worker-canary" --result-out "$OUT" >/dev/null
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["session_id"] == "SID-002"' "$OUT"
+echo "TC-060(TC-002: parent claim session remains authoritative over provider metadata) PASS"
+
 echo "TC-060: TC-002 invalid prompt provenance refuses provider dispatch"
 BAD_REQUEST="$WORKDIR/request-bad-digest.json"
 python3 - "$REQUEST" "$BAD_REQUEST" <<'PYEOF'

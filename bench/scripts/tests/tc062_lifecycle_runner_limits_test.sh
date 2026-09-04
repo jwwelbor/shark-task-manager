@@ -80,10 +80,11 @@ LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
     --run-id tc062 --root ROOT-001 --scratch-root "$WORKDIR/scratch" \
     --limits "$SCRIPTS_DIR/testdata/lifecycle/limits/first-exceed.yaml" --output "$WORKDIR/lifecycle.jsonl"
 
-python3 - "$WORKDIR/events.ndjson" "$WORKDIR/lifecycle.jsonl" <<'PY'
+python3 - "$WORKDIR/events.ndjson" "$WORKDIR/lifecycle.jsonl" "$WORKDIR/evidence/bundle.json" <<'PY'
 import json, sys
 events = [json.loads(line) for line in open(sys.argv[1])]
 record = json.loads(open(sys.argv[2]).readline())
+bundle = json.load(open(sys.argv[3]))
 assert [e["argv"][1] for e in events if e["argv"][0] == "next"] == ["ROOT-001", "TASK-001"]
 assert record["limits"]["observed_generated_tasks"] == 1
 assert record["limits"]["first_exceeded"] == "max_cost_usd"
@@ -91,6 +92,8 @@ assert record["outcome"]["terminal"] == "resource_limit"
 assert record["outcome"]["partial_evidence"] is True
 assert record["outcome"]["publication_eligible"] is False
 assert record["outcome"]["reason"]
+assert bundle["terminal_status"]["reached"] is True
+assert bundle["stop_outcome"] == "resource_limit"
 assert sum(e["argv"][0] == "release" for e in events) == 1
 assert not any(e["argv"][0] == "next" and e["argv"][1] == "TASK-002" for e in events)
 PY

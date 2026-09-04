@@ -24,6 +24,10 @@ parser.add_argument("--judge-result")
 parser.add_argument("--review-findings")
 args = parser.parse_args(sys.argv[3:])
 
+with open(os.path.join(bench_dir, "runs", "i07-schema.yaml"), encoding="utf-8") as stream:
+    i07_schema = yaml.safe_load(stream) or {}
+STOP_OUTCOMES = set(i07_schema.get("stop_outcome") or [])
+
 
 def file_digest(path):
     with open(path, "rb") as stream:
@@ -410,11 +414,26 @@ def run_judge(package, reasons):
     return judge
 
 
-def run_oracle(i05, reasons):
+def run_oracle(i05, lifecycle, reasons):
     """Invoke the held-back oracle when an agent fixture checkout is available."""
+    terminal = (lifecycle.get("outcome") or {}).get("terminal")
+    if terminal in STOP_OUTCOMES:
+        stopped = reason(
+            "aggregate_ineligible",
+            "/outcome/terminal",
+            f"held-back oracle is not run for lifecycle terminal outcome {terminal!r}",
+        )
+        reasons.append(stopped)
+        return {
+            "observed_result": "not_run",
+            "invalidity_reasons": [stopped],
+            "summary": stopped["detail"],
+        }
     checkout = (i05.get("roots") or {}).get("agent_fixture_checkout")
+    if isinstance(checkout, dict):
+        checkout = checkout.get("path")
     if checkout is not None and not isinstance(checkout, str):
-        fail_input("I-05 roots.agent_fixture_checkout must be a path string")
+        fail_input("I-05 roots.agent_fixture_checkout must be a path string or an object with path")
     if not checkout or not os.path.isdir(checkout):
         oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable")]}
         reasons.append(reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable"))
@@ -492,7 +511,7 @@ try:
     validate_workflow_policy_identity(workflow_policy, reasons)
     structural = run_structural_checks(i05, lifecycle, lifecycle_rows, reasons)
     judge = run_judge(package, reasons)
-    oracle_result = run_oracle(i05, reasons)
+    oracle_result = run_oracle(i05, lifecycle, reasons)
     sources = build_source_artifacts(i05_json, lifecycle)
     review_findings = normalize_findings(reasons)
     build_record(evaluation_id, identity, sources, structural, judge, oracle_result, review_findings, candidate_snapshots, workflow_policy, lifecycle, reasons)
