@@ -12,6 +12,8 @@ READ:
 (5) All task specs: `{{template "list_json" .}}` → read each task's file_path
 (6) Full implementation: `git diff $(git merge-base HEAD main)..HEAD` — read the actual changed files
 
+I-03/I-04 EVIDENCE: consume E34-F06's I-03 DefectClassSweep (`skills/quality/workflows/defect-class-sweep.md`) and E34-F07's I-04 ChangeImpactSet (`skills/quality/workflows/state-space-coverage.md`) evidence for prior blocking defect classes and material decisions in scope — read their existing records rather than re-deriving this feature's own.
+
 RED-TEAM REVIEW:
 - Independently verify EVERY feature acceptance criterion against the actual code (not just reports)
 - Apply `skills/quality/workflows/defect-class-sweep.md`'s "Enumeration procedure" per AC (see `skills/uat/references/redteam-rubric.md` "ENUMERATE — DO NOT ITERATE")

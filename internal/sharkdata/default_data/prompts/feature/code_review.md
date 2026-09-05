@@ -34,6 +34,8 @@ READ:
 (7) Parent interaction map and cross-epic maps if the feature spec declares
     I-## or X-## rows
 
+I-03/I-04 EVIDENCE: consume E34-F06's I-03 DefectClassSweep (`skills/quality/workflows/defect-class-sweep.md`) and E34-F07's I-04 ChangeImpactSet (`skills/quality/workflows/state-space-coverage.md`) evidence for prior blocking defect classes and material decisions in scope — read their existing records rather than re-deriving this feature's own.
+
 PART 1 — CRAFT REVIEW (all tiers; treat as a single PR review, not per-task):
 - Code quality, security, and adherence to CLAUDE.md across the full changeset
 - Architecture aligns with feature spec decisions (naming, layers, patterns)

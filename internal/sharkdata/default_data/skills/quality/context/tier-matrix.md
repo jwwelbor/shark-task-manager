@@ -36,3 +36,12 @@ Every gate report must cite, per gate:
 
 A prose-only total, an omitted exit status, a missing declared test case, or
 an unexplained unexpected skip fails the gate.
+
+## Pinned E40 benchmark scenarios
+
+Non-blocking note, not a gate: E40 pins four scenario categories against
+this tier contract as benchmark follow-up work — tier routing, evidence
+fidelity, defect-class recurrence, and integration closure. These scenarios
+measure how faithfully a workflow run honors the tier contract above; they
+are not a delivery prerequisite for this feature or any feature that
+references this file, and their absence never fails a gate.

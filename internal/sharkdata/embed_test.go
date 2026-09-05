@@ -1022,6 +1022,183 @@ func TestDefectClassSweepNoWWGMOrToolLeakage(t *testing.T) {
 	}
 }
 
+// e34F08I03I04AnchorPhrases is the closed enumeration of procedural anchor
+// phrases owned by E34-F06's defect-class-sweep.md (I-03) and E34-F07's
+// state-space-coverage.md (I-04) workflow files. Test-plan.md TC-003
+// requires none of these to appear in code_review.md/qa.md/approval.md
+// outside the one I-03/I-04 reference paragraph this task adds — a restated
+// procedure fails the check.
+var e34F08I03I04AnchorPhrases = []string{
+	// defect-class-sweep.md (I-03) procedural section headings
+	"Class naming",
+	"Search-scope declaration",
+	"Enumeration procedure",
+	"Zero-result reporting",
+	"Instance evidence",
+	"Backward-looking rework",
+	"Recurrence classification",
+	"Disposition and severity-conflict routing",
+	"Guard selection",
+	"Structural guard closure",
+	"Full-class re-verification",
+	"Output shape",
+	// state-space-coverage.md (I-04) procedural section headings
+	"Closed lifecycle tables",
+	"Technique selection from state shape",
+	"Dependency discovery by interaction and caller path",
+	"Shipped consumer re-verification",
+	"I-04 propagation",
+	"Design divergence",
+}
+
+// e34F08PreexistingAnchorPhraseAllowlist names the two anchor phrases from
+// e34F08I03I04AnchorPhrases that E34-F06 already wired into code_review.md/
+// qa.md/approval.md as legitimate, specific-section pointers — the
+// RE-REVIEW/RE-VERIFICATION ROUND paragraphs, guarded by
+// TestDefectClassSweepQAAndDevelopmentPromptsReference and
+// TestDefectClassSweepConsolidatedNotDuplicated. They are exempt ONLY
+// outside this task's new I-03/I-04 paragraph — restating either phrase
+// inside that paragraph is still a violation, since the new paragraph must
+// reference, not restate, either workflow.
+var e34F08PreexistingAnchorPhraseAllowlist = map[string]bool{
+	"Enumeration procedure":      true,
+	"Full-class re-verification": true,
+}
+
+// TestI03I04ConsumptionReferencePresent is test-plan.md TC-003 (REQ-F-003,
+// content half): code_review.md, qa.md, and approval.md each add ONE
+// paragraph naming both E34-F06's I-03 DefectClassSweep and E34-F07's I-04
+// ChangeImpactSet evidence for prior blocking defect classes and material
+// decisions in scope, pointing at those features' own workflow files rather
+// than restating their content (AC-T1).
+func TestI03I04ConsumptionReferencePresent(t *testing.T) {
+	const (
+		i03Marker = "skills/quality/workflows/defect-class-sweep.md"
+		i04Marker = "skills/quality/workflows/state-space-coverage.md"
+	)
+
+	files := []string{
+		"prompts/feature/code_review.md",
+		"prompts/feature/qa.md",
+		"prompts/feature/approval.md",
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		paragraphs := strings.Split(content, "\n\n")
+
+		// AC-T1 requires ONE paragraph naming both shapes — locate it rather
+		// than checking the whole file, so a future edit that scatters "I-03"
+		// and "I-04" across unrelated sections (or drops the paragraph while
+		// leaving a stray mention) fails here instead of passing.
+		var consumptionParagraph string
+		for _, p := range paragraphs {
+			if strings.Contains(p, "I-03") && strings.Contains(p, "I-04") {
+				consumptionParagraph = p
+				break
+			}
+		}
+		require.NotEmpty(t, consumptionParagraph,
+			"%s must contain one paragraph naming both I-03 and I-04 (AC-T1)", rel)
+
+		assert.Contains(t, consumptionParagraph, "DefectClassSweep",
+			"%s's I-03/I-04 paragraph must name DefectClassSweep", rel)
+		assert.Contains(t, consumptionParagraph, "ChangeImpactSet",
+			"%s's I-03/I-04 paragraph must name ChangeImpactSet", rel)
+		assert.Contains(t, consumptionParagraph, i03Marker,
+			"%s's I-03/I-04 paragraph must point at the canonical I-03 workflow file, not restate it", rel)
+		assert.Contains(t, consumptionParagraph, i04Marker,
+			"%s's I-03/I-04 paragraph must point at the canonical I-04 workflow file, not restate it", rel)
+
+		// The I-04 reference must be a bare pointer (mirrors E34-F07's own
+		// TC-002/TC-003/TC-006 structural check) — no restated procedure, no
+		// enumerated-list shape, bounded word count.
+		assertBareStateSpaceReference(t, rel, content)
+
+		// Negative case: the new paragraph itself must never restate either
+		// workflow's procedure — no allowlist exception applies inside it.
+		for _, phrase := range e34F08I03I04AnchorPhrases {
+			assert.NotContains(t, consumptionParagraph, phrase,
+				"%s's I-03/I-04 paragraph restates %q — reference the owning workflow file instead of restating its procedure",
+				rel, phrase)
+		}
+
+		// Outside the paragraph, the full enumeration must also be absent,
+		// except the two phrases E34-F06 already wired in elsewhere in this
+		// file as legitimate specific-section pointers.
+		for _, p := range paragraphs {
+			if p == consumptionParagraph {
+				continue
+			}
+			for _, phrase := range e34F08I03I04AnchorPhrases {
+				if e34F08PreexistingAnchorPhraseAllowlist[phrase] {
+					continue
+				}
+				assert.NotContains(t, p, phrase,
+					"%s contains %q outside the I-03/I-04 paragraph — a procedural anchor phrase owned by defect-class-sweep.md/state-space-coverage.md must not be restated",
+					rel, phrase)
+			}
+		}
+	}
+}
+
+// TestTierMatrixPinnedE40BenchmarkScenariosNote is test-plan.md TC-004
+// (REQ-F-008): tier-matrix.md must carry a "Pinned E40 benchmark scenarios"
+// note (not a gate) naming all four scenario categories and stating,
+// explicitly, that the note is non-blocking for this feature's acceptance.
+func TestTierMatrixPinnedE40BenchmarkScenariosNote(t *testing.T) {
+	content := readEmbeddedString(t, "skills/quality/context/tier-matrix.md")
+	// The note wraps across lines like the rest of this file's prose (matches
+	// the file's own convention); normalize whitespace first so a wrapped
+	// two-word category phrase (e.g. "integration closure" split across a
+	// line break) is still found as a contiguous substring.
+	lower := strings.ToLower(normalizeWhitespace(content))
+
+	assert.Contains(t, content, "Pinned E40 benchmark scenarios",
+		"tier-matrix.md must contain a \"Pinned E40 benchmark scenarios\" section")
+
+	for _, category := range []string{
+		"tier routing",
+		"evidence fidelity",
+		"defect-class recurrence",
+		"integration closure",
+	} {
+		assert.Contains(t, lower, category,
+			"tier-matrix.md's E40 benchmark note must name the %q scenario category", category)
+	}
+
+	// Negative case: absence of the explicit non-blocking qualifier fails —
+	// a benchmark note that reads as a gate requirement would silently make
+	// E40 a delivery prerequisite, which REQ-F-008 forbids.
+	assert.True(t, strings.Contains(lower, "non-blocking") || strings.Contains(lower, "not a gate"),
+		"tier-matrix.md's E40 benchmark note must explicitly state it is non-blocking (e.g. \"non-blocking\" or \"not a gate\")")
+}
+
+// e34F08HostAndLLMLeakPattern is test-plan.md TC-005's guard pattern
+// (REQ-NF-001): extends F06's TC-004-equivalent WWGM/tool/path pattern with
+// LLM-name tokens, since REQ-NF-001 additionally forbids "specific LLM
+// names".
+var e34F08HostAndLLMLeakPattern = regexp.MustCompile(`(?i)WWGM|\.py\b|/home/|/Users/|gpt-|claude-[0-9]|gemini-[0-9]`)
+
+// TestTierMatrixAndIntegrationReviewNoHostOrLLMLeakage is test-plan.md TC-005
+// (REQ-NF-001): tier-matrix.md (and, once epic/integration_review.md exists
+// in this feature, that file too) must not leak WWGM defect names, Python
+// tooling references, local filesystem paths, or specific LLM/provider model
+// names — content stays project- and provider-neutral.
+func TestTierMatrixAndIntegrationReviewNoHostOrLLMLeakage(t *testing.T) {
+	files := []string{"skills/quality/context/tier-matrix.md"}
+	if _, err := readEmbeddedAll("prompts/epic/integration_review.md"); err == nil {
+		files = append(files, "prompts/epic/integration_review.md")
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		if match := e34F08HostAndLLMLeakPattern.FindString(content); match != "" {
+			t.Errorf("%s contains leaked WWGM/tool/path/LLM-name reference: %q", rel, match)
+		}
+	}
+}
+
 // defectClassSweepPersistenceIdentifiers is test-plan.md TC-010's guard
 // pattern (tightened per UAT-kickback MEDIUM-3): the original guard matched
 // only the two literal identifiers `DefectClassSweep` and `class_key`, which

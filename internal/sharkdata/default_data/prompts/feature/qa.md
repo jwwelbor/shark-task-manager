@@ -15,6 +15,8 @@ READ:
     docs/product/cross-epic-integration-map.md, and spec.md
     "Cross-epic integrations" section if present
 
+I-03/I-04 EVIDENCE: consume E34-F06's I-03 DefectClassSweep (`skills/quality/workflows/defect-class-sweep.md`) and E34-F07's I-04 ChangeImpactSet (`skills/quality/workflows/state-space-coverage.md`) evidence for prior blocking defect classes and material decisions in scope — read their existing records rather than re-deriving this feature's own.
+
 RE-REVIEW ROUND (a prior QA report matching {{.review_base}}qa-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (below) over the feature surface, not only the previously-flagged area.
 
 SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
