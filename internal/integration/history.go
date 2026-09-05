@@ -136,39 +136,49 @@ type ReplacementRecord struct {
 // integration_review's closure check reads: every commit accounted for by
 // a recorded feature completion — directly, or via an explicit
 // ReplacementRecord when its commit hash was rewritten by a rebase or
-// squash-merge (AC-T2) — and every remaining commit in the range that no
-// event accounts for, reported as Interleaved so it stays visible and
-// requires an explicit disposition rather than being silently included in
-// or excluded from the reviewed diff (spec.md AC-T3).
+// squash-merge (AC-T2) — every remaining commit in the range that no event
+// accounts for, reported as Interleaved (AC-T3), and every recorded event
+// whose own FeatureCommit could not be placed anywhere in the range or
+// resolved to a replacement, reported as Unaccounted rather than silently
+// dropped — feature.md REQ-F-005 requires every completed/staged feature
+// be included in the review inventory, and integration_review can only
+// reject a genuinely missing feature event if this inventory exposes it.
 type HistoryInventory struct {
 	Base         string
 	Head         string
 	Replacements []*ReplacementRecord
 	Interleaved  []string
+	Unaccounted  []IntegrationEvent
 }
 
 // AnalyzeHistory computes epicRunID's base-to-head history inventory.
-// VerifyBaseReachable is the only step that can fail this call (AC-T1):
-// every other outcome below is data recorded on the returned
-// HistoryInventory, never a silent inclusion, exclusion, or base rewrite.
+// head is required (unlike VerifyBaseReachable's own, more permissive
+// contract, which Backfill's pre-candidate call relies on): `git rev-list
+// base..` treats an omitted upper bound as the current HEAD, so an empty
+// head here would silently infer scope from whatever HEAD happens to be at
+// call time — the same class of silent scope-inference TC-018 forbids for
+// `merge-base HEAD main`, just reached through a different empty string.
 //
-// For each of events' own FeatureCommit: if it is already in the
-// base..head range (or is itself an ancestor of head, e.g. it predates the
-// range), it is accounted for directly. Otherwise AnalyzeHistory looks for
-// a commit in the range whose introduced change is content-identical to
-// the recorded commit's own cumulative change since base (via
-// findRewrittenReplacement's patch-id comparison) — a rebase or
-// squash-merge changes the commit hash and parent while preserving the
-// change itself — and, on a match, persists an explicit ReplacementRecord
-// linking the two (AC-T2) rather than rewriting the original event or the
-// run's base.
+// For each of events' own FeatureCommit: a commit identical to base (a
+// no-op feature) or already in the base..head range is accounted for
+// directly. Otherwise AnalyzeHistory looks for a commit in the range whose
+// introduced change is content-identical to the recorded commit's own
+// cumulative change since base (via findRewrittenReplacement's patch-id
+// comparison) — a rebase or squash-merge changes the commit hash and
+// parent while preserving the change itself — and, on a match, persists an
+// explicit ReplacementRecord linking the two (AC-T2) rather than rewriting
+// the original event or the run's base. When neither placement succeeds,
+// the event is reported on Unaccounted rather than silently dropped.
 //
 // Every commit in the range not attributed to an event's own commit or its
 // replacement is reported as Interleaved (AC-T3) — visible in the
 // inventory, not silently folded in or dropped; integration_review's own
-// closure check is where a disposition for it is required, not this
-// function.
+// closure check is where a disposition for either list is required, not
+// this function.
 func AnalyzeHistory(projectRoot, epicRunID, base, head string, events []IntegrationEvent) (*HistoryInventory, error) {
+	if strings.TrimSpace(head) == "" {
+		return nil, fmt.Errorf("integration: AnalyzeHistory requires a non-empty head — an empty upper bound would let `git rev-list` silently resolve scope from the current HEAD instead of the recorded candidate head")
+	}
 	if err := VerifyBaseReachable(projectRoot, base, head); err != nil {
 		return nil, err
 	}
@@ -190,13 +200,13 @@ func AnalyzeHistory(projectRoot, epicRunID, base, head string, events []Integrat
 		if commit == "" {
 			continue
 		}
-		if _, ok := inRange[commit]; ok {
+		if commit == base {
+			// A no-op feature: its recorded commit is the base itself, with
+			// nothing to diff and nothing to replace.
 			accounted[commit] = struct{}{}
 			continue
 		}
-		if ancestor, err := isAncestor(projectRoot, commit, head); err == nil && ancestor {
-			// Exists and is an ancestor of head, just not literally between
-			// base and head (e.g. it predates base) — nothing to replace.
+		if _, ok := inRange[commit]; ok {
 			accounted[commit] = struct{}{}
 			continue
 		}
@@ -206,23 +216,19 @@ func AnalyzeHistory(projectRoot, epicRunID, base, head string, events []Integrat
 			return nil, err
 		}
 		if replacement == "" {
-			// Neither present nor resolvable to a rewritten replacement.
-			// Reporting a genuinely missing feature event is
-			// integration_review's own closure-check responsibility
-			// (architecture.md: "The review rejects ... a missing feature
-			// event"), not this function's — AnalyzeHistory only records
-			// what it can positively account for.
+			// Neither present in the range nor resolvable to a rewritten
+			// replacement: surfaced so integration_review's own
+			// closure-check can reject a genuinely missing feature event
+			// (architecture.md) rather than never seeing it.
+			inventory.Unaccounted = append(inventory.Unaccounted, event)
 			continue
 		}
 
-		record, err := buildReplacementRecord(epicRunID, event, replacement)
+		persisted, err := buildAndPersistReplacementRecord(projectRoot, epicRunID, event, replacement)
 		if err != nil {
 			return nil, err
 		}
-		if err := persistReplacementRecord(projectRoot, epicRunID, record); err != nil {
-			return nil, err
-		}
-		inventory.Replacements = append(inventory.Replacements, record)
+		inventory.Replacements = append(inventory.Replacements, persisted)
 		accounted[replacement] = struct{}{}
 	}
 
@@ -258,9 +264,13 @@ func commitsInRange(projectRoot, base, head string) ([]string, error) {
 
 // findRewrittenReplacement looks among candidates for a commit whose
 // introduced change is content-identical to commit's own cumulative change
-// since base, and returns it — or "" if none is found or commit's own
-// ancestry can no longer be resolved (e.g. pruned), in which case no
-// replacement can be positively identified.
+// since base, and returns it. It returns ("", nil) only for a positively
+// identified "no rewrite to find" outcome — commit's own object no longer
+// resolves (e.g. pruned), base and commit share no common history, or no
+// candidate's patch matches — and a non-nil error for anything else (a git
+// invocation failing for a reason other than "no such relationship"),
+// so a git-invocation failure is never silently indistinguishable from a
+// genuine "not found" and misreported as a missing feature event.
 //
 // A plain tree-equality check does not work here: a rebase commonly
 // replays a feature's commit onto a *new* base that itself carries other,
@@ -280,23 +290,35 @@ func findRewrittenReplacement(projectRoot, base, commit string, candidates []str
 	if err := verifyCommitObjectExists(projectRoot, commit); err != nil {
 		return "", nil
 	}
-	forkPoint, err := mergeBase(projectRoot, base, commit)
+	forkPoint, ok, err := mergeBase(projectRoot, base, commit)
 	if err != nil {
+		return "", fmt.Errorf("integration: resolve fork point for %s off base %s: %w", commit, base, err)
+	}
+	if !ok {
+		// base and commit share no common history at all — not a rewrite.
+		return "", nil
+	}
+	if forkPoint == commit {
+		// commit is itself an ancestor of base (predates the epic's own
+		// recorded base) — there is no diff to compare a replacement
+		// against, so this is not a rewrite either.
 		return "", nil
 	}
 	wantPatch, err := diffPatchID(projectRoot, forkPoint, commit)
 	if err != nil {
-		return "", nil
+		return "", fmt.Errorf("integration: compute patch identity for %s: %w", commit, err)
 	}
 
 	for _, candidate := range candidates {
 		parent, err := firstParent(projectRoot, candidate)
 		if err != nil {
+			// A parentless (root) candidate commit has nothing to diff
+			// against for this comparison — not comparable, not an error.
 			continue
 		}
 		candidatePatch, err := diffPatchID(projectRoot, parent, candidate)
 		if err != nil {
-			continue
+			return "", fmt.Errorf("integration: compute patch identity for candidate %s: %w", candidate, err)
 		}
 		if candidatePatch == wantPatch {
 			return candidate, nil
@@ -308,15 +330,21 @@ func findRewrittenReplacement(projectRoot, base, commit string, candidates []str
 // mergeBase resolves the best common ancestor of a and b (`git merge-base
 // a b`) — used here to find a recorded commit's own fork point off the
 // epic's base, regardless of what has happened to the branch pointer that
-// used to name it.
-func mergeBase(projectRoot, a, b string) (string, error) {
+// used to name it. ok is false, with a nil error, specifically when git
+// reports no common ancestor exists (exit status 1) — a legitimate "these
+// two share no history" outcome, not a failure to run the check.
+func mergeBase(projectRoot, a, b string) (string, bool, error) {
 	cmd := exec.Command("git", "merge-base", a, b)
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
-	if err != nil {
-		return "", err
+	if err == nil {
+		return strings.TrimSpace(string(out)), true, nil
 	}
-	return strings.TrimSpace(string(out)), nil
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return "", false, nil
+	}
+	return "", false, fmt.Errorf("git merge-base %s %s: %w", a, b, err)
 }
 
 // firstParent resolves commit's first parent (`git rev-parse commit^`).
@@ -358,16 +386,16 @@ func diffPatchID(projectRoot, from, to string) (string, error) {
 	return fields[0], nil
 }
 
-// buildReplacementRecord builds the ReplacementRecord linking event's
-// original, now-rewritten commit to replacementCommit. PriorRecordDigest
-// is the digest of event itself — the "prior record" this replacement
-// supersedes — computed the same way this package's other records are
-// content-addressed (sha256 over canonical JSON); IntegrationEvent has no
-// digest field of its own to exclude, so the whole record is hashed.
-// RecordDigest is this replacement record's own digest, computed with
-// RecordDigest itself cleared first, matching candidate.go's
-// exclude-own-digest-field convention.
-func buildReplacementRecord(epicRunID string, event IntegrationEvent, replacementCommit string) (*ReplacementRecord, error) {
+// buildAndPersistReplacementRecord builds the ReplacementRecord linking
+// event's original, now-rewritten commit to replacementCommit, and
+// durably persists it to its content-addressed path — returning the
+// record that now exists on disk. If an identical edge was already
+// detected and persisted by an earlier call (this AnalyzeHistory run, an
+// earlier one, or a concurrent one), the previously-persisted bytes are
+// read back and returned rather than the freshly-built (different
+// DetectedAt) in-memory copy, so a caller can never observe an inventory
+// entry whose DetectedAt disagrees with what is actually on disk.
+func buildAndPersistReplacementRecord(projectRoot, epicRunID string, event IntegrationEvent, replacementCommit string) (*ReplacementRecord, error) {
 	priorDigest, err := eventDigest(event)
 	if err != nil {
 		return nil, err
@@ -386,7 +414,8 @@ func buildReplacementRecord(epicRunID string, event IntegrationEvent, replacemen
 		return nil, err
 	}
 	record.RecordDigest = digest
-	return record, nil
+
+	return persistReplacementRecord(projectRoot, epicRunID, record)
 }
 
 // eventDigest computes the sha256 hex digest of event's canonical JSON —
@@ -402,11 +431,16 @@ func eventDigest(event IntegrationEvent) (string, error) {
 }
 
 // computeReplacementDigest computes record's own digest: sha256 hex of its
-// canonical JSON with RecordDigest itself cleared first, matching
-// candidate.go's computeDigest convention (no new hashing scheme, per
-// spec.md's own instruction for this package's digests).
+// canonical JSON with RecordDigest *and* DetectedAt cleared first.
+// RecordDigest is excluded matching candidate.go's exclude-own-digest-field
+// convention; DetectedAt is excluded matching event.go's deriveEventID,
+// which deliberately excludes RecordedAt so a retried write of the same
+// logical edge is idempotent (same bytes, same content-addressed path)
+// rather than minting a new file on every call purely because wall-clock
+// time advanced between calls.
 func computeReplacementDigest(record ReplacementRecord) (string, error) {
 	record.RecordDigest = ""
+	record.DetectedAt = time.Time{}
 	data, err := json.Marshal(record)
 	if err != nil {
 		return "", fmt.Errorf("integration: marshal replacement record for digest: %w", err)
@@ -423,43 +457,71 @@ func replacementRecordPath(projectRoot, epicRunID, recordDigest string) string {
 
 // persistReplacementRecord durably writes record to its content-addressed
 // path, atomically (temp file + os.Link, matching this package's other
-// publish-once patterns). Idempotent: a record's path is derived from its
-// own RecordDigest, so if the file already exists — this exact edge was
-// already detected and recorded, whether by an earlier AnalyzeHistory call
-// or a concurrent one — persisting again is a deliberate no-op rather than
-// an error.
-func persistReplacementRecord(projectRoot, epicRunID string, record *ReplacementRecord) error {
+// publish-once patterns), and returns the record that now exists on disk.
+// Idempotent: record's path is derived from its own RecordDigest — which
+// excludes DetectedAt — so a repeat detection of the identical edge always
+// derives the identical path. If the file already exists (this exact edge
+// was already detected and recorded, whether by an earlier AnalyzeHistory
+// call or a concurrent one), persistReplacementRecord reads back and
+// returns the winner's already-persisted record instead of writing again,
+// mirroring publishEvent/publishRun's own "another caller already
+// published, read back the winner" pattern.
+func persistReplacementRecord(projectRoot, epicRunID string, record *ReplacementRecord) (*ReplacementRecord, error) {
 	path := replacementRecordPath(projectRoot, epicRunID, record.RecordDigest)
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("integration: stat replacement record %s: %w", path, err)
+	if existing, err := readReplacementRecord(path); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return existing, nil
 	}
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, runDirMode); err != nil {
-		return fmt.Errorf("integration: create history directory %s: %w", dir, err)
+		return nil, fmt.Errorf("integration: create history directory %s: %w", dir, err)
 	}
 
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
-		return fmt.Errorf("integration: marshal replacement record: %w", err)
+		return nil, fmt.Errorf("integration: marshal replacement record: %w", err)
 	}
 
 	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(tmpPath, data, runFileMode); err != nil {
-		return fmt.Errorf("integration: write temp replacement record: %w", err)
+		return nil, fmt.Errorf("integration: write temp replacement record: %w", err)
 	}
 	defer os.Remove(tmpPath)
 
 	if err := os.Link(tmpPath, path); err != nil {
 		if os.IsExist(err) {
-			// Published concurrently by another caller — fine, this path is
-			// content-addressed by RecordDigest so both writers agree on
-			// the bytes.
-			return nil
+			// Published concurrently by another caller — read back its
+			// record, exactly like a "not found" retry above.
+			winner, readErr := readReplacementRecord(path)
+			if readErr != nil {
+				return nil, readErr
+			}
+			if winner == nil {
+				return nil, fmt.Errorf("integration: replacement record at %s vanished after a concurrent publish", path)
+			}
+			return winner, nil
 		}
-		return fmt.Errorf("integration: publish replacement record at %s: %w", path, err)
+		return nil, fmt.Errorf("integration: publish replacement record at %s: %w", path, err)
 	}
-	return nil
+	return record, nil
+}
+
+// readReplacementRecord reads and parses the replacement record at path.
+// It returns (nil, nil) when no file exists yet, mirroring this package's
+// other readX helpers (readRun/readEvent/readCandidate).
+func readReplacementRecord(path string) (*ReplacementRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("integration: read replacement record at %s: %w", path, err)
+	}
+	var record ReplacementRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, fmt.Errorf("integration: replacement record at %s is corrupt: %w", path, err)
+	}
+	return &record, nil
 }

@@ -307,3 +307,133 @@ func TestVerifyBaseReachable_NoHeadOnlyChecksExistence(t *testing.T) {
 		t.Fatalf("VerifyBaseReachable with no head: %v", err)
 	}
 }
+
+// TestAnalyzeHistory_EmptyHeadRejected: unlike VerifyBaseReachable (which
+// legitimately allows an empty head for Backfill's pre-candidate call
+// shape), AnalyzeHistory always requires an explicit head. `git rev-list
+// base..` (an omitted upper bound) resolves to the current HEAD, so a
+// caller that failed to bind a candidate head would otherwise silently get
+// a review scope inferred from whatever HEAD happens to be at call time —
+// exactly the "inferred scope" TC-018 forbids, just sourced from a bug
+// rather than from `merge-base HEAD main`.
+func TestAnalyzeHistory_EmptyHeadRejected(t *testing.T) {
+	dir, base := chdirProjectRoot(t)
+
+	// If AnalyzeHistory ever silently fell back to `rev-list base..`
+	// resolving "" to HEAD, this extra commit — unrelated to any recorded
+	// event — would appear in the inventory even though no head was ever
+	// supplied.
+	writeAndCommit(t, dir, "after.txt", "commit made after the call", "after")
+
+	_, err := AnalyzeHistory(dir, "run-empty-head", base, "", nil)
+	if err == nil {
+		t.Fatal("expected an error for an empty head")
+	}
+}
+
+// TestAnalyzeHistory_ReplacementDetectionIsIdempotent covers the
+// idempotency of the persisted ReplacementRecord: calling AnalyzeHistory
+// twice for the identical squash-merged fixture must produce the identical
+// RecordDigest and write exactly one file, not one per call. RecordDigest
+// must not depend on DetectedAt — mirroring event.go's deriveEventID,
+// which deliberately excludes RecordedAt so a retried write is idempotent.
+func TestAnalyzeHistory_ReplacementDetectionIsIdempotent(t *testing.T) {
+	dir, base := chdirProjectRoot(t)
+	mainBranch := runGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+
+	runGit(t, dir, "checkout", "-q", "-b", "feature/squash-idempotent")
+	featureTip := writeAndCommit(t, dir, "f1.txt", "part one", "feature part one")
+
+	runGit(t, dir, "checkout", "-q", mainBranch)
+	runGit(t, dir, "merge", "--squash", "feature/squash-idempotent")
+	runGit(t, dir, "commit", "-q", "-m", "squash-merge feature/squash-idempotent")
+	head := runGit(t, dir, "rev-parse", "HEAD")
+
+	events := []IntegrationEvent{
+		{EpicRunID: "run-idempotent", FeatureKey: "E90-F09", FeatureCommit: featureTip},
+	}
+
+	first, err := AnalyzeHistory(dir, "run-idempotent", base, head, events)
+	if err != nil {
+		t.Fatalf("first AnalyzeHistory: %v", err)
+	}
+	second, err := AnalyzeHistory(dir, "run-idempotent", base, head, events)
+	if err != nil {
+		t.Fatalf("second AnalyzeHistory: %v", err)
+	}
+
+	if len(first.Replacements) != 1 || len(second.Replacements) != 1 {
+		t.Fatalf("expected exactly one replacement each call, got %d and %d", len(first.Replacements), len(second.Replacements))
+	}
+	if first.Replacements[0].RecordDigest != second.Replacements[0].RecordDigest {
+		t.Fatalf("RecordDigest differs across calls: %q vs %q", first.Replacements[0].RecordDigest, second.Replacements[0].RecordDigest)
+	}
+
+	historyDir := filepath.Join(dir, ".shark", "runs", "run-idempotent", "integration-history")
+	entries, err := os.ReadDir(historyDir)
+	if err != nil {
+		t.Fatalf("read history dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly one persisted replacement record, got %d", len(entries))
+	}
+}
+
+// TestAnalyzeHistory_UnaccountedFeatureCommitSurfaces covers the third
+// silent-drop path: a recorded event whose FeatureCommit resolves to
+// nothing findable — not in range, not an ancestor, and no content-
+// identical replacement anywhere in the range — must appear in
+// Unaccounted rather than vanishing from the inventory. feature.md
+// REQ-F-005 requires every completed/staged feature be included in the
+// review inventory; a silently-dropped entry here is exactly the "missing
+// feature event" architecture.md says integration_review must reject, and
+// it can only reject what the inventory exposes.
+func TestAnalyzeHistory_UnaccountedFeatureCommitSurfaces(t *testing.T) {
+	dir, base := chdirProjectRoot(t)
+
+	otherCommit := writeAndCommit(t, dir, "other.txt", "other work", "other work")
+	head := runGit(t, dir, "rev-parse", "HEAD")
+
+	const neverExisted = "0000000000000000000000000000000000beef"
+	events := []IntegrationEvent{
+		{EpicRunID: "run-unaccounted", FeatureKey: "E90-F04", FeatureCommit: neverExisted},
+	}
+
+	inv, err := AnalyzeHistory(dir, "run-unaccounted", base, head, events)
+	if err != nil {
+		t.Fatalf("AnalyzeHistory: %v", err)
+	}
+	if len(inv.Replacements) != 0 {
+		t.Fatalf("expected no replacements, got %d", len(inv.Replacements))
+	}
+	if len(inv.Unaccounted) != 1 || inv.Unaccounted[0].FeatureCommit != neverExisted {
+		t.Fatalf("Unaccounted = %+v, want one entry for %s", inv.Unaccounted, neverExisted)
+	}
+	if len(inv.Interleaved) != 1 || inv.Interleaved[0] != otherCommit {
+		t.Fatalf("Interleaved = %v, want [%s]", inv.Interleaved, otherCommit)
+	}
+}
+
+// TestAnalyzeHistory_CommitEqualToBaseIsAccounted covers the defensive
+// edge case of a recorded event whose FeatureCommit is literally the
+// epic's own base (a no-op feature): accounted directly, no error, no
+// spurious replacement lookup against its own unchanged state.
+func TestAnalyzeHistory_CommitEqualToBaseIsAccounted(t *testing.T) {
+	dir, base := chdirProjectRoot(t)
+	head := writeAndCommit(t, dir, "other.txt", "other work", "other work")
+
+	events := []IntegrationEvent{
+		{EpicRunID: "run-noop-feature", FeatureKey: "E90-F05", FeatureCommit: base},
+	}
+
+	inv, err := AnalyzeHistory(dir, "run-noop-feature", base, head, events)
+	if err != nil {
+		t.Fatalf("AnalyzeHistory: %v", err)
+	}
+	if len(inv.Unaccounted) != 0 {
+		t.Fatalf("expected no unaccounted events, got %+v", inv.Unaccounted)
+	}
+	if len(inv.Replacements) != 0 {
+		t.Fatalf("expected no replacements, got %d", len(inv.Replacements))
+	}
+}
