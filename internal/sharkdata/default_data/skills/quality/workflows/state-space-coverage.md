@@ -33,7 +33,7 @@ gate outcome, or persisted disposition. Not every enum qualifies: a purely
 descriptive tag with no transition consequence does not need this table.
 
 When a field is behavior-bearing, `specification.md` must declare a closed
-table with these six columns, one row per value:
+table with these seven columns, one row per value:
 
 | Column | Meaning |
 |---|---|
@@ -47,7 +47,7 @@ table with these six columns, one row per value:
 
 **Review rule:** a prose-only progression (a narrative description of what
 "usually" happens) or an "other state" catch-all fails specification review.
-Every value must have its own row; every row must have all six columns
+Every value must have its own row; every row must have all seven columns
 filled in, not left blank on the assumption a reader will infer them.
 
 ## Technique selection from state shape
@@ -172,8 +172,8 @@ apply it here unchanged.
 
 ## Self-verification (before returning)
 
-- [ ] Every behavior-bearing field considered has a closed table with all six
-      columns filled in — no prose-only progression, no "other state"
+- [ ] Every behavior-bearing field considered has a closed table with all
+      seven columns filled in — no prose-only progression, no "other state"
       catch-all.
 - [ ] Every closed-table field's test cases use the state-transition/
       decision-table technique and cover every value, every relevant

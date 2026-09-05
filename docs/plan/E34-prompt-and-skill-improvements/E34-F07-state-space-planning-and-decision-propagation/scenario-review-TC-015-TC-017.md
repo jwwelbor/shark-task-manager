@@ -23,14 +23,16 @@ This satisfies task T-E34-F07-006's scope (the AC-5 rendered-output sample)
 and feature.md's three acceptance scenarios ("Plan a multi-entity lifecycle",
 "Propagate a ratified decision", "Reject naming drift").
 
-**Upstream observation (not this task's to fix):** the canonical file's
-"Closed lifecycle tables" section states the table has "these six columns,"
-but the table it introduces actually lists seven rows (value, meaning, entry
-transitions, exit transitions, terminal/no-exit marker, invalid-transition
-list, failure/recovery behavior); test-plan.md's TC-001 repeats the same
-"six" count. That prose/table mismatch belongs to T-E34-F07-001's file, not
-this task's scope — flagged here for the parent loop rather than corrected
-in someone else's artifact.
+**Corrected upstream defect (T-E34-F07-001 rework):** the canonical file's
+"Closed lifecycle tables" section previously stated the table has "these six
+columns," but the table it introduces actually lists seven fields (value,
+meaning, entry transitions, exit transitions, terminal/no-exit marker,
+invalid-transition list, failure/recovery behavior); test-plan.md's TC-001
+repeated the same stale "six" count, as did this file's own verbatim
+reproduction below. All three sites — the canonical
+`state-space-coverage.md` file, test-plan.md's TC-001, and this file's
+rendered-content copy — have been corrected to "seven" to match the table's
+actual field count.
 
 ## Rendered `state-space-coverage.md` output
 
@@ -74,7 +76,7 @@ gate outcome, or persisted disposition. Not every enum qualifies: a purely
 descriptive tag with no transition consequence does not need this table.
 
 When a field is behavior-bearing, `specification.md` must declare a closed
-table with these six columns, one row per value:
+table with these seven columns, one row per value:
 
 | Column | Meaning |
 |---|---|
@@ -88,7 +90,7 @@ table with these six columns, one row per value:
 
 **Review rule:** a prose-only progression (a narrative description of what
 "usually" happens) or an "other state" catch-all fails specification review.
-Every value must have its own row; every row must have all six columns
+Every value must have its own row; every row must have all seven columns
 filled in, not left blank on the assumption a reader will infer them.
 
 ## Technique selection from state shape
@@ -213,8 +215,8 @@ apply it here unchanged.
 
 ## Self-verification (before returning)
 
-- [ ] Every behavior-bearing field considered has a closed table with all six
-      columns filled in — no prose-only progression, no "other state"
+- [ ] Every behavior-bearing field considered has a closed table with all
+      seven columns filled in — no prose-only progression, no "other state"
       catch-all.
 - [ ] Every closed-table field's test cases use the state-transition/
       decision-table technique and cover every value, every relevant

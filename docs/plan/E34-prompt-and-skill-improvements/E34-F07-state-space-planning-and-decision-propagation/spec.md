@@ -89,17 +89,24 @@ This spec adds file/section-level detail only.
     reference-note path Question resolution already writes through — no new
     persistence mechanism, reusing the existing `--type=reference` typed note
     convention.
-  - **New CLI command** `shark impact record <entity-key> <content-or-@file>`
+  - **New CLI command** `shark impact record <entity-key> --source-kind=<kind>
+    --source-key=<key> --source-pointer=<path> --impact-file=<bounded-I-04-json>`
     (thin wrapper in `internal/cli/commands/impact_cmd.go`, following the
-    existing thin-command pattern — parses args, calls a small
-    `services.RecordImpact` helper that validates the I-04 shape's required
-    fields are present as JSON, then calls the same note-creation path
-    `shark create note <key> ... --type=reference` already uses). This is
-    the one new Go surface this feature adds, and only because ADR adoption
-    (a markdown-only artifact with no Shark-tracked resolution event) has no
-    existing hook to attach I-04 persistence to — Question/tech-debt/change-card
-    resolution already have one via their own status transitions and don't
-    need this command.
+    existing thin-command pattern — parses the entity-key positional argument
+    plus the four flags, reads `--impact-file`'s bytes, merges the
+    `--source-kind`/`--source-key`/`--source-pointer` flag values into that
+    JSON as the authoritative top-level I-04 fields (overriding any value
+    already present in the file — these are validated I-04 fields per
+    architecture.md's I-04 field table, not mere CLI bookkeeping), then calls
+    a small `services.RecordImpact` helper that validates the I-04 shape's
+    required fields are present as JSON, then calls the same note-creation
+    path `shark create note <key> ... --type=reference` already uses). This
+    is the exact flag-based boundary architecture.md's "Compatibility and
+    migration" section declares for ADR adoption, and the one new Go surface
+    this feature adds — only because ADR adoption (a markdown-only artifact
+    with no Shark-tracked resolution event) has no existing hook to attach
+    I-04 persistence to — Question/tech-debt/change-card resolution already
+    have one via their own status transitions and don't need this command.
 - **REQ-F-007 (spec)**: Add a "Design divergence" section to
   state-space-coverage.md: rework departing from an accepted fix design must
   cite the original decision pointer, new evidence, affected consumers, and
@@ -133,11 +140,14 @@ This spec adds file/section-level detail only.
   approach rather than an exact-string blacklist).
 - AC-3: `tech_debt/resolved.md` and `question-management/SKILL.md` each
   reference the I-04 propagation section.
-- AC-4: `shark impact record <key> <content>` writes exactly one
-  `--type=reference` note on `<key>` with the given content, exits non-zero
-  on a target key that doesn't exist, and exits non-zero when the content
-  fails minimal I-04 shape validation (missing `source_kind`, `source_key`,
-  or `affected_artifacts`).
+- AC-4: `shark impact record <key> --source-kind=<kind> --source-key=<key>
+  --source-pointer=<path> --impact-file=<path>` writes exactly one
+  `--type=reference` note on `<key>` with the merged content (impact-file
+  JSON plus the three source flags), exits non-zero on a target key that
+  doesn't exist, and exits non-zero when the merged content fails minimal
+  I-04 shape validation (missing `source_kind`, `source_key`, or
+  `affected_artifacts`) or when any required flag or `--impact-file` is
+  missing/unreadable.
 - AC-5: A rendered-output sample demonstrates each of the three acceptance
   scenarios in feature.md ("Plan a multi-entity lifecycle", "Propagate a
   ratified decision", "Reject naming drift").
@@ -149,7 +159,10 @@ application code, a fixed foreign-key-hop dependency rule, automatic
 rewriting of specs/tests from a decision record, and any new Shark entity or
 relationship type (including an ADR entity type — ADRs remain plain markdown
 files; `shark impact record` targets an *existing* entity key, it does not
-create or track ADRs themselves).
+create or track ADRs themselves). The flag-based CLI shape itself
+(`--source-kind`/`--source-key`/`--source-pointer`/`--impact-file`) is fixed
+by architecture.md's ADR-adoption boundary and is not this spec's own design
+choice to alter.
 
 ## Architecture
 
@@ -164,8 +177,8 @@ create or track ADRs themselves).
 | `internal/sharkdata/default_data/prompts/epic/feature_review.md` | EDIT — reference the shipped-consumer re-verification section for cross-feature epic-level review |
 | `internal/sharkdata/default_data/prompts/tech_debt/resolved.md` | EDIT — add the conditional I-04 propagation line |
 | `internal/sharkdata/default_data/skills/question-management/SKILL.md` | EDIT — reference the I-04 propagation section in the existing resolution-service step |
-| `internal/cli/commands/impact_cmd.go` | NEW — `shark impact record <entity-key> <content-or-@file>` thin command |
-| `internal/services/impact_service.go` | NEW — `RecordImpact` — minimal I-04 shape validation, then delegates to the existing note-creation service |
+| `internal/cli/commands/impact_cmd.go` | NEW — `shark impact record <entity-key> --source-kind=<kind> --source-key=<key> --source-pointer=<path> --impact-file=<path>` thin command; merges the three source flags into the impact-file's JSON before calling the service |
+| `internal/services/impact_service.go` | NEW — `RecordImpact` — minimal I-04 shape validation on the (already-merged) content, then delegates to the existing note-creation service; signature unchanged by the CLI flag rework (content is still a plain string) |
 | `internal/cli/commands/impact_cmd_test.go`, `internal/services/impact_service_test.go` | NEW — mocked-repo tests per this repo's CLI/service test conventions |
 
 ### Data model changes
@@ -176,14 +189,25 @@ None. `shark impact record` writes through the existing `EntityNoteRepository`
 ### API / interface contracts
 
 ```
-shark impact record <entity-key> <content-or-@file> [--json]
+shark impact record <entity-key> --source-kind=<kind> --source-key=<key> \
+  --source-pointer=<path> --impact-file=<bounded-I-04-json> [--json]
 ```
 
-`content-or-@file` is either an inline JSON string matching I-04's shape or
-`@path/to/file.json`. Minimal validation (not full schema enforcement):
-`source_kind`, `source_key`, and `affected_artifacts` (non-empty array) must
-be present; a project-agnostic decision, consistent with the epic's REQ-NF
-posture across F05/F06/F09.
+This is the exact boundary architecture.md's "Compatibility and migration"
+section declares for ADR adoption. `--impact-file` points to a JSON file
+containing the bounded I-04 content the caller owns (at minimum a non-empty
+`affected_artifacts` array). `--source-kind`, `--source-key`, and
+`--source-pointer` are top-level I-04 fields (architecture.md's I-04 field
+table) supplied as flags rather than embedded in the file; the CLI merges
+them into the impact-file's JSON, overriding any value already present there,
+before validation and persistence. All four flags are required — a missing
+or unreadable `--impact-file`, or any missing flag, exits non-zero before any
+repository call. Minimal content validation (not full schema enforcement,
+applied after the merge): `source_kind`, `source_key`, and
+`affected_artifacts` (non-empty array) must be present; a project-agnostic
+decision, consistent with the epic's REQ-NF posture across F05/F06/F09.
+There is no positional `<content-or-@file>` form — the flag-based shape
+replaces it entirely.
 
 ### Key technical decisions
 
