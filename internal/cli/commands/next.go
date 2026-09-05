@@ -127,22 +127,31 @@ func nextIntegrationCaptureFailureNoteExists(ctx context.Context, recorder integ
 // Best-effort with respect to the note write itself — a failure to resolve
 // the recorder, list existing notes, or write the note is logged to
 // stderr, never raised. This is safe because the note is a visibility aid,
-// not the blocking mechanism: resolveCascade sets resp.Action="pause" and
-// returns before dispatching a feature regardless of whether this note
-// write succeeds.
-func nextRecordCaptureFailureNote(ctx context.Context, epicKey string, cause error) {
+// not the blocking mechanism: callers (resolveCascade for `shark next`,
+// cascadeIntegrationGuard for `shark run` — see
+// ensureEpicIntegrationBaseCaptured, run_cascade_integration_guard.go) block
+// dispatch before ever calling this function's caller regardless of whether
+// this note write succeeds.
+//
+// commandLabel identifies which dispatch surface hit the failure (e.g.
+// "next" or "run") for the stderr warning prefix only; the durable note
+// content and metadata are surface-agnostic; note text and metadata are
+// shared and never mention which command hit the failure, so `shark epic
+// notes`/`shark search` present the finding identically regardless of
+// dispatch surface.
+func nextRecordCaptureFailureNote(ctx context.Context, commandLabel, epicKey string, cause error) {
 	recorder, err := nextIntegrationCaptureFailureRecorder(ctx)
 	if err != nil || recorder == nil {
 		fmt.Fprintf(os.Stderr,
-			"[shark next] warning: could not resolve a note recorder to record the integration-capture failure for epic %s: %v\n",
-			epicKey, err)
+			"[shark %s] warning: could not resolve a note recorder to record the integration-capture failure for epic %s: %v\n",
+			commandLabel, epicKey, err)
 		return
 	}
 	exists, err := nextIntegrationCaptureFailureNoteExists(ctx, recorder, epicKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
-			"[shark next] warning: could not check for an existing integration-capture failure note for epic %s: %v\n",
-			epicKey, err)
+			"[shark %s] warning: could not check for an existing integration-capture failure note for epic %s: %v\n",
+			commandLabel, epicKey, err)
 		return
 	}
 	if exists {
@@ -162,17 +171,53 @@ func nextRecordCaptureFailureNote(ctx context.Context, epicKey string, cause err
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
-			"[shark next] warning: could not encode the integration-capture failure note metadata for epic %s: %v\n",
-			epicKey, err)
+			"[shark %s] warning: could not encode the integration-capture failure note metadata for epic %s: %v\n",
+			commandLabel, epicKey, err)
 		return
 	}
 	if _, err := recorder.AddNoteWithMetadata(
 		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integrationCaptureFailureCreatedBy, string(metadata),
 	); err != nil {
 		fmt.Fprintf(os.Stderr,
-			"[shark next] warning: could not record the integration-capture failure note for epic %s: %v\n",
-			epicKey, err)
+			"[shark %s] warning: could not record the integration-capture failure note for epic %s: %v\n",
+			commandLabel, epicKey, err)
 	}
+}
+
+// ensureEpicIntegrationBaseCaptured is the ONE shared pre-dispatch
+// integration-evidence guard for every epic cascade dispatch entrypoint
+// (UAT round-3 rejection Finding 1; docs/plan/tech-debt/TD-208.md).
+// `shark next`'s resolveCascade and `shark run`'s cascadeIntegrationGuard
+// (run_cascade_integration_guard.go) both call this exact function rather
+// than each maintaining their own capture-or-block implementation — the
+// UAT's defect-class statement ("every supported cascade dispatch
+// entrypoint must initialize and enforce the shared integration evidence
+// precondition") is satisfied by construction: there is exactly one call
+// site that can fail to block, not two independently-maintained copies that
+// could drift again the way `shark run` drifted from `shark next` in round 2.
+//
+// nextCaptureEpicIntegrationBase is itself idempotent (see its doc comment),
+// so calling it on every cascade invocation for the epic is both correct and
+// simpler than tracking first-dispatch state here. On failure — of ANY
+// kind, including an ordinary I/O or git error, not only a corrupt existing
+// run record — this returns a non-nil error and the caller must block: no
+// feature may be dispatched under this epic. A corrupt run record additionally
+// gets a stderr warning (a genuinely exceptional, non-recurring state); every
+// failure kind gets a durable, deduped epic-level `review-finding` note via
+// nextRecordCaptureFailureNote.
+func ensureEpicIntegrationBaseCaptured(ctx context.Context, commandLabel, epicKey string) error {
+	if _, err := nextCaptureEpicIntegrationBase(epicKey); err != nil {
+		var corruptErr *integration.CorruptRunError
+		if errors.As(err, &corruptErr) {
+			fmt.Fprintf(os.Stderr,
+				"[shark %s] warning: epic %s has a corrupt integration-run record, not recreating it: %v\n",
+				commandLabel, epicKey, err,
+			)
+		}
+		nextRecordCaptureFailureNote(ctx, commandLabel, epicKey, err)
+		return err
+	}
+	return nil
 }
 
 // nextAdapters bundles the three per-entity-type adapters resolveNext needs
@@ -615,16 +660,15 @@ func (s entityResolutionStrategy) resolveCascade(
 	// CaptureBase is invoked against on every cascade attempt per this
 	// function's own idempotent-call convention — from accumulating a new
 	// note on every `shark next` poll).
+	//
+	// This capture-or-block call is shared verbatim with `shark run`'s
+	// cascade path (cascadeIntegrationGuard in
+	// run_cascade_integration_guard.go, wired via
+	// runner.RunControllerDeps.IntegrationGuard) — see
+	// ensureEpicIntegrationBaseCaptured's doc comment (UAT round-3 rejection
+	// Finding 1; docs/plan/tech-debt/TD-208.md).
 	if s.mode == nextResolutionMode && entityType == string(models.EntityTypeEpic) {
-		if _, err := nextCaptureEpicIntegrationBase(normalizedKey); err != nil {
-			var corruptErr *integration.CorruptRunError
-			if errors.As(err, &corruptErr) {
-				fmt.Fprintf(os.Stderr,
-					"[shark %s] warning: epic %s has a corrupt integration-run record, not recreating it: %v\n",
-					s.commandLabel, normalizedKey, err,
-				)
-			}
-			nextRecordCaptureFailureNote(ctx, normalizedKey, err)
+		if err := ensureEpicIntegrationBaseCaptured(ctx, s.commandLabel, normalizedKey); err != nil {
 			resp.Action = "pause"
 			resp.Error = fmt.Sprintf(
 				"integration base capture failed for epic %s: %v — the epic cascade is blocked (no feature will be dispatched under this epic) until the underlying condition is resolved; see `shark epic notes %s` for the durable finding",

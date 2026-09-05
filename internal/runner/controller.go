@@ -164,6 +164,32 @@ type CascadeChildrenService interface {
 // CascadeChildRunner runs a nested child entity through its own controller loop.
 type CascadeChildRunner func(ctx context.Context, entityType, key string, opts RunOptions) (*RunResult, error)
 
+// CascadeIntegrationGuard performs the shared REQ-F-004 pre-dispatch
+// integration-evidence guard before a cascade dispatches any child entity
+// (UAT round-3 rejection Finding 1; docs/plan/tech-debt/TD-208.md). Every
+// supported cascade dispatch entrypoint must enforce the identical epic
+// integration-base capture-or-block precondition before dispatching a
+// feature: keyed `shark next` enforces it in
+// entityResolutionStrategy.resolveCascade
+// (internal/cli/commands/next.go), and handleCascade — this interface's only
+// caller — is `shark run`'s equivalent enforcement point.
+//
+// EnsureBaseCaptured is called with the entity type/key about to cascade.
+// Implementations decide their own entity-type scoping (the production
+// implementation in internal/cli/commands/run.go is a no-op for anything but
+// an epic, mirroring resolveCascade's identical scoping) and must return a
+// non-nil error whenever the epic's integration base could not be captured,
+// so handleCascade blocks dispatch — no children lookup, no child run —
+// rather than proceeding.
+//
+// Optional: a nil IntegrationGuard on RunControllerDeps disables the check
+// entirely, for tests exercising unrelated cascade behavior (fan-out,
+// question-blocking, child-failure propagation, etc.) against fixtures with
+// no epic-shaped integration state at all.
+type CascadeIntegrationGuard interface {
+	EnsureBaseCaptured(ctx context.Context, entityType, key string) error
+}
+
 // QuestionBlockChecker is the narrow, read-only I-03 gate used by runner
 // entry points. It deliberately exposes no Question mutation capability.
 type QuestionBlockChecker interface {
@@ -273,6 +299,11 @@ type RunControllerDeps struct {
 	// QuestionBlocker qualifies directly linked open blocking Questions before
 	// placeholder, action, or worker work. Optional for non-CLI embeddings.
 	QuestionBlocker QuestionBlockChecker
+
+	// IntegrationGuard performs the pre-dispatch integration-evidence guard
+	// (see CascadeIntegrationGuard) before handleCascade enumerates or
+	// dispatches any cascade child. Optional; nil disables the guard.
+	IntegrationGuard CascadeIntegrationGuard
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -292,6 +323,7 @@ type RunController struct {
 	runChild          CascadeChildRunner
 	questionResponses QuestionResponsePersister
 	questionBlocker   QuestionBlockChecker
+	integrationGuard  CascadeIntegrationGuard
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -328,6 +360,7 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		runChild:          deps.RunChild,
 		questionResponses: deps.QuestionResponses,
 		questionBlocker:   deps.QuestionBlocker,
+		integrationGuard:  deps.IntegrationGuard,
 	}, nil
 }
 
@@ -576,6 +609,28 @@ func (c *RunController) handleCascade(
 	stageStart,
 	startTime time.Time,
 ) stageOutcome {
+	// REQ-F-004 pre-dispatch integration-evidence guard (UAT round-3
+	// rejection Finding 1; docs/plan/tech-debt/TD-208.md): this must run
+	// before childrenSvc is ever consulted or any child dispatched, so a
+	// capture failure blocks the entire cascade rather than letting feature
+	// work start with no integration base ever captured. See
+	// CascadeIntegrationGuard's doc comment for why this is injected rather
+	// than calling internal/integration directly from this package.
+	if c.integrationGuard != nil {
+		if err := c.integrationGuard.EnsureBaseCaptured(ctx, opts.EntityType, key); err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "cascade_integration_capture",
+				Error: fmt.Sprintf(
+					"integration base capture failed for epic %s: %v — the epic cascade is blocked (no feature will be dispatched under this epic) until the underlying condition is resolved; see `shark epic notes %s` for the durable finding",
+					key, err, key,
+				),
+				RunID: opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+	}
 	if c.childrenSvc == nil || c.runChild == nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,

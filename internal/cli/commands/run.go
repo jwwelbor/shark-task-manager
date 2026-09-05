@@ -234,6 +234,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			RunChild:          runChild,
 			QuestionResponses: buildQuestionResponsePersister(childType),
 			QuestionBlocker:   questionBlocker,
+			IntegrationGuard:  cascadeIntegrationGuard{commandLabel: "run"},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cascade child controller for %s %s: %w", childType, key, err)
@@ -311,6 +312,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		RunChild:          runChild,
 		QuestionResponses: buildQuestionResponsePersister(entityType),
 		QuestionBlocker:   questionBlocker,
+		IntegrationGuard:  cascadeIntegrationGuard{commandLabel: "run"},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)

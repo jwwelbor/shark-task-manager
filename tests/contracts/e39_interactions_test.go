@@ -1247,6 +1247,31 @@ func publicRunCascadeFixtureTC308(t *testing.T) (string, *sql.DB, string) {
 	t.Helper()
 	ctx := context.Background()
 	tmp := t.TempDir()
+
+	// A real git repository is required so `shark run`'s epic-cascade
+	// integration-base guard (T-E34-F08-008 round-3 rework;
+	// docs/plan/tech-debt/TD-208.md) can resolve a HEAD commit for E02 —
+	// without one, CaptureBase's "not a git repository" failure would now
+	// correctly block the cascade before this fixture's blocked/sibling
+	// dispatch even runs, which is REQ-F-004's intended fail-closed
+	// behavior, not a bug in this test's own scenario.
+	gitRun := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = tmp
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("TC-308 git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitRun("init", "-q")
+	gitRun("config", "user.email", "test@example.com")
+	gitRun("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(tmp, "seed.txt"), []byte("seed"), 0o644); err != nil {
+		t.Fatalf("TC-308 write git seed file: %v", err)
+	}
+	gitRun("add", "seed.txt")
+	gitRun("commit", "-q", "-m", "seed")
+
 	dbPath := filepath.Join(tmp, "tc308-cascade.db")
 	sqlDB, err := db.InitDB(dbPath)
 	if err != nil {
