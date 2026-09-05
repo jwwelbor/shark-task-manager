@@ -138,13 +138,22 @@ Traces to feature.md REQ-F-001 through REQ-F-008 and REQ-NF-001 verbatim.
   sweep referenced by an in-scope finding has `status: complete`; every
   E34-F07 I-04 `ChangeImpactSet` referenced is `accounted`; open
   review-finding notes, ADRs, and project-standards references naming a
-  changed path are cross-checked for disposition. Adds the shared contract
-  test `TC-I-01-READINESS-SYMMETRY` (in
+  changed path are cross-checked for disposition. Adds a new structural
+  guard, `CheckInteractionMapCompleteness` (in
   `internal/sharkdata/embed_test.go`, mirroring the existing
-  `TestEmbedded_*` bundle-index-completeness pattern) reading
-  architecture.md's canonical I-## field list and asserting every row names
-  a producer, consumer, Rider verb (where applicable), embedded skill
-  reference, and interaction-map entry.
+  `TestEmbedded_*` bundle-index-completeness pattern), reading
+  `E34-interaction-map.md`'s Interaction Contracts table (the actual
+  producer/consumer/shape-source/payload/style source for I-01 through
+  I-05 — architecture.md's per-interaction sections are field-meaning
+  tables only, e.g. I-01's `assessor_verdict`/`owner_decision`/... list, and
+  are not this checker's row source) and asserting every row names a
+  producer, consumer(s), a shape-source link, a payload, and a style. This
+  is a distinct check from the already-existing, already-shipped
+  `TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY` in
+  `internal/cli/commands/interaction_prompts_test.go` (E34-F02/F03's I-01
+  ReadinessEvidence field-symmetry contract test, per
+  `E34-interaction-map.md:32-33`) — this feature does not re-create or
+  duplicate that test.
 - **REQ-F-006 (spec) — Gate authority**: `integration_review`'s outcome
   routing (`outcomes.fail: active`) is additive — a `fail` reopens the epic
   to `active` without touching any individual feature's own status; the
@@ -209,10 +218,11 @@ Traces to feature.md REQ-F-001 through REQ-F-008 and REQ-NF-001 verbatim.
   one in-scope feature is currently rejected/in-development, that epic
   completion remains blocked by that feature's own status — the review
   itself does not report an overriding PASS that ignores it.
-- AC-8: `TC-I-01-READINESS-SYMMETRY` passes against the current
-  architecture.md I-## table and fails when a row is missing one of the five
-  required references (fixture-injected via a test-local copy of the table
-  with one field removed).
+- AC-8: `CheckInteractionMapCompleteness` passes against the current
+  `E34-interaction-map.md` Interaction Contracts table and fails when a row
+  is missing one of its five required fields — producer, consumer(s),
+  shape-source link, payload, or style (fixture-injected via a test-local
+  copy of the table with one field removed).
 - `make fmt && make lint && make test` pass with the new files included.
 
 ### Out of scope
@@ -309,12 +319,18 @@ func Backfill(epicKey, epicRunID, base string, events []IntegrationEvent, dryRun
 - **I-04** — ChangeImpactSet v1. Producer: E34-F07 (now completed). Same
   consumption points. Contract test (verbatim, per E34-interaction-map.md):
   `E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-CHANGE-IMPACT-CLOSURE`.
-- **I-02** — GateResult v1. Producer: E34-F05. Same upstream gap already
-  documented by E34-F06 (TD-198/TD-199, no `TC-I-02-GATERESULT-PARITY` test
-  exists) — not re-litigated here. `integration_review.md` is the concrete
-  task-owned consumer of this shape (reads prior features' `GateResult`
-  envelopes for closure evidence and nests `adoption_manifest` inside its
-  own), per T-E34-F08-010's Integration Contracts.
+- **I-02** — GateResult v1. Producer: E34-F05. Contract test pointer
+  (mirrored verbatim per `E34-interaction-map.md:44-46`, required of every
+  consumer regardless of upstream readiness):
+  `E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`.
+  Status/context: this is an upstream gap already documented by E34-F06
+  (TD-198/TD-199) — E34-F05 has no `test-plan.md` yet, so the pointer target
+  does not exist on disk; this feature mirrors the pointer string per the
+  parent map's requirement without re-litigating F05's own test debt.
+  `integration_review.md` is the concrete task-owned consumer of this shape
+  (reads prior features' `GateResult` envelopes for closure evidence and
+  nests `adoption_manifest` inside its own), per T-E34-F08-010's Integration
+  Contracts.
 
 ### Produces
 
@@ -329,9 +345,13 @@ func Backfill(epicKey, epicRunID, base string, events []IntegrationEvent, dryRun
   field list matches architecture.md's I-05 table) — that internal test is
   not a cross-feature contract pointer and does not conflict with the N/A
   above.
-- **TC-I-01-READINESS-SYMMETRY** — the shared structural guard over
-  architecture.md's full I-## reference surface (REQ-F-005), living in
-  `internal/sharkdata/embed_test.go` per this spec's Component-changes table.
+- **`CheckInteractionMapCompleteness`** — the structural guard over
+  `E34-interaction-map.md`'s Interaction Contracts table (REQ-F-005), living
+  in `internal/sharkdata/embed_test.go` per this spec's Component-changes
+  table. Not to be confused with the pre-existing, separately-owned
+  `TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY` in
+  `internal/cli/commands/interaction_prompts_test.go` (E34-F02/F03's I-01
+  ReadinessEvidence contract test).
 
 ## Cross-epic integrations
 

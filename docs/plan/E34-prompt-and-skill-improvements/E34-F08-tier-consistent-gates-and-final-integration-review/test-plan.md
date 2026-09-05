@@ -46,11 +46,14 @@ on its own terms:
   precise text, "under the *same run lock*, the coordinator fsyncs... before
   inserting the note") rather than replacing CAS generally. The
   `integration-heads/` retention directory, event kind, and path-digest
-  fields architecture.md names are now owned by T-E34-F08-012/013's scope.
-  TC-006/TC-007/TC-008 below still test spec.md's original CAS-only surface;
-  T-E34-F08-012/013's own tasks own the additional Caller-Path Contracts for
-  the archived-head, lock, and history-edge coverage this note originally
-  flagged as unresolved.
+  fields architecture.md names are now owned by T-E34-F08-012/013's scope
+  (and their splits, T-E34-F08-014/015/016 — see the task-decomposition
+  rework that split T-007/T-012/T-013 into size-≤3 units). TC-006/TC-007/
+  TC-008 below still test spec.md's original CAS-only surface; **TC-016**
+  through **TC-019** below are the archived-head/lock, crash-restart-repair,
+  history-edge, and dirty/untracked-digest Caller-Path Contracts this note
+  originally left as an unresolved delegation — they are now named test
+  cases, not a forward reference.
 - **I-05 contract-test-pointer — reconciled**: `E34-interaction-map.md`'s I-05
   row is the authoritative source and states "Contract test: **N/A**" —
   E34-F09's Go/CLI surface does not parse the I-05 manifest, so there is no
@@ -84,8 +87,12 @@ on its own terms:
 | TC-011 | REQ-F-004 (cascade wiring) | `active` step's cascade action calls `CaptureBase` on first feature dispatch only — wiring, not just the naked function | Yes |
 | TC-012 | AC-7 | `integration_review` report states blocked-by-feature-status for a rejected/in-development in-scope feature; non-supersession clause present in prompt text | Yes |
 | TC-013 | REQ-F-005 (general closure check) | I-##/X-## closure (producer-or-consumer-in-scope), I-03 sweep `status: complete`, I-04 `status: accounted`, open finding/ADR/standards-reference disposition, scoped correctly in prompt text | Yes |
-| TC-014 | AC-8 | `TC-I-01-READINESS-SYMMETRY` passes on the real I-## table, fails on a fixture missing one required reference | Yes |
+| TC-014 | AC-8 | `CheckInteractionMapCompleteness` passes on the real E34-interaction-map.md Interaction Contracts table, fails on a fixture missing one required field | Yes |
 | TC-015 | REQ-F-004 (workflow step reachability) | `epic.yaml`'s `active -> integration_review -> completed` transition and `integration_review`'s `pass/fail/blocked/on_hold` outcomes validate and route correctly | Yes |
+| TC-016 | REQ-F-004 (T-E34-F08-012) | Archived candidate-head retention (write-then-replace ordering) and run-scoped registration lock (concurrent registration attempts serialize correctly) | Yes |
+| TC-017 | REQ-F-004 (T-E34-F08-014) | Crash-restart repair: exact retry repairs only a missing note; failure-injection after event/head fsync and after candidate replacement; tamper/truncation/reordering against `integration-heads/` fail closed | Yes |
+| TC-018 | REQ-F-004 (T-E34-F08-013) | Missing/unreachable base fails closed; rebase/squash-merge creates an explicit replacement record; interleaved commits remain visible and flagged | Yes |
+| TC-019 | REQ-F-004/REQ-F-005 (T-E34-F08-016) | Dirty tracked files and untracked candidate paths each get a recorded digest, read by `integration_review`'s full-diff inventory | Yes |
 | TC-I-05-ADOPTION-MANIFEST | REQ-F-007 / I-05 produced | `adoption_manifest` field lists exactly architecture.md's 8 I-05 fields, nested as a `GateResult` sibling array | Yes |
 
 `make fmt && make lint && make test` passing with new files is the plan's own
@@ -104,8 +111,12 @@ closing gate (spec.md's own last AC), verified at Step 8, not a separate TC.
 | TC-010 | CLI wrapper `runIntegrationBackfill` (`internal/cli/commands/integration_cmd.go`), invoked with the complete `shark integration backfill <epic-key> --epic-run-id=... --base=... --events-file=... --session=...` argument shape via the CLI test harness (not calling `integration.Backfill` directly — this TC is specifically the CLI-layer proof that TC-009's service-level behavior is actually wired to the command) | claim-lookup service (mocked, matching this repo's CLI-test-mocks-repositories convention for the one DB-backed dependency in this feature) | do not mock `internal/integration` package functions in this test — only the claim lookup is mocked; the file-based write path (or its absence, on rejection) must be real | An implementation that checks `--session` against the events file itself rather than the live claim record would pass a test with a forged session string; mocking only the claim lookup and returning "no matching claim" catches an implementation that skips the check entirely. Separately: a CLI wrapper that never actually calls `integration.Backfill` (dead wiring) would still pass TC-009 (service-level) but fail TC-010's end-to-end file assertions |
 | TC-011 | `internal/cli/commands/next.go`'s `resolveEntity` → `entityResolutionStrategy.resolveCascade(...)` (confirmed by direct read: this is the exact function invoked when `internalAction == "cascade"`, i.e. the real handler behind an epic's `active` step) | none — drives the real cascade dispatch path (`resolveEntity`/`resolveCascade`) against a temp `.shark/` dir and a fixture epic/feature pair; do not call `integration.CaptureBase` directly and call that "wiring" coverage | do not mock `resolveCascade` or `resolveEntity` themselves — this TC exists specifically because a passing `CaptureBase` unit test proves nothing about whether production code ever calls it | An unwired `CaptureBase` (dead code with a green unit test) passes TC-006 but fails TC-011, since TC-011 asserts a run record exists *after* driving `resolveCascade`, never invoking `CaptureBase` by name |
 | TC-012, TC-013 | `epic/integration_review.md` prompt content — this is a **decision-rule walkthrough against a documented oracle** (the prompt's own required-clause text), not an executable "produced report" test, since no production runtime parses or executes this prompt's closure logic (it is AI-worker-followed prose, mirroring F06's TC-005–TC-009 precedent) | content-only — manual policy-wording review against a written oracle (the exact required sentence/field list quoted in the TC), recorded in this file so the review is repeatable, not "produced report" testing | n/a | A prompt whose closure-check language is silently satisfied by an unresolved row, or that reports an overriding PASS while a sibling feature is rejected, fails the oracle-comparison walkthrough even though no Go test would catch it |
-| TC-014 | `internal/sharkdata.CheckI01ReadinessSymmetry(table []I01Row) []error` (new function — the checker; kept structurally separate from the I-## table *parser* that produces `[]I01Row` from architecture.md, so a shared defect between parser and checker can't hide behind one green test) called by `TestI01ReadinessSymmetry` in `internal/sharkdata/embed_test.go` | internal — the checker function is the production entrypoint (mirrors existing `TestEmbedded_*` bundle-completeness pattern; justification: this is a structural bundle-completeness guard, not application business logic with a caller above it). The parser (`ParseI01Table(architectureMD []byte) ([]I01Row, error)`) is a second, independently-tested internal function — TC-014's fixture subtests construct `[]I01Row` directly (bypassing the parser) precisely so a parser bug cannot mask a checker bug or vice versa | n/a | A checker that only greps for the literal string `I-0` without validating all five required references per row would pass on the real table (which happens to be complete) but also incorrectly pass the mutated fixture missing one reference — the mutation subtest is what catches that. A checker and parser sharing one function would pass this TC even if the parser silently dropped a column, because the checker would never see it — the split entrypoint closes that gap |
+| TC-014 | `internal/sharkdata.CheckInteractionMapCompleteness(rows []InteractionRow) []error` (new function — the checker; kept structurally separate from the Interaction Contracts table *parser* that produces `[]InteractionRow` from `E34-interaction-map.md`, so a shared defect between parser and checker can't hide behind one green test) called by `TestInteractionMapCompleteness` in `internal/sharkdata/embed_test.go`. This is a distinct check from, and does not duplicate, the pre-existing `TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY` in `internal/cli/commands/interaction_prompts_test.go` (E34-F02/F03's I-01 ReadinessEvidence field-symmetry contract test — a different table, in architecture.md, checked by a different package) | internal — the checker function is the production entrypoint (mirrors existing `TestEmbedded_*` bundle-completeness pattern; justification: this is a structural bundle-completeness guard, not application business logic with a caller above it). The parser (`ParseInteractionMapTable(interactionMapMD []byte) ([]InteractionRow, error)`) is a second, independently-tested internal function — TC-014's fixture subtests construct `[]InteractionRow` directly (bypassing the parser) precisely so a parser bug cannot mask a checker bug or vice versa. The checker also resolves each row's shape-source link against architecture.md's actual `## I-0X ...` headings (a second, explicit document input), distinguishing an empty field from a link whose anchor does not resolve | n/a | A checker that only greps for the literal string `I-0` without validating all five required fields per row would pass on the real table (which happens to be complete) but also incorrectly pass the mutated fixture missing one field — the mutation subtest is what catches that. A checker and parser sharing one function would pass this TC even if the parser silently dropped a column, because the checker would never see it — the split entrypoint closes that gap. A shape-source link pointing at a heading that doesn't exist in architecture.md would pass a non-empty-string check but fail the anchor-resolution check |
 | TC-015 | `workflow.Service.ValidateTransition("active", "integration_review")` and `ValidateTransition("integration_review", <each of completed/active/blocked/on_hold>)` against the real loaded `epic.yaml`, following the existing `TestValidateTransition_ValidEpic`/`TestGetValidTransitions_EpicLevel` pattern in `internal/workflow/service_multilevel_test.go` | none — real workflow-config load, no mock (matches existing `internal/workflow` test convention) | do not hand-construct a workflow struct literal bypassing the real YAML loader — must load the actual `epic.yaml` | A YAML edit that adds `integration_review` but leaves `active`'s `outcomes.pass` still pointing at `completed` (i.e., the new step exists but is unreachable) passes a "step is defined" check but fails this transition-reachability test |
+| TC-016 | `internal/integration` package functions covering archived-head write-then-replace ordering and the run-scoped registration lock (T-E34-F08-012), real temp `.shark/` directory and real goroutines racing a registration attempt | none — real temp dir, no DB | do not mock the filesystem or the lock; do not serialize goroutines with a test-side mutex before the calls | An implementation that replaces the candidate head before writing the archived copy loses the prior digest under a crash between the two writes — a single-threaded happy-path test would not catch the ordering requirement |
+| TC-017 | `internal/integration` registration/repair path (T-E34-F08-014), failure-injected via build-tag-gated test hooks immediately after event fsync, after archived-head fsync, and after candidate-head replacement before note ack; real temp dir, process-restart simulation | none — real temp dir; the failure-injection hook is a test-only seam, not a mock of production logic | do not mock the sidecar files or short-circuit the repair path with a hand-constructed note | An implementation that reconstructs a missing head from the note (instead of failing closed when the head is absent/corrupt) passes a happy-path retry test but fails the tamper/corrupt-head restart assertions |
+| TC-018 | `internal/integration/history.go` rebase/squash/interleaved-commit detection and base-reachability validation (T-E34-F08-013), pinned-base git fixture repositories (real `git` commands against a temp repo, no mock) | none — real git repository fixtures | do not mock `git` invocations or hand-construct commit graphs as literals bypassing real history walks | An implementation that falls back to `merge-base HEAD main` when the recorded base is unreachable silently narrows the diff — passes a clean-history happy-path test but fails the missing-base and rebase fixtures |
+| TC-019 | `internal/integration/candidate.go` dirty-tracked/untracked path-digest fields (T-E34-F08-016), real temp working tree with staged, dirty, and untracked files | none — real temp dir and real filesystem state, no mock | do not synthesize digests from a hand-built file list instead of walking the real working tree | An implementation that only digests tracked-and-committed paths silently drops untracked files from the review's full-diff inventory — passes a clean-tree happy-path test but fails the untracked-path fixture |
 | TC-I-05-ADOPTION-MANIFEST | `internal/templates` production renderer (the same `NewIncludeResolverWithEmbed(...).Resolve(...)`-family entrypoint TC-001/TC-002 already drive), rendering `epic/integration_review.md`; output field list diffed against architecture.md's I-05 table (parsed programmatically via the same parser named in TC-014, applied to architecture.md's I-05 section instead of its I-## table) | the production renderer itself — no mock (this is a real Go function call, not a hand-inspection; correcting this plan's earlier mislabeling of this TC as content-only-no-entrypoint) | do not hand-copy the expected 8-field list into the test as a literal — derive it from the same programmatic table parser TC-014 uses, so a table edit in architecture.md is caught here too | A prompt that lists 7 of the 8 required `adoption_manifest` fields (e.g., drops `promoted_policies`) passes a "renders without error" check but fails this field-list diff; a prompt that nests `adoption_manifest` outside `gate_result` fails the sibling-nesting assertion |
 
 ## Test Cases
@@ -291,16 +302,46 @@ closing gate (spec.md's own last AC), verified at Step 8, not a separate TC.
   rows are excluded, not silently treated as closed).
 
 - **TC-014** — In `internal/sharkdata/embed_test.go`, add
-  `TestI01ReadinessSymmetry`: (a) run the checker against the real, current
-  architecture.md I-## table (parsed from the file) — assert it passes (no
-  missing-reference errors) for every row. (b) construct a test-local copy of
-  the table with one required reference removed (parameterized subtest,
-  once per required-reference field: producer, consumer, Rider verb where
-  applicable, embedded skill reference, interaction-map entry) — assert the
+  `TestInteractionMapCompleteness`: (a) run the checker against the real,
+  current `E34-interaction-map.md` Interaction Contracts table (parsed from
+  the file) — assert it passes (no missing-field errors) for every one of
+  the five I-01–I-05 rows. (b) construct a test-local copy of the table with
+  one required field removed (parameterized subtest, once per required
+  field: producer, consumer, shape-source link, payload, style) — assert the
   checker fails, naming the specific missing field and row. **Edge case:** a
-  row where "Rider verb" is legitimately not applicable (per the field's own
-  "where applicable" qualifier) must not be flagged as missing — the checker
-  distinguishes "not applicable" from "missing."
+  row whose shape-source link is present but whose anchor fragment does not
+  match any actual `## I-0X ...` heading in architecture.md must be flagged
+  as a distinct "unresolved anchor" error, not conflated with "missing
+  field" — the checker distinguishes an empty cell from an unresolved
+  cross-document reference. This test does not overlap or duplicate
+  `TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`
+  (`internal/cli/commands/interaction_prompts_test.go`), which checks a
+  different table (architecture.md's I-01 field-meaning list) for a
+  different feature (E34-F02/F03).
+
+- **TC-016** — Archived candidate-head retention and run-scoped
+  registration lock (T-E34-F08-012): write-then-replace ordering test
+  (archived head exists on disk before the candidate is replaced) and a
+  concurrent-registration-attempt test asserting the lock serializes the
+  registration-note sequence without a torn write.
+
+- **TC-017** — Crash-restart repair (T-E34-F08-014): failure-inject after
+  event fsync, after archived-head fsync, and after candidate-head
+  replacement before note ack; after each simulated restart, assert
+  identical-retry repair of a missing note, no duplicate/lost event, a
+  recomputable prior-head chain, and rejection of a same event ID with
+  different bytes. Add tamper, truncation, and reordering detection against
+  the retained `integration-heads/` chain.
+
+- **TC-018** — Fail-closed history handling (T-E34-F08-013): pinned-base
+  fixture histories for an independently squash-merged feature, unrelated
+  interleaved commits, a rebase, and a missing/unreachable base (one
+  subtest each) — assert no case infers scope from `merge-base HEAD main`.
+
+- **TC-019** — Dirty/untracked path-digest inventory (T-E34-F08-016): a
+  dirty tracked file and an untracked candidate path each get a recorded
+  digest in the candidate, and a fixture consumer (mirroring
+  `integration_review`'s read) retrieves both correctly.
 
 - **TC-I-05-ADOPTION-MANIFEST** — Parse architecture.md's I-05
   `CanonicalAdoptionManifest v1` table programmatically (8 field names:
@@ -373,7 +414,7 @@ closing gate (spec.md's own last AC), verified at Step 8, not a separate TC.
 
 | I-## | Producer | Consumer(s) | Shape source | Contract test pointer | TC |
 |---|---|---|---|---|---|
-| I-02 | E34-F05 | E34-F06, E34-F07, E34-F08 | architecture.md#i-02-gateresult-v1 | **Inherited gap** — TD-198/TD-199, no `TC-I-02-GATERESULT-PARITY` exists (E34-F05 has no test-plan.md); not re-litigated by this feature per E34-F06's own precedent. `integration_review.md`'s own envelope nesting (adoption_manifest as a `gate_result` sibling) is checked structurally by TC-I-05-ADOPTION-MANIFEST's negative case, which is the closest coverage this feature can responsibly add without owning I-02's parity test. | (owned by E34-F05, not created here) |
+| I-02 | E34-F05 | E34-F06, E34-F07, E34-F08 | architecture.md#i-02-gateresult-v1 | `E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY` (exact pointer mirrored per `E34-interaction-map.md:44-46`, required of every I-02 consumer regardless of upstream readiness). Status/context: **inherited gap** — TD-198/TD-199, the pointer target does not exist on disk (E34-F05 has no `test-plan.md` yet); not re-litigated by this feature per E34-F06's own precedent. `integration_review.md`'s own envelope nesting (adoption_manifest as a `gate_result` sibling) is checked structurally by TC-I-05-ADOPTION-MANIFEST's negative case, which is the closest coverage this feature can responsibly add without owning I-02's parity test. | (owned by E34-F05, not created here) |
 | I-03 | E34-F06 | E34-F08 | architecture.md#i-03-defectclasssweep-v1 | `E34-F06-defect-class-completeness-and-recurrence-routing/test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE` (verbatim, per E34-interaction-map.md; pointer owned by F06) | **TC-I-03-DEFECT-CLASS-CLOSURE** (F06's) proves the I-03 shape; this feature's **TC-013** proves *consumption* — that `integration_review.md` correctly reports a sweep whose `status` is not yet `complete` as not-closed. Same pointer, not a twin test — TC-013 references F06's pointer rather than re-deriving the I-03 shape. |
 | I-04 | E34-F07 | E34-F08 | architecture.md#i-04-changeimpactset-v1 | `E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-CHANGE-IMPACT-CLOSURE` (verbatim, per E34-interaction-map.md — F07 is now complete and this pointer resolves) | **TC-I-04-CHANGE-IMPACT-CLOSURE** (F07's) proves the I-04 shape; this feature's **TC-013** proves *consumption* — that `integration_review.md` correctly reports an incomplete `ChangeImpactSet` as not-accounted. Same pointer, not a twin test. |
 | I-05 | E34-F08 | E34-F09 | architecture.md#i-05-canonicaladoptionmanifest-v1 | **N/A**, per E34-interaction-map.md's I-05 row (reconciled — the earlier pointer naming a test-plan.md#TC in F09 or here was never created and has been removed, not carried forward) | **TC-I-05-ADOPTION-MANIFEST** (this plan) is an internal producer-side structural test, not a cross-feature contract pointer — it does not conflict with the N/A. F09's test-plan.md already records I-05 as consumed informationally with "no Go-level contract test... verified outside this test suite," consistent with this internal test existing without F09 needing a twin. |
