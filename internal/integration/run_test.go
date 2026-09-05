@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -8,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 // TC-006 (spec.md AC-3 / task T-E34-F08-004 AC-T1/AC-T2/AC-T3): CaptureBase
@@ -194,5 +199,206 @@ func assertExactlyOneRunFile(t *testing.T, projectRoot, epicKey string) {
 	}
 	if len(matches) != 1 {
 		t.Fatalf("expected exactly one run file in %s, found %d: %v", dir, len(matches), matches)
+	}
+}
+
+// Task T-E34-F08-012 covers test-plan.md TC-016's remaining registration
+// assertions: the suboperation ID derivation and the fsync-before-note
+// ordering RegisterRun performs under the run-scoped lock (AC-T2). The
+// lock's own concurrent-serialization guarantee is covered directly in
+// lock_test.go; the tests here focus on RegisterRun's own sequencing and
+// content, using a fake NoteRecorder (not a mock of the filesystem or the
+// lock — TC-016's forbidden mocks — but a stand-in for the DB-backed note
+// write, per this feature's own test-plan framing that only the claim/
+// session seam is DB-backed and mockable within this filesystem-only
+// package).
+
+// fakeNoteRecorder is a NoteRecorder test double that records each call's
+// arguments and tracks the maximum number of concurrently in-flight calls,
+// so a concurrency test can observe whether RegisterRun's lock actually
+// serialized real racing goroutines without the test itself imposing any
+// serialization.
+type fakeNoteRecorder struct {
+	mu           sync.Mutex
+	calls        int
+	inFlight     int
+	maxInFlight  int
+	lastContent  string
+	lastMetadata string
+	err          error
+}
+
+func (f *fakeNoteRecorder) AddNoteWithMetadata(_ context.Context, _ models.EntityType, _ string, _ string, content string, _ string, metadata string) (*models.EntityNote, error) {
+	f.mu.Lock()
+	f.calls++
+	f.inFlight++
+	if f.inFlight > f.maxInFlight {
+		f.maxInFlight = f.inFlight
+	}
+	f.lastContent = content
+	f.lastMetadata = metadata
+	err := f.err
+	f.mu.Unlock()
+
+	time.Sleep(5 * time.Millisecond) // widen the race window
+
+	f.mu.Lock()
+	f.inFlight--
+	f.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+	return &models.EntityNote{}, nil
+}
+
+// setUpRegisteredRun creates a real run, event, and candidate on disk
+// (via CaptureBase/RecordEvent/UpdateCandidate) so RegisterRun's fsync
+// step has real files to open, and returns them for a test to pass to
+// RegisterRun.
+func setUpRegisteredRun(t *testing.T, epicKey, featureKey, featureCommit string) (*IntegrationRun, *IntegrationEvent, *IntegrationCandidate) {
+	t.Helper()
+
+	run, err := CaptureBase(epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	event, err := RecordEvent(run.EpicRunID, featureKey, featureCommit, nil, nil)
+	if err != nil {
+		t.Fatalf("RecordEvent: %v", err)
+	}
+	head, err := UpdateCandidate(run.EpicRunID, event)
+	if err != nil {
+		t.Fatalf("UpdateCandidate: %v", err)
+	}
+	return run, event, head
+}
+
+// TestDeriveRegistrationSuboperationID_DeterministicAndDistinguishesInputs
+// covers TC-016 / AC-T2's suboperation-ID formula: identical inputs derive
+// an identical ID (T-E34-F08-014's repair path depends on this stability),
+// and a different firstHeadDigest derives a different ID.
+func TestDeriveRegistrationSuboperationID_DeterministicAndDistinguishesInputs(t *testing.T) {
+	a := DeriveRegistrationSuboperationID("E01", "run-1", "base-1", "head-1")
+	b := DeriveRegistrationSuboperationID("E01", "run-1", "base-1", "head-1")
+	if a != b {
+		t.Fatalf("DeriveRegistrationSuboperationID is not deterministic: %q != %q", a, b)
+	}
+
+	c := DeriveRegistrationSuboperationID("E01", "run-1", "base-1", "head-2")
+	if a == c {
+		t.Fatalf("expected a different suboperation ID for a different firstHeadDigest, got the same: %q", a)
+	}
+}
+
+// TestRegisterRun_InsertsNoteWithSuboperationIDAndContent covers TC-016 /
+// AC-T2's content/metadata shape: the inserted note's metadata carries the
+// deterministic suboperation ID, and its content carries record_kind, the
+// run's EpicRunID/BaseCommit, and firstHead's Digest.
+func TestRegisterRun_InsertsNoteWithSuboperationIDAndContent(t *testing.T) {
+	_, _ = chdirProjectRoot(t)
+
+	run, event, head := setUpRegisteredRun(t, "E78", "E78-F01", "commit-x")
+
+	recorder := &fakeNoteRecorder{}
+	note, err := RegisterRun(context.Background(), recorder, run, head, event, "test-agent")
+	if err != nil {
+		t.Fatalf("RegisterRun: %v", err)
+	}
+	if note == nil {
+		t.Fatal("expected a non-nil note")
+	}
+
+	wantSubID := DeriveRegistrationSuboperationID(run.EpicKey, run.EpicRunID, run.BaseCommit, head.Digest)
+
+	var metadata RegistrationNoteMetadata
+	if err := json.Unmarshal([]byte(recorder.lastMetadata), &metadata); err != nil {
+		t.Fatalf("note metadata is not valid JSON: %v", err)
+	}
+	if metadata.SuboperationID != wantSubID {
+		t.Fatalf("metadata suboperation_id = %q, want %q", metadata.SuboperationID, wantSubID)
+	}
+
+	var content RegistrationNoteContent
+	if err := json.Unmarshal([]byte(recorder.lastContent), &content); err != nil {
+		t.Fatalf("note content is not valid JSON: %v", err)
+	}
+	if content.RecordKind != RecordKindIntegrationCandidateRoot {
+		t.Fatalf("content record_kind = %q, want %q", content.RecordKind, RecordKindIntegrationCandidateRoot)
+	}
+	if content.EpicRunID != run.EpicRunID {
+		t.Fatalf("content epic_run_id = %q, want %q", content.EpicRunID, run.EpicRunID)
+	}
+	if content.BaseCommit != run.BaseCommit {
+		t.Fatalf("content base_commit = %q, want %q", content.BaseCommit, run.BaseCommit)
+	}
+	if content.HeadDigest != head.Digest {
+		t.Fatalf("content head_digest = %q, want %q", content.HeadDigest, head.Digest)
+	}
+}
+
+// TestRegisterRun_FailsIfSidecarFilesMissing covers AC-T2's ordering
+// requirement from the other direction: if the event/head files RegisterRun
+// is supposed to fsync do not actually exist on disk, it must fail before
+// ever calling the note recorder — proving the fsync step is a real
+// precondition, not a no-op ahead of the note insert.
+func TestRegisterRun_FailsIfSidecarFilesMissing(t *testing.T) {
+	_, _ = chdirProjectRoot(t)
+
+	run := &IntegrationRun{EpicRunID: "run-missing-sidecars", EpicKey: "E79", BaseCommit: "deadbeef"}
+	event := &IntegrationEvent{EventID: "nonexistent-event-id"}
+	head := &IntegrationCandidate{Digest: "nonexistent-digest"}
+	recorder := &fakeNoteRecorder{}
+
+	_, err := RegisterRun(context.Background(), recorder, run, head, event, "test-agent")
+	if err == nil {
+		t.Fatal("expected an error when the event/head sidecar files do not exist on disk")
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("note must not be inserted when fsync fails before it: got %d calls, want 0", recorder.calls)
+	}
+}
+
+// TestRegisterRun_ConcurrentAttemptsSerialize covers TC-016's registration-
+// lock assertion end to end through RegisterRun itself (not just
+// AcquireRegistrationLock directly, as lock_test.go covers): several
+// goroutines call RegisterRun concurrently for the same run, and the fake
+// recorder's max-in-flight counter must never exceed 1 — the run-scoped
+// lock serializes the entire fsync-then-note-insert sequence.
+func TestRegisterRun_ConcurrentAttemptsSerialize(t *testing.T) {
+	_, _ = chdirProjectRoot(t)
+
+	run, event, head := setUpRegisteredRun(t, "E80", "E80-F01", "commit-y")
+	recorder := &fakeNoteRecorder{}
+
+	const goroutines = 6
+	var start, done sync.WaitGroup
+	errs := make([]error, goroutines)
+	start.Add(1)
+	done.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		i := i
+		go func() {
+			defer done.Done()
+			start.Wait() // barrier: release all goroutines together
+			_, err := RegisterRun(context.Background(), recorder, run, head, event, "test-agent")
+			errs[i] = err
+		}()
+	}
+	start.Done() // release the barrier
+	done.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d: RegisterRun error: %v", i, err)
+		}
+	}
+
+	if recorder.maxInFlight > 1 {
+		t.Fatalf("registration lock did not serialize concurrent attempts: observed %d concurrent note inserts, want at most 1", recorder.maxInFlight)
+	}
+	if recorder.calls != goroutines {
+		t.Fatalf("expected %d note-insert calls (this test does not check idempotent dedup — that is T-E34-F08-014's scope), got %d", goroutines, recorder.calls)
 	}
 }

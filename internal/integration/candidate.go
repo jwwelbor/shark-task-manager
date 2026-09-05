@@ -133,7 +133,7 @@ func UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*Integration
 // doc comment for why the earlier reread-then-rename shape lost an event
 // under real concurrency and was replaced by this one).
 func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
-	current, err := readCandidate(path)
+	current, currentBytes, err := readCandidate(path)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +207,26 @@ func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *Integ
 		return nil, fmt.Errorf("integration: claim candidate transition at %s: %w", claimPath, err)
 	}
 
+	// Archived-head retention (task T-E34-F08-012 AC-T1): only the claim's
+	// winner ever reaches this point, so exactly one caller archives the
+	// head it is about to replace. current's exact, unmodified bytes as
+	// read from disk (currentBytes, not a re-marshal of the parsed struct)
+	// are durably written to integration-heads/<current.Digest>.json
+	// *before* the rename below replaces the live candidate — so a crash
+	// between the two writes never leaves a replaced head with no retained
+	// prior copy, and every prior_record_digest is recomputable later by
+	// re-hashing these retained bytes (architecture.md "Epic integration
+	// candidate identity"). The very first candidate for a run (current ==
+	// nil) has no prior head to retain.
+	if current != nil {
+		if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
+			return nil, err
+		}
+		if archiveTestHook != nil {
+			archiveTestHook()
+		}
+	}
+
 	// Only the claim's winner ever reaches this rename: a losing writer
 	// returned above without renaming, so the file on disk after a
 	// rejected attempt is exactly what the winning writer last published
@@ -216,6 +236,76 @@ func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *Integ
 	}
 
 	return next, nil
+}
+
+// archiveTestHook, when non-nil, is invoked exactly once per
+// attemptUpdateCandidate call that has a prior head to archive, after that
+// head's bytes have been durably written to
+// integration-heads/<current.Digest>.json but before the rename that
+// replaces the live candidate at path. Production code never sets it (nil
+// by default). A single-threaded before/after comparison of final state
+// alone cannot distinguish "archived, then replaced" from "replaced, then
+// archived" — test-plan.md TC-016's Caller-Path Contract calls this out
+// explicitly, so this hook lets a test observe the live candidate file
+// still holding the prior (not-yet-replaced) bytes at the moment the
+// archived copy already exists on disk.
+var archiveTestHook func()
+
+// candidateHeadsDir is where attemptUpdateCandidate's archived prior
+// candidate heads live, one immutable file per historical head, named by
+// that head's own Digest (its "record digest") and retained forever so a
+// later reader can recompute any prior_record_digest purely from these
+// bytes (architecture.md "Epic integration candidate identity"; task
+// T-E34-F08-012 AC-T1).
+func candidateHeadsDir(path string) string {
+	return filepath.Join(filepath.Dir(path), "integration-heads")
+}
+
+// archiveCandidateHead durably writes headBytes — the exact, unmodified
+// bytes read from disk for the head being replaced — to
+// integration-heads/<headDigest>.json, fsynced before the caller's rename
+// replaces the live candidate. Idempotent: a headDigest's content never
+// changes, so if the archive file already exists (e.g. this exact
+// transition was archived by an earlier attempt), archiving is a no-op
+// rather than an error.
+func archiveCandidateHead(candidatePath, headDigest string, headBytes []byte) error {
+	dir := candidateHeadsDir(candidatePath)
+	if err := os.MkdirAll(dir, runDirMode); err != nil {
+		return fmt.Errorf("integration: create archived-head directory %s: %w", dir, err)
+	}
+	archivePath := filepath.Join(dir, headDigest+".json")
+
+	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", archivePath, os.Getpid(), time.Now().UnixNano())
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, runFileMode)
+	if err != nil {
+		return fmt.Errorf("integration: create temp archived-head file: %w", err)
+	}
+	if _, err := f.Write(headBytes); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("integration: write temp archived-head file: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("integration: fsync temp archived-head file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("integration: close temp archived-head file: %w", err)
+	}
+
+	if err := os.Link(tmpPath, archivePath); err != nil {
+		_ = os.Remove(tmpPath)
+		if os.IsExist(err) {
+			// Already archived by an earlier attempt at this exact
+			// transition — headDigest's content is immutable, so this is
+			// not an error.
+			return nil
+		}
+		return fmt.Errorf("integration: publish archived head at %s: %w", archivePath, err)
+	}
+	return nil
 }
 
 // candidateClaimsDir is where attemptUpdateCandidate's compare-and-swap
@@ -318,23 +408,27 @@ func candidatePath(projectRoot, epicRunID string) string {
 	return filepath.Join(projectRoot, ".shark", "runs", epicRunID, "integration-candidate.json")
 }
 
-// readCandidate reads and parses the candidate record at path. It returns
-// (nil, nil) when no file exists yet, (candidate, nil) when the file parses
-// successfully, and (nil, err) when the file exists but is not valid JSON —
-// mirroring readRun/readEvent's "no file yet" vs. "file exists but is
-// broken" distinction.
-func readCandidate(path string) (*IntegrationCandidate, error) {
+// readCandidate reads and parses the candidate record at path, returning
+// the parsed candidate alongside the exact raw bytes read from disk (so a
+// caller that needs to archive those bytes unchanged — attemptUpdateCandidate's
+// AC-T1 archival step — never has to re-read the file and risk a second,
+// possibly-different read racing a concurrent writer). It returns
+// (nil, nil, nil) when no file exists yet, (candidate, data, nil) when the
+// file parses successfully, and (nil, nil, err) when the file exists but is
+// not valid JSON — mirroring readRun/readEvent's "no file yet" vs. "file
+// exists but is broken" distinction.
+func readCandidate(path string) (*IntegrationCandidate, []byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("integration: read candidate at %s: %w", path, err)
+		return nil, nil, fmt.Errorf("integration: read candidate at %s: %w", path, err)
 	}
 
 	var candidate IntegrationCandidate
 	if err := json.Unmarshal(data, &candidate); err != nil {
-		return nil, fmt.Errorf("integration: candidate at %s is corrupt: %w", path, err)
+		return nil, nil, fmt.Errorf("integration: candidate at %s is corrupt: %w", path, err)
 	}
-	return &candidate, nil
+	return &candidate, data, nil
 }

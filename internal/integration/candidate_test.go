@@ -1,9 +1,11 @@
 package integration
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"testing"
@@ -77,7 +79,7 @@ func TestUpdateCandidate_ConcurrentDifferentFeatures(t *testing.T) {
 		}
 	}
 
-	final, err := readCandidate(candidatePath(dir, epicRunID))
+	final, _, err := readCandidate(candidatePath(dir, epicRunID))
 	if err != nil {
 		t.Fatalf("read final candidate: %v", err)
 	}
@@ -127,7 +129,7 @@ func TestUpdateCandidate_CreatesCandidateFile(t *testing.T) {
 		t.Fatalf("EventIDs = %v, want [%s]", candidate.EventIDs, event.EventID)
 	}
 
-	onDisk, err := readCandidate(candidatePath(dir, epicRunID))
+	onDisk, _, err := readCandidate(candidatePath(dir, epicRunID))
 	if err != nil {
 		t.Fatalf("read candidate file: %v", err)
 	}
@@ -328,7 +330,7 @@ func TestUpdateCandidate_PersistentConflictReportsTypedError(t *testing.T) {
 
 	// The failed writer's own event must not appear anywhere in the final
 	// on-disk candidate.
-	final, err := readCandidate(path)
+	final, _, err := readCandidate(path)
 	if err != nil {
 		t.Fatalf("parse final candidate: %v", err)
 	}
@@ -336,5 +338,182 @@ func TestUpdateCandidate_PersistentConflictReportsTypedError(t *testing.T) {
 		if id == targetEvent.EventID {
 			t.Fatalf("rejected writer's event %s leaked into on-disk candidate %v", targetEvent.EventID, final.EventIDs)
 		}
+	}
+}
+
+// Task T-E34-F08-012 covers test-plan.md TC-016's archived-candidate-head
+// half: before UpdateCandidate replaces integration-candidate.json, the
+// prior head's exact bytes must already be durably retained at
+// integration-heads/<record-digest>.json (AC-T1). Per TC-016's Caller-Path
+// Contract, these tests drive the real UpdateCandidate path — never
+// attemptUpdateCandidate directly — and observe ordering via the
+// production archiveTestHook seam rather than a test-side mutex.
+
+// TestUpdateCandidate_FirstCandidateArchivesNothing covers TC-016 / AC-T1's
+// "the very first candidate for a run has no prior head to retain" case: a
+// brand-new candidate (current == nil) must not create an
+// integration-heads/ directory at all.
+func TestUpdateCandidate_FirstCandidateArchivesNothing(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-archive-first"
+	event, err := RecordEvent(epicRunID, "E34-F50", "commit-only", nil, nil)
+	if err != nil {
+		t.Fatalf("RecordEvent: %v", err)
+	}
+	if _, err := UpdateCandidate(epicRunID, event); err != nil {
+		t.Fatalf("UpdateCandidate: %v", err)
+	}
+
+	headsDir := candidateHeadsDir(candidatePath(dir, epicRunID))
+	if _, statErr := os.Stat(headsDir); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no integration-heads directory for a brand-new candidate, stat returned err=%v", statErr)
+	}
+}
+
+// TestUpdateCandidate_ArchivesPriorHeadBeforeReplacing covers TC-016's core
+// ordering assertion: when a second event folds into an existing
+// candidate, the prior head's exact bytes are archived to
+// integration-heads/<priorDigest>.json *before* the live candidate file is
+// replaced. archiveTestHook fires between those two steps in production
+// code, so observing both files at that instant proves the ordering — a
+// single end-state check could not distinguish archive-then-replace from
+// replace-then-archive (test-plan.md TC-016's Caller-Path Contract note).
+func TestUpdateCandidate_ArchivesPriorHeadBeforeReplacing(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-archive-order"
+
+	firstEvent, err := RecordEvent(epicRunID, "E34-F51", "commit-first", nil, nil)
+	if err != nil {
+		t.Fatalf("first RecordEvent: %v", err)
+	}
+	first, err := UpdateCandidate(epicRunID, firstEvent)
+	if err != nil {
+		t.Fatalf("first UpdateCandidate: %v", err)
+	}
+
+	path := candidatePath(dir, epicRunID)
+	priorBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read prior candidate file: %v", err)
+	}
+	archivePath := filepath.Join(candidateHeadsDir(path), first.Digest+".json")
+
+	secondEvent, err := RecordEvent(epicRunID, "E34-F52", "commit-second", nil, nil)
+	if err != nil {
+		t.Fatalf("second RecordEvent: %v", err)
+	}
+
+	var (
+		hookFired          bool
+		archiveBytesAtHook []byte
+		liveBytesAtHook    []byte
+	)
+	archiveTestHook = func() {
+		hookFired = true
+		archiveBytesAtHook, _ = os.ReadFile(archivePath)
+		liveBytesAtHook, _ = os.ReadFile(path)
+	}
+	t.Cleanup(func() { archiveTestHook = nil })
+
+	second, err := UpdateCandidate(epicRunID, secondEvent)
+	if err != nil {
+		t.Fatalf("second UpdateCandidate: %v", err)
+	}
+
+	if !hookFired {
+		t.Fatal("archiveTestHook never fired — archival did not happen on this transition")
+	}
+	if len(archiveBytesAtHook) == 0 {
+		t.Fatal("archived head file did not exist yet when the hook fired (archive-before-replace ordering violated)")
+	}
+	if string(archiveBytesAtHook) != string(priorBytes) {
+		t.Fatalf("archived head bytes differ from the original prior head bytes:\narchived: %s\noriginal: %s", archiveBytesAtHook, priorBytes)
+	}
+	if string(liveBytesAtHook) != string(priorBytes) {
+		t.Fatalf("live candidate file was already replaced when the hook fired (write-then-replace ordering violated):\ngot:  %s\nwant (unchanged prior bytes): %s", liveBytesAtHook, priorBytes)
+	}
+
+	finalArchiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("archived head file missing after update: %v", err)
+	}
+	if string(finalArchiveBytes) != string(priorBytes) {
+		t.Fatal("archived head bytes changed after the update completed")
+	}
+	if second.Digest == first.Digest {
+		t.Fatal("digest did not change after folding in a second event")
+	}
+}
+
+// TestUpdateCandidate_ArchivedHeadDigestRecomputable covers AC-T1's literal
+// wording: "every prior_record_digest is recomputable from retained
+// bytes" — recomputing computeDigest over the archived file's parsed
+// content must reproduce the exact digest the file is named for.
+func TestUpdateCandidate_ArchivedHeadDigestRecomputable(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-archive-recompute"
+
+	firstEvent, err := RecordEvent(epicRunID, "E34-F53", "commit-a", nil, nil)
+	if err != nil {
+		t.Fatalf("first RecordEvent: %v", err)
+	}
+	first, err := UpdateCandidate(epicRunID, firstEvent)
+	if err != nil {
+		t.Fatalf("first UpdateCandidate: %v", err)
+	}
+
+	secondEvent, err := RecordEvent(epicRunID, "E34-F54", "commit-b", nil, nil)
+	if err != nil {
+		t.Fatalf("second RecordEvent: %v", err)
+	}
+	if _, err := UpdateCandidate(epicRunID, secondEvent); err != nil {
+		t.Fatalf("second UpdateCandidate: %v", err)
+	}
+
+	archivePath := filepath.Join(candidateHeadsDir(candidatePath(dir, epicRunID)), first.Digest+".json")
+	data, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("read archived head: %v", err)
+	}
+
+	var archived IntegrationCandidate
+	if err := json.Unmarshal(data, &archived); err != nil {
+		t.Fatalf("archived head is not valid JSON: %v", err)
+	}
+	recomputed, err := computeDigest(archived)
+	if err != nil {
+		t.Fatalf("computeDigest over archived head: %v", err)
+	}
+	if recomputed != first.Digest {
+		t.Fatalf("recomputed digest from archived bytes = %q, want %q (the record_digest the archive file is named for)", recomputed, first.Digest)
+	}
+}
+
+// TestArchiveCandidateHead_IdempotentWhenAlreadyArchived supports TC-016
+// (T-E34-F08-012) by covering archiveCandidateHead's own idempotent-retry
+// guarantee directly: writing the identical headDigest a second time is a
+// no-op, not an error.
+func TestArchiveCandidateHead_IdempotentWhenAlreadyArchived(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	path := candidatePath(dir, "run-archive-idempotent")
+	data := []byte(`{"epic_run_id":"run-archive-idempotent"}`)
+
+	if err := archiveCandidateHead(path, "digest-x", data); err != nil {
+		t.Fatalf("first archiveCandidateHead: %v", err)
+	}
+	if err := archiveCandidateHead(path, "digest-x", data); err != nil {
+		t.Fatalf("second (idempotent) archiveCandidateHead: %v", err)
+	}
+
+	archived, err := os.ReadFile(filepath.Join(candidateHeadsDir(path), "digest-x.json"))
+	if err != nil {
+		t.Fatalf("read archived head: %v", err)
+	}
+	if string(archived) != string(data) {
+		t.Fatalf("archived content = %s, want %s", archived, data)
 	}
 }
