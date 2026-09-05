@@ -563,6 +563,11 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 	// corrupting REQ-F-005's diff. Skipping the fold on a detected replay
 	// keeps this call site from ever exercising that path; candidate.go's
 	// own behavior here is unchanged and outside this task's file scope.
+	// Fails safe in the ambiguous direction: on a same-tick race,
+	// RecordedAt.Before(callTime) is false, so a genuinely fresh event is
+	// never misclassified as a replay and skipped (the only failure mode
+	// this guard could introduce); the worst a missed replay detection can
+	// do is fall back to this call site's pre-guard behavior.
 	if event.RecordedAt.Before(callTime) {
 		return
 	}
