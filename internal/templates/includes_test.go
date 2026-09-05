@@ -416,6 +416,69 @@ func TestIncludeResolverWithEmbed_DefectClassSweepRenders(t *testing.T) {
 	}
 }
 
+// TestIncludeResolverWithEmbed_StateSpaceCoverageRenders verifies that the
+// checked-in state-space-coverage.md workflow file (E34-F07) renders cleanly
+// through the production renderer and carries every one of the six required
+// sections (spec.md REQ-F-001-004/006/007), asserting each section's required
+// substantive clauses per test-plan.md TC-001 — not just heading presence.
+func TestIncludeResolverWithEmbed_StateSpaceCoverageRenders(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+
+	out, err := r.Resolve("{{include: skills/quality/workflows/state-space-coverage.md}}")
+	require.NoError(t, err, "state-space-coverage.md must render through the production renderer with no errors")
+
+	// All six required section headings (REQ-F-001-004/006/007).
+	for _, section := range []string{
+		"## Closed lifecycle tables",
+		"## Technique selection from state shape",
+		"## Dependency discovery by interaction and caller path",
+		"## Shipped consumer re-verification",
+		"## I-04 propagation",
+		"## Design divergence",
+	} {
+		assert.Contains(t, out, section, "state-space-coverage.md must contain section %q", section)
+	}
+
+	// Closed lifecycle tables: the detection heuristic and all six required
+	// table columns (TC-001 clause 1).
+	assert.Contains(t, out, "behavior-bearing", "must state the lifecycle-field detection heuristic")
+	for _, column := range []string{
+		"value", "meaning", "entry transition", "exit transition",
+		"terminal", "invalid-transition", "failure/recovery",
+	} {
+		assert.Contains(t, out, column, "closed-table section must name column %q", column)
+	}
+
+	// Technique selection: trigger condition and technique name (TC-001 clause 2).
+	assert.Contains(t, out, "state-transition", "must name the state-transition/decision-table technique")
+	assert.Contains(t, out, "decision-table", "must name the decision-table technique")
+
+	// Dependency discovery: priority-ordered sources and per-axis rationale
+	// recording (TC-001 clause 3).
+	assert.Contains(t, out, "interaction-map", "must name interaction-map rows as a discovery source")
+	assert.Contains(t, out, "Caller-Path Contract", "must name production caller paths via the Caller-Path Contract concept")
+	assert.Contains(t, out, "persistence reader", "must name persistence readers as a discovery source")
+	assert.Contains(t, out, "inclusion/exclusion rationale", "must require per-axis inclusion/exclusion rationale")
+
+	// Shipped consumer re-verification: all four required fields (TC-001 clause 4).
+	for _, field := range []string{
+		"caller path", "owning feature key", "affected AC ID", "regression-test pointer",
+	} {
+		assert.Contains(t, out, field, "shipped-consumer section must name field %q", field)
+	}
+
+	// I-04 propagation: shape reference and the no-silent-omission language
+	// (TC-001 clause 5).
+	assert.Contains(t, out, "ChangeImpactSet", "must reference the ChangeImpactSet shape")
+	assert.Contains(t, out, "never a completion record that omits an affected artifact without a stated disposition",
+		"must carry the exact no-silent-omission language")
+
+	// Design divergence: references (does not restate) defect-class-sweep.md's
+	// Backward-looking rework section (TC-001 clause 6 / REQ-F-007).
+	assert.Contains(t, out, "defect-class-sweep.md", "design-divergence section must reference defect-class-sweep.md")
+	assert.Contains(t, out, "Backward-looking rework", "must reference defect-class-sweep.md's Backward-looking rework section by name")
+}
+
 // TestNewIncludeResolverWithEmbed_EmptyDataRoot verifies that the embed
 // backstop works even with an empty data root (zero-config consumer mode).
 func TestNewIncludeResolverWithEmbed_EmptyDataRoot(t *testing.T) {

@@ -63,7 +63,9 @@ accounting, shared-name checks, and shipped-AC regression assignments. E34-F08
 verifies each I-04 is `accounted` before epic completion.
 
 The planned shared contract test is
-`E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-DECISION-PROPAGATION`.
+`E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-CHANGE-IMPACT-CLOSURE`
+(renamed from the earlier placeholder `TC-I-04-DECISION-PROPAGATION` to match
+E34-F07's spec.md and test-plan.md).
 
 ### I-05 CanonicalAdoptionManifest
 
@@ -72,8 +74,10 @@ changes pass their full validation. E34-F09 consumes its exact paths and
 digests to plan override inspection; the manifest never authorizes automatic
 project edits.
 
-The planned shared contract test is
-`E34-F09-override-drift-visibility-and-wwgm-reconciliation/test-plan.md#TC-I-05-OVERRIDE-ADOPTION`.
+Contract test: **N/A** — E34-F09's Go/CLI surface does not parse the I-05
+manifest, so there is no Go-level contract test (confirmed in E34-F09's
+spec.md and test-plan.md); the earlier planned pointer name here was never
+created and has been removed rather than left dangling.
 
 ## Dependency order
 
