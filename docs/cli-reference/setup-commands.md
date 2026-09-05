@@ -94,6 +94,10 @@ Upgrade the on-disk `shark-data/` tree to the version bundled in the
 current binary. Files in `shark-data/overrides/` are left untouched; extracted
 defaults outside `overrides/` are refreshed from the binary.
 
+The output also reports override drift counts (read-only — upgrade never
+writes to `shark-data/overrides/` or `.shark-override-baselines.json`); run
+`shark admin overrides status` for per-file detail.
+
 ```
 Usage:
   shark admin upgrade [flags]
@@ -113,6 +117,46 @@ shark admin upgrade --dry-run
 
 # Apply upgrade
 shark admin upgrade
+```
+
+Human output includes a summary line for override drift, in addition to the
+existing added/updated/unchanged/skipped-overrides counts. Note that a
+freshly-initialized `shark-data/` ships an `overrides/.gitkeep` scaffold file
+with no canonical counterpart, so `orphaned` is `1` out of the box until it's
+removed or acknowledged:
+
+```
+Upgrade summary:
+  added:     0
+  updated:   1
+  unchanged: 314
+  overrides skipped: 2
+  overrides: current=2 upstream_changed=1 identical_redundant=0 orphaned=1 baseline_unknown=3 (run 'shark admin overrides status' for detail)
+```
+
+JSON output (`--json`, including `--dry-run --json`) adds an `overrides`
+object alongside the four pre-existing keys; a project with zero overrides
+still returns all five classification keys at `0`, never an omitted field.
+If computing override status itself fails (e.g. an unreadable file under
+`overrides/`), the command still succeeds and prints the four pre-existing
+keys/lines with an all-zero `overrides` object, warning on stderr instead of
+aborting an upgrade that may have already written files:
+
+```json
+{
+  "dry_run": false,
+  "added": [],
+  "updated": ["prompts/feature/qa.md"],
+  "unchanged": ["workflow/task.yaml"],
+  "skipped_overrides": ["overrides/.gitkeep"],
+  "overrides": {
+    "current": 2,
+    "upstream_changed": 1,
+    "identical_redundant": 0,
+    "orphaned": 1,
+    "baseline_unknown": 3
+  }
+}
 ```
 
 ---

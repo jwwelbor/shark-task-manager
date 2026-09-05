@@ -71,6 +71,10 @@ local user content and is never modified by upgrade. Files added locally
 outside overrides/ are left in place but reported in the diff summary so
 the user can decide.
 
+Also reports override drift counts (current / upstream_changed /
+identical_redundant / orphaned / baseline_unknown); run
+'shark admin overrides status' for per-file detail.
+
 Examples:
   shark admin upgrade                   # Apply latest defaults
   shark admin upgrade --dry-run         # Show what would change without writing
@@ -272,6 +276,19 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// OverrideStatusAt is read-only (REQ-F-004), so it's safe to call
+	// unconditionally for both a real run and --dry-run — no branching
+	// needed (REQ-F-003). On a real (non-dry-run) run, UpgradeAt above has
+	// already written to disk, so a failure here must never turn an
+	// otherwise-successful upgrade into a hard error or drop the four
+	// pre-existing summary keys/lines — this call is purely additive. Fall
+	// back to an all-zero overrides summary and warn on stderr instead.
+	overridesReport, overridesErr := sharkdata.OverrideStatusAt(dataRoot)
+	if overridesErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: shark admin upgrade: failed to compute overrides status: %v\n", overridesErr)
+		overridesReport = &sharkdata.OverrideStatusReport{Summary: zeroOverridesSummary()}
+	}
+
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
 			"dry_run":           upgradeDryRun,
@@ -279,6 +296,7 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 			"updated":           summary.Updated,
 			"unchanged":         summary.Unchanged,
 			"skipped_overrides": summary.SkippedOverrides,
+			"overrides":         overridesReport.Summary,
 		})
 	}
 
@@ -291,6 +309,8 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("  updated:   %d\n", len(summary.Updated))
 	fmt.Printf("  unchanged: %d\n", len(summary.Unchanged))
 	fmt.Printf("  overrides skipped: %d\n", len(summary.SkippedOverrides))
+	fmt.Printf("  overrides: %s (run 'shark admin overrides status' for detail)\n",
+		formatOverridesSummaryCounts(overridesReport.Summary))
 	for _, p := range summary.Added {
 		fmt.Printf("  + %s\n", p)
 	}
@@ -301,6 +321,40 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 		fmt.Println("\n(dry run — no files written)")
 	}
 	return nil
+}
+
+// formatOverridesSummaryCounts renders the overrides drift summary as a
+// compact "classification=count" list in stable classification order, for
+// the human-readable upgrade output line.
+func formatOverridesSummaryCounts(summary map[string]int) string {
+	parts := make([]string, 0, len(overridesClassificationOrder))
+	for _, c := range overridesClassificationOrder {
+		parts = append(parts, fmt.Sprintf("%s=%d", c, summary[c]))
+	}
+	return strings.Join(parts, " ")
+}
+
+// overridesClassificationOrder is the stable display order for the five
+// override drift classifications, shared by formatOverridesSummaryCounts and
+// zeroOverridesSummary.
+var overridesClassificationOrder = []string{
+	sharkdata.ClassificationCurrent,
+	sharkdata.ClassificationUpstreamChanged,
+	sharkdata.ClassificationIdenticalRedundant,
+	sharkdata.ClassificationOrphaned,
+	sharkdata.ClassificationBaselineUnknown,
+}
+
+// zeroOverridesSummary returns an all-zero, five-key overrides summary, used
+// as the fallback when OverrideStatusAt itself fails (e.g. an unreadable
+// overrides/ directory) so `shark admin upgrade` still emits a schema-stable
+// "overrides" key/line rather than dropping it.
+func zeroOverridesSummary() map[string]int {
+	summary := make(map[string]int, len(overridesClassificationOrder))
+	for _, c := range overridesClassificationOrder {
+		summary[c] = 0
+	}
+	return summary
 }
 
 func runSharkValidate(cmd *cobra.Command, _ []string) error {
