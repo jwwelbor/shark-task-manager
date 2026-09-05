@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -403,6 +404,96 @@ func TestRunIntegrationBackfill_MalformedEventsFile_RejectsWithZeroMutation(t *t
 	}
 	if recorder.calls != 0 {
 		t.Fatalf("expected zero note calls on rejection, got %d", recorder.calls)
+	}
+}
+
+// TestRunIntegrationBackfill_MalformedEpicRunID_RejectsWithZeroMutation
+// covers the code-review kickback on this task (defect class shared with
+// T-E34-F08-007: "--epic-run-id checked for non-empty only, not format").
+// A non-empty --epic-run-id containing a path separator and ".." must be
+// rejected by runIntegrationBackfill itself — via the same
+// integration.ValidateEpicRunID allowlist Backfill applies — before the
+// claim lookup or integration.Backfill ever run, leaving the epic's
+// .shark/integration tree untouched. The claim-lookup stub calls t.Fatal if
+// invoked, proving the rejection happens strictly before that seam, not
+// merely before Backfill.
+func TestRunIntegrationBackfill_MalformedEpicRunID_RejectsWithZeroMutation(t *testing.T) {
+	dir := t.TempDir()
+	initIntegrationTestGitRepo(t, dir)
+	t.Chdir(dir)
+
+	const epicKey = "E90"
+	const malformedEpicRunID = "../../etc/passwd"
+	const session = "session-abc"
+	headCommit := currentHeadForTest(t, dir)
+	eventsFile := writeIntegrationEventsFile(t, dir, "run-placeholder")
+	shark := filepath.Join(dir, ".shark")
+	before := countFilesUnderForTest(t, shark)
+
+	withIntegrationClaimLookup(t, func(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
+		t.Fatal("claim lookup must not be reached for a malformed --epic-run-id")
+		return nil, nil
+	})
+
+	cmd := buildIntegrationBackfillTestCmd(t, malformedEpicRunID, headCommit, eventsFile, session)
+
+	err := runIntegrationBackfill(cmd, []string{epicKey})
+	if err == nil {
+		t.Fatal("expected rejection for a malformed --epic-run-id, got nil error")
+	}
+	if !strings.Contains(err.Error(), "epic-run-id") {
+		t.Fatalf("expected error to name --epic-run-id, got: %v", err)
+	}
+	var validationErr *integration.BackfillValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("expected a *integration.BackfillValidationError, got %T: %v", err, err)
+	}
+
+	after := countFilesUnderForTest(t, shark)
+	if after != before {
+		t.Fatalf("expected zero mutation on rejection: before=%d after=%d", before, after)
+	}
+}
+
+// TestRunIntegrationBackfill_NonCanonicalEpicKey_RejectsBeforeClaimLookup
+// covers the same kickback's <epic-key> half: integration.Backfill now
+// requires a bare epic key (models.ValidateEpicKey, "^E\\d{2}$"), so this
+// CLI layer's gate must reject a slugged key like "E90-user-management"
+// itself rather than relying on DetectEntityType's looser "-"-segment check,
+// which accepts it. Rejection must happen before the claim lookup and
+// before any flags are even read, leaving the epic's .shark/integration
+// tree untouched.
+func TestRunIntegrationBackfill_NonCanonicalEpicKey_RejectsBeforeClaimLookup(t *testing.T) {
+	dir := t.TempDir()
+	initIntegrationTestGitRepo(t, dir)
+	t.Chdir(dir)
+
+	const slugEpicKey = "E90-user-management"
+	const epicRunID = "run-noncanonical-key"
+	const session = "session-abc"
+	headCommit := currentHeadForTest(t, dir)
+	eventsFile := writeIntegrationEventsFile(t, dir, epicRunID)
+	shark := filepath.Join(dir, ".shark")
+	before := countFilesUnderForTest(t, shark)
+
+	withIntegrationClaimLookup(t, func(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
+		t.Fatal("claim lookup must not be reached for a non-canonical epic key")
+		return nil, nil
+	})
+
+	cmd := buildIntegrationBackfillTestCmd(t, epicRunID, headCommit, eventsFile, session)
+
+	err := runIntegrationBackfill(cmd, []string{slugEpicKey})
+	if err == nil {
+		t.Fatal("expected rejection for a non-canonical (slugged) epic key, got nil error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "epic key") {
+		t.Fatalf("expected error to name the invalid epic key, got: %v", err)
+	}
+
+	after := countFilesUnderForTest(t, shark)
+	if after != before {
+		t.Fatalf("expected zero mutation on rejection: before=%d after=%d", before, after)
 	}
 }
 

@@ -92,9 +92,18 @@ func runIntegrationBackfill(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Reuses internal/models.ValidateEpicKey rather than DetectEntityType's
+	// looser "-"-segment check, which accepts a slugged key (e.g.
+	// "E07-user-management") whose slug segment has no character allowlist —
+	// the same defect class as --epic-run-id below (code-review kickback on
+	// T-E34-F08-007/T-E34-F08-015: "an externally-supplied identifier is
+	// used to construct a filesystem path with no format allowlist").
+	// Backfill itself now requires a bare epic key via this same validator,
+	// so rejecting here first keeps this layer's error message specific to
+	// <epic-key> and avoids a wasted claim lookup on malformed input.
 	epicKey := strings.ToUpper(strings.TrimSpace(args[0]))
-	if DetectEntityType(epicKey) != "epic" {
-		err := fmt.Errorf("%q is not a valid epic key", args[0])
+	if err := models.ValidateEpicKey(epicKey); err != nil {
+		err = fmt.Errorf("%q is not a valid epic key: %w", args[0], err)
 		cli.Error(err.Error())
 		return err
 	}
@@ -112,6 +121,17 @@ func runIntegrationBackfill(cmd *cobra.Command, args []string) error {
 
 	if epicRunID == "" || base == "" || eventsFile == "" || session == "" {
 		err := fmt.Errorf("--epic-run-id, --base, --events-file, and --session are all required")
+		cli.Error(err.Error())
+		return err
+	}
+
+	// Format-validate --epic-run-id with the same allowlist Backfill itself
+	// applies (integration.ValidateEpicRunID), before the claim lookup or
+	// Backfill ever run — a non-empty-but-malformed value (e.g. containing
+	// "/" or "..") must be rejected here rather than reaching Backfill's own
+	// filesystem-path construction unsanitized (same kickback: "checked for
+	// non-empty only, not format").
+	if err := integration.ValidateEpicRunID(epicRunID); err != nil {
 		cli.Error(err.Error())
 		return err
 	}
