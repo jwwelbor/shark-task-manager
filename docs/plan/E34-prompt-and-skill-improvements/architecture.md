@@ -228,8 +228,10 @@ another verification step.
 For a complete sweep,
 `matching_count = fixed_count + dispositioned_count`, `open_count = 0`, every
 instance is represented exactly once, and the guard status is `verified`. A
-future same-class instance is recurrence only when its fingerprint repeats or
-its site is inside this completed search scope.
+future instance is recurrence only when its fingerprint repeats, or when it
+shares this completed sweep's `class_key` **and** its site is inside this
+completed search scope — scope membership alone under a different `class_key`
+is not recurrence.
 
 ## I-04 ChangeImpactSet v1
 

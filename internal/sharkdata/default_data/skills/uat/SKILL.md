@@ -170,7 +170,7 @@ For each failing task:
    **What happened:** <brief description of the failure>
 
    **Fix required:**
-   1. Apply the defect-class sweep procedure (`skills/quality/workflows/defect-class-sweep.md`) FIRST: enumerate every site in the touched module(s) matching the defect class above per its "Enumeration procedure" section, fix all of them, not just the cited instance, and list the swept sites in the completion note.
+   1. Apply the defect-class sweep procedure (`skills/quality/workflows/defect-class-sweep.md`) FIRST: enumerate every site in the touched module(s) matching the defect class above per its "Enumeration procedure" section, disposition each per that section (not just the cited instance), and list the swept sites in the completion note.
    2. <concrete step for the cited instance>
    3. <concrete step>
 
