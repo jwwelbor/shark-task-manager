@@ -33,44 +33,39 @@ on its own terms:
 
 ## Drift and traceability notes (recorded, not blocking)
 
-- **architecture.md vs. spec.md on candidate-state shape**: architecture.md's
-  "Epic integration candidate identity" section describes a richer design
-  than spec.md's literal Go types — it names an `event kind` field, a
-  "landed or staged commit identity," a "completion history identity," a
-  retained `integration-heads/<record-digest>.json` history of prior candidate
-  heads, and a "run-scoped repository lock plus compare-and-swap." spec.md's
-  actual `IntegrationEvent`/`IntegrationCandidate` structs (quoted in this
-  plan's Caller-Path Contracts) carry none of the extra fields, no prior-head
-  retention directory, and explicitly chooses CAS *instead of* a lock
-  ("Key technical decisions" #3: "CAS over a mutex ... not two independently
-  maintained ones"). Per this workflow's own instruction ("this spec adds
-  file- and mechanism-level detail feature.md does not carry" — spec.md is
-  the file-level authority for this feature), this plan tests spec.md's
-  literal contract (AC-3 through AC-6) and does **not** invent a test for the
-  undocumented `integration-heads/` retention directory or a separate lock,
-  since neither appears in spec.md's API surface, component-changes table, or
-  ACs. Flagged here so the next E34-F08-adjacent worker (task_generation, or
-  whoever reconciles architecture.md) can decide whether architecture.md
-  needs a spec-amendment-level update or spec.md's simpler design is the
-  intentional final word — this plan does not resolve it, matching this
-  feature's own Q-F08-01 durable-unresolved-decision posture.
-- **I-05 contract-test-pointer naming mismatch**: spec.md's own "Cross-feature
-  interactions → Produces" section commits to a pointer named
-  `E34-F08-tier-consistent-gates-and-final-integration-review/test-plan.md#TC-I-05-ADOPTION-MANIFEST`
-  (i.e., a TC in *this* file). architecture.md's I-05 section and
-  `E34-interaction-map.md` (row I-05) instead name
-  `E34-F09-override-drift-visibility-and-wwgm-reconciliation/test-plan.md#TC-I-05-OVERRIDE-ADOPTION`
-  (i.e., a TC in *F09's* file). F09's already-written test-plan.md does not
-  contain a `TC-I-05-OVERRIDE-ADOPTION` — it records I-05 as "informational
-  ... N/A — no Go-level contract test." So neither pointer currently resolves
-  to a test named exactly as either doc claims. This plan follows spec.md's
-  own commitment (spec.md is this feature's authoritative file) and creates
-  **TC-I-05-ADOPTION-MANIFEST** below. The interaction-map/architecture.md
-  naming should be reconciled to point here instead of F09 — flagged as a
-  follow-up for whoever next edits `E34-interaction-map.md` or
-  architecture.md's I-05 section (not blocking this feature's own test
-  planning, since the producer-side test this plan owes can be written
-  either way).
+- **architecture.md vs. spec.md on candidate-state shape — resolved by task
+  rework**: architecture.md's "Epic integration candidate identity" section
+  names a retained `integration-heads/<record-digest>.json` history of prior
+  candidate heads and a "run-scoped repository lock" alongside CAS, which
+  spec.md's literal `IntegrationEvent`/`IntegrationCandidate` structs did not
+  carry. The task-review pass that reworked this feature's task packet
+  (T-E34-F08-012, T-E34-F08-013) closes this gap: CAS remains the mechanism
+  for concurrent candidate updates (spec.md's "CAS over a mutex" decision,
+  unchanged), and a run-scoped lock is added but scoped narrowly to guard
+  only the registration-note write sequence (matching architecture.md's
+  precise text, "under the *same run lock*, the coordinator fsyncs... before
+  inserting the note") rather than replacing CAS generally. The
+  `integration-heads/` retention directory, event kind, and path-digest
+  fields architecture.md names are now owned by T-E34-F08-012/013's scope.
+  TC-006/TC-007/TC-008 below still test spec.md's original CAS-only surface;
+  T-E34-F08-012/013's own tasks own the additional Caller-Path Contracts for
+  the archived-head, lock, and history-edge coverage this note originally
+  flagged as unresolved.
+- **I-05 contract-test-pointer — reconciled**: `E34-interaction-map.md`'s I-05
+  row is the authoritative source and states "Contract test: **N/A**" —
+  E34-F09's Go/CLI surface does not parse the I-05 manifest, so there is no
+  cross-feature Go-level contract test, and the map explicitly notes an
+  earlier planned pointer name was never created and has been removed. This
+  plan adopts that N/A verbatim: there is no cross-feature contract-test
+  pointer for I-05. Separately, and not in conflict with the N/A, this plan
+  still creates **TC-I-05-ADOPTION-MANIFEST** below as an internal
+  producer-side structural test — it verifies the rendered
+  `adoption_manifest` field list matches architecture.md's I-05 table, which
+  is useful regression coverage this feature owns regardless of whether any
+  other feature ever consumes it as a Go-level contract. Task-owned
+  declarations (T-E34-F08-010) mirror this: I-05 contract test = N/A per the
+  interaction map; TC-I-05-ADOPTION-MANIFEST is labeled an internal test,
+  not a contract pointer. This drift is now resolved, not merely flagged.
 
 ## AC / Requirement Test Matrix
 
@@ -103,7 +98,7 @@ closing gate (spec.md's own last AC), verified at Step 8, not a separate TC.
 | TC-001, TC-003, TC-004, TC-005 | `internal/templates` production renderer / direct file grep | content-only — no mock | n/a | A restated (not referenced) matrix passage, or a leaked WWGM term, is invisible to a test that only checks the renderer returns no error; grep/structural assertion is required |
 | TC-002 | `internal/templates` production renderer, rendering `task_generation.md` (the artifact-requirement surface — Step 0's tier branch already gates `spec.md`/`test-plan.md` per SIMPLE/STANDARD/COMPLEX, confirmed by direct read of the current file) once per tier render context, plus `code_review.md`/`qa.md` (the gate surface — combined vs. separate-QA routing) rendered once per tier | content-only — no mock | n/a | A route requiring an artifact absent from `tier-matrix.md`'s row for that tier passes a renderer-error-only check but fails an artifact-list-diff check |
 | TC-006 | `integration.CaptureBase(epicKey string) (*IntegrationRun, error)` | none — real temp `.shark/` directory, no DB | do not mock the filesystem or introduce an in-memory stub for the run record; must be real file I/O | An implementation that regenerates `BaseCommit` per call, or serializes concurrent callers incorrectly (second caller creates a second run file), passes a single-threaded happy-path test but fails the goroutine race |
-| TC-007 | Package-level correctness: `integration.RecordEvent(...)` then `integration.UpdateCandidate(...)`, real temp dir, real goroutines. Production-path wiring: same as TC-011's cascade entrypoint, but on the feature-*completion* transition rather than the epic-`active` first-dispatch cascade — **spec.md gap, flagged below**: unlike `CaptureBase`'s explicit `active.md`-cascade wiring note, spec.md's "Integration with existing code" section names no call site for `RecordEvent` on feature completion. TC-007's production-path subtest is written against whatever call site task_generation identifies (a feature-completion cascade/hook analogous to `resolveCascade`), and this gap is escalated in this plan's Drift notes rather than silently assumed | none — real temp dir; the wiring subtest mocks nothing (same convention as TC-011) | do not serialize the two goroutines with a test-side mutex before the calls (defeats the point); do not mock `UpdateCandidate`'s CAS; do not treat the package-level subtest as satisfying the wiring requirement — both are required, per TC-011's precedent | A last-writer-wins implementation drops one feature's `EventID` from the candidate (package-level catch); an unwired `RecordEvent` that only a test ever calls (wiring-subtest catch, once the call site is confirmed) |
+| TC-007 | Package-level correctness: `integration.RecordEvent(...)` then `integration.UpdateCandidate(...)`, real temp dir, real goroutines. Production-path wiring: the resolved call site is `internal/services/feature_service.go`'s `FeatureService.TransitionStatus`, in the branch that already detects a feature's `ToStatus` newly reaching a terminal status (mirroring the existing `featureWf.IsTerminalStatus(...)` regression check the function already contains) — when an `IntegrationRun` exists for the feature's epic, this branch calls `integration.RecordEvent`. Resolved during task rework (T-E34-F08-008); no longer an open spec.md gap | none — real temp dir; the wiring subtest mocks nothing (same convention as TC-011) | do not serialize the two goroutines with a test-side mutex before the calls (defeats the point); do not mock `UpdateCandidate`'s CAS; do not treat the package-level subtest as satisfying the wiring requirement — both are required, per TC-011's precedent | A last-writer-wins implementation drops one feature's `EventID` from the candidate (package-level catch); an unwired `RecordEvent` that only a test ever calls (wiring-subtest catch against `FeatureService.TransitionStatus`) |
 | TC-008 | `integration.UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error)` — the CAS is internal to this call (spec.md's own signature has no caller-supplied expected-digest parameter), so a deterministic (not merely probabilistic) conflict requires a **test-only synchronization seam**: an unexported, build-tag-gated hook (e.g. `var updateCandidateTestHook func()` called once between `UpdateCandidate`'s internal digest-read and its rename-write, no-op unless a test sets it) that lets the test pause goroutine A after its read and let goroutine B complete a full write first, then release A — this is the concrete seam this plan's earlier draft left undefined | the test-only hook variable itself (a package-private test seam, not a mock of production logic — `UpdateCandidate`'s real read-verify-write-retry path executes unmodified around the pause point) | do not simulate the conflict by calling a lower-level unexported function directly from the test with a hand-constructed stale digest — the pause-hook approach exercises the actual production `UpdateCandidate` call, which a bypassing call would not | An implementation that overwrites on digest mismatch (no real CAS) passes a happy-path write test but silently corrupts state under this test's deterministic pause-and-release scenario; the earlier "recompute a stale digest and hope the timing works out" approach could not reliably distinguish this from a flaky test |
 | TC-009 | `integration.Backfill(epicKey, epicRunID, base string, events []IntegrationEvent, dryRun bool) (*IntegrationCandidate, error)` for the input-validation decision-table subtests (service-level, no CLI parsing involved) | none — real temp dir | do not mock `integration.Backfill` itself | An implementation that writes partial state before validating `--events-file` fully (e.g., writes the `IntegrationRun` before checking for duplicate `EventID`s) fails this test's before/after directory-listing diff on an invalid-input subtest |
 | TC-010 | CLI wrapper `runIntegrationBackfill` (`internal/cli/commands/integration_cmd.go`), invoked with the complete `shark integration backfill <epic-key> --epic-run-id=... --base=... --events-file=... --session=...` argument shape via the CLI test harness (not calling `integration.Backfill` directly — this TC is specifically the CLI-layer proof that TC-009's service-level behavior is actually wired to the command) | claim-lookup service (mocked, matching this repo's CLI-test-mocks-repositories convention for the one DB-backed dependency in this feature) | do not mock `internal/integration` package functions in this test — only the claim lookup is mocked; the file-based write path (or its absence, on rejection) must be real | An implementation that checks `--session` against the events file itself rather than the live claim record would pass a test with a forged session string; mocking only the claim lookup and returning "no matching claim" catches an implementation that skips the check entirely. Separately: a CLI wrapper that never actually calls `integration.Backfill` (dead wiring) would still pass TC-009 (service-level) but fail TC-010's end-to-end file assertions |
@@ -379,9 +374,9 @@ closing gate (spec.md's own last AC), verified at Step 8, not a separate TC.
 | I-## | Producer | Consumer(s) | Shape source | Contract test pointer | TC |
 |---|---|---|---|---|---|
 | I-02 | E34-F05 | E34-F06, E34-F07, E34-F08 | architecture.md#i-02-gateresult-v1 | **Inherited gap** — TD-198/TD-199, no `TC-I-02-GATERESULT-PARITY` exists (E34-F05 has no test-plan.md); not re-litigated by this feature per E34-F06's own precedent. `integration_review.md`'s own envelope nesting (adoption_manifest as a `gate_result` sibling) is checked structurally by TC-I-05-ADOPTION-MANIFEST's negative case, which is the closest coverage this feature can responsibly add without owning I-02's parity test. | (owned by E34-F05, not created here) |
-| I-03 | E34-F06 | E34-F08 | architecture.md#i-03-defectclasssweep-v1 | `E34-F06-defect-class-completeness-and-recurrence-routing/scenario-review-TC-005-TC-009.md#tc-i-03-defect-class-closure-cross-reference` (pointer owned by F06, per F06's own test-plan.md) | **TC-I-03-DEFECT-CLASS-CLOSURE** (F06's TC-005+TC-008+TC-009 combined) proves the I-03 shape; this feature's **TC-013** proves *consumption* — that `integration_review.md` correctly reports a sweep whose `status` is not yet `complete` as not-closed. Same pointer, not a twin test — TC-013 references F06's pointer rather than re-deriving the I-03 shape. |
-| I-04 | E34-F07 | E34-F08 | architecture.md#i-04-changeimpactset-v1 | Owned by E34-F07's test-plan.md (not yet written at the time of this pass — F07's spec.md and test-plan.md are concurrent artifacts per the git status at authoring time) | **TC-013** consumes the same shape from the consumer side; when F07's test-plan.md is written, its contract-test pointer should reference TC-013 as the consumer-side proof rather than F07 writing a duplicate consumer test. |
-| I-05 | E34-F08 | E34-F09 | architecture.md#i-05-canonicaladoptionmanifest-v1 | `E34-F08-tier-consistent-gates-and-final-integration-review/test-plan.md#TC-I-05-ADOPTION-MANIFEST` (this file — see Drift note above re: naming mismatch with architecture.md/interaction-map.md, which currently point at F09 instead) | **TC-I-05-ADOPTION-MANIFEST** (this plan). F09's test-plan.md already records I-05 as consumed informationally with "no Go-level contract test... verified outside this test suite" — that stance is consistent with this producer-side test existing without F09 needing a twin. |
+| I-03 | E34-F06 | E34-F08 | architecture.md#i-03-defectclasssweep-v1 | `E34-F06-defect-class-completeness-and-recurrence-routing/test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE` (verbatim, per E34-interaction-map.md; pointer owned by F06) | **TC-I-03-DEFECT-CLASS-CLOSURE** (F06's) proves the I-03 shape; this feature's **TC-013** proves *consumption* — that `integration_review.md` correctly reports a sweep whose `status` is not yet `complete` as not-closed. Same pointer, not a twin test — TC-013 references F06's pointer rather than re-deriving the I-03 shape. |
+| I-04 | E34-F07 | E34-F08 | architecture.md#i-04-changeimpactset-v1 | `E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-CHANGE-IMPACT-CLOSURE` (verbatim, per E34-interaction-map.md — F07 is now complete and this pointer resolves) | **TC-I-04-CHANGE-IMPACT-CLOSURE** (F07's) proves the I-04 shape; this feature's **TC-013** proves *consumption* — that `integration_review.md` correctly reports an incomplete `ChangeImpactSet` as not-accounted. Same pointer, not a twin test. |
+| I-05 | E34-F08 | E34-F09 | architecture.md#i-05-canonicaladoptionmanifest-v1 | **N/A**, per E34-interaction-map.md's I-05 row (reconciled — the earlier pointer naming a test-plan.md#TC in F09 or here was never created and has been removed, not carried forward) | **TC-I-05-ADOPTION-MANIFEST** (this plan) is an internal producer-side structural test, not a cross-feature contract pointer — it does not conflict with the N/A. F09's test-plan.md already records I-05 as consumed informationally with "no Go-level contract test... verified outside this test suite," consistent with this internal test existing without F09 needing a twin. |
 
 ## Cross-epic integration tests (X-##)
 

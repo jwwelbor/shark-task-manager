@@ -236,7 +236,9 @@ comparison as a delivery prerequisite.
 | `internal/integration/event.go` | NEW — `IntegrationEvent`, event-ID derivation, atomic write |
 | `internal/integration/candidate.go` | NEW — `IntegrationCandidate`, digest computation, CAS update |
 | `internal/integration/backfill.go` | NEW — `Backfill` (shared by the CLI command and, structurally, by steady-state capture) |
-| `internal/integration/*_test.go` | NEW — concurrency, idempotency, CAS-rejection, backfill validation tests |
+| `internal/integration/lock.go` | NEW — run-scoped advisory lock guarding the registration-note write sequence only (task-owned by T-E34-F08-012, closing the archived-head/run-lock durability gap named in architecture.md) |
+| `internal/integration/history.go` | NEW — rebase/squash/interleaved-commit detection and dirty/untracked path digests (task-owned by T-E34-F08-013) |
+| `internal/integration/*_test.go` | NEW — concurrency, idempotency, CAS-rejection, backfill validation, restart/failure-injection, and history-edge tests |
 | `internal/cli/commands/integration_cmd.go`, `integration_cmd_test.go` | NEW — `shark integration backfill` thin wrapper + mocked-repo-free CLI test (filesystem-only, temp dir) |
 | `internal/sharkdata/embed_test.go` | EDIT — add `TestI01ReadinessSymmetry` |
 
@@ -301,18 +303,32 @@ func Backfill(epicKey, epicRunID, base string, events []IntegrationEvent, dryRun
 
 - **I-03** — DefectClassSweep v1. Producer: E34-F06 (completed). Consumed by
   `code_review.md`/`qa.md`/`approval.md`'s new reference paragraph and by
-  `integration_review.md`'s closure check.
-- **I-04** — ChangeImpactSet v1. Producer: E34-F07. Same consumption points.
+  `integration_review.md`'s closure check. Contract test (verbatim, per
+  E34-interaction-map.md):
+  `E34-F06-defect-class-completeness-and-recurrence-routing/test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE`.
+- **I-04** — ChangeImpactSet v1. Producer: E34-F07 (now completed). Same
+  consumption points. Contract test (verbatim, per E34-interaction-map.md):
+  `E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-CHANGE-IMPACT-CLOSURE`.
 - **I-02** — GateResult v1. Producer: E34-F05. Same upstream gap already
   documented by E34-F06 (TD-198/TD-199, no `TC-I-02-GATERESULT-PARITY` test
-  exists) — not re-litigated here.
+  exists) — not re-litigated here. `integration_review.md` is the concrete
+  task-owned consumer of this shape (reads prior features' `GateResult`
+  envelopes for closure evidence and nests `adoption_manifest` inside its
+  own), per T-E34-F08-010's Integration Contracts.
 
 ### Produces
 
 - **I-05** — CanonicalAdoptionManifest v1. Consumer: E34-F09. Shape source:
-  architecture.md#i-05-canonicaladoptionmanifest-v1. Contract test:
-  `E34-F08-tier-consistent-gates-and-final-integration-review/test-plan.md#TC-I-05-ADOPTION-MANIFEST`
-  (created when this feature's test-plan.md is written next).
+  architecture.md#i-05-canonicaladoptionmanifest-v1. Contract test: **N/A**,
+  per `E34-interaction-map.md`'s I-05 row — E34-F09's Go/CLI surface does
+  not parse the manifest, so there is no cross-feature Go-level contract
+  test (the earlier pointer naming a test-plan.md#TC in F09 or here was
+  reconciled away; it is not carried forward). This feature separately
+  writes **TC-I-05-ADOPTION-MANIFEST** in its own test-plan.md as an
+  internal producer-side structural test (rendered `adoption_manifest`
+  field list matches architecture.md's I-05 table) — that internal test is
+  not a cross-feature contract pointer and does not conflict with the N/A
+  above.
 - **TC-I-01-READINESS-SYMMETRY** — the shared structural guard over
   architecture.md's full I-## reference surface (REQ-F-005), living in
   `internal/sharkdata/embed_test.go` per this spec's Component-changes table.
