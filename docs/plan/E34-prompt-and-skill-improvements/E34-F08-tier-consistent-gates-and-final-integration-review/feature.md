@@ -153,8 +153,9 @@ them.
      architecture.md's per-interaction field-meaning tables) and verifies
      the producer, consumer(s), shape-source link, payload, and style are
      present for every I-01–I-05 row. Distinct from, and does not duplicate,
-     the pre-existing `TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`
-     (E34-F02/F03's I-01 ReadinessEvidence contract test).
+     I-01's shared contract-test pointer **TC-I-01-READINESS-SYMMETRY**
+     (`TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`, E34-F02/F03's
+     I-01 ReadinessEvidence contract test).
 
 6. **REQ-F-006 — Gate authority**
    - Integration review is an additional gate; it does not rewrite an
