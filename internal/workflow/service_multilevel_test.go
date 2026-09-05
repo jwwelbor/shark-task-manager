@@ -404,6 +404,31 @@ func TestGetTerminalStatuses_EpicLevel(t *testing.T) {
 	}
 }
 
+// TC-015: active -> integration_review -> completed must be reachable in the
+// real epic.yaml, and integration_review must route all four core outcomes.
+// Loads the real embedded epic.yaml (via newTestService/defaults) rather than
+// a hand-constructed workflow struct literal, per TC-015's Caller-Path
+// Contract.
+func TestValidateTransition_EpicActiveToIntegrationReview(t *testing.T) {
+	svc := newTestService()
+	epicSvc := svc.ForLevel(LevelEpic)
+
+	if err := epicSvc.ValidateTransition("active", "integration_review"); err != nil {
+		t.Errorf("expected valid transition active -> integration_review, got error: %v", err)
+	}
+}
+
+func TestValidateTransition_EpicIntegrationReviewOutcomes(t *testing.T) {
+	svc := newTestService()
+	epicSvc := svc.ForLevel(LevelEpic)
+
+	for _, target := range []string{"completed", "active", "blocked", "on_hold"} {
+		if err := epicSvc.ValidateTransition("integration_review", target); err != nil {
+			t.Errorf("expected valid transition integration_review -> %s, got error: %v", target, err)
+		}
+	}
+}
+
 func TestGetStatusMetadata_EpicLevel(t *testing.T) {
 	svc := newTestService()
 	epicSvc := svc.ForLevel(LevelEpic)
