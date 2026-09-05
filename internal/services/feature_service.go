@@ -3,10 +3,13 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/integration"
@@ -117,6 +120,12 @@ type FeatureService struct {
 	cascadeEpicRepo    CascadeEpicRepo
 	cascadeHistQuerier ParentReopenHistoryQuerier
 	cascadeHistTx      EntityHistoryTxRecorder
+
+	// integrationNoteRecorder is optional — nil disables both RegisterRun's
+	// first-head registration note and the durable failure-visibility note
+	// recordIntegrationEventForTerminalTransition writes on a genuine
+	// integration-capture persistence failure (T-E34-F08-008 UAT rework).
+	integrationNoteRecorder integration.NoteRecorder
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -221,6 +230,19 @@ func (s *FeatureService) SetCascadeDeps(db txBeginner, er CascadeEpicRepo, hq Pa
 // cascadeEnabled returns true iff all four cascade dependencies are non-nil.
 func (s *FeatureService) cascadeEnabled() bool {
 	return s.cascadeDB != nil && s.cascadeEpicRepo != nil && s.cascadeHistQuerier != nil && s.cascadeHistTx != nil
+}
+
+// SetIntegrationNoteRecorder wires the note recorder
+// recordIntegrationEventForTerminalTransition uses for RegisterRun's
+// first-head registration note and, on a genuine integration-capture
+// persistence failure, a durable `review-finding` note on the epic
+// (T-E34-F08-008 UAT rework, Finding 2: a swallowed failure must be
+// surfaced, not merely logged). Normally *services.NoteService, which
+// satisfies integration.NoteRecorder structurally. Optional: nil disables
+// RegisterRun's first-head call and the failure-visibility note;
+// RecordEvent/UpdateCandidate wiring is unaffected.
+func (s *FeatureService) SetIntegrationNoteRecorder(recorder integration.NoteRecorder) {
+	s.integrationNoteRecorder = recorder
 }
 
 // cascadeDepsBundle packages the cascade dependencies into the cascadeDeps struct.
@@ -413,21 +435,73 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 	return result, nil
 }
 
+// maxTerminalCandidateFoldAttempts bounds how many times
+// recordIntegrationEventForTerminalTransition retries integration.UpdateCandidate
+// on a *integration.CandidateConflictError before treating the conflict as a
+// genuine failure. This is a separate, call-site-level bound — not a silent
+// widening of candidate.go's own maxUpdateCandidateAttempts (spec.md's
+// Durable unresolved decision Q-F08-01 explicitly reserves any widening of
+// the single-retry policy for a visible implementation decision, not an
+// in-place bump of that package constant). Two concurrent feature
+// completions — the scenario UpdateCandidate's CAS exists for — already
+// converge within UpdateCandidate's own one internal retry; this call-site
+// bound gives higher fan-in (three or more features completing at once) a
+// few additional whole read-build-claim-publish cycles before this call
+// site gives up and records the conflict as a failure.
+const maxTerminalCandidateFoldAttempts = 3
+
+// terminalCandidateFoldRetryDelay is the fixed backoff between this call
+// site's UpdateCandidate retries, mirroring lock.go's
+// registrationLockPollInterval convention rather than inventing a new value.
+const terminalCandidateFoldRetryDelay = 5 * time.Millisecond
+
+// integrationCaptureCreatedBy identifies the automated actor recorded on
+// RegisterRun's registration note and on the durable failure-visibility
+// note recordIntegrationFailureNote writes.
+const integrationCaptureCreatedBy = "shark-integration-capture"
+
 // recordIntegrationEventForTerminalTransition implements task
-// T-E34-F08-008's AC-T2: when a feature transition's ToStatus newly reaches
-// a terminal status (checked by both TransitionStatus branches above,
+// T-E34-F08-008's AC-T2 (RecordEvent wiring) and its UAT rework (Finding 1:
+// fold the recorded event into the epic's accumulated IntegrationCandidate
+// and register the run's discoverable epic reference note on the run's
+// first head; Finding 2: a persistence failure must be durably surfaced,
+// not only logged): when a feature transition's ToStatus newly reaches a
+// terminal status (checked by both TransitionStatus branches above,
 // mirroring their existing terminal-status regression checks), and the
 // feature's epic already has an active IntegrationRun (E34-F08's per-epic
 // base-commit capture, REQ-F-004 — captured by the epic `active` step's
-// cascade action, internal/cli/commands/next.go's resolveCascade), records
-// the completion via integration.RecordEvent so the epic's cumulative
-// integration-review diff includes it.
+// cascade action, internal/cli/commands/next.go's resolveCascade):
 //
-// A best-effort, side-channel operation mirroring this file's existing
-// indexEntityIfConfigured post-hook: a lookup or recording failure is
-// logged and never fails or blocks the underlying status transition — the
+//  1. Records the completion via integration.RecordEvent.
+//  2. Folds the recorded event into the run's IntegrationCandidate via
+//     integration.UpdateCandidate (retried per maxTerminalCandidateFoldAttempts
+//     on a CAS conflict).
+//  3. When the returned candidate's EventIDs count is exactly 1 — which
+//     only the winner of the CAS's "from-empty" transition can ever
+//     observe, i.e. genuinely the first head ever published for this run —
+//     registers the run via integration.RegisterRun. A later head is never
+//     re-registered here: RegisterRun's firstHead contract assumes the head
+//     it is given is the run's one-and-only registered head, so calling it
+//     again with a later head would be rejected as a conflicting head for
+//     an already-registered run. Re-invoking RegisterRun after a crash
+//     between the first successful UpdateCandidate and RegisterRun itself
+//     is T-E34-F08-014's named crash-restart-repair scope, not this call
+//     site's (see run.go's RegisterRun doc comment).
+//
+// A best-effort, side-channel operation with respect to the feature's own
+// business transition, mirroring this file's existing
+// indexEntityIfConfigured post-hook: a lookup, fold, or registration
+// failure never fails or blocks the underlying status transition — the
 // feature has already legitimately (and, in the aggregate branch, already
-// durably) transitioned by the time this runs.
+// durably) transitioned by the time this runs. But per Finding 2, a
+// genuine failure (not simply logged) is durably recorded as a
+// `review-finding` note on the epic via recordIntegrationFailureNote so it
+// is queryable rather than silently lost to a log stream — see that
+// function's own doc comment for the named, flagged limitation this does
+// NOT close (integration_review.md's existing "Open findings" closure check
+// only cross-checks review-finding notes that name a path present in the
+// accumulated diff, and this call site has no per-feature path list to
+// name).
 //
 // Tracked/untracked changed-path population is unowned by any task at this
 // call site — T-E34-F08-016 ("Dirty tracked and untracked path-digest
@@ -460,9 +534,139 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
 		return
 	}
-	if _, err := integration.RecordEvent(run.EpicRunID, featureKey, commit, nil, nil); err != nil {
+
+	// callTime is captured strictly before RecordEvent so a returned
+	// event's RecordedAt can be compared against it below to detect a
+	// replay of an already-persisted event (RecordEvent's own idempotency
+	// contract: a retried write for the identical
+	// epicRunID/featureKey/featureCommit resolves to the same file,
+	// returning its original RecordedAt unchanged, rather than
+	// recomputing it).
+	callTime := time.Now().UTC()
+	event, err := integration.RecordEvent(run.EpicRunID, featureKey, commit, nil, nil)
+	if err != nil {
 		slog.WarnContext(ctx, "integration event recording failed",
 			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "record_event", err)
+		return
+	}
+
+	// A RecordedAt strictly before callTime means RecordEvent returned an
+	// already-persisted record from an earlier call (e.g. this feature
+	// regressed and re-completed at the identical commit). Re-folding a
+	// replayed event into the candidate is not merely redundant:
+	// buildNextCandidate (candidate.go) unconditionally sets the next
+	// candidate's HeadCommit from THIS call's event argument regardless of
+	// whether the event's ID was already present in the current candidate
+	// — folding a stale replay after a different feature has since
+	// advanced the candidate would silently regress HeadCommit backward,
+	// corrupting REQ-F-005's diff. Skipping the fold on a detected replay
+	// keeps this call site from ever exercising that path; candidate.go's
+	// own behavior here is unchanged and outside this task's file scope.
+	if event.RecordedAt.Before(callTime) {
+		return
+	}
+
+	candidate, err := s.updateIntegrationCandidateWithRetry(run.EpicRunID, event)
+	if err != nil {
+		slog.WarnContext(ctx, "integration candidate update failed",
+			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "update_candidate", err)
+		return
+	}
+
+	if len(candidate.EventIDs) != 1 {
+		return
+	}
+
+	if s.integrationNoteRecorder == nil {
+		slog.WarnContext(ctx, "integration run registration skipped: no note recorder wired",
+			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID)
+		return
+	}
+	if _, err := integration.RegisterRun(ctx, s.integrationNoteRecorder, run, candidate, event, integrationCaptureCreatedBy); err != nil {
+		slog.WarnContext(ctx, "integration run registration failed",
+			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "register_run", err)
+	}
+}
+
+// updateIntegrationCandidateWithRetry calls integration.UpdateCandidate,
+// retrying up to maxTerminalCandidateFoldAttempts total attempts while the
+// error is a *integration.CandidateConflictError (see
+// maxTerminalCandidateFoldAttempts's doc comment for why this bound is
+// separate from candidate.go's own internal retry). Any non-conflict error
+// is returned immediately.
+func (s *FeatureService) updateIntegrationCandidateWithRetry(epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxTerminalCandidateFoldAttempts; attempt++ {
+		candidate, err := integration.UpdateCandidate(epicRunID, event)
+		if err == nil {
+			return candidate, nil
+		}
+		var conflict *integration.CandidateConflictError
+		if !errors.As(err, &conflict) {
+			return nil, err
+		}
+		lastErr = err
+		time.Sleep(terminalCandidateFoldRetryDelay)
+	}
+	return nil, lastErr
+}
+
+// recordIntegrationFailureNote durably records a `review-finding` note on
+// the epic when RecordEvent, UpdateCandidate, or RegisterRun genuinely
+// fails from recordIntegrationEventForTerminalTransition — UAT Finding 2's
+// fix: a persistence failure here previously left only a slog warning (a
+// non-durable, non-queryable signal) while the feature's own transition
+// still succeeded. This note makes the gap durably visible via `shark epic
+// notes`/`shark search`.
+//
+// Named, flagged limitation (not closed by this note): integration_review.md's
+// existing "Open findings" closure check (T-E34-F08-010, out of this task's
+// file scope) only cross-checks review-finding notes that name a path
+// present in the epic's accumulated diff, and this call site has no
+// per-feature changed-path list to name (T-E34-F08-016's scope, not this
+// one's — see the doc comment on this file's RecordEvent call above). A
+// human or operator auditing `shark epic notes <epic-key>` will see this
+// note; the automated integration_review gate is not guaranteed to key off
+// it as written today. Closing that gap — e.g. by having integration_review
+// also cross-check open review-finding notes with
+// metadata.gate=="integration_capture" regardless of path, or by having
+// this call site cross-reference every completed feature's own changed
+// paths — is a follow-up recommendation, not something this call site
+// invents on its own authority.
+//
+// Best-effort: a failure to write this note is logged and never raises —
+// the whole point of this call site is that a side-channel failure must
+// never fail the feature's own business transition.
+func (s *FeatureService) recordIntegrationFailureNote(ctx context.Context, epicKey, featureKey, epicRunID, stage string, cause error) {
+	if s.integrationNoteRecorder == nil {
+		return
+	}
+	content := fmt.Sprintf(
+		"integration capture failed for feature %s (epic run %s) at stage %q: %v — the integration candidate/registration for this epic run may be incomplete; verify with `shark integration backfill` before trusting integration_review.",
+		featureKey, epicRunID, stage, cause,
+	)
+	metadata, err := json.Marshal(map[string]string{
+		"gate":             "integration_capture",
+		"severity":         "critical",
+		"closure_category": "reference",
+		"disposition":      "open",
+		"feature_key":      featureKey,
+		"epic_run_id":      epicRunID,
+		"stage":            stage,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "integration failure note metadata encoding failed",
+			"feature_key", featureKey, "epic_key", epicKey, "epic_run_id", epicRunID, "stage", stage, "error", err)
+		return
+	}
+	if _, err := s.integrationNoteRecorder.AddNoteWithMetadata(
+		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integrationCaptureCreatedBy, string(metadata),
+	); err != nil {
+		slog.WarnContext(ctx, "integration failure note recording failed",
+			"feature_key", featureKey, "epic_key", epicKey, "epic_run_id", epicRunID, "stage", stage, "error", err)
 	}
 }
 

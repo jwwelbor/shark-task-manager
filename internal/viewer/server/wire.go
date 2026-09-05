@@ -481,6 +481,15 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		panic(fmt.Sprintf("failed to create NoteService: %v", err))
 	}
 	noteService.SetSearchIndexer(searchRepo)
+
+	// T-E34-F08-008 UAT rework: wire the same note recorder the CLI accessor
+	// wires (internal/cli/service_accessors.go's GetFeatureService) so the
+	// viewer's mutation API — a second production caller of
+	// FeatureService.TransitionStatus, via MutationService below — gets the
+	// same RegisterRun first-head registration and failure-visibility
+	// behavior, not a silently-nil-recorder variant of the same call site.
+	featureService.SetIntegrationNoteRecorder(noteService)
+
 	contextService, err := services.NewContextService(registry)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create ContextService: %v", err))

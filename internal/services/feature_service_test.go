@@ -4380,3 +4380,374 @@ func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransi
 		t.Fatalf("event = %+v, want FeatureKey=E79-F01 EpicRunID=%s FeatureCommit=%s", event, run.EpicRunID, commit)
 	}
 }
+
+// ============================================================================
+// T-E34-F08-008 UAT rework (uat-20260905-174346-E34-F08.md Finding 1/2):
+// production-path wiring for integration.UpdateCandidate and
+// integration.RegisterRun through FeatureService.TransitionStatus, plus the
+// Finding-2 failure-visibility note.
+// ============================================================================
+
+// newRealFeatureServiceForIntegrationWiringWithNotes extends
+// newRealFeatureServiceForIntegrationWiring with a real *NoteService (not a
+// hand-rolled fake of integration.NoteRecorder) wired over the SAME
+// isolated DB and a real EpicRepositoryAdapter-backed EntityRegistry entry
+// for epics — mirroring impact_service_test.go's "mock-seam correction"
+// convention (newImpactTestHarness): a test that mocks the NoteRecorder
+// interface directly cannot observe whether RegisterRun's own reconciliation
+// logic (existingRegistrationNote/ListNotes) round-trips against a real
+// note store, and this task's rework is specifically about wiring a real
+// production note path, not proving a mock was called.
+func newRealFeatureServiceForIntegrationWiringWithNotes(t *testing.T) (*FeatureService, *repository.FeatureRepository, *repository.EpicRepository, *NoteService) {
+	t.Helper()
+	db := repository.NewDB(test.NewIsolatedTestDB(t))
+	featureRepo := repository.NewFeatureRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
+	workflowSvc := newTestFeatureWorkflowServiceWithCascade(t)
+	entitySvc := NewEntityService(workflowSvc)
+	entityRepo := NewFeatureRepositoryAdapter(featureRepo)
+
+	registry := NewEntityRegistry()
+	registry.Register(models.EntityTypeEpic, NewEpicRepositoryAdapter(epicRepo))
+	noteRepo := repository.NewEntityNoteRepository(db)
+	noteSvc, err := NewNoteService(noteRepo, registry)
+	if err != nil {
+		t.Fatalf("NewNoteService: %v", err)
+	}
+
+	svc := NewFeatureService(featureRepo, entitySvc, entityRepo, nil, epicRepo)
+	svc.SetAggregateMutationCoordinator(NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), workflowSvc))
+	svc.SetCascadeDeps(db, epicRepo, entityHistoryRepo, entityHistoryRepo)
+	svc.SetIntegrationNoteRecorder(noteSvc)
+	return svc, featureRepo, epicRepo, noteSvc
+}
+
+// readIntegrationCandidate reads the run's on-disk IntegrationCandidate,
+// mirroring readSoleIntegrationEvent's convention of reading event.go's
+// documented, stable path rather than reaching into unexported helpers.
+func readIntegrationCandidate(t *testing.T, projectRoot, epicRunID string) integration.IntegrationCandidate {
+	t.Helper()
+	path := filepath.Join(projectRoot, ".shark", "runs", epicRunID, "integration-candidate.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read candidate file %s: %v", path, err)
+	}
+	var candidate integration.IntegrationCandidate
+	if err := json.Unmarshal(data, &candidate); err != nil {
+		t.Fatalf("unmarshal candidate: %v", err)
+	}
+	return candidate
+}
+
+// findRegistrationNote returns the single epic-level reference note carrying
+// integration.RecordKindIntegrationCandidateRoot for epicKey, failing the
+// test if none or more than one is found.
+func findRegistrationNote(t *testing.T, ctx context.Context, noteSvc *NoteService, epicKey string) integration.RegistrationNoteContent {
+	t.Helper()
+	notes, err := noteSvc.ListNotes(ctx, models.EntityTypeEpic, epicKey, []string{string(models.NoteTypeReference)})
+	if err != nil {
+		t.Fatalf("ListNotes(reference) for %s: %v", epicKey, err)
+	}
+	var (
+		match      *integration.RegistrationNoteContent
+		matchCount int
+	)
+	for _, note := range notes {
+		var content integration.RegistrationNoteContent
+		if err := json.Unmarshal([]byte(note.Content), &content); err != nil {
+			continue
+		}
+		if content.RecordKind != integration.RecordKindIntegrationCandidateRoot {
+			continue
+		}
+		matchCount++
+		match = &content
+	}
+	if matchCount != 1 {
+		t.Fatalf("epic %s has %d registration notes, want exactly 1 (notes=%+v)", epicKey, matchCount, notes)
+	}
+	return *match
+}
+
+// findReviewFindingNotes returns every `review-finding` note recorded on
+// epicKey whose metadata carries gate=="integration_capture" — the durable
+// failure-visibility note recordIntegrationFailureNote writes (Finding 2).
+func findReviewFindingNotes(t *testing.T, ctx context.Context, noteSvc *NoteService, epicKey string) []*models.EntityNote {
+	t.Helper()
+	notes, err := noteSvc.ListNotes(ctx, models.EntityTypeEpic, epicKey, []string{"review-finding"})
+	if err != nil {
+		t.Fatalf("ListNotes(review-finding) for %s: %v", epicKey, err)
+	}
+	var out []*models.EntityNote
+	for _, note := range notes {
+		if note.Metadata == nil {
+			continue
+		}
+		var meta map[string]string
+		if err := json.Unmarshal([]byte(*note.Metadata), &meta); err != nil {
+			continue
+		}
+		if meta["gate"] == "integration_capture" {
+			out = append(out, note)
+		}
+	}
+	return out
+}
+
+// TestFeatureService_TransitionStatus_FoldsCandidateAndRegistersFirstHead_AggregateBranch
+// covers the UAT rework's Finding 1 fix: a terminal feature transition must
+// not merely write a leaf IntegrationEvent — it must fold that event into
+// the epic's accumulated IntegrationCandidate via integration.UpdateCandidate
+// and, on the run's first-ever head, register the run's discoverable epic
+// reference note via integration.RegisterRun. A test that only checks the
+// event file (as the pre-rework tests above did) proves nothing about this
+// production caller chain — this test is the production-path counterfactual
+// the UAT report's Finding 1 fix guidance names.
+func TestFeatureService_TransitionStatus_FoldsCandidateAndRegistersFirstHead_AggregateBranch(t *testing.T) {
+	dir := t.TempDir()
+	initFeatureServiceIntegrationGitRepo(t, dir)
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	svc, featureRepo, epicRepo, noteSvc := newRealFeatureServiceForIntegrationWiringWithNotes(t)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E80", Title: "Candidate fold epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E80-F01", Title: "Candidate fold feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, feature); err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+
+	run, err := integration.CaptureBase("E80")
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	if _, err := svc.TransitionStatus(ctx, "E80-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus: %v", err)
+	}
+
+	event := readSoleIntegrationEvent(t, dir, run.EpicRunID)
+
+	candidate := readIntegrationCandidate(t, dir, run.EpicRunID)
+	if len(candidate.EventIDs) != 1 || candidate.EventIDs[0] != event.EventID {
+		t.Fatalf("candidate.EventIDs = %v, want exactly [%s]", candidate.EventIDs, event.EventID)
+	}
+	if candidate.BaseCommit != run.BaseCommit {
+		t.Errorf("candidate.BaseCommit = %q, want %q", candidate.BaseCommit, run.BaseCommit)
+	}
+	if candidate.HeadCommit != event.FeatureCommit {
+		t.Errorf("candidate.HeadCommit = %q, want %q", candidate.HeadCommit, event.FeatureCommit)
+	}
+	if candidate.Digest == "" {
+		t.Error("candidate.Digest is empty")
+	}
+
+	regNote := findRegistrationNote(t, ctx, noteSvc, "E80")
+	if regNote.EpicRunID != run.EpicRunID {
+		t.Errorf("registration note EpicRunID = %q, want %q", regNote.EpicRunID, run.EpicRunID)
+	}
+	if regNote.HeadDigest != candidate.Digest {
+		t.Errorf("registration note HeadDigest = %q, want %q (the run's first head)", regNote.HeadDigest, candidate.Digest)
+	}
+}
+
+// TestFeatureService_TransitionStatus_SecondFeatureFoldsWithoutReRegistering_AggregateBranch
+// covers AC-4 ("concurrent event writes survive and candidate contains both
+// event IDs") for the sequential case, and the "first head only" half of
+// Finding 1's fix guidance: a second feature's terminal completion under the
+// same epic run folds its event into the SAME candidate (both EventIDs
+// present) but must never re-invoke RegisterRun with the new, later head —
+// exactly one registration note exists for the run afterward, still
+// pointing at the FIRST candidate's digest.
+func TestFeatureService_TransitionStatus_SecondFeatureFoldsWithoutReRegistering_AggregateBranch(t *testing.T) {
+	dir := t.TempDir()
+	initFeatureServiceIntegrationGitRepo(t, dir)
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	svc, featureRepo, epicRepo, noteSvc := newRealFeatureServiceForIntegrationWiringWithNotes(t)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E81", Title: "Second feature fold epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	featureA := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E81-F01", Title: "First feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, featureA); err != nil {
+		t.Fatalf("create feature A: %v", err)
+	}
+	featureB := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E81-F02", Title: "Second feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, featureB); err != nil {
+		t.Fatalf("create feature B: %v", err)
+	}
+
+	run, err := integration.CaptureBase("E81")
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	if _, err := svc.TransitionStatus(ctx, "E81-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus(A): %v", err)
+	}
+	firstCandidate := readIntegrationCandidate(t, dir, run.EpicRunID)
+
+	// A second real commit so the second feature's derived EventID (and the
+	// candidate's next HeadCommit) genuinely differs from the first's.
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "second.txt"), []byte("second"), 0o644); err != nil {
+		t.Fatalf("write second.txt: %v", err)
+	}
+	runGit("add", "second.txt")
+	runGit("commit", "-q", "-m", "second")
+
+	if _, err := svc.TransitionStatus(ctx, "E81-F02", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus(B): %v", err)
+	}
+
+	finalCandidate := readIntegrationCandidate(t, dir, run.EpicRunID)
+	if len(finalCandidate.EventIDs) != 2 {
+		t.Fatalf("finalCandidate.EventIDs = %v, want 2 entries (one per feature)", finalCandidate.EventIDs)
+	}
+	if finalCandidate.Digest == firstCandidate.Digest {
+		t.Error("finalCandidate.Digest did not change after folding the second event")
+	}
+
+	regNote := findRegistrationNote(t, ctx, noteSvc, "E81")
+	if regNote.HeadDigest != firstCandidate.Digest {
+		t.Errorf("registration note HeadDigest = %q, want the FIRST candidate's digest %q (never re-registered on a later head)",
+			regNote.HeadDigest, firstCandidate.Digest)
+	}
+}
+
+// TestFeatureService_TransitionStatus_CandidateUpdateFailureIsSurfacedAsDurableNote_AggregateBranch
+// is Finding 2's failure-injected counterfactual: when integration.UpdateCandidate
+// genuinely fails (as opposed to a transient CAS conflict this call site
+// already retries), the failure must be durably surfaced as a queryable
+// `review-finding` note on the epic — never only a slog warning that
+// silently converts into a successful-looking feature completion. The
+// on-disk candidate file is pre-corrupted (invalid JSON) so readCandidate
+// returns a non-conflict error deterministically, without any new
+// production test hook (mirrors this package's existing convention of
+// exercising real failure paths via real broken on-disk state rather than
+// injected mock errors).
+func TestFeatureService_TransitionStatus_CandidateUpdateFailureIsSurfacedAsDurableNote_AggregateBranch(t *testing.T) {
+	dir := t.TempDir()
+	initFeatureServiceIntegrationGitRepo(t, dir)
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	svc, featureRepo, epicRepo, noteSvc := newRealFeatureServiceForIntegrationWiringWithNotes(t)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E82", Title: "Failure-injected epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E82-F01", Title: "Failure-injected feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, feature); err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+
+	run, err := integration.CaptureBase("E82")
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	// Inject the failure: a corrupt candidate file for this run, written
+	// before the feature ever completes.
+	candidateDir := filepath.Join(dir, ".shark", "runs", run.EpicRunID)
+	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
+		t.Fatalf("mkdir candidate dir: %v", err)
+	}
+	candidatePath := filepath.Join(candidateDir, "integration-candidate.json")
+	if err := os.WriteFile(candidatePath, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatalf("write corrupt candidate: %v", err)
+	}
+
+	// The business transition must still succeed — a side-channel
+	// integration-capture failure never blocks the feature's own workflow.
+	if _, err := svc.TransitionStatus(ctx, "E82-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus: %v", err)
+	}
+	got, err := featureRepo.GetByKey(ctx, "E82-F01")
+	if err != nil {
+		t.Fatalf("GetByKey: %v", err)
+	}
+	if got.Status != models.FeatureStatusCompleted {
+		t.Fatalf("feature status = %q, want completed even though integration capture failed", got.Status)
+	}
+
+	// The event itself was still recorded (RecordEvent never touches the
+	// candidate file).
+	_ = readSoleIntegrationEvent(t, dir, run.EpicRunID)
+
+	// Finding 2: the failure must be durably surfaced, not silently
+	// swallowed into a clean-looking completion.
+	findings := findReviewFindingNotes(t, ctx, noteSvc, "E82")
+	if len(findings) != 1 {
+		t.Fatalf("epic E82 has %d integration_capture review-finding notes, want exactly 1 (findings=%+v)", len(findings), findings)
+	}
+	var meta map[string]string
+	if err := json.Unmarshal([]byte(*findings[0].Metadata), &meta); err != nil {
+		t.Fatalf("unmarshal finding metadata: %v", err)
+	}
+	if meta["stage"] != "update_candidate" {
+		t.Errorf("finding metadata[stage] = %q, want %q", meta["stage"], "update_candidate")
+	}
+	if meta["feature_key"] != "E82-F01" {
+		t.Errorf("finding metadata[feature_key] = %q, want %q", meta["feature_key"], "E82-F01")
+	}
+	if meta["disposition"] != "open" {
+		t.Errorf("finding metadata[disposition] = %q, want %q", meta["disposition"], "open")
+	}
+
+	// No registration note should exist: UpdateCandidate never succeeded,
+	// so there is no head to register.
+	notes, err := noteSvc.ListNotes(ctx, models.EntityTypeEpic, "E82", []string{string(models.NoteTypeReference)})
+	if err != nil {
+		t.Fatalf("ListNotes(reference): %v", err)
+	}
+	for _, note := range notes {
+		var content integration.RegistrationNoteContent
+		if err := json.Unmarshal([]byte(note.Content), &content); err == nil && content.RecordKind == integration.RecordKindIntegrationCandidateRoot {
+			t.Fatalf("unexpected registration note %+v after a failed UpdateCandidate", content)
+		}
+	}
+}

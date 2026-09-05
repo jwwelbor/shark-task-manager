@@ -305,6 +305,16 @@ func GetFeatureService() *services.FeatureService {
 	// reopens a terminal epic ancestor (AC-T3 / REQ-F-001).
 	svc.SetCascadeDeps(db, epicRepo, entityHistoryRepo, entityHistoryRepo)
 
+	// T-E34-F08-008 UAT rework: wire the note recorder RegisterRun's
+	// first-head registration note and the durable integration-capture
+	// failure note need. Best-effort at wiring time too — a NoteService
+	// init failure here must not prevent FeatureService from being usable
+	// for everything else; recordIntegrationEventForTerminalTransition
+	// already degrades gracefully with integrationNoteRecorder left nil.
+	if noteSvc, err := GetNoteService(context.Background()); err == nil {
+		svc.SetIntegrationNoteRecorder(noteSvc)
+	}
+
 	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
 	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)
 	svc.SetProgressService(progressSvc)
