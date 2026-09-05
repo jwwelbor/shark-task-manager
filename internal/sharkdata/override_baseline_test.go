@@ -411,6 +411,57 @@ func TestAcknowledgeOverrides_Failure_NoPartialWrites(t *testing.T) {
 	})
 }
 
+// TC-014 (defect-class sweep addition, UAT round 1 kickback): AcknowledgeOverrides
+// must reject an unsafe caller-controlled path via the shared
+// normalizeOverrideRelPath guard BEFORE any filesystem lookup (Lstat/ReadEmbedded),
+// exactly like OverrideStatusAt already does for walked paths (see
+// TestNormalizeOverrideRelPath_RejectsUnsafePaths in overrides_status_test.go). A
+// prior version joined the raw path onto dataRoot and Lstat'd it before
+// validating, creating a path-existence oracle (the error differs depending on
+// whether something exists at the raw, unvalidated join) and storing
+// un-normalized keys in the manifest.
+func TestAcknowledgeOverrides_RejectsUnsafePathBeforeFilesystemLookup(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"absolute path", "/etc/passwd"},
+		{"leading dotdot segment", "../outside.md"},
+		{"embedded dotdot segment", "a/../../outside.md"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dataRoot := t.TempDir()
+			before := readManifestBytesIfExists(t, dataRoot)
+
+			report, err := AcknowledgeOverrides(dataRoot, []string{tc.in})
+
+			if err == nil {
+				t.Fatalf("AcknowledgeOverrides(%q) = nil error, want rejection", tc.in)
+			}
+			if report != nil {
+				t.Errorf("report = %v, want nil on failure", report)
+			}
+			// The rejection must come from path-safety validation, not from a
+			// filesystem lookup performed on the raw, unvalidated path — that
+			// would surface as "no regular override file exists" instead,
+			// proving the Lstat ran before normalization.
+			if strings.Contains(err.Error(), "no regular override file exists") {
+				t.Errorf("error %q indicates a filesystem lookup ran before path-safety validation", err.Error())
+			}
+
+			after := readManifestBytesIfExists(t, dataRoot)
+			if before == nil && after != nil {
+				t.Errorf("manifest was created by a rejected unsafe path: %s", after)
+			}
+			if before != nil && string(before) != string(after) {
+				t.Errorf("manifest changed by a rejected unsafe path: before=%s after=%s", before, after)
+			}
+		})
+	}
+}
+
 func writeBaselineFile(t *testing.T, dataRoot, content string) {
 	t.Helper()
 	path := filepath.Join(dataRoot, ".shark-override-baselines.json")

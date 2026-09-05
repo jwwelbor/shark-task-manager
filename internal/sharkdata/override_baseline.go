@@ -98,17 +98,28 @@ func AcknowledgeOverrides(dataRoot string, paths []string) (*OverrideStatusRepor
 	canonicalHashes := make(map[string]string, len(paths))
 
 	for _, p := range paths {
-		overridePath := filepath.Join(dataRoot, "overrides", filepath.FromSlash(p))
-		info, statErr := os.Lstat(overridePath)
-		if statErr != nil || !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("sharkdata: acknowledge failed for %q: no regular override file exists at %q", p, overridePath)
+		// Path-safety normalization must run before this caller-controlled
+		// path is joined onto dataRoot or looked up anywhere — same
+		// invariant OverrideStatusAt enforces for walked paths (see
+		// normalizeOverrideRelPath in overrides_status.go). Validating first
+		// avoids both a path-existence oracle (Lstat on a raw, unvalidated
+		// path) and storing an un-normalized key in the manifest.
+		safePath, safeErr := normalizeOverrideRelPath(p)
+		if safeErr != nil {
+			return nil, fmt.Errorf("sharkdata: acknowledge failed for %q: %w", p, safeErr)
 		}
 
-		canonicalBytes, readErr := ReadEmbedded(p)
-		if readErr != nil {
-			return nil, fmt.Errorf("sharkdata: acknowledge failed for %q: no canonical counterpart exists: %w", p, readErr)
+		overridePath := filepath.Join(dataRoot, "overrides", filepath.FromSlash(safePath))
+		info, statErr := os.Lstat(overridePath)
+		if statErr != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("sharkdata: acknowledge failed for %q: no regular override file exists at %q", safePath, overridePath)
 		}
-		canonicalHashes[p] = sha256Hex(canonicalBytes)
+
+		canonicalBytes, readErr := ReadEmbedded(safePath)
+		if readErr != nil {
+			return nil, fmt.Errorf("sharkdata: acknowledge failed for %q: no canonical counterpart exists: %w", safePath, readErr)
+		}
+		canonicalHashes[safePath] = sha256Hex(canonicalBytes)
 	}
 
 	manifest, loadErr := LoadOverrideBaselines(dataRoot)
