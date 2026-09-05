@@ -4,7 +4,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -155,16 +154,17 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 }
 
 // verifyCommitReachable rejects base as a *BackfillValidationError unless it
-// resolves to a real, reachable commit inside projectRoot's repository
-// (`git cat-file -e <base>^{commit}`, which checks object existence and
-// type without printing or otherwise materializing its content).
+// resolves to a real, reachable commit inside projectRoot's repository.
+// The actual check is history.go's VerifyBaseReachable (no head yet at
+// backfill time, so head is passed as "") — the same function
+// AnalyzeHistory uses for the epic's own base once a run is underway, so
+// there is one correctness argument for what counts as a reachable base,
+// not two independently-maintained checks (task T-E34-F08-013's "shared
+// with steady-state capture" scope, applying spec.md's "Key technical
+// decisions" #2 principle to base-reachability rather than the write
+// path that decision was originally written about).
 func verifyCommitReachable(projectRoot, base string) error {
-	if strings.TrimSpace(base) == "" {
-		return &BackfillValidationError{Reason: "--base must not be empty"}
-	}
-	cmd := exec.Command("git", "cat-file", "-e", base+"^{commit}")
-	cmd.Dir = projectRoot
-	if err := cmd.Run(); err != nil {
+	if err := VerifyBaseReachable(projectRoot, base, ""); err != nil {
 		return &BackfillValidationError{Reason: fmt.Sprintf("--base %q is not a reachable commit: %v", base, err)}
 	}
 	return nil

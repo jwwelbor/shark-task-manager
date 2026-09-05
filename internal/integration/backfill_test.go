@@ -275,6 +275,17 @@ func TestBackfill_MalformedInput_ZeroMutation(t *testing.T) {
 		if !errors.As(err, &valErr) {
 			t.Fatalf("expected *BackfillValidationError, got %T: %v", err, err)
 		}
+		// Task T-E34-F08-013: verifyCommitReachable now delegates to
+		// history.go's shared VerifyBaseReachable rather than running its
+		// own independent git check — "one correctness argument" for what
+		// counts as a reachable base. Asserting the message names the
+		// specific reason VerifyBaseReachable produces (rather than only
+		// checking the wrapper type, which would pass even against an
+		// unrelated, still-independent check) proves the sharing actually
+		// happened.
+		if !strings.Contains(valErr.Error(), "does not resolve to a real commit object") {
+			t.Fatalf("expected the wrapped reason to come from history.go's VerifyBaseReachable, got: %v", valErr)
+		}
 		if got := countFilesUnder(t, shark); got != 0 {
 			t.Fatalf("unreachable-base attempt wrote %d files, want 0", got)
 		}
