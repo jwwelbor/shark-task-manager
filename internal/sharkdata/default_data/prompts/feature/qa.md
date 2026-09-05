@@ -1,5 +1,7 @@
 Verification gate (craft review) passed for COMPLEX feature {{.id}} ("{{.title}}"). Launch QA agent for the deep second verification gate. (SIMPLE/STANDARD features skip this gate — their review, test run, wiring matrix, and contract compliance were merged into the verification gate.)
 
+Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `approval`; COMPLEX: `code_review`, `qa`, `approval` (canonical source: `skills/quality/context/tier-matrix.md`).
+
 {{include: skills/quality/SKILL.md}}
 
 READ:

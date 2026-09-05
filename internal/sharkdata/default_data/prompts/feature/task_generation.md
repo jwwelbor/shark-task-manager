@@ -14,6 +14,8 @@ Check `shark feature notes {{.id}}` (or {{template "get_json" .}}) for the most 
 - **SIMPLE** -> follow "SIMPLE-lite mode" below; the spec and test-plan gates are waived, but validated research is never waived.
 - **STANDARD**, **COMPLEX**, or no COMPLEXITY note found -> the included workflow's Hard Gates apply as written.
 
+Required planning artifacts — SIMPLE: `feature.md`, `research-report.md`; STANDARD: `spec.md`, `test-plan.md`; COMPLEX: `spec.md`, `test-plan.md` (canonical source: `skills/quality/context/tier-matrix.md`).
+
 ### Prompt-only scope
 
 For embedded prompt, skill, template, or documentation-only features, accept a

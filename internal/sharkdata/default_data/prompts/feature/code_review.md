@@ -7,6 +7,8 @@ Read feature metadata: {{template "get_json" .}} → `complexity_tier` (also rec
 - **SIMPLE / STANDARD** (or tier unknown): this is the ONLY same-model verification gate — perform ALL FOUR parts below in this single pass. Do not slim it: there is no separate QA pass behind you, and tasks receive no per-task review.
 - **COMPLEX**: perform Part 1 (craft review) only; Parts 2–4 run as a separate deep QA gate next.
 
+Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `approval`; COMPLEX: `code_review`, `qa`, `approval` (canonical source: `skills/quality/context/tier-matrix.md`).
+
 RE-REVIEW ROUND (a prior code-review report matching {{.review_base}}code-review-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (Parts 1–4 below) over the feature surface, not only the previously-flagged area.
 
 {{include: skills/quality/workflows/review-code.md}}

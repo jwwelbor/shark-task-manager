@@ -2,6 +2,8 @@ Verification passed for feature E07-F01 ("Sample feature for golden test"). Laun
 
 This is the final automated quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
 
+Canonical per-tier artifact and gate matrix: `skills/quality/context/tier-matrix.md`.
+
 READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases

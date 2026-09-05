@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -512,4 +513,89 @@ func TestOrchestratorRenderer_LoadsFromEmbed(t *testing.T) {
 	})
 	require.NoError(t, err, "embedded task/development.md must render successfully")
 	assert.NotEmpty(t, strings.TrimSpace(out), "rendered output must be non-empty")
+}
+
+// ============================================================================
+// T-E34-F08-002 / TC-001 — tier-matrix.md single-source-of-truth
+// ============================================================================
+
+// tierMatrixCanonicalPath is the exact bundle path the five consuming
+// prompts must reference. TC-001's edge case ("a prompt that references the
+// file by a stale/renamed path fails ... not just the grep") is why this
+// constant, not a loose substring like "tier-matrix", is what the grep test
+// below matches against.
+const tierMatrixCanonicalPath = "skills/quality/context/tier-matrix.md"
+
+// TestTierMatrixRendersThroughProductionRenderer renders tier-matrix.md
+// through the production include resolver (embed-aware, matching how the
+// five consuming prompts would pull it in) and asserts the SIMPLE/STANDARD/
+// COMPLEX tier contract and the "missing artifacts are failures only when
+// the selected tier requires them" paragraph (REQ-F-001) are present.
+func TestTierMatrixRendersThroughProductionRenderer(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+
+	out, err := r.Resolve("{{include: " + tierMatrixCanonicalPath + "}}")
+	require.NoError(t, err, "tier-matrix.md must render through the production renderer with no error")
+
+	assert.Contains(t, out, "## Tier contract")
+	assert.Contains(t, out, "## Executable gate evidence")
+	for _, tier := range []string{"SIMPLE", "STANDARD", "COMPLEX"} {
+		assert.Contains(t, out, tier, "tier contract table must name tier %q", tier)
+	}
+	assert.Contains(t, out, "Missing artifacts are failures only when the selected tier requires them.")
+}
+
+// TestTierMatrixIncludeResolvesFromStalePathFails is TC-001's explicit edge
+// case: a stale or renamed path must fail include resolution, not just a
+// grep for a loose substring.
+func TestTierMatrixIncludeResolvesFromStalePathFails(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+	_, err := r.Resolve("{{include: skills/quality/context/tier-matrix-renamed.md}}")
+	require.Error(t, err, "a stale/renamed tier-matrix.md path must fail include resolution")
+}
+
+// tierMatrixConsumingPrompts is the exact five-prompt set T-E34-F08-002's
+// task scope names (REQ-F-001, AC-1/AC-T2).
+var tierMatrixConsumingPrompts = []string{
+	"feature/assessment.md",
+	"feature/task_generation.md",
+	"feature/code_review.md",
+	"feature/qa.md",
+	"feature/approval.md",
+}
+
+// tierMatrixTableHeaderCells is tier-matrix.md's own table header. A
+// restated (not referenced) copy of the tier table in a consuming prompt
+// would reproduce this same header row — this is the structural signal
+// TC-001 requires ("a table with the same three tier names and a 'gate'
+// column, not an exact-string blacklist").
+var tierMatrixTableHeaderCells = []string{
+	"Planning source", "Test source", "Same-model gate", "Separate QA", "Final UAT",
+}
+
+// TestFivePromptsReferenceTierMatrixWithoutRestatingIt is TC-001's
+// structural grep/regex check: each of the five consuming prompts contains a
+// textual pointer to tier-matrix.md's exact canonical path, and none of them
+// restate the tier table itself.
+func TestFivePromptsReferenceTierMatrixWithoutRestatingIt(t *testing.T) {
+	for _, prompt := range tierMatrixConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			body, err := sharkdata.ReadEmbedded("prompts/" + prompt)
+			require.NoError(t, err, "embedded prompt %s must exist", prompt)
+			content := string(body)
+
+			assert.Contains(t, content, tierMatrixCanonicalPath,
+				"%s must reference tier-matrix.md by its exact canonical path", prompt)
+
+			restated := true
+			for _, cell := range tierMatrixTableHeaderCells {
+				if !strings.Contains(content, cell) {
+					restated = false
+					break
+				}
+			}
+			assert.False(t, restated,
+				"%s must not restate the tier table's own header cells (%v)", prompt, tierMatrixTableHeaderCells)
+		})
+	}
 }
