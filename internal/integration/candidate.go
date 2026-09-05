@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
@@ -25,18 +27,28 @@ const maxUpdateCandidateAttempts = 2
 // IntegrationCandidate holds the single, atomic accumulated view of an
 // epic's integration run: every IntegrationEvent recorded so far, folded
 // into one file at .shark/runs/<epic-run-id>/integration-candidate.json.
-// Digest is a sha256 hex digest over the struct's canonical JSON with
-// Digest itself excluded (matching I-03's existing guard-digest
-// convention — no new hashing scheme), and is what UpdateCandidate's
-// compare-and-swap write path checks against.
+// TrackedPathDigests and UntrackedPathDigests record a sha256 hex digest,
+// keyed by path, for every dirty tracked file and untracked candidate path
+// found in the real working tree at build time (architecture.md "Epic
+// integration candidate identity"; task T-E34-F08-016 AC-T1) — closing the
+// REQ-F-004/REQ-F-005 inventory gap the integration review (T-E34-F08-010)
+// reads for its full-diff/path-digest inventory check. Digest is a sha256
+// hex digest over the struct's canonical JSON with Digest itself excluded
+// (matching I-03's existing guard-digest convention — no new hashing
+// scheme), and is what UpdateCandidate's compare-and-swap write path checks
+// against; it covers TrackedPathDigests/UntrackedPathDigests too, so a
+// working-tree change between builds changes the digest like any other
+// field.
 //
 // Spec reference: spec.md REQ-F-004, task T-E34-F08-006 AC-T1.
 type IntegrationCandidate struct {
-	EpicRunID  string   `json:"epic_run_id"`
-	BaseCommit string   `json:"base_commit"`
-	HeadCommit string   `json:"head_commit"`
-	EventIDs   []string `json:"event_ids"`
-	Digest     string   `json:"digest"`
+	EpicRunID            string            `json:"epic_run_id"`
+	BaseCommit           string            `json:"base_commit"`
+	HeadCommit           string            `json:"head_commit"`
+	EventIDs             []string          `json:"event_ids"`
+	TrackedPathDigests   map[string]string `json:"tracked_path_digests,omitempty"`
+	UntrackedPathDigests map[string]string `json:"untracked_path_digests,omitempty"`
+	Digest               string            `json:"digest"`
 }
 
 // CandidateConflictError indicates UpdateCandidate's compare-and-swap write
@@ -360,7 +372,122 @@ func buildNextCandidate(projectRoot string, current *IntegrationCandidate, epicR
 	sort.Strings(eventIDs)
 	next.EventIDs = eventIDs
 
+	tracked, untracked, err := computeDirtyPathDigests(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	next.TrackedPathDigests = tracked
+	next.UntrackedPathDigests = untracked
+
 	return next, nil
+}
+
+// sharkRuntimeDirPrefix is the shark runtime state directory this
+// package's own event/candidate/lock files live under. computeDirtyPathDigests
+// excludes it (and everything under it) from the dirty/untracked inventory:
+// it is the review's own bookkeeping, not a candidate path under review,
+// and including it would make the candidate self-referential — its own
+// digest would depend on the very event/candidate files that computing it
+// is in the middle of writing (temp-file names include a wall-clock
+// timestamp, so an untracked ".shark/..." entry would make the digest
+// non-deterministic run to run).
+const sharkRuntimeDirPrefix = ".shark/"
+
+// computeDirtyPathDigests walks projectRoot's real git working tree (`git
+// status --porcelain=v1 -z`) and returns a sha256 hex digest, keyed by
+// path, for every dirty tracked path (staged or worktree-modified relative
+// to HEAD) and every untracked path currently sitting in the tree
+// (test-plan.md TC-019's Caller-Path Contract: a real filesystem/git walk,
+// never a hand-built file list — synthesizing digests from a caller-
+// supplied path list would let the review's full-diff inventory silently
+// diverge from what the working tree actually contains). A path whose
+// content cannot be read (e.g. deleted in the worktree so there is nothing
+// left to digest, or a directory entry from a fully-untracked directory)
+// is omitted rather than erroring.
+func computeDirtyPathDigests(projectRoot string) (tracked, untracked map[string]string, err error) {
+	cmd := exec.Command("git", "status", "--porcelain=v1", "-z")
+	cmd.Dir = projectRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, nil, fmt.Errorf("integration: git status at %s: %w", projectRoot, err)
+	}
+
+	tracked = map[string]string{}
+	untracked = map[string]string{}
+
+	trimmed := strings.TrimSuffix(string(out), "\x00")
+	if trimmed == "" {
+		return tracked, untracked, nil
+	}
+	entries := strings.Split(trimmed, "\x00")
+
+	for i := 0; i < len(entries); i++ {
+		entry := entries[i]
+		if len(entry) < 4 {
+			continue
+		}
+		x, y := entry[0], entry[1]
+		path := entry[3:]
+
+		// A rename/copy entry carries a second, null-separated "original
+		// path" element immediately after it in `-z` output. This
+		// candidate's inventory only records paths as they exist now, so
+		// the original-path element is consumed (skipped) rather than
+		// misparsed as its own status entry.
+		if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
+			i++
+		}
+
+		if path == strings.TrimSuffix(sharkRuntimeDirPrefix, "/") || strings.HasPrefix(path, sharkRuntimeDirPrefix) {
+			continue
+		}
+
+		digest, ok, derr := digestWorkingTreeFile(projectRoot, path)
+		if derr != nil {
+			return nil, nil, derr
+		}
+		if !ok {
+			continue
+		}
+
+		if x == '?' && y == '?' {
+			untracked[path] = digest
+		} else {
+			tracked[path] = digest
+		}
+	}
+
+	return tracked, untracked, nil
+}
+
+// digestWorkingTreeFile reads relPath (relative to projectRoot) from the
+// working tree and returns its sha256 hex digest. ok is false, with a nil
+// error, specifically when the path no longer exists on disk (a deleted
+// path git status still reports) or is a directory (an untracked directory
+// git status can report as one collapsed entry) — neither has file content
+// to digest, and that is not itself a failure to compute one.
+func digestWorkingTreeFile(projectRoot, relPath string) (digest string, ok bool, err error) {
+	full := filepath.Join(projectRoot, relPath)
+	info, err := os.Stat(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("integration: stat dirty path %s: %w", relPath, err)
+	}
+	if info.IsDir() {
+		return "", false, nil
+	}
+
+	data, err := os.ReadFile(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("integration: read dirty path %s: %w", relPath, err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), true, nil
 }
 
 // lookupBaseCommit finds the BaseCommit CaptureBase recorded for the epic

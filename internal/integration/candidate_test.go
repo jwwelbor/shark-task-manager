@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -516,4 +518,72 @@ func TestArchiveCandidateHead_IdempotentWhenAlreadyArchived(t *testing.T) {
 	if string(archived) != string(data) {
 		t.Fatalf("archived content = %s, want %s", archived, data)
 	}
+}
+
+// TestUpdateCandidate_DirtyPathDigests covers TC-019 (T-E34-F08-016): a
+// dirty tracked file and an untracked candidate path each get a recorded
+// digest in the resulting candidate, and a fixture consumer (mirroring
+// integration_review's own read) retrieves both correctly. Per TC-019's
+// Caller-Path Contract, this drives UpdateCandidate's real production path
+// against a real temp working tree with staged, dirty, and untracked
+// files — never a hand-built path/digest list.
+func TestUpdateCandidate_DirtyPathDigests(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-dirty-digests"
+
+	// Dirty tracked path: seed.txt was committed by initTestGitRepo, then
+	// staged here with new content — a real worktree change `git status`
+	// reports as a tracked modification, not untracked.
+	dirtyContent := []byte("seed-modified-and-staged")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), dirtyContent, 0o644); err != nil {
+		t.Fatalf("write dirty tracked file: %v", err)
+	}
+	runGit(t, dir, "add", "seed.txt")
+
+	// Untracked candidate path: a brand-new file never added to git.
+	untrackedContent := []byte("brand-new-untracked-content")
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), untrackedContent, 0o644); err != nil {
+		t.Fatalf("write untracked file: %v", err)
+	}
+
+	event, err := RecordEvent(epicRunID, "E34-F60", "commit-dirty", nil, nil)
+	if err != nil {
+		t.Fatalf("RecordEvent: %v", err)
+	}
+	candidate, err := UpdateCandidate(epicRunID, event)
+	if err != nil {
+		t.Fatalf("UpdateCandidate: %v", err)
+	}
+
+	wantDirtyDigest := sha256Hex(dirtyContent)
+	wantUntrackedDigest := sha256Hex(untrackedContent)
+
+	t.Run("dirty tracked file", func(t *testing.T) {
+		got, ok := candidate.TrackedPathDigests["seed.txt"]
+		if !ok {
+			t.Fatalf("candidate.TrackedPathDigests missing seed.txt; got %v", candidate.TrackedPathDigests)
+		}
+		if got != wantDirtyDigest {
+			t.Fatalf("TrackedPathDigests[seed.txt] = %q, want %q", got, wantDirtyDigest)
+		}
+	})
+
+	t.Run("untracked candidate path", func(t *testing.T) {
+		got, ok := candidate.UntrackedPathDigests["untracked.txt"]
+		if !ok {
+			t.Fatalf("candidate.UntrackedPathDigests missing untracked.txt; got %v", candidate.UntrackedPathDigests)
+		}
+		if got != wantUntrackedDigest {
+			t.Fatalf("UntrackedPathDigests[untracked.txt] = %q, want %q", got, wantUntrackedDigest)
+		}
+	})
+}
+
+// sha256Hex computes data's sha256 hex digest — the same convention
+// computeDirtyPathDigests uses, applied here to the test's own expected
+// content so the assertion never hand-codes a digest literal.
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
