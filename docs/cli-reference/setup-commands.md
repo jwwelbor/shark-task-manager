@@ -135,6 +135,93 @@ shark admin validate-data --json
 
 ---
 
+### shark admin overrides
+
+Inspect and reconcile local `shark-data/overrides/` files against the
+embedded canonical defaults. Every file under `overrides/` is compared to its
+canonical counterpart and classified as one of `current`, `upstream_changed`,
+`identical_redundant`, `orphaned`, or `baseline_unknown`. Resolves the
+project and shark-data roots the same way `shark admin upgrade` does.
+
+```
+Usage:
+  shark admin overrides [command]
+```
+
+**Available Subcommands:**
+
+| Subcommand | Description |
+|------------|--------------|
+| `status` | Show drift classification for every override |
+| `acknowledge` | Record the current canonical digest as the new baseline |
+
+---
+
+### shark admin overrides status
+
+Walk `shark-data/overrides/` and print each file's drift classification.
+Read-only — no file is written.
+
+```
+Usage:
+  shark admin overrides status [flags]
+```
+
+**Examples:**
+
+```bash
+shark admin overrides status
+shark admin overrides status --json
+```
+
+JSON output shape:
+
+```json
+{
+  "overrides": [
+    {
+      "path": "workflow/sprint.yaml",
+      "classification": "upstream_changed",
+      "override_sha256": "...",
+      "canonical_sha256": "...",
+      "baseline_sha256": "...",
+      "suggested_action": "review upstream canonical change before rebasing this override"
+    }
+  ],
+  "summary": {
+    "current": 2,
+    "upstream_changed": 1,
+    "identical_redundant": 0,
+    "orphaned": 0,
+    "baseline_unknown": 3
+  }
+}
+```
+
+---
+
+### shark admin overrides acknowledge
+
+Record the current canonical SHA-256 digest as the recorded baseline for one
+or more override paths, reclassifying them as `current` on the next status
+check. Each path must have both a regular override file and a canonical
+counterpart; a path failing either check aborts the whole call with no
+manifest mutation. Never touches override file bytes.
+
+```
+Usage:
+  shark admin overrides acknowledge <relative-override-path>... [flags]
+```
+
+**Examples:**
+
+```bash
+shark admin overrides acknowledge workflow/sprint.yaml
+shark admin overrides acknowledge workflow/sprint.yaml prompts/feature/qa.md --json
+```
+
+---
+
 ## Validation
 
 ### shark admin validate
