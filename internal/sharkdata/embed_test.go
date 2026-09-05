@@ -1199,6 +1199,67 @@ func TestTierMatrixAndIntegrationReviewNoHostOrLLMLeakage(t *testing.T) {
 	}
 }
 
+// integrationReviewNonSupersessionSentence is REQ-F-006's exact clause
+// (spec.md, quoted verbatim): a currently-rejected or currently-in-development
+// feature blocks epic completion through its own status, never through this
+// gate's own outcome. AC-T3 requires epic/integration_review.md to contain
+// this sentence verbatim.
+const integrationReviewNonSupersessionSentence = "This review adds a gate; it never overrides or supersedes an existing feature verdict. A currently-rejected or currently-in-development feature blocks epic completion through its own status, not through this step."
+
+// TestIntegrationReviewNonSupersessionSentencePresent is test-plan.md TC-012's
+// grep regression guard: epic/integration_review.md's literal text must
+// contain REQ-F-006's non-supersession sentence verbatim, so a future edit
+// cannot silently drop the gate-authority rule while leaving the rest of the
+// prompt's closure checks intact. This is deliberately a text-presence check,
+// not a proof the review logic honors the rule — TC-012's own scenario
+// walkthrough (recorded in test-plan.md, not a Go test) covers that half.
+func TestIntegrationReviewNonSupersessionSentencePresent(t *testing.T) {
+	content := readEmbeddedString(t, "prompts/epic/integration_review.md")
+	assert.Contains(t, content, integrationReviewNonSupersessionSentence,
+		"epic/integration_review.md must contain REQ-F-006's non-supersession sentence verbatim")
+}
+
+// TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture is
+// TC-I-05-ADOPTION-MANIFEST (AC-T4): epic/integration_review.md's own
+// `adoption_manifest` field table must list exactly architecture.md's 8 I-05
+// CanonicalAdoptionManifest v1 fields. Both sides are parsed through the same
+// ParseI05FieldList parser (T-E34-F08-001) rather than hand-copying the
+// 8-field list into this test as a literal, so an architecture.md table edit
+// is caught here too (test-plan.md's own instruction for this TC).
+func TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture(t *testing.T) {
+	repoRoot := findRepoRootForTableParserTest(t)
+	archPath := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "architecture.md")
+	archData, err := os.ReadFile(archPath)
+	require.NoError(t, err, "real architecture.md must exist")
+
+	wantFields, err := ParseI05FieldList(archData)
+	require.NoError(t, err)
+	require.Len(t, wantFields, 8, "architecture.md's I-05 section defines exactly 8 fields")
+
+	promptContent := readEmbeddedString(t, "prompts/epic/integration_review.md")
+	gotFields, err := ParseI05FieldList([]byte(promptContent))
+	require.NoError(t, err, "epic/integration_review.md must declare its own '## I-05 ...' adoption_manifest field table")
+
+	assert.ElementsMatch(t, wantFields, gotFields,
+		"adoption_manifest field list in epic/integration_review.md must match architecture.md's I-05 CanonicalAdoptionManifest v1 table exactly (a dropped or added field must fail here)")
+
+	// Structural nesting check (negative case per test-plan.md: a prompt that
+	// nests adoption_manifest as a top-level sibling of the outer worker-control
+	// envelope instead of inside gate_result must fail this test). A loose
+	// document-wide conjunction of tokens (adoption_manifest/gate_result/
+	// sibling/remediation_sweeps/change_impacts appearing ANYWHERE in the file)
+	// would still pass a prompt that placed adoption_manifest at the outer
+	// envelope, because those tokens also appear in the PRODUCE field list a
+	// few lines above — so this asserts the single literal clause that ties
+	// them together in one place, mirroring TC-012's exact-phrase idiom.
+	// Counter-factual: rewording this clause to nest adoption_manifest at the
+	// outer envelope (e.g. "a new sibling field of the outer envelope") makes
+	// this assertion fail, proving it actually checks the nesting claim.
+	assert.Contains(t, promptContent,
+		"a new sibling array field alongside `remediation_sweeps`/`change_impacts` inside this same `gate_result` object",
+		"epic/integration_review.md must document adoption_manifest as a sibling of remediation_sweeps/change_impacts nested inside gate_result, not restated at the outer envelope level")
+}
+
 // defectClassSweepPersistenceIdentifiers is test-plan.md TC-010's guard
 // pattern (tightened per UAT-kickback MEDIUM-3): the original guard matched
 // only the two literal identifiers `DefectClassSweep` and `class_key`, which
