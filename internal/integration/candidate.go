@@ -144,6 +144,15 @@ func UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*Integration
 // compare-and-swap, not a read-then-write race window (see UpdateCandidate's
 // doc comment for why the earlier reread-then-rename shape lost an event
 // under real concurrency and was replaced by this one).
+//
+// Winning the claim is necessary but not sufficient to spend it permanently:
+// a deferred rollback immediately below the claim removes it (and its
+// backing temp file) unless this attempt goes on to actually publish (the
+// final rename succeeds). This is what keeps a later, genuinely transient
+// failure — archiving or the rename itself — from permanently occupying
+// expectedDigest's transition slot: the only way any future attempt (this
+// call's own retry, or an independent later call) could ever lose the same
+// claim's os.Link is if this attempt actually finished publishing under it.
 func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
 	current, currentBytes, err := readCandidate(path)
 	if err != nil {
@@ -208,8 +217,10 @@ func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *Integ
 	// os.Link is atomic create-if-absent, so exactly one concurrent writer
 	// racing the same expectedDigest ever wins this claim — no reread, no
 	// window between "check" and "write" for a second writer to slip
-	// through (claim files are retained forever, never removed, so a
-	// slot can never be reopened for reuse by a stale writer).
+	// through. A claim behind a *successfully published* transition is
+	// retained forever, so a slot can never be reopened for reuse by a
+	// stale writer once it has actually been spent (see the rollback
+	// deferred immediately below for the unpublished case).
 	claimPath := filepath.Join(claimsDir, claimFileName(expectedDigest))
 	if err := os.Link(tmpPath, claimPath); err != nil {
 		_ = os.Remove(tmpPath)
@@ -218,6 +229,29 @@ func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *Integ
 		}
 		return nil, fmt.Errorf("integration: claim candidate transition at %s: %w", claimPath, err)
 	}
+
+	// Claim-rollback safety net (code-review kickback on T-E34-F08-006:
+	// defect class "a permanent-by-design claim marker created before a
+	// later fallible step, with no rollback on that step's failure"). The
+	// claim above is meant to be permanent only once this transition is
+	// actually published (the rename below succeeds) — until then, this
+	// writer is the sole owner of expectedDigest's claim (no one else can
+	// ever win the same os.Link), so it is always safe for this writer
+	// alone to release it. Without this, a transient failure in archiving
+	// or in the final rename would leave the claim behind forever while the
+	// on-disk candidate's digest never advances past expectedDigest —
+	// permanently converting a transient I/O error into every future
+	// attempt (this call's own retry and every independent call after it)
+	// losing the same claim's os.Link and reporting a spurious
+	// *CandidateConflictError, even though no other writer ever won or
+	// published under it.
+	published := false
+	defer func() {
+		if !published {
+			_ = os.Remove(claimPath)
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	// Archived-head retention (task T-E34-F08-012 AC-T1): only the claim's
 	// winner ever reaches this point, so exactly one caller archives the
@@ -246,6 +280,7 @@ func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *Integ
 	if err := os.Rename(tmpPath, path); err != nil {
 		return nil, fmt.Errorf("integration: publish candidate at %s: %w", path, err)
 	}
+	published = true
 
 	return next, nil
 }

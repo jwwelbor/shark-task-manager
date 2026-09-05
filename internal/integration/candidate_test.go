@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -586,4 +588,178 @@ func TestUpdateCandidate_DirtyPathDigests(t *testing.T) {
 func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// TestUpdateCandidate_TransientPublishFailureDoesNotPermanentlyBlock covers
+// the code-review kickback on task T-E34-F08-006 (defect-class-sweep): a
+// claim file that wins attemptUpdateCandidate's compare-and-swap was, before
+// this fix, retained forever unconditionally — including when a later,
+// genuinely fallible step (archiving or the final os.Rename) failed after
+// the claim was won. Since a failed attempt never advances the on-disk
+// candidate's digest, every later attempt (this call's own retry, and every
+// independent call after it) recomputes the identical expectedDigest and
+// loses the same claim's os.Link forever, reporting a spurious
+// *CandidateConflictError even though no other writer ever won or published
+// under that claim — a transient I/O error permanently deadlocking the
+// candidate transition.
+//
+// This test forces a real (not mocked) os.Rename failure by stripping write
+// permission from the run directory at the archiveTestHook seam — after
+// archiving has already completed, exactly where the class defect bites —
+// matching this repo's existing chmod-based fault-injection convention
+// (internal/runner/liveness_test.go TC-023, internal/services/edit_service_test.go).
+// It then restores permissions and proves a fresh attempt against the
+// identical, unchanged expected digest succeeds rather than being
+// permanently blocked by the abandoned claim.
+func TestUpdateCandidate_TransientPublishFailureDoesNotPermanentlyBlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-bit fault injection is not meaningful on windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission checks are not enforced")
+	}
+
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-transient-failure"
+
+	firstEvent, err := RecordEvent(epicRunID, "E34-F70", "commit-first", nil, nil)
+	if err != nil {
+		t.Fatalf("first RecordEvent: %v", err)
+	}
+	if _, err := UpdateCandidate(epicRunID, firstEvent); err != nil {
+		t.Fatalf("first UpdateCandidate: %v", err)
+	}
+
+	secondEvent, err := RecordEvent(epicRunID, "E34-F71", "commit-second", nil, nil)
+	if err != nil {
+		t.Fatalf("second RecordEvent: %v", err)
+	}
+
+	runDir := filepath.Join(dir, ".shark", "runs", epicRunID)
+
+	archiveTestHook = func() {
+		// Archiving of the first candidate's head has already completed by
+		// this point (it fires after archiveCandidateHead returns); strip
+		// write permission on the run directory so the rename that follows
+		// fails with a genuine, transient-shaped I/O error.
+		if err := os.Chmod(runDir, 0o555); err != nil {
+			t.Fatalf("chmod run dir read-only: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		archiveTestHook = nil
+		_ = os.Chmod(runDir, 0o755)
+	})
+
+	_, err = UpdateCandidate(epicRunID, secondEvent)
+	if err == nil {
+		t.Fatal("expected the induced rename failure to surface as an error")
+	}
+	var conflict *CandidateConflictError
+	if errors.As(err, &conflict) {
+		t.Fatalf("expected a non-conflict publish error (the induced rename failure), got *CandidateConflictError: %v", err)
+	}
+	// Pin the assertion to the rename branch specifically (attemptUpdateCandidate
+	// wraps os.Rename's failure as "integration: publish candidate at ...").
+	if !strings.Contains(err.Error(), "publish candidate") {
+		t.Fatalf("expected the rename-failure error to mention publishing the candidate, got: %v", err)
+	}
+
+	// The transient condition is over: restore permissions before retrying.
+	archiveTestHook = nil
+	if err := os.Chmod(runDir, 0o755); err != nil {
+		t.Fatalf("restore run dir permissions: %v", err)
+	}
+
+	// A fresh attempt against the identical, unchanged expected digest
+	// (the first attempt never advanced the on-disk candidate) must now
+	// succeed: the abandoned claim from the failed attempt above must not
+	// permanently occupy that digest's transition slot.
+	result, err := UpdateCandidate(epicRunID, secondEvent)
+	if err != nil {
+		t.Fatalf("retry after transient failure cleared: expected success, got permanently blocked: %v", err)
+	}
+	want := []string{firstEvent.EventID, secondEvent.EventID}
+	sort.Strings(want)
+	got := append([]string(nil), result.EventIDs...)
+	sort.Strings(got)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("final EventIDs = %v, want %v", got, want)
+	}
+}
+
+// TestUpdateCandidate_TransientArchiveFailureDoesNotPermanentlyBlock is the
+// sibling of TestUpdateCandidate_TransientPublishFailureDoesNotPermanentlyBlock
+// covering the *other* fallible step the claim-rollback guards: a failure in
+// archiveCandidateHead itself (before the rename is ever attempted). The
+// fault is injected by pre-chmodding integration-heads/ read-only —
+// os.MkdirAll is a no-op on an already-existing directory regardless of its
+// mode, so archiveCandidateHead's own os.OpenFile(O_CREATE) for its temp file
+// is what fails, a real permission error rather than a mocked one.
+func TestUpdateCandidate_TransientArchiveFailureDoesNotPermanentlyBlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-bit fault injection is not meaningful on windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission checks are not enforced")
+	}
+
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-transient-archive-failure"
+
+	firstEvent, err := RecordEvent(epicRunID, "E34-F72", "commit-first", nil, nil)
+	if err != nil {
+		t.Fatalf("first RecordEvent: %v", err)
+	}
+	if _, err := UpdateCandidate(epicRunID, firstEvent); err != nil {
+		t.Fatalf("first UpdateCandidate: %v", err)
+	}
+
+	secondEvent, err := RecordEvent(epicRunID, "E34-F73", "commit-second", nil, nil)
+	if err != nil {
+		t.Fatalf("second RecordEvent: %v", err)
+	}
+
+	headsDir := candidateHeadsDir(candidatePath(dir, epicRunID))
+	if err := os.MkdirAll(headsDir, 0o755); err != nil {
+		t.Fatalf("pre-create integration-heads dir: %v", err)
+	}
+	if err := os.Chmod(headsDir, 0o555); err != nil {
+		t.Fatalf("chmod integration-heads dir read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(headsDir, 0o755) })
+
+	_, err = UpdateCandidate(epicRunID, secondEvent)
+	if err == nil {
+		t.Fatal("expected the induced archive failure to surface as an error")
+	}
+	var conflict *CandidateConflictError
+	if errors.As(err, &conflict) {
+		t.Fatalf("expected a non-conflict archive error (the induced archive failure), got *CandidateConflictError: %v", err)
+	}
+	if !strings.Contains(err.Error(), "archived-head") {
+		t.Fatalf("expected the archive-failure error to mention the archived-head file, got: %v", err)
+	}
+
+	// The transient condition is over: restore permissions before retrying.
+	if err := os.Chmod(headsDir, 0o755); err != nil {
+		t.Fatalf("restore integration-heads dir permissions: %v", err)
+	}
+
+	// A fresh attempt against the identical, unchanged expected digest must
+	// now succeed: the abandoned claim from the failed archive attempt above
+	// must not permanently occupy that digest's transition slot.
+	result, err := UpdateCandidate(epicRunID, secondEvent)
+	if err != nil {
+		t.Fatalf("retry after transient failure cleared: expected success, got permanently blocked: %v", err)
+	}
+	want := []string{firstEvent.EventID, secondEvent.EventID}
+	sort.Strings(want)
+	got := append([]string(nil), result.EventIDs...)
+	sort.Strings(got)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("final EventIDs = %v, want %v", got, want)
+	}
 }
