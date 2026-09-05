@@ -298,6 +298,61 @@ func TestOverrideStatusAt_SymlinkHandling(t *testing.T) {
 	}
 }
 
+// Regression (defect-class sweep, E34-F09 UAT round 1): a directory-entry
+// walk error (e.g. permission-denied listing a subdirectory) must degrade to
+// a per-entry baseline_unknown row, exactly like a file-level read failure,
+// rather than aborting the whole walk and discarding rows already collected
+// for sibling paths.
+func TestOverrideStatusAt_UnreadableSubdirectoryDegradesPerEntry(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test when running as root")
+	}
+
+	dataRoot := t.TempDir()
+	// A normally-classifiable sibling file — must still appear in the report
+	// with its correct classification, proving the walk continued past the
+	// unreadable directory instead of aborting wholesale.
+	writeOverrideFile(t, dataRoot, canonicalFixturePath, canonicalBytes(t))
+
+	blockedDir := filepath.Join(dataRoot, "overrides", "blocked")
+	if err := os.MkdirAll(blockedDir, 0755); err != nil {
+		t.Fatalf("failed to create blocked dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(blockedDir, "inner.md"), []byte("inner"), 0644); err != nil {
+		t.Fatalf("failed to seed blocked dir: %v", err)
+	}
+	if err := os.Chmod(blockedDir, 0); err != nil {
+		t.Fatalf("failed to chmod blocked dir: %v", err)
+	}
+	// Restore permissions on cleanup so t.TempDir() can remove the directory.
+	t.Cleanup(func() { _ = os.Chmod(blockedDir, 0755) })
+
+	report, err := OverrideStatusAt(dataRoot)
+	if err != nil {
+		t.Fatalf("expected the walk to degrade per-entry, not abort: %v", err)
+	}
+
+	siblingRow := findRow(report.Rows, canonicalFixturePath)
+	if siblingRow == nil || siblingRow.Classification != ClassificationIdenticalRedundant {
+		t.Fatalf("sibling row = %+v, want classification %q (proves walk continued past the unreadable dir)",
+			siblingRow, ClassificationIdenticalRedundant)
+	}
+
+	blockedRow := findRow(report.Rows, "blocked")
+	if blockedRow == nil {
+		t.Fatalf("expected a row for the unreadable directory, got rows: %+v", report.Rows)
+	}
+	if blockedRow.Classification != ClassificationBaselineUnknown {
+		t.Errorf("Classification = %q, want %q", blockedRow.Classification, ClassificationBaselineUnknown)
+	}
+	if blockedRow.SuggestedAction == "" {
+		t.Error("expected a non-empty SuggestedAction describing the walk failure")
+	}
+	if report.Summary[ClassificationBaselineUnknown] < 1 {
+		t.Errorf("Summary[baseline_unknown] = %d, want >= 1", report.Summary[ClassificationBaselineUnknown])
+	}
+}
+
 // TC-011: classification-order regression guard. A symlink whose target
 // bytes would equal canonical bytes must still classify baseline_unknown
 // (symlink check runs before the identical_redundant byte comparison), not

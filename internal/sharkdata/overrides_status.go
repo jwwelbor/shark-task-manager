@@ -84,6 +84,12 @@ func normalizeOverrideRelPath(relPath string) (string, error) {
 // classifyOverride for the five-state decision table). A missing or empty
 // overrides/ directory is not an error — it produces an empty report.
 //
+// Error tolerance: a per-file read failure and a per-directory walk failure
+// (e.g. permission denied) both degrade to a single baseline_unknown row for
+// the affected path and the walk continues over sibling paths — neither
+// aborts the whole report. Only a failure to stat overrides/ itself is
+// returned as an error.
+//
 // Read-only: no file under overrides/ or the embedded canonical tree is ever
 // opened in write mode, and a symlink under overrides/ is never followed.
 func OverrideStatusAt(dataRoot string) (*OverrideStatusReport, error) {
@@ -114,7 +120,28 @@ func OverrideStatusAt(dataRoot string) (*OverrideStatusReport, error) {
 
 	walkErr := filepath.WalkDir(overridesDir, func(p string, d fs.DirEntry, walkEntryErr error) error {
 		if walkEntryErr != nil {
-			return walkEntryErr
+			// A directory-entry-level walk error (e.g. permission denied
+			// listing a subdirectory, or an Lstat failure) must degrade to a
+			// per-entry baseline_unknown row exactly like a file-level read
+			// failure below (Step 0/os.ReadFile branch), rather than
+			// propagating the error out of WalkDir and discarding every row
+			// already collected for sibling paths. d is nil only when the
+			// root path itself could not be Lstat'd (a TOCTOU race after the
+			// caller's own os.Stat above); guard against that before calling
+			// d.IsDir().
+			relOS, relErr := filepath.Rel(overridesDir, p)
+			if relErr != nil {
+				relOS = p
+			}
+			report.addRow(OverrideRow{
+				Path:            filepath.ToSlash(relOS),
+				Classification:  ClassificationBaselineUnknown,
+				SuggestedAction: fmt.Sprintf("failed to walk path %q: %v", filepath.ToSlash(relOS), walkEntryErr),
+			})
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nil
