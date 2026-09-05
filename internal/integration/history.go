@@ -304,9 +304,14 @@ func findRewrittenReplacement(projectRoot, base, commit string, candidates []str
 		// against, so this is not a rewrite either.
 		return "", nil
 	}
-	wantPatch, err := diffPatchID(projectRoot, forkPoint, commit)
+	wantPatch, wantOK, err := diffPatchID(projectRoot, forkPoint, commit)
 	if err != nil {
 		return "", fmt.Errorf("integration: compute patch identity for %s: %w", commit, err)
+	}
+	if !wantOK {
+		// commit's cumulative change since its fork point is empty (e.g. an
+		// --allow-empty commit) — nothing to match against any candidate.
+		return "", nil
 	}
 
 	for _, candidate := range candidates {
@@ -316,9 +321,15 @@ func findRewrittenReplacement(projectRoot, base, commit string, candidates []str
 			// against for this comparison — not comparable, not an error.
 			continue
 		}
-		candidatePatch, err := diffPatchID(projectRoot, parent, candidate)
+		candidatePatch, candidateOK, err := diffPatchID(projectRoot, parent, candidate)
 		if err != nil {
 			return "", fmt.Errorf("integration: compute patch identity for candidate %s: %w", candidate, err)
+		}
+		if !candidateOK {
+			// candidate's own diff from its immediate parent is empty (e.g.
+			// an --allow-empty commit) — not comparable, and specifically
+			// not a match against wantPatch (both would otherwise be "").
+			continue
 		}
 		if candidatePatch == wantPatch {
 			return candidate, nil
@@ -361,15 +372,20 @@ func firstParent(projectRoot, commit string) (string, error) {
 // diffPatchID computes `git patch-id --stable`'s content-stable identity
 // for the diff from..to: the same identity survives a rebase or squash
 // that changes the commit hash and parent but preserves the change itself.
-func diffPatchID(projectRoot, from, to string) (string, error) {
+// ok is false, with a nil error, specifically when the diff itself is
+// empty (e.g. an --allow-empty commit) — a legitimate "nothing to
+// identify" outcome, not a git invocation failure. Callers must not treat
+// two ok-false results as equal to each other: an empty diff carries no
+// content identity to compare.
+func diffPatchID(projectRoot, from, to string) (patchID string, ok bool, err error) {
 	diffCmd := exec.Command("git", "diff", from, to)
 	diffCmd.Dir = projectRoot
 	diffOut, err := diffCmd.Output()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(bytes.TrimSpace(diffOut)) == 0 {
-		return "", fmt.Errorf("integration: empty diff between %s and %s", from, to)
+		return "", false, nil
 	}
 
 	patchIDCmd := exec.Command("git", "patch-id", "--stable")
@@ -377,13 +393,13 @@ func diffPatchID(projectRoot, from, to string) (string, error) {
 	patchIDCmd.Stdin = bytes.NewReader(diffOut)
 	patchOut, err := patchIDCmd.Output()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	fields := strings.Fields(string(patchOut))
 	if len(fields) == 0 {
-		return "", fmt.Errorf("integration: git patch-id produced no output for diff %s..%s", from, to)
+		return "", false, fmt.Errorf("integration: git patch-id produced no output for diff %s..%s", from, to)
 	}
-	return fields[0], nil
+	return fields[0], true, nil
 }
 
 // buildAndPersistReplacementRecord builds the ReplacementRecord linking

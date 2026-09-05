@@ -437,3 +437,48 @@ func TestAnalyzeHistory_CommitEqualToBaseIsAccounted(t *testing.T) {
 		t.Fatalf("expected no replacements, got %d", len(inv.Replacements))
 	}
 }
+
+// TestAnalyzeHistory_EmptyCommitInRangeDoesNotBreakReplacementDetection
+// covers the empty-diff edge findRewrittenReplacement's patch-id
+// comparison must not mishandle: an --allow-empty commit anywhere in the
+// base..head range introduces an empty diff, which is "not comparable,"
+// not a git invocation failure — it must neither abort the whole
+// AnalyzeHistory call nor spuriously match another empty-diff commit via
+// two empty patch-id strings comparing equal. The squash-merged feature's
+// own replacement must still be found.
+func TestAnalyzeHistory_EmptyCommitInRangeDoesNotBreakReplacementDetection(t *testing.T) {
+	dir, base := chdirProjectRoot(t)
+	mainBranch := runGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+
+	runGit(t, dir, "checkout", "-q", "-b", "feature/squash-empty")
+	featureTip := writeAndCommit(t, dir, "f1.txt", "part one", "feature part one")
+
+	runGit(t, dir, "checkout", "-q", mainBranch)
+	runGit(t, dir, "merge", "--squash", "feature/squash-empty")
+	runGit(t, dir, "commit", "-q", "-m", "squash-merge feature/squash-empty")
+	squashCommit := runGit(t, dir, "rev-parse", "HEAD")
+
+	runGit(t, dir, "commit", "-q", "--allow-empty", "-m", "empty marker")
+	head := runGit(t, dir, "rev-parse", "HEAD")
+
+	events := []IntegrationEvent{
+		{EpicRunID: "run-squash-empty", FeatureKey: "E90-F06", FeatureCommit: featureTip},
+	}
+
+	inv, err := AnalyzeHistory(dir, "run-squash-empty", base, head, events)
+	if err != nil {
+		t.Fatalf("AnalyzeHistory: %v", err)
+	}
+	if len(inv.Replacements) != 1 {
+		t.Fatalf("expected exactly one replacement record, got %d", len(inv.Replacements))
+	}
+	if inv.Replacements[0].OriginalCommit != featureTip {
+		t.Errorf("OriginalCommit = %q, want %q", inv.Replacements[0].OriginalCommit, featureTip)
+	}
+	if inv.Replacements[0].ReplacementCommit != squashCommit {
+		t.Errorf("ReplacementCommit = %q, want %q (not the empty marker commit)", inv.Replacements[0].ReplacementCommit, squashCommit)
+	}
+	if len(inv.Interleaved) != 1 || inv.Interleaved[0] != head {
+		t.Fatalf("Interleaved = %v, want [%s] (the empty marker commit)", inv.Interleaved, head)
+	}
+}
