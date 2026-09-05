@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -167,6 +168,245 @@ func TestOverrideBaselineManifest_Save(t *testing.T) {
 		}
 		if got := loaded.Baselines["workflow/epic.yaml"]; got != "sha-x" {
 			t.Errorf("loaded Baselines[workflow/epic.yaml] = %q, want %q", got, "sha-x")
+		}
+	})
+}
+
+// manifestPath returns the fixed baseline manifest path under dataRoot.
+func manifestPath(dataRoot string) string {
+	return filepath.Join(dataRoot, ".shark-override-baselines.json")
+}
+
+// readManifestBytesIfExists returns the raw bytes of the manifest file, or
+// nil if it does not exist. Used to assert "writes nothing" — a manifest
+// that did not exist before a failed acknowledge call must still not exist
+// after, and a manifest that did exist must be byte-for-byte unchanged.
+func readManifestBytesIfExists(t *testing.T, dataRoot string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(manifestPath(dataRoot))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("failed to read manifest: %v", err)
+	}
+	return data
+}
+
+// TC-007: acknowledge success updates only the manifest — the returned
+// report reclassifies the acknowledged path as current, the manifest's new
+// entry equals the current canonical SHA-256, and the override file's bytes
+// and os.Stat mtime are unchanged before/after (explicit byte + mtime
+// comparison, not just "no error").
+func TestAcknowledgeOverrides_Success(t *testing.T) {
+	t.Run("baseline_unknown path becomes current", func(t *testing.T) {
+		dataRoot := t.TempDir()
+		overridePath := writeOverrideFile(t, dataRoot, canonicalFixturePath, []byte("locally modified, no manifest entry"))
+
+		beforeBytes, err := os.ReadFile(overridePath)
+		if err != nil {
+			t.Fatalf("failed to read override file before acknowledge: %v", err)
+		}
+		beforeInfo, err := os.Stat(overridePath)
+		if err != nil {
+			t.Fatalf("failed to stat override file before acknowledge: %v", err)
+		}
+
+		// Sanity: this path starts baseline_unknown (no manifest at all).
+		preReport, err := OverrideStatusAt(dataRoot)
+		if err != nil {
+			t.Fatalf("unexpected error from pre-check OverrideStatusAt: %v", err)
+		}
+		preRow := findRow(preReport.Rows, canonicalFixturePath)
+		if preRow == nil || preRow.Classification != ClassificationBaselineUnknown {
+			t.Fatalf("precondition failed: got row %+v, want classification %q", preRow, ClassificationBaselineUnknown)
+		}
+
+		report, err := AcknowledgeOverrides(dataRoot, []string{canonicalFixturePath})
+		if err != nil {
+			t.Fatalf("AcknowledgeOverrides failed: %v", err)
+		}
+
+		row := findRow(report.Rows, canonicalFixturePath)
+		if row == nil {
+			t.Fatalf("row for %q not found in %v", canonicalFixturePath, report.Rows)
+		}
+		if row.Classification != ClassificationCurrent {
+			t.Errorf("Classification = %q, want %q", row.Classification, ClassificationCurrent)
+		}
+
+		wantSHA := sha256Hex(canonicalBytes(t))
+		manifest, err := LoadOverrideBaselines(dataRoot)
+		if err != nil {
+			t.Fatalf("failed to reload manifest: %v", err)
+		}
+		if got := manifest.Baselines[canonicalFixturePath]; got != wantSHA {
+			t.Errorf("manifest Baselines[%q] = %q, want %q", canonicalFixturePath, got, wantSHA)
+		}
+
+		afterBytes, err := os.ReadFile(overridePath)
+		if err != nil {
+			t.Fatalf("failed to read override file after acknowledge: %v", err)
+		}
+		if string(afterBytes) != string(beforeBytes) {
+			t.Errorf("override file bytes changed: before=%q after=%q", beforeBytes, afterBytes)
+		}
+		afterInfo, err := os.Stat(overridePath)
+		if err != nil {
+			t.Fatalf("failed to stat override file after acknowledge: %v", err)
+		}
+		if !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+			t.Errorf("override file mtime changed: before=%v after=%v", beforeInfo.ModTime(), afterInfo.ModTime())
+		}
+	})
+
+	t.Run("upstream_changed path becomes current", func(t *testing.T) {
+		dataRoot := t.TempDir()
+		overridePath := writeOverrideFile(t, dataRoot, canonicalFixturePath, []byte("locally modified, stale baseline"))
+		writeManifest(t, dataRoot, &OverrideBaselineManifest{
+			SchemaVersion: 1,
+			Baselines:     map[string]string{canonicalFixturePath: "0000000000000000000000000000000000000000000000000000000000000000"[:64]}, //nolint:gosec // stale sentinel digest, not a real hash
+		})
+
+		beforeBytes, err := os.ReadFile(overridePath)
+		if err != nil {
+			t.Fatalf("failed to read override file before acknowledge: %v", err)
+		}
+		beforeInfo, err := os.Stat(overridePath)
+		if err != nil {
+			t.Fatalf("failed to stat override file before acknowledge: %v", err)
+		}
+
+		preReport, err := OverrideStatusAt(dataRoot)
+		if err != nil {
+			t.Fatalf("unexpected error from pre-check OverrideStatusAt: %v", err)
+		}
+		preRow := findRow(preReport.Rows, canonicalFixturePath)
+		if preRow == nil || preRow.Classification != ClassificationUpstreamChanged {
+			t.Fatalf("precondition failed: got row %+v, want classification %q", preRow, ClassificationUpstreamChanged)
+		}
+
+		report, err := AcknowledgeOverrides(dataRoot, []string{canonicalFixturePath})
+		if err != nil {
+			t.Fatalf("AcknowledgeOverrides failed: %v", err)
+		}
+
+		row := findRow(report.Rows, canonicalFixturePath)
+		if row == nil {
+			t.Fatalf("row for %q not found in %v", canonicalFixturePath, report.Rows)
+		}
+		if row.Classification != ClassificationCurrent {
+			t.Errorf("Classification = %q, want %q", row.Classification, ClassificationCurrent)
+		}
+
+		wantSHA := sha256Hex(canonicalBytes(t))
+		manifest, err := LoadOverrideBaselines(dataRoot)
+		if err != nil {
+			t.Fatalf("failed to reload manifest: %v", err)
+		}
+		if got := manifest.Baselines[canonicalFixturePath]; got != wantSHA {
+			t.Errorf("manifest Baselines[%q] = %q, want %q", canonicalFixturePath, got, wantSHA)
+		}
+
+		afterBytes, err := os.ReadFile(overridePath)
+		if err != nil {
+			t.Fatalf("failed to read override file after acknowledge: %v", err)
+		}
+		if string(afterBytes) != string(beforeBytes) {
+			t.Errorf("override file bytes changed: before=%q after=%q", beforeBytes, afterBytes)
+		}
+		afterInfo, err := os.Stat(overridePath)
+		if err != nil {
+			t.Fatalf("failed to stat override file after acknowledge: %v", err)
+		}
+		if !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+			t.Errorf("override file mtime changed: before=%v after=%v", beforeInfo.ModTime(), afterInfo.ModTime())
+		}
+	})
+}
+
+// TC-008: acknowledge failure — no canonical counterpart, or no override
+// file at all — returns a non-nil error naming the path and writes nothing:
+// the manifest is byte-for-byte unchanged (or still absent) before/after.
+func TestAcknowledgeOverrides_Failure_NoPartialWrites(t *testing.T) {
+	t.Run("path has no canonical counterpart", func(t *testing.T) {
+		dataRoot := t.TempDir()
+		const orphanPath = "no/such/canonical.md"
+		writeOverrideFile(t, dataRoot, orphanPath, []byte("orphan content"))
+
+		before := readManifestBytesIfExists(t, dataRoot)
+
+		report, err := AcknowledgeOverrides(dataRoot, []string{orphanPath})
+
+		if err == nil {
+			t.Fatal("expected error for path with no canonical counterpart, got nil")
+		}
+		if !strings.Contains(err.Error(), orphanPath) {
+			t.Errorf("error %q does not name path %q", err.Error(), orphanPath)
+		}
+		if report != nil {
+			t.Errorf("report = %v, want nil on failure", report)
+		}
+
+		after := readManifestBytesIfExists(t, dataRoot)
+		if before == nil && after != nil {
+			t.Errorf("manifest was created by a failed acknowledge call: %s", after)
+		}
+		if before != nil && string(before) != string(after) {
+			t.Errorf("manifest changed by a failed acknowledge call: before=%s after=%s", before, after)
+		}
+	})
+
+	t.Run("path has no override file at all", func(t *testing.T) {
+		dataRoot := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dataRoot, "overrides"), 0755); err != nil {
+			t.Fatalf("failed to create overrides dir: %v", err)
+		}
+		writeManifest(t, dataRoot, &OverrideBaselineManifest{SchemaVersion: 1, Baselines: map[string]string{"other/path.yaml": "abc123"}})
+
+		before := readManifestBytesIfExists(t, dataRoot)
+
+		report, err := AcknowledgeOverrides(dataRoot, []string{canonicalFixturePath})
+
+		if err == nil {
+			t.Fatal("expected error for path with no override file, got nil")
+		}
+		if !strings.Contains(err.Error(), canonicalFixturePath) {
+			t.Errorf("error %q does not name path %q", err.Error(), canonicalFixturePath)
+		}
+		if report != nil {
+			t.Errorf("report = %v, want nil on failure", report)
+		}
+
+		after := readManifestBytesIfExists(t, dataRoot)
+		if string(before) != string(after) {
+			t.Errorf("manifest changed by a failed acknowledge call: before=%s after=%s", before, after)
+		}
+	})
+
+	t.Run("one invalid path among several aborts the whole call with zero mutation", func(t *testing.T) {
+		dataRoot := t.TempDir()
+		writeOverrideFile(t, dataRoot, canonicalFixturePath, []byte("valid override, would succeed alone"))
+		const orphanPath = "no/such/canonical.md"
+		writeOverrideFile(t, dataRoot, orphanPath, []byte("orphan content"))
+
+		before := readManifestBytesIfExists(t, dataRoot)
+
+		report, err := AcknowledgeOverrides(dataRoot, []string{canonicalFixturePath, orphanPath})
+
+		if err == nil {
+			t.Fatal("expected error when one of several paths is invalid, got nil")
+		}
+		if report != nil {
+			t.Errorf("report = %v, want nil on failure", report)
+		}
+
+		after := readManifestBytesIfExists(t, dataRoot)
+		if before == nil && after != nil {
+			t.Errorf("manifest was created despite one invalid path in a multi-path call: %s", after)
+		}
+		if before != nil && string(before) != string(after) {
+			t.Errorf("manifest changed despite one invalid path in a multi-path call: before=%s after=%s", before, after)
 		}
 	})
 }

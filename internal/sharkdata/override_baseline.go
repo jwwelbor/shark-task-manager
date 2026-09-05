@@ -82,3 +82,49 @@ func (m *OverrideBaselineManifest) Save(dataRoot string) error {
 
 	return nil
 }
+
+// AcknowledgeOverrides records a fresh baseline digest for each of paths,
+// per spec.md REQ-F-002 (acknowledge): reject-before-write. Every path is
+// validated — a regular override file must exist at
+// <dataRoot>/overrides/<path> and a canonical counterpart must exist via
+// ReadEmbedded — before anything is written. A single invalid path aborts
+// the whole call with zero manifest mutation (no partial writes). On
+// success, the manifest is loaded, every path's baseline is set to the
+// current canonical SHA-256, the manifest is saved exactly once, and the
+// refreshed OverrideStatusAt report is returned so callers can observe the
+// acknowledged paths reclassified as current. Acknowledge never opens an
+// override file in write mode and never touches override bytes.
+func AcknowledgeOverrides(dataRoot string, paths []string) (*OverrideStatusReport, error) {
+	canonicalHashes := make(map[string]string, len(paths))
+
+	for _, p := range paths {
+		overridePath := filepath.Join(dataRoot, "overrides", filepath.FromSlash(p))
+		info, statErr := os.Lstat(overridePath)
+		if statErr != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("sharkdata: acknowledge failed for %q: no regular override file exists at %q", p, overridePath)
+		}
+
+		canonicalBytes, readErr := ReadEmbedded(p)
+		if readErr != nil {
+			return nil, fmt.Errorf("sharkdata: acknowledge failed for %q: no canonical counterpart exists: %w", p, readErr)
+		}
+		canonicalHashes[p] = sha256Hex(canonicalBytes)
+	}
+
+	manifest, loadErr := LoadOverrideBaselines(dataRoot)
+	if loadErr != nil {
+		return nil, fmt.Errorf("sharkdata: acknowledge aborted: %w", loadErr)
+	}
+	if manifest.Baselines == nil {
+		manifest.Baselines = map[string]string{}
+	}
+	for p, hash := range canonicalHashes {
+		manifest.Baselines[p] = hash
+	}
+
+	if err := manifest.Save(dataRoot); err != nil {
+		return nil, fmt.Errorf("failed to save updated baseline manifest: %w", err)
+	}
+
+	return OverrideStatusAt(dataRoot)
+}
