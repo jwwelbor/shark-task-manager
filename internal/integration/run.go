@@ -225,14 +225,40 @@ type RegistrationNoteMetadata struct {
 }
 
 // NoteRecorder is the subset of *services.NoteService's behavior
-// RegisterRun delegates note creation to. This mirrors
+// RegisterRun delegates note creation and lookup to. This mirrors
 // services.ImpactNoteRecorder's approach for I-04: a package-local,
 // consumer-side interface satisfied structurally by *services.NoteService
 // without either package importing the other, so RegisterRun never
 // persists a note directly and internal/integration never depends on
-// internal/services.
+// internal/services. ListNotes was added by task T-E34-F08-014 so
+// RegisterRun can discover an existing registration note before deciding
+// whether this attempt is a first-time registration, a repair, an
+// idempotent no-op, or a conflict (AC-T1/AC-T2) — its signature matches
+// *services.NoteService.ListNotes exactly.
 type NoteRecorder interface {
 	AddNoteWithMetadata(ctx context.Context, entityType models.EntityType, entityKey string, noteType string, content string, createdBy string, metadata string) (*models.EntityNote, error)
+	ListNotes(ctx context.Context, entityType models.EntityType, entityKey string, noteTypes []string) ([]*models.EntityNote, error)
+}
+
+// RegistrationConflictError indicates RegisterRun found existing
+// registration state for EpicKey that cannot be reconciled with this
+// attempt without operator intervention: a different EpicRunID already
+// registered while nonterminal, a matching EpicRunID whose recorded head
+// digest conflicts with this attempt's, or a registered head that no
+// longer resolves to valid retained bytes (absent, truncated, or
+// tampered). Task T-E34-F08-014 AC-T1/AC-T2: RegisterRun fails closed in
+// every one of these cases rather than guessing or reconstructing state —
+// "the parent cannot acknowledge active entry or dispatch a feature until
+// head and note reconcile" (architecture.md "Epic integration candidate
+// identity").
+type RegistrationConflictError struct {
+	EpicKey string
+	Reason  string
+}
+
+// Error implements the error interface.
+func (e *RegistrationConflictError) Error() string {
+	return fmt.Sprintf("integration: registration for epic %s cannot reconcile: %s", e.EpicKey, e.Reason)
 }
 
 // DeriveRegistrationSuboperationID derives the registration suboperation
@@ -263,11 +289,32 @@ func DeriveRegistrationSuboperationID(epicKey, epicRunID, baseCommit, firstHeadD
 // wiring scope, and re-invoking it on a restarted parent is
 // T-E34-F08-014's crash-restart-repair scope.
 //
-// This function covers only the happy path: a first-time registration with
-// no note yet on disk. Exact-retry repair of a missing note, and
-// fail-closed detection of a note pointing at absent/corrupt sidecars, are
-// T-E34-F08-014's scope (its AC-T1), built on top of this same
-// deterministic suboperation ID and this same lock.
+// This function's fsync-then-insert sequence covers the write path for a
+// first-time registration, a repair of a missing note, and an idempotent
+// retry once a note already exists. Before ever fsyncing or inserting,
+// RegisterRun first looks for an existing registration note for run.EpicKey
+// (existingRegistrationNote) and decides which of those four outcomes
+// applies (T-E34-F08-014 AC-T1/AC-T2):
+//
+//   - no existing note: proceed with fsync + insert below — this covers both
+//     a genuine first-time registration and an exact retry repairing a note
+//     that a crash left missing after the head was already durable.
+//   - an existing note for a *different* EpicRunID: reject
+//     (*RegistrationConflictError) — a second nonterminal candidate for the
+//     same epic (AC-T2). This package has no notion of "terminal" beyond a
+//     note's mere presence: nothing in this package ever removes or
+//     supersedes a registration note, so any note found here is, by
+//     construction, still nonterminal from RegisterRun's point of view.
+//   - an existing note for the *same* EpicRunID but a different HeadDigest:
+//     reject — conflicting bytes fail closed without reconstruction (AC-T1).
+//   - an existing note for the same EpicRunID and the same HeadDigest: this
+//     attempt is already reconciled, *provided* the referenced head still
+//     resolves to valid retained bytes (resolveRetainedHead) — live or
+//     archived, not tampered or truncated. If it does not, that is exactly
+//     "a note whose referenced head is absent/corrupt" and fails closed
+//     even though the note's own bytes match (AC-T1). Otherwise this is a
+//     pure idempotent no-op: the existing note is returned without a second
+//     insert.
 func RegisterRun(ctx context.Context, recorder NoteRecorder, run *IntegrationRun, firstHead *IntegrationCandidate, event *IntegrationEvent, createdBy string) (*models.EntityNote, error) {
 	if recorder == nil {
 		return nil, fmt.Errorf("integration: RegisterRun requires a non-nil NoteRecorder")
@@ -293,6 +340,49 @@ func RegisterRun(ctx context.Context, recorder NoteRecorder, run *IntegrationRun
 	}
 	defer func() { _ = lock.Release() }()
 
+	existingNote, existingContent, err := existingRegistrationNote(ctx, recorder, run.EpicKey)
+	if err != nil {
+		return nil, err
+	}
+	if existingNote != nil {
+		if existingContent.EpicRunID != run.EpicRunID {
+			return nil, &RegistrationConflictError{
+				EpicKey: run.EpicKey,
+				Reason: fmt.Sprintf(
+					"epic run %s is already registered and nonterminal; refusing to register a second run %s",
+					existingContent.EpicRunID, run.EpicRunID,
+				),
+			}
+		}
+		if existingContent.HeadDigest != firstHead.Digest {
+			return nil, &RegistrationConflictError{
+				EpicKey: run.EpicKey,
+				Reason: fmt.Sprintf(
+					"existing registration note for run %s references head %s, which conflicts with this attempt's head %s",
+					run.EpicRunID, existingContent.HeadDigest, firstHead.Digest,
+				),
+			}
+		}
+		if _, err := resolveRetainedHead(projectRoot, run.EpicRunID, existingContent.HeadDigest); err != nil {
+			return nil, &RegistrationConflictError{
+				EpicKey: run.EpicKey,
+				Reason:  fmt.Sprintf("registered head %s does not reconcile: %v", existingContent.HeadDigest, err),
+			}
+		}
+		return existingNote, nil
+	}
+
+	// No existing note: either a first-time registration or an exact retry
+	// repairing a note a crash left missing. Either way, the head this note
+	// is about to reference must itself resolve to valid retained bytes
+	// before RegisterRun ever inserts a note pointing at it.
+	if _, err := resolveRetainedHead(projectRoot, run.EpicRunID, firstHead.Digest); err != nil {
+		return nil, &RegistrationConflictError{
+			EpicKey: run.EpicKey,
+			Reason:  fmt.Sprintf("head %s cannot be registered: %v", firstHead.Digest, err),
+		}
+	}
+
 	// AC-T2: "events and head are fsynced before the note is inserted."
 	// The event and candidate files are already fully written by RecordEvent
 	// /UpdateCandidate before RegisterRun is ever called; this step
@@ -300,8 +390,8 @@ func RegisterRun(ctx context.Context, recorder NoteRecorder, run *IntegrationRun
 	// record that later readers use to discover this run — can be found.
 	// This does not fsync the containing directory entries (the other half
 	// of making an os.Link/os.Rename durable across a crash); that is a
-	// named gap left for T-E34-F08-014's failure-injection work rather than
-	// guessed at here for a repo with Windows-conditional tests.
+	// named gap this task leaves open rather than guessed at here for a
+	// repo with Windows-conditional tests.
 	eventPath := eventRecordPath(projectRoot, run.EpicRunID, event.EventID)
 	if err := fsyncFile(eventPath); err != nil {
 		return nil, fmt.Errorf("integration: fsync event file before registration: %w", err)
@@ -309,6 +399,21 @@ func RegisterRun(ctx context.Context, recorder NoteRecorder, run *IntegrationRun
 	headPath := candidatePath(projectRoot, run.EpicRunID)
 	if err := fsyncFile(headPath); err != nil {
 		return nil, fmt.Errorf("integration: fsync head file before registration: %w", err)
+	}
+
+	// registerRunTestHook, when set, lets a test simulate a crash at exactly
+	// this point: the event and head are already durable (fsynced above,
+	// candidate head already replaced by an earlier UpdateCandidate call),
+	// but the note has not yet been acknowledged. Production code never sets
+	// it. See its own doc comment below for why one seam here covers every
+	// "failure after fsync, before note ack" scenario test-plan.md TC-017
+	// names (after event fsync, after archived-head fsync, after
+	// candidate-head replacement) rather than one hook per scenario: a
+	// restart after any of them always resumes from this same point.
+	if registerRunTestHook != nil {
+		if err := registerRunTestHook(); err != nil {
+			return nil, err
+		}
 	}
 
 	suboperationID := DeriveRegistrationSuboperationID(run.EpicKey, run.EpicRunID, run.BaseCommit, firstHead.Digest)
@@ -348,6 +453,124 @@ func fsyncFile(path string) error {
 	defer f.Close()
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("integration: fsync %s: %w", path, err)
+	}
+	return nil
+}
+
+// registerRunTestHook, when non-nil, is invoked exactly once per RegisterRun
+// attempt that reaches the note-insert step: immediately after fsyncing the
+// event and head files this registration is binding, but before ever
+// calling the note recorder. Production code never sets it (nil by
+// default), mirroring candidate.go's updateCandidateTestHook/archiveTestHook
+// seam convention. Unlike those hooks, this one may return an error: a test
+// uses that to simulate a crash landing at exactly this point — fsync
+// already durable, but the note never acknowledged — without hand-
+// constructing a note or bypassing RegisterRun's real fsync-then-insert
+// path (test-plan.md TC-017's Caller-Path Contract).
+var registerRunTestHook func() error
+
+// existingRegistrationNote returns the single epic-level reference note
+// carrying RecordKindIntegrationCandidateRoot for epicKey, if any, along
+// with its parsed RegistrationNoteContent. It returns (nil, nil, nil) when
+// no such note exists yet — the ordinary "nothing registered yet" case that
+// covers both a genuine first-time registration and an exact retry
+// repairing a note a crash left missing (task T-E34-F08-014 AC-T1). A note
+// of the right type whose content does not parse as RegistrationNoteContent
+// is not ours and is skipped rather than treated as a match. More than one
+// matching note is itself an unreconciled state — this package never
+// expects to create two — and is reported as a *RegistrationConflictError
+// rather than picking one arbitrarily.
+func existingRegistrationNote(ctx context.Context, recorder NoteRecorder, epicKey string) (*models.EntityNote, *RegistrationNoteContent, error) {
+	notes, err := recorder.ListNotes(ctx, models.EntityTypeEpic, epicKey, []string{string(models.NoteTypeReference)})
+	if err != nil {
+		return nil, nil, fmt.Errorf("integration: list existing registration notes for epic %s: %w", epicKey, err)
+	}
+
+	var (
+		match        *models.EntityNote
+		matchContent *RegistrationNoteContent
+		matchCount   int
+	)
+	for _, note := range notes {
+		var content RegistrationNoteContent
+		if err := json.Unmarshal([]byte(note.Content), &content); err != nil {
+			continue // not a registration note in this content shape — not ours
+		}
+		if content.RecordKind != RecordKindIntegrationCandidateRoot {
+			continue
+		}
+		matchCount++
+		match = note
+		matchContent = &content
+	}
+
+	if matchCount == 0 {
+		return nil, nil, nil
+	}
+	if matchCount > 1 {
+		return nil, nil, &RegistrationConflictError{
+			EpicKey: epicKey,
+			Reason:  fmt.Sprintf("%d registration notes found, expected at most one", matchCount),
+		}
+	}
+	return match, matchContent, nil
+}
+
+// resolveRetainedHead resolves headDigest's IntegrationCandidate bytes for
+// epicRunID, checking the live candidate file first (if it currently holds
+// that digest) and falling back to the archived copy T-E34-F08-012 writes
+// to integration-heads/<digest>.json before ever replacing a head
+// (architecture.md "Epic integration candidate identity": "every
+// prior_record_digest is recomputable from retained bytes"). Whichever
+// source resolves, resolveRetainedHead recomputes the digest from the
+// resolved bytes and rejects a mismatch rather than trusting the source
+// location alone — this single content-address check is what makes a head
+// "absent/corrupt" (task T-E34-F08-014 AC-T1) fail closed, and it also
+// catches a "reordering" attack that swaps two archived heads' file
+// contents between each other's digest-named files: a swapped file's
+// content no longer hashes to the name it was swapped onto.
+func resolveRetainedHead(projectRoot, epicRunID, headDigest string) (*IntegrationCandidate, error) {
+	livePath := candidatePath(projectRoot, epicRunID)
+	if live, _, err := readCandidate(livePath); err == nil && live != nil && live.Digest == headDigest {
+		if err := verifyRetainedDigest(*live, headDigest); err != nil {
+			return nil, err
+		}
+		return live, nil
+	}
+
+	archivePath := filepath.Join(candidateHeadsDir(livePath), headDigest+".json")
+	data, err := os.ReadFile(archivePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("integration: head %s is absent — no live or archived record found", headDigest)
+		}
+		return nil, fmt.Errorf("integration: read archived head %s: %w", headDigest, err)
+	}
+
+	var archived IntegrationCandidate
+	if err := json.Unmarshal(data, &archived); err != nil {
+		return nil, fmt.Errorf("integration: archived head %s is corrupt (truncated or invalid JSON): %w", headDigest, err)
+	}
+	if err := verifyRetainedDigest(archived, headDigest); err != nil {
+		return nil, err
+	}
+	return &archived, nil
+}
+
+// verifyRetainedDigest rejects candidate as corrupt if either its own
+// stored Digest field or the digest recomputed from its content disagrees
+// with wantDigest — the name resolveRetainedHead is trying to resolve this
+// record under (a live or archived file's own claimed identity).
+func verifyRetainedDigest(candidate IntegrationCandidate, wantDigest string) error {
+	if candidate.Digest != wantDigest {
+		return fmt.Errorf("integration: head %s is corrupt: stored digest field is %s", wantDigest, candidate.Digest)
+	}
+	recomputed, err := computeDigest(candidate)
+	if err != nil {
+		return fmt.Errorf("integration: recompute digest for head %s: %w", wantDigest, err)
+	}
+	if recomputed != wantDigest {
+		return fmt.Errorf("integration: head %s is corrupt: content does not hash to its own digest (tampered or truncated)", wantDigest)
 	}
 	return nil
 }
