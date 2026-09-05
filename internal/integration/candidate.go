@@ -129,6 +129,28 @@ func UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*Integration
 	return nil, lastErr
 }
 
+// GetCandidate returns epicRunID's current on-disk IntegrationCandidate, or
+// (nil, nil) if no candidate has been published yet — the read-only
+// counterpart to UpdateCandidate's compare-and-swap write, mirroring
+// GetRun's relationship to CaptureBase (run.go).
+//
+// Added by T-E34-F08-008's UAT rework round 2, Finding 2:
+// FeatureService.recordIntegrationEventForTerminalTransition
+// (internal/services/feature_service.go) uses this to decide — from the
+// actual persisted candidate state rather than a wall-clock heuristic on
+// the just-recorded event's RecordedAt — whether a completion retry still
+// needs to fold its event, and whether a first-head candidate is still
+// missing its registration note. See that function's doc comment for the
+// full state-based reconciliation this enables.
+func GetCandidate(epicRunID string) (*IntegrationCandidate, error) {
+	projectRoot, err := projectroot.FindProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("integration: resolve project root: %w", err)
+	}
+	candidate, _, err := readCandidate(candidatePath(projectRoot, epicRunID))
+	return candidate, err
+}
+
 // attemptUpdateCandidate performs one read-build-claim-publish cycle of
 // UpdateCandidate's compare-and-swap: it reads the current candidate (or
 // nil if none exists), builds the next candidate on top of it, writes that

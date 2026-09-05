@@ -461,40 +461,53 @@ const terminalCandidateFoldRetryDelay = 5 * time.Millisecond
 const integrationCaptureCreatedBy = "shark-integration-capture"
 
 // recordIntegrationEventForTerminalTransition implements task
-// T-E34-F08-008's AC-T2 (RecordEvent wiring) and its UAT rework (Finding 1:
-// fold the recorded event into the epic's accumulated IntegrationCandidate
-// and register the run's discoverable epic reference note on the run's
-// first head; Finding 2: a persistence failure must be durably surfaced,
-// not only logged): when a feature transition's ToStatus newly reaches a
-// terminal status (checked by both TransitionStatus branches above,
-// mirroring their existing terminal-status regression checks), and the
-// feature's epic already has an active IntegrationRun (E34-F08's per-epic
-// base-commit capture, REQ-F-004 — captured by the epic `active` step's
-// cascade action, internal/cli/commands/next.go's resolveCascade):
+// T-E34-F08-008's AC-T2 (RecordEvent wiring) and its UAT rework round 1
+// (Finding 1: fold the recorded event into the epic's accumulated
+// IntegrationCandidate and register the run's discoverable epic reference
+// note on the run's first head; Finding 2: a persistence failure must be
+// durably surfaced, not only logged): when a feature transition's ToStatus
+// newly reaches a terminal status (checked by both TransitionStatus
+// branches above, mirroring their existing terminal-status regression
+// checks), and the feature's epic already has an active IntegrationRun
+// (E34-F08's per-epic base-commit capture, REQ-F-004 — captured by the epic
+// `active` step's cascade action, internal/cli/commands/next.go's
+// resolveCascade):
 //
 //  1. Records the completion via integration.RecordEvent.
-//  2. Folds the recorded event into the run's IntegrationCandidate via
-//     integration.UpdateCandidate (retried per maxTerminalCandidateFoldAttempts
-//     on a CAS conflict).
-//  3. When the returned candidate's EventIDs count is exactly 1 — which
-//     only the winner of the CAS's "from-empty" transition can ever
-//     observe, i.e. genuinely the first head ever published for this run —
-//     registers the run via integration.RegisterRun. A later head is never
-//     re-registered here: RegisterRun's firstHead contract assumes the head
-//     it is given is the run's one-and-only registered head, so calling it
-//     again with a later head would be rejected as a conflicting head for
-//     an already-registered run. Re-invoking RegisterRun after a crash
-//     between the first successful UpdateCandidate and RegisterRun itself
-//     is T-E34-F08-014's named crash-restart-repair scope, not this call
-//     site's (see run.go's RegisterRun doc comment).
+//  2. Folds the recorded event into the run's IntegrationCandidate
+//     (foldIntegrationEventIfMissing) when it is not already present there.
+//  3. When the resulting candidate's EventIDs count is exactly 1 — true
+//     only for the run's first-ever head — registers the run via
+//     integration.RegisterRun. A later head is never re-registered here:
+//     RegisterRun's firstHead contract assumes the head it is given is the
+//     run's one-and-only registered head, so calling it again with a later
+//     head would be rejected as a conflicting head for an already-registered
+//     run.
+//
+// UAT rework round 2 (uat-20260905-142000-E34-F08.md Finding 2): step 3
+// above now runs on EVERY call where the candidate's EventIDs count is 1 —
+// including an idempotent retry of a completion whose fold already
+// succeeded on a prior attempt — not only on a call that itself just
+// performed the fold. See foldIntegrationEventIfMissing's doc comment for
+// why the previous wall-clock replay guard here made that repair
+// unreachable, and RegisterRun's own doc comment (run.go) for why calling
+// it repeatedly is safe: existingRegistrationNote's four-way discrimination
+// (no existing note → first-time-or-repair insert; same run/head → pure
+// idempotent no-op; different run, or same run/different head, or a head
+// that no longer resolves → *RegistrationConflictError) is what actually
+// decides whether this call inserts, no-ops, or fails closed — this call
+// site's only job is to reach that call reliably every time the candidate
+// is genuinely the first head, not to re-implement its discrimination or
+// weaken its conflict/tamper fail-closed behavior (both left untouched by
+// this fix).
 //
 // A best-effort, side-channel operation with respect to the feature's own
 // business transition, mirroring this file's existing
 // indexEntityIfConfigured post-hook: a lookup, fold, or registration
 // failure never fails or blocks the underlying status transition — the
 // feature has already legitimately (and, in the aggregate branch, already
-// durably) transitioned by the time this runs. But per Finding 2, a
-// genuine failure (not simply logged) is durably recorded as a
+// durably) transitioned by the time this runs. But per round 1's Finding 2,
+// a genuine failure (not simply logged) is durably recorded as a
 // `review-finding` note on the epic via recordIntegrationFailureNote so it
 // is queryable rather than silently lost to a log stream — see that
 // function's own doc comment for the named, flagged limitation this does
@@ -510,6 +523,14 @@ const integrationCaptureCreatedBy = "shark-integration-capture"
 // slices, which RecordEvent's own contract allows; inventing a git-diff
 // computation here would risk colliding with T-013/T-016's own history and
 // digest design.
+//
+// Second production entrypoint: this method (via TransitionStatus) is also
+// reachable from the viewer's mutation API
+// (internal/viewer/server/wire.go's WireServices, which calls
+// SetIntegrationNoteRecorder on the same *FeatureService the viewer's
+// MutationService uses) — one fix here covers both the CLI and the viewer
+// caller, since both share this exact call site rather than each having
+// their own copy.
 func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context.Context, featureKey string) {
 	if s.cascadeEpicRepo == nil {
 		return
@@ -535,14 +556,6 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 		return
 	}
 
-	// callTime is captured strictly before RecordEvent so a returned
-	// event's RecordedAt can be compared against it below to detect a
-	// replay of an already-persisted event (RecordEvent's own idempotency
-	// contract: a retried write for the identical
-	// epicRunID/featureKey/featureCommit resolves to the same file,
-	// returning its original RecordedAt unchanged, rather than
-	// recomputing it).
-	callTime := time.Now().UTC()
 	event, err := integration.RecordEvent(run.EpicRunID, featureKey, commit, nil, nil)
 	if err != nil {
 		slog.WarnContext(ctx, "integration event recording failed",
@@ -551,31 +564,15 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 		return
 	}
 
-	// A RecordedAt strictly before callTime means RecordEvent returned an
-	// already-persisted record from an earlier call (e.g. this feature
-	// regressed and re-completed at the identical commit). Re-folding a
-	// replayed event into the candidate is not merely redundant:
-	// buildNextCandidate (candidate.go) unconditionally sets the next
-	// candidate's HeadCommit from THIS call's event argument regardless of
-	// whether the event's ID was already present in the current candidate
-	// — folding a stale replay after a different feature has since
-	// advanced the candidate would silently regress HeadCommit backward,
-	// corrupting REQ-F-005's diff. Skipping the fold on a detected replay
-	// keeps this call site from ever exercising that path; candidate.go's
-	// own behavior here is unchanged and outside this task's file scope.
-	// Fails safe in the ambiguous direction: on a same-tick race,
-	// RecordedAt.Before(callTime) is false, so a genuinely fresh event is
-	// never misclassified as a replay and skipped (the only failure mode
-	// this guard could introduce); the worst a missed replay detection can
-	// do is fall back to this call site's pre-guard behavior.
-	if event.RecordedAt.Before(callTime) {
-		return
-	}
-
-	candidate, err := s.updateIntegrationCandidateWithRetry(run.EpicRunID, event)
+	candidate, err := s.foldIntegrationEventIfMissing(run.EpicRunID, event)
 	if err != nil {
 		slog.WarnContext(ctx, "integration candidate update failed",
 			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
+		// Labeled "update_candidate", not a distinct "get_candidate" stage:
+		// from a caller's point of view (and this codebase's existing
+		// review-finding metadata taxonomy) both a failed read of the
+		// current candidate and a failed CAS write are the same "the fold
+		// step didn't complete" failure.
 		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "update_candidate", err)
 		return
 	}
@@ -594,6 +591,67 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
 		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "register_run", err)
 	}
+}
+
+// foldIntegrationEventIfMissing returns epicRunID's IntegrationCandidate
+// with event folded in. Fixes T-E34-F08-008's UAT rework round 2 Finding 2:
+// it reads the CURRENT on-disk candidate (integration.GetCandidate) and
+// folds event into it (updateIntegrationCandidateWithRetry) only when
+// event's ID is genuinely absent from that candidate's EventIDs. When the
+// event is already present — an idempotent retry of a completion whose
+// candidate fold already succeeded on a prior attempt
+// (integration.RecordEvent's own idempotency contract: a retried call for
+// the identical epicRunID/featureKey/featureCommit resolves to the same
+// file and returns the original, already-persisted event rather than a
+// fresh one) — folding again is skipped and the current on-disk candidate
+// is returned unchanged.
+//
+// This replaces the previous wall-clock heuristic (comparing the returned
+// event's RecordedAt against a call-time snapshot) that
+// recordIntegrationEventForTerminalTransition used to detect "this is a
+// replay" and return immediately — BEFORE ever reaching its own
+// len(candidate.EventIDs)==1 check and RegisterRun call. That meant a
+// completion whose candidate fold had already succeeded, but whose
+// RegisterRun failed or was lost on that same prior attempt, could never be
+// repaired by retrying the identical completion: the replay guard fired on
+// every retry regardless of whether registration had actually completed
+// (uat-20260905-142000-E34-F08.md Finding 2). Skipping only the redundant
+// fold — not the length check or the RegisterRun call — closes that gap
+// while leaving RegisterRun's own conflict/tamper fail-closed behavior
+// (*integration.RegistrationConflictError) and UpdateCandidate's own CAS
+// conflict handling (*integration.CandidateConflictError, handled by
+// updateIntegrationCandidateWithRetry) completely untouched.
+//
+// Named, flagged limitation (kept from the pre-round-2 version, now
+// widened by one case): folding a genuinely-missing event after a
+// DIFFERENT feature has since advanced the candidate — e.g. feature A's
+// event write survives a crash but its fold does not, feature B completes
+// and folds in the meantime (advancing HeadCommit to B), then A's
+// completion is retried — still regresses HeadCommit to A's commit,
+// because buildNextCandidate (candidate.go) unconditionally sets the next
+// candidate's HeadCommit from the folded event's FeatureCommit regardless
+// of ordering. That behavior belongs to candidate.go and is outside this
+// task's file scope; the blast radius is bounded here because folding A at
+// that point brings EventIDs to at least 2 entries, so the
+// len(candidate.EventIDs)==1 check in recordIntegrationEventForTerminalTransition
+// never fires and RegisterRun is never called against the regressed head.
+// Fully closing this (e.g. having buildNextCandidate track HeadCommit by
+// highest-recorded event rather than "whichever event was folded most
+// recently") is follow-up work against candidate.go, not this call site's
+// scope.
+func (s *FeatureService) foldIntegrationEventIfMissing(epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
+	current, err := integration.GetCandidate(epicRunID)
+	if err != nil {
+		return nil, err
+	}
+	if current != nil {
+		for _, id := range current.EventIDs {
+			if id == event.EventID {
+				return current, nil
+			}
+		}
+	}
+	return s.updateIntegrationCandidateWithRetry(epicRunID, event)
 }
 
 // updateIntegrationCandidateWithRetry calls integration.UpdateCandidate,

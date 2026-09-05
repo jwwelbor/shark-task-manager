@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -294,4 +295,138 @@ func TestResolveCascadeCapturesEpicIntegrationBaseOnFirstFeatureDispatchOnly_TC0
 	require.NotNil(t, run2)
 	require.Equal(t, run1.EpicRunID, run2.EpicRunID, "a second feature's dispatch must not create a second run")
 	require.Equal(t, run1.BaseCommit, run2.BaseCommit, "BaseCommit must never be recomputed after the first capture")
+}
+
+// capturedFakeNote is the bookkeeping record fakeCaptureFailureNoteRecorder
+// keeps for each AddNoteWithMetadata call. models.EntityNote has no
+// entity-key field (it is keyed by EntityID once persisted), so the fake
+// keeps its own key-indexed record rather than trying to force the real
+// persisted shape.
+type capturedFakeNote struct {
+	entityType models.EntityType
+	entityKey  string
+	noteType   string
+	content    string
+	createdBy  string
+	metadata   string
+}
+
+// fakeCaptureFailureNoteRecorder is a fake integration.NoteRecorder for
+// TestResolveCascadeBlocksDispatchOnCaptureFailure_Finding1. A CLI command
+// test must never touch a real database
+// (.claude/rules/testing/cli-tests.md), so this stands in for the real
+// *services.NoteService the production path wires via
+// nextIntegrationCaptureFailureRecorder/cli.GetNoteService.
+type fakeCaptureFailureNoteRecorder struct {
+	notes []capturedFakeNote
+}
+
+func (f *fakeCaptureFailureNoteRecorder) AddNoteWithMetadata(_ context.Context, entityType models.EntityType, entityKey, noteType, content, createdBy, metadata string) (*models.EntityNote, error) {
+	f.notes = append(f.notes, capturedFakeNote{
+		entityType: entityType, entityKey: entityKey, noteType: noteType,
+		content: content, createdBy: createdBy, metadata: metadata,
+	})
+	meta := metadata
+	return &models.EntityNote{EntityType: entityType, NoteType: models.NoteType(noteType), Content: content, Metadata: &meta}, nil
+}
+
+func (f *fakeCaptureFailureNoteRecorder) ListNotes(_ context.Context, entityType models.EntityType, entityKey string, noteTypes []string) ([]*models.EntityNote, error) {
+	var out []*models.EntityNote
+	for _, n := range f.notes {
+		if n.entityType != entityType || n.entityKey != entityKey {
+			continue
+		}
+		for _, nt := range noteTypes {
+			if n.noteType == nt {
+				meta := n.metadata
+				out = append(out, &models.EntityNote{EntityType: n.entityType, NoteType: models.NoteType(n.noteType), Content: n.content, Metadata: &meta})
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// TestResolveCascadeBlocksDispatchOnCaptureFailure_Finding1 is the
+// production-path failure-injection test uat-20260905-142000-E34-F08.md
+// Finding 1 names: when CaptureBase genuinely fails — here, a real,
+// non-mocked "not a git repository" error from `git rev-parse HEAD`, the
+// exact ordinary-error case the prior fix silently swallowed — the epic
+// cascade must block (never reach planDescribeDispatchableChildren, and
+// therefore never dispatch a feature), and a durable, deduped epic-level
+// `review-finding` note must record the failure.
+//
+// nextCaptureEpicIntegrationBase is deliberately left at its production
+// default here, exactly like TC-011 above: this test exists to prove
+// production code blocks dispatch on a REAL capture failure, not a mocked
+// one. Only the note recorder (a database-backed dependency a CLI command
+// test must never touch, per .claude/rules/testing/cli-tests.md) is faked.
+func TestResolveCascadeBlocksDispatchOnCaptureFailure_Finding1(t *testing.T) {
+	dir := t.TempDir()
+	// Deliberately no `git init`: projectroot.FindProjectRoot resolves dir
+	// via the .sharkconfig.json marker below, but CaptureBase's
+	// currentHeadCommit ("git rev-parse HEAD") genuinely fails against a
+	// non-git directory.
+	if err := os.WriteFile(filepath.Join(dir, ".sharkconfig.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write .sharkconfig.json: %v", err)
+	}
+	t.Chdir(dir)
+
+	recorder := &fakeCaptureFailureNoteRecorder{}
+	originalRecorderFn := nextIntegrationCaptureFailureRecorder
+	t.Cleanup(func() { nextIntegrationCaptureFailureRecorder = originalRecorderFn })
+	nextIntegrationCaptureFailureRecorder = func(context.Context) (integration.NoteRecorder, error) {
+		return recorder, nil
+	}
+
+	dispatchCalls := 0
+	originalDescribe := planDescribeDispatchableChildren
+	t.Cleanup(func() { planDescribeDispatchableChildren = originalDescribe })
+	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
+		dispatchCalls++
+		return services.PlanHierarchyChildrenState{
+			Children:            []services.PlanHierarchyChild{{Key: "E99-F01", EntityType: models.EntityTypeFeature}},
+			TotalChildren:       1,
+			NonTerminalChildren: 1,
+		}, nil
+	}
+
+	transitioner := keyedByEntityTransitioner{statuses: map[string]string{"E99": "active"}}
+	actionSvc := &action.MockActionService{
+		GetStatusActionPopulatedFunc: func(_ context.Context, status string, _ map[string]string) (*action.PopulatedAction, error) {
+			return &action.PopulatedAction{Action: "cascade", Instruction: "delegate"}, nil
+		},
+	}
+	cache := &nextAdapterCache{
+		entries: map[string]*nextAdapters{
+			"epic": {
+				transitioner: transitioner,
+				generator:    fixedNextPlaceholders{vars: map[string]string{}},
+				actionSvc:    actionSvc,
+			},
+		},
+		actionSvcRoot: actionSvc,
+	}
+
+	resp, err := resolveNext(context.Background(), cache, "epic", "E99", 0)
+	require.NoError(t, err)
+	require.Equal(t, "pause", resp.Action, "a genuine CaptureBase failure must pause the cascade, not dispatch a feature")
+	require.NotEmpty(t, resp.Error, "resp.Error should describe the capture failure")
+	require.Equal(t, 0, dispatchCalls, "planDescribeDispatchableChildren must never be called after a capture failure — no feature dispatch may occur")
+	require.Len(t, recorder.notes, 1, "exactly one durable capture-failure note must be recorded")
+
+	var meta map[string]string
+	require.NoError(t, json.Unmarshal([]byte(recorder.notes[0].metadata), &meta))
+	require.Equal(t, "integration_capture", meta["gate"])
+	require.Equal(t, "capture_base", meta["stage"])
+	require.Equal(t, "open", meta["disposition"])
+
+	// A second failing attempt (e.g. a harness polling again before an
+	// operator fixes the underlying condition) must still block dispatch
+	// and must NOT accumulate a second note.
+	resp2, err := resolveNext(context.Background(), cache, "epic", "E99", 0)
+	require.NoError(t, err)
+	require.Equal(t, "pause", resp2.Action)
+	require.Equal(t, 0, dispatchCalls, "still zero dispatch-lookup calls after a second failing attempt")
+	require.Len(t, recorder.notes, 1, "a persistently failing epic must accumulate exactly one open note, not one per poll")
 }

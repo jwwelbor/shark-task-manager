@@ -4751,3 +4751,139 @@ func TestFeatureService_TransitionStatus_CandidateUpdateFailureIsSurfacedAsDurab
 		}
 	}
 }
+
+// flakyRegistrationNoteRecorder wraps a real integration.NoteRecorder
+// (here, a real *NoteService over the isolated test DB — see
+// newRealFeatureServiceForIntegrationWiringWithNotes's own doc comment on
+// why this suite never hand-mocks the NoteRecorder interface) and fails the
+// first `reference`-type AddNoteWithMetadata call it receives — RegisterRun's
+// own note write (run.go) — simulating a registration note that was lost or
+// failed after candidate publication already succeeded. Every other call,
+// including a later `reference` write once failNext is spent, delegates to
+// the wrapped real recorder unmodified.
+type flakyRegistrationNoteRecorder struct {
+	inner    integration.NoteRecorder
+	failNext bool
+}
+
+func (f *flakyRegistrationNoteRecorder) AddNoteWithMetadata(ctx context.Context, entityType models.EntityType, entityKey, noteType, content, createdBy, metadata string) (*models.EntityNote, error) {
+	if noteType == string(models.NoteTypeReference) && f.failNext {
+		f.failNext = false
+		return nil, fmt.Errorf("simulated registration note write failure")
+	}
+	return f.inner.AddNoteWithMetadata(ctx, entityType, entityKey, noteType, content, createdBy, metadata)
+}
+
+func (f *flakyRegistrationNoteRecorder) ListNotes(ctx context.Context, entityType models.EntityType, entityKey string, noteTypes []string) ([]*models.EntityNote, error) {
+	return f.inner.ListNotes(ctx, entityType, entityKey, noteTypes)
+}
+
+// TestFeatureService_TransitionStatus_RetryAfterRegistrationFailureRepairsNote_AggregateBranch
+// is the production-path test uat-20260905-142000-E34-F08.md Finding 2
+// names: (a) simulate candidate success followed by registration failure,
+// (b) retry the identical completion, (c) assert exactly one registration
+// note now exists (repaired).
+//
+// The "identical completion retry" is reproduced through the real
+// production entrypoint (svc.TransitionStatus), not by calling
+// recordIntegrationEventForTerminalTransition directly: the feature is
+// force-regressed from completed back to active (Force+Reason bypass this
+// suite's test workflow's status_flow, which has no forward path back from
+// "completed") and then re-completed with no new git commit in between —
+// so the feature commit is identical and integration.RecordEvent's
+// deterministic EventID (sha256(epicRunID+featureKey+featureCommit))
+// derives the exact same ID both times, making the second RecordEvent call
+// a genuine replay of the first (RecordEvent's own idempotency contract).
+// This is exactly the "this feature regressed and re-completed at the
+// identical commit" scenario this file's own doc comments have named since
+// round 1.
+func TestFeatureService_TransitionStatus_RetryAfterRegistrationFailureRepairsNote_AggregateBranch(t *testing.T) {
+	dir := t.TempDir()
+	initFeatureServiceIntegrationGitRepo(t, dir)
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	svc, featureRepo, epicRepo, noteSvc := newRealFeatureServiceForIntegrationWiringWithNotes(t)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E83", Title: "Registration repair epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E83-F01", Title: "Registration repair feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, feature); err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+
+	run, err := integration.CaptureBase("E83")
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	flaky := &flakyRegistrationNoteRecorder{inner: noteSvc, failNext: true}
+	svc.SetIntegrationNoteRecorder(flaky)
+
+	// First completion: RecordEvent and UpdateCandidate succeed (candidate
+	// becomes the run's first head), but RegisterRun's own note write is
+	// injected to fail.
+	if _, err := svc.TransitionStatus(ctx, "E83-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus(first completion): %v", err)
+	}
+
+	firstEvent := readSoleIntegrationEvent(t, dir, run.EpicRunID)
+	firstCandidate := readIntegrationCandidate(t, dir, run.EpicRunID)
+	if len(firstCandidate.EventIDs) != 1 || firstCandidate.EventIDs[0] != firstEvent.EventID {
+		t.Fatalf("firstCandidate.EventIDs = %v, want exactly [%s]", firstCandidate.EventIDs, firstEvent.EventID)
+	}
+	regNotesBefore, err := noteSvc.ListNotes(ctx, models.EntityTypeEpic, "E83", []string{string(models.NoteTypeReference)})
+	if err != nil {
+		t.Fatalf("ListNotes(reference) before retry: %v", err)
+	}
+	if len(regNotesBefore) != 0 {
+		t.Fatalf("registration notes before retry = %d, want 0 (RegisterRun's note write was injected to fail)", len(regNotesBefore))
+	}
+	failureFindings := findReviewFindingNotes(t, ctx, noteSvc, "E83")
+	if len(failureFindings) != 1 {
+		t.Fatalf("epic E83 has %d integration_capture review-finding notes after the injected failure, want exactly 1", len(failureFindings))
+	}
+
+	// Force-regress the feature back to a non-terminal status so a second,
+	// genuinely identical completion (same commit, hence the same derived
+	// EventID) can be driven through the real TransitionStatus entrypoint.
+	if _, err := svc.TransitionStatus(ctx, "E83-F01", "active", TransitionOptions{
+		Force: true, Reason: "test: regress to replay the identical completion",
+	}); err != nil {
+		t.Fatalf("TransitionStatus(force regress): %v", err)
+	}
+
+	// Retry the identical completion: no new commit was made, so
+	// integration.RecordEvent derives the exact same EventID as before and
+	// returns the original, already-persisted event (a genuine replay).
+	if _, err := svc.TransitionStatus(ctx, "E83-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus(retry completion): %v", err)
+	}
+
+	secondEvent := readSoleIntegrationEvent(t, dir, run.EpicRunID)
+	if secondEvent.EventID != firstEvent.EventID {
+		t.Fatalf("secondEvent.EventID = %q, want the identical replayed EventID %q", secondEvent.EventID, firstEvent.EventID)
+	}
+	finalCandidate := readIntegrationCandidate(t, dir, run.EpicRunID)
+	if len(finalCandidate.EventIDs) != 1 || finalCandidate.EventIDs[0] != firstEvent.EventID {
+		t.Fatalf("finalCandidate.EventIDs = %v, want still exactly [%s] (the replay must not re-fold)", finalCandidate.EventIDs, firstEvent.EventID)
+	}
+
+	regNote := findRegistrationNote(t, ctx, noteSvc, "E83")
+	if regNote.EpicRunID != run.EpicRunID {
+		t.Errorf("repaired registration note EpicRunID = %q, want %q", regNote.EpicRunID, run.EpicRunID)
+	}
+	if regNote.HeadDigest != finalCandidate.Digest {
+		t.Errorf("repaired registration note HeadDigest = %q, want %q", regNote.HeadDigest, finalCandidate.Digest)
+	}
+}

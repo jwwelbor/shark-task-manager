@@ -61,6 +61,120 @@ import (
 // the point of that test.
 var nextCaptureEpicIntegrationBase = integration.CaptureBase
 
+// nextIntegrationCaptureFailureRecorder resolves the integration.NoteRecorder
+// nextRecordCaptureFailureNote uses to durably surface a CaptureBase
+// failure (UAT rework round 2, Finding 1). Production points this at a
+// real *services.NoteService via cli.GetNoteService — the same accessor
+// service_accessors.go's GetFeatureService uses to wire
+// SetIntegrationNoteRecorder. CLI command tests must never touch a real
+// database (.claude/rules/testing/cli-tests.md), so tests override this
+// with a fake recorder instead of exercising cli.GetNoteService.
+var nextIntegrationCaptureFailureRecorder = func(ctx context.Context) (integration.NoteRecorder, error) {
+	return cli.GetNoteService(ctx)
+}
+
+// integrationCaptureFailureCreatedBy identifies the automated actor
+// recorded on the durable capture-failure note nextRecordCaptureFailureNote
+// writes, mirroring feature_service.go's integrationCaptureCreatedBy
+// literal (unexported there, so not importable — kept as the identical
+// string rather than a second, divergent constant).
+const integrationCaptureFailureCreatedBy = "shark-integration-capture"
+
+// nextIntegrationCaptureFailureNoteExists reports whether epicKey already
+// carries an open `review-finding` note for CaptureBase's own failure stage
+// ("capture_base"). nextCaptureEpicIntegrationBase is invoked on every
+// cascade attempt for the epic (see its own doc comment), so a persistently
+// failing epic — e.g. one with no git repository — would otherwise
+// accumulate a new note on every single `shark next` poll a harness makes;
+// this dedupes to exactly one open note per epic per failure stage.
+//
+// The dedupe is scoped to `disposition=="open"` by design, not merely
+// because that is the value this call site writes: if an operator (or a
+// future closure workflow) ever marks that note's disposition closed while
+// the underlying condition still persists, the next poll writes a fresh
+// note rather than staying silent — an unresolved capture failure should
+// keep re-surfacing once its prior note is no longer treated as open,
+// rather than being permanently deduped away by a note that no longer
+// reflects the epic's real state.
+func nextIntegrationCaptureFailureNoteExists(ctx context.Context, recorder integration.NoteRecorder, epicKey string) (bool, error) {
+	notes, err := recorder.ListNotes(ctx, models.EntityTypeEpic, epicKey, []string{"review-finding"})
+	if err != nil {
+		return false, err
+	}
+	for _, note := range notes {
+		if note.Metadata == nil {
+			continue
+		}
+		var meta map[string]string
+		if err := json.Unmarshal([]byte(*note.Metadata), &meta); err != nil {
+			continue
+		}
+		if meta["gate"] == "integration_capture" && meta["stage"] == "capture_base" && meta["disposition"] == "open" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// nextRecordCaptureFailureNote durably records a CaptureBase failure as an
+// epic-level `review-finding` note (UAT rework round 2, Finding 1),
+// mirroring feature_service.go's recordIntegrationFailureNote convention
+// (gate=="integration_capture") so `shark epic notes`/`shark search`
+// surface both this feature's pre-dispatch and post-transition
+// integration-capture failures the same way. Deduped via
+// nextIntegrationCaptureFailureNoteExists.
+//
+// Best-effort with respect to the note write itself — a failure to resolve
+// the recorder, list existing notes, or write the note is logged to
+// stderr, never raised. This is safe because the note is a visibility aid,
+// not the blocking mechanism: resolveCascade sets resp.Action="pause" and
+// returns before dispatching a feature regardless of whether this note
+// write succeeds.
+func nextRecordCaptureFailureNote(ctx context.Context, epicKey string, cause error) {
+	recorder, err := nextIntegrationCaptureFailureRecorder(ctx)
+	if err != nil || recorder == nil {
+		fmt.Fprintf(os.Stderr,
+			"[shark next] warning: could not resolve a note recorder to record the integration-capture failure for epic %s: %v\n",
+			epicKey, err)
+		return
+	}
+	exists, err := nextIntegrationCaptureFailureNoteExists(ctx, recorder, epicKey)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"[shark next] warning: could not check for an existing integration-capture failure note for epic %s: %v\n",
+			epicKey, err)
+		return
+	}
+	if exists {
+		return
+	}
+	content := fmt.Sprintf(
+		"integration base capture failed for epic %s: %v — the epic cascade is blocked (no feature will be dispatched under this epic) until this is resolved.",
+		epicKey, cause,
+	)
+	metadata, err := json.Marshal(map[string]string{
+		"gate":             "integration_capture",
+		"severity":         "critical",
+		"closure_category": "reference",
+		"disposition":      "open",
+		"epic_key":         epicKey,
+		"stage":            "capture_base",
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"[shark next] warning: could not encode the integration-capture failure note metadata for epic %s: %v\n",
+			epicKey, err)
+		return
+	}
+	if _, err := recorder.AddNoteWithMetadata(
+		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integrationCaptureFailureCreatedBy, string(metadata),
+	); err != nil {
+		fmt.Fprintf(os.Stderr,
+			"[shark next] warning: could not record the integration-capture failure note for epic %s: %v\n",
+			epicKey, err)
+	}
+}
+
 // nextAdapters bundles the three per-entity-type adapters resolveNext needs
 // (transitioner, placeholder generator, narrowed action service). Constructing
 // these is cheap individually — the underlying DB / workflow / root action
@@ -467,32 +581,40 @@ func (s entityResolutionStrategy) resolveCascade(
 	// a feature's own `active` step cascading into tasks) never re-fires
 	// it for the wrong entity.
 	//
-	// A capture failure (e.g. the project root is not a git repository —
-	// `git rev-parse HEAD` then fails, which is an expected, supported
-	// configuration for projects that don't use git) is a side-channel
-	// problem for E34-F08's integration-event log, never a reason to fail
-	// ordinary keyed-next dispatch: it is silently swallowed here, exactly
-	// as `shark next`'s stdout-JSON dispatch contract already treats every
-	// other best-effort post-hook in this codebase (services'
-	// indexEntityIfConfigured / search_indexer.go). Deliberately not logged
-	// to stderr either: unlike this file's other stderr warnings (B022's
-	// unknown-status pause, unresolved placeholders), a git-less project
-	// would otherwise repeat this warning on every single cascade dispatch
-	// forever, and — since `shark next` always emits JSON to stdout as its
-	// sole contract — a caller capturing combined stdout+stderr output
-	// would have that JSON corrupted by interleaved warning text.
+	// UAT rework round 2, Finding 1 (uat-20260905-142000-E34-F08.md): a
+	// CaptureBase failure — of ANY kind, including an ordinary I/O or git
+	// error (e.g. the project root is not a git repository, so `git
+	// rev-parse HEAD` fails) and not only a *integration.CorruptRunError —
+	// must stop this cascade from ever dispatching a feature under this
+	// epic. The previous fix here treated an ordinary error as a
+	// best-effort side channel (mirroring services' indexEntityIfConfigured
+	// / search_indexer.go) and let dispatch proceed regardless; that
+	// silently produced exactly the state REQ-F-004 forbids — feature work
+	// dispatched with no integration base ever captured, so the
+	// terminal-transition hook in feature_service.go later finds no
+	// IntegrationRun and records nothing, either. run.go states the
+	// governing principle for this whole feature's fail-closed posture:
+	// "the parent cannot acknowledge active entry or dispatch a feature
+	// until head and note reconcile" (architecture.md "Epic integration
+	// candidate identity") — that applies just as much to the base capture
+	// itself as it does to RegisterRun's own reconciliation. There is no
+	// carve-out for a git-less project: spec.md's REQ-F-004 has no such
+	// exception, and a project that can never resolve a base commit can
+	// never produce integration_review's required evidence anyway, so
+	// blocking the cascade until an operator resolves the underlying
+	// condition (initializes git, fixes permissions, or otherwise makes
+	// CaptureBase succeed) is the correct fail-closed behavior rather than
+	// a silent, permanently-unauditable gap.
 	//
-	// A *integration.CorruptRunError is a different class of failure and is
-	// NOT swallowed the same way: CaptureBase's own contract (run.go) is
-	// that it "must never paper over a broken record by creating a second
-	// one beside it," and silently discarding that signal here — the one
-	// production call site that invokes CaptureBase at all — would
-	// undermine that guarantee one layer up. Unlike the missing-git-repo
-	// case, a corrupt run file is a genuinely exceptional, non-recurring
-	// state (it does not reproduce on every dispatch the way a permanently
-	// git-less project does), so the log-spam concern above does not apply
-	// and this does get a one-line stderr warning, matching this file's
-	// B022 precedent.
+	// This still costs a stderr warning line per corrupt-run failure (kept
+	// from the prior fix, since a corrupt run file is a genuinely
+	// exceptional, non-recurring state) and a durable, deduped epic-level
+	// `review-finding` note via nextRecordCaptureFailureNote for every
+	// failure kind (nextIntegrationCaptureFailureNoteExists keeps a
+	// persistently-failing epic — e.g. one with no git repository, which
+	// CaptureBase is invoked against on every cascade attempt per this
+	// function's own idempotent-call convention — from accumulating a new
+	// note on every `shark next` poll).
 	if s.mode == nextResolutionMode && entityType == string(models.EntityTypeEpic) {
 		if _, err := nextCaptureEpicIntegrationBase(normalizedKey); err != nil {
 			var corruptErr *integration.CorruptRunError
@@ -502,6 +624,13 @@ func (s entityResolutionStrategy) resolveCascade(
 					s.commandLabel, normalizedKey, err,
 				)
 			}
+			nextRecordCaptureFailureNote(ctx, normalizedKey, err)
+			resp.Action = "pause"
+			resp.Error = fmt.Sprintf(
+				"integration base capture failed for epic %s: %v — the epic cascade is blocked (no feature will be dispatched under this epic) until the underlying condition is resolved; see `shark epic notes %s` for the durable finding",
+				normalizedKey, err, normalizedKey,
+			)
+			return resp, nil
 		}
 	}
 
