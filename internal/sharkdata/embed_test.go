@@ -1260,6 +1260,104 @@ func TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture(t *testin
 		"epic/integration_review.md must document adoption_manifest as a sibling of remediation_sweeps/change_impacts nested inside gate_result, not restated at the outer envelope level")
 }
 
+// interactionMapRealFixtureRows loads the real, current E34-interaction-map.md
+// Interaction Contracts table through the production parser
+// (ParseInteractionMapTable, T-E34-F08-001), and the real architecture.md
+// bytes CheckInteractionMapCompleteness resolves shape-source anchors
+// against.
+func interactionMapRealFixtureRows(t *testing.T) ([]InteractionRow, []byte) {
+	t.Helper()
+	repoRoot := findRepoRootForTableParserTest(t)
+
+	mapPath := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "E34-interaction-map.md")
+	mapData, err := os.ReadFile(mapPath)
+	require.NoError(t, err, "real E34-interaction-map.md must exist")
+
+	rows, err := ParseInteractionMapTable(mapData)
+	require.NoError(t, err)
+
+	archPath := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "architecture.md")
+	archData, err := os.ReadFile(archPath)
+	require.NoError(t, err, "real architecture.md must exist")
+
+	return rows, archData
+}
+
+// TestInteractionMapCompleteness is test-plan.md TC-014 (AC-8): the shared
+// structural guard proving every I-## row in E34-interaction-map.md's
+// Interaction Contracts table names a producer, consumer(s), shape-source
+// link, payload, and style — kept structurally separate from
+// ParseInteractionMapTable, so a shared parser/checker defect can't hide
+// behind one green test.
+func TestInteractionMapCompleteness(t *testing.T) {
+	t.Run("real_table_passes", func(t *testing.T) {
+		rows, archData := interactionMapRealFixtureRows(t)
+		require.Len(t, rows, 5, "expected one row per I-01..I-05")
+
+		errs := CheckInteractionMapCompleteness(rows, archData)
+		assert.Empty(t, errs, "the real, current interaction map table must have no completeness errors; got: %v", errs)
+	})
+
+	// interactionMapCompletenessFixtureArch is a minimal architecture.md
+	// fixture whose one "## I-01 ..." heading resolves the shape-source link
+	// used by the field-completeness subtests below (which construct
+	// []InteractionRow directly, bypassing the parser — TC-014's own point:
+	// a parser bug must not be able to mask a checker bug or vice versa).
+	const interactionMapCompletenessFixtureArch = "## I-01 SomeShape v1\n\nfixture body\n"
+
+	// completeRow's ID (I-42) is deliberately distinct from the "I-01" text
+	// inside its own ShapeSource label/anchor, so a later assertion that the
+	// error message names the row (row.ID) can't accidentally pass via a
+	// substring collision with the shape-source cell's own text.
+	completeRow := InteractionRow{
+		ID:          "I-42",
+		Producer:    "E99-F01 Fixture Producer",
+		Consumers:   []string{"E99-F02"},
+		ShapeSource: "[I-01 SomeShape v1](./architecture.md#i-01-someshape-v1)",
+		Payload:     "some payload",
+		Style:       "some style",
+	}
+
+	t.Run("missing_field_subtests", func(t *testing.T) {
+		cases := []struct {
+			name      string
+			mutate    func(r InteractionRow) InteractionRow
+			wantField string
+		}{
+			{"producer", func(r InteractionRow) InteractionRow { r.Producer = ""; return r }, "producer"},
+			{"consumer", func(r InteractionRow) InteractionRow { r.Consumers = nil; return r }, "consumer"},
+			{"shape-source", func(r InteractionRow) InteractionRow { r.ShapeSource = ""; return r }, "shape-source"},
+			{"payload", func(r InteractionRow) InteractionRow { r.Payload = ""; return r }, "payload"},
+			{"style", func(r InteractionRow) InteractionRow { r.Style = ""; return r }, "style"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				row := tc.mutate(completeRow)
+				errs := CheckInteractionMapCompleteness([]InteractionRow{row}, []byte(interactionMapCompletenessFixtureArch))
+				require.Len(t, errs, 1, "expected exactly one completeness error; got: %v", errs)
+				assert.True(t, errors.Is(errs[0], ErrInteractionRowFieldMissing),
+					"missing %s must be reported as ErrInteractionRowFieldMissing; got: %v", tc.wantField, errs[0])
+				assert.Contains(t, errs[0].Error(), tc.wantField, "error must name the missing field")
+				assert.Contains(t, errs[0].Error(), row.ID, "error must name the row")
+			})
+		}
+	})
+
+	t.Run("unresolved_anchor_is_distinct_from_missing_field", func(t *testing.T) {
+		row := completeRow
+		row.ShapeSource = "[Some Other Shape](./architecture.md#i-99-does-not-exist)"
+
+		errs := CheckInteractionMapCompleteness([]InteractionRow{row}, []byte(interactionMapCompletenessFixtureArch))
+		require.Len(t, errs, 1, "expected exactly one completeness error; got: %v", errs)
+		assert.True(t, errors.Is(errs[0], ErrInteractionRowAnchorUnresolved),
+			"a non-empty shape-source link whose anchor does not resolve must be ErrInteractionRowAnchorUnresolved, not ErrInteractionRowFieldMissing; got: %v", errs[0])
+		assert.False(t, errors.Is(errs[0], ErrInteractionRowFieldMissing),
+			"an unresolved anchor must not also be reported as a missing field")
+		assert.Contains(t, errs[0].Error(), row.ID)
+	})
+}
+
 // defectClassSweepPersistenceIdentifiers is test-plan.md TC-010's guard
 // pattern (tightened per UAT-kickback MEDIUM-3): the original guard matched
 // only the two literal identifiers `DefectClassSweep` and `class_key`, which
