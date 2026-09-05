@@ -186,6 +186,17 @@ type CascadeChildRunner func(ctx context.Context, entityType, key string, opts R
 // entirely, for tests exercising unrelated cascade behavior (fan-out,
 // question-blocking, child-failure propagation, etc.) against fixtures with
 // no epic-shaped integration state at all.
+//
+// handleCascade calls this unconditionally, including under RunOptions.DryRun
+// — there is no dry-run carve-out, deliberately: REQ-F-004 has no dry-run
+// exception either, and a dry run that reported success while the real run
+// would block on a missing integration base would be a worse outcome than a
+// dry run that also captures it (mirroring round 2's rejection of a
+// git-less-project carve-out for `shark next`'s identical guard). A dry run
+// against a real git project therefore still writes
+// `.shark/integration/<epic>/run.json` — CaptureBase is itself idempotent, so
+// this has no effect beyond the first real or dry cascade attempt for that
+// epic.
 type CascadeIntegrationGuard interface {
 	EnsureBaseCaptured(ctx context.Context, entityType, key string) error
 }
