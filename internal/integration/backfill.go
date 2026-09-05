@@ -4,10 +4,12 @@ package integration
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
@@ -33,6 +35,61 @@ type BackfillValidationError struct {
 // Error implements the error interface.
 func (e *BackfillValidationError) Error() string {
 	return fmt.Sprintf("integration: backfill input rejected: %s", e.Reason)
+}
+
+// epicRunIDPattern is an allowlist for epicRunID: letters, digits,
+// underscore, and hyphen only, starting with a letter or digit, up to 128
+// characters. Deliberately excludes "." (and therefore "..") and path
+// separators ("/", "\") — epicRunID is joined directly onto a filesystem
+// path by eventRecordPath/candidatePath/registrationLockPath/
+// replacementRecordPath (event.go, candidate.go, lock.go, history.go) and
+// interpolated directly into a temp-file name by publishRun (run.go:
+// fmt.Sprintf("%s.%s.%d.tmp", path, candidate.EpicRunID, os.Getpid())) — a
+// second site the defect-class sweep found matching the same shape (a
+// string-built path/filename, not only filepath.Join). An allowlist here
+// (mirroring internal/models/validation.go's regex-allowlist convention for
+// other entity keys) is what keeps a caller-supplied value like
+// "../../etc/passwd" from ever reaching any of those, rather than a
+// blocklist that has to anticipate every traversal spelling. A generated
+// UUID (CaptureBase's uuid.New().String(), e.g.
+// "550e8400-e29b-41d4-a716-446655440000" — lowercase hex and hyphens only)
+// always satisfies this pattern, so CaptureBase's own steady-state flow is
+// unaffected by this allowlist.
+var epicRunIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
+// ValidateEpicRunID rejects epicRunID as a *BackfillValidationError unless
+// it matches epicRunIDPattern. Exported so every caller-facing entry point
+// that accepts an externally-supplied epic run ID validates it the same
+// way: Backfill calls this below before epicRunID ever reaches a
+// filesystem path, and the CLI layer (`shark integration backfill
+// --epic-run-id=...`, T-E34-F08-015, internal/cli/commands/
+// integration_cmd.go) should call this same function on the raw
+// --epic-run-id flag value before invoking Backfill at all, rather than
+// maintaining a second, independent character allowlist for the identical
+// defect class (code-review kickback on T-E34-F08-007/T-E34-F08-015: "an
+// externally-supplied identifier is used to construct a filesystem path
+// with no format allowlist, enabling path traversal outside
+// .shark/runs/").
+//
+// T-E34-F08-015's own <epic-key> arg needs the equivalent fix, but through
+// a different, already-existing function: integration_cmd.go's current gate
+// (`DetectEntityType(epicKey) != "epic"`, integration_cmd.go:96) accepts a
+// *slugged* epic key (e.g. "E07-user-management") because DetectEntityType
+// only rejects empty "-"-separated segments, not their characters — so a
+// value like "E07-..-..-..-secrets" still passes it. Backfill below now
+// requires a bare epic key (models.ValidateEpicKey, "^E\\d{2}$"), so
+// T-E34-F08-015 should replace that CLI-layer gate with
+// models.ValidateEpicKey(epicKey) on the normalized (upper-cased,
+// trimmed) arg — calling models.ValidateEpicKey directly, the same
+// validator Backfill calls just below, not a new wrapper in this package.
+func ValidateEpicRunID(epicRunID string) error {
+	if !epicRunIDPattern.MatchString(epicRunID) {
+		return &BackfillValidationError{Reason: fmt.Sprintf(
+			"--epic-run-id %q is invalid: must match %s (letters, digits, underscore, hyphen only; no path separators or \".\")",
+			epicRunID, epicRunIDPattern.String(),
+		)}
+	}
+	return nil
 }
 
 // Backfill registers an integration run for an epic that was already active
@@ -84,11 +141,25 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	if recorder == nil {
 		return nil, fmt.Errorf("integration: Backfill requires a non-nil NoteRecorder")
 	}
-	if strings.TrimSpace(epicKey) == "" {
-		return nil, fmt.Errorf("integration: Backfill requires a non-empty epic key")
+	// epicKey and epicRunID are both externally supplied (CLI args) and both
+	// flow, unmodified, into filesystem paths this package builds
+	// (runRecordPath keys by epicKey; eventRecordPath/candidatePath/
+	// registrationLockPath key by epicRunID) — so both are validated against
+	// a strict allowlist before either is used for anything, per this
+	// function's own validate-fully-before-first-write contract (AC-T4).
+	// Reuses internal/models.ValidateEpicKey (this package already imports
+	// internal/models for note types) rather than inventing a second,
+	// independently-maintained epic-key pattern — a bare epic key like "E07"
+	// is required, so a slugged form such as "E07-user-management" (whose
+	// slug segment has no character allowlist at the CLI layer) is rejected
+	// here rather than reaching runRecordPath unsanitized.
+	epicKey = strings.TrimSpace(epicKey)
+	if err := models.ValidateEpicKey(epicKey); err != nil {
+		return nil, &BackfillValidationError{Reason: fmt.Sprintf("epic key %q is invalid: %v", epicKey, err)}
 	}
-	if strings.TrimSpace(epicRunID) == "" {
-		return nil, fmt.Errorf("integration: Backfill requires a non-empty epic run ID")
+	epicRunID = strings.TrimSpace(epicRunID)
+	if err := ValidateEpicRunID(epicRunID); err != nil {
+		return nil, err
 	}
 
 	projectRoot, err := projectroot.FindProjectRoot()

@@ -374,6 +374,139 @@ func TestBackfill_MalformedInput_ZeroMutation(t *testing.T) {
 	})
 }
 
+// TestBackfill_PathTraversal_Rejected is the counterfactual for the
+// code-review kickback naming the defect class: "an externally-supplied
+// identifier is used to construct a filesystem path with no format
+// allowlist, enabling path traversal outside .shark/runs/"
+// (internal/integration/backfill.go). Before ValidateEpicRunID/
+// models.ValidateEpicKey were wired into Backfill's validate-before-write
+// block, a malicious --epic-run-id or <epic-key> reached
+// eventRecordPath/candidatePath/registrationLockPath/runRecordPath/
+// publishRun's temp-file name (run.go's fmt.Sprintf("%s.%s.%d.tmp", path,
+// candidate.EpicRunID, os.Getpid())) unsanitized and could write outside
+// `.shark/runs/`/`.shark/integration/`. Each subtest below asserts zero
+// mutation anywhere under a sentinel directory one level above the project
+// root's `.shark/` tree, proving the payload never escaped — not just that
+// Backfill returned an error.
+//
+// This test does not trace to a test-plan.md TC-NNN like this file's other
+// tests: it is the defect-class-sweep workflow's own required "guard" for
+// the fixed instances of this class (skills/quality/workflows/defect-
+// class-sweep.md "Guard selection"/"Structural guard closure"), added
+// during T-E34-F08-007's code-review rework rather than at original TDD
+// red-green time. TestValidateEpicRunID below is that same guard's
+// unit-level counterpart, directly exercising the allowlist boundary this
+// test's payloads rely on.
+func TestBackfill_PathTraversal_Rejected(t *testing.T) {
+	epicRunIDPayloads := []string{
+		"../../etc/passwd",
+		"..",
+		"../sibling",
+		"a/b",
+		"a\\b",
+		"",
+		"-leading-hyphen",
+	}
+	for _, payload := range epicRunIDPayloads {
+		t.Run("epic-run-id: "+payload, func(t *testing.T) {
+			dir, headCommit := chdirProjectRoot(t)
+			shark := filepath.Join(dir, ".shark")
+			// escapeRoot sits one level above dir (the project root itself,
+			// git-seeded so it already has files) — a successful traversal
+			// via "../" segments in epicRunID would land a file here (or
+			// somewhere else outside `.shark/`); rejection means this
+			// directory tree never gains a file. Checked separately from
+			// `shark` (asserted empty below) because escapeRoot pre-exists
+			// with content unrelated to this test (the git seed commit).
+			escapeRoot := filepath.Dir(dir)
+			before := countFilesUnder(t, escapeRoot)
+
+			events := validBackfillEvents(payload)
+			recorder := &fakeNoteRecorder{}
+
+			_, err := Backfill(context.Background(), recorder, "E80", payload, headCommit, events, false, "test-agent")
+			if err == nil {
+				t.Fatalf("expected --epic-run-id %q to be rejected", payload)
+			}
+			var valErr *BackfillValidationError
+			if !errors.As(err, &valErr) {
+				t.Fatalf("expected *BackfillValidationError for %q, got %T: %v", payload, err, err)
+			}
+			if got := countFilesUnder(t, shark); got != 0 {
+				t.Fatalf("payload %q wrote %d files under %s, want 0", payload, got, shark)
+			}
+			if got := countFilesUnder(t, escapeRoot); got != before {
+				t.Fatalf("payload %q escaped the project root: files under %s went from %d to %d", payload, escapeRoot, before, got)
+			}
+			if recorder.calls != 0 {
+				t.Fatalf("payload %q created a note: %d calls", payload, recorder.calls)
+			}
+		})
+	}
+
+	epicKeyPayloads := []string{
+		"E07-../../../../etc",
+		"../../etc",
+		"E07-user-management", // slugged form: no allowlist on the slug segment upstream of Backfill
+		"",
+	}
+	for _, payload := range epicKeyPayloads {
+		t.Run("epic-key: "+payload, func(t *testing.T) {
+			dir, headCommit := chdirProjectRoot(t)
+			shark := filepath.Join(dir, ".shark")
+			escapeRoot := filepath.Dir(dir)
+			before := countFilesUnder(t, escapeRoot)
+
+			const epicRunID = "run-epic-key-payload"
+			events := validBackfillEvents(epicRunID)
+			recorder := &fakeNoteRecorder{}
+
+			_, err := Backfill(context.Background(), recorder, payload, epicRunID, headCommit, events, false, "test-agent")
+			if err == nil {
+				t.Fatalf("expected epic key %q to be rejected", payload)
+			}
+			var valErr *BackfillValidationError
+			if !errors.As(err, &valErr) {
+				t.Fatalf("expected *BackfillValidationError for %q, got %T: %v", payload, err, err)
+			}
+			if got := countFilesUnder(t, shark); got != 0 {
+				t.Fatalf("payload %q wrote %d files under %s, want 0", payload, got, shark)
+			}
+			if got := countFilesUnder(t, escapeRoot); got != before {
+				t.Fatalf("payload %q escaped the project root: files under %s went from %d to %d", payload, escapeRoot, before, got)
+			}
+			if recorder.calls != 0 {
+				t.Fatalf("payload %q created a note: %d calls", payload, recorder.calls)
+			}
+		})
+	}
+}
+
+// TestValidateEpicRunID covers ValidateEpicRunID directly (independent of
+// Backfill's wiring), including the exact allowlist boundary the path-
+// traversal counterfactual above depends on.
+func TestValidateEpicRunID(t *testing.T) {
+	valid := []string{"run-1", "a", "A9", "run_2", strings.Repeat("a", 128)}
+	for _, v := range valid {
+		if err := ValidateEpicRunID(v); err != nil {
+			t.Errorf("ValidateEpicRunID(%q) = %v, want nil", v, err)
+		}
+	}
+
+	invalid := []string{"", ".", "..", "../x", "a/b", "a\\b", "-a", strings.Repeat("a", 129)}
+	for _, v := range invalid {
+		err := ValidateEpicRunID(v)
+		if err == nil {
+			t.Errorf("ValidateEpicRunID(%q) = nil, want an error", v)
+			continue
+		}
+		var valErr *BackfillValidationError
+		if !errors.As(err, &valErr) {
+			t.Errorf("ValidateEpicRunID(%q) returned %T, want *BackfillValidationError", v, err)
+		}
+	}
+}
+
 // TestBackfill_UsesRealAdditionalCommit exercises the reachable-base check's
 // happy path against a second, freshly-created real commit (not just the
 // repo's initial seed commit from chdirProjectRoot), so the reachability
