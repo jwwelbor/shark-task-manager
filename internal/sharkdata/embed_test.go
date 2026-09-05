@@ -1288,6 +1288,128 @@ func TestDefectClassSweepBackwardLookingReworkRequiresCompatOrDivergence(t *test
 		"backward-looking rework must explicitly reject a silent, uncited divergence from a recorded design")
 }
 
+// TestStateSpaceCoverageI04PropagationReferenced is test-plan.md TC-005
+// (E34-F07 REQ-F-006/AC-3): tech_debt/resolved.md and
+// question-management/SKILL.md must each reference the I-04 propagation
+// section of state-space-coverage.md, resolved.md's original one-line
+// template must remain present unconditionally, and the new resolved.md
+// line must be explicitly conditional on the resolution having changed
+// accepted behavior — never framed as always-required.
+func TestStateSpaceCoverageI04PropagationReferenced(t *testing.T) {
+	const marker = "state-space-coverage.md#i-04-propagation"
+
+	resolved := readEmbeddedString(t, "prompts/tech_debt/resolved.md")
+	assert.Contains(t, resolved, marker,
+		"tech_debt/resolved.md must reference the I-04 propagation section")
+	assert.Contains(t, resolved,
+		"Tech debt {{.id}} is resolved and verified. No further action required.",
+		"tech_debt/resolved.md's original one-line template must remain present unconditionally")
+	assert.Contains(t, strings.ToLower(resolved), "when this resolution changed",
+		"tech_debt/resolved.md's I-04 reference must be conditional, not always-required")
+
+	skill := readEmbeddedString(t, "skills/question-management/SKILL.md")
+	assert.Contains(t, skill, marker,
+		"question-management/SKILL.md must reference the I-04 propagation section")
+}
+
+// assertBareStateSpaceReference is the shared TC-002/TC-003/TC-006 structural
+// check (test-plan.md: "mirrors E34-F06's TestDefectClassSweepConsolidatedNotDuplicated
+// structural approach"): every line in content referencing
+// state-space-coverage.md must be a bare pointer, not a restated procedure —
+// no enumerated-list shape, and bounded word count.
+func assertBareStateSpaceReference(t *testing.T, rel, content string) {
+	t.Helper()
+	const marker = "state-space-coverage.md"
+	const maxReferenceLineWords = 90
+
+	var referencingLines int
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, marker) {
+			continue
+		}
+		referencingLines++
+
+		if enumeratedListPattern.MatchString(line) {
+			t.Errorf("%s: line referencing %s contains an enumerated-list pattern — a"+
+				" restated procedure, not a bare reference:\n%s", rel, marker, line)
+		}
+
+		wordCount := len(strings.Fields(line))
+		assert.LessOrEqualf(t, wordCount, maxReferenceLineWords,
+			"%s: line referencing %s is %d words — too long for a bare reference, suggests restated procedure:\n%s",
+			rel, marker, wordCount, line)
+	}
+	assert.Greater(t, referencingLines, 0,
+		"%s: expected at least one line referencing %s", rel, marker)
+}
+
+// TestSpecificationReferencesDependencyDiscovery is test-plan.md TC-002
+// (E34-F07 REQ-F-003/AC-2): specification.md's READ list must reference
+// state-space-coverage.md's dependency-discovery section as a bare pointer
+// instead of restating a procedure, and the prior unstated "grep for related
+// services" READ item must be gone.
+func TestSpecificationReferencesDependencyDiscovery(t *testing.T) {
+	const rel = "prompts/feature/specification.md"
+	content := readEmbeddedString(t, rel)
+
+	assert.NotContains(t, content, "grep for related services",
+		"%s must drop the old unstated 'grep for related services' READ item", rel)
+
+	assertBareStateSpaceReference(t, rel, content)
+}
+
+// TestTestPlanningReferencesTechniqueSelection is test-plan.md TC-003
+// (E34-F07 REQ-F-002/AC-2): test_planning.md must reference
+// state-space-coverage.md's technique-selection section as a bare pointer
+// rather than restating the technique-selection algorithm.
+func TestTestPlanningReferencesTechniqueSelection(t *testing.T) {
+	const rel = "prompts/feature/test_planning.md"
+	content := readEmbeddedString(t, rel)
+
+	assertBareStateSpaceReference(t, rel, content)
+}
+
+// TestFeatureReviewReferencesShippedConsumer is test-plan.md TC-006
+// (E34-F07 REQ-F-004): feature_review.md must reference
+// state-space-coverage.md's shipped-consumer re-verification section as a
+// bare pointer instead of restating the procedure.
+func TestFeatureReviewReferencesShippedConsumer(t *testing.T) {
+	const rel = "prompts/epic/feature_review.md"
+	content := readEmbeddedString(t, rel)
+
+	assertBareStateSpaceReference(t, rel, content)
+}
+
+// TestTaskReviewSharedNamingParagraph is test-plan.md TC-004 (E34-F07
+// REQ-F-005/AC-2): task_review.md must gain the shared-naming-drift
+// paragraph, including the "even when the local name compiles/passes tests"
+// clause verbatim — the clause that distinguishes a blocking contract
+// finding from a soft style suggestion (this is the exact clause TC-017's
+// fixture exercises) — and must reference state-space-coverage.md without
+// restating any of the other three consuming-prompt sections (closed
+// lifecycle tables, technique selection, dependency discovery) this feature
+// wired elsewhere.
+func TestTaskReviewSharedNamingParagraph(t *testing.T) {
+	const rel = "prompts/feature/task_review.md"
+	content := readEmbeddedString(t, rel)
+	normalized := normalizeWhitespace(content)
+
+	assert.Contains(t, normalized,
+		"even when the local name compiles/passes tests",
+		"%s must keep the 'even when the local name compiles/passes tests' clause verbatim", rel)
+	assert.Contains(t, content, "state-space-coverage.md",
+		"%s must reference state-space-coverage.md", rel)
+
+	for _, restated := range []string{
+		"closed lifecycle table",
+		"technique selection from state shape",
+		"dependency discovery",
+	} {
+		assert.NotContains(t, strings.ToLower(normalized), restated,
+			"%s must not restate the %q procedure owned by another consuming prompt", rel, restated)
+	}
+}
+
 func readEmbeddedString(t *testing.T, rel string) string {
 	t.Helper()
 	data, err := readEmbeddedAll(rel)

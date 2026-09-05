@@ -50,6 +50,10 @@ type serviceContainer struct {
 	resumeServiceOnce sync.Once
 	resumeService     *services.ResumeService
 	resumeServiceErr  error
+
+	impactServiceOnce sync.Once
+	impactService     *services.ImpactService
+	impactServiceErr  error
 }
 
 // globalContainer is accessed only through loadContainer / storeContainer.
@@ -179,6 +183,33 @@ func GetNoteService(ctx context.Context) (*services.NoteService, error) {
 		return nil, c.noteServiceErr
 	}
 	return c.noteService, nil
+}
+
+// GetImpactService returns the global ImpactService, initializing it if needed.
+// ImpactService delegates all note persistence to NoteService (spec.md
+// REQ-NF-001 — no new Shark database columns/tables), so this accessor only
+// wires the two together; it introduces no new repository.
+func GetImpactService(ctx context.Context) (*services.ImpactService, error) {
+	c := loadContainer()
+	c.impactServiceOnce.Do(func() {
+		noteSvc, err := GetNoteService(ctx)
+		if err != nil {
+			c.impactServiceErr = fmt.Errorf("failed to get note service for ImpactService: %w", err)
+			return
+		}
+
+		svc, svcErr := services.NewImpactService(noteSvc)
+		if svcErr != nil {
+			c.impactServiceErr = fmt.Errorf("failed to create ImpactService: %w", svcErr)
+			return
+		}
+		c.impactService = svc
+	})
+
+	if c.impactServiceErr != nil {
+		return nil, c.impactServiceErr
+	}
+	return c.impactService, nil
 }
 
 // GetContextService returns the global ContextService, initializing it if needed.

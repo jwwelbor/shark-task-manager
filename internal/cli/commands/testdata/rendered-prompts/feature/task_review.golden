@@ -39,6 +39,13 @@ VERIFY:
       If this rule is violated, FAIL and send back with reason: "merge
       test-only task(s) into their implementation task(s) for TDD."
 
+## Shared naming integrity
+- [ ] Compare every shared field/state/event/contract name the task touches
+      against the owning specification and interaction map verbatim; report
+      unexplained drift as a contract finding (blocking) even when the local
+      name compiles/passes tests. See
+      `skills/quality/workflows/state-space-coverage.md`.
+
 ## Ordering & Dependencies
 - [ ] Execution order reflects actual dependencies
 - [ ] Dependencies form a valid DAG (no circular chains)

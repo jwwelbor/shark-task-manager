@@ -27,6 +27,9 @@ PRODUCE test-plan.md:
     - Input/setup
     - Expected outcome
     - Edge cases
+    - When spec.md declares a closed lifecycle table for a field, select the
+      technique per `skills/quality/workflows/state-space-coverage.md`'s
+      "Technique selection from state shape" section.
 
 (2) **Caller-Path Contract** (per test case, mandatory if a production caller exists above the entrypoint):
     - Production entrypoint (function + argument shape production callers actually use)
