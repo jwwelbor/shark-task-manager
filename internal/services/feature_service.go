@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/integration"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -344,6 +345,12 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		if result.Transitioned && featureWf.IsTerminalStatus(result.FromStatus) && !featureWf.IsTerminalStatus(result.ToStatus) {
 			triggerKind = "regression"
 		}
+		// T-E34-F08-008 AC-T2: mirrors the regression check immediately
+		// above, but for the opposite direction — ToStatus newly reaching a
+		// terminal status. Recorded as a bool here and acted on only after
+		// tx.Commit() succeeds below: an IntegrationEvent file claiming a
+		// completion that then rolled back would be a lie on disk.
+		newlyTerminal := result.Transitioned && !featureWf.IsTerminalStatus(result.FromStatus) && featureWf.IsTerminalStatus(result.ToStatus)
 		if result.Transitioned {
 			if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, featureForAggregate.EpicID, cascadeTrigger{
 				triggerKey: featureKey, triggerKind: triggerKind, triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic,
@@ -354,6 +361,9 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		if err := tx.Commit(); err != nil {
 			return nil, recordSpanError(span, fmt.Errorf("failed to commit feature transition: %w", err))
 		}
+		if newlyTerminal {
+			s.recordIntegrationEventForTerminalTransition(ctx, featureKey)
+		}
 	} else {
 		// Delegate shared logic to EntityService.
 		var err error
@@ -363,6 +373,14 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		)
 		if err != nil {
 			return nil, recordSpanError(span, err)
+		}
+		// T-E34-F08-008 AC-T2: mirrors the aggregate branch's check above
+		// and the regression check below — EntityService.TransitionStatus
+		// has already committed its own transaction by the time control
+		// returns here, so this is already safely post-commit.
+		featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
+		if result.Transitioned && !featureWf.IsTerminalStatus(result.FromStatus) && featureWf.IsTerminalStatus(result.ToStatus) {
+			s.recordIntegrationEventForTerminalTransition(ctx, featureKey)
 		}
 	}
 
@@ -393,6 +411,59 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 	}
 
 	return result, nil
+}
+
+// recordIntegrationEventForTerminalTransition implements task
+// T-E34-F08-008's AC-T2: when a feature transition's ToStatus newly reaches
+// a terminal status (checked by both TransitionStatus branches above,
+// mirroring their existing terminal-status regression checks), and the
+// feature's epic already has an active IntegrationRun (E34-F08's per-epic
+// base-commit capture, REQ-F-004 — captured by the epic `active` step's
+// cascade action, internal/cli/commands/next.go's resolveCascade), records
+// the completion via integration.RecordEvent so the epic's cumulative
+// integration-review diff includes it.
+//
+// A best-effort, side-channel operation mirroring this file's existing
+// indexEntityIfConfigured post-hook: a lookup or recording failure is
+// logged and never fails or blocks the underlying status transition — the
+// feature has already legitimately (and, in the aggregate branch, already
+// durably) transitioned by the time this runs.
+//
+// Tracked/untracked changed-path population is unowned by any task at this
+// call site — T-E34-F08-016 ("Dirty tracked and untracked path-digest
+// inventory") scopes its digest work to internal/candidate.go, not to what
+// this call site passes into RecordEvent. This call site passes empty
+// slices, which RecordEvent's own contract allows; inventing a git-diff
+// computation here would risk colliding with T-013/T-016's own history and
+// digest design.
+func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context.Context, featureKey string) {
+	if s.cascadeEpicRepo == nil {
+		return
+	}
+	feature, err := s.repo.GetByKey(ctx, featureKey)
+	if err != nil || feature == nil {
+		return
+	}
+	epic, err := s.cascadeEpicRepo.GetByID(ctx, feature.EpicID)
+	if err != nil || epic == nil {
+		return
+	}
+	run, err := integration.GetRun(epic.Key)
+	if err != nil || run == nil {
+		// No active IntegrationRun for this epic (or the run record could
+		// not be read) — nothing to record against.
+		return
+	}
+	commit, err := integration.CurrentCommit()
+	if err != nil {
+		slog.WarnContext(ctx, "integration event recording skipped: could not resolve feature commit",
+			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
+		return
+	}
+	if _, err := integration.RecordEvent(run.EpicRunID, featureKey, commit, nil, nil); err != nil {
+		slog.WarnContext(ctx, "integration event recording failed",
+			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
+	}
 }
 
 // GetNextStatus returns the available transitions for the current status of a feature.

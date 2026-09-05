@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
 // IntegrationEvent records one feature completion under an epic's
@@ -51,7 +51,7 @@ type IntegrationEvent struct {
 // every other caller for that same EventID discards its own candidate and
 // reads back the winner's already-complete record (spec.md AC-4).
 func RecordEvent(epicRunID, featureKey, featureCommit string, tracked, untracked []string) (*IntegrationEvent, error) {
-	projectRoot, err := cli.FindProjectRoot()
+	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
 	}

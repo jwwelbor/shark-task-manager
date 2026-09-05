@@ -105,6 +105,7 @@ func TestResolveNextPropagatesQuestionBlockerCheckError(t *testing.T) {
 // TC-306: a blocked child is parked, not a cascade result. Keyed next must
 // continue to an unlinked live sibling without changing the parent.
 func TestResolveNextCascadeFallsThroughBlockedChild_TC306(t *testing.T) {
+	stubNoEpicIntegrationCapture(t)
 	originalDescribe := planDescribeDispatchableChildren
 	defer func() { planDescribeDispatchableChildren = originalDescribe }()
 	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
@@ -157,6 +158,7 @@ func TestResolveNextCascadeFallsThroughBlockedChild_TC306(t *testing.T) {
 // attributed to the Question, or the parent would falsely imply that answering
 // it unblocks the whole cascade.
 func TestResolveNextCascadeMixedPauseDoesNotRetainQuestionBlock_TD053(t *testing.T) {
+	stubNoEpicIntegrationCapture(t)
 	originalDescribe := planDescribeDispatchableChildren
 	defer func() { planDescribeDispatchableChildren = originalDescribe }()
 	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {
@@ -209,6 +211,7 @@ func TestResolveNextCascadeMixedPauseDoesNotRetainQuestionBlock_TD053(t *testing
 }
 
 func TestResolveNextCascadeAllQuestionBlockedRetainsFirstQuestionBlock_TD053(t *testing.T) {
+	stubNoEpicIntegrationCapture(t)
 	originalDescribe := planDescribeDispatchableChildren
 	defer func() { planDescribeDispatchableChildren = originalDescribe }()
 	planDescribeDispatchableChildren = func(_ context.Context, entityType, key string) (services.PlanHierarchyChildrenState, error) {

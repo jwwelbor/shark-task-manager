@@ -188,6 +188,86 @@ func TestCaptureBase_CorruptExistingRunReturnsTypedError(t *testing.T) {
 	assertExactlyOneRunFile(t, dir, "E99")
 }
 
+// TestGetRun_NoRunYetReturnsNil covers task T-E34-F08-008's GetRun addition:
+// before any CaptureBase call for an epic, GetRun must return (nil, nil) —
+// not an error — so a caller like FeatureService.TransitionStatus can treat
+// "no run yet" as "nothing to record against" rather than a failure.
+func TestGetRun_NoRunYetReturnsNil(t *testing.T) {
+	chdirProjectRoot(t)
+
+	run, err := GetRun("E99")
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run != nil {
+		t.Fatalf("GetRun() = %+v, want nil before any CaptureBase call", run)
+	}
+}
+
+// TestGetRun_ReturnsCapturedRunWithoutCreatingOne covers GetRun's read-only
+// contract: once CaptureBase has captured a run, GetRun returns the
+// identical record and never writes a second one.
+func TestGetRun_ReturnsCapturedRunWithoutCreatingOne(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+
+	captured, err := CaptureBase("E99")
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	got, err := GetRun("E99")
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetRun() = nil, want the captured run")
+	}
+	if got.EpicRunID != captured.EpicRunID || got.BaseCommit != headCommit {
+		t.Fatalf("GetRun() = %+v, want EpicRunID=%q BaseCommit=%q", got, captured.EpicRunID, headCommit)
+	}
+
+	assertExactlyOneRunFile(t, dir, "E99")
+}
+
+// TestGetRun_CorruptExistingRunReturnsTypedError mirrors
+// TestCaptureBase_CorruptExistingRunReturnsTypedError: GetRun must not
+// paper over a broken run file either.
+func TestGetRun_CorruptExistingRunReturnsTypedError(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	path := runRecordPath(dir, "E99")
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("mkdir run dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{not valid json"), runFileMode); err != nil {
+		t.Fatalf("write corrupt run file: %v", err)
+	}
+
+	_, err := GetRun("E99")
+	if err == nil {
+		t.Fatal("expected an error for a corrupt run file, got nil")
+	}
+	var corruptErr *CorruptRunError
+	if !errors.As(err, &corruptErr) {
+		t.Fatalf("expected *CorruptRunError, got %T: %v", err, err)
+	}
+}
+
+// TestCurrentCommit_ResolvesRealHeadCommit covers T-E34-F08-008's
+// CurrentCommit addition: it must resolve the same HEAD commit CaptureBase
+// records as BaseCommit, against a real temp git repository.
+func TestCurrentCommit_ResolvesRealHeadCommit(t *testing.T) {
+	_, headCommit := chdirProjectRoot(t)
+
+	commit, err := CurrentCommit()
+	if err != nil {
+		t.Fatalf("CurrentCommit: %v", err)
+	}
+	if commit != headCommit {
+		t.Fatalf("CurrentCommit() = %q, want %q", commit, headCommit)
+	}
+}
+
 // assertExactlyOneRunFile asserts exactly one file exists in epicKey's run
 // directory under projectRoot.
 func assertExactlyOneRunFile(t *testing.T, projectRoot, epicKey string) {

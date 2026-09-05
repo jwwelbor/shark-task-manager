@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
 // maxBackfillEvents bounds the size of a single Backfill call's events
@@ -92,7 +92,7 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		return nil, fmt.Errorf("integration: Backfill requires a non-empty epic run ID")
 	}
 
-	projectRoot, err := cli.FindProjectRoot()
+	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
 	}

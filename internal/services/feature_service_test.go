@@ -3,16 +3,20 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/integration"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -4119,5 +4123,260 @@ func TestFeatureService_UpdateFeature_NoSizeChange(t *testing.T) {
 	}
 	if *capturedFeature.Size != 3 {
 		t.Errorf("expected capturedFeature.Size=3 (unchanged), got %d", *capturedFeature.Size)
+	}
+}
+
+// ============================================================================
+// T-E34-F08-008 AC-T2: RecordEvent-on-terminal-transition wiring through
+// FeatureService.TransitionStatus
+// ============================================================================
+
+// initFeatureServiceIntegrationGitRepo initializes a minimal real git
+// repository at dir with one commit. TC-007's wiring subtest drives real
+// integration.CaptureBase/CurrentCommit/RecordEvent calls (its Caller-Path
+// Contract: "mocks nothing" — the integration package itself is never
+// mocked, mirroring TC-011's convention in
+// internal/cli/commands/next_cascade_traversal_test.go), which requires a
+// real git repository under the resolved project root.
+func initFeatureServiceIntegrationGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed"), 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+	run("add", "seed.txt")
+	run("commit", "-q", "-m", "seed")
+}
+
+// newRealFeatureServiceForIntegrationWiring wires a *FeatureService against
+// a real, isolated SQLite DB (internal/test.NewIsolatedTestDB) with
+// production's exact aggregate-branch dependency set
+// (internal/cli/service_accessors.go's GetFeatureService always calls
+// SetAggregateMutationCoordinator, making the aggregateCoordinator branch —
+// not the legacy non-aggregate branch — FeatureService.TransitionStatus's
+// live production path). Real repositories per this package's existing
+// service-integration-test precedent (feature_progress_service_test.go,
+// task_service_test.go): TransitionStatus's aggregate branch calls
+// tx.Commit() directly on a *sql.Tx obtained from repo.BeginTx, which
+// cannot be satisfied by a mock (*sql.Tx holds unexported fields).
+func newRealFeatureServiceForIntegrationWiring(t *testing.T) (*FeatureService, *repository.FeatureRepository, *repository.EpicRepository) {
+	t.Helper()
+	db := repository.NewDB(test.NewIsolatedTestDB(t))
+	featureRepo := repository.NewFeatureRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
+	workflowSvc := newTestFeatureWorkflowServiceWithCascade(t)
+	entitySvc := NewEntityService(workflowSvc)
+	entityRepo := NewFeatureRepositoryAdapter(featureRepo)
+
+	svc := NewFeatureService(featureRepo, entitySvc, entityRepo, nil, epicRepo)
+	svc.SetAggregateMutationCoordinator(NewAggregateMutationCoordinator(repository.NewProgressMutationRepository(), workflowSvc))
+	svc.SetCascadeDeps(db, epicRepo, entityHistoryRepo, entityHistoryRepo)
+	return svc, featureRepo, epicRepo
+}
+
+// readSoleIntegrationEvent reads the single IntegrationEvent file under
+// epicRunID's integration-events directory, failing the test if there is
+// not exactly one. Mirrors event.go's documented, stable on-disk contract
+// (.shark/runs/<epic-run-id>/integration-events/<event-id>.json) rather than
+// reaching into the integration package's unexported path helpers.
+func readSoleIntegrationEvent(t *testing.T, projectRoot, epicRunID string) integration.IntegrationEvent {
+	t.Helper()
+	dir := filepath.Join(projectRoot, ".shark", "runs", epicRunID, "integration-events")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read integration-events dir %s: %v", dir, err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("integration-events dir %s has %d entries, want exactly 1", dir, len(entries))
+	}
+	data, err := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read event file: %v", err)
+	}
+	var event integration.IntegrationEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	return event
+}
+
+// TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransition_AggregateBranch
+// covers task T-E34-F08-008 AC-T2 against production's live path: the
+// aggregateCoordinator branch of FeatureService.TransitionStatus (every CLI
+// entry point wires SetAggregateMutationCoordinator — see
+// internal/cli/service_accessors.go's GetFeatureService — so this branch,
+// not the legacy non-aggregate branch, is what a real "shark status
+// advance" ever executes). Given an epic with an already-captured
+// IntegrationRun (the epic active step's own cascade-wiring call site,
+// T-E34-F08-008's other half), transitioning a feature into a terminal
+// status must call integration.RecordEvent for real — a passing unit test
+// on RecordEvent alone proves nothing about this call site (test-plan.md
+// TC-007's stated counter-factual).
+func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransition_AggregateBranch(t *testing.T) {
+	dir := t.TempDir()
+	initFeatureServiceIntegrationGitRepo(t, dir)
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	svc, featureRepo, epicRepo := newRealFeatureServiceForIntegrationWiring(t)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E77", Title: "Integration wiring epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E77-F01", Title: "Integration wiring feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, feature); err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+
+	// Precondition: the epic active step's cascade action has already
+	// captured this epic's IntegrationRun before this feature completes.
+	run, err := integration.CaptureBase("E77")
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	if _, err := svc.TransitionStatus(ctx, "E77-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus: %v", err)
+	}
+
+	commit, err := integration.CurrentCommit()
+	if err != nil {
+		t.Fatalf("CurrentCommit: %v", err)
+	}
+	event := readSoleIntegrationEvent(t, dir, run.EpicRunID)
+	if event.FeatureKey != "E77-F01" {
+		t.Errorf("event.FeatureKey = %q, want E77-F01", event.FeatureKey)
+	}
+	if event.EpicRunID != run.EpicRunID {
+		t.Errorf("event.EpicRunID = %q, want %q", event.EpicRunID, run.EpicRunID)
+	}
+	if event.FeatureCommit != commit {
+		t.Errorf("event.FeatureCommit = %q, want %q", event.FeatureCommit, commit)
+	}
+}
+
+// TestFeatureService_TransitionStatus_NoIntegrationRunSkipsRecording_AggregateBranch
+// covers the negative half of AC-T2: without a captured IntegrationRun for
+// the feature's epic, TransitionStatus must not create one — recording is
+// conditional on an already-active run, never a trigger to start one (that
+// is exclusively the epic active step's cascade action's job, per
+// REQ-F-004).
+func TestFeatureService_TransitionStatus_NoIntegrationRunSkipsRecording_AggregateBranch(t *testing.T) {
+	dir := t.TempDir()
+	initFeatureServiceIntegrationGitRepo(t, dir)
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	svc, featureRepo, epicRepo := newRealFeatureServiceForIntegrationWiring(t)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E78", Title: "No run yet epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E78-F01", Title: "No run yet feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, feature); err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+
+	if _, err := svc.TransitionStatus(ctx, "E78-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus: %v", err)
+	}
+
+	run, err := integration.GetRun("E78")
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run != nil {
+		t.Fatalf("GetRun() = %+v, want nil — TransitionStatus must never itself capture a run", run)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".shark", "runs")); !os.IsNotExist(err) {
+		t.Fatalf(".shark/runs exists (err=%v), want no integration-event side effects without an active run", err)
+	}
+}
+
+// TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransition_NonAggregateBranch
+// covers AC-T2's legacy non-aggregate branch (mirrors the aggregate-branch
+// test above; kept for the branch's own regression coverage even though
+// production's CLI entry points never construct a FeatureService without an
+// aggregate coordinator).
+func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransition_NonAggregateBranch(t *testing.T) {
+	dir := t.TempDir()
+	initFeatureServiceIntegrationGitRepo(t, dir)
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	db := repository.NewDB(test.NewIsolatedTestDB(t))
+	featureRepo := repository.NewFeatureRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
+	workflowSvc := newTestFeatureWorkflowServiceWithCascade(t)
+	entitySvc := NewEntityService(workflowSvc)
+	entityRepo := NewFeatureRepositoryAdapter(featureRepo)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E79", Title: "Non-aggregate integration wiring epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E79-F01", Title: "Non-aggregate integration wiring feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusActive,
+	}
+	if err := featureRepo.Create(ctx, feature); err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+
+	// No SetAggregateMutationCoordinator call: exercises the `else` branch.
+	svc := NewFeatureService(featureRepo, entitySvc, entityRepo, nil, epicRepo)
+	svc.SetCascadeDeps(db, epicRepo, entityHistoryRepo, entityHistoryRepo)
+
+	run, err := integration.CaptureBase("E79")
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	if _, err := svc.TransitionStatus(ctx, "E79-F01", "completed", TransitionOptions{}); err != nil {
+		t.Fatalf("TransitionStatus: %v", err)
+	}
+
+	commit, err := integration.CurrentCommit()
+	if err != nil {
+		t.Fatalf("CurrentCommit: %v", err)
+	}
+	event := readSoleIntegrationEvent(t, dir, run.EpicRunID)
+	if event.FeatureKey != "E79-F01" || event.EpicRunID != run.EpicRunID || event.FeatureCommit != commit {
+		t.Fatalf("event = %+v, want FeatureKey=E79-F01 EpicRunID=%s FeatureCommit=%s", event, run.EpicRunID, commit)
 	}
 }

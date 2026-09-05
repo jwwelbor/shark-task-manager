@@ -20,8 +20,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
 // runDirMode / runFileMode match this repo's existing run-artifact
@@ -85,7 +85,7 @@ func (e *CorruptRunError) Unwrap() error {
 // rather than being treated as "no run yet" (AC-T3): CaptureBase must never
 // paper over a broken record by creating a second one beside it.
 func CaptureBase(epicKey string) (*IntegrationRun, error) {
-	projectRoot, err := cli.FindProjectRoot()
+	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
 	}
@@ -113,6 +113,37 @@ func CaptureBase(epicKey string) (*IntegrationRun, error) {
 	}
 
 	return publishRun(path, candidate)
+}
+
+// GetRun returns epicKey's already-captured IntegrationRun, or (nil, nil) if
+// none has been captured yet. Unlike CaptureBase, GetRun never creates a
+// run — it is the read-only "has this epic's integration run already
+// begun" check used by callers outside the epic active step's cascade
+// action (internal/cli/commands/next.go's resolveCascade, which owns
+// CaptureBase's call). FeatureService.TransitionStatus (T-E34-F08-008)
+// uses this to decide whether a terminal feature transition should record
+// an IntegrationEvent: no run yet means the epic never entered its active
+// cascade (or this feature's own transition raced ahead of it), so there is
+// nothing to record against.
+func GetRun(epicKey string) (*IntegrationRun, error) {
+	projectRoot, err := projectroot.FindProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("integration: resolve project root: %w", err)
+	}
+	return readRun(runRecordPath(projectRoot, epicKey))
+}
+
+// CurrentCommit resolves the repository's current HEAD commit hash — the
+// same resolution CaptureBase uses for a new run's BaseCommit. Exported for
+// FeatureService.TransitionStatus's terminal-transition RecordEvent call
+// site (T-E34-F08-008), which needs "the feature's commit" without
+// resolving a project root itself.
+func CurrentCommit() (string, error) {
+	projectRoot, err := projectroot.FindProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("integration: resolve project root: %w", err)
+	}
+	return currentHeadCommit(projectRoot)
 }
 
 // runRecordPath is the per-epic run-record path, keyed by epicKey alone so
@@ -329,7 +360,7 @@ func RegisterRun(ctx context.Context, recorder NoteRecorder, run *IntegrationRun
 		return nil, fmt.Errorf("integration: RegisterRun requires a non-nil event")
 	}
 
-	projectRoot, err := cli.FindProjectRoot()
+	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
 	}

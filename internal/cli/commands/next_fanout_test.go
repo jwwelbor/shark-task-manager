@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/jwwelbor/shark-task-manager/internal/integration"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -60,7 +61,26 @@ func fanoutCache(
 	// a max_parallel_items key to the project's own config would then turn
 	// these tests red for reasons unrelated to fork shape.
 	stubMaxParallelItems(t, 5)
+	// This file's fixtures use "epic" as an entity type and "active" as a
+	// cascade status, which is exactly what resolveCascade's REQ-F-004 guard
+	// (T-E34-F08-008) matches on. Left at its production default, every
+	// epic-cascade test here would call the real integration.CaptureBase
+	// against this process's actual working directory. Fan-out shape is
+	// this file's subject, not integration-run capture, so stub it to a
+	// no-op.
+	stubNoEpicIntegrationCapture(t)
 	return &nextAdapterCache{entries: entries, actionSvcRoot: actionSvc, surfaceForks: true}
+}
+
+// stubNoEpicIntegrationCapture points resolveCascade's REQ-F-004 wiring hook
+// (nextCaptureEpicIntegrationBase, next.go) at a no-op for the duration of
+// one test, so cascade tests unrelated to E34-F08's integration-run capture
+// never touch a real git repository or the real .shark/ directory.
+func stubNoEpicIntegrationCapture(t *testing.T) {
+	t.Helper()
+	original := nextCaptureEpicIntegrationBase
+	t.Cleanup(func() { nextCaptureEpicIntegrationBase = original })
+	nextCaptureEpicIntegrationBase = func(string) (*integration.IntegrationRun, error) { return nil, nil }
 }
 
 // stubMaxParallelItems pins the configured fan-out cap for one test.

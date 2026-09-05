@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -273,88 +273,21 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 
 // FindProjectRoot walks up the directory tree from the current working directory
 // to find the project root. See findProjectRootFrom for the search algorithm.
+//
+// Delegates to internal/projectroot, which holds the actual walk logic so
+// that internal/integration (a leaf package internal/services calls into
+// directly per T-E34-F08-008) can resolve the project root without
+// importing internal/cli — internal/cli imports internal/services, so that
+// import would create a cycle. Signature and behavior are unchanged.
 func FindProjectRoot() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-	return findProjectRootFrom(wd, "")
+	return projectroot.FindProjectRoot()
 }
 
-// findProjectRootFrom walks up the directory tree from startDir looking for
-// project markers in priority order:
-// 1. .sharkconfig.json (highest)
-// 2. shark-tasks.db
-// 3. .git/
-//
-// The full tree is always scanned so that a .sharkconfig.json in a parent
-// directory wins over a .git in a closer ancestor. Returns startDir if no
-// markers are found anywhere in the tree.
-//
-// ceiling, when non-empty, stops the search at that directory (inclusive).
-// This is used in tests to prevent the walk from escaping the temp directory
-// tree and picking up markers from the host environment.
+// findProjectRootFrom is this package's test seam, delegating to
+// internal/projectroot.FindProjectRootFrom. See that function's doc comment
+// for the search algorithm and the ceiling parameter's purpose.
 func findProjectRootFrom(startDir, ceiling string) (string, error) {
-	var foundConfig, foundDB, foundGit string
-
-	currentDir := startDir
-	for {
-		if foundConfig == "" {
-			if _, err := os.Stat(filepath.Join(currentDir, ".sharkconfig.json")); err == nil {
-				foundConfig = currentDir
-			}
-		}
-		if foundDB == "" {
-			if _, err := os.Stat(filepath.Join(currentDir, "shark-tasks.db")); err == nil {
-				foundDB = currentDir
-			}
-		}
-		if foundGit == "" {
-			gitDir := filepath.Join(currentDir, ".git")
-			if info, err := os.Stat(gitDir); err == nil {
-				if info.IsDir() {
-					// A .git directory is only a valid marker if it looks like
-					// a real git repo (has a HEAD file or an objects/ dir).
-					// This rejects stray/empty .git directories (B054).
-					_, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
-					_, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
-					if headErr == nil || objectsErr == nil {
-						foundGit = currentDir
-					}
-				} else {
-					// A .git file is a worktree pointer and must contain a
-					// "gitdir: <path>" line to be accepted. This rejects
-					// stray/empty/garbage .git files (B054).
-					if data, readErr := os.ReadFile(gitDir); readErr == nil {
-						if strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:") {
-							foundGit = currentDir
-						}
-					}
-				}
-			}
-		}
-
-		if ceiling != "" && currentDir == ceiling {
-			break
-		}
-
-		parent := filepath.Dir(currentDir)
-		if parent == currentDir {
-			break
-		}
-		currentDir = parent
-	}
-
-	if foundConfig != "" {
-		return foundConfig, nil
-	}
-	if foundDB != "" {
-		return foundDB, nil
-	}
-	if foundGit != "" {
-		return foundGit, nil
-	}
-	return startDir, nil
+	return projectroot.FindProjectRootFrom(startDir, ceiling)
 }
 
 // GetConfigPath returns the absolute path to .sharkconfig.json.

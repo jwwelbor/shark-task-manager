@@ -33,12 +33,33 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	configworkflow "github.com/jwwelbor/shark-task-manager/internal/config/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/integration"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// nextCaptureEpicIntegrationBase is resolveCascade's indirection hook for
+// wiring the epic `active` step's cascade action to E34-F08's per-epic
+// integration-run capture (REQ-F-004, spec.md "Integration with existing
+// code"): the cascade action calls this once per invocation so the epic's
+// IntegrationRun.BaseCommit is captured on the first feature dispatch under
+// the epic. integration.CaptureBase is itself idempotent (its own doc
+// comment: "every later call for the same epicKey ... is a no-op that
+// returns the identical, already-persisted record"), so calling it on every
+// cascade invocation for the epic — not just a synthetic "first" one — is
+// both correct and simpler than tracking first-dispatch state here.
+//
+// Production points this at integration.CaptureBase. Tests that exercise
+// unrelated cascade behavior (fan-out, question-blocking, etc.) override it
+// to a no-op so they never touch a real git repository or the real
+// `.shark/` directory. TC-011 (next_cascade_traversal_test.go), which
+// exists specifically to prove production code calls CaptureBase, must
+// leave this at its production default — overriding it there would defeat
+// the point of that test.
+var nextCaptureEpicIntegrationBase = integration.CaptureBase
 
 // nextAdapters bundles the three per-entity-type adapters resolveNext needs
 // (transitioner, placeholder generator, narrowed action service). Constructing
@@ -436,6 +457,54 @@ func (s entityResolutionStrategy) resolveCascade(
 	nextInfo *services.NextStatusInfo,
 	transitioner runner.EntityTransitioner,
 ) (NextResponse, error) {
+	// REQ-F-004 cascade wiring (T-E34-F08-008): the epic `active` step's
+	// cascade action captures the epic's integration-run base commit here —
+	// this is the confirmed real handler for `action: cascade` (see this
+	// function's callers in resolveEntity). Scoped to keyed `shark next`
+	// dispatch only: `shark plan` (planResolutionMode) is a read-only
+	// advisory surface and must never side-effect the filesystem, and
+	// scoped to entityType == epic so a nested feature-level cascade (e.g.
+	// a feature's own `active` step cascading into tasks) never re-fires
+	// it for the wrong entity.
+	//
+	// A capture failure (e.g. the project root is not a git repository —
+	// `git rev-parse HEAD` then fails, which is an expected, supported
+	// configuration for projects that don't use git) is a side-channel
+	// problem for E34-F08's integration-event log, never a reason to fail
+	// ordinary keyed-next dispatch: it is silently swallowed here, exactly
+	// as `shark next`'s stdout-JSON dispatch contract already treats every
+	// other best-effort post-hook in this codebase (services'
+	// indexEntityIfConfigured / search_indexer.go). Deliberately not logged
+	// to stderr either: unlike this file's other stderr warnings (B022's
+	// unknown-status pause, unresolved placeholders), a git-less project
+	// would otherwise repeat this warning on every single cascade dispatch
+	// forever, and — since `shark next` always emits JSON to stdout as its
+	// sole contract — a caller capturing combined stdout+stderr output
+	// would have that JSON corrupted by interleaved warning text.
+	//
+	// A *integration.CorruptRunError is a different class of failure and is
+	// NOT swallowed the same way: CaptureBase's own contract (run.go) is
+	// that it "must never paper over a broken record by creating a second
+	// one beside it," and silently discarding that signal here — the one
+	// production call site that invokes CaptureBase at all — would
+	// undermine that guarantee one layer up. Unlike the missing-git-repo
+	// case, a corrupt run file is a genuinely exceptional, non-recurring
+	// state (it does not reproduce on every dispatch the way a permanently
+	// git-less project does), so the log-spam concern above does not apply
+	// and this does get a one-line stderr warning, matching this file's
+	// B022 precedent.
+	if s.mode == nextResolutionMode && entityType == string(models.EntityTypeEpic) {
+		if _, err := nextCaptureEpicIntegrationBase(normalizedKey); err != nil {
+			var corruptErr *integration.CorruptRunError
+			if errors.As(err, &corruptErr) {
+				fmt.Fprintf(os.Stderr,
+					"[shark %s] warning: epic %s has a corrupt integration-run record, not recreating it: %v\n",
+					s.commandLabel, normalizedKey, err,
+				)
+			}
+		}
+	}
+
 	switch s.mode {
 	case nextResolutionMode:
 		if s.nextCache == nil {

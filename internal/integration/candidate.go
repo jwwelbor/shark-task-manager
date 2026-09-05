@@ -12,7 +12,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
 // maxUpdateCandidateAttempts bounds UpdateCandidate to one write attempt
@@ -95,7 +95,7 @@ func UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*Integration
 		return nil, fmt.Errorf("integration: UpdateCandidate requires a non-nil event")
 	}
 
-	projectRoot, err := cli.FindProjectRoot()
+	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
 	}
