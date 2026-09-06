@@ -7,7 +7,22 @@ Read feature metadata: {{template "get_json" .}} → `complexity_tier` (also rec
 - **SIMPLE / STANDARD** (or tier unknown): this is the ONLY same-model verification gate — perform ALL FOUR parts below in this single pass. Do not slim it: there is no separate QA pass behind you, and tasks receive no per-task review.
 - **COMPLEX**: perform Part 1 (craft review) only; Parts 2–4 run as a separate deep QA gate next.
 
+Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `approval`; COMPLEX: `code_review`, `qa`, `approval` (canonical source: `skills/quality/context/tier-matrix.md`).
+
+RE-REVIEW ROUND (a prior code-review report matching {{.review_base}}code-review-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (Parts 1–4 below) over the feature surface, not only the previously-flagged area.
+
 {{include: skills/quality/workflows/review-code.md}}
+
+OVERRIDE — loop-guard escalation for this gate: the included workflow's
+"Loop-guard awareness" section escalates on raw `prior_rejection_count >= 1`.
+For this feature-level gate, that raw round count is superseded by
+`skills/quality/workflows/defect-class-sweep.md`'s evidence-based recurrence
+classification: escalate to the user only when a finding is genuine
+recurrence per that workflow — the same fingerprint resurfacing after a
+recorded repair, or a new fingerprint sharing both the same `class_key` and
+scope membership in a previously completed sweep — never on round count
+alone. A new, non-recurring finding on a later round is ordinary rework, not
+a loop.
 
 READ:
 (1) Feature spec at {{.file_path}} for architecture decisions and acceptance criteria
@@ -18,6 +33,8 @@ READ:
 (6) Implementation code for all changed files
 (7) Parent interaction map and cross-epic maps if the feature spec declares
     I-## or X-## rows
+
+I-03/I-04 EVIDENCE: consume E34-F06's I-03 DefectClassSweep (`skills/quality/workflows/defect-class-sweep.md`) and E34-F07's I-04 ChangeImpactSet (`skills/quality/workflows/state-space-coverage.md`) evidence for prior blocking defect classes and material decisions in scope — read their existing records rather than re-deriving this feature's own.
 
 PART 1 — CRAFT REVIEW (all tiers; treat as a single PR review, not per-task):
 - Code quality, security, and adherence to CLAUDE.md across the full changeset

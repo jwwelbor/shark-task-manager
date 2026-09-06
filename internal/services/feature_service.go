@@ -3,13 +3,16 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/integration"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -118,6 +121,12 @@ type FeatureService struct {
 	cascadeEpicRepo    CascadeEpicRepo
 	cascadeHistQuerier ParentReopenHistoryQuerier
 	cascadeHistTx      EntityHistoryTxRecorder
+
+	// integrationNoteRecorder is optional — nil disables both RegisterRun's
+	// first-head registration note and the durable failure-visibility note
+	// recordIntegrationEventForTerminalTransition writes on a genuine
+	// integration-capture persistence failure (T-E34-F08-008 UAT rework).
+	integrationNoteRecorder integration.NoteRecorder
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -222,6 +231,19 @@ func (s *FeatureService) SetCascadeDeps(db txBeginner, er CascadeEpicRepo, hq Pa
 // cascadeEnabled returns true iff all four cascade dependencies are non-nil.
 func (s *FeatureService) cascadeEnabled() bool {
 	return s.cascadeDB != nil && s.cascadeEpicRepo != nil && s.cascadeHistQuerier != nil && s.cascadeHistTx != nil
+}
+
+// SetIntegrationNoteRecorder wires the note recorder
+// recordIntegrationEventForTerminalTransition uses for RegisterRun's
+// first-head registration note and, on a genuine integration-capture
+// persistence failure, a durable `review-finding` note on the epic
+// (T-E34-F08-008 UAT rework, Finding 2: a swallowed failure must be
+// surfaced, not merely logged). Normally *services.NoteService, which
+// satisfies integration.NoteRecorder structurally. Optional: nil disables
+// RegisterRun's first-head call and the failure-visibility note;
+// RecordEvent/UpdateCandidate wiring is unaffected.
+func (s *FeatureService) SetIntegrationNoteRecorder(recorder integration.NoteRecorder) {
+	s.integrationNoteRecorder = recorder
 }
 
 // cascadeDepsBundle packages the cascade dependencies into the cascadeDeps struct.
@@ -346,6 +368,12 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		if result.Transitioned && featureWf.IsTerminalStatus(result.FromStatus) && !featureWf.IsTerminalStatus(result.ToStatus) {
 			triggerKind = "regression"
 		}
+		// T-E34-F08-008 AC-T2: mirrors the regression check immediately
+		// above, but for the opposite direction — ToStatus newly reaching a
+		// terminal status. Recorded as a bool here and acted on only after
+		// tx.Commit() succeeds below: an IntegrationEvent file claiming a
+		// completion that then rolled back would be a lie on disk.
+		newlyTerminal := result.Transitioned && !featureWf.IsTerminalStatus(result.FromStatus) && featureWf.IsTerminalStatus(result.ToStatus)
 		if result.Transitioned {
 			if err := s.aggregateCoordinator.RefreshEpicStatus(ctx, tx, featureForAggregate.EpicID, cascadeTrigger{
 				triggerKey: featureKey, triggerKind: triggerKind, triggerType: models.EntityTypeFeature, startLeg: cascadeLegEpic,
@@ -356,6 +384,9 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		if err := tx.Commit(); err != nil {
 			return nil, recordSpanError(span, fmt.Errorf("failed to commit feature transition: %w", err))
 		}
+		if newlyTerminal {
+			s.recordIntegrationEventForTerminalTransition(ctx, featureKey)
+		}
 	} else {
 		// Delegate shared logic to EntityService.
 		var err error
@@ -365,6 +396,14 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		)
 		if err != nil {
 			return nil, recordSpanError(span, err)
+		}
+		// T-E34-F08-008 AC-T2: mirrors the aggregate branch's check above
+		// and the regression check below — EntityService.TransitionStatus
+		// has already committed its own transaction by the time control
+		// returns here, so this is already safely post-commit.
+		featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
+		if result.Transitioned && !featureWf.IsTerminalStatus(result.FromStatus) && featureWf.IsTerminalStatus(result.ToStatus) {
+			s.recordIntegrationEventForTerminalTransition(ctx, featureKey)
 		}
 	}
 
@@ -395,6 +434,300 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 	}
 
 	return result, nil
+}
+
+// maxTerminalCandidateFoldAttempts bounds how many times
+// recordIntegrationEventForTerminalTransition retries integration.UpdateCandidate
+// on a *integration.CandidateConflictError before treating the conflict as a
+// genuine failure. This is a separate, call-site-level bound — not a silent
+// widening of candidate.go's own maxUpdateCandidateAttempts (spec.md's
+// Durable unresolved decision Q-F08-01 explicitly reserves any widening of
+// the single-retry policy for a visible implementation decision, not an
+// in-place bump of that package constant). Two concurrent feature
+// completions — the scenario UpdateCandidate's CAS exists for — already
+// converge within UpdateCandidate's own one internal retry; this call-site
+// bound gives higher fan-in (three or more features completing at once) a
+// few additional whole read-build-claim-publish cycles before this call
+// site gives up and records the conflict as a failure.
+const maxTerminalCandidateFoldAttempts = 3
+
+// terminalCandidateFoldRetryDelay is the fixed backoff between this call
+// site's UpdateCandidate retries, mirroring lock.go's
+// registrationLockPollInterval convention rather than inventing a new value.
+const terminalCandidateFoldRetryDelay = 5 * time.Millisecond
+
+// recordIntegrationEventForTerminalTransition implements task
+// T-E34-F08-008's AC-T2 (RecordEvent wiring) and its UAT rework round 1
+// (Finding 1: fold the recorded event into the epic's accumulated
+// IntegrationCandidate and register the run's discoverable epic reference
+// note on the run's first head; Finding 2: a persistence failure must be
+// durably surfaced, not only logged): when a feature transition's ToStatus
+// newly reaches a terminal status (checked by both TransitionStatus
+// branches above, mirroring their existing terminal-status regression
+// checks), and the feature's epic already has an active IntegrationRun
+// (E34-F08's per-epic base-commit capture, REQ-F-004 — captured by the epic
+// `active` step's cascade action, internal/cli/commands/next.go's
+// resolveCascade):
+//
+//  1. Records the completion via integration.RecordEvent.
+//  2. Folds the recorded event into the run's IntegrationCandidate
+//     (foldIntegrationEventIfMissing) when it is not already present there.
+//  3. When the resulting candidate's EventIDs count is exactly 1 — true
+//     only for the run's first-ever head — registers the run via
+//     integration.RegisterRun. A later head is never re-registered here:
+//     RegisterRun's firstHead contract assumes the head it is given is the
+//     run's one-and-only registered head, so calling it again with a later
+//     head would be rejected as a conflicting head for an already-registered
+//     run.
+//
+// UAT rework round 2 (uat-20260905-142000-E34-F08.md Finding 2): step 3
+// above now runs on EVERY call where the candidate's EventIDs count is 1 —
+// including an idempotent retry of a completion whose fold already
+// succeeded on a prior attempt — not only on a call that itself just
+// performed the fold. See foldIntegrationEventIfMissing's doc comment for
+// why the previous wall-clock replay guard here made that repair
+// unreachable, and RegisterRun's own doc comment (run.go) for why calling
+// it repeatedly is safe: existingRegistrationNote's four-way discrimination
+// (no existing note → first-time-or-repair insert; same run/head → pure
+// idempotent no-op; different run, or same run/different head, or a head
+// that no longer resolves → *RegistrationConflictError) is what actually
+// decides whether this call inserts, no-ops, or fails closed — this call
+// site's only job is to reach that call reliably every time the candidate
+// is genuinely the first head, not to re-implement its discrimination or
+// weaken its conflict/tamper fail-closed behavior (both left untouched by
+// this fix).
+//
+// A best-effort, side-channel operation with respect to the feature's own
+// business transition, mirroring this file's existing
+// indexEntityIfConfigured post-hook: a lookup, fold, or registration
+// failure never fails or blocks the underlying status transition — the
+// feature has already legitimately (and, in the aggregate branch, already
+// durably) transitioned by the time this runs. But per round 1's Finding 2,
+// a genuine failure (not simply logged) is durably recorded as a
+// `review-finding` note on the epic via recordIntegrationFailureNote so it
+// is queryable rather than silently lost to a log stream — see that
+// function's own doc comment for the named, flagged limitation this does
+// NOT close (integration_review.md's existing "Open findings" closure check
+// only cross-checks review-finding notes that name a path present in the
+// accumulated diff, and this call site has no per-feature path list to
+// name).
+//
+// Tracked/untracked changed-path population is unowned by any task at this
+// call site — T-E34-F08-016 ("Dirty tracked and untracked path-digest
+// inventory") scopes its digest work to internal/candidate.go, not to what
+// this call site passes into RecordEvent. This call site passes empty
+// slices, which RecordEvent's own contract allows; inventing a git-diff
+// computation here would risk colliding with T-013/T-016's own history and
+// digest design.
+//
+// Second production entrypoint: this method (via TransitionStatus) is also
+// reachable from the viewer's mutation API
+// (internal/viewer/server/wire.go's WireServices, which calls
+// SetIntegrationNoteRecorder on the same *FeatureService the viewer's
+// MutationService uses) — one fix here covers both the CLI and the viewer
+// caller, since both share this exact call site rather than each having
+// their own copy.
+func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context.Context, featureKey string) {
+	if s.cascadeEpicRepo == nil {
+		return
+	}
+	feature, err := s.repo.GetByKey(ctx, featureKey)
+	if err != nil || feature == nil {
+		return
+	}
+	epic, err := s.cascadeEpicRepo.GetByID(ctx, feature.EpicID)
+	if err != nil || epic == nil {
+		return
+	}
+	run, err := integration.GetRun(epic.Key)
+	if err != nil || run == nil {
+		// No active IntegrationRun for this epic (or the run record could
+		// not be read) — nothing to record against.
+		return
+	}
+	commit, err := integration.CurrentCommit()
+	if err != nil {
+		slog.WarnContext(ctx, "integration event recording skipped: could not resolve feature commit",
+			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "current_commit", err)
+		return
+	}
+
+	event, err := integration.RecordEvent(run.EpicRunID, featureKey, commit, nil, nil)
+	if err != nil {
+		slog.WarnContext(ctx, "integration event recording failed",
+			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "record_event", err)
+		return
+	}
+
+	candidate, err := s.foldIntegrationEventIfMissing(run.EpicRunID, event)
+	if err != nil {
+		slog.WarnContext(ctx, "integration candidate update failed",
+			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
+		// Labeled "update_candidate", not a distinct "get_candidate" stage:
+		// from a caller's point of view (and this codebase's existing
+		// review-finding metadata taxonomy) both a failed read of the
+		// current candidate and a failed CAS write are the same "the fold
+		// step didn't complete" failure.
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "update_candidate", err)
+		return
+	}
+
+	if len(candidate.EventIDs) != 1 {
+		return
+	}
+
+	if s.integrationNoteRecorder == nil {
+		slog.WarnContext(ctx, "integration run registration skipped: no note recorder wired",
+			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID)
+		return
+	}
+	if _, err := integration.RegisterRun(ctx, s.integrationNoteRecorder, run, candidate, event, integration.CaptureCreatedBy); err != nil {
+		slog.WarnContext(ctx, "integration run registration failed",
+			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "register_run", err)
+	}
+}
+
+// foldIntegrationEventIfMissing returns epicRunID's IntegrationCandidate
+// with event folded in. Fixes T-E34-F08-008's UAT rework round 2 Finding 2:
+// it reads the CURRENT on-disk candidate (integration.GetCandidate) and
+// folds event into it (updateIntegrationCandidateWithRetry) only when
+// event's ID is genuinely absent from that candidate's EventIDs. When the
+// event is already present — an idempotent retry of a completion whose
+// candidate fold already succeeded on a prior attempt
+// (integration.RecordEvent's own idempotency contract: a retried call for
+// the identical epicRunID/featureKey/featureCommit resolves to the same
+// file and returns the original, already-persisted event rather than a
+// fresh one) — folding again is skipped and the current on-disk candidate
+// is returned unchanged.
+//
+// This replaces the previous wall-clock heuristic (comparing the returned
+// event's RecordedAt against a call-time snapshot) that
+// recordIntegrationEventForTerminalTransition used to detect "this is a
+// replay" and return immediately — BEFORE ever reaching its own
+// len(candidate.EventIDs)==1 check and RegisterRun call. That meant a
+// completion whose candidate fold had already succeeded, but whose
+// RegisterRun failed or was lost on that same prior attempt, could never be
+// repaired by retrying the identical completion: the replay guard fired on
+// every retry regardless of whether registration had actually completed
+// (uat-20260905-142000-E34-F08.md Finding 2). Skipping only the redundant
+// fold — not the length check or the RegisterRun call — closes that gap
+// while leaving RegisterRun's own conflict/tamper fail-closed behavior
+// (*integration.RegistrationConflictError) and UpdateCandidate's own CAS
+// conflict handling (*integration.CandidateConflictError, handled by
+// updateIntegrationCandidateWithRetry) completely untouched.
+//
+// Named, flagged limitation (kept from the pre-round-2 version, now
+// widened by one case): folding a genuinely-missing event after a
+// DIFFERENT feature has since advanced the candidate — e.g. feature A's
+// event write survives a crash but its fold does not, feature B completes
+// and folds in the meantime (advancing HeadCommit to B), then A's
+// completion is retried — still regresses HeadCommit to A's commit,
+// because buildNextCandidate (candidate.go) unconditionally sets the next
+// candidate's HeadCommit from the folded event's FeatureCommit regardless
+// of ordering. That behavior belongs to candidate.go and is outside this
+// task's file scope; the blast radius is bounded here because folding A at
+// that point brings EventIDs to at least 2 entries, so the
+// len(candidate.EventIDs)==1 check in recordIntegrationEventForTerminalTransition
+// never fires and RegisterRun is never called against the regressed head.
+// Fully closing this (e.g. having buildNextCandidate track HeadCommit by
+// highest-recorded event rather than "whichever event was folded most
+// recently") is follow-up work against candidate.go, not this call site's
+// scope.
+func (s *FeatureService) foldIntegrationEventIfMissing(epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
+	current, err := integration.GetCandidate(epicRunID)
+	if err != nil {
+		return nil, err
+	}
+	if current != nil {
+		for _, id := range current.EventIDs {
+			if id == event.EventID {
+				return current, nil
+			}
+		}
+	}
+	return s.updateIntegrationCandidateWithRetry(epicRunID, event)
+}
+
+// updateIntegrationCandidateWithRetry calls integration.UpdateCandidate,
+// retrying up to maxTerminalCandidateFoldAttempts total attempts while the
+// error is a *integration.CandidateConflictError (see
+// maxTerminalCandidateFoldAttempts's doc comment for why this bound is
+// separate from candidate.go's own internal retry). Any non-conflict error
+// is returned immediately.
+func (s *FeatureService) updateIntegrationCandidateWithRetry(epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxTerminalCandidateFoldAttempts; attempt++ {
+		candidate, err := integration.UpdateCandidate(epicRunID, event)
+		if err == nil {
+			return candidate, nil
+		}
+		var conflict *integration.CandidateConflictError
+		if !errors.As(err, &conflict) {
+			return nil, err
+		}
+		lastErr = err
+		time.Sleep(terminalCandidateFoldRetryDelay)
+	}
+	return nil, lastErr
+}
+
+// recordIntegrationFailureNote durably records a `review-finding` note on
+// the epic when RecordEvent, UpdateCandidate, or RegisterRun genuinely
+// fails from recordIntegrationEventForTerminalTransition — UAT Finding 2's
+// fix: a persistence failure here previously left only a slog warning (a
+// non-durable, non-queryable signal) while the feature's own transition
+// still succeeded. This note makes the gap durably visible via `shark epic
+// notes`/`shark search`.
+//
+// Named, flagged limitation (not closed by this note): integration_review.md's
+// existing "Open findings" closure check (T-E34-F08-010, out of this task's
+// file scope) only cross-checks review-finding notes that name a path
+// present in the epic's accumulated diff, and this call site has no
+// per-feature changed-path list to name (T-E34-F08-016's scope, not this
+// one's — see the doc comment on this file's RecordEvent call above). A
+// human or operator auditing `shark epic notes <epic-key>` will see this
+// note; the automated integration_review gate is not guaranteed to key off
+// it as written today. Closing that gap — e.g. by having integration_review
+// also cross-check open review-finding notes with
+// metadata.gate=="integration_capture" regardless of path, or by having
+// this call site cross-reference every completed feature's own changed
+// paths — is a follow-up recommendation, not something this call site
+// invents on its own authority.
+//
+// Best-effort: a failure to write this note is logged and never raises —
+// the whole point of this call site is that a side-channel failure must
+// never fail the feature's own business transition.
+func (s *FeatureService) recordIntegrationFailureNote(ctx context.Context, epicKey, featureKey, epicRunID, stage string, cause error) {
+	if s.integrationNoteRecorder == nil {
+		return
+	}
+	content := fmt.Sprintf(
+		"integration capture failed for feature %s (epic run %s) at stage %q: %v — the integration candidate/registration for this epic run may be incomplete; verify with `shark integration backfill` before trusting integration_review.",
+		featureKey, epicRunID, stage, cause,
+	)
+	metadata, err := json.Marshal(map[string]string{
+		"gate":             "integration_capture",
+		"severity":         "critical",
+		"closure_category": "reference",
+		"disposition":      "open",
+		"feature_key":      featureKey,
+		"epic_run_id":      epicRunID,
+		"stage":            stage,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "integration failure note metadata encoding failed",
+			"feature_key", featureKey, "epic_key", epicKey, "epic_run_id", epicRunID, "stage", stage, "error", err)
+		return
+	}
+	if _, err := s.integrationNoteRecorder.AddNoteWithMetadata(
+		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integration.CaptureCreatedBy, string(metadata),
+	); err != nil {
+		slog.WarnContext(ctx, "integration failure note recording failed",
+			"feature_key", featureKey, "epic_key", epicKey, "epic_run_id", epicRunID, "stage", stage, "error", err)
+	}
 }
 
 // GetNextStatus returns the available transitions for the current status of a feature.

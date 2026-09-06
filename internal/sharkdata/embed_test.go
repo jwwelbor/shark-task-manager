@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -925,6 +926,867 @@ func TestSolutionWalkthroughBundle(t *testing.T) {
 				assert.Contains(t, files[name], expected)
 			}
 		})
+	}
+}
+
+// TestDefectClassSweepBundleIndexRegistration verifies the E34-F06 workflow
+// file (defect-class-sweep.md) is named in both discovery indices: the
+// quality skill's own "Workflow Selection" section and the top-level skills
+// README's quality row file list (test-plan.md TC-003).
+func TestDefectClassSweepBundleIndexRegistration(t *testing.T) {
+	skill := readEmbeddedString(t, "skills/quality/SKILL.md")
+	assert.Contains(t, skill, "workflows/defect-class-sweep.md",
+		"quality SKILL.md Workflow Selection must name the new workflow file")
+
+	readme := readEmbeddedString(t, "skills/README.md")
+	assert.Contains(t, readme, "workflows/defect-class-sweep.md",
+		"skills/README.md quality row must name the new workflow file")
+}
+
+// enumeratedListPattern matches an enumerated-procedure marker — "(a)"/"(b)",
+// "1."/"2." at the start of an item, or "Then do all N:" — the shape a
+// restated multi-step procedure takes regardless of exact wording. UAT round
+// 4 found that round 3's exact-string blacklist (a fixed list of old
+// sentences) missed a *new* paraphrase of the same restated procedure, since
+// an exact-string list can never anticipate every future rewording. This
+// structural pattern instead flags the shape of a restated enumerated
+// procedure near a canonical-workflow reference, independent of wording.
+var enumeratedListPattern = regexp.MustCompile(`(?im)(^|\s)\(?[a-cA-C1-3]\)\s|Then do all (three|\d+):`)
+
+// TestDefectClassSweepConsolidatedNotDuplicated is test-plan.md TC-002: the
+// five gate/prompt call sites (code_review.md, approval.md, qa.md,
+// development.md, redteam-rubric.md) must reference the canonical
+// defect-class-sweep.md workflow instead of restating its sweep procedure
+// inline. AC-2 requires no duplicated sweep-procedure prose remain in any of
+// these five files.
+//
+// This replaced an exact-string blacklist (UAT rounds 1-4): each restated-
+// prose fix event added the newly-discovered wording as a fixed string to
+// NotContains, and each time a *different* paraphrase of the same restated
+// procedure survived because it was worded differently than every string on
+// the list. A blacklist of specific sentences cannot anticipate every future
+// paraphrase, so this test instead asserts the STRUCTURAL shape the AC
+// actually forbids: the paragraph containing the canonical-workflow
+// reference must be short (a bare pointer, not a restatement) and must not
+// itself contain an enumerated list of steps — restating a canonical
+// multi-step procedure inline necessarily takes an enumerated-list shape,
+// while a bare reference sentence does not, regardless of exact wording.
+func TestDefectClassSweepConsolidatedNotDuplicated(t *testing.T) {
+	const maxReferenceLineWords = 90
+
+	// Every prompt/skill file this feature wired to reference the canonical
+	// workflow (round 1: code_review/approval/redteam-rubric; round 1 HIGH-1:
+	// qa/development; round 3: code_review's own re-review branch).
+	files := []string{
+		"prompts/feature/code_review.md",
+		"prompts/feature/approval.md",
+		"prompts/feature/qa.md",
+		"prompts/task/development.md",
+		"skills/uat/references/redteam-rubric.md",
+	}
+
+	const marker = "skills/quality/workflows/defect-class-sweep.md"
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		assert.Contains(t, content, marker,
+			"%s must reference the canonical defect-class-sweep.md workflow", rel)
+
+		// Check the specific line(s) that mention the canonical workflow, not
+		// the whole surrounding paragraph — a kickback-reason command
+		// template line legitimately cites the file path inline alongside
+		// unrelated bullets in the same markdown block, and those neighboring
+		// bullets aren't part of the reference itself.
+		var referencingLines int
+		for _, line := range strings.Split(content, "\n") {
+			if !strings.Contains(line, marker) {
+				continue
+			}
+			referencingLines++
+
+			if enumeratedListPattern.MatchString(line) {
+				t.Errorf("%s: line referencing %s contains an enumerated-list pattern — a"+
+					" restated procedure, not a bare reference:\n%s", rel, marker, line)
+			}
+
+			wordCount := len(strings.Fields(line))
+			assert.LessOrEqualf(t, wordCount, maxReferenceLineWords,
+				"%s: line referencing %s is %d words — too long for a bare reference, suggests restated procedure:\n%s",
+				rel, marker, wordCount, line)
+		}
+		assert.Greater(t, referencingLines, 0,
+			"%s: expected at least one line referencing %s", rel, marker)
+	}
+}
+
+// TestDefectClassSweepNoWWGMOrToolLeakage is test-plan.md TC-004: the new
+// workflow file and the three edited call sites must not leak WWGM defect
+// names, Python tooling references, or local filesystem paths — the content
+// must stay project-agnostic and render from `{{project guidance}}` inputs.
+func TestDefectClassSweepNoWWGMOrToolLeakage(t *testing.T) {
+	leakPattern := regexp.MustCompile(`(?i)WWGM|\.py\b|/home/|/Users/`)
+
+	files := []string{
+		"skills/quality/workflows/defect-class-sweep.md",
+		"prompts/feature/code_review.md",
+		"prompts/feature/approval.md",
+		"skills/uat/references/redteam-rubric.md",
+		"prompts/feature/qa.md",
+		"prompts/task/development.md",
+		"skills/uat/SKILL.md",
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		if match := leakPattern.FindString(content); match != "" {
+			t.Errorf("%s contains leaked WWGM/tool/path reference: %q", rel, match)
+		}
+	}
+}
+
+// e34F08I03I04AnchorPhrases is the closed enumeration of procedural anchor
+// phrases owned by E34-F06's defect-class-sweep.md (I-03) and E34-F07's
+// state-space-coverage.md (I-04) workflow files. Test-plan.md TC-003
+// requires none of these to appear in code_review.md/qa.md/approval.md
+// outside the one I-03/I-04 reference paragraph this task adds — a restated
+// procedure fails the check.
+var e34F08I03I04AnchorPhrases = []string{
+	// defect-class-sweep.md (I-03) procedural section headings
+	"Class naming",
+	"Search-scope declaration",
+	"Enumeration procedure",
+	"Zero-result reporting",
+	"Instance evidence",
+	"Backward-looking rework",
+	"Recurrence classification",
+	"Disposition and severity-conflict routing",
+	"Guard selection",
+	"Structural guard closure",
+	"Full-class re-verification",
+	"Output shape",
+	// state-space-coverage.md (I-04) procedural section headings
+	"Closed lifecycle tables",
+	"Technique selection from state shape",
+	"Dependency discovery by interaction and caller path",
+	"Shipped consumer re-verification",
+	"I-04 propagation",
+	"Design divergence",
+}
+
+// e34F08PreexistingAnchorPhraseAllowlist names the two anchor phrases from
+// e34F08I03I04AnchorPhrases that E34-F06 already wired into code_review.md/
+// qa.md/approval.md as legitimate, specific-section pointers — the
+// RE-REVIEW/RE-VERIFICATION ROUND paragraphs, guarded by
+// TestDefectClassSweepQAAndDevelopmentPromptsReference and
+// TestDefectClassSweepConsolidatedNotDuplicated. They are exempt ONLY
+// outside this task's new I-03/I-04 paragraph — restating either phrase
+// inside that paragraph is still a violation, since the new paragraph must
+// reference, not restate, either workflow.
+var e34F08PreexistingAnchorPhraseAllowlist = map[string]bool{
+	"Enumeration procedure":      true,
+	"Full-class re-verification": true,
+}
+
+// TestI03I04ConsumptionReferencePresent is test-plan.md TC-003 (REQ-F-003,
+// content half): code_review.md, qa.md, and approval.md each add ONE
+// paragraph naming both E34-F06's I-03 DefectClassSweep and E34-F07's I-04
+// ChangeImpactSet evidence for prior blocking defect classes and material
+// decisions in scope, pointing at those features' own workflow files rather
+// than restating their content (AC-T1).
+func TestI03I04ConsumptionReferencePresent(t *testing.T) {
+	const (
+		i03Marker = "skills/quality/workflows/defect-class-sweep.md"
+		i04Marker = "skills/quality/workflows/state-space-coverage.md"
+	)
+
+	files := []string{
+		"prompts/feature/code_review.md",
+		"prompts/feature/qa.md",
+		"prompts/feature/approval.md",
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		paragraphs := strings.Split(content, "\n\n")
+
+		// AC-T1 requires ONE paragraph naming both shapes — locate it rather
+		// than checking the whole file, so a future edit that scatters "I-03"
+		// and "I-04" across unrelated sections (or drops the paragraph while
+		// leaving a stray mention) fails here instead of passing.
+		var consumptionParagraph string
+		for _, p := range paragraphs {
+			if strings.Contains(p, "I-03") && strings.Contains(p, "I-04") {
+				consumptionParagraph = p
+				break
+			}
+		}
+		require.NotEmpty(t, consumptionParagraph,
+			"%s must contain one paragraph naming both I-03 and I-04 (AC-T1)", rel)
+
+		assert.Contains(t, consumptionParagraph, "DefectClassSweep",
+			"%s's I-03/I-04 paragraph must name DefectClassSweep", rel)
+		assert.Contains(t, consumptionParagraph, "ChangeImpactSet",
+			"%s's I-03/I-04 paragraph must name ChangeImpactSet", rel)
+		assert.Contains(t, consumptionParagraph, i03Marker,
+			"%s's I-03/I-04 paragraph must point at the canonical I-03 workflow file, not restate it", rel)
+		assert.Contains(t, consumptionParagraph, i04Marker,
+			"%s's I-03/I-04 paragraph must point at the canonical I-04 workflow file, not restate it", rel)
+
+		// The I-04 reference must be a bare pointer (mirrors E34-F07's own
+		// TC-002/TC-003/TC-006 structural check) — no restated procedure, no
+		// enumerated-list shape, bounded word count.
+		assertBareStateSpaceReference(t, rel, content)
+
+		// Negative case: the new paragraph itself must never restate either
+		// workflow's procedure — no allowlist exception applies inside it.
+		for _, phrase := range e34F08I03I04AnchorPhrases {
+			assert.NotContains(t, consumptionParagraph, phrase,
+				"%s's I-03/I-04 paragraph restates %q — reference the owning workflow file instead of restating its procedure",
+				rel, phrase)
+		}
+
+		// Outside the paragraph, the full enumeration must also be absent,
+		// except the two phrases E34-F06 already wired in elsewhere in this
+		// file as legitimate specific-section pointers.
+		for _, p := range paragraphs {
+			if p == consumptionParagraph {
+				continue
+			}
+			for _, phrase := range e34F08I03I04AnchorPhrases {
+				if e34F08PreexistingAnchorPhraseAllowlist[phrase] {
+					continue
+				}
+				assert.NotContains(t, p, phrase,
+					"%s contains %q outside the I-03/I-04 paragraph — a procedural anchor phrase owned by defect-class-sweep.md/state-space-coverage.md must not be restated",
+					rel, phrase)
+			}
+		}
+	}
+}
+
+// TestTierMatrixPinnedE40BenchmarkScenariosNote is test-plan.md TC-004
+// (REQ-F-008): tier-matrix.md must carry a "Pinned E40 benchmark scenarios"
+// note (not a gate) naming all four scenario categories and stating,
+// explicitly, that the note is non-blocking for this feature's acceptance.
+func TestTierMatrixPinnedE40BenchmarkScenariosNote(t *testing.T) {
+	content := readEmbeddedString(t, "skills/quality/context/tier-matrix.md")
+	// The note wraps across lines like the rest of this file's prose (matches
+	// the file's own convention); normalize whitespace first so a wrapped
+	// two-word category phrase (e.g. "integration closure" split across a
+	// line break) is still found as a contiguous substring.
+	lower := strings.ToLower(normalizeWhitespace(content))
+
+	assert.Contains(t, content, "Pinned E40 benchmark scenarios",
+		"tier-matrix.md must contain a \"Pinned E40 benchmark scenarios\" section")
+
+	for _, category := range []string{
+		"tier routing",
+		"evidence fidelity",
+		"defect-class recurrence",
+		"integration closure",
+	} {
+		assert.Contains(t, lower, category,
+			"tier-matrix.md's E40 benchmark note must name the %q scenario category", category)
+	}
+
+	// Negative case: absence of the explicit non-blocking qualifier fails —
+	// a benchmark note that reads as a gate requirement would silently make
+	// E40 a delivery prerequisite, which REQ-F-008 forbids.
+	assert.True(t, strings.Contains(lower, "non-blocking") || strings.Contains(lower, "not a gate"),
+		"tier-matrix.md's E40 benchmark note must explicitly state it is non-blocking (e.g. \"non-blocking\" or \"not a gate\")")
+}
+
+// e34F08HostAndLLMLeakPattern is test-plan.md TC-005's guard pattern
+// (REQ-NF-001): extends F06's TC-004-equivalent WWGM/tool/path pattern with
+// LLM-name tokens, since REQ-NF-001 additionally forbids "specific LLM
+// names".
+var e34F08HostAndLLMLeakPattern = regexp.MustCompile(`(?i)WWGM|\.py\b|/home/|/Users/|gpt-|claude-[0-9]|gemini-[0-9]`)
+
+// TestTierMatrixAndIntegrationReviewNoHostOrLLMLeakage is test-plan.md TC-005
+// (REQ-NF-001): tier-matrix.md (and, once epic/integration_review.md exists
+// in this feature, that file too) must not leak WWGM defect names, Python
+// tooling references, local filesystem paths, or specific LLM/provider model
+// names — content stays project- and provider-neutral.
+func TestTierMatrixAndIntegrationReviewNoHostOrLLMLeakage(t *testing.T) {
+	files := []string{"skills/quality/context/tier-matrix.md"}
+	if _, err := readEmbeddedAll("prompts/epic/integration_review.md"); err == nil {
+		files = append(files, "prompts/epic/integration_review.md")
+	}
+
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		if match := e34F08HostAndLLMLeakPattern.FindString(content); match != "" {
+			t.Errorf("%s contains leaked WWGM/tool/path/LLM-name reference: %q", rel, match)
+		}
+	}
+}
+
+// integrationReviewNonSupersessionSentence is REQ-F-006's exact clause
+// (spec.md, quoted verbatim): a currently-rejected or currently-in-development
+// feature blocks epic completion through its own status, never through this
+// gate's own outcome. AC-T3 requires epic/integration_review.md to contain
+// this sentence verbatim.
+const integrationReviewNonSupersessionSentence = "This review adds a gate; it never overrides or supersedes an existing feature verdict. A currently-rejected or currently-in-development feature blocks epic completion through its own status, not through this step."
+
+// TestIntegrationReviewNonSupersessionSentencePresent is test-plan.md TC-012's
+// grep regression guard: epic/integration_review.md's literal text must
+// contain REQ-F-006's non-supersession sentence verbatim, so a future edit
+// cannot silently drop the gate-authority rule while leaving the rest of the
+// prompt's closure checks intact. This is deliberately a text-presence check,
+// not a proof the review logic honors the rule — TC-012's own scenario
+// walkthrough (recorded in test-plan.md, not a Go test) covers that half.
+func TestIntegrationReviewNonSupersessionSentencePresent(t *testing.T) {
+	content := readEmbeddedString(t, "prompts/epic/integration_review.md")
+	assert.Contains(t, content, integrationReviewNonSupersessionSentence,
+		"epic/integration_review.md must contain REQ-F-006's non-supersession sentence verbatim")
+}
+
+// TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture is
+// TC-I-05-ADOPTION-MANIFEST (AC-T4): epic/integration_review.md's own
+// `adoption_manifest` field table must list exactly architecture.md's 8 I-05
+// CanonicalAdoptionManifest v1 fields. Both sides are parsed through the same
+// ParseI05FieldList parser (T-E34-F08-001) rather than hand-copying the
+// 8-field list into this test as a literal, so an architecture.md table edit
+// is caught here too (test-plan.md's own instruction for this TC).
+func TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture(t *testing.T) {
+	repoRoot := findRepoRootForTableParserTest(t)
+	archPath := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "architecture.md")
+	archData, err := os.ReadFile(archPath)
+	require.NoError(t, err, "real architecture.md must exist")
+
+	wantFields, err := ParseI05FieldList(archData)
+	require.NoError(t, err)
+	require.Len(t, wantFields, 8, "architecture.md's I-05 section defines exactly 8 fields")
+
+	promptContent := readEmbeddedString(t, "prompts/epic/integration_review.md")
+	gotFields, err := ParseI05FieldList([]byte(promptContent))
+	require.NoError(t, err, "epic/integration_review.md must declare its own '## I-05 ...' adoption_manifest field table")
+
+	assert.ElementsMatch(t, wantFields, gotFields,
+		"adoption_manifest field list in epic/integration_review.md must match architecture.md's I-05 CanonicalAdoptionManifest v1 table exactly (a dropped or added field must fail here)")
+
+	// Structural nesting check (negative case per test-plan.md: a prompt that
+	// nests adoption_manifest as a top-level sibling of the outer worker-control
+	// envelope instead of inside gate_result must fail this test). A loose
+	// document-wide conjunction of tokens (adoption_manifest/gate_result/
+	// sibling/remediation_sweeps/change_impacts appearing ANYWHERE in the file)
+	// would still pass a prompt that placed adoption_manifest at the outer
+	// envelope, because those tokens also appear in the PRODUCE field list a
+	// few lines above — so this asserts the single literal clause that ties
+	// them together in one place, mirroring TC-012's exact-phrase idiom.
+	// Counter-factual: rewording this clause to nest adoption_manifest at the
+	// outer envelope (e.g. "a new sibling field of the outer envelope") makes
+	// this assertion fail, proving it actually checks the nesting claim.
+	assert.Contains(t, promptContent,
+		"a new sibling array field alongside `remediation_sweeps`/`change_impacts` inside this same `gate_result` object",
+		"epic/integration_review.md must document adoption_manifest as a sibling of remediation_sweeps/change_impacts nested inside gate_result, not restated at the outer envelope level")
+}
+
+// interactionMapRealFixtureRows loads the real, current E34-interaction-map.md
+// Interaction Contracts table through the production parser
+// (ParseInteractionMapTable, T-E34-F08-001), and the real architecture.md
+// bytes CheckInteractionMapCompleteness resolves shape-source anchors
+// against.
+func interactionMapRealFixtureRows(t *testing.T) ([]InteractionRow, []byte) {
+	t.Helper()
+	repoRoot := findRepoRootForTableParserTest(t)
+
+	mapPath := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "E34-interaction-map.md")
+	mapData, err := os.ReadFile(mapPath)
+	require.NoError(t, err, "real E34-interaction-map.md must exist")
+
+	rows, err := ParseInteractionMapTable(mapData)
+	require.NoError(t, err)
+
+	archPath := filepath.Join(repoRoot, "docs", "plan", "E34-prompt-and-skill-improvements", "architecture.md")
+	archData, err := os.ReadFile(archPath)
+	require.NoError(t, err, "real architecture.md must exist")
+
+	return rows, archData
+}
+
+// TestInteractionMapCompleteness is test-plan.md TC-014 (AC-8): the shared
+// structural guard proving every I-## row in E34-interaction-map.md's
+// Interaction Contracts table names a producer, consumer(s), shape-source
+// link, payload, and style — kept structurally separate from
+// ParseInteractionMapTable, so a shared parser/checker defect can't hide
+// behind one green test.
+func TestInteractionMapCompleteness(t *testing.T) {
+	t.Run("real_table_passes", func(t *testing.T) {
+		rows, archData := interactionMapRealFixtureRows(t)
+		require.Len(t, rows, 5, "expected one row per I-01..I-05")
+
+		errs := CheckInteractionMapCompleteness(rows, archData)
+		assert.Empty(t, errs, "the real, current interaction map table must have no completeness errors; got: %v", errs)
+	})
+
+	// interactionMapCompletenessFixtureArch is a minimal architecture.md
+	// fixture whose one "## I-01 ..." heading resolves the shape-source link
+	// used by the field-completeness subtests below (which construct
+	// []InteractionRow directly, bypassing the parser — TC-014's own point:
+	// a parser bug must not be able to mask a checker bug or vice versa).
+	const interactionMapCompletenessFixtureArch = "## I-01 SomeShape v1\n\nfixture body\n"
+
+	// completeRow's ID (I-42) is deliberately distinct from the "I-01" text
+	// inside its own ShapeSource label/anchor, so a later assertion that the
+	// error message names the row (row.ID) can't accidentally pass via a
+	// substring collision with the shape-source cell's own text.
+	completeRow := InteractionRow{
+		ID:          "I-42",
+		Producer:    "E99-F01 Fixture Producer",
+		Consumers:   []string{"E99-F02"},
+		ShapeSource: "[I-01 SomeShape v1](./architecture.md#i-01-someshape-v1)",
+		Payload:     "some payload",
+		Style:       "some style",
+	}
+
+	t.Run("missing_field_subtests", func(t *testing.T) {
+		cases := []struct {
+			name      string
+			mutate    func(r InteractionRow) InteractionRow
+			wantField string
+		}{
+			{"producer", func(r InteractionRow) InteractionRow { r.Producer = ""; return r }, "producer"},
+			{"consumer", func(r InteractionRow) InteractionRow { r.Consumers = nil; return r }, "consumer"},
+			{"shape-source", func(r InteractionRow) InteractionRow { r.ShapeSource = ""; return r }, "shape-source"},
+			{"payload", func(r InteractionRow) InteractionRow { r.Payload = ""; return r }, "payload"},
+			{"style", func(r InteractionRow) InteractionRow { r.Style = ""; return r }, "style"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				row := tc.mutate(completeRow)
+				errs := CheckInteractionMapCompleteness([]InteractionRow{row}, []byte(interactionMapCompletenessFixtureArch))
+				require.Len(t, errs, 1, "expected exactly one completeness error; got: %v", errs)
+				assert.True(t, errors.Is(errs[0], ErrInteractionRowFieldMissing),
+					"missing %s must be reported as ErrInteractionRowFieldMissing; got: %v", tc.wantField, errs[0])
+				assert.Contains(t, errs[0].Error(), tc.wantField, "error must name the missing field")
+				assert.Contains(t, errs[0].Error(), row.ID, "error must name the row")
+			})
+		}
+	})
+
+	t.Run("unresolved_anchor_is_distinct_from_missing_field", func(t *testing.T) {
+		row := completeRow
+		row.ShapeSource = "[Some Other Shape](./architecture.md#i-99-does-not-exist)"
+
+		errs := CheckInteractionMapCompleteness([]InteractionRow{row}, []byte(interactionMapCompletenessFixtureArch))
+		require.Len(t, errs, 1, "expected exactly one completeness error; got: %v", errs)
+		assert.True(t, errors.Is(errs[0], ErrInteractionRowAnchorUnresolved),
+			"a non-empty shape-source link whose anchor does not resolve must be ErrInteractionRowAnchorUnresolved, not ErrInteractionRowFieldMissing; got: %v", errs[0])
+		assert.False(t, errors.Is(errs[0], ErrInteractionRowFieldMissing),
+			"an unresolved anchor must not also be reported as a missing field")
+		assert.Contains(t, errs[0].Error(), row.ID)
+	})
+}
+
+// defectClassSweepPersistenceIdentifiers is test-plan.md TC-010's guard
+// pattern (tightened per UAT-kickback MEDIUM-3): the original guard matched
+// only the two literal identifiers `DefectClassSweep` and `class_key`, which
+// a persistence layer could dodge by using a synonym name (`SweepRecord`,
+// `defectKey`, ...) for the same I-03 shape. This list adds the field/type
+// name variants a Go persistence layer for this shape would plausibly use —
+// none of these currently appear anywhere in non-test Go source under
+// internal/ (verified during the rework), so the broadened list adds no
+// false positives today.
+var defectClassSweepPersistenceIdentifiers = regexp.MustCompile(
+	`\b(DefectClassSweep|class_key|ClassKey|defectKey|SweepRecord|RecurrenceRecord|SeverityConflict|InstanceDisposition|DefectClassInstance)\b`,
+)
+
+// defectClassSweepStructDecl is the second, independent signal TC-010 now
+// checks: a new Go struct type whose *name* (not just an exact identifier
+// from the list above) suggests it persists this feature's "sweep" or
+// "defect class" shape under a different vocabulary entirely — e.g.
+// `type sweepEntry struct` or `type DefectRecord struct`. Matching on the
+// `type ... struct` declaration shape, rather than a literal identifier
+// list, is intentionally harder to dodge by renaming than the identifier
+// list alone; combined, the two checks require an evader to avoid both the
+// "sweep"/"defect" word stems in a type name AND every identifier above.
+var defectClassSweepStructDecl = regexp.MustCompile(`(?im)^\s*type\s+\w*(?:[Ss]weep|[Dd]efect)\w*\s+struct\b`)
+
+// defectClassSweepUnrelatedPersistence excludes files that legitimately use
+// this guard's vocabulary for an entirely different, already-reviewed
+// persistence concern: E34-F05's GateResult I-03 "remediation_sweeps"
+// (internal/gateresult.DefectClassSweep, class_key, ...) independently chose
+// the same terminology for a real, intentional Go persistence layer that
+// predates this guard's discovery of the collision (merged to main via PR
+// #211 before E34-F06's guard was written against this branch's state).
+// That is a naming collision between two sibling E34 features, not scope
+// creep by F06 — see the E34-F06 test-plan.md TC-010 note recorded when this
+// exclusion was added. Do not add further paths here without the same
+// verification: each addition must be a feature that shipped its own
+// reviewed persistence layer under this vocabulary, not an evasion of this
+// guard.
+var defectClassSweepUnrelatedPersistence = map[string]bool{
+	"internal/gatepersist/operations.go": true,
+	"internal/gateresult/gateresult.go":  true,
+	"internal/gaterun/suboperation.go":   true,
+}
+
+// TestDefectClassSweepNoGoPersistenceIntroduced is test-plan.md TC-010
+// (task T-E34-F06-003, AC-T2): confirms REQ-NF-001 — this feature stayed
+// content-only and did not introduce a Go persistence layer (a new type,
+// struct field, table, or repository method) for the I-03 DefectClassSweep
+// shape.
+//
+// Two independent checks run over the same non-test Go source scan: (1) a
+// synonym-aware identifier list (defectClassSweepPersistenceIdentifiers),
+// broadened from the original two-literal grep per UAT-kickback MEDIUM-3 so
+// a renamed field/type doesn't silently evade it, and (2) a struct-name-shape
+// scan (defectClassSweepStructDecl) that catches a new persistence type named
+// after this feature's vocabulary even under an identifier this list didn't
+// anticipate. Evading both simultaneously — no "sweep"/"defect" word stem in
+// any new type name, and none of the specific field/type synonyms above —
+// is deliberately harder than evading either check alone; this is a
+// materially tightened heuristic, not a claim of airtight coverage.
+//
+// Test files are excluded from the scan by design, not oversight: TC-001/
+// TC-002's own tests (`internal/templates/includes_test.go`'s
+// TestIncludeResolverWithEmbed_DefectClassSweepRenders and this file's
+// TestDefectClassSweep* functions, added by T-E34-F06-001/002) legitimately
+// name the workflow in Go identifiers and comments while verifying it
+// renders/is referenced — that is expected test coverage, not a persistence
+// layer, and matching REQ-NF-001's "signals scope creep into a Go
+// persistence layer" against test-only identifiers would be a false
+// positive on the very tests this task's own scope requires.
+func TestDefectClassSweepNoGoPersistenceIntroduced(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller(0) failed; cannot locate repo root")
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
+	internalDir := filepath.Join(repoRoot, "internal")
+
+	var identifierHits, structHits []string
+
+	err := filepath.WalkDir(internalDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			rel = path
+		}
+		if defectClassSweepUnrelatedPersistence[filepath.ToSlash(rel)] {
+			return nil
+		}
+		if defectClassSweepPersistenceIdentifiers.Match(data) {
+			identifierHits = append(identifierHits, rel)
+		}
+		if defectClassSweepStructDecl.Match(data) {
+			structHits = append(structHits, rel)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, identifierHits,
+		"no non-test Go source under internal/ should reference DefectClassSweep, class_key, or a known synonym (found: %v) — REQ-NF-001 requires this feature to stay content-only", identifierHits)
+	assert.Empty(t, structHits,
+		"no non-test Go source under internal/ should declare a struct type named after this feature's sweep/defect-class vocabulary (found: %v) — REQ-NF-001 requires this feature to stay content-only", structHits)
+}
+
+// TestDefectClassSweepQAAndDevelopmentPromptsReference is the UAT-kickback
+// (HIGH-1) regression guard: REQ-F-001 requires review, QA, UAT, AND
+// development prompts to reference the canonical defect-class-sweep.md
+// workflow rather than duplicate its procedure. T-E34-F06-002 only wired
+// code_review.md/approval.md/redteam-rubric.md; this asserts the QA
+// (feature/qa.md) and development (task/development.md) prompts, plus
+// uat/SKILL.md's own rejection-routing prose, also reference it — and, per
+// spec.md's Architecture "Component changes" table, that qa.md and
+// development.md each point at their *specific* section of the workflow
+// (qa.md re-review rounds need "Full-class re-verification"; a
+// development-caller rework pass needs "Enumeration procedure"), not just
+// the bare filename. A bare-filename-only check would pass even if qa.md
+// pointed at the wrong section.
+func TestDefectClassSweepQAAndDevelopmentPromptsReference(t *testing.T) {
+	const marker = "skills/quality/workflows/defect-class-sweep.md"
+
+	files := []string{
+		"prompts/feature/qa.md",
+		"prompts/task/development.md",
+		"skills/uat/SKILL.md",
+	}
+	for _, rel := range files {
+		content := readEmbeddedString(t, rel)
+		assert.Contains(t, content, marker,
+			"%s must reference the canonical defect-class-sweep.md workflow", rel)
+	}
+
+	qaContent := readEmbeddedString(t, "prompts/feature/qa.md")
+	assert.Contains(t, qaContent, "Full-class re-verification",
+		"qa.md's re-review round must point at the workflow's \"Full-class re-verification\" section specifically, not just the bare filename")
+
+	devContent := readEmbeddedString(t, "prompts/task/development.md")
+	assert.Contains(t, devContent, "Enumeration procedure",
+		"development.md's rework branch must point at the workflow's \"Enumeration procedure\" section specifically, not just the bare filename")
+}
+
+// TestDefectClassSweepCallingGateIncludesQA is the UAT-kickback (HIGH-1)
+// regression guard for the workflow's own `calling_gate` input enum: it must
+// name `qa` alongside `code_review | approval | uat_redteam` so a QA-gate
+// kickback is a valid caller, and the "When to invoke" section must name a
+// QA gate as a trigger.
+func TestDefectClassSweepCallingGateIncludesQA(t *testing.T) {
+	content := readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md")
+	assert.Contains(t, content, "code_review | approval | uat_redteam | qa",
+		"calling_gate enum must include qa")
+	assert.Contains(t, content, "code-review, QA, or approval gate",
+		"When to invoke section must name QA as a trigger gate")
+}
+
+// TestDefectClassSweepGateListsNameAllFourGates is the UAT-kickback (round 2,
+// MEDIUM-5) regression guard: every prose sentence in the workflow file that
+// enumerates which gates invoke it (the "Purpose" section and the
+// "Full-class re-verification" section) must name all four gates the
+// `calling_gate` enum declares — code review, QA, approval, and UAT/red-team.
+// Round 1 added `qa` to the enum and to "When to invoke" but left it out of
+// two other gate-list sentences in the same file; this guards against that
+// gap recurring in either of those two sentences, or a future third one.
+func TestDefectClassSweepGateListsNameAllFourGates(t *testing.T) {
+	content := readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md")
+
+	// Gate-list sentences wrap across lines in the checked-in markdown, so
+	// scan paragraphs (blank-line-delimited blocks) rather than single lines.
+	// A paragraph reads as a gate-list enumeration when it mentions "code
+	// review"/"code-review" together with "approval" or "UAT" — every such
+	// paragraph must also mention QA.
+	paragraphs := strings.Split(content, "\n\n")
+	found := 0
+	for _, p := range paragraphs {
+		lower := strings.ToLower(normalizeWhitespace(p))
+		mentionsCodeReview := strings.Contains(lower, "code review") || strings.Contains(lower, "code-review")
+		mentionsApprovalOrUAT := strings.Contains(lower, "approval") || strings.Contains(lower, "uat")
+		if !mentionsCodeReview || !mentionsApprovalOrUAT {
+			continue
+		}
+		found++
+		assert.Contains(t, lower, "qa",
+			"gate-list paragraph must name QA alongside code review/approval/UAT: %q", p)
+	}
+	// Sanity: must have actually found gate-list paragraphs to check (Purpose
+	// and Full-class re-verification sections at minimum), otherwise this
+	// test would pass vacuously.
+	assert.GreaterOrEqual(t, found, 2, "expected at least 2 gate-list paragraphs (Purpose, Full-class re-verification)")
+}
+
+// normalizeWhitespace collapses all runs of whitespace (including newlines
+// introduced by markdown line-wrapping) to a single space, so a test
+// assertion doesn't depend on exact line-wrap columns in prose files.
+func normalizeWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// TestDefectClassSweepGuardCounterfactualDirectionCorrect is the UAT-kickback
+// (HIGH-2) regression guard: the "Structural guard closure" counterfactual
+// must require the guard to CATCH the reintroduced defect (not miss it) and
+// not false-positive when the defect is absent — the inverse of the
+// originally-shipped (backwards) wording.
+func TestDefectClassSweepGuardCounterfactualDirectionCorrect(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.NotContains(t, content,
+		normalizeWhitespace("it fails to detect the class when the defect is deliberately re-introduced"),
+		"the guard counterfactual must not require the guard to MISS the reintroduced defect")
+
+	assert.Contains(t, content,
+		normalizeWhitespace("it catches (flags, fails the build, or otherwise blocks) the class when the defect is deliberately re-introduced"),
+		"the guard counterfactual must require the guard to CATCH the reintroduced defect")
+
+	// UAT round-3 finding 10: the prior version of this test only asserted
+	// the catch-when-reintroduced direction, leaving the does-not-flag-when-
+	// absent direction free to regress silently. Assert both directions.
+	assert.NotContains(t, content,
+		normalizeWhitespace("it passes when the defect is absent"),
+		"the guard counterfactual must not use the old inverted 'passes when absent' phrasing")
+
+	assert.Contains(t, content,
+		normalizeWhitespace("it does not flag/fail when the defect is absent"),
+		"the guard counterfactual must require the guard to NOT flag when the defect is absent")
+}
+
+// TestDefectClassSweepRecurrenceRequiresClassKey is the UAT-kickback (HIGH-3)
+// regression guard: REQ-F-005 requires a new fingerprint to be classified as
+// recurrence only when it shares the same class_key as a previously
+// completed sweep AND lies inside that sweep's search_scope — not scope
+// membership alone.
+func TestDefectClassSweepRecurrenceRequiresClassKey(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.NotContains(t, content,
+		normalizeWhitespace("a new fingerprint appears inside a previously `status: complete` class's `search_scope`"),
+		"recurrence classification must not accept scope membership alone (missing class_key discriminator)")
+
+	assert.Contains(t, content, normalizeWhitespace("same `class_key`** as a previously"),
+		"recurrence classification must require the same class_key")
+	assert.Contains(t, content, "Both conjuncts are required",
+		"recurrence classification must state both class_key and scope membership are required")
+}
+
+// TestDefectClassSweepSeverityConflictAtFindingLevel is the UAT-kickback
+// (HIGH-4) regression guard: per architecture.md's I-02 GateResult schema,
+// `severity_conflict` is an outer `GateResult.Finding.disposition` value, not
+// an I-03 instance disposition. The sweep's own instances[].disposition must
+// stay within {fixed, dispositioned, open} so
+// fixed_count+dispositioned_count+open_count=matching_count keeps
+// reconciling.
+func TestDefectClassSweepSeverityConflictAtFindingLevel(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.NotContains(t, content, "Mark the instance's disposition `severity_conflict`",
+		"severity_conflict must not be assigned as an I-03 instance disposition")
+
+	assert.Contains(t, content, "outer `GateResult.Finding.disposition` value",
+		"the workflow must state severity_conflict belongs to the outer Finding schema")
+	assert.Contains(t, content, normalizeWhitespace("instances[].disposition` stays within `{fixed, dispositioned, open}`"),
+		"the workflow must keep the I-03 instance disposition enum closed to fixed/dispositioned/open")
+}
+
+// TestDefectClassSweepBackwardLookingReworkRequiresCompatOrDivergence is the
+// UAT-kickback (MEDIUM-1) regression guard for TC-011: REQ-F-002 requires
+// that a repair either implement a recorded compatible prior fix design or
+// cite the durable evidence that justifies diverging from it — not silently
+// override a recorded design with no stated reason. See
+// scenario-review-TC-005-TC-009.md's TC-011 walkthrough for the full
+// fixture-by-fixture analysis this guard backs.
+func TestDefectClassSweepBackwardLookingReworkRequiresCompatOrDivergence(t *testing.T) {
+	content := normalizeWhitespace(readEmbeddedString(t, "skills/quality/workflows/defect-class-sweep.md"))
+
+	assert.Contains(t, content,
+		normalizeWhitespace("implement that design, or a fix compatible with it"),
+		"backward-looking rework must require implementing a recorded compatible design")
+	assert.Contains(t, content,
+		normalizeWhitespace("Diverging from a recorded design is only valid when the divergence is justified by durable evidence"),
+		"backward-looking rework must require durable evidence to justify diverging from a recorded design")
+	assert.Contains(t, content,
+		normalizeWhitespace("A repair that silently does something different from a recorded prior design, with no cited justification, does not satisfy this section"),
+		"backward-looking rework must explicitly reject a silent, uncited divergence from a recorded design")
+}
+
+// TestStateSpaceCoverageI04PropagationReferenced is test-plan.md TC-005
+// (E34-F07 REQ-F-006/AC-3): tech_debt/resolved.md and
+// question-management/SKILL.md must each reference the I-04 propagation
+// section of state-space-coverage.md, resolved.md's original one-line
+// template must remain present unconditionally, and the new resolved.md
+// line must be explicitly conditional on the resolution having changed
+// accepted behavior — never framed as always-required.
+func TestStateSpaceCoverageI04PropagationReferenced(t *testing.T) {
+	const marker = "state-space-coverage.md#i-04-propagation"
+
+	resolved := readEmbeddedString(t, "prompts/tech_debt/resolved.md")
+	assert.Contains(t, resolved, marker,
+		"tech_debt/resolved.md must reference the I-04 propagation section")
+	assert.Contains(t, resolved,
+		"Tech debt {{.id}} is resolved and verified. No further action required.",
+		"tech_debt/resolved.md's original one-line template must remain present unconditionally")
+	assert.Contains(t, strings.ToLower(resolved), "when this resolution changed",
+		"tech_debt/resolved.md's I-04 reference must be conditional, not always-required")
+
+	skill := readEmbeddedString(t, "skills/question-management/SKILL.md")
+	assert.Contains(t, skill, marker,
+		"question-management/SKILL.md must reference the I-04 propagation section")
+}
+
+// assertBareStateSpaceReference is the shared TC-002/TC-003/TC-006 structural
+// check (test-plan.md: "mirrors E34-F06's TestDefectClassSweepConsolidatedNotDuplicated
+// structural approach"): every line in content referencing
+// state-space-coverage.md must be a bare pointer, not a restated procedure —
+// no enumerated-list shape, and bounded word count.
+func assertBareStateSpaceReference(t *testing.T, rel, content string) {
+	t.Helper()
+	const marker = "state-space-coverage.md"
+	const maxReferenceLineWords = 90
+
+	var referencingLines int
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, marker) {
+			continue
+		}
+		referencingLines++
+
+		if enumeratedListPattern.MatchString(line) {
+			t.Errorf("%s: line referencing %s contains an enumerated-list pattern — a"+
+				" restated procedure, not a bare reference:\n%s", rel, marker, line)
+		}
+
+		wordCount := len(strings.Fields(line))
+		assert.LessOrEqualf(t, wordCount, maxReferenceLineWords,
+			"%s: line referencing %s is %d words — too long for a bare reference, suggests restated procedure:\n%s",
+			rel, marker, wordCount, line)
+	}
+	assert.Greater(t, referencingLines, 0,
+		"%s: expected at least one line referencing %s", rel, marker)
+}
+
+// TestSpecificationReferencesDependencyDiscovery is test-plan.md TC-002
+// (E34-F07 REQ-F-003/AC-2): specification.md's READ list must reference
+// state-space-coverage.md's dependency-discovery section as a bare pointer
+// instead of restating a procedure, and the prior unstated "grep for related
+// services" READ item must be gone.
+func TestSpecificationReferencesDependencyDiscovery(t *testing.T) {
+	const rel = "prompts/feature/specification.md"
+	content := readEmbeddedString(t, rel)
+
+	assert.NotContains(t, content, "grep for related services",
+		"%s must drop the old unstated 'grep for related services' READ item", rel)
+
+	assertBareStateSpaceReference(t, rel, content)
+}
+
+// TestTestPlanningReferencesTechniqueSelection is test-plan.md TC-003
+// (E34-F07 REQ-F-002/AC-2): test_planning.md must reference
+// state-space-coverage.md's technique-selection section as a bare pointer
+// rather than restating the technique-selection algorithm.
+func TestTestPlanningReferencesTechniqueSelection(t *testing.T) {
+	const rel = "prompts/feature/test_planning.md"
+	content := readEmbeddedString(t, rel)
+
+	assertBareStateSpaceReference(t, rel, content)
+}
+
+// TestFeatureReviewReferencesShippedConsumer is test-plan.md TC-006
+// (E34-F07 REQ-F-004): feature_review.md must reference
+// state-space-coverage.md's shipped-consumer re-verification section as a
+// bare pointer instead of restating the procedure.
+func TestFeatureReviewReferencesShippedConsumer(t *testing.T) {
+	const rel = "prompts/epic/feature_review.md"
+	content := readEmbeddedString(t, rel)
+
+	assertBareStateSpaceReference(t, rel, content)
+}
+
+// TestTaskReviewSharedNamingParagraph is test-plan.md TC-004 (E34-F07
+// REQ-F-005/AC-2): task_review.md must gain the shared-naming-drift
+// paragraph, including the "even when the local name compiles/passes tests"
+// clause verbatim — the clause that distinguishes a blocking contract
+// finding from a soft style suggestion (this is the exact clause TC-017's
+// fixture exercises) — and must reference state-space-coverage.md without
+// restating any of the other three consuming-prompt sections (closed
+// lifecycle tables, technique selection, dependency discovery) this feature
+// wired elsewhere.
+func TestTaskReviewSharedNamingParagraph(t *testing.T) {
+	const rel = "prompts/feature/task_review.md"
+	content := readEmbeddedString(t, rel)
+	normalized := normalizeWhitespace(content)
+
+	assert.Contains(t, normalized,
+		"even when the local name compiles/passes tests",
+		"%s must keep the 'even when the local name compiles/passes tests' clause verbatim", rel)
+	assert.Contains(t, content, "state-space-coverage.md",
+		"%s must reference state-space-coverage.md", rel)
+
+	for _, restated := range []string{
+		"closed lifecycle table",
+		"technique selection from state shape",
+		"dependency discovery",
+	} {
+		assert.NotContains(t, strings.ToLower(normalized), restated,
+			"%s must not restate the %q procedure owned by another consuming prompt", rel, restated)
 	}
 }
 

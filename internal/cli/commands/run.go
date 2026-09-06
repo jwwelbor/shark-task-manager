@@ -330,6 +330,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			RunChild:          runChild,
 			QuestionResponses: buildQuestionResponsePersister(childType),
 			QuestionBlocker:   questionBlocker,
+			IntegrationGuard:  cascadeIntegrationGuard{commandLabel: "run"},
 			HarnessResolver:   cli.GetHarnessResolver(),
 			GateIngest:        gateIngestDeps,
 		})
@@ -409,6 +410,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		RunChild:          runChild,
 		QuestionResponses: buildQuestionResponsePersister(entityType),
 		QuestionBlocker:   questionBlocker,
+		IntegrationGuard:  cascadeIntegrationGuard{commandLabel: "run"},
 		HarnessResolver:   cli.GetHarnessResolver(),
 		GateIngest:        gateIngestDeps,
 	})

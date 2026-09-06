@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -2676,5 +2677,181 @@ func TestRunController_OutputSummary_EmptyOnFailure(t *testing.T) {
 	}
 	if result.Outcome != "failed" {
 		t.Errorf("Outcome = %q, want %q", result.Outcome, "failed")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CascadeIntegrationGuard wiring (UAT round-3 rejection Finding 1 /
+// docs/plan/tech-debt/TD-208.md, T-E34-F08-008 rework round 3).
+//
+// `shark next`'s resolveCascade (internal/cli/commands/next.go) enforces
+// REQ-F-004's pre-dispatch integration-base capture-or-block precondition
+// before dispatching any feature under an epic's cascade. UAT found that
+// `shark run`'s own cascade path (RunController.handleCascade) had no
+// equivalent guard at all — a documented, supported second dispatch surface
+// that silently skipped the precondition entirely. These tests pin
+// handleCascade's enforcement of an injected CascadeIntegrationGuard, the
+// shared seam internal/cli/commands/run.go wires to the exact same guard
+// logic `shark next` uses (see run_cascade_integration_test.go in that
+// package for the real-git production-path proof).
+// ---------------------------------------------------------------------------
+
+// fakeCascadeIntegrationGuard is a CascadeIntegrationGuard test double
+// recording every (entityType, key) it was asked to check, returning err.
+type fakeCascadeIntegrationGuard struct {
+	calls []string
+	err   error
+}
+
+func (g *fakeCascadeIntegrationGuard) EnsureBaseCaptured(_ context.Context, entityType, key string) error {
+	g.calls = append(g.calls, entityType+":"+key)
+	return g.err
+}
+
+var _ CascadeIntegrationGuard = (*fakeCascadeIntegrationGuard)(nil)
+
+// TestRunController_CascadeAction_BlocksDispatchOnIntegrationGuardFailure
+// proves handleCascade calls the injected CascadeIntegrationGuard before
+// enumerating or dispatching any cascade child, and blocks entirely — no
+// children-lookup call, no child dispatch — when the guard reports failure.
+// Before this fix, handleCascade had no such call site at all: this test
+// would fail to compile against pre-fix controller.go (no IntegrationGuard
+// field) and, once the field merely exists but is unused, would fail because
+// childrenLookupCalled/runChildCalled would be true.
+func TestRunController_CascadeAction_BlocksDispatchOnIntegrationGuardFailure(t *testing.T) {
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "active"}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionCascade, Instruction: "cascade"}, nil
+		},
+	}
+	childrenLookupCalled := false
+	cascadeSvc := &MockCascadeChildrenService{
+		DescribeDispatchableChildrenFunc: func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+			childrenLookupCalled = true
+			return services.CascadeChildrenState{
+				Children:            []services.CascadeChild{{Key: "E07-F01", EntityType: "feature"}},
+				TotalChildren:       1,
+				NonTerminalChildren: 1,
+			}, nil
+		},
+	}
+	runChildCalled := false
+	runChild := func(ctx context.Context, childType, key string, opts RunOptions) (*RunResult, error) {
+		runChildCalled = true
+		return &RunResult{EntityKey: key, Outcome: "completed"}, nil
+	}
+	guard := &fakeCascadeIntegrationGuard{err: fmt.Errorf("simulated capture failure")}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc:    actionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{
+			"": &MockDispatcher{},
+		},
+		ChildrenSvc:      cascadeSvc,
+		RunChild:         runChild,
+		IntegrationGuard: guard,
+	})
+	if err != nil {
+		t.Fatalf("NewRunController failed: %v", err)
+	}
+
+	result, err := ctrl.Run(context.Background(), "E07", RunOptions{EntityType: "epic"})
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+	if len(guard.calls) != 1 || guard.calls[0] != "epic:E07" {
+		t.Fatalf("expected IntegrationGuard.EnsureBaseCaptured to be called once with (epic, E07), got %v", guard.calls)
+	}
+	if childrenLookupCalled {
+		t.Fatal("DescribeDispatchableChildren must never be called after the integration guard reports failure")
+	}
+	if runChildCalled {
+		t.Fatal("no cascade child may be dispatched after the integration guard reports failure")
+	}
+	if result.Outcome != "failed" {
+		t.Errorf("expected Outcome=failed, got %s", result.Outcome)
+	}
+	if !strings.Contains(result.Error, "simulated capture failure") {
+		t.Errorf("expected result.Error to mention the guard failure, got %q", result.Error)
+	}
+}
+
+// TestRunController_CascadeAction_IntegrationGuardSuccessAllowsDispatch
+// proves a passing guard is purely a precondition check: cascade dispatch
+// proceeds exactly as it did before this fix once the guard reports success.
+func TestRunController_CascadeAction_IntegrationGuardSuccessAllowsDispatch(t *testing.T) {
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{
+				CurrentStatus: "active",
+				AvailableTransitions: []services.TransitionInfoWithAction{
+					{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}},
+				},
+			}, nil
+		},
+		TransitionStatusFunc: func(ctx context.Context, key, target string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{
+		GetStatusActionPopulatedFunc: func(ctx context.Context, status string, vars map[string]string) (*config.PopulatedAction, error) {
+			return &config.PopulatedAction{Action: config.ActionCascade, Instruction: "cascade"}, nil
+		},
+	}
+	runChildCalled := false
+	cascadeSvc := &MockCascadeChildrenService{
+		DescribeDispatchableChildrenFunc: func(ctx context.Context, entityType, key string) (services.CascadeChildrenState, error) {
+			if runChildCalled {
+				return services.CascadeChildrenState{TotalChildren: 1, NonTerminalChildren: 0}, nil
+			}
+			return services.CascadeChildrenState{
+				Children:            []services.CascadeChild{{Key: "E07-F01", EntityType: "feature"}},
+				TotalChildren:       1,
+				NonTerminalChildren: 1,
+			}, nil
+		},
+	}
+	runChild := func(ctx context.Context, childType, key string, opts RunOptions) (*RunResult, error) {
+		runChildCalled = true
+		return &RunResult{EntityKey: key, FinalStatus: "done", Outcome: "completed"}, nil
+	}
+	guard := &fakeCascadeIntegrationGuard{}
+
+	ctrl, err := NewRunController(RunControllerDeps{
+		Transitioner: transitioner,
+		Placeholders: &MockPlaceholderGen{},
+		ActionSvc:    actionSvc,
+		WorkflowSvc:  defaultWorkflowSvc(),
+		Dispatchers: map[string]AgentDispatcher{
+			"": &MockDispatcher{},
+		},
+		ChildrenSvc:      cascadeSvc,
+		RunChild:         runChild,
+		IntegrationGuard: guard,
+	})
+	if err != nil {
+		t.Fatalf("NewRunController failed: %v", err)
+	}
+
+	result, err := ctrl.Run(context.Background(), "E07", RunOptions{EntityType: "epic"})
+	if err != nil {
+		t.Fatalf("Run() returned unexpected error: %v", err)
+	}
+	if len(guard.calls) != 1 || guard.calls[0] != "epic:E07" {
+		t.Fatalf("expected IntegrationGuard.EnsureBaseCaptured to be called once with (epic, E07), got %v", guard.calls)
+	}
+	if !runChildCalled {
+		t.Fatal("expected cascade child dispatch once the integration guard reports success")
+	}
+	if result.Outcome != "completed" {
+		t.Errorf("expected Outcome=completed, got %s (error=%q)", result.Outcome, result.Error)
 	}
 }

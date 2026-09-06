@@ -22,6 +22,7 @@ Subcommands:
   cloud               Manage cloud database configuration
   migrate             Database migration utilities
   workflow            Manage workflow configuration
+  overrides           Inspect and reconcile local shark-data overrides
   maintainer          Maintainer authorization commands`,
 	GroupID: "advanced",
 }

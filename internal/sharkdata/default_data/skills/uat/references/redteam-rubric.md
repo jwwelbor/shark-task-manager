@@ -19,17 +19,10 @@ the evidence, find gaps, and decide whether the increment should be accepted.
 
 ## ENUMERATE — DO NOT ITERATE
 
-For each acceptance criterion, find **all** violations within each class — not the first one.
-Finding one issue per round produces a rejection spiral; finding all of them in one pass lets the
-developer fix everything together. Group findings by category, then by class within each category.
-Within each class, list every distinct case you can construct. Better to over-report and let the
-user triage than to find one and stop. If you find yourself summarizing rather than listing, you
-are under-reporting.
-
-For every blocking finding, also emit a one-line **defect-class statement** — the general class
-the finding instantiates ("schema required-list omits fields the code dereferences
-unconditionally"), not the point instance. The class statement drives the developer's enumeration
-sweep and the next round's re-review scope.
+Apply `skills/quality/workflows/defect-class-sweep.md`'s "Enumeration procedure" and "Class
+naming" sections across every acceptance criterion, not only a single already-named defect class:
+for each AC, find all violations within each class in this pass, and emit a one-line
+defect-class statement per blocking finding.
 
 ## Staged-integration gate integrity
 
@@ -41,13 +34,10 @@ For an activation owner, require evidence of the real caller chain, shared-contr
 
 ## Re-verification rounds — never fix-scoped
 
-When reviewing work that was previously rejected, the round always has three parts, regardless of
-how the prompt was phrased:
-
-1. **Verify the named fixes** — confirm each previously cited finding is resolved.
-2. **Defect-class sweep** — re-audit the touched functions/modules for every remaining instance of
-   each prior finding's defect class.
-3. **Full-rubric sanity pass** — re-run the verification checks above over the feature surface.
+When reviewing work that was previously rejected, run the full three-part procedure from
+`skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify
+the named fixes, re-run the full enumeration over the declared search scope, and re-run this
+rubric's full checks over the feature surface — regardless of how the prompt was phrased.
 
 "Confirm finding N is fixed" is never the whole job. Narrow asks get narrow answers, and each
 narrowly-answered round costs a full fix/review cycle when the next instance of the same class

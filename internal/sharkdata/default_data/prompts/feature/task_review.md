@@ -5,6 +5,8 @@ If report exists with PASS verdict, advance immediately. If FAIL, send back to t
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 TASK DECOMPOSITION REVIEW
 
 This is a quality gate comparing the generated tasks against the feature specification. The goal is to catch gaps, ordering issues, or spec misalignment BEFORE development begins.
@@ -38,6 +40,13 @@ VERIFY:
       spans multiple components may be its own task (goal must say so).
       If this rule is violated, FAIL and send back with reason: "merge
       test-only task(s) into their implementation task(s) for TDD."
+
+## Shared naming integrity
+- [ ] Compare every shared field/state/event/contract name the task touches
+      against the owning specification and interaction map verbatim; report
+      unexplained drift as a contract finding (blocking) even when the local
+      name compiles/passes tests. See
+      `skills/quality/workflows/state-space-coverage.md`.
 
 ## Ordering & Dependencies
 - [ ] Execution order reflects actual dependencies

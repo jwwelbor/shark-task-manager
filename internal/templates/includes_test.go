@@ -1,13 +1,20 @@
 package templates
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"text/template"
 
+	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // ============================================================================
@@ -390,6 +397,329 @@ func TestIncludeResolverWithEmbed_MissingFromBoth(t *testing.T) {
 	assert.Contains(t, err.Error(), "nonexistent/definitely-not-there.md")
 }
 
+// TestIncludeResolverWithEmbed_DefectClassSweepRenders verifies that the
+// checked-in defect-class-sweep workflow file (E34-F06) renders cleanly
+// through the production renderer and carries every section named in
+// spec.md REQ-F-001: class naming, search-scope declaration, enumeration,
+// zero-result reporting, instance evidence, guard selection, closure rule,
+// and the three-part re-verification procedure.
+func TestIncludeResolverWithEmbed_DefectClassSweepRenders(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+
+	out, err := r.Resolve("{{include: skills/quality/workflows/defect-class-sweep.md}}")
+	require.NoError(t, err, "defect-class-sweep.md must render through the production renderer with no errors")
+
+	for _, section := range []string{
+		"## Class naming",
+		"## Search-scope declaration",
+		"## Enumeration procedure",
+		"## Zero-result reporting",
+		"## Instance evidence",
+		"## Guard selection",
+		"## Structural guard closure",
+		"## Full-class re-verification",
+	} {
+		assert.Contains(t, out, section, "defect-class-sweep.md must contain section %q", section)
+	}
+}
+
+// TestProductCriticalPathGuardPartial_RendersStandalone verifies that the
+// checked-in product-critical-path guard partial (E34-F10) defines exactly
+// one named template (spec.md AC-1, test-plan.md TC-001) and renders cleanly
+// through the production template engine (text/template.Parse + Funcs +
+// ExecuteTemplate, the same engine NewOrchestratorRenderer uses to compile
+// every prompt) with no data supplied — this repository's actual state has
+// none of the four REQ-F-032 source files, so the guard's static reporting
+// text must name each one as an unresolved prerequisite (D-F10-03), name the
+// five REQ-F-034 disqualified evidence classes verbatim, and contain no bare
+// workflow status name or `shark` CLI verb (REQ-NF-002/003).
+func TestProductCriticalPathGuardPartial_RendersStandalone(t *testing.T) {
+	partialPath := canonicalPromptPath("_partials", "_product_critical_path_guard.md")
+
+	raw, err := os.ReadFile(partialPath)
+	require.NoError(t, err, "product-critical-path guard partial must exist at %s", partialPath)
+	source := string(raw)
+
+	// AC-T1: exactly one {{define}} block, naming the guard template.
+	assert.Equal(t, 1, strings.Count(source, "{{define"),
+		"guard partial must contain exactly one {{define}} block")
+	assert.Contains(t, source, `{{define "_product_critical_path_guard"}}`,
+		"guard partial must define the _product_critical_path_guard template")
+
+	tmpl, err := template.New("guard").Funcs(orchestratorFuncs()).Parse(source)
+	require.NoError(t, err, "guard partial must parse as a valid Go template")
+
+	var buf bytes.Buffer
+	err = tmpl.ExecuteTemplate(&buf, "_product_critical_path_guard", nil)
+	require.NoError(t, err, "guard partial must render cleanly through the production template engine")
+	out := buf.String()
+
+	// AC-T2 / D-F10-03: all four REQ-F-032 source files are absent from this
+	// repository today, and the guard must report each one, by its exact
+	// path, as an unresolved prerequisite.
+	for _, sourceFile := range []string{
+		"docs/product/D01-vision-statement.md",
+		"docs/product/D02-success-criteria.md",
+		"docs/plan/product-delivery-roadmap.md",
+		"docs/plan/product-critical-path.md",
+	} {
+		assert.Contains(t, out, "unresolved prerequisite: "+sourceFile+" missing",
+			"guard must report %s as an unresolved prerequisite when absent", sourceFile)
+	}
+
+	// AC-T3 / REQ-F-034: the five disqualified evidence classes, reusing
+	// E34-F02's evidence-authenticity vocabulary verbatim (research-report.md
+	// finding 5).
+	for _, term := range []string{
+		"fixture data",
+		"a captured/recorded run",
+		"a hand-authored test actor",
+		"a contract-only test",
+		"a component-level test suite",
+	} {
+		assert.Contains(t, out, term, "guard must name disqualified evidence class %q", term)
+	}
+
+	// AC-T3 / REQ-NF-002/003: no bare workflow status name (from any entity
+	// workflow YAML's steps: keys) or shark CLI verb anywhere in the guard.
+	forbiddenStatusNames := []string{
+		"blocked", "cancelled", "code_review", "completed", "development",
+		"draft", "on_hold", "qa", "research", "active", "assessment",
+		"decomposition", "design", "feature_review", "integration_review",
+		"refinement", "approval", "task_generation", "task_review",
+		"test_planning", "open", "answering", "ready_for_resolution",
+		"resolved", "withdrawn", "superseded", "archived", "planning",
+		"closing", "identified", "in_progress", "triaged", "wont_fix",
+	}
+	wordBoundary := regexp.MustCompile(`\bshark\b`)
+	assert.False(t, wordBoundary.MatchString(out), "guard must not name the `shark` CLI")
+	for _, status := range forbiddenStatusNames {
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(status) + `\b`)
+		assert.False(t, re.MatchString(out), "guard must not contain bare workflow status name %q", status)
+	}
+}
+
+// productCriticalPathGuardInvocation is the exact literal invocation string
+// spec.md REQ-F-033 requires each of the twelve consuming prompts to contain
+// (test-plan.md TC-002).
+const productCriticalPathGuardInvocation = `{{template "_product_critical_path_guard" .}}`
+
+// productCriticalPathGuardConsumingPrompts is the exact twelve-prompt set
+// spec.md's Architecture table and T-E34-F10-002's task Scope name.
+var productCriticalPathGuardConsumingPrompts = []string{
+	"sprint/planning.md",
+	"sprint/active.md",
+	"sprint/closing.md",
+	"epic/assessment.md",
+	"epic/decomposition.md",
+	"epic/active.md",
+	"feature/specification.md",
+	"feature/test_planning.md",
+	"feature/task_generation.md",
+	"feature/task_review.md",
+	"feature/approval.md",
+	"task/development.md",
+}
+
+// productCriticalPathGuardRestatementSignals are fragments unique to the
+// guard partial's own reporting-field prose (REQ-F-033/034). None of the
+// twelve consuming prompts pre-dated these phrases (grep-confirmed empty
+// before this task, per research-report.md); their presence in a consuming
+// prompt outside the single template invocation would mean the prompt
+// paraphrased the guard's fields inline instead of referencing it — the
+// twelve-copy drift risk research-report.md finding 3 warns against.
+var productCriticalPathGuardRestatementSignals = []string{
+	"unresolved prerequisite:",
+	"side quest",
+	"side-quest",
+	"executable advancement evidence",
+	"hand-authored test actor",
+	"component-level test suite",
+}
+
+// TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce is test-plan.md
+// TC-002 (spec.md AC-2): each of the twelve prompts named in REQ-F-033
+// contains the guard's literal invocation string exactly once, and none of
+// them restates the guard's own reporting-field language inline.
+func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
+	for _, prompt := range productCriticalPathGuardConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			body, err := sharkdata.ReadEmbedded("prompts/" + prompt)
+			require.NoError(t, err, "embedded prompt %s must exist", prompt)
+			content := string(body)
+
+			count := strings.Count(content, productCriticalPathGuardInvocation)
+			assert.Equal(t, 1, count,
+				"%s must invoke the guard template exactly once (found %d)", prompt, count)
+
+			for _, signal := range productCriticalPathGuardRestatementSignals {
+				assert.NotContains(t, content, signal,
+					"%s must not restate the guard's reporting fields inline (found %q)", prompt, signal)
+			}
+		})
+	}
+}
+
+// productCriticalPathGuardBaselineSHA256 records the SHA-256 of each of the
+// twelve wired prompts' content exactly as it existed before T-E34-F10-002
+// added the guard invocation (captured from the pre-edit checked-in files).
+// TestTwelvePromptsAddGuardAsPureAddition reconstructs each file's
+// pre-invocation content by removing the single guard paragraph and
+// re-hashes it — any other change to the file (a reordered section, an
+// altered pre-existing line) changes the hash and fails this test
+// (test-plan.md TC-003, spec.md AC-3/REQ-NF-001).
+var productCriticalPathGuardBaselineSHA256 = map[string]string{
+	"sprint/planning.md":         "f27d56ae7e922347d611389a6d5797fa39402b4887e41bb1dc815a10799d4248",
+	"sprint/active.md":           "86752cf41ecdc68c08063e392616b149f5ffdf5e42c6e7db18426f673898b5c4",
+	"sprint/closing.md":          "94f8057747fae8ffa85b95fab0cf86146c8f8298e285322737c5457f4f9e3a59",
+	"epic/assessment.md":         "6e9c5516db6e8c415000795fbbdbe2c48a5acebb4e8c493f77f00ae724ee27fb",
+	"epic/decomposition.md":      "76a7558c41c97ed3fd9eba3dc6671799da58c3e0a94ff340f7c308f166704131",
+	"epic/active.md":             "d821d8ffef1ed1f3422133397e318c9bb92e7be702ec2e695ce0430f04c9f23a",
+	"feature/specification.md":   "82b13648206166648c9812badf50bac484cecb5b7d1e036a31fecc981aefa75a",
+	"feature/test_planning.md":   "91d86e2a390f722b7baa1e7f7b372660284ac42410c3e50d64b212b8232eb40b",
+	"feature/task_generation.md": "3bd98c3bab9d9233825d044d9889f810da99f2f41f692100718490b5e205a1cf",
+	"feature/task_review.md":     "a0e64b910dd76108bb6ca9380ed4660c4540384b8aa2c79cee4db7e19cfc9bac",
+	"feature/approval.md":        "7291b18ca126b291de41452a1a0f4a10fc45ea0fb2e1835383f4212983cf08f7",
+	"task/development.md":        "7c6f658345c95bbf5f264b59150483d7617c6011a3107b80cee7f59955d7850b",
+}
+
+// stripProductCriticalPathGuardParagraph removes the guard invocation's
+// standalone paragraph block from content and returns what remains. content
+// is expected to end in exactly one trailing newline (true of every shipped
+// prompt), so that single newline is set aside before splitting on the
+// blank-line paragraph separator ("\n\n") and restored afterward — this
+// makes the reconstruction independent of where in the file the guard
+// paragraph was inserted, so long as it was inserted as its own
+// blank-line-delimited block.
+func stripProductCriticalPathGuardParagraph(t *testing.T, content string) string {
+	t.Helper()
+	require.True(t, strings.HasSuffix(content, "\n"), "prompt file must end with a trailing newline")
+	trimmed := strings.TrimSuffix(content, "\n")
+
+	blocks := strings.Split(trimmed, "\n\n")
+	var kept []string
+	removed := 0
+	for _, b := range blocks {
+		if b == productCriticalPathGuardInvocation {
+			removed++
+			continue
+		}
+		kept = append(kept, b)
+	}
+	require.Equal(t, 1, removed,
+		"guard invocation must appear as exactly one standalone paragraph block")
+
+	return strings.Join(kept, "\n\n") + "\n"
+}
+
+// TestTwelvePromptsAddGuardAsPureAddition is test-plan.md TC-003 (spec.md
+// AC-3/REQ-NF-001): removing the guard's standalone paragraph from each of
+// the twelve wired prompts' current content reproduces that file's exact
+// pre-edit bytes, proving the guard was wired in as a pure addition with
+// every pre-existing line byte-identical.
+func TestTwelvePromptsAddGuardAsPureAddition(t *testing.T) {
+	for _, prompt := range productCriticalPathGuardConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			body, err := sharkdata.ReadEmbedded("prompts/" + prompt)
+			require.NoError(t, err, "embedded prompt %s must exist", prompt)
+			content := string(body)
+
+			stripped := stripProductCriticalPathGuardParagraph(t, content)
+
+			wantHash, ok := productCriticalPathGuardBaselineSHA256[prompt]
+			require.True(t, ok, "missing pre-edit baseline hash for %s", prompt)
+
+			sum := sha256.Sum256([]byte(stripped))
+			gotHash := hex.EncodeToString(sum[:])
+			assert.Equal(t, wantHash, gotHash,
+				"%s: removing the guard paragraph must reproduce the file's exact pre-edit content; a hash mismatch means some other line changed", prompt)
+		})
+	}
+}
+
+// TestDevelopmentPromptGuardSitsInCompletionReportingSection is test-plan.md
+// TC-003's structural-position check for task/development.md (spec.md AC-T3):
+// the guard invocation must land inside the completion-reporting section —
+// specifically after the closing "When done: stop and summarize" line — not
+// prepended to the file.
+func TestDevelopmentPromptGuardSitsInCompletionReportingSection(t *testing.T) {
+	body, err := sharkdata.ReadEmbedded("prompts/task/development.md")
+	require.NoError(t, err, "embedded prompts/task/development.md must exist")
+	content := string(body)
+
+	closingIdx := strings.Index(content, "When done: stop and summarize")
+	require.NotEqual(t, -1, closingIdx, "development.md must contain the closing completion-reporting line")
+
+	guardIdx := strings.Index(content, productCriticalPathGuardInvocation)
+	require.NotEqual(t, -1, guardIdx, "development.md must contain the guard invocation")
+
+	assert.Greater(t, guardIdx, closingIdx,
+		"guard invocation must come after the closing completion-reporting line, not be prepended to the file")
+}
+
+// TestIncludeResolverWithEmbed_StateSpaceCoverageRenders verifies that the
+// checked-in state-space-coverage.md workflow file (E34-F07) renders cleanly
+// through the production renderer and carries every one of the six required
+// sections (spec.md REQ-F-001-004/006/007), asserting each section's required
+// substantive clauses per test-plan.md TC-001 — not just heading presence.
+func TestIncludeResolverWithEmbed_StateSpaceCoverageRenders(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+
+	out, err := r.Resolve("{{include: skills/quality/workflows/state-space-coverage.md}}")
+	require.NoError(t, err, "state-space-coverage.md must render through the production renderer with no errors")
+
+	// All six required section headings (REQ-F-001-004/006/007).
+	for _, section := range []string{
+		"## Closed lifecycle tables",
+		"## Technique selection from state shape",
+		"## Dependency discovery by interaction and caller path",
+		"## Shipped consumer re-verification",
+		"## I-04 propagation",
+		"## Design divergence",
+	} {
+		assert.Contains(t, out, section, "state-space-coverage.md must contain section %q", section)
+	}
+
+	// Closed lifecycle tables: the detection heuristic and all seven required
+	// table columns (TC-001 clause 1).
+	assert.Contains(t, out, "behavior-bearing", "must state the lifecycle-field detection heuristic")
+	for _, column := range []string{
+		"value", "meaning", "entry transition", "exit transition",
+		"terminal", "invalid-transition", "failure/recovery",
+	} {
+		assert.Contains(t, out, column, "closed-table section must name column %q", column)
+	}
+
+	// Technique selection: trigger condition and technique name (TC-001 clause 2).
+	assert.Contains(t, out, "state-transition", "must name the state-transition/decision-table technique")
+	assert.Contains(t, out, "decision-table", "must name the decision-table technique")
+
+	// Dependency discovery: priority-ordered sources and per-axis rationale
+	// recording (TC-001 clause 3).
+	assert.Contains(t, out, "interaction-map", "must name interaction-map rows as a discovery source")
+	assert.Contains(t, out, "Caller-Path Contract", "must name production caller paths via the Caller-Path Contract concept")
+	assert.Contains(t, out, "persistence reader", "must name persistence readers as a discovery source")
+	assert.Contains(t, out, "inclusion/exclusion rationale", "must require per-axis inclusion/exclusion rationale")
+
+	// Shipped consumer re-verification: all four required fields (TC-001 clause 4).
+	for _, field := range []string{
+		"caller path", "owning feature key", "affected AC ID", "regression-test pointer",
+	} {
+		assert.Contains(t, out, field, "shipped-consumer section must name field %q", field)
+	}
+
+	// I-04 propagation: shape reference and the no-silent-omission language
+	// (TC-001 clause 5).
+	assert.Contains(t, out, "ChangeImpactSet", "must reference the ChangeImpactSet shape")
+	assert.Contains(t, out, "never a completion record that omits an affected artifact without a stated disposition",
+		"must carry the exact no-silent-omission language")
+
+	// Design divergence: references (does not restate) defect-class-sweep.md's
+	// Backward-looking rework section (TC-001 clause 6 / REQ-F-007).
+	assert.Contains(t, out, "defect-class-sweep.md", "design-divergence section must reference defect-class-sweep.md")
+	assert.Contains(t, out, "Backward-looking rework", "must reference defect-class-sweep.md's Backward-looking rework section by name")
+}
+
 // TestNewIncludeResolverWithEmbed_EmptyDataRoot verifies that the embed
 // backstop works even with an empty data root (zero-config consumer mode).
 func TestNewIncludeResolverWithEmbed_EmptyDataRoot(t *testing.T) {
@@ -423,4 +753,264 @@ func TestOrchestratorRenderer_LoadsFromEmbed(t *testing.T) {
 	})
 	require.NoError(t, err, "embedded task/development.md must render successfully")
 	assert.NotEmpty(t, strings.TrimSpace(out), "rendered output must be non-empty")
+}
+
+// ============================================================================
+// T-E34-F08-002 / TC-001 — tier-matrix.md single-source-of-truth
+// ============================================================================
+
+// tierMatrixCanonicalPath is the exact bundle path the five consuming
+// prompts must reference. TC-001's edge case ("a prompt that references the
+// file by a stale/renamed path fails ... not just the grep") is why this
+// constant, not a loose substring like "tier-matrix", is what the grep test
+// below matches against.
+const tierMatrixCanonicalPath = "skills/quality/context/tier-matrix.md"
+
+// TestTierMatrixRendersThroughProductionRenderer renders tier-matrix.md
+// through the production include resolver (embed-aware, matching how the
+// five consuming prompts would pull it in) and asserts the SIMPLE/STANDARD/
+// COMPLEX tier contract and the "missing artifacts are failures only when
+// the selected tier requires them" paragraph (REQ-F-001) are present.
+func TestTierMatrixRendersThroughProductionRenderer(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+
+	out, err := r.Resolve("{{include: " + tierMatrixCanonicalPath + "}}")
+	require.NoError(t, err, "tier-matrix.md must render through the production renderer with no error")
+
+	assert.Contains(t, out, "## Tier contract")
+	assert.Contains(t, out, "## Executable gate evidence")
+	for _, tier := range []string{"SIMPLE", "STANDARD", "COMPLEX"} {
+		assert.Contains(t, out, tier, "tier contract table must name tier %q", tier)
+	}
+	assert.Contains(t, out, "Missing artifacts are failures only when the selected tier requires them.")
+}
+
+// TestTierMatrixIncludeResolvesFromStalePathFails is TC-001's explicit edge
+// case: a stale or renamed path must fail include resolution, not just a
+// grep for a loose substring.
+func TestTierMatrixIncludeResolvesFromStalePathFails(t *testing.T) {
+	r := NewIncludeResolverWithEmbed("")
+	_, err := r.Resolve("{{include: skills/quality/context/tier-matrix-renamed.md}}")
+	require.Error(t, err, "a stale/renamed tier-matrix.md path must fail include resolution")
+}
+
+// tierMatrixConsumingPrompts is the exact five-prompt set T-E34-F08-002's
+// task scope names (REQ-F-001, AC-1/AC-T2).
+var tierMatrixConsumingPrompts = []string{
+	"feature/assessment.md",
+	"feature/task_generation.md",
+	"feature/code_review.md",
+	"feature/qa.md",
+	"feature/approval.md",
+}
+
+// tierMatrixTableHeaderCells is tier-matrix.md's own table header. A
+// restated (not referenced) copy of the tier table in a consuming prompt
+// would reproduce this same header row — this is the structural signal
+// TC-001 requires ("a table with the same three tier names and a 'gate'
+// column, not an exact-string blacklist").
+var tierMatrixTableHeaderCells = []string{
+	"Planning source", "Test source", "Same-model gate", "Separate QA", "Final UAT",
+}
+
+// TestFivePromptsReferenceTierMatrixWithoutRestatingIt is TC-001's
+// structural grep/regex check: each of the five consuming prompts contains a
+// textual pointer to tier-matrix.md's exact canonical path, and none of them
+// restate the tier table itself.
+func TestFivePromptsReferenceTierMatrixWithoutRestatingIt(t *testing.T) {
+	for _, prompt := range tierMatrixConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			body, err := sharkdata.ReadEmbedded("prompts/" + prompt)
+			require.NoError(t, err, "embedded prompt %s must exist", prompt)
+			content := string(body)
+
+			assert.Contains(t, content, tierMatrixCanonicalPath,
+				"%s must reference tier-matrix.md by its exact canonical path", prompt)
+
+			restated := true
+			for _, cell := range tierMatrixTableHeaderCells {
+				if !strings.Contains(content, cell) {
+					restated = false
+					break
+				}
+			}
+			assert.False(t, restated,
+				"%s must not restate the tier table's own header cells (%v)", prompt, tierMatrixTableHeaderCells)
+		})
+	}
+}
+
+// ============================================================================
+// E34-F10 T-003 — cross-prompt guard-block invariant checks (TC-004/TC-005)
+// ============================================================================
+//
+// TestProductCriticalPathGuardPartial_RendersStandalone (T-001) already
+// proves the guard partial's own static text carries the REQ-F-034 evidence
+// terms and no bare status/CLI-verb token, in isolation. These tests are the
+// feature-level integration check test-plan.md TC-004/TC-005 call for: render
+// each of the twelve wired prompts through the same production renderer
+// shipped prompts render through (NewOrchestratorRenderer over
+// canonicalPromptsDir, the same pipeline TestRenderedPromptsGolden exercises
+// in internal/cli/commands), extract only the guard's own block of text from
+// each full render, and assert the invariant against that extracted block —
+// proving the wiring itself (not just the standalone partial) preserves both
+// invariants.
+
+// canonicalWorkflowDir is the on-disk canonical workflow YAML directory,
+// relative to this package, mirroring canonicalPromptsDir's convention in
+// orchestrator_partials_test.go.
+const canonicalWorkflowDir = "../../internal/sharkdata/default_data/workflow"
+
+// productCriticalPathGuardBlockStartMarker and …EndMarker bound the guard's
+// rendered text within a full prompt render. TC-004/TC-005 scope their checks
+// to the guard block only, not the whole rendered prompt, because the
+// surrounding prompt content legitimately contains status names and `shark`
+// commands outside the guard (test-plan.md TC-005 edge case).
+const (
+	productCriticalPathGuardBlockStartMarker = "PRODUCT CRITICAL-PATH GUARD"
+	productCriticalPathGuardBlockEndMarker   = "makes the choice for you."
+)
+
+// extractProductCriticalPathGuardBlock renders templateName through renderer
+// (the production orchestrator renderer, the same pipeline shipped prompts
+// render through) and returns only the guard's own block of text, delimited
+// by its known start/end markers.
+func extractProductCriticalPathGuardBlock(t *testing.T, renderer *OrchestratorRenderer, templateName string) string {
+	t.Helper()
+
+	rendered, err := renderer.Render(templateName, map[string]string{})
+	require.NoError(t, err, "render %s through the production renderer", templateName)
+
+	startIdx := strings.Index(rendered, productCriticalPathGuardBlockStartMarker)
+	require.NotEqual(t, -1, startIdx,
+		"%s: rendered output must contain the guard block start marker %q", templateName, productCriticalPathGuardBlockStartMarker)
+
+	endMarkerIdx := strings.Index(rendered[startIdx:], productCriticalPathGuardBlockEndMarker)
+	require.NotEqual(t, -1, endMarkerIdx,
+		"%s: rendered output must contain the guard block end marker %q after the start marker", templateName, productCriticalPathGuardBlockEndMarker)
+
+	endIdx := startIdx + endMarkerIdx + len(productCriticalPathGuardBlockEndMarker)
+	return rendered[startIdx:endIdx]
+}
+
+// workflowStepsFile is the minimal shape needed to read a workflow YAML
+// file's `steps:` key set — every other field is irrelevant here.
+type workflowStepsFile struct {
+	Steps map[string]interface{} `yaml:"steps"`
+}
+
+// workflowStepKeysUnion enumerates the union of every step key (bare status
+// name) across every workflow YAML file under dir — e.g.
+// internal/sharkdata/default_data/workflow/*.yaml (task, feature, epic, bug,
+// change, question, sprint, tech-debt). Enumerated programmatically per
+// T-E34-F10-003's Notes for Agent, so this negative-token list tracks the
+// shipped workflows without hand-maintenance as steps change.
+func workflowStepKeysUnion(t *testing.T, dir string) []string {
+	t.Helper()
+
+	files, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
+	require.NoError(t, err, "glob workflow YAML files under %s", dir)
+	require.NotEmpty(t, files, "expected at least one workflow YAML file under %s", dir)
+
+	seen := map[string]bool{}
+	var keys []string
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		require.NoError(t, err, "read workflow file %s", f)
+
+		var wf workflowStepsFile
+		require.NoError(t, yaml.Unmarshal(raw, &wf), "parse workflow file %s", f)
+
+		for step := range wf.Steps {
+			if !seen[step] {
+				seen[step] = true
+				keys = append(keys, step)
+			}
+		}
+	}
+	return keys
+}
+
+// productCriticalPathGuardEvidenceClassTerms are the five REQ-F-034
+// disqualified-evidence-class terms, reusing E34-F02's evidence-authenticity
+// vocabulary verbatim (research-report.md finding 5) — the same list
+// TestProductCriticalPathGuardPartial_RendersStandalone already checks
+// against the standalone partial render.
+var productCriticalPathGuardEvidenceClassTerms = []string{
+	"fixture data",
+	"a captured/recorded run",
+	"a hand-authored test actor",
+	"a contract-only test",
+	"a component-level test suite",
+}
+
+// TestSpecificationTestPlanningApprovalRendersNameEvidenceClassesInGuardBlock
+// is test-plan.md TC-004 (spec.md AC-4 / task AC-T1): rendering
+// feature/specification.md, feature/test_planning.md, and feature/approval.md
+// through the full production renderer and extracting each render's guard
+// block must find all five REQ-F-034 evidence-class terms verbatim in every
+// one of the three guard blocks (15 assertions: 5 terms x 3 files).
+func TestSpecificationTestPlanningApprovalRendersNameEvidenceClassesInGuardBlock(t *testing.T) {
+	renderer, err := NewOrchestratorRenderer(canonicalPromptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes + partials resolved")
+
+	targetPrompts := []string{
+		"feature/specification.md",
+		"feature/test_planning.md",
+		"feature/approval.md",
+	}
+
+	for _, prompt := range targetPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			block := extractProductCriticalPathGuardBlock(t, renderer, prompt)
+			for _, term := range productCriticalPathGuardEvidenceClassTerms {
+				assert.Contains(t, block, term,
+					"%s: guard block must name disqualified evidence class %q verbatim", prompt, term)
+			}
+		})
+	}
+}
+
+// productCriticalPathGuardCLIVerbPatterns are the `shark ` + CLI-verb
+// substrings test-plan.md TC-005 (spec.md AC-5) names as disqualified from
+// appearing inside a wired prompt's guard block.
+var productCriticalPathGuardCLIVerbPatterns = []string{
+	"shark claim",
+	"shark heartbeat",
+	"shark release",
+	"shark status advance",
+	"shark status set",
+	"shark next-status",
+	"shark set-status",
+}
+
+// TestTwelvePromptRendersGuardBlockContainsNoStatusOrCLIVerb is test-plan.md
+// TC-005 (spec.md AC-5 / task AC-T2): rendering all twelve wired prompts
+// through the full production renderer and extracting each render's guard
+// block must find zero matches against the full `steps:` key set unioned
+// from every entity workflow YAML file, and zero `shark ` + CLI-verb matches
+// — scoped to the guard block only, since the surrounding prompt content
+// legitimately contains status names and shark commands outside the guard.
+func TestTwelvePromptRendersGuardBlockContainsNoStatusOrCLIVerb(t *testing.T) {
+	renderer, err := NewOrchestratorRenderer(canonicalPromptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes + partials resolved")
+
+	statusTokens := workflowStepKeysUnion(t, canonicalWorkflowDir)
+	require.NotEmpty(t, statusTokens, "expected at least one status token enumerated from workflow YAML files")
+
+	for _, prompt := range productCriticalPathGuardConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			block := extractProductCriticalPathGuardBlock(t, renderer, prompt)
+
+			for _, status := range statusTokens {
+				re := regexp.MustCompile(`\b` + regexp.QuoteMeta(status) + `\b`)
+				assert.False(t, re.MatchString(block),
+					"%s: guard block must not contain bare workflow status token %q", prompt, status)
+			}
+			for _, verbPattern := range productCriticalPathGuardCLIVerbPatterns {
+				assert.False(t, strings.Contains(block, verbPattern),
+					"%s: guard block must not contain shark CLI verb pattern %q", prompt, verbPattern)
+			}
+		})
+	}
 }

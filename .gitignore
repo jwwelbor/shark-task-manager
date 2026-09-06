@@ -55,6 +55,11 @@ docs/workflow/activity.jsonl
 
 # Run command transcript files (E07-F41)
 .shark/runs/
+# Per-epic integration-run state (E34-F08 REQ-F-004): CaptureBase/RecordEvent
+# resolve the project root the same way .shark/runs/ above does (independent
+# of --db), so tests that drive the real shark binary against this repo's
+# own root — not an isolated temp project dir — can create this here too.
+.shark/integration/
 shark.log
 
 bin/server

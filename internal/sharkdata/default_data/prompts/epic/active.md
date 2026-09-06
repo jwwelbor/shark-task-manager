@@ -2,6 +2,8 @@ Epic {{.id}} ("{{.title}}") is ACTIVE — features are in progress.
 
 ## Steps
 
+{{template "_product_critical_path_guard" .}}
+
 1. List all features: {{template "list_json" .}}
 2. For each feature (in execution order):
    - **completed / cancelled** → skip

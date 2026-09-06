@@ -36,6 +36,10 @@ VERIFY:
 - [ ] No feature acceptance depends on a later feature unless it was reassigned
       to the named activation owner with a complete staged declaration; otherwise
       the boundary is redesigned
+- [ ] A feature that adds or widens a state value read by an already-completed
+      feature's consumer follows
+      `skills/quality/workflows/state-space-coverage.md`'s "Shipped consumer
+      re-verification" section
 
 ## Ordering & Dependencies
 - [ ] Execution order reflects actual dependencies

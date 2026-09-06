@@ -136,6 +136,13 @@ the rationale in the working document instead of creating a Question.
    Question releases a qualifying `question_blocks` gate; do not resolve merely
    because a discussion occurred.
 
+   When the resolution changes already-implemented or already-specified
+   behavior, also persist the I-04 `ChangeImpactSet` per
+   `skills/quality/workflows/state-space-coverage.md#i-04-propagation` as a
+   `--type=reference` note on the affected entity, e.g.
+   `shark create note <affected-key> "<I-04 ChangeImpactSet JSON>" --type=reference` —
+   no new persistence mechanism.
+
 ## Report the outcome
 
 Report the Question key, route (routine or council), affected entity if

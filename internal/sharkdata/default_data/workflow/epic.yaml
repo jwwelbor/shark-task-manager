@@ -15,7 +15,7 @@ steps:
       blocked: blocked
       fail: feature_review
       on_hold: on_hold
-      pass: completed
+      pass: integration_review
   assessment:
     phase: triage
     color: purple
@@ -152,6 +152,24 @@ steps:
       fail: kickback_rework
       on_hold: hold
       pass: success
+  integration_review:
+    phase: review
+    color: cyan
+    display_token: IRV
+    description: Ready for cross-feature integration review before epic completion
+    progress_weight: 0.9
+    responsibility: agent
+    action: spawn_agent
+    agent: uat-agent
+    provider: openai
+    model: gpt-5.6-terra
+    skills: [quality, specification-writing]
+    prompt: epic/integration_review.md
+    outcomes:
+      blocked: blocked
+      fail: active
+      on_hold: on_hold
+      pass: completed
   on_hold:
     phase: paused
     color: gray

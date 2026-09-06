@@ -54,7 +54,7 @@ that D-E34-LEGACY-PROMPTS-001 is resolved and the artifact isn't orphaned.
 **Acceptance Criteria**:
 - [x] `dev-artifacts/planning/skill-workflow-extraction-prompt.md` is named as
       the tracked artifact path in a Shark task under this feature.
-- [ ] A short discoverability pointer to the artifact exists outside
+- [x] A short discoverability pointer to the artifact exists outside
       `dev-artifacts/` (e.g. referenced from this feature or a skill-authoring
       reference doc).
 
@@ -70,8 +70,8 @@ that D-E34-LEGACY-PROMPTS-001 is resolved and the artifact isn't orphaned.
      for REQ-F-006's legacy-prompt gap.
    - **Priority**: Must-Have
    - **Acceptance Criteria**:
-     - [ ] Task references the exact file path.
-     - [ ] No duplicate prompt content is authored.
+     - [x] Task references the exact file path.
+     - [x] No duplicate prompt content is authored.
 
 ---
 

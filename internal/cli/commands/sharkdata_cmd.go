@@ -71,6 +71,10 @@ local user content and is never modified by upgrade. Files added locally
 outside overrides/ are left in place but reported in the diff summary so
 the user can decide.
 
+Also reports override drift counts (current / upstream_changed /
+identical_redundant / orphaned / baseline_unknown); run
+'shark admin overrides status' for per-file detail.
+
 Examples:
   shark admin upgrade                   # Apply latest defaults
   shark admin upgrade --dry-run         # Show what would change without writing
@@ -112,18 +116,31 @@ func init() {
 	adminCmd.AddCommand(sharkValidateDataCmd)
 }
 
-// runSharkInstallData implements `shark admin install-shark-data`: explicit
-// extraction of the embedded canonical tree to disk for local authoring.
-func runSharkInstallData(cmd *cobra.Command, _ []string) error {
-	root, err := cli.FindProjectRoot()
+// resolveSharkDataRoot resolves the project root and shark-data root shared
+// by every `shark admin` subcommand in this file (and by
+// resolveOverridesDataRoot in overrides_cmd.go): cli.FindProjectRoot() then
+// config.ResolveSharkDataRoot(root, configBytes). cmdLabel prefixes any
+// returned error to identify which subcommand failed.
+func resolveSharkDataRoot(cmdLabel string) (root, dataRoot string, err error) {
+	root, err = cli.FindProjectRoot()
 	if err != nil {
-		return fmt.Errorf("shark admin install-shark-data: failed to locate project root: %w", err)
+		return "", "", fmt.Errorf("%s: failed to locate project root: %w", cmdLabel, err)
 	}
 
 	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
-	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
+	dataRoot, err = config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
-		return fmt.Errorf("shark admin install-shark-data: %w", err)
+		return "", "", fmt.Errorf("%s: %w", cmdLabel, err)
+	}
+	return root, dataRoot, nil
+}
+
+// runSharkInstallData implements `shark admin install-shark-data`: explicit
+// extraction of the embedded canonical tree to disk for local authoring.
+func runSharkInstallData(cmd *cobra.Command, _ []string) error {
+	root, dataRoot, err := resolveSharkDataRoot("shark admin install-shark-data")
+	if err != nil {
+		return err
 	}
 
 	dest, sharkdataErr := sharkdata.InitAt(dataRoot)
@@ -256,20 +273,27 @@ func pathEscapesRoot(rel string) bool {
 }
 
 func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
-	root, err := cli.FindProjectRoot()
+	_, dataRoot, err := resolveSharkDataRoot("shark admin upgrade")
 	if err != nil {
-		return fmt.Errorf("shark admin upgrade: failed to locate project root: %w", err)
-	}
-
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
-	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
-	if err != nil {
-		return fmt.Errorf("shark admin upgrade: %w", err)
+		return err
 	}
 
 	summary, err := sharkdata.UpgradeAt(dataRoot, upgradeDryRun)
 	if err != nil {
 		return err
+	}
+
+	// OverrideStatusAt is read-only (REQ-F-004), so it's safe to call
+	// unconditionally for both a real run and --dry-run — no branching
+	// needed (REQ-F-003). On a real (non-dry-run) run, UpgradeAt above has
+	// already written to disk, so a failure here must never turn an
+	// otherwise-successful upgrade into a hard error or drop the four
+	// pre-existing summary keys/lines — this call is purely additive. Fall
+	// back to an all-zero overrides summary and warn on stderr instead.
+	overridesReport, overridesErr := sharkdata.OverrideStatusAt(dataRoot)
+	if overridesErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: shark admin upgrade: failed to compute overrides status: %v\n", overridesErr)
+		overridesReport = &sharkdata.OverrideStatusReport{Summary: zeroOverridesSummary()}
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -279,6 +303,7 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 			"updated":           summary.Updated,
 			"unchanged":         summary.Unchanged,
 			"skipped_overrides": summary.SkippedOverrides,
+			"overrides":         overridesReport.Summary,
 		})
 	}
 
@@ -291,6 +316,8 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("  updated:   %d\n", len(summary.Updated))
 	fmt.Printf("  unchanged: %d\n", len(summary.Unchanged))
 	fmt.Printf("  overrides skipped: %d\n", len(summary.SkippedOverrides))
+	fmt.Printf("  overrides: %s (run 'shark admin overrides status' for detail)\n",
+		formatOverridesSummaryCounts(overridesReport.Summary))
 	for _, p := range summary.Added {
 		fmt.Printf("  + %s\n", p)
 	}
@@ -303,16 +330,44 @@ func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runSharkValidate(cmd *cobra.Command, _ []string) error {
-	root, err := cli.FindProjectRoot()
-	if err != nil {
-		return fmt.Errorf("shark admin validate-data: failed to locate project root: %w", err)
+// formatOverridesSummaryCounts renders the overrides drift summary as a
+// compact "classification=count" list in stable classification order, for
+// the human-readable upgrade output line.
+func formatOverridesSummaryCounts(summary map[string]int) string {
+	parts := make([]string, 0, len(overridesClassificationOrder))
+	for _, c := range overridesClassificationOrder {
+		parts = append(parts, fmt.Sprintf("%s=%d", c, summary[c]))
 	}
+	return strings.Join(parts, " ")
+}
 
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
-	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
+// overridesClassificationOrder is the stable display order for the five
+// override drift classifications, shared by formatOverridesSummaryCounts and
+// zeroOverridesSummary.
+var overridesClassificationOrder = []string{
+	sharkdata.ClassificationCurrent,
+	sharkdata.ClassificationUpstreamChanged,
+	sharkdata.ClassificationIdenticalRedundant,
+	sharkdata.ClassificationOrphaned,
+	sharkdata.ClassificationBaselineUnknown,
+}
+
+// zeroOverridesSummary returns an all-zero, five-key overrides summary, used
+// as the fallback when OverrideStatusAt itself fails (e.g. an unreadable
+// overrides/ directory) so `shark admin upgrade` still emits a schema-stable
+// "overrides" key/line rather than dropping it.
+func zeroOverridesSummary() map[string]int {
+	summary := make(map[string]int, len(overridesClassificationOrder))
+	for _, c := range overridesClassificationOrder {
+		summary[c] = 0
+	}
+	return summary
+}
+
+func runSharkValidate(cmd *cobra.Command, _ []string) error {
+	_, dataRoot, err := resolveSharkDataRoot("shark admin validate-data")
 	if err != nil {
-		return fmt.Errorf("shark admin validate-data: %w", err)
+		return err
 	}
 
 	report, err := sharkdata.ValidateAt(dataRoot)

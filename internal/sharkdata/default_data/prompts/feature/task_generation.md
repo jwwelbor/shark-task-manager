@@ -7,12 +7,16 @@ Check for existing tasks: {{template "list_json" .}}. If tasks exist covering al
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 ## Step 0: Determine Complexity Tier
 
 Check `shark feature notes {{.id}}` (or {{template "get_json" .}}) for the most recent `COMPLEXITY: <TIER>` decision note — assessment records one, and an escalation below may have added a later, superseding one. **The latest such note wins.**
 
 - **SIMPLE** -> follow "SIMPLE-lite mode" below; the spec and test-plan gates are waived, but validated research is never waived.
 - **STANDARD**, **COMPLEX**, or no COMPLEXITY note found -> the included workflow's Hard Gates apply as written.
+
+Required planning artifacts — SIMPLE: `feature.md`, `research-report.md`; STANDARD: `spec.md`, `test-plan.md`; COMPLEX: `spec.md`, `test-plan.md` (canonical source: `skills/quality/context/tier-matrix.md`).
 
 ### Prompt-only scope
 
@@ -134,6 +138,10 @@ Reference test-plan.md: "See test-plan.md Section 1, cases 1.1-1.4"
 ```
 
 CRITICAL RULES:
+- Draft each task file by reference from the start: cite spec.md/test-plan.md
+  sections and file:line locations, don't narrate them. A task file that
+  needs trimming after a first draft was written the wrong way, not just
+  too long.
 - 50 lines MAX per task file (not counting frontmatter)
 - NO code blocks in task files (no Go, SQL, etc.)
 - REFERENCE parent docs by section — do NOT copy content
@@ -153,6 +161,11 @@ CRITICAL RULES:
 - Cross-epic integrations use X-## only. Put X-## work in the distinct
   "Integration Contracts > Cross-epic" subsection and keep it separate from
   I-## cross-feature work.
+
+Before returning, run a line count on every task file you wrote or are
+reusing (excluding frontmatter): `wc -l <file>` minus frontmatter lines. Any
+file over 50 lines must be trimmed now, in this pass — do not rely on
+task_review to catch it.
 
 EXIT GATE:
 - All spec.md requirements covered by tasks

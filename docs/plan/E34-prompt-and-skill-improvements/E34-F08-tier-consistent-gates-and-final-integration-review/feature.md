@@ -147,9 +147,15 @@ them.
      follow-up is accounted for.
    - Cross-check open review findings, completed class sweeps and guards,
      ADRs, project standards, and predicted-debt records naming changed paths.
-   - Add shared contract test `TC-I-01-READINESS-SYMMETRY`, which reads the
-     canonical architecture field list and verifies the producer, consumer,
-     Rider verb, embedded skill, and interaction-map references in one test.
+   - Add a new structural guard, `CheckInteractionMapCompleteness`, which
+     reads `E34-interaction-map.md`'s Interaction Contracts table (the
+     actual producer/consumer/shape-source/payload/style source — not
+     architecture.md's per-interaction field-meaning tables) and verifies
+     the producer, consumer(s), shape-source link, payload, and style are
+     present for every I-01–I-05 row. Distinct from, and does not duplicate,
+     I-01's shared contract-test pointer **TC-I-01-READINESS-SYMMETRY**
+     (`TestI01ReadinessContract_TC_I_01_READINESS_SYMMETRY`, E34-F02/F03's
+     I-01 ReadinessEvidence contract test).
 
 6. **REQ-F-006 — Gate authority**
    - Integration review is an additional gate; it does not rewrite an
@@ -269,8 +275,9 @@ them.
   bases, missing/duplicate events, digest/path mismatch, partial inventories,
   unauthorized sessions, and conflicting second backfills with no mutation;
   assert dry-run writes nothing and no case infers a merge base.
-- Implement `TC-I-01-READINESS-SYMMETRY` as the structural guard for the full
-  I-01 producer/consumer reference surface.
+- Implement `CheckInteractionMapCompleteness` as the structural guard for the
+  full I-01–I-05 producer/consumer/shape-source reference surface in
+  `E34-interaction-map.md`.
 - Run `make fmt`, `make lint`, `make test`, and `git diff --check`.
 
 *Last Updated*: 2026-08-05

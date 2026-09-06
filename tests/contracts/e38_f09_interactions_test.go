@@ -803,6 +803,35 @@ func f09DecodeNextJSON(t *testing.T, raw string) map[string]interface{} {
 	return decoded
 }
 
+// f09InitMinimalGitRepo initializes a minimal real git repository at dir
+// with one commit, mirroring internal/cli/commands/
+// next_cascade_traversal_test.go's initCascadeIntegrationGitRepo. Needed by
+// f09Tc005RuntimeForkFixture (T-E34-F08-008 UAT rework round 2, Finding 1):
+// `shark next`'s epic `active`-step cascade now calls
+// integration.CaptureBase, which fails closed (blocks the cascade) when
+// `git rev-parse HEAD` cannot resolve — this fixture's `shark next E01` call
+// needs a real, resolvable HEAD so its fork/dispatch assertions exercise the
+// fan-out logic under test rather than the unrelated capture-failure path.
+func f09InitMinimalGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed"), 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+	run("add", "seed.txt")
+	run("commit", "-q", "-m", "seed")
+}
+
 // f09Tc005RuntimeForkFixture seeds a real temp SQLite database (via
 // db.InitDB, matching e39_interactions_test.go's TestTC308 cascade-fixture
 // pattern) with an epic at a cascading status and two sibling features tied
@@ -816,6 +845,7 @@ func f09Tc005RuntimeForkFixture(t *testing.T) (dbPath, projectDir string, sqlDB 
 	t.Helper()
 	ctx := context.Background()
 	projectDir = t.TempDir()
+	f09InitMinimalGitRepo(t, projectDir)
 	dbPath = filepath.Join(projectDir, "tc005-05.db")
 
 	workflowDir := filepath.Join(projectDir, "workflow")

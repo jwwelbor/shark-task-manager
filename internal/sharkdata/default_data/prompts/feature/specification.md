@@ -7,6 +7,8 @@ Check for existing spec.md in feature directory. If spec exists meeting exit gat
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 COMBINED REQUIREMENTS + ARCHITECTURE SPECIFICATION
 
 This is a SINGLE document (spec.md) that covers both what to build and how to build it. In brownfield development, the architect who understands the codebase is best positioned to write both.
@@ -21,7 +23,9 @@ READ:
 (3) Validated feature research report and its Capability map (required for every tier that reaches specification)
 (4) Feature description at {{.file_path}}
 (5) CLAUDE.md for coding standards and patterns
-(6) Existing code in affected areas (grep for related services, models, repos)
+(6) Existing code in affected areas — use
+    `skills/quality/workflows/state-space-coverage.md#dependency-discovery-by-interaction-and-caller-path`
+    to find every dependency before specifying a change
 (7) Parent epic {{.epic_id}}-interaction-map.md if present. Use only I-## IDs
     from that map; do not invent new interaction IDs.
 (8) Parent epic {{.epic_id}}-cross-epic-map.md and
@@ -31,7 +35,10 @@ READ:
 PRODUCE spec.md with these sections:
 
 **Requirements** (INCREMENTAL over epic — only what this feature adds):
-(1) Functional requirements with IDs (REQ-F-001, etc.)
+(1) Functional requirements with IDs (REQ-F-001, etc.). For a behavior-bearing
+    lifecycle field, declare a closed table per
+    `skills/quality/workflows/state-space-coverage.md`'s "Closed lifecycle
+    tables" section instead of a prose progression.
 (2) Non-functional requirements (performance, security)
 (3) Acceptance criteria (testable, specific)
 (4) Out of scope for this feature

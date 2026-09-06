@@ -5,7 +5,7 @@ Develop task {{.id}}: "{{.title}}".
 
 Check for existing implementation: review git diff and test files. If implementation exists and passes quality gate, advance immediately.
 
-REWORK? If the task spec contains a rejection section (e.g. "## UAT Rejection") or the kickback reason names a defect class: BEFORE fixing the cited instance, enumerate every code site in the touched module(s) matching that defect class, fix ALL of them, and list the swept sites in your completion note. A point fix that leaves sibling instances of the same class costs another full review round.
+REWORK? If the task spec contains a rejection section (e.g. "## UAT Rejection") or the kickback reason names a defect class: BEFORE fixing the cited instance, apply the defect-class sweep procedure (`skills/quality/workflows/defect-class-sweep.md`) — enumerate every site in the touched module(s) matching that defect class per its "Enumeration procedure" section, disposition each per that same section (do not force-fix an existing accepted-risk disposition absent new evidence), and list the swept sites in your completion note. A point fix that leaves sibling instances of the same class costs another full review round.
 
 ---
 
@@ -49,3 +49,5 @@ EXIT GATE:
 - No unrelated changes included
 
 When done: stop and summarize what changed, what tests ran, and whether the task is ready for the parent loop to advance to completed. Do NOT run Shark status commands yourself — code review, QA, and UAT still run at feature level once all tasks are done.
+
+{{template "_product_critical_path_guard" .}}

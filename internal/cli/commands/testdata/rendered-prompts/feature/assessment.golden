@@ -202,6 +202,8 @@ SCORE using 9 dimensions (max 27):
 
 TIER: 0-6=SIMPLE, 7-15=STANDARD, 16+=COMPLEX
 
+Canonical per-tier artifact and gate matrix: `skills/quality/context/tier-matrix.md` — do not restate it here.
+
 STORE: include this exact line in your final response so the parent loop can persist it as the decision note:
 `COMPLEXITY NOTE: COMPLEXITY: {tier} (score: {score}/27)`
 

@@ -94,6 +94,10 @@ Upgrade the on-disk `shark-data/` tree to the version bundled in the
 current binary. Files in `shark-data/overrides/` are left untouched; extracted
 defaults outside `overrides/` are refreshed from the binary.
 
+The output also reports override drift counts (read-only — upgrade never
+writes to `shark-data/overrides/` or `.shark-override-baselines.json`); run
+`shark admin overrides status` for per-file detail.
+
 ```
 Usage:
   shark admin upgrade [flags]
@@ -115,6 +119,46 @@ shark admin upgrade --dry-run
 shark admin upgrade
 ```
 
+Human output includes a summary line for override drift, in addition to the
+existing added/updated/unchanged/skipped-overrides counts. Note that a
+freshly-initialized `shark-data/` ships an `overrides/.gitkeep` scaffold file
+with no canonical counterpart, so `orphaned` is `1` out of the box until it's
+removed or acknowledged:
+
+```
+Upgrade summary:
+  added:     0
+  updated:   1
+  unchanged: 314
+  overrides skipped: 2
+  overrides: current=2 upstream_changed=1 identical_redundant=0 orphaned=1 baseline_unknown=3 (run 'shark admin overrides status' for detail)
+```
+
+JSON output (`--json`, including `--dry-run --json`) adds an `overrides`
+object alongside the four pre-existing keys; a project with zero overrides
+still returns all five classification keys at `0`, never an omitted field.
+If computing override status itself fails (e.g. an unreadable file under
+`overrides/`), the command still succeeds and prints the four pre-existing
+keys/lines with an all-zero `overrides` object, warning on stderr instead of
+aborting an upgrade that may have already written files:
+
+```json
+{
+  "dry_run": false,
+  "added": [],
+  "updated": ["prompts/feature/qa.md"],
+  "unchanged": ["workflow/task.yaml"],
+  "skipped_overrides": ["overrides/.gitkeep"],
+  "overrides": {
+    "current": 2,
+    "upstream_changed": 1,
+    "identical_redundant": 0,
+    "orphaned": 1,
+    "baseline_unknown": 3
+  }
+}
+```
+
 ---
 
 ### shark admin validate-data
@@ -131,6 +175,93 @@ Usage:
 ```bash
 shark admin validate-data
 shark admin validate-data --json
+```
+
+---
+
+### shark admin overrides
+
+Inspect and reconcile local `shark-data/overrides/` files against the
+embedded canonical defaults. Every file under `overrides/` is compared to its
+canonical counterpart and classified as one of `current`, `upstream_changed`,
+`identical_redundant`, `orphaned`, or `baseline_unknown`. Resolves the
+project and shark-data roots the same way `shark admin upgrade` does.
+
+```
+Usage:
+  shark admin overrides [command]
+```
+
+**Available Subcommands:**
+
+| Subcommand | Description |
+|------------|--------------|
+| `status` | Show drift classification for every override |
+| `acknowledge` | Record the current canonical digest as the new baseline |
+
+---
+
+### shark admin overrides status
+
+Walk `shark-data/overrides/` and print each file's drift classification.
+Read-only — no file is written.
+
+```
+Usage:
+  shark admin overrides status [flags]
+```
+
+**Examples:**
+
+```bash
+shark admin overrides status
+shark admin overrides status --json
+```
+
+JSON output shape:
+
+```json
+{
+  "overrides": [
+    {
+      "path": "workflow/sprint.yaml",
+      "classification": "upstream_changed",
+      "override_sha256": "...",
+      "canonical_sha256": "...",
+      "baseline_sha256": "...",
+      "suggested_action": "review upstream canonical change before rebasing this override"
+    }
+  ],
+  "summary": {
+    "current": 2,
+    "upstream_changed": 1,
+    "identical_redundant": 0,
+    "orphaned": 0,
+    "baseline_unknown": 3
+  }
+}
+```
+
+---
+
+### shark admin overrides acknowledge
+
+Record the current canonical SHA-256 digest as the recorded baseline for one
+or more override paths, reclassifying them as `current` on the next status
+check. Each path must have both a regular override file and a canonical
+counterpart; a path failing either check aborts the whole call with no
+manifest mutation. Never touches override file bytes.
+
+```
+Usage:
+  shark admin overrides acknowledge <relative-override-path>... [flags]
+```
+
+**Examples:**
+
+```bash
+shark admin overrides acknowledge workflow/sprint.yaml
+shark admin overrides acknowledge workflow/sprint.yaml prompts/feature/qa.md --json
 ```
 
 ---

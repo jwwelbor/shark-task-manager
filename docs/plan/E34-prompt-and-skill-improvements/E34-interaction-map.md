@@ -41,10 +41,29 @@ replay behavior, and Rider/core parity. F06 uses it for findings and class
 sweeps; F07 uses it for planning-gate findings and change impacts; F08 uses it
 for tier gates and epic integration review.
 
-The planned shared contract test is
-`E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`.
-F05 test planning must create that exact pointer; all consumers reference it
-instead of creating twin schema tests.
+The originally-planned shared contract test,
+`E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`,
+was never created — E34-F05 shipped without a `test-plan.md`. This is a
+genuine, tracked gap (TD-198 for the stale pointer text; **TD-211** for the
+missing test itself), not resolved by I-03's coverage below (F06's
+scenario-review proves I-03 defect-class-sweep closure, not GateResult
+schema/parity — the two are different contracts sharing the same envelope
+type). Declared as a **contract-only, deferred** row pending TD-211:
+
+- **Counterpart identity**: E34-F05 — Structured Gate Results and
+  Parent-Owned Persistence.
+- **Current status (live)**: `completed` (`shark get E34-F05 --field status`).
+- **Shared-contract evidence**: `architecture.md#i-02-gateresult-v1` (the
+  GateResult schema itself, structurally exercised by each consumer's own
+  tests — F06 `internal/sharkdata/embed_test.go`, F07
+  `internal/services/impact_service_test.go`, F08
+  `TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture` — with
+  no known live divergence, per TD-211).
+- **Activation owner**: none — E34-F05 is already `completed`; TD-211 names
+  a dedicated follow-up task, not a re-opening of any shipped feature.
+- **Closure key**: `I-02-E34-F05-gateresult-parity-test` — closes when
+  TD-211's `TC-I-02-GATERESULT-PARITY` test is created and passes against
+  all three consumers.
 
 ### I-03 DefectClassSweep
 
@@ -53,8 +72,10 @@ guard closure, recurrence, and re-verification. E34-F08 rejects final
 integration closure when a prior blocking class lacks a complete I-03 or its
 guard is unverified.
 
-The planned shared contract test is
-`E34-F06-defect-class-completeness-and-recurrence-routing/test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE`.
+The shared contract test is
+`E34-F06-defect-class-completeness-and-recurrence-routing/scenario-review-TC-005-TC-009.md#tc-i-03-defect-class-closure-cross-reference`
+(the original `test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE` anchor never
+resolved; this is the actual, existing anchor — TD-198).
 
 ### I-04 ChangeImpactSet
 
@@ -63,7 +84,9 @@ accounting, shared-name checks, and shipped-AC regression assignments. E34-F08
 verifies each I-04 is `accounted` before epic completion.
 
 The planned shared contract test is
-`E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-DECISION-PROPAGATION`.
+`E34-F07-state-space-planning-and-decision-propagation/test-plan.md#TC-I-04-CHANGE-IMPACT-CLOSURE`
+(renamed from the earlier placeholder `TC-I-04-DECISION-PROPAGATION` to match
+E34-F07's spec.md and test-plan.md).
 
 ### I-05 CanonicalAdoptionManifest
 
@@ -72,8 +95,10 @@ changes pass their full validation. E34-F09 consumes its exact paths and
 digests to plan override inspection; the manifest never authorizes automatic
 project edits.
 
-The planned shared contract test is
-`E34-F09-override-drift-visibility-and-wwgm-reconciliation/test-plan.md#TC-I-05-OVERRIDE-ADOPTION`.
+Contract test: **N/A** — E34-F09's Go/CLI surface does not parse the I-05
+manifest, so there is no Go-level contract test (confirmed in E34-F09's
+spec.md and test-plan.md); the earlier planned pointer name here was never
+created and has been removed rather than left dangling.
 
 ## Dependency order
 

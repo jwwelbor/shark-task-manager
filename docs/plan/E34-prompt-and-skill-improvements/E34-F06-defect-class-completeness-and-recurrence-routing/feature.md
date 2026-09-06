@@ -155,8 +155,10 @@ notes.
 
 - Given a later gate finds another instance,
 - When its fingerprint and class are compared with prior completed sweeps,
-- Then an in-scope instance is marked recurrence and a previously out-of-scope
-  instance follows normal rework,
+- Then an instance matching both the same `class_key` and lying inside a
+  completed sweep's scope is marked recurrence, while an instance missing
+  either conjunct (different class_key, or outside the completed scope)
+  follows normal rework,
 - And round count does not change the classification.
 
 **Route a severity conflict**
