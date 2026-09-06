@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // ============================================================================
@@ -835,6 +836,181 @@ func TestFivePromptsReferenceTierMatrixWithoutRestatingIt(t *testing.T) {
 			}
 			assert.False(t, restated,
 				"%s must not restate the tier table's own header cells (%v)", prompt, tierMatrixTableHeaderCells)
+		})
+	}
+}
+
+// ============================================================================
+// E34-F10 T-003 — cross-prompt guard-block invariant checks (TC-004/TC-005)
+// ============================================================================
+//
+// TestProductCriticalPathGuardPartial_RendersStandalone (T-001) already
+// proves the guard partial's own static text carries the REQ-F-034 evidence
+// terms and no bare status/CLI-verb token, in isolation. These tests are the
+// feature-level integration check test-plan.md TC-004/TC-005 call for: render
+// each of the twelve wired prompts through the same production renderer
+// shipped prompts render through (NewOrchestratorRenderer over
+// canonicalPromptsDir, the same pipeline TestRenderedPromptsGolden exercises
+// in internal/cli/commands), extract only the guard's own block of text from
+// each full render, and assert the invariant against that extracted block —
+// proving the wiring itself (not just the standalone partial) preserves both
+// invariants.
+
+// canonicalWorkflowDir is the on-disk canonical workflow YAML directory,
+// relative to this package, mirroring canonicalPromptsDir's convention in
+// orchestrator_partials_test.go.
+const canonicalWorkflowDir = "../../internal/sharkdata/default_data/workflow"
+
+// productCriticalPathGuardBlockStartMarker and …EndMarker bound the guard's
+// rendered text within a full prompt render. TC-004/TC-005 scope their checks
+// to the guard block only, not the whole rendered prompt, because the
+// surrounding prompt content legitimately contains status names and `shark`
+// commands outside the guard (test-plan.md TC-005 edge case).
+const (
+	productCriticalPathGuardBlockStartMarker = "PRODUCT CRITICAL-PATH GUARD"
+	productCriticalPathGuardBlockEndMarker   = "makes the choice for you."
+)
+
+// extractProductCriticalPathGuardBlock renders templateName through renderer
+// (the production orchestrator renderer, the same pipeline shipped prompts
+// render through) and returns only the guard's own block of text, delimited
+// by its known start/end markers.
+func extractProductCriticalPathGuardBlock(t *testing.T, renderer *OrchestratorRenderer, templateName string) string {
+	t.Helper()
+
+	rendered, err := renderer.Render(templateName, map[string]string{})
+	require.NoError(t, err, "render %s through the production renderer", templateName)
+
+	startIdx := strings.Index(rendered, productCriticalPathGuardBlockStartMarker)
+	require.NotEqual(t, -1, startIdx,
+		"%s: rendered output must contain the guard block start marker %q", templateName, productCriticalPathGuardBlockStartMarker)
+
+	endMarkerIdx := strings.Index(rendered[startIdx:], productCriticalPathGuardBlockEndMarker)
+	require.NotEqual(t, -1, endMarkerIdx,
+		"%s: rendered output must contain the guard block end marker %q after the start marker", templateName, productCriticalPathGuardBlockEndMarker)
+
+	endIdx := startIdx + endMarkerIdx + len(productCriticalPathGuardBlockEndMarker)
+	return rendered[startIdx:endIdx]
+}
+
+// workflowStepsFile is the minimal shape needed to read a workflow YAML
+// file's `steps:` key set — every other field is irrelevant here.
+type workflowStepsFile struct {
+	Steps map[string]interface{} `yaml:"steps"`
+}
+
+// workflowStepKeysUnion enumerates the union of every step key (bare status
+// name) across every workflow YAML file under dir — e.g.
+// internal/sharkdata/default_data/workflow/*.yaml (task, feature, epic, bug,
+// change, question, sprint, tech-debt). Enumerated programmatically per
+// T-E34-F10-003's Notes for Agent, so this negative-token list tracks the
+// shipped workflows without hand-maintenance as steps change.
+func workflowStepKeysUnion(t *testing.T, dir string) []string {
+	t.Helper()
+
+	files, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
+	require.NoError(t, err, "glob workflow YAML files under %s", dir)
+	require.NotEmpty(t, files, "expected at least one workflow YAML file under %s", dir)
+
+	seen := map[string]bool{}
+	var keys []string
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		require.NoError(t, err, "read workflow file %s", f)
+
+		var wf workflowStepsFile
+		require.NoError(t, yaml.Unmarshal(raw, &wf), "parse workflow file %s", f)
+
+		for step := range wf.Steps {
+			if !seen[step] {
+				seen[step] = true
+				keys = append(keys, step)
+			}
+		}
+	}
+	return keys
+}
+
+// productCriticalPathGuardEvidenceClassTerms are the five REQ-F-034
+// disqualified-evidence-class terms, reusing E34-F02's evidence-authenticity
+// vocabulary verbatim (research-report.md finding 5) — the same list
+// TestProductCriticalPathGuardPartial_RendersStandalone already checks
+// against the standalone partial render.
+var productCriticalPathGuardEvidenceClassTerms = []string{
+	"fixture data",
+	"a captured/recorded run",
+	"a hand-authored test actor",
+	"a contract-only test",
+	"a component-level test suite",
+}
+
+// TestSpecificationTestPlanningApprovalRendersNameEvidenceClassesInGuardBlock
+// is test-plan.md TC-004 (spec.md AC-4 / task AC-T1): rendering
+// feature/specification.md, feature/test_planning.md, and feature/approval.md
+// through the full production renderer and extracting each render's guard
+// block must find all five REQ-F-034 evidence-class terms verbatim in every
+// one of the three guard blocks (15 assertions: 5 terms x 3 files).
+func TestSpecificationTestPlanningApprovalRendersNameEvidenceClassesInGuardBlock(t *testing.T) {
+	renderer, err := NewOrchestratorRenderer(canonicalPromptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes + partials resolved")
+
+	targetPrompts := []string{
+		"feature/specification.md",
+		"feature/test_planning.md",
+		"feature/approval.md",
+	}
+
+	for _, prompt := range targetPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			block := extractProductCriticalPathGuardBlock(t, renderer, prompt)
+			for _, term := range productCriticalPathGuardEvidenceClassTerms {
+				assert.Contains(t, block, term,
+					"%s: guard block must name disqualified evidence class %q verbatim", prompt, term)
+			}
+		})
+	}
+}
+
+// productCriticalPathGuardCLIVerbPatterns are the `shark ` + CLI-verb
+// substrings test-plan.md TC-005 (spec.md AC-5) names as disqualified from
+// appearing inside a wired prompt's guard block.
+var productCriticalPathGuardCLIVerbPatterns = []string{
+	"shark claim",
+	"shark heartbeat",
+	"shark release",
+	"shark status advance",
+	"shark status set",
+	"shark next-status",
+	"shark set-status",
+}
+
+// TestTwelvePromptRendersGuardBlockContainsNoStatusOrCLIVerb is test-plan.md
+// TC-005 (spec.md AC-5 / task AC-T2): rendering all twelve wired prompts
+// through the full production renderer and extracting each render's guard
+// block must find zero matches against the full `steps:` key set unioned
+// from every entity workflow YAML file, and zero `shark ` + CLI-verb matches
+// — scoped to the guard block only, since the surrounding prompt content
+// legitimately contains status names and shark commands outside the guard.
+func TestTwelvePromptRendersGuardBlockContainsNoStatusOrCLIVerb(t *testing.T) {
+	renderer, err := NewOrchestratorRenderer(canonicalPromptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes + partials resolved")
+
+	statusTokens := workflowStepKeysUnion(t, canonicalWorkflowDir)
+	require.NotEmpty(t, statusTokens, "expected at least one status token enumerated from workflow YAML files")
+
+	for _, prompt := range productCriticalPathGuardConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			block := extractProductCriticalPathGuardBlock(t, renderer, prompt)
+
+			for _, status := range statusTokens {
+				re := regexp.MustCompile(`\b` + regexp.QuoteMeta(status) + `\b`)
+				assert.False(t, re.MatchString(block),
+					"%s: guard block must not contain bare workflow status token %q", prompt, status)
+			}
+			for _, verbPattern := range productCriticalPathGuardCLIVerbPatterns {
+				assert.False(t, strings.Contains(block, verbPattern),
+					"%s: guard block must not contain shark CLI verb pattern %q", prompt, verbPattern)
+			}
 		})
 	}
 }
