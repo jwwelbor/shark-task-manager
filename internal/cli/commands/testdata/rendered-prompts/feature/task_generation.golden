@@ -50,7 +50,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 ## Step 0: Determine Complexity Tier
 
 Check `shark feature notes E07-F01` (or shark get E07-F01 --json) for the most recent `COMPLEXITY: <TIER>` decision note — assessment records one, and an escalation below may have added a later, superseding one. **The latest such note wins.**

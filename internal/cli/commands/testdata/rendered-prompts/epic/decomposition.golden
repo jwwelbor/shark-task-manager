@@ -51,7 +51,6 @@ This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
 
-
 # Workflow: Write Feature PRD (craft)
 
 ## Purpose

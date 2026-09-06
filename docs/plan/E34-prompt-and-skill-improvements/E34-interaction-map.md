@@ -41,10 +41,14 @@ replay behavior, and Rider/core parity. F06 uses it for findings and class
 sweeps; F07 uses it for planning-gate findings and change impacts; F08 uses it
 for tier gates and epic integration review.
 
-The planned shared contract test is
-`E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`.
-F05 test planning must create that exact pointer; all consumers reference it
-instead of creating twin schema tests.
+The originally-planned shared contract test,
+`E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`,
+was never created — E34-F05 shipped without a `test-plan.md` (tracked as
+TD-198). The corrected, actually-existing pointer for GateResult schema
+parity is E34-F06's
+`test-plan.md`/`scenario-review-TC-005-TC-009.md#tc-i-03-defect-class-closure-cross-reference`
+coverage (I-03, below); consumers reference that pointer, not the missing
+F05 target.
 
 ### I-03 DefectClassSweep
 

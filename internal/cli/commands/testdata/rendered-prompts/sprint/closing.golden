@@ -94,7 +94,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 Read `shark sprint summary E07-F01 --detailed` and velocity data, synthesize the
 retrospective, and review carryover. Archiving is gated on explicit user
 confirmation — release outcome `pass` only after the retro is confirmed.

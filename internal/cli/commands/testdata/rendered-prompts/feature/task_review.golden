@@ -48,7 +48,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 TASK DECOMPOSITION REVIEW
 
 This is a quality gate comparing the generated tasks against the feature specification. The goal is to catch gaps, ordering issues, or spec misalignment BEFORE development begins.

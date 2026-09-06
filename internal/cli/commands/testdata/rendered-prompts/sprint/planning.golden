@@ -83,7 +83,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 Read the sprint plan and readiness data (`shark sprint plan E07-F01 --json`),
 propose entity assignments, and confirm scope. Do NOT start the sprint — starting
 is an explicit user action. When scope is agreed, release outcome `pass` to make

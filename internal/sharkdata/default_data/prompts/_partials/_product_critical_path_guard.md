@@ -39,5 +39,4 @@ choosing or starting work:
    stated reason (e.g. an urgent bug fix), or defer.
 
 This guard only reports; it never names a target status of its own and never
-makes the choice for you.
-{{end}}
+makes the choice for you.{{end}}

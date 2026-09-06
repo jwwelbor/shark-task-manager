@@ -105,7 +105,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 Pull entities via `shark sprint next` and dispatch each per the execution skill
 until the sprint backlog is drained or no further progress is possible. When the
 sprint is ready to wrap up, release outcome `pass` to move it to closing.

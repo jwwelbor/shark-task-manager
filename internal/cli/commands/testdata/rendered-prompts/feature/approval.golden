@@ -47,7 +47,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases

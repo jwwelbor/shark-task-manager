@@ -45,7 +45,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 1. List all features: shark list E07-F01 --json
 2. For each feature (in execution order):
    - **completed / cancelled** → skip

@@ -53,7 +53,6 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-
 ## Step 1: Classification Validation
 
 Is this genuinely an EPIC?
