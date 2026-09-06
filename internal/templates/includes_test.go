@@ -1,10 +1,13 @@
 package templates
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 	"github.com/stretchr/testify/assert"
@@ -414,6 +417,82 @@ func TestIncludeResolverWithEmbed_DefectClassSweepRenders(t *testing.T) {
 		"## Full-class re-verification",
 	} {
 		assert.Contains(t, out, section, "defect-class-sweep.md must contain section %q", section)
+	}
+}
+
+// TestProductCriticalPathGuardPartial_RendersStandalone verifies that the
+// checked-in product-critical-path guard partial (E34-F10) defines exactly
+// one named template (spec.md AC-1, test-plan.md TC-001) and renders cleanly
+// through the production template engine (text/template.Parse + Funcs +
+// ExecuteTemplate, the same engine NewOrchestratorRenderer uses to compile
+// every prompt) with no data supplied — this repository's actual state has
+// none of the four REQ-F-032 source files, so the guard's static reporting
+// text must name each one as an unresolved prerequisite (D-F10-03), name the
+// five REQ-F-034 disqualified evidence classes verbatim, and contain no bare
+// workflow status name or `shark` CLI verb (REQ-NF-002/003).
+func TestProductCriticalPathGuardPartial_RendersStandalone(t *testing.T) {
+	partialPath := canonicalPromptPath("_partials", "_product_critical_path_guard.md")
+
+	raw, err := os.ReadFile(partialPath)
+	require.NoError(t, err, "product-critical-path guard partial must exist at %s", partialPath)
+	source := string(raw)
+
+	// AC-T1: exactly one {{define}} block, naming the guard template.
+	assert.Equal(t, 1, strings.Count(source, "{{define"),
+		"guard partial must contain exactly one {{define}} block")
+	assert.Contains(t, source, `{{define "_product_critical_path_guard"}}`,
+		"guard partial must define the _product_critical_path_guard template")
+
+	tmpl, err := template.New("guard").Funcs(orchestratorFuncs()).Parse(source)
+	require.NoError(t, err, "guard partial must parse as a valid Go template")
+
+	var buf bytes.Buffer
+	err = tmpl.ExecuteTemplate(&buf, "_product_critical_path_guard", nil)
+	require.NoError(t, err, "guard partial must render cleanly through the production template engine")
+	out := buf.String()
+
+	// AC-T2 / D-F10-03: all four REQ-F-032 source files are absent from this
+	// repository today, and the guard must report each one, by its exact
+	// path, as an unresolved prerequisite.
+	for _, sourceFile := range []string{
+		"docs/product/D01-vision-statement.md",
+		"docs/product/D02-success-criteria.md",
+		"docs/plan/product-delivery-roadmap.md",
+		"docs/plan/product-critical-path.md",
+	} {
+		assert.Contains(t, out, "unresolved prerequisite: "+sourceFile+" missing",
+			"guard must report %s as an unresolved prerequisite when absent", sourceFile)
+	}
+
+	// AC-T3 / REQ-F-034: the five disqualified evidence classes, reusing
+	// E34-F02's evidence-authenticity vocabulary verbatim (research-report.md
+	// finding 5).
+	for _, term := range []string{
+		"fixture data",
+		"a captured/recorded run",
+		"a hand-authored test actor",
+		"a contract-only test",
+		"a component-level test suite",
+	} {
+		assert.Contains(t, out, term, "guard must name disqualified evidence class %q", term)
+	}
+
+	// AC-T3 / REQ-NF-002/003: no bare workflow status name (from any entity
+	// workflow YAML's steps: keys) or shark CLI verb anywhere in the guard.
+	forbiddenStatusNames := []string{
+		"blocked", "cancelled", "code_review", "completed", "development",
+		"draft", "on_hold", "qa", "research", "active", "assessment",
+		"decomposition", "design", "feature_review", "integration_review",
+		"refinement", "approval", "task_generation", "task_review",
+		"test_planning", "open", "answering", "ready_for_resolution",
+		"resolved", "withdrawn", "superseded", "archived", "planning",
+		"closing", "identified", "in_progress", "triaged", "wont_fix",
+	}
+	wordBoundary := regexp.MustCompile(`\bshark\b`)
+	assert.False(t, wordBoundary.MatchString(out), "guard must not name the `shark` CLI")
+	for _, status := range forbiddenStatusNames {
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(status) + `\b`)
+		assert.False(t, re.MatchString(out), "guard must not contain bare workflow status name %q", status)
 	}
 }
 
