@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -345,8 +346,20 @@ func TestOverrideStatusAt_UnreadableSubdirectoryDegradesPerEntry(t *testing.T) {
 	if blockedRow.Classification != ClassificationBaselineUnknown {
 		t.Errorf("Classification = %q, want %q", blockedRow.Classification, ClassificationBaselineUnknown)
 	}
-	if blockedRow.SuggestedAction == "" {
-		t.Error("expected a non-empty SuggestedAction describing the walk failure")
+	// Regression (defect-class sweep, E34-F09 UAT round 2): SuggestedAction
+	// must combine the already-relative path with a sanitized, path-free
+	// description of the failure — never the raw OS error's %v text, which
+	// embeds the absolute filesystem path (e.g. via *fs.PathError's Error()
+	// string) into a JSON-facing field (REQ-F-004).
+	wantSuggestedAction := `failed to walk path "blocked": permission denied`
+	if blockedRow.SuggestedAction != wantSuggestedAction {
+		t.Errorf("SuggestedAction = %q, want %q", blockedRow.SuggestedAction, wantSuggestedAction)
+	}
+	if strings.Contains(blockedRow.SuggestedAction, dataRoot) {
+		t.Errorf("SuggestedAction leaked the absolute dataRoot path: %q", blockedRow.SuggestedAction)
+	}
+	if strings.Contains(blockedRow.SuggestedAction, blockedDir) {
+		t.Errorf("SuggestedAction leaked the absolute blocked-dir path: %q", blockedRow.SuggestedAction)
 	}
 	if report.Summary[ClassificationBaselineUnknown] < 1 {
 		t.Errorf("Summary[baseline_unknown] = %d, want >= 1", report.Summary[ClassificationBaselineUnknown])

@@ -79,6 +79,27 @@ func normalizeOverrideRelPath(relPath string) (string, error) {
 	return fsPath, nil
 }
 
+// sanitizeWalkErrText extracts a path-free description of a filepath.WalkDir
+// directory-entry error for use in a JSON-facing field (OverrideRow.
+// SuggestedAction). WalkDir directory-read failures are reported as
+// *fs.PathError wrapping the underlying syscall/errno error (e.g. "permission
+// denied") — that inner error never carries a filesystem path, unlike the
+// PathError's own Error() string, which embeds the absolute path it was
+// operating on. The caller already knows the affected path in its
+// already-relative form (relOS) and includes it separately, so only this
+// path-free fragment is needed here. Per REQ-F-004, no other part of
+// walkEntryErr is ever interpolated into a row field, since it could leak an
+// absolute filesystem path. Any error that isn't a *fs.PathError falls back
+// to a fixed, generic phrase rather than risk leaking path text from an
+// unknown error shape.
+func sanitizeWalkErrText(err error) string {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) && pathErr.Err != nil {
+		return pathErr.Err.Error()
+	}
+	return "unreadable path"
+}
+
 // OverrideStatusAt walks <dataRoot>/overrides/ and classifies every regular
 // file's drift state relative to its canonical counterpart (see
 // classifyOverride for the five-state decision table). A missing or empty
@@ -136,7 +157,7 @@ func OverrideStatusAt(dataRoot string) (*OverrideStatusReport, error) {
 			report.addRow(OverrideRow{
 				Path:            filepath.ToSlash(relOS),
 				Classification:  ClassificationBaselineUnknown,
-				SuggestedAction: fmt.Sprintf("failed to walk path %q: %v", filepath.ToSlash(relOS), walkEntryErr),
+				SuggestedAction: fmt.Sprintf("failed to walk path %q: %s", filepath.ToSlash(relOS), sanitizeWalkErrText(walkEntryErr)),
 			})
 			if d != nil && d.IsDir() {
 				return fs.SkipDir
