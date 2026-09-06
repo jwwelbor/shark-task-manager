@@ -633,14 +633,19 @@ func TestRunSharkUpgrade_FreshInit_ReportsGitkeepScaffoldAsOrphaned(t *testing.T
 	assert.Equal(t, sharkdata.ClassificationOrphaned, statusReport.Rows[0].Classification)
 }
 
-// TestRunSharkUpgrade_OverridesStatusFailure_DoesNotDropUpgradeOutput pins
-// the fallback behavior when OverrideStatusAt itself fails (e.g. an
-// unreadable subdirectory under overrides/): a real upgrade has already
-// written files by that point, so the command must still succeed, still
-// print the four pre-existing summary lines, and still emit a schema-stable
-// (all-zero) "overrides" line -- with the failure surfaced as a stderr
-// warning instead of aborting the command.
-func TestRunSharkUpgrade_OverridesStatusFailure_DoesNotDropUpgradeOutput(t *testing.T) {
+// TestRunSharkUpgrade_ChmoddedOverrideSubdir_DegradesToBaselineUnknownRow pins
+// the current behavior when a WalkDir directory-entry error occurs under
+// overrides/ (e.g. an unreadable subdirectory): OverrideStatusAt degrades the
+// affected path to a single baseline_unknown row instead of propagating a
+// hard error out of the whole call (per commits 42e80083 and 7e557026, which
+// superseded the pre-42e80083 hard-error behavior this test used to pin). A
+// real upgrade therefore succeeds outright, still prints the four
+// pre-existing summary lines, and its "overrides" line reflects the one
+// degraded row -- with no stderr warning, because OverrideStatusAt did not
+// actually fail this time. Contrast with
+// TestRunSharkUpgrade_OverridesDirSymlinkLoop_TriggersStatusAtFailureFallback,
+// which still drives OverrideStatusAt to a real error via a different route.
+func TestRunSharkUpgrade_ChmoddedOverrideSubdir_DegradesToBaselineUnknownRow(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("permission-based fixture requires a non-root user")
 	}
@@ -648,14 +653,58 @@ func TestRunSharkUpgrade_OverridesStatusFailure_DoesNotDropUpgradeOutput(t *test
 	_, dataRoot := setupUpgradeFixtureRoot(t)
 
 	// An unreadable subdirectory under overrides/ makes filepath.WalkDir
-	// (inside OverrideStatusAt) fail to descend into it, propagating a
-	// real error out of OverrideStatusAt -- unlike a missing/corrupt
-	// baseline manifest, which OverrideStatusAt already tolerates.
+	// (inside OverrideStatusAt) unable to descend into it. This degrades to
+	// a per-entry baseline_unknown row (Step 0 / os.ReadFile-failure
+	// handling's sibling case in overrides_status.go) rather than aborting
+	// the walk, so sibling paths -- and the report as a whole -- are
+	// unaffected.
 	blockedDir := filepath.Join(dataRoot, "overrides", "blocked")
 	require.NoError(t, os.MkdirAll(blockedDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(blockedDir, "file.txt"), []byte("x"), 0644))
 	require.NoError(t, os.Chmod(blockedDir, 0000))
 	t.Cleanup(func() { _ = os.Chmod(blockedDir, 0755) })
+
+	setJSONMode(t, false)
+	withUpgradeDryRun(t, false)
+
+	var runErr error
+	stdout, stderr := captureStdoutAndStderr(t, func() {
+		runErr = runSharkUpgrade(&cobra.Command{}, nil)
+	})
+
+	require.NoError(t, runErr, "a degraded per-entry row must not fail the upgrade command")
+	assert.Contains(t, stdout, "added:")
+	assert.Contains(t, stdout, "updated:")
+	assert.Contains(t, stdout, "unchanged:")
+	assert.Contains(t, stdout, "overrides skipped:")
+	assert.Contains(t, stdout, "overrides: "+sharkdata.ClassificationCurrent+"=0")
+	assert.Contains(t, stdout, sharkdata.ClassificationBaselineUnknown+"=1",
+		"the unreadable subdirectory must degrade to exactly one baseline_unknown row")
+	assert.Empty(t, stderr, "a degraded row is not an OverrideStatusAt failure -- no fallback warning should be printed")
+}
+
+// TestRunSharkUpgrade_OverridesDirSymlinkLoop_TriggersStatusAtFailureFallback
+// exercises runSharkUpgrade's fallback branch for a genuine OverrideStatusAt
+// failure, so that branch is not left permanently untested now that a
+// chmod'd overrides/ subdirectory no longer produces one (see
+// TestRunSharkUpgrade_ChmoddedOverrideSubdir_DegradesToBaselineUnknownRow).
+// After commits 42e80083 and 7e557026 degraded every WalkDir directory-entry
+// error to a per-file baseline_unknown row, the only hard-error path left in
+// OverrideStatusAt is its leading os.Stat(overridesDir) call: a
+// self-referential symlink at overrides/ makes that Stat fail with ELOOP
+// (not fs.ErrNotExist), which OverrideStatusAt still returns as a real
+// error rather than tolerating. UpgradeAt never touches overrides/ on disk
+// -- it skips that whole subtree while walking the embedded canonical tree
+// -- so the real upgrade above still succeeds and writes its four
+// pre-existing summary lines; the OverrideStatusAt failure must only
+// surface as a stderr warning and an all-zero "overrides" line, never a
+// hard command failure.
+func TestRunSharkUpgrade_OverridesDirSymlinkLoop_TriggersStatusAtFailureFallback(t *testing.T) {
+	_, dataRoot := setupUpgradeFixtureRoot(t)
+
+	overridesDir := filepath.Join(dataRoot, "overrides")
+	require.NoError(t, os.Remove(overridesDir))
+	require.NoError(t, os.Symlink("overrides", overridesDir))
 
 	setJSONMode(t, false)
 	withUpgradeDryRun(t, false)
