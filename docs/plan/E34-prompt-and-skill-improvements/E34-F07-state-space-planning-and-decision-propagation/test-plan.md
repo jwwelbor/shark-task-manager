@@ -15,10 +15,24 @@ prompt-only testing guidance and this plan's "Prompt-only changes" gate,
 those test cases use the production template renderer, direct-file/grep
 checks, and manual policy-wording review — not caller-path, mutation, or
 decision-table tests, which apply only to deterministic runtime behavior.
-The **one runtime surface** — `shark impact record` (`internal/cli/commands/impact_cmd.go`,
-`internal/services/impact_service.go`) — is deterministic Go code with a real
-production caller signature and gets full Caller-Path Contracts, ISTQB
-technique application, and ISO 25010 coverage below.
+The **one runtime surface** — `shark impact record` — is deterministic Go
+code with a real production caller signature and gets full Caller-Path
+Contracts, ISTQB technique application, and ISO 25010 coverage below.
+
+> **Superseded (2026-09-06):** the TC-007–TC-014 cases below describe this
+> feature's originally-planned `impact_cmd.go`/`services.ImpactService`
+> implementation. During the E34→main merge it was discovered that E34-F05
+> (PR #211) had already shipped `shark impact record` as
+> `internal/cli/commands/impact.go`, validated against
+> `gateresult.ValidateChangeImpactSet` and persisted through `gatepersist`'s
+> bounded reference-note path — with stronger security properties (bounded,
+> no-follow-symlink, no-FIFO file reads) than the duplicate planned here. The
+> duplicate (`impact_cmd.go`/`impact_service.go` and their tests) was
+> deleted rather than kept; F05's existing `impact.go`/`impact_test.go` plus
+> its `impact_bounded_read_test.go`/`impact_fifo_unix_test.go`/
+> `impact_symlink_fifo_test.go` cover this surface instead. The cases below
+> are retained as a historical record of this feature's original test design,
+> not as a description of the code that ships.
 
 ## Spec Drift Analysis
 

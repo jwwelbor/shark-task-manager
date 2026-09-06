@@ -1404,6 +1404,25 @@ var defectClassSweepPersistenceIdentifiers = regexp.MustCompile(
 // "sweep"/"defect" word stems in a type name AND every identifier above.
 var defectClassSweepStructDecl = regexp.MustCompile(`(?im)^\s*type\s+\w*(?:[Ss]weep|[Dd]efect)\w*\s+struct\b`)
 
+// defectClassSweepUnrelatedPersistence excludes files that legitimately use
+// this guard's vocabulary for an entirely different, already-reviewed
+// persistence concern: E34-F05's GateResult I-03 "remediation_sweeps"
+// (internal/gateresult.DefectClassSweep, class_key, ...) independently chose
+// the same terminology for a real, intentional Go persistence layer that
+// predates this guard's discovery of the collision (merged to main via PR
+// #211 before E34-F06's guard was written against this branch's state).
+// That is a naming collision between two sibling E34 features, not scope
+// creep by F06 — see the E34-F06 test-plan.md TC-010 note recorded when this
+// exclusion was added. Do not add further paths here without the same
+// verification: each addition must be a feature that shipped its own
+// reviewed persistence layer under this vocabulary, not an evasion of this
+// guard.
+var defectClassSweepUnrelatedPersistence = map[string]bool{
+	"internal/gatepersist/operations.go": true,
+	"internal/gateresult/gateresult.go":  true,
+	"internal/gaterun/suboperation.go":   true,
+}
+
 // TestDefectClassSweepNoGoPersistenceIntroduced is test-plan.md TC-010
 // (task T-E34-F06-003, AC-T2): confirms REQ-NF-001 — this feature stayed
 // content-only and did not introduce a Go persistence layer (a new type,
@@ -1452,6 +1471,9 @@ func TestDefectClassSweepNoGoPersistenceIntroduced(t *testing.T) {
 		rel, relErr := filepath.Rel(repoRoot, path)
 		if relErr != nil {
 			rel = path
+		}
+		if defectClassSweepUnrelatedPersistence[filepath.ToSlash(rel)] {
+			return nil
 		}
 		if defectClassSweepPersistenceIdentifiers.Match(data) {
 			identifierHits = append(identifierHits, rel)

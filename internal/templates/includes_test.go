@@ -575,11 +575,11 @@ var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"epic/assessment.md":         "6e9c5516db6e8c415000795fbbdbe2c48a5acebb4e8c493f77f00ae724ee27fb",
 	"epic/decomposition.md":      "76a7558c41c97ed3fd9eba3dc6671799da58c3e0a94ff340f7c308f166704131",
 	"epic/active.md":             "d821d8ffef1ed1f3422133397e318c9bb92e7be702ec2e695ce0430f04c9f23a",
-	"feature/specification.md":   "86d4f832ae56cabedd17e1f71124fcea7e221c165f2db0fb0b3ca4938db1aeb2",
-	"feature/test_planning.md":   "5cd61c8dd46bc25e1a7956b2227aff7170e7b861f82dae0aa9e1462d7cada813",
+	"feature/specification.md":   "82b13648206166648c9812badf50bac484cecb5b7d1e036a31fecc981aefa75a",
+	"feature/test_planning.md":   "91d86e2a390f722b7baa1e7f7b372660284ac42410c3e50d64b212b8232eb40b",
 	"feature/task_generation.md": "3bd98c3bab9d9233825d044d9889f810da99f2f41f692100718490b5e205a1cf",
-	"feature/task_review.md":     "daa07bf402403e587252c0de336d85d66b0c6458c1b435116eee14fe8659c6ad",
-	"feature/approval.md":        "6ecebcad21bbbd0006f8802ecee94aa6483c90636124ca1f232b061fecc1122b",
+	"feature/task_review.md":     "a0e64b910dd76108bb6ca9380ed4660c4540384b8aa2c79cee4db7e19cfc9bac",
+	"feature/approval.md":        "7291b18ca126b291de41452a1a0f4a10fc45ea0fb2e1835383f4212983cf08f7",
 	"task/development.md":        "7c6f658345c95bbf5f264b59150483d7617c6011a3107b80cee7f59955d7850b",
 }
 

@@ -89,24 +89,20 @@ This spec adds file/section-level detail only.
     reference-note path Question resolution already writes through — no new
     persistence mechanism, reusing the existing `--type=reference` typed note
     convention.
-  - **New CLI command** `shark impact record <entity-key> --source-kind=<kind>
-    --source-key=<key> --source-pointer=<path> --impact-file=<bounded-I-04-json>`
-    (thin wrapper in `internal/cli/commands/impact_cmd.go`, following the
-    existing thin-command pattern — parses the entity-key positional argument
-    plus the four flags, reads `--impact-file`'s bytes, merges the
-    `--source-kind`/`--source-key`/`--source-pointer` flag values into that
-    JSON as the authoritative top-level I-04 fields (overriding any value
-    already present in the file — these are validated I-04 fields per
-    architecture.md's I-04 field table, not mere CLI bookkeeping), then calls
-    a small `services.RecordImpact` helper that validates the I-04 shape's
-    required fields are present as JSON, then calls the same note-creation
-    path `shark create note <key> ... --type=reference` already uses). This
-    is the exact flag-based boundary architecture.md's "Compatibility and
-    migration" section declares for ADR adoption, and the one new Go surface
-    this feature adds — only because ADR adoption (a markdown-only artifact
-    with no Shark-tracked resolution event) has no existing hook to attach
-    I-04 persistence to — Question/tech-debt/change-card resolution already
-    have one via their own status transitions and don't need this command.
+  - **`shark impact record <entity-key> --source-kind=<kind>
+    --source-key=<key> --source-pointer=<path> --impact-file=<bounded-I-04-json>`**
+    satisfies this feature's ADR-adoption hook. It is implemented by
+    `internal/cli/commands/impact.go` (shipped by E34-F05, PR #211) rather
+    than a new command of this feature's own — F05 had already delivered the
+    exact flag-based boundary architecture.md's "Compatibility and migration"
+    section declares for ADR adoption, validated against
+    `gateresult.ValidateChangeImpactSet` and persisted through
+    `gatepersist`'s bounded reference-note path. F07 originally planned a
+    second, independent implementation (`impact_cmd.go` /
+    `services.ImpactService`); that duplicate was found and removed during
+    the E34→main merge (2026-09-06) once F05's prior implementation was
+    discovered — see the merge commit for the resolution rationale. This
+    feature reuses F05's command as-is; no new Go surface is added here.
 - **REQ-F-007 (spec)**: Add a "Design divergence" section to
   state-space-coverage.md: rework departing from an accepted fix design must
   cite the original decision pointer, new evidence, affected consumers, and
@@ -177,9 +173,7 @@ choice to alter.
 | `internal/sharkdata/default_data/prompts/epic/feature_review.md` | EDIT — reference the shipped-consumer re-verification section for cross-feature epic-level review |
 | `internal/sharkdata/default_data/prompts/tech_debt/resolved.md` | EDIT — add the conditional I-04 propagation line |
 | `internal/sharkdata/default_data/skills/question-management/SKILL.md` | EDIT — reference the I-04 propagation section in the existing resolution-service step |
-| `internal/cli/commands/impact_cmd.go` | NEW — `shark impact record <entity-key> --source-kind=<kind> --source-key=<key> --source-pointer=<path> --impact-file=<path>` thin command; merges the three source flags into the impact-file's JSON before calling the service |
-| `internal/services/impact_service.go` | NEW — `RecordImpact` — minimal I-04 shape validation on the (already-merged) content, then delegates to the existing note-creation service; signature unchanged by the CLI flag rework (content is still a plain string) |
-| `internal/cli/commands/impact_cmd_test.go`, `internal/services/impact_service_test.go` | NEW — mocked-repo tests per this repo's CLI/service test conventions |
+| `internal/cli/commands/impact.go` | ALREADY SHIPPED by E34-F05 — `shark impact record` reused as-is by this feature; no new file (see "Cross-feature interactions" note above) |
 
 ### Data model changes
 
@@ -231,10 +225,9 @@ replaces it entirely.
 
 ### Integration with existing code
 
-- `internal/cli/commands/impact_cmd.go` follows the same thin-wrapper pattern
-  as every other command file (`internal/cli/commands/note.go` for the
-  existing `shark create note` path is the direct precedent to extend from,
-  not duplicate).
+- `internal/cli/commands/impact.go` (E34-F05) already follows the same
+  thin-wrapper pattern as every other command file; this feature has no
+  further integration work here.
 - `internal/templates/`: the new workflow file renders through the existing
   production renderer, no renderer code changes needed.
 

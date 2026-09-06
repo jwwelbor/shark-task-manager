@@ -2,6 +2,51 @@ Verification passed for feature E07-F01 ("Sample feature for golden test"). Laun
 
 This is the final automated quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
 
+Canonical per-tier artifact and gate matrix: `skills/quality/context/tier-matrix.md`.
+
+PRODUCT CRITICAL-PATH GUARD — consult before choosing or starting any work item:
+
+Check whether these four files exist in this project:
+- `docs/product/D01-vision-statement.md`
+- `docs/product/D02-success-criteria.md`
+- `docs/plan/product-delivery-roadmap.md`
+- `docs/plan/product-critical-path.md`
+
+If a file is missing, report it and move on — a missing file is an advisory
+note, not a reason to stop:
+- `docs/product/D01-vision-statement.md` missing → report: `unresolved prerequisite: docs/product/D01-vision-statement.md missing`
+- `docs/product/D02-success-criteria.md` missing → report: `unresolved prerequisite: docs/product/D02-success-criteria.md missing`
+- `docs/plan/product-delivery-roadmap.md` missing → report: `unresolved prerequisite: docs/plan/product-delivery-roadmap.md missing`
+- `docs/plan/product-critical-path.md` missing → report: `unresolved prerequisite: docs/plan/product-critical-path.md missing`
+
+When the files are present, read them and report all of the following before
+choosing or starting work:
+
+1. **Gate name** — the current roadmap gate's name/number, from
+   `docs/plan/product-critical-path.md`'s "## Current Gate" section.
+2. **Relationship to the gate** — how the proposed work item moves that named
+   gate forward.
+3. **Executable advancement evidence** — a link to a runnable command or test
+   that proves forward movement against the live golden path. None of the
+   following count as executable advancement evidence:
+   - fixture data
+   - a captured/recorded run
+   - a hand-authored test actor standing in for a real caller
+   - a contract-only test that never exercises the production path
+   - a component-level test suite that stops short of the live golden path
+
+   Only evidence that runs against the live golden path — an executed
+   command, a passing end-to-end test, or a demonstrated production
+   interaction — moves the gate forward.
+4. **Unresolved prerequisites** — any of the four files above that is
+   missing, stale, or names an unclear gate.
+5. **Side-quest call** — when the work item does not move the named gate
+   forward, say so explicitly and give one of two calls: proceed, with a
+   stated reason (e.g. an urgent bug fix), or defer.
+
+This guard only reports; it never names a target status of its own and never
+makes the choice for you.
+
 READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases
@@ -10,9 +55,11 @@ READ:
 (5) All task specs: `shark list E07-F01 --json` → read each task's file_path
 (6) Full implementation: `git diff $(git merge-base HEAD main)..HEAD` — read the actual changed files
 
+I-03/I-04 EVIDENCE: consume E34-F06's I-03 DefectClassSweep (`skills/quality/workflows/defect-class-sweep.md`) and E34-F07's I-04 ChangeImpactSet (`skills/quality/workflows/state-space-coverage.md`) evidence for prior blocking defect classes and material decisions in scope — read their existing records rather than re-deriving this feature's own.
+
 RED-TEAM REVIEW:
 - Independently verify EVERY feature acceptance criterion against the actual code (not just reports)
-- ENUMERATE, don't iterate: for each AC, list ALL violations within each defect class in this pass — finding one issue per round produces a rejection spiral
+- Apply `skills/quality/workflows/defect-class-sweep.md`'s "Enumeration procedure" per AC (see `skills/uat/references/redteam-rubric.md` "ENUMERATE — DO NOT ITERATE")
 - Look for gaps between what the spec required and what was implemented
 - Check for cross-task integration issues that per-task review would miss
 - Verify error handling under adversarial and edge-case inputs
@@ -20,7 +67,7 @@ RED-TEAM REVIEW:
 - Verify the feature integrates correctly with the broader system
 - Challenge assumptions in the code review and QA reports — they may have missed things
 
-RE-VERIFICATION ROUND (a prior UAT report matching docs/review/E07/E07-F01/uat-*-E07-F01.md exists)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
+RE-VERIFICATION ROUND (a prior UAT report matching docs/review/E07/E07-F01/uat-*-E07-F01.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run the full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
 
 REVIEW OUTPUT POLICY (applies to the report below):
 - If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
