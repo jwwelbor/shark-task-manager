@@ -274,22 +274,31 @@ to a consuming project's overrides.
 
 E34-F08 adds immutable
 `.shark/runs/<epic-run-id>/integration-events/<event-id>.json` records and an
-atomic `integration-candidate.json` head. Event version 1 contains `epic_key`,
-stable `epic_run_id`, event kind, feature key when applicable, landed or staged
-commit identity, completion history identity, and included path digests. The
-candidate contains immutable `base_commit`, `candidate_head`, the sorted event
-IDs/digests, tracked path/digest pairs, untracked path/digest pairs,
-`prior_record_digest`, and `record_digest`. It never stores file contents.
+atomic `.shark/runs/<epic-run-id>/integration-candidate.json` head. As shipped
+(`internal/integration/event.go`, `candidate.go`), an `IntegrationEvent`
+contains `event_id`, `epic_run_id`, `feature_key`, `feature_commit`,
+`tracked_paths`/`untracked_paths`, and `recorded_at`. The candidate
+(`IntegrationCandidate`) contains immutable `epic_run_id`, `base_commit`,
+`head_commit` (this feature's implementation name for the field originally
+called `candidate_head` above), the sorted `event_ids`, `tracked_path_digests`
+and `untracked_path_digests` (populated only when the working tree has dirty
+or untracked paths at update time — omitted otherwise), and a single `digest`
+covering the whole record. It never stores file contents. A dedicated
+`prior_record_digest` field was not implemented on the candidate itself:
+instead, T-E34-F08-012 archives each superseded candidate's full prior bytes
+unchanged to `integration-heads/<prior-digest>.json` before publishing the
+next head, so the equivalent provenance chain is recomputable from retained
+archives rather than carried as a field.
 
 Every event and candidate digest is SHA-256 over UTF-8 canonical JSON with
 object keys sorted lexicographically, arrays already in contract order, and
 the object's own digest field omitted. Before replacing the candidate head,
 the coordinator writes the prior head unchanged to
-`integration-heads/<record-digest>.json`. Thus every `prior_record_digest` is
-recomputable from retained bytes. A run-scoped repository lock plus
-compare-and-swap on the prior head digest rejects stale writers; immutable
-per-feature event files make parallel completions additive rather than
-last-writer-wins.
+`integration-heads/<digest>.json`, so every predecessor is recomputable from
+retained bytes. A run-scoped registration lock (`internal/integration/lock.go`)
+plus compare-and-swap on the prior candidate digest (`internal/integration/candidate.go`)
+rejects stale writers; immutable per-feature event files make parallel
+completions additive rather than last-writer-wins.
 
 The epic active-entry coordinator owns initial capture before it dispatches the
 first feature. Feature completion writes one immutable event and updates the
