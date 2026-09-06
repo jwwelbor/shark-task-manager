@@ -43,12 +43,27 @@ for tier gates and epic integration review.
 
 The originally-planned shared contract test,
 `E34-F05-structured-gate-results-and-parent-owned-persisten/test-plan.md#TC-I-02-GATERESULT-PARITY`,
-was never created — E34-F05 shipped without a `test-plan.md` (tracked as
-TD-198). The corrected, actually-existing pointer for GateResult schema
-parity is E34-F06's
-`test-plan.md`/`scenario-review-TC-005-TC-009.md#tc-i-03-defect-class-closure-cross-reference`
-coverage (I-03, below); consumers reference that pointer, not the missing
-F05 target.
+was never created — E34-F05 shipped without a `test-plan.md`. This is a
+genuine, tracked gap (TD-198 for the stale pointer text; **TD-211** for the
+missing test itself), not resolved by I-03's coverage below (F06's
+scenario-review proves I-03 defect-class-sweep closure, not GateResult
+schema/parity — the two are different contracts sharing the same envelope
+type). Declared as a **contract-only, deferred** row pending TD-211:
+
+- **Counterpart identity**: E34-F05 — Structured Gate Results and
+  Parent-Owned Persistence.
+- **Current status (live)**: `completed` (`shark get E34-F05 --field status`).
+- **Shared-contract evidence**: `architecture.md#i-02-gateresult-v1` (the
+  GateResult schema itself, structurally exercised by each consumer's own
+  tests — F06 `internal/sharkdata/embed_test.go`, F07
+  `internal/services/impact_service_test.go`, F08
+  `TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture` — with
+  no known live divergence, per TD-211).
+- **Activation owner**: none — E34-F05 is already `completed`; TD-211 names
+  a dedicated follow-up task, not a re-opening of any shipped feature.
+- **Closure key**: `I-02-E34-F05-gateresult-parity-test` — closes when
+  TD-211's `TC-I-02-GATERESULT-PARITY` test is created and passes against
+  all three consumers.
 
 ### I-03 DefectClassSweep
 
