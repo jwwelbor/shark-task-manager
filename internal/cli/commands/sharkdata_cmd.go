@@ -116,18 +116,31 @@ func init() {
 	adminCmd.AddCommand(sharkValidateDataCmd)
 }
 
-// runSharkInstallData implements `shark admin install-shark-data`: explicit
-// extraction of the embedded canonical tree to disk for local authoring.
-func runSharkInstallData(cmd *cobra.Command, _ []string) error {
-	root, err := cli.FindProjectRoot()
+// resolveSharkDataRoot resolves the project root and shark-data root shared
+// by every `shark admin` subcommand in this file (and by
+// resolveOverridesDataRoot in overrides_cmd.go): cli.FindProjectRoot() then
+// config.ResolveSharkDataRoot(root, configBytes). cmdLabel prefixes any
+// returned error to identify which subcommand failed.
+func resolveSharkDataRoot(cmdLabel string) (root, dataRoot string, err error) {
+	root, err = cli.FindProjectRoot()
 	if err != nil {
-		return fmt.Errorf("shark admin install-shark-data: failed to locate project root: %w", err)
+		return "", "", fmt.Errorf("%s: failed to locate project root: %w", cmdLabel, err)
 	}
 
 	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
-	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
+	dataRoot, err = config.ResolveSharkDataRoot(root, configBytes)
 	if err != nil {
-		return fmt.Errorf("shark admin install-shark-data: %w", err)
+		return "", "", fmt.Errorf("%s: %w", cmdLabel, err)
+	}
+	return root, dataRoot, nil
+}
+
+// runSharkInstallData implements `shark admin install-shark-data`: explicit
+// extraction of the embedded canonical tree to disk for local authoring.
+func runSharkInstallData(cmd *cobra.Command, _ []string) error {
+	root, dataRoot, err := resolveSharkDataRoot("shark admin install-shark-data")
+	if err != nil {
+		return err
 	}
 
 	dest, sharkdataErr := sharkdata.InitAt(dataRoot)
@@ -260,15 +273,9 @@ func pathEscapesRoot(rel string) bool {
 }
 
 func runSharkUpgrade(cmd *cobra.Command, _ []string) error {
-	root, err := cli.FindProjectRoot()
+	_, dataRoot, err := resolveSharkDataRoot("shark admin upgrade")
 	if err != nil {
-		return fmt.Errorf("shark admin upgrade: failed to locate project root: %w", err)
-	}
-
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
-	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
-	if err != nil {
-		return fmt.Errorf("shark admin upgrade: %w", err)
+		return err
 	}
 
 	summary, err := sharkdata.UpgradeAt(dataRoot, upgradeDryRun)
@@ -358,15 +365,9 @@ func zeroOverridesSummary() map[string]int {
 }
 
 func runSharkValidate(cmd *cobra.Command, _ []string) error {
-	root, err := cli.FindProjectRoot()
+	_, dataRoot, err := resolveSharkDataRoot("shark admin validate-data")
 	if err != nil {
-		return fmt.Errorf("shark admin validate-data: failed to locate project root: %w", err)
-	}
-
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
-	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
-	if err != nil {
-		return fmt.Errorf("shark admin validate-data: %w", err)
+		return err
 	}
 
 	report, err := sharkdata.ValidateAt(dataRoot)

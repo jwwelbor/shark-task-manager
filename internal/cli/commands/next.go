@@ -74,13 +74,6 @@ var nextIntegrationCaptureFailureRecorder = func(ctx context.Context) (integrati
 	return cli.GetNoteService(ctx)
 }
 
-// integrationCaptureFailureCreatedBy identifies the automated actor
-// recorded on the durable capture-failure note nextRecordCaptureFailureNote
-// writes, mirroring feature_service.go's integrationCaptureCreatedBy
-// literal (unexported there, so not importable — kept as the identical
-// string rather than a second, divergent constant).
-const integrationCaptureFailureCreatedBy = "shark-integration-capture"
-
 // nextIntegrationCaptureFailureNoteExists reports whether epicKey already
 // carries an open `review-finding` note for CaptureBase's own failure stage
 // ("capture_base"). nextCaptureEpicIntegrationBase is invoked on every
@@ -177,7 +170,7 @@ func nextRecordCaptureFailureNote(ctx context.Context, commandLabel, epicKey str
 		return
 	}
 	if _, err := recorder.AddNoteWithMetadata(
-		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integrationCaptureFailureCreatedBy, string(metadata),
+		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integration.CaptureCreatedBy, string(metadata),
 	); err != nil {
 		fmt.Fprintf(os.Stderr,
 			"[shark %s] warning: could not record the integration-capture failure note for epic %s: %v\n",

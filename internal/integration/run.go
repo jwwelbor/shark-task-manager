@@ -31,6 +31,14 @@ const (
 	runFileMode os.FileMode = 0o644
 )
 
+// CaptureCreatedBy identifies the automated actor recorded on durable notes
+// this package's callers write about integration-capture events and
+// failures (e.g. FeatureService's RegisterRun/failure-note calls, `shark
+// next`'s epic-cascade capture-failure note). Exported so both
+// internal/services and internal/cli/commands share one symbol instead of
+// each keeping its own copy of the same literal.
+const CaptureCreatedBy = "shark-integration-capture"
+
 // IntegrationRun captures the base commit for one epic's integration-review
 // run. It is written once per epic by CaptureBase and never overwritten
 // afterward: every later integration-event write reads BaseCommit from this

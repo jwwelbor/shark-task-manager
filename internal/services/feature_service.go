@@ -456,11 +456,6 @@ const maxTerminalCandidateFoldAttempts = 3
 // registrationLockPollInterval convention rather than inventing a new value.
 const terminalCandidateFoldRetryDelay = 5 * time.Millisecond
 
-// integrationCaptureCreatedBy identifies the automated actor recorded on
-// RegisterRun's registration note and on the durable failure-visibility
-// note recordIntegrationFailureNote writes.
-const integrationCaptureCreatedBy = "shark-integration-capture"
-
 // recordIntegrationEventForTerminalTransition implements task
 // T-E34-F08-008's AC-T2 (RecordEvent wiring) and its UAT rework round 1
 // (Finding 1: fold the recorded event into the epic's accumulated
@@ -554,6 +549,7 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 	if err != nil {
 		slog.WarnContext(ctx, "integration event recording skipped: could not resolve feature commit",
 			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
+		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "current_commit", err)
 		return
 	}
 
@@ -587,7 +583,7 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID)
 		return
 	}
-	if _, err := integration.RegisterRun(ctx, s.integrationNoteRecorder, run, candidate, event, integrationCaptureCreatedBy); err != nil {
+	if _, err := integration.RegisterRun(ctx, s.integrationNoteRecorder, run, candidate, event, integration.CaptureCreatedBy); err != nil {
 		slog.WarnContext(ctx, "integration run registration failed",
 			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
 		s.recordIntegrationFailureNote(ctx, epic.Key, featureKey, run.EpicRunID, "register_run", err)
@@ -727,7 +723,7 @@ func (s *FeatureService) recordIntegrationFailureNote(ctx context.Context, epicK
 		return
 	}
 	if _, err := s.integrationNoteRecorder.AddNoteWithMetadata(
-		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integrationCaptureCreatedBy, string(metadata),
+		ctx, models.EntityTypeEpic, epicKey, "review-finding", content, integration.CaptureCreatedBy, string(metadata),
 	); err != nil {
 		slog.WarnContext(ctx, "integration failure note recording failed",
 			"feature_key", featureKey, "epic_key", epicKey, "epic_run_id", epicRunID, "stage", stage, "error", err)

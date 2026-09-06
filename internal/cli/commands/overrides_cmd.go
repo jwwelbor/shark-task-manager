@@ -13,13 +13,10 @@ package commands
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 )
 
@@ -79,21 +76,12 @@ func init() {
 	overridesCmd.AddCommand(overridesAcknowledgeCmd)
 }
 
-// resolveOverridesDataRoot resolves the project root and shark-data root
-// exactly as runSharkUpgrade does in sharkdata_cmd.go (REQ-F-001, AC-T1):
-// cli.FindProjectRoot() then config.ResolveSharkDataRoot(root, configBytes).
+// resolveOverridesDataRoot resolves the shark-data root via the same
+// resolveSharkDataRoot helper sharkdata_cmd.go's `shark admin` subcommands
+// share (REQ-F-001, AC-T1).
 func resolveOverridesDataRoot() (string, error) {
-	root, err := cli.FindProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("shark admin overrides: failed to locate project root: %w", err)
-	}
-
-	configBytes, _ := os.ReadFile(filepath.Join(root, ".sharkconfig.json")) // missing/unreadable config is fine: ResolveSharkDataRoot defaults to <root>/shark-data
-	dataRoot, err := config.ResolveSharkDataRoot(root, configBytes)
-	if err != nil {
-		return "", fmt.Errorf("shark admin overrides: %w", err)
-	}
-	return dataRoot, nil
+	_, dataRoot, err := resolveSharkDataRoot("shark admin overrides")
+	return dataRoot, err
 }
 
 func runOverridesStatus(_ *cobra.Command, _ []string) error {

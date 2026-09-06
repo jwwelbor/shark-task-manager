@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -313,6 +314,8 @@ func GetFeatureService() *services.FeatureService {
 	// already degrades gracefully with integrationNoteRecorder left nil.
 	if noteSvc, err := GetNoteService(context.Background()); err == nil {
 		svc.SetIntegrationNoteRecorder(noteSvc)
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: could not wire integration note recorder: %v\n", err)
 	}
 
 	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
