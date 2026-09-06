@@ -482,9 +482,14 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 //	             relationship types)
 //	34 — B055   (task_display_data dependencies_json: only outgoing depends_on
 //	             task relationships are rendered as dependencies)
+//	35 — E19-F10 (sprint admission overrides and Sprint Goal Reviews)
+//	36 — E34-F01 (entity_claims gains three nullable harness/harness_version/
+//	             harness_model columns: harness identity persists on the
+//	             claim so later dispatch can render harness-aware prompt
+//	             branches — T-E34-F01-001)
 //
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 34
+const CurrentSchemaVersion = 36
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -1054,6 +1059,9 @@ func runPreQuestionMigrations(db *sql.DB) error {
 	if err := migrateSprintCompletionsTable(db); err != nil {
 		return fmt.Errorf("sprint_completions table migration: %w", err)
 	}
+	if err := migrateSprintAdmissionEvidenceTables(db); err != nil {
+		return fmt.Errorf("sprint admission evidence migration: %w", err)
+	}
 
 	// Drop legacy task_relationships, feature_relationships, epic_relationships tables (E07-F39)
 	if err := migrateDropLegacyRelationshipTables(db); err != nil {
@@ -1106,6 +1114,13 @@ func runPreQuestionMigrations(db *sql.DB) error {
 	// entities; heartbeats renew the lease; a TTL backstop reclaims dead leases.
 	if err := migrateEntityClaimsTable(db); err != nil {
 		return fmt.Errorf("failed to migrate entity_claims table: %w", err)
+	}
+
+	// E34-F01: add nullable harness/harness_version/harness_model columns to
+	// entity_claims so harness identity can persist on the claim and later
+	// influence prompt rendering (spec.md §3.1, AC-11).
+	if err := migrateEntityClaimsAddHarness(db); err != nil {
+		return fmt.Errorf("failed to migrate entity_claims harness columns: %w", err)
 	}
 
 	// Add sprint_order column to sprint_assignments, create the partial unique
@@ -1585,6 +1600,73 @@ func migrateEntityClaimsTable(db *sql.DB) error {
 	return nil
 }
 
+// columnExistsInTable reports whether the named column is already present on
+// the given table via PRAGMA table_info. It exists so multi-column
+// migrations can guard each ALTER TABLE ... ADD COLUMN independently instead
+// of gating a whole batch on a single column's presence: SQLite has no "ADD
+// COLUMN IF NOT EXISTS", and if a batched guard only checks the first
+// column, a crash between statements leaves later columns permanently
+// missing — the guard sees the first column present on every subsequent run
+// and skips the rest of the batch forever, so unconditional reads of the
+// missing columns fail indefinitely. Per-column guards make each ALTER TABLE
+// independently idempotent and self-healing on the next run. See
+// migrateSlugColumns and migrateBugsLinkedEntityColumns for the established
+// per-column pattern this follows (defect fixed during the E34-F01 rework;
+// see T-E34-F01-001 history).
+func columnExistsInTable(db *sql.DB, table, column string) (bool, error) {
+	var count int
+	err := db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check %s.%s column: %w", table, column, err)
+	}
+	return count > 0, nil
+}
+
+// migrateEntityClaimsAddHarness adds three nullable harness-identity columns
+// to entity_claims: harness, harness_version, harness_model (E34-F01,
+// T-E34-F01-001). These persist the claiming host's harness type/version/
+// model so later dispatch can render harness-aware prompt branches
+// (spec.md §3.1). No backfill: NULL is the correct "unknown harness" value
+// for pre-existing rows (AC-11).
+//
+// Each column is guarded independently via columnExistsInTable (see its doc
+// comment for why), not by checking only "harness" before all three ALTER
+// TABLE statements — that batched-guard shape was the defect UAT rejected
+// this task for: a crash after the first ADD COLUMN left harness_version and
+// harness_model permanently missing, because the guard saw "harness" present
+// and skipped the rest of the batch on every later run, and entity_claims
+// reads select all three columns unconditionally. Per-column guards make
+// this migration self-healing on rerun (AC-T2).
+//
+// CurrentSchemaVersion is bumped from 34 -> 35 in the same commit that wires
+// this function into runMigrations(). See database-critical.md for the
+// migration checklist.
+func migrateEntityClaimsAddHarness(db *sql.DB) error {
+	columns := []struct{ name, ddl string }{
+		{"harness", "harness TEXT"},
+		{"harness_version", "harness_version TEXT"},
+		{"harness_model", "harness_model TEXT"},
+	}
+
+	for _, col := range columns {
+		exists, err := columnExistsInTable(db, "entity_claims", col.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		//nolint:gosec // col.ddl is one of three hardcoded literals above; no user input
+		if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE entity_claims ADD COLUMN %s`, col.ddl)); err != nil {
+			return fmt.Errorf("failed to add %s to entity_claims: %w", col.name, err)
+		}
+	}
+
+	return nil
+}
+
 // migrateDropLegacyRelationshipTables drops the three legacy relationship tables that were
 // superseded by the polymorphic entity_relationships table (E21-F11). Data was already
 // migrated in migrateDataToEntityRelationships. Using DROP TABLE IF EXISTS makes this
@@ -1773,44 +1855,52 @@ func migrateDocumentTables(db *sql.DB) error {
 	return nil
 }
 
-// migrateCompletionMetadata adds completion metadata columns to tasks table
+// migrateCompletionMetadata adds completion metadata columns to tasks table.
+//
+// Each column is guarded independently via columnExistsInTable (see its doc
+// comment on migrateEntityClaimsAddHarness), not by checking only
+// "completed_by" before all six ALTER TABLE statements. That batched-guard
+// shape is the same defect class UAT rejected T-E34-F01-001 for
+// (migrateEntityClaimsAddHarness): a crash after the first ADD COLUMN would
+// leave the remaining five columns permanently missing, since the guard
+// would see "completed_by" present and skip the rest of the batch on every
+// later run, while task reads select these columns unconditionally.
+// Per-column guards make this migration self-healing on rerun.
 func migrateCompletionMetadata(db *sql.DB) error {
-	// Check if tasks table has completed_by column; if not, add completion metadata columns
-	var columnExists int
-	err := db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'completed_by'
-	`).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check tasks schema for completed_by: %w", err)
+	columns := []struct{ name, ddl string }{
+		{"completed_by", "completed_by TEXT"},
+		{"completion_notes", "completion_notes TEXT"},
+		{"files_changed", "files_changed TEXT"}, // JSON array
+		{"tests_passed", "tests_passed BOOLEAN DEFAULT 0"},
+		{"verification_status", "verification_status TEXT CHECK(verification_status IN ('pending', 'verified', 'needs_rework')) DEFAULT 'pending'"},
+		{"time_spent_minutes", "time_spent_minutes INTEGER"},
 	}
 
-	if columnExists == 0 {
-		// Add all completion metadata columns
-		migrations := []string{
-			`ALTER TABLE tasks ADD COLUMN completed_by TEXT;`,
-			`ALTER TABLE tasks ADD COLUMN completion_notes TEXT;`,
-			`ALTER TABLE tasks ADD COLUMN files_changed TEXT;`, // JSON array
-			`ALTER TABLE tasks ADD COLUMN tests_passed BOOLEAN DEFAULT 0;`,
-			`ALTER TABLE tasks ADD COLUMN verification_status TEXT CHECK(verification_status IN ('pending', 'verified', 'needs_rework')) DEFAULT 'pending';`,
-			`ALTER TABLE tasks ADD COLUMN time_spent_minutes INTEGER;`,
+	for _, col := range columns {
+		exists, err := columnExistsInTable(db, "tasks", col.name)
+		if err != nil {
+			return err
 		}
-
-		for _, migration := range migrations {
-			if _, err := db.Exec(migration); err != nil {
-				return fmt.Errorf("failed to execute migration %q: %w", migration, err)
-			}
+		if exists {
+			continue
 		}
-
-		// Create indexes
-		indexes := []string{
-			`CREATE INDEX IF NOT EXISTS idx_tasks_completed_by ON tasks(completed_by);`,
-			`CREATE INDEX IF NOT EXISTS idx_tasks_verification_status ON tasks(verification_status);`,
+		//nolint:gosec // col.ddl is one of six hardcoded literals above; no user input
+		if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE tasks ADD COLUMN %s`, col.ddl)); err != nil {
+			return fmt.Errorf("failed to add %s to tasks: %w", col.name, err)
 		}
+	}
 
-		for _, idx := range indexes {
-			if _, err := db.Exec(idx); err != nil {
-				return fmt.Errorf("failed to create index: %w", err)
-			}
+	// Indexes are created unconditionally (CREATE INDEX IF NOT EXISTS is
+	// already idempotent) rather than nested inside the column-add guard, so
+	// a database that healed a partial column-add on a later run still ends
+	// up with both indexes rather than being permanently skipped.
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_tasks_completed_by ON tasks(completed_by);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_verification_status ON tasks(verification_status);`,
+	}
+	for _, idx := range indexes {
+		if _, err := db.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
 		}
 	}
 
@@ -4246,7 +4336,7 @@ func migrateSprintTables(db *sql.DB) error {
 	//
 	// Mirrors the entity_notes polymorphic pattern (db.go:1698-1811). Permitted
 	// entity_type values (validated at the app layer, not the DB layer):
-	//   'task' | 'bug' | 'change_card' | 'tech_debt'
+	//   'task' | 'bug' | 'change_card' | 'tech_debt' | 'epic' | 'feature'
 	//
 	// Per the post-B018 convention (see migrateDropPolymorphicEntityTypeChecks
 	// and spec §3.4), there is intentionally NO CHECK constraint on
@@ -4460,6 +4550,39 @@ func migrateSprintCompletionsTable(db *sql.DB) error {
 		return fmt.Errorf("failed to create idx_sprint_completions_sprint: %w", err)
 	}
 
+	return nil
+}
+
+func migrateSprintAdmissionEvidenceTables(db *sql.DB) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sprint_admission_overrides (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sprint_id INTEGER NOT NULL,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			reason TEXT NOT NULL,
+			requested_by TEXT NOT NULL,
+			reason_code TEXT NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+			UNIQUE (sprint_id, entity_type, entity_id)
+		);
+		CREATE TABLE IF NOT EXISTS sprint_goal_reviews (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sprint_id INTEGER NOT NULL,
+			goal TEXT NOT NULL,
+			before_result TEXT NOT NULL,
+			after_result TEXT NOT NULL,
+			reviewer TEXT NOT NULL,
+			outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'rejected')),
+			reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_sprint_goal_reviews_latest
+			ON sprint_goal_reviews (sprint_id, reviewed_at DESC, id DESC);
+	`); err != nil {
+		return fmt.Errorf("failed to create sprint admission evidence tables: %w", err)
+	}
 	return nil
 }
 

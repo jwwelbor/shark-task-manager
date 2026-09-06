@@ -118,6 +118,14 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 		}
 	}
 
+	// REQ-F-006: result_contract/outcome_roles schema-level invariants.
+	if errs := workflow.ValidateResultContracts(); len(errs) > 0 {
+		return &WorkflowValidationError{
+			Message: errs[0].Error(),
+			Fix:     "set result_contract to legacy or gate_result_v1, and for gate_result_v1 declare outcome_roles with exactly one supported role per configured outcome",
+		}
+	}
+
 	// No old-status alias may be claimed by two steps.
 	if _, aliasErrs := workflow.AliasMap(); len(aliasErrs) > 0 {
 		return &WorkflowValidationError{

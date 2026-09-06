@@ -676,8 +676,286 @@ func TestMigration_SchemaVersion(t *testing.T) {
 		"schema version should be at least 21 after migration (CurrentSchemaVersion = %d)", CurrentSchemaVersion)
 
 	// Also confirm the constant itself is set to the expected current value.
-	assert.Equal(t, 34, CurrentSchemaVersion,
-		"CurrentSchemaVersion should be 34 (B055 outgoing task dependency display)")
+	assert.Equal(t, 36, CurrentSchemaVersion,
+		"CurrentSchemaVersion should be 36 (35 = E19-F10 sprint admission overrides and Sprint Goal Reviews; 36 = E34-F01 entity_claims harness columns)")
+}
+
+// ---------------------------------------------------------------------------
+// TC-014: entity_claims harness columns migration (schema v35 -> v36).
+// Part of E34-F01 (T-E34-F01-001).
+// ---------------------------------------------------------------------------
+
+// TestMigration_EntityClaimsAddHarness_PreservesExistingRows verifies AC-11:
+// a database at schema version 34 with an existing entity_claims row
+// upgrades to 35, the row's original columns are unchanged, and its three
+// new harness columns are NULL (no backfill — NULL is the correct "unknown
+// harness" value per spec.md §3.1).
+func TestMigration_EntityClaimsAddHarness_PreservesExistingRows(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/legacy-entity-claims-v34.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	// Pre-migration entity_claims shape (mirrors migrateEntityClaimsTable,
+	// before the three harness columns existed).
+	_, err = db.Exec(`
+		CREATE TABLE entity_claims (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type    TEXT NOT NULL,
+			entity_key     TEXT NOT NULL,
+			claimed_by     TEXT NOT NULL,
+			session_id     TEXT NOT NULL,
+			claimed_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			progress       REAL,
+			note           TEXT,
+			UNIQUE(entity_type, entity_key)
+		);
+	`)
+	require.NoError(t, err, "setup legacy entity_claims table")
+
+	_, err = db.Exec(`
+		INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id, note)
+		VALUES ('task', 'E01-F01-001', 'dev-agent', 'sess-legacy-1', 'pre-existing claim')
+	`)
+	require.NoError(t, err, "seed pre-migration entity_claims row")
+
+	err = setSchemaVersion(db, 35)
+	require.NoError(t, err, "setup version 35 schema marker")
+
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "version 35 entity_claims should migrate to add harness columns cleanly")
+	assert.True(t, applied, "version 35 database should run the version 36 harness-columns migration")
+
+	for _, column := range []string{"harness", "harness_version", "harness_model"} {
+		var columnType string
+		var notNull int
+		err = db.QueryRow(`
+			SELECT type, "notnull" FROM pragma_table_info('entity_claims') WHERE name = ?
+		`, column).Scan(&columnType, &notNull)
+		require.NoErrorf(t, err, "column %s should exist after migration", column)
+		assert.Equal(t, "TEXT", columnType, "column %s should be TEXT", column)
+		assert.Equal(t, 0, notNull, "column %s should be nullable", column)
+	}
+
+	var entityKey, claimedBy, note string
+	var harness, harnessVersion, harnessModel sql.NullString
+	err = db.QueryRow(`
+		SELECT entity_key, claimed_by, note, harness, harness_version, harness_model
+		FROM entity_claims WHERE entity_type = 'task' AND entity_key = 'E01-F01-001'
+	`).Scan(&entityKey, &claimedBy, &note, &harness, &harnessVersion, &harnessModel)
+	require.NoError(t, err, "pre-existing row should survive the migration")
+	assert.Equal(t, "E01-F01-001", entityKey, "pre-existing entity_key should be unchanged")
+	assert.Equal(t, "dev-agent", claimedBy, "pre-existing claimed_by should be unchanged")
+	assert.Equal(t, "pre-existing claim", note, "pre-existing note should be unchanged")
+	assert.False(t, harness.Valid, "harness should be NULL on a pre-existing row")
+	assert.False(t, harnessVersion.Valid, "harness_version should be NULL on a pre-existing row")
+	assert.False(t, harnessModel.Valid, "harness_model should be NULL on a pre-existing row")
+
+	version, err := getSchemaVersion(db)
+	require.NoError(t, err, "getSchemaVersion should succeed")
+	assert.Equal(t, CurrentSchemaVersion, version, "schema version should advance to 36 after the harness-columns migration")
+}
+
+// TestMigration_EntityClaimsAddHarness_Idempotent verifies that rerunning
+// migrateEntityClaimsAddHarness against an already-migrated database is a
+// no-op and does not error (AC-11 edge case: SQLite has no "ADD COLUMN IF
+// NOT EXISTS", so the PRAGMA table_info guard is what this test exercises).
+func TestMigration_EntityClaimsAddHarness_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "InitDB should succeed")
+	defer db.Close()
+
+	err = migrateEntityClaimsAddHarness(db)
+	require.NoError(t, err, "second call to migrateEntityClaimsAddHarness should be idempotent (no error)")
+
+	for _, column := range []string{"harness", "harness_version", "harness_model"} {
+		var count int
+		err := db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('entity_claims') WHERE name = ?`, column,
+		).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "column %s should appear exactly once in entity_claims after idempotent migration", column)
+	}
+}
+
+// TestMigration_EntityClaimsAddHarness_PartialApplication_HealsOnRerun is the
+// rework regression test for the defect UAT rejected on T-E34-F01-001: the
+// original guard checked only the "harness" column's presence before adding
+// all three harness columns, so a crash after the first ADD COLUMN left
+// "harness" present but "harness_version"/"harness_model" permanently
+// missing on every later run (the guard saw "harness" and skipped the whole
+// block forever). This simulates that exact crash point by manually adding
+// only "harness" to a legacy entity_claims table, then asserts a rerun heals
+// the table: all three columns exist and the unconditional SELECT that
+// production claim-reads perform succeeds.
+func TestMigration_EntityClaimsAddHarness_PartialApplication_HealsOnRerun(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/partial-entity-claims-v34.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE entity_claims (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type    TEXT NOT NULL,
+			entity_key     TEXT NOT NULL,
+			claimed_by     TEXT NOT NULL,
+			session_id     TEXT NOT NULL,
+			claimed_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			progress       REAL,
+			note           TEXT,
+			UNIQUE(entity_type, entity_key)
+		);
+	`)
+	require.NoError(t, err, "setup legacy entity_claims table")
+
+	_, err = db.Exec(`
+		INSERT INTO entity_claims (entity_type, entity_key, claimed_by, session_id, note)
+		VALUES ('task', 'E01-F01-002', 'dev-agent', 'sess-partial-1', 'crashed mid-migration')
+	`)
+	require.NoError(t, err, "seed pre-migration entity_claims row")
+
+	// Simulate the crash: only the first ALTER TABLE (the column the old
+	// guard checked) ran before the process died.
+	_, err = db.Exec(`ALTER TABLE entity_claims ADD COLUMN harness TEXT`)
+	require.NoError(t, err, "simulate crash after the first ADD COLUMN")
+
+	err = setSchemaVersion(db, 35)
+	require.NoError(t, err, "setup version 35 schema marker")
+
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "a database with a partially-applied harness migration must heal cleanly on rerun")
+	assert.True(t, applied, "version 35 database should run the version 36 harness-columns migration")
+
+	for _, column := range []string{"harness", "harness_version", "harness_model"} {
+		var count int
+		err := db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('entity_claims') WHERE name = ?`, column,
+		).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "column %s must exist after healing a partially-applied migration", column)
+	}
+
+	// This is the read that fails in production with "no such column:
+	// harness_version" when the defect is present: entity claim reads select
+	// all columns unconditionally.
+	var entityKey, note string
+	var harness, harnessVersion, harnessModel sql.NullString
+	err = db.QueryRow(`
+		SELECT entity_key, note, harness, harness_version, harness_model
+		FROM entity_claims WHERE entity_type = 'task' AND entity_key = 'E01-F01-002'
+	`).Scan(&entityKey, &note, &harness, &harnessVersion, &harnessModel)
+	require.NoError(t, err, "claim read across all harness columns must succeed after healing")
+	assert.Equal(t, "E01-F01-002", entityKey)
+	assert.Equal(t, "crashed mid-migration", note)
+	assert.False(t, harnessVersion.Valid, "harness_version should be NULL — no backfill for a healed column")
+	assert.False(t, harnessModel.Valid, "harness_model should be NULL — no backfill for a healed column")
+}
+
+// TestMigration_CompletionMetadata_PartialApplication_HealsOnRerun is the
+// sibling defect-class instance found while sweeping db.go for the T-E34-F01-001
+// rework: migrateCompletionMetadata guarded six ADD COLUMN statements on
+// tasks behind a single check of "completed_by" only. This simulates a crash
+// after the first ALTER TABLE (mirroring the entity_claims case) and asserts
+// a rerun adds the remaining five columns — including verifying that
+// verification_status keeps its CHECK constraint and DEFAULT 'pending' after
+// being added by the per-column guard, since that's the one column in this
+// set where a mechanical per-column split could silently change behavior.
+func TestMigration_CompletionMetadata_PartialApplication_HealsOnRerun(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/partial-completion-metadata.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	// Legacy tasks shape: no completion-metadata columns yet (mirrors the
+	// base createSchema tasks definition, before migrateCompletionMetadata
+	// has ever run).
+	_, err = db.Exec(`
+		CREATE TABLE tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			feature_id INTEGER NOT NULL,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			description TEXT,
+			status TEXT NOT NULL,
+			agent_type TEXT,
+			priority INTEGER NOT NULL DEFAULT 5,
+			depends_on TEXT,
+			assigned_agent TEXT,
+			file_path TEXT,
+			blocked_reason TEXT,
+			execution_order INTEGER NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			started_at TIMESTAMP,
+			completed_at TIMESTAMP,
+			blocked_at TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err, "setup legacy tasks table")
+
+	_, err = db.Exec(`
+		INSERT INTO tasks (feature_id, key, title, status)
+		VALUES (1, 'T-E01-F01-001', 'Legacy task', 'todo')
+	`)
+	require.NoError(t, err, "seed pre-migration tasks row")
+
+	// Simulate the crash: only the first ALTER TABLE (the column the old
+	// guard checked) ran before the process died.
+	_, err = db.Exec(`ALTER TABLE tasks ADD COLUMN completed_by TEXT;`)
+	require.NoError(t, err, "simulate crash after the first ADD COLUMN")
+
+	err = setSchemaVersion(db, 5)
+	require.NoError(t, err, "setup a pre-migration schema marker well below CurrentSchemaVersion")
+
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "a database with a partially-applied completion-metadata migration must heal cleanly on rerun")
+	assert.True(t, applied, "an old-version database should run all pending migrations, including completion metadata")
+
+	for _, column := range []string{
+		"completed_by", "completion_notes", "files_changed",
+		"tests_passed", "verification_status", "time_spent_minutes",
+	} {
+		var count int
+		err := db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = ?`, column,
+		).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "column %s must exist after healing a partially-applied migration", column)
+	}
+
+	// This is the read that fails in production with "no such column:
+	// completion_notes" (etc.) when the defect is present.
+	var key string
+	var completedBy, completionNotes, filesChanged sql.NullString
+	var testsPassed sql.NullBool
+	var verificationStatus string
+	var timeSpentMinutes sql.NullInt64
+	err = db.QueryRow(`
+		SELECT key, completed_by, completion_notes, files_changed,
+		       tests_passed, verification_status, time_spent_minutes
+		FROM tasks WHERE key = 'T-E01-F01-001'
+	`).Scan(&key, &completedBy, &completionNotes, &filesChanged, &testsPassed, &verificationStatus, &timeSpentMinutes)
+	require.NoError(t, err, "completion metadata read across all six columns must succeed after healing")
+	assert.Equal(t, "T-E01-F01-001", key)
+	assert.False(t, completionNotes.Valid, "completion_notes should be NULL — no backfill for a healed column")
+	assert.Equal(t, "pending", verificationStatus, "verification_status DEFAULT 'pending' must still apply when the column is added by the per-column guard")
+
+	// verification_status's CHECK constraint must survive the per-column
+	// split: an invalid value must still be rejected.
+	_, err = db.Exec(`UPDATE tasks SET verification_status = 'bogus' WHERE key = 'T-E01-F01-001'`)
+	assert.Error(t, err, "verification_status CHECK(... IN ('pending','verified','needs_rework')) must still reject invalid values")
 }
 
 // TC-302: the persisted relationship vocabulary must match the application

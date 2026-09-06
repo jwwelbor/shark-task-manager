@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -107,6 +108,18 @@ type NextStatusInfo struct {
 	// terminal/parking steps. When present, callers may release a semantic
 	// outcome (pass/fail/blocked/…) instead of naming a target status.
 	Outcomes map[string]string `json:"outcomes,omitempty"`
+
+	// ResultContract is the REQ-F-006 resolved worker-result contract for
+	// the current step: "legacy" or "gate_result_v1". Always populated
+	// ("legacy" is the default for omission/legacy workflows) so both the
+	// core runner and Rider (via `shark next --json`) consume the exact
+	// same resolved value instead of deriving it independently.
+	ResultContract string `json:"result_contract"`
+
+	// OutcomeRoles maps each key in Outcomes to its REQ-F-006 semantic role
+	// (success, route_rework, kickback_rework, blocked, hold, cancelled).
+	// Empty/nil for a "legacy" step.
+	OutcomeRoles map[string]gateresult.OutcomeRole `json:"outcome_roles,omitempty"`
 }
 
 // TargetStatuses returns the list of target status strings from AvailableTransitions.

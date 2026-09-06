@@ -141,11 +141,17 @@ steps:
     model: gpt-5.6-terra
     skills: [quality, specification-writing]
     prompt: epic/feature_review.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
       fail: decomposition
       on_hold: on_hold
       pass: active
+    outcome_roles:
+      blocked: blocked
+      fail: kickback_rework
+      on_hold: hold
+      pass: success
   integration_review:
     phase: review
     color: cyan

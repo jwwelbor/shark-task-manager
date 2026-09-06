@@ -29,6 +29,12 @@ type mockRunClaimService struct {
 	claims     []services.ClaimInput
 	releases   []runReleaseCall
 	heartbeats []runHeartbeatCall
+
+	// getClaim/getErr script Get's return value (T-E34-F05-004 rework:
+	// verifyClaimSession's authorization gate). Both nil by default, i.e. "no
+	// active claim" -- matching the safe fail-closed default.
+	getClaim *models.EntityClaim
+	getErr   error
 }
 
 type mockRunCascadeChildrenService struct {
@@ -84,6 +90,10 @@ func (m *mockRunClaimService) Heartbeat(ctx context.Context, entityType, entityK
 	return nil
 }
 
+func (m *mockRunClaimService) Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
+	return m.getClaim, m.getErr
+}
+
 func (m *mockRunClaimService) TTL() time.Duration {
 	if m.ttl > 0 {
 		return m.ttl
@@ -104,7 +114,7 @@ func TestAcquireRunLease_DryRunSkipsClaim(t *testing.T) {
 	mock := &mockRunClaimService{}
 	withRunClaimSvcOverride(t, mock)
 
-	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", true)
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", true, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("acquireRunLease dry-run: %v", err)
 	}
@@ -120,7 +130,7 @@ func TestRunLease_ReleasesAcquiredSession(t *testing.T) {
 	mock := &mockRunClaimService{}
 	withRunClaimSvcOverride(t, mock)
 
-	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", false)
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", false, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("acquireRunLease: %v", err)
 	}
@@ -171,7 +181,7 @@ func TestRunLeasePreflight_BlockedCandidateSkipsActionAndClaim_TC307_TC308(t *te
 					}
 					return &services.QuestionBlock{QuestionKey: "Q001", Summary: "Gate", ResolutionOwner: "owner", CurrentResponder: "alice"}, nil
 				}),
-				"feature", "E39-F03", dryRun,
+				"feature", "E39-F03", dryRun, services.HarnessIdentity{},
 			)
 			if err != nil {
 				t.Fatalf("blocked run preflight error = %v", err)
@@ -207,7 +217,7 @@ func TestAcquireRunLeaseForRunnableActionPropagatesQuestionBlockerCheckError(t *
 		questionBlockerFunc(func(context.Context, models.EntityType, string) (*services.QuestionBlock, error) {
 			return nil, checkErr
 		}),
-		"feature", "E39-F03", false,
+		"feature", "E39-F03", false, services.HarnessIdentity{},
 	)
 	if err == nil {
 		t.Fatal("acquireRunLeaseForRunnableAction() error = nil, want the propagated Question blocker error")
@@ -339,7 +349,7 @@ func TestRunLeasePreflight_TopLevelQuestionPauseSkipsResponderClaim_TC104(t *tes
 		return &config.OrchestratorAction{Action: config.ActionPause}, nil
 	}}
 
-	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false)
+	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("top-level Question pause preflight: %v", err)
 	}
@@ -372,7 +382,7 @@ func TestRunLeasePreflight_CascadeReadyQuestionSkipsActionAndClaim_TC104(t *test
 		return nil, nil
 	}}
 
-	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false)
+	lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", false, services.HarnessIdentity{})
 	if err != nil {
 		t.Fatalf("cascade ready Question preflight: %v", err)
 	}
@@ -406,7 +416,7 @@ func TestRunLeasePreflight_QuestionNoResponderParity_TC104(t *testing.T) {
 						return nil, nil
 					}}
 
-					lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", dryRun)
+					lease, block, _, err := acquireRunLeaseForRunnableAction(context.Background(), transitioner, actions, nil, "question", "Q001", dryRun, services.HarnessIdentity{})
 					if err != nil {
 						t.Fatalf("Question %s preflight: %v", status, err)
 					}
@@ -785,5 +795,64 @@ func TestRunRunLivenessStartPrecedesPreflight(t *testing.T) {
 	}
 	if recStartPos >= leasePos {
 		t.Errorf("rec.Start() at %s must precede acquireRunLeaseForRunnableAction at %s", fset.Position(recStartPos), fset.Position(leasePos))
+	}
+}
+
+// TestRunRunRunControllerDepsAlwaysSetsGateIngest is F-1's regression guard
+// (T-E34-F05-004 rework, code-review-20260901T061603Z-E34-F05.md): every
+// runner.RunControllerDeps{...} composite literal runRun constructs — the
+// top-level controller and the cascade-child controller inside the runChild
+// closure — must set a non-nil GateIngest field. Before this fix neither
+// site set it at all, so RunController.gateIngest stayed nil and every
+// gate_result_v1 step (including the shipped change.code_review/change.qa
+// steps) failed closed inside ingestGateResultForDispatch with "requires a
+// configured GateResult persistence coordinator" the moment a real operator
+// ran `shark run` in the foreground — only --apply-result/--resume-run
+// (which call buildGateCoordinator directly) were reachable. Every existing
+// controller-level gate test hand-builds RunControllerDeps with GateIngest
+// pre-populated, which is exactly why this shipped undetected: this test
+// inspects run.go's own actual construction sites via go/parser (the
+// existing D7 source-invariant convention for a function with no mock
+// seam — see the "AST source-guard test infrastructure" comment above)
+// instead of a hand-built RunControllerDeps.
+func TestRunRunRunControllerDepsAlwaysSetsGateIngest(t *testing.T) {
+	_, runRunDecl := parseRunGoSource(t)
+
+	var sitesChecked int
+	ast.Inspect(runRunDecl, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		sel, ok := lit.Type.(*ast.SelectorExpr)
+		if !ok || sel.Sel == nil || sel.Sel.Name != "RunControllerDeps" {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != "runner" {
+			return true
+		}
+		sitesChecked++
+
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != "GateIngest" {
+				continue
+			}
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
+				t.Fatalf("runner.RunControllerDeps{} at %v sets GateIngest to a literal nil", lit.Pos())
+			}
+			return true
+		}
+		t.Fatalf("runner.RunControllerDeps{} at %v does not set GateIngest at all — every gate_result_v1 step will fail closed with \"requires a configured GateResult persistence coordinator\" through this construction site", lit.Pos())
+		return true
+	})
+
+	if sitesChecked < 2 {
+		t.Fatalf("expected to find 2 runner.RunControllerDeps{} construction sites in runRun (top-level + cascade child), found %d — this test's own detection may have broken", sitesChecked)
 	}
 }

@@ -84,6 +84,13 @@ const AggregationStatusKey = workflow.AggregationStatusKey
 // DefaultWorkflowVersion is the default version for workflow configs.
 const DefaultWorkflowVersion = workflow.DefaultWorkflowVersion
 
+// ResultContractLegacy and ResultContractGateResultV1 are the REQ-F-006
+// `result_contract` values a route step can select.
+const (
+	ResultContractLegacy       = workflow.ResultContractLegacy
+	ResultContractGateResultV1 = workflow.ResultContractGateResultV1
+)
+
 // KnownWorkflowLevels lists every entity workflow level shark supports in
 // canonical display order.
 var KnownWorkflowLevels = workflow.KnownLevels

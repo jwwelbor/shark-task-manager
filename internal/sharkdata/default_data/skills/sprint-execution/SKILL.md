@@ -53,7 +53,7 @@ Both modes gate the sprint close operation on explicit user confirmation.
   `/shark-rider run-agent-team --sprint S###`; `parallel-team.md` owns
   active-backlog selection, topology, and integration.
 - **`--max-iterations` cap**: Prevents runaway loops when `shark sprint next` returns the same entity repeatedly (e.g., an entity that bounced back to a non-terminal state). Default cap is 50.
-- **Explicit close gate**: Closing a sprint with carryover is a planning decision. Both skills require explicit user confirmation before calling `shark sprint close`.
+- **Explicit close gate**: Closing a sprint with carryover is a planning decision. Both skills require explicit user confirmation before calling `shark sprint close`, and both require a submitted Sprint Goal Review (`shark sprint goal-review` with `--outcome=accepted`) before that close call — a rejected or absent review returns the sprint to active and creates no completion row.
 - **JSON-only shark consumption**: All shark calls use `--json` or `--field`. Human-readable output is not a stable contract.
 
 ## JSON Handling

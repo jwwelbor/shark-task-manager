@@ -109,6 +109,8 @@ PRODUCE feature review report at {{.review_base}}{{.id}}-feature-review.md:
 Print interaction-map closure table and cross-epic integration closure table in the detailed report before the final verdict.
 
 DECISION:
-- ALL PASS -> end with `RECOMMENDED OUTCOME: pass`
-- ANY FAIL -> end with `RECOMMENDED OUTCOME: fail` and include the specific gaps or issues to fix in your final summary
+- ALL PASS -> recommended_outcome: pass
+- ANY FAIL -> recommended_outcome: fail; a fail on this step kicks back individual features (`entity_key` = the feature key, `target_status` = decomposition), naming the specific gaps or issues to fix in each kickback's `reason`
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome and route the epic.
+
+{{template "_gate_result_directive" .}}

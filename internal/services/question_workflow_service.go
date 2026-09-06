@@ -109,6 +109,19 @@ func (s *QuestionService) RecordResponse(ctx context.Context, input RecordQuesti
 	if input.SessionID == "" || input.Responder == "" {
 		return nil, questionValidationError(errors.New("record Question response: session and responder are required"))
 	}
+	// Swept for the stale-lease-as-live-input defect class (T-E34-F01-003
+	// rework) and judged out of class: this raw claimReader.Get is an
+	// identity/authorization check (does the caller's session+responder match
+	// the row that exists), not a liveness check. It does not need
+	// IsClaimable/IsExpired for correctness — if the lease had actually been
+	// reclaimed by a different session (e.g. after a TTL sweep + a new
+	// claim), claim.SessionID would differ from input.SessionID and this
+	// still correctly rejects the write. An expired-but-unswept claim whose
+	// SessionID/ClaimedBy still match is the original worker completing its
+	// in-flight response before the parent loop releases the lease
+	// (RecordResponse's own doc comment above) — accepting that write is the
+	// intended grace period, not the "renders a stale identity as live"
+	// failure mode HarnessResolver.Resolve and GetNextStatus's IsClaimed had.
 	claim, err := s.claimReader.Get(ctx, string(models.EntityTypeQuestion), question.Key)
 	if err != nil {
 		return nil, fmt.Errorf("record Question response %s: load claim: %w", question.Key, err)

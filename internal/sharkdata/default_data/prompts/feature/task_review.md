@@ -114,6 +114,11 @@ PRODUCE task review report at {{.review_base}}{{.id}}-task-review.md:
   - Recommendations
 
 DECISION:
-- ALL PASS -> end with `RECOMMENDED OUTCOME: pass`
-- ANY FAIL -> end with `RECOMMENDED OUTCOME: fail` and include the specific gaps or issues to fix in your final summary
+- ALL PASS -> recommended_outcome: pass
+- ANY FAIL -> recommended_outcome: fail. This outcome's role is `route_rework`
+  — the whole feature routes back to task generation as a unit, so
+  `gate_result.kickbacks` must stay empty; put the specific gaps or issues to
+  fix in `gate_result.summary` and/or `findings[]` instead.
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome and route the feature.
+
+{{template "_gate_result_directive" .}}

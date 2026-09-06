@@ -42,6 +42,18 @@ scenario. Preserve the labels exactly:
    Do not invent commands, credentials, deployments, endpoints, or proof.
 5. Remove or redact secrets and avoid hard-coded environment-specific URLs.
 
+## Scenario grouping
+
+Organize the scenarios you produce by the requested scope, not by an internal
+inventory:
+
+- **Epic scope:** groups epic work into user journeys — the stakeholder-visible,
+  end-to-end paths the epic delivers — rather than a raw feature inventory.
+- **Feature scope:** groups feature work into its outcomes and relevant
+  integrations, rather than a raw task list.
+- **Sprint scope:** groups scenarios by the underlying epic/feature journeys or
+  outcomes of the assigned backlog items, rather than sprint backlog order.
+
 ## Readiness classification
 
 Consume the I-01 readiness handoff read-only from
@@ -87,5 +99,6 @@ changes acceptance state.
 
 Before returning a script, confirm every scenario has all template fields, each
 `Demonstrated now` claim has existing environment/date-scoped evidence, draft
-gaps are plainly labeled, and readiness facts remain classifications rather
-than approval decisions.
+gaps are plainly labeled, readiness facts remain classifications rather
+than approval decisions, and the scope grouping in **Scenario grouping** was
+applied instead of a raw inventory.

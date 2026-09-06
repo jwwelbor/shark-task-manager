@@ -12,11 +12,33 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// GateIngestDeps carries T-E34-F05-004's shared GateResult ingestion
+// coordinator and outcome-role resolution for gate_result_v1 steps. Optional
+// on RunControllerDeps: nil is safe as long as no configured step's
+// result_contract resolves to gate_result_v1 — dispatch reaches this branch
+// only for a step whose `result_contract: gate_result_v1` YAML resolves
+// through resultContractFor (T-E34-F05-005).
+type GateIngestDeps struct {
+	// Coordinator persists a validated GateResult and applies the guarded
+	// main-entity transition (T-E34-F05-003).
+	Coordinator *gatepersist.Coordinator
+	// OutcomeRoles is a fallback flat, run-wide outcome-role map used only
+	// when a dispatched step's own resolved NextStatusInfo.OutcomeRoles is
+	// empty (e.g. tests wiring a coordinator without a real workflow config
+	// source). Real dispatch resolves outcome_roles per step from the
+	// workflow's `outcome_roles` YAML map (T-E34-F05-005); see
+	// ingestGateResultForDispatch.
+	OutcomeRoles map[string]gateresult.OutcomeRole
+}
 
 // RunOptions controls run loop behavior.
 type RunOptions struct {
@@ -59,6 +81,13 @@ type RunOptions struct {
 	// It is required for cascade child service lookups when the current action
 	// is "cascade".
 	EntityType string
+
+	// HarnessOverride carries the explicit --harness/--harness-version/
+	// --harness-model flag values read once by the CLI command (spec.md
+	// §3.3 AC-T2). It is the top precedence tier for every entity the
+	// controller visits during this run, including cascade children (copied
+	// via childOpts := opts).
+	HarnessOverride services.HarnessIdentity
 }
 
 // RunProgress carries coarse-grained run-loop state for progress callbacks.
@@ -137,6 +166,12 @@ type StageLog struct {
 	// this stage. It is only populated for successful spawn_agent stages (exit
 	// code 0). Use this field for non-verbose display summaries.
 	OutputSummary string `json:"output_summary,omitempty"`
+
+	// GateStatus is the T-E34-F05-004 REQ-F-005 operator status projection
+	// (worker phase, nested operation, elapsed time, retirement state, result
+	// location) for a gate_result_v1 stage, populated from the same
+	// gaterun.StatusProjection --resume-run reports. Nil for a legacy stage.
+	GateStatus *gaterun.StatusProjection `json:"gate_status,omitempty"`
 }
 
 // EntityTransitioner abstracts per-entity-type status transition dispatch.
@@ -315,6 +350,17 @@ type RunControllerDeps struct {
 	// (see CascadeIntegrationGuard) before handleCascade enumerates or
 	// dispatches any cascade child. Optional; nil disables the guard.
 	IntegrationGuard CascadeIntegrationGuard
+
+	// HarnessResolver resolves harness identity per spec.md REQ-F-002's
+	// flag > claim > env > zero precedence (T-E34-F01-003/005), giving
+	// `shark run` parity with `shark next` (REQ-F-006). Optional: when nil,
+	// the zero identity's three empty keys are injected into vars — never
+	// an absent key (D-F01-07).
+	HarnessResolver *services.HarnessResolver
+
+	// GateIngest wires the T-E34-F05-004 gate_result_v1 ingestion path.
+	// Optional — see GateIngestDeps's doc comment.
+	GateIngest *GateIngestDeps
 }
 
 // RunController implements the core orchestration loop: read entity state,
@@ -335,6 +381,8 @@ type RunController struct {
 	questionResponses QuestionResponsePersister
 	questionBlocker   QuestionBlockChecker
 	integrationGuard  CascadeIntegrationGuard
+	harnessResolver   *services.HarnessResolver
+	gateIngest        *GateIngestDeps
 }
 
 // NewRunController constructs a RunController with the provided dependencies.
@@ -372,6 +420,8 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		questionResponses: deps.QuestionResponses,
 		questionBlocker:   deps.QuestionBlocker,
 		integrationGuard:  deps.IntegrationGuard,
+		harnessResolver:   deps.HarnessResolver,
+		gateIngest:        deps.GateIngest,
 	}, nil
 }
 
@@ -508,6 +558,39 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		}
 		templates.AugmentPlaceholderAliases(vars)
 
+		// Resolve harness identity (spec.md REQ-F-006/AC-08) and merge it
+		// into vars before the action renders, mirroring next.go's
+		// resolveEntity so `{{if isClaude .harness}}` branches see the same
+		// values under `shark run` as under `shark next` for identical
+		// inputs. HarnessIdentity.Vars() never omits a key, even when
+		// unresolved (D-F01-07).
+		if c.harnessResolver != nil {
+			identity, hErr := c.harnessResolver.Resolve(ctx, opts.EntityType, key, opts.HarnessOverride)
+			if hErr != nil {
+				// HarnessResolver.Resolve is documented to always return a
+				// nil error (claim-read failures degrade internally per
+				// D-F01-05); this branch exists only to fail loudly if that
+				// contract is ever violated, rather than silently dropping
+				// the error.
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+					EntityKey: key,
+					Status:    currentStatus,
+					Phase:     "harness_resolution",
+					Error:     fmt.Sprintf("failed to resolve harness identity for %s: %v", key, hErr),
+					RunID:     opts.RunID,
+				})
+				return result, nil
+			}
+			for k, v := range identity.Vars() {
+				vars[k] = v
+			}
+		} else {
+			zero := services.HarnessIdentity{}
+			for k, v := range zero.Vars() {
+				vars[k] = v
+			}
+		}
+
 		// Step 4: Get populated orchestrator action for current status.
 		action, err := c.actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
 		if err != nil {
@@ -587,6 +670,39 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		currentStatus = outcome.nextStatus
 		if outcome.nextInfo != nil {
 			nextInfo = outcome.nextInfo
+		} else if !opts.DryRun {
+			// code-review round-7 Finding 1 sweep: handleAdvanceStatus and
+			// handleSpawnAgent's live (non-dry-run) paths return a bare
+			// nextStatus with no nextInfo, so without this refresh the `nextInfo`
+			// this loop hands to the NEXT iteration's handleSpawnAgent would
+			// still be whatever NextStatusInfo was current BEFORE this stage
+			// transitioned — a stale snapshot of an earlier status. handleSpawnAgent
+			// pins that parameter as `stepInfo` and resolves resultContractFor,
+			// outcome_roles, AND the gate_result_v1 target-status Outcomes map
+			// from it, so a second consecutive spawn_agent stage in one Run()
+			// invocation (e.g. code_review -> qa) would silently resolve gate
+			// outcomes against the FIRST stage's configuration instead of its
+			// own — for a self-transition outcome map (a stage whose "pass"
+			// outcome happens to equal its own status) this manifests as an
+			// infinite dispatch loop that never reaches a terminal status,
+			// discovered by TestRunController_Run_MultiStageGateResultV1DispatchDoesNotReuseRunID.
+			// A dry run intentionally skips this: it must not re-read live
+			// entity state (see dryRunPostActionStatus's own doc comment) and
+			// already carries its own simulated nextInfo via
+			// simulatedDryRunNextStatus in every non-terminal dryRunNextOutcome
+			// return.
+			refreshed, err := c.transitioner.GetNextStatus(ctx, key)
+			if err != nil {
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+					EntityKey: key,
+					Status:    currentStatus,
+					Phase:     "next_stage_status",
+					Error:     fmt.Sprintf("failed to refresh status for %s before the next stage: %v", key, err),
+					RunID:     opts.RunID,
+				})
+				return result, nil
+			}
+			nextInfo = refreshed
 		}
 	}
 
@@ -816,7 +932,7 @@ func (c *RunController) autoAdvanceCascadeParent(
 			return stageOutcome{done: true}
 		}
 		result.FinalStatus = currentStatus
-		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime, opts.EntityType)
 	}
 
 	transitionResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
@@ -844,7 +960,7 @@ func (c *RunController) autoAdvanceCascadeParent(
 		Duration:  time.Since(stageStart),
 	})
 	result.StagesCompleted++
-	if c.workflowSvc.IsTerminalStatus(transitionResult.ToStatus) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(transitionResult.ToStatus) {
 		result.FinalStatus = transitionResult.ToStatus
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
@@ -876,7 +992,7 @@ func (c *RunController) handleAdvanceStatus(
 		if !ok {
 			return stageOutcome{done: true}
 		}
-		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime, opts.EntityType)
 	}
 
 	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
@@ -929,13 +1045,219 @@ func (c *RunController) handleAdvanceStatus(
 	})
 	result.StagesCompleted++
 
-	if c.workflowSvc.IsTerminalStatus(transResult.ToStatus) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(transResult.ToStatus) {
 		result.FinalStatus = transResult.ToStatus
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
 		return stageOutcome{done: true}
 	}
 	return stageOutcome{nextStatus: transResult.ToStatus}
+}
+
+// resultContractLegacy and resultContractGateResultV1 are the REQ-F-006
+// `result_contract` values a workflow step can select.
+const (
+	resultContractLegacy       = "legacy"
+	resultContractGateResultV1 = "gate_result_v1"
+)
+
+// resultContractFor resolves the REQ-F-006 `result_contract` for the
+// dispatched step from stepInfo — the NextStatusInfo the workflow layer
+// resolved for the entity's pre-dispatch status (services.EntityService
+// populates ResultContract from the step's `result_contract` YAML field,
+// defaulting to "legacy" on omission — T-E34-F05-005). Every caller in this
+// file goes through this one function, so a future contract value only
+// needs a case added here.
+func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
+	contract := resultContractLegacy
+	if stepInfo != nil && stepInfo.ResultContract != "" {
+		contract = stepInfo.ResultContract
+	}
+	switch contract {
+	case resultContractLegacy, resultContractGateResultV1:
+		return contract, nil
+	default:
+		return "", fmt.Errorf("unknown result_contract %q", contract)
+	}
+}
+
+// ingestGateResultForDispatch is handleSpawnAgent's gate_result_v1
+// continuation: it treats dispatchResult.Stdout as a candidate worker-control
+// envelope (the ENTIRE trimmed stdout must be the envelope JSON object,
+// matching recommendedOutcome's own "whole trimmed value only" safety
+// property) and delegates to the shared IngestGateResult boundary
+// (gate_ingest.go) that Rider's `--apply-result` CLI surface also calls.
+//
+// RetirementConfirmed is resolved in two phases rather than passed as true
+// unconditionally (T-E34-F05-004 rework, UAT CRITICAL finding #2): the
+// Run() main loop (see the `for { ... currentStatus = outcome.nextStatus }`
+// loop above) keeps dispatching further stages for the SAME entity, SAME
+// claim/lease session, within this SAME `shark run` invocation whenever the
+// resolved target status is non-terminal — a gate_result_v1 step is no
+// different from any other step in that respect. Confirming retirement
+// (which releases the lease via gatepersist.Coordinator's Lease.Release)
+// unconditionally on the first gate stage would free the lease while later
+// stages are still about to dispatch agents against the same entity,
+// exactly the cross-stage lease-lifetime bug the UAT report identified.
+// So: ingest once with RetirementConfirmed: false to learn the resolved
+// target status, then — only if that status is terminal (i.e. only if the
+// Run() loop is actually about to stop for this entity, mirroring the
+// `c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(toStatus)` check
+// immediately below this function's call site) — ingest again with RetirementConfirmed: true to
+// finalize retirement. The second call is safe and non-duplicating: per
+// gatepersist.Coordinator.Persist's PersistenceStateTransitioned branch, it
+// only re-verifies the already-applied transition and (idempotently) closes
+// out retirement — it does not repeat any note write or the transition
+// itself (the same pattern run_resume.go's resumeGateIngestIfConfigured
+// already documents and relies on).
+// gateStageRunID scopes gaterun's create-once persistence identity
+// (gaterun.RunDir/CreateResult, and the durable "run_id" note-metadata tag
+// used for reconciliation) to ONE dispatched gate_result_v1 stage, rather
+// than reusing runID (opts.RunID) — the single correlation identifier
+// generated once at the top of a `shark run` invocation and threaded
+// unchanged through every stage's observability events — as the persistence
+// identity too.
+//
+// code-review round-7 Finding 1: gaterun.CreateResult's create-once contract
+// treats a run_id as identifying exactly ONE persist operation and returns a
+// *gaterun.ConflictError when a second, differently-digested envelope is
+// written under the same run_id. Run()'s main loop (controller.go's
+// `for { ... currentStatus = outcome.nextStatus }`) keeps opts.RunID
+// constant across every iteration of one invocation, so a workflow with two
+// or more consecutive gate_result_v1 steps for the same entity in one
+// invocation (e.g. code_review -> qa) reused opts.RunID for both stages and
+// the second stage's envelope collided with the first stage's
+// already-accepted result.json.
+//
+// stageN (the 1-based dispatch iteration counter, already passed to this
+// function for transcript naming) is a stable, monotonically-increasing
+// per-stage discriminator: every retry of ingestGateResultForDispatch WITHIN
+// one dispatched stage (its own initial ingest call plus a possible
+// follow-up retirement-confirm call, both inside this one function
+// invocation) computes the identical gateStageRunID, so gaterun's own
+// replay/idempotent-resume semantics for a SINGLE stage are unaffected. A
+// later, different stage is a different iteration and therefore gets its
+// own run directory, unable to collide with an earlier stage's accepted
+// result. opts.RunID itself is left untouched everywhere else in this file
+// (every emitStage*/transcript call keeps using opts.RunID directly) so a
+// full `shark run` invocation remains greppable from shark.log by one
+// correlation id.
+//
+// entityKey is included as a discriminator too (code-review round-10
+// Finding: cascade-sibling collision). handleCascade dispatches each child
+// entity through its own Run()-call-local invocation (controller.go's
+// cascade loop, `childOpts := opts`), which leaves opts.RunID unchanged
+// across children AND independently restarts stageN at 1 for each child's
+// own dispatch loop. Two cascade siblings — different entities, dispatched
+// as children of the SAME parent cascade — whose first dispatched step is
+// both gate_result_v1 therefore computed the identical
+// "<runID>-g1" string before this fix: same run directory, and the second
+// sibling's differently-digested envelope collided with the first's
+// already-accepted result.json (a *gaterun.ConflictError), aborting the
+// whole cascade. Folding entityKey into the identity gives every entity its
+// own subtree under the shared runID regardless of dispatch order/timing,
+// while stageN keeps distinguishing sequential stages for that SAME entity
+// (the property this function originally protected — see the Finding-1
+// comment above). Entity keys are validated at the model layer against
+// hyphen/digit/letter-only patterns (internal/models/validation.go), so the
+// interpolated key can never introduce a character gaterun.ValidateRunID's
+// allowlist (alphanumeric, "-", "_", ".") would reject.
+//
+// --resume-run does not need to know this format: it takes an opaque run_id
+// string (whatever value this function produced, recorded durably in
+// gatepersist's own "run_id" note-metadata tag — see
+// gatepersist/operations.go's metaRunID) and looks it up via
+// gaterun.RunDir(projectRoot, runID) unchanged, so a formula change here
+// requires no change on the resume side.
+func gateStageRunID(runID, entityKey string, stageN int) string {
+	return fmt.Sprintf("%s-%s-g%d", runID, entityKey, stageN)
+}
+
+func (c *RunController) ingestGateResultForDispatch(
+	ctx context.Context, key, currentStatus string,
+	nextInfo *services.NextStatusInfo, action *config.PopulatedAction, opts RunOptions,
+	dispatchResult *DispatchResult, transcriptDisabled *bool, stageN int,
+) (string, *gaterun.StatusProjection, error) {
+	if c.gateIngest == nil || c.gateIngest.Coordinator == nil {
+		return "", nil, fmt.Errorf("gate_result_v1 step %s requires a configured GateResult persistence coordinator", key)
+	}
+
+	// T-E34-F05-005: the workflow layer now resolves outcome_roles per step
+	// (nextInfo.OutcomeRoles, from the step's own `outcome_roles` YAML map).
+	// c.gateIngest.OutcomeRoles is kept only as a fallback for callers that
+	// still inject a flat run-wide override (e.g. existing tests) when the
+	// resolved step map is empty.
+	outcomeRoles := nextInfo.OutcomeRoles
+	if len(outcomeRoles) == 0 {
+		outcomeRoles = c.gateIngest.OutcomeRoles
+	}
+
+	envelopeBytes := []byte(strings.TrimSpace(dispatchResult.Stdout))
+	baseReq := GateIngestRequest{
+		EnvelopeBytes: envelopeBytes,
+		Coordinator:   c.gateIngest.Coordinator,
+		ProjectRoot:   opts.ProjectRoot,
+		RunID:         gateStageRunID(opts.RunID, key, stageN),
+		EntityKey:     key,
+		EntityType:    models.EntityType(opts.EntityType),
+		SourceStatus:  currentStatus,
+		Gate:          currentStatus,
+		Session:       gatepersist.Session{ID: opts.SessionID},
+		OutcomeRoles:  outcomeRoles,
+		Outcomes:      nextInfo.Outcomes,
+	}
+
+	req := baseReq
+	req.RetirementConfirmed = false
+	ingestResult, err := IngestGateResult(ctx, req)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// Only confirm retirement (and release the lease) when the resolved
+	// target status is terminal — i.e. only when the Run() loop is about to
+	// stop dispatching this entity in this invocation, not merely because
+	// this one gate stage finished.
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) {
+		retireReq := baseReq
+		retireReq.RetirementConfirmed = true
+		// RunConcluded: true — this IS the Run() loop's last dispatch for
+		// this entity/session (the terminal status just resolved means the
+		// main loop's `if outcome.done { return }` fires next), so both
+		// signals gatepersist.Coordinator requires for release are true here.
+		retireReq.RunConcluded = true
+		retireResult, retireErr := IngestGateResult(ctx, retireReq)
+		if retireErr != nil {
+			return "", nil, retireErr
+		}
+		ingestResult = retireResult
+	}
+
+	relPath := c.maybeWriteTranscript(
+		ctx, opts, transcriptDisabled,
+		key, stageN, currentStatus, action.Provider,
+		dispatchResult.Command, dispatchResult.ExitCode,
+		dispatchResult.Duration.Milliseconds(),
+		dispatchResult.Stdout, dispatchResult.Stderr,
+	)
+	emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+		EntityKey:      key,
+		Status:         currentStatus,
+		AgentType:      action.AgentType,
+		Provider:       action.Provider,
+		ExitCode:       dispatchResult.ExitCode,
+		DurationMS:     dispatchResult.Duration.Milliseconds(),
+		NextStatus:     ingestResult.ToStatus,
+		RunID:          opts.RunID,
+		TranscriptPath: relPath,
+	})
+	emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+		EntityKey:  key,
+		FromStatus: currentStatus,
+		ToStatus:   ingestResult.ToStatus,
+		RunID:      opts.RunID,
+	})
+	return ingestResult.ToStatus, ingestResult.Status, nil
 }
 
 // targetStatusForDispatch resolves a worker's optional semantic outcome to a
@@ -1028,6 +1350,7 @@ func (c *RunController) dryRunNextOutcome(
 	nextInfo *services.NextStatusInfo,
 	result *RunResult,
 	startTime time.Time,
+	entityType string,
 ) stageOutcome {
 	if nextInfo == nil || nextInfo.IsTerminal || len(nextInfo.AvailableTransitions) == 0 {
 		result.FinalStatus = currentStatus
@@ -1039,11 +1362,17 @@ func (c *RunController) dryRunNextOutcome(
 	nextStatus := nextInfo.AvailableTransitions[0].TargetStatus //shark:ordered pass-first contract, see uniqueSortedOutcomeTargets
 	return stageOutcome{
 		nextStatus: nextStatus,
-		nextInfo:   c.simulatedDryRunNextStatus(nextStatus),
+		nextInfo:   c.simulatedDryRunNextStatus(nextStatus, entityType),
 	}
 }
 
-func (c *RunController) simulatedDryRunNextStatus(status string) *services.NextStatusInfo {
+// simulatedDryRunNextStatus's entityType parameter (opts.EntityType from
+// every caller) scopes IsTerminalStatus to the dispatched entity's own
+// workflow level, mirroring the round-8 code-review fix applied to every
+// other IsTerminalStatus call site in this file — a dry run for a non-task
+// entity (e.g. tech_debt, whose terminal names are resolved/wont_fix) must
+// not report IsTerminal using the unscoped task-level default.
+func (c *RunController) simulatedDryRunNextStatus(status, entityType string) *services.NextStatusInfo {
 	transitions := c.workflowSvc.GetTransitionInfo(status)
 	wrapped := make([]services.TransitionInfoWithAction, 0, len(transitions))
 	for _, transition := range transitions {
@@ -1055,7 +1384,7 @@ func (c *RunController) simulatedDryRunNextStatus(status string) *services.NextS
 		EntityKey:            "__dry_run_simulated__",
 		CurrentStatus:        status,
 		AvailableTransitions: wrapped,
-		IsTerminal:           c.workflowSvc.IsTerminalStatus(status),
+		IsTerminal:           c.workflowSvc.ForLevel(entityType).IsTerminalStatus(status),
 	}
 }
 
@@ -1106,6 +1435,15 @@ func (c *RunController) handleSpawnAgent(
 	result *RunResult, stageStart, startTime time.Time,
 	stageN int, transcriptDisabled *bool,
 ) stageOutcome {
+	// stepInfo pins the dispatched step's own NextStatusInfo (currentStatus's
+	// result_contract/outcome_roles/outcomes) before nextInfo is reassigned
+	// below to the POST-dispatch read. The gate_result_v1 branch resolves its
+	// contract and role map from this pinned snapshot, not the reassigned
+	// variable, so a step can never be validated against a different step's
+	// configuration even if the entity's status already moved by the time the
+	// post-dispatch read runs (e.g. an out-of-band transition mid-dispatch).
+	stepInfo := nextInfo
+
 	dispatcher, err := c.selectDispatcher(action.Provider)
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -1158,7 +1496,7 @@ func (c *RunController) handleSpawnAgent(
 		if !ok {
 			return stageOutcome{done: true}
 		}
-		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime)
+		return c.dryRunNextOutcome(currentStatus, postInfo, result, startTime, opts.EntityType)
 	}
 
 	// Emit run.stage.dispatch just before invoking the agent. The command string
@@ -1343,72 +1681,110 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 
-	targetStatus, err := targetStatusForDispatch(nextInfo, dispatchResult.Stdout)
+	// T-E34-F05-004/REQ-F-006: resolve this step's result contract before
+	// touching either transition path. A gate_result_v1 step never falls
+	// through to the legacy parser below on any ingestion failure — it fails
+	// closed instead (see ingestGateResultForDispatch/IngestGateResult).
+	// Resolved from stepInfo (the dispatched step's own pinned snapshot, see
+	// above), never from the post-dispatch nextInfo reassigned above.
+	contract, err := resultContractFor(stepInfo)
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 			EntityKey: key,
 			Status:    currentStatus,
-			Phase:     "outcome",
+			Phase:     "result_contract",
 			Error:     err.Error(),
 			RunID:     opts.RunID,
 		})
 		return stageOutcome{done: true}
 	}
 
-	// Write the per-dispatch transcript when capture is enabled. Stdout is
-	// DELIBERATELY excluded from the run.stage.complete event because
-	// transcripts are captured on this separate channel; the complete event
-	// is on a hot path. relPath is "" when capture is disabled, the run-scoped
-	// latch has tripped, or the write failed — matching the contract that
-	// the `transcript_path` attribute is emitted ONLY on success.
-	relPath := c.maybeWriteTranscript(
-		ctx, opts, transcriptDisabled,
-		key, stageN, currentStatus, action.Provider,
-		dispatchResult.Command, dispatchResult.ExitCode,
-		dispatchResult.Duration.Milliseconds(),
-		dispatchResult.Stdout, dispatchResult.Stderr,
-	)
+	var toStatus string
+	if contract == resultContractGateResultV1 {
+		var gateStatus *gaterun.StatusProjection
+		toStatus, gateStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "gate_ingest",
+				Error:     err.Error(),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+		if gateStatus != nil && len(result.Stages) > 0 {
+			result.Stages[len(result.Stages)-1].GateStatus = gateStatus
+		}
+	} else {
+		targetStatus, err := targetStatusForDispatch(nextInfo, dispatchResult.Stdout)
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "outcome",
+				Error:     err.Error(),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
 
-	// Emit run.stage.complete now that we know the next status.
-	emitStageComplete(ctx, opts.Observability, stageCompleteParams{
-		EntityKey:      key,
-		Status:         currentStatus,
-		AgentType:      action.AgentType,
-		Provider:       action.Provider,
-		ExitCode:       dispatchResult.ExitCode,
-		DurationMS:     dispatchResult.Duration.Milliseconds(),
-		NextStatus:     targetStatus,
-		RunID:          opts.RunID,
-		TranscriptPath: relPath,
-	})
+		// Write the per-dispatch transcript when capture is enabled. Stdout is
+		// DELIBERATELY excluded from the run.stage.complete event because
+		// transcripts are captured on this separate channel; the complete event
+		// is on a hot path. relPath is "" when capture is disabled, the run-scoped
+		// latch has tripped, or the write failed — matching the contract that
+		// the `transcript_path` attribute is emitted ONLY on success.
+		relPath := c.maybeWriteTranscript(
+			ctx, opts, transcriptDisabled,
+			key, stageN, currentStatus, action.Provider,
+			dispatchResult.Command, dispatchResult.ExitCode,
+			dispatchResult.Duration.Milliseconds(),
+			dispatchResult.Stdout, dispatchResult.Stderr,
+		)
 
-	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
-	if err != nil {
-		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-			EntityKey: key,
-			Status:    currentStatus,
-			Phase:     "transition",
-			Error:     fmt.Sprintf("transition to %s failed: %v", targetStatus, err),
-			RunID:     opts.RunID,
+		// Emit run.stage.complete now that we know the next status.
+		emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+			EntityKey:      key,
+			Status:         currentStatus,
+			AgentType:      action.AgentType,
+			Provider:       action.Provider,
+			ExitCode:       dispatchResult.ExitCode,
+			DurationMS:     dispatchResult.Duration.Milliseconds(),
+			NextStatus:     targetStatus,
+			RunID:          opts.RunID,
+			TranscriptPath: relPath,
 		})
-		return stageOutcome{done: true}
+
+		transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "transition",
+				Error:     fmt.Sprintf("transition to %s failed: %v", targetStatus, err),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+
+		// Emit run.stage.transition after a successful transition.
+		emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+			EntityKey:  key,
+			FromStatus: currentStatus,
+			ToStatus:   transResult.ToStatus,
+			RunID:      opts.RunID,
+		})
+		toStatus = transResult.ToStatus
 	}
 
-	// Emit run.stage.transition after a successful transition.
-	emitStageTransition(ctx, opts.Observability, stageTransitionParams{
-		EntityKey:  key,
-		FromStatus: currentStatus,
-		ToStatus:   transResult.ToStatus,
-		RunID:      opts.RunID,
-	})
-
-	if c.workflowSvc.IsTerminalStatus(transResult.ToStatus) {
-		result.FinalStatus = transResult.ToStatus
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(toStatus) {
+		result.FinalStatus = toStatus
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
 		return stageOutcome{done: true}
 	}
-	return stageOutcome{nextStatus: transResult.ToStatus}
+	return stageOutcome{nextStatus: toStatus}
 }
 
 // handleQuestionResponseHandoff is handleSpawnAgent's Question-specific

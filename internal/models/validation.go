@@ -16,7 +16,7 @@ var (
 	ErrInvalidTaskKey                    = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
 	ErrInvalidSprintKey                  = errors.New("invalid sprint key format: must match ^S\\d{3}$ (e.g., S001, S024, S999)")
 	ErrInvalidSprintAssignmentEntityType = errors.New(
-		"invalid sprint assignment entity_type: must be task, bug, change_card, or tech_debt")
+		"invalid sprint assignment entity_type: must be task, bug, change_card, tech_debt, epic, or feature")
 	ErrInvalidEpicStatus    = errors.New("invalid epic status")
 	ErrInvalidFeatureStatus = errors.New("invalid feature status")
 	// ErrInvalidTaskStatus is deprecated - error messages are now generated dynamically based on workflow config
@@ -94,14 +94,13 @@ func ValidateSprintKey(key string) error {
 }
 
 // ValidateSprintAssignmentEntityType validates the polymorphic entity_type
-// column on sprint_assignments. The allowed values are {task, bug,
-// change_card, tech_debt} — sprints group execution-level work items only,
-// so epic/feature/idea are intentionally NOT allowlisted.
+// column on sprint_assignments. The allowed values are task, bug, change_card,
+// tech_debt, epic, feature.
 //
 // Per the post-B018 convention (see internal/db/db.go:436-444 and the
 // `feedback_entity_type_check_constraints` user-feedback memory), there is
 // NO matching CHECK constraint on the underlying sprint_assignments table.
-// Adding a fifth assignable entity type later requires updating only this
+// Adding another assignable entity type later requires updating only this
 // function — no DB migration is needed.
 func ValidateSprintAssignmentEntityType(entityType string) error {
 	valid := map[string]bool{
@@ -109,6 +108,8 @@ func ValidateSprintAssignmentEntityType(entityType string) error {
 		"bug":         true,
 		"change_card": true,
 		"tech_debt":   true,
+		"epic":        true,
+		"feature":     true,
 	}
 	if !valid[entityType] {
 		return fmt.Errorf("%w: got %q", ErrInvalidSprintAssignmentEntityType, entityType)

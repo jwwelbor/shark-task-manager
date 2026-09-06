@@ -2,51 +2,6 @@ Verification passed for feature E07-F01 ("Sample feature for golden test"). Laun
 
 This is the final automated quality gate. You are a RED-TEAM reviewer. Your job is to find problems, not rubber-stamp.
 
-Canonical per-tier artifact and gate matrix: `skills/quality/context/tier-matrix.md`.
-
-PRODUCT CRITICAL-PATH GUARD — consult before choosing or starting any work item:
-
-Check whether these four files exist in this project:
-- `docs/product/D01-vision-statement.md`
-- `docs/product/D02-success-criteria.md`
-- `docs/plan/product-delivery-roadmap.md`
-- `docs/plan/product-critical-path.md`
-
-If a file is missing, report it and move on — a missing file is an advisory
-note, not a reason to stop:
-- `docs/product/D01-vision-statement.md` missing → report: `unresolved prerequisite: docs/product/D01-vision-statement.md missing`
-- `docs/product/D02-success-criteria.md` missing → report: `unresolved prerequisite: docs/product/D02-success-criteria.md missing`
-- `docs/plan/product-delivery-roadmap.md` missing → report: `unresolved prerequisite: docs/plan/product-delivery-roadmap.md missing`
-- `docs/plan/product-critical-path.md` missing → report: `unresolved prerequisite: docs/plan/product-critical-path.md missing`
-
-When the files are present, read them and report all of the following before
-choosing or starting work:
-
-1. **Gate name** — the current roadmap gate's name/number, from
-   `docs/plan/product-critical-path.md`'s "## Current Gate" section.
-2. **Relationship to the gate** — how the proposed work item moves that named
-   gate forward.
-3. **Executable advancement evidence** — a link to a runnable command or test
-   that proves forward movement against the live golden path. None of the
-   following count as executable advancement evidence:
-   - fixture data
-   - a captured/recorded run
-   - a hand-authored test actor standing in for a real caller
-   - a contract-only test that never exercises the production path
-   - a component-level test suite that stops short of the live golden path
-
-   Only evidence that runs against the live golden path — an executed
-   command, a passing end-to-end test, or a demonstrated production
-   interaction — moves the gate forward.
-4. **Unresolved prerequisites** — any of the four files above that is
-   missing, stale, or names an unclear gate.
-5. **Side-quest call** — when the work item does not move the named gate
-   forward, say so explicitly and give one of two calls: proceed, with a
-   stated reason (e.g. an urgent bug fix), or defer.
-
-This guard only reports; it never names a target status of its own and never
-makes the choice for you.
-
 READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases
@@ -55,11 +10,9 @@ READ:
 (5) All task specs: `shark list E07-F01 --json` → read each task's file_path
 (6) Full implementation: `git diff $(git merge-base HEAD main)..HEAD` — read the actual changed files
 
-I-03/I-04 EVIDENCE: consume E34-F06's I-03 DefectClassSweep (`skills/quality/workflows/defect-class-sweep.md`) and E34-F07's I-04 ChangeImpactSet (`skills/quality/workflows/state-space-coverage.md`) evidence for prior blocking defect classes and material decisions in scope — read their existing records rather than re-deriving this feature's own.
-
 RED-TEAM REVIEW:
 - Independently verify EVERY feature acceptance criterion against the actual code (not just reports)
-- Apply `skills/quality/workflows/defect-class-sweep.md`'s "Enumeration procedure" per AC (see `skills/uat/references/redteam-rubric.md` "ENUMERATE — DO NOT ITERATE")
+- ENUMERATE, don't iterate: for each AC, list ALL violations within each defect class in this pass — finding one issue per round produces a rejection spiral
 - Look for gaps between what the spec required and what was implemented
 - Check for cross-task integration issues that per-task review would miss
 - Verify error handling under adversarial and edge-case inputs
@@ -67,7 +20,7 @@ RED-TEAM REVIEW:
 - Verify the feature integrates correctly with the broader system
 - Challenge assumptions in the code review and QA reports — they may have missed things
 
-RE-VERIFICATION ROUND (a prior UAT report matching docs/review/E07/E07-F01/uat-*-E07-F01.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run the full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
+RE-VERIFICATION ROUND (a prior UAT report matching docs/review/E07/E07-F01/uat-*-E07-F01.md exists)? Then the review is NEVER limited to confirming prior findings are fixed. Always do all three: (a) verify the named fixes, (b) re-audit the touched functions/modules for every remaining instance of each prior finding's defect class, (c) full red-team pass (all checks above) over the feature surface. Narrow asks get narrow answers.
 
 REVIEW OUTPUT POLICY (applies to the report below):
 - If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
@@ -97,18 +50,60 @@ PRODUCE UAT report to docs/review/E07/E07-F01/uat-<timestamp>-E07-F01.md:
   - Concrete fix guidance for each finding
   - End the report with a final delimited line: `VERDICT: APPROVED` or `VERDICT: REJECTED`
 
-REVIEW-FINDING LOG (structured, queryable — only when findings exist, on APPROVED or REJECTED):
-- One note per finding: shark create note E07-F01 "<one-line finding summary>" --type=review-finding --created-by="codex" --metadata='{"gate":"uat","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- round = count of prior UAT reports matching docs/review/E07/E07-F01/uat-*-E07-F01.md + 1. The fingerprint lets the same finding resurfacing across rounds group mechanically — a recurring fingerprint is the defect-class-protocol failure signal.
-- Zero-finding APPROVED writes no `review-finding` notes.
+ON APPROVED: recommended_outcome: pass; gate_result.summary states "Feature UAT approved — red-team passed".
 
-ON APPROVED:
-- Include `PARENT NOTE: Feature UAT approved — red-team passed` in your final response
-- End with `RECOMMENDED OUTCOME: pass`
+ON REJECTED: recommended_outcome: fail. This outcome's role is `route_rework` —
+the whole feature routes back as a unit, so `gate_result.kickbacks` must stay
+empty; put the defect-class statement, specific findings, and the sweep
+instruction ("before fixing the cited instance, sweep the touched module(s)
+for every other instance of this defect class; fix all; list swept sites in
+the completion note") in `gate_result.summary` and/or `findings[]` instead of
+a per-task kickback line. Do NOT run Shark status commands yourself; the
+parent loop reopens the feature for rework.
 
-ON REJECTED:
-- In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
-  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Apply the defect-class sweep procedure (skills/quality/workflows/defect-class-sweep.md) before re-fixing; list swept sites in the completion note."`
-- Include `PARENT NOTE: UAT rejected — see report, tasks kicked back`
-- End with `RECOMMENDED OUTCOME: fail`
-- Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
+FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
+Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOTE: <text>` line, or a bare `<entity-id> -> <status> --reason "<why>"` kickback line — those are the legacy free-form directive grammar and this step does not use it. Instead, the ENTIRE trimmed final response must be exactly one worker-control envelope (`kind: final`), with a nested `gate_result` payload:
+
+```
+{
+  "kind": "final",
+  "recommended_outcome": "<the outcome key you are recommending, e.g. pass or fail>",
+  "evidence": [],
+  "gate_result": {
+    "schema_version": 1,
+    "summary": "<one paragraph: verdict and why>",
+    "findings": [ ... ],
+    "kickbacks": [ ... ],
+    "no_kickback_reason": "<only when required — see below>"
+  }
+}
+```
+
+The nested `gate_result` shape is validated and typed in `internal/gateresult`
+(see its doc comment for the full field list — `findings[]`,
+`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
+not restate it. Two rules this step's outcomes commonly need:
+
+- Whether `kickbacks` must be empty or non-empty for a given outcome depends
+  on that outcome's configured semantic role (`outcome_roles`, visible via
+  `shark get E07-F01 --json` or `shark next E07-F01 --json` ->
+  `result_contract`/`outcome_roles`), not on this prompt's own text:
+  - role `success` (typically `pass`): zero `kickbacks`, and no `findings`
+    left with `disposition: open` or `severity_conflict`.
+  - role `kickback_rework` (a per-item rework outcome): at least one
+    `kickbacks` entry (`entity_key`, `target_status`, `reason`) — one per
+    item that must reopen, replacing the legacy
+    `<entity-id> -> <status> --reason "<why>"` line format.
+  - role `route_rework` (this step's own main entity re-routes as a whole):
+    zero `kickbacks` — the configured route itself is the rework path; do
+    not also emit per-item kickbacks for this role.
+  - roles `blocked`/`hold`/`cancelled`: either at least one kickback or a
+    non-empty `no_kickback_reason` explaining why none applies.
+- A blocking finding you are reporting (not fixing) must carry
+  `disposition: open` (or `severity_conflict` when reviewers disagree);
+  every other GateResult field constraint is enforced the same way
+  regardless of which role this outcome carries.
+
+Write your full narrative report to the file this step already directs
+(unchanged); the envelope's `summary` is a compact verdict statement, not a
+duplicate of that report.

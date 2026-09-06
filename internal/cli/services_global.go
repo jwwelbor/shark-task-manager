@@ -774,6 +774,18 @@ func GetSprintService() *services.SprintService {
 	// B044: wire claim-awareness so GetNextTask never hands out an
 	// actively-claimed backlog item.
 	svc.SetClaimReader(GetClaimService())
+	// E19-F09: sprint selection shares the same read-only Question gate as
+	// keyed dispatch so open Questions cannot be selected for a sprint wave.
+	svc.SetQuestionBlocker(GetQuestionBlocker())
+	portfolioSnapshot := portfoliorepo.NewRepository(db)
+	svc.SetAdmissionService(services.NewSprintAdmissionService(
+		services.NewPortfolioSprintAdmissionEvidenceReader(
+			portfolioSnapshot,
+			GetPortfolioAdviceService(),
+			GetPortfolioPlanningService(),
+			GetWorkflowService(),
+		),
+	))
 	return svc
 }
 
@@ -849,6 +861,30 @@ func GetClaimService() *services.ClaimService {
 	svc.SetSessionLog(worksession.NewWorkSessionRepository(db))
 	svc.SetTaskResolver(repository.NewTaskRepository(db))
 	return svc
+}
+
+// GetHarnessResolver returns a HarnessResolver backed by the global DB
+// connection's claim repository. Creates a new instance per call (the
+// underlying repo is stateless), matching the GetClaimService accessor
+// pattern above. Panics on DB failure (fail-fast, matching the other CLI
+// accessors) — see spec.md §3.3 AC-T3.
+//
+// The lease TTL is read from .sharkconfig.json's claim_ttl_seconds when set,
+// mirroring GetClaimService above — otherwise both fall back to the same
+// claimTTLFromEnv default. Without this, the resolver's expiry check (added
+// for the T-E34-F01-003 rework's stale-lease-as-live-input fix) could
+// silently disagree with the configured ClaimService about whether a given
+// claim is still active, including claim_ttl_seconds: 0 disabling expiry.
+func GetHarnessResolver() *services.HarnessResolver {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	resolver := services.NewHarnessResolver(claimrepo.NewRepository(db))
+	if cfg, cfgErr := GetConfig(); cfgErr == nil && cfg != nil && cfg.ClaimTTLSeconds != nil {
+		resolver.SetTTL(time.Duration(*cfg.ClaimTTLSeconds) * time.Second)
+	}
+	return resolver
 }
 
 // GetPortfolioAdviceService returns a read-only portfolio advice service

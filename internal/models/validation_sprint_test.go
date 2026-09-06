@@ -8,7 +8,7 @@ import (
 // TestValidateSprintAssignmentEntityType_Valid covers every allowlisted
 // entity_type that may appear in a sprint_assignment row.
 func TestValidateSprintAssignmentEntityType_Valid(t *testing.T) {
-	valid := []string{"task", "bug", "change_card", "tech_debt"}
+	valid := []string{"task", "bug", "change_card", "tech_debt", "epic", "feature"}
 	for _, et := range valid {
 		t.Run(et, func(t *testing.T) {
 			if err := ValidateSprintAssignmentEntityType(et); err != nil {
@@ -19,9 +19,8 @@ func TestValidateSprintAssignmentEntityType_Valid(t *testing.T) {
 }
 
 // TestValidateSprintAssignmentEntityType_Invalid rejects all values outside
-// the {task, bug, change_card, tech_debt} allowlist. Note: epic, feature,
-// and idea are intentionally NOT allowlisted — sprints are for execution-level
-// work items only.
+// the {task, bug, change_card, tech_debt, epic, feature} allowlist. Note:
+// idea is intentionally NOT allowlisted.
 func TestValidateSprintAssignmentEntityType_Invalid(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -29,8 +28,6 @@ func TestValidateSprintAssignmentEntityType_Invalid(t *testing.T) {
 	}{
 		{"empty string", ""},
 		{"whitespace only", "   "},
-		{"epic - not allowlisted", "epic"},
-		{"feature - not allowlisted", "feature"},
 		{"idea - not allowlisted", "idea"},
 		{"sprint - sprints don't assign sprints", "sprint"},
 		{"uppercase TASK", "TASK"},

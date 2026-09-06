@@ -245,3 +245,35 @@ For E34-F01, the design should proceed assuming:
 - optional `model.prompt_profile`
 
 This is the current agreed direction for review before build.
+
+## Addendum: Closing the Non-Decisions (2026-08-31)
+
+Feature resumed for implementation after a planning-only hold. These three
+non-decisions are resolved here, scoped tightly to feature.md's actual
+requirements (REQ-F-001 harness metadata capture, REQ-F-002 harness-aware
+prompt rendering, REQ-NF-001 backward compatibility). They are deliberately
+narrow and reversible — a later feature is free to build the broader
+`model.class`/`model.effort` client-routing contract described above without
+being blocked by these choices.
+
+1. **Config schema for resolving routing metadata**: No new standalone config
+   file. Reuse the existing per-step `model:`/`effort:`/`provider:` fields
+   already present in the workflow YAML (`internal/sharkdata/default_data/workflow/*.yaml`)
+   as the source of truth. `model.class` is a small, code-owned mapping
+   derived from the step's existing `agent`/`model` fields (e.g. table in Go,
+   not a new file format) — avoids introducing a second schema that can drift
+   from the workflow config. This is additive and easily replaced if a later
+   feature needs a richer schema.
+
+2. **`model.prompt_profile`**: Optional in v1, per Decision 6's own framing
+   ("secondary" field). Omit when a step has no natural profile mapping;
+   never block prompt rendering or dispatch on its absence.
+
+3. **Backward compatibility during rollout**: Additive-only for this feature.
+   Existing response fields (`agent_type`, `provider`, `model`, `prompt`,
+   etc.) are retained unchanged; harness metadata and any new fields are
+   added alongside them, not as a replacement. Removal/demotion of
+   `agent_type` (Implications item 4 above) is explicitly out of scope for
+   E34-F01 and deferred to a follow-up feature — this satisfies REQ-NF-001
+   ("existing workflows... must continue to render successfully") without
+   requiring a coordinated multi-repo migration in this feature.

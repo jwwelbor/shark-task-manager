@@ -1,0 +1,188 @@
+package gatepersist
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+)
+
+// TestValidateKickbacks_TargetEntityWorkflowMembership table-tests the
+// target-entity workflow-membership check per feature.md's verification
+// plan: valid target status, invalid/unknown target status, and (via the
+// coordinator-level tests) idempotent vs. conflicting retry.
+func TestValidateKickbacks_TargetEntityWorkflowMembership(t *testing.T) {
+	tests := []struct {
+		name           string
+		kickbacks      []gateresult.Kickback
+		mainEntityType models.EntityType
+		mainEntity     string
+		validator      *fakeStatusValidator
+		resolver       *fakeIdentityResolver
+		wantErr        bool
+		wantKind       string // "" | "invalid_status" | "targets_main"
+	}{
+		{
+			name:           "valid target status is accepted",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F01-001", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+		},
+		{
+			name:           "unknown target status is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F01-001", TargetStatus: "not_a_status", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
+			wantKind:       "invalid_status",
+		},
+		{
+			name:           "kickback targeting the bound main entity is rejected regardless of status validity",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "E01-F02", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeFeature, "todo"),
+			wantErr:        true,
+			wantKind:       "targets_main",
+		},
+		{
+			name:           "unrecognized key shape is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "not-a-key-shape", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
+		},
+		{
+			// authorization-bypass-via-key-aliasing (code-review round 11):
+			// a slugged alias of the bound main entity must be rejected by
+			// the same "must differ from main entity" invariant as an
+			// exact-string match, since production key resolution
+			// (TaskRepository.GetByKey / parseSluggedKey) treats both as the
+			// same database row.
+			name:           "slugged alias of the bound main entity is rejected regardless of status validity",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F02-003-some-descriptive-slug", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeTask,
+			mainEntity:     "T-E01-F02-003",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
+			wantKind:       "targets_main",
+		},
+		{
+			name:           "short-form task alias of the bound main entity is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "E01-F02-003", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeTask,
+			mainEntity:     "T-E01-F02-003",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			wantErr:        true,
+			wantKind:       "targets_main",
+		},
+		{
+			// code-review round 12 (reopening round 11's fix): a feature's
+			// bare suffix form ("F05") is textually distinct from its full
+			// form ("E34-F05") under keys.KeyService.Normalize (no epic
+			// context to fold against), so the syntactic layer-1 check
+			// alone does NOT catch this. But
+			// FeatureRepository.GetByKey's suffix-match resolves both to
+			// the SAME database row in production — the resolver fake
+			// below models exactly that via alias(), proving the new
+			// DB-backed layer-2 check (not the syntactic one) is what
+			// rejects it.
+			name:           "bare feature-suffix alias of the bound main entity is rejected via repository-backed identity",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "F05", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E34-F05",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeFeature, "todo"),
+			resolver:       newFakeIdentityResolver().alias(models.EntityTypeFeature, "F05", "E34-F05"),
+			wantErr:        true,
+			wantKind:       "targets_main",
+		},
+		{
+			// A kickback naming an entity the repository cannot resolve at
+			// all must fail closed here too, before any write -- not only
+			// once Transition itself later fails to find it.
+			name:           "kickback target that does not resolve in the repository is rejected",
+			kickbacks:      []gateresult.Kickback{{EntityKey: "T-E01-F03-009", TargetStatus: "todo", Reason: "r"}},
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			validator:      newFakeStatusValidator().allow(models.EntityTypeTask, "todo"),
+			resolver:       newFakeIdentityResolver().notFound(models.EntityTypeTask, "T-E01-F03-009"),
+			wantErr:        true,
+		},
+		{
+			// code-review round 12: two kickbacks whose entity_key values are
+			// different textual aliases of the SAME real entity both passed
+			// gateresult.Validate()'s raw-string dedup and validateKickbacks'
+			// per-kickback checks (neither compares kickbacks against EACH
+			// OTHER), so both got applied as two sequential, independently
+			// workflow-legal transitions on one real entity within a single
+			// gate result. A feature's bare suffix form ("F05") has no epic
+			// context for keys.KeyService.Normalize to fold into its full
+			// form ("E34-F05") -- the same gap round 12 found for the
+			// main-entity self-kickback check -- so only the resolver-backed
+			// (entityType, id) comparison catches this cross-kickback case.
+			name:           "two kickbacks resolving to the same real entity via repository-backed identity are rejected",
+			mainEntityType: models.EntityTypeFeature,
+			mainEntity:     "E01-F02",
+			kickbacks: []gateresult.Kickback{
+				{EntityKey: "F05", TargetStatus: "todo", Reason: "first"},
+				{EntityKey: "E34-F05", TargetStatus: "in_progress", Reason: "second"},
+			},
+			validator: newFakeStatusValidator().allow(models.EntityTypeFeature, "todo", "in_progress"),
+			resolver:  newFakeIdentityResolver().alias(models.EntityTypeFeature, "F05", "E34-F05"),
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := tt.resolver
+			if resolver == nil {
+				resolver = newFakeIdentityResolver()
+			}
+			_, err := validateKickbacks(context.Background(), tt.kickbacks, tt.mainEntityType, tt.mainEntity, tt.validator, resolver)
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected an error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantKind == "invalid_status" {
+				var kerr *KickbackValidationError
+				if !errors.As(err, &kerr) {
+					t.Fatalf("expected *KickbackValidationError, got %T: %v", err, err)
+				}
+			}
+		})
+	}
+}
+
+func TestKickbackReasonTokenRoundTrip(t *testing.T) {
+	subID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  // 64 hex chars, like a real sha256 suboperation ID
+	digest := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" // 64 hex chars, like a real sha256 content digest
+	runID := "run-abc123"
+	reason := buildKickbackReason("please fix the caller", subID, digest, runID)
+	gotSub, gotDigest, gotRunID, ok := parseKickbackToken(reason)
+	if !ok {
+		t.Fatalf("expected token to parse from %q", reason)
+	}
+	if gotSub != subID {
+		t.Fatalf("parseKickbackToken() subID = %q, want %q", gotSub, subID)
+	}
+	if gotDigest != digest {
+		t.Fatalf("parseKickbackToken() digest = %q, want %q", gotDigest, digest)
+	}
+	if gotRunID != runID {
+		t.Fatalf("parseKickbackToken() runID = %q, want %q", gotRunID, runID)
+	}
+}
+
+func TestKickbackReasonTokenAbsent(t *testing.T) {
+	if _, _, _, ok := parseKickbackToken("a plain reason with no token"); ok {
+		t.Fatalf("expected no token to be found")
+	}
+}

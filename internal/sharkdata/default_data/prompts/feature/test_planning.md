@@ -102,3 +102,11 @@ EXIT GATE:
   whose TC name and location match the declared contract test pointer
 - Every X-## declared by the feature spec has test coverage matching the
   product map pointer, or an explicit deferral recorded in docs/product/progress.md
+
+DECISION:
+- Exit gate met -> recommended_outcome: pass
+- Exit gate not met -> recommended_outcome: fail. This outcome's role is
+  `route_rework` — `gate_result.kickbacks` must stay empty; state the
+  specific gaps in `gate_result.summary`.
+
+{{template "_gate_result_directive" .}}

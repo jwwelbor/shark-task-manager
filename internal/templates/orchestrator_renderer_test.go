@@ -34,6 +34,11 @@ Status: {{.status}}`
 	validTier := `{{if eq .complexity_tier "SIMPLE"}}Brief instructions{{else if eq .complexity_tier "STANDARD"}}Focused instructions{{else}}Comprehensive instructions{{end}}`
 	require.NoError(t, os.WriteFile(filepath.Join(fixturesDir, "valid", "tier.tmpl"), []byte(validTier), 0644))
 
+	// E34-F01: harness-branching fixture (spec.md §2.4 item 5 — the
+	// mechanism ships with test fixtures only, no shipped prompt uses it yet).
+	validHarness := `{{if isClaude .harness}}A{{else}}B{{end}}`
+	require.NoError(t, os.WriteFile(filepath.Join(fixturesDir, "valid", "harness.tmpl"), []byte(validHarness), 0644))
+
 	// Create partial template
 	partial := `{{define "_test_partial"}}Partial content here.{{end}}`
 	require.NoError(t, os.WriteFile(filepath.Join(fixturesDir, "partials", "_test_partial.tmpl"), []byte(partial), 0644))
@@ -346,6 +351,99 @@ func TestTemplateFuncs_TierHelpers(t *testing.T) {
 			assert.Equal(t, tt.wantCplx, isComplexFunc(tt.tier), "isComplex")
 		})
 	}
+}
+
+// TestTemplateFuncs_HarnessHelpers covers AC-T3 (T-E34-F01-003): isHarness
+// is case-insensitive; isClaude/isCodex are thin convenience wrappers,
+// matching the isSimple/isStandard/isComplex precedent exactly (spec.md
+// §3.2).
+func TestTemplateFuncs_HarnessHelpers(t *testing.T) {
+	funcs := orchestratorFuncs()
+
+	isHarnessFunc := funcs["isHarness"].(func(want, got string) bool)
+	isClaudeFunc := funcs["isClaude"].(func(got string) bool)
+	isCodexFunc := funcs["isCodex"].(func(got string) bool)
+
+	t.Run("isHarness case-insensitive match", func(t *testing.T) {
+		assert.True(t, isHarnessFunc("claude", "claude"))
+		assert.True(t, isHarnessFunc("claude", "CLAUDE"))
+		assert.True(t, isHarnessFunc("Claude", "claude"))
+		assert.False(t, isHarnessFunc("claude", "codex"))
+		assert.False(t, isHarnessFunc("claude", ""))
+	})
+
+	tests := []struct {
+		got        string
+		wantClaude bool
+		wantCodex  bool
+	}{
+		{"claude", true, false},
+		{"CLAUDE", true, false},
+		{"codex", false, true},
+		{"CODEX", false, true},
+		{"cursor", false, false}, // unrecognized harness — D-F01-03, open string
+		{"", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.got, func(t *testing.T) {
+			assert.Equal(t, tt.wantClaude, isClaudeFunc(tt.got), "isClaude")
+			assert.Equal(t, tt.wantCodex, isCodexFunc(tt.got), "isCodex")
+		})
+	}
+}
+
+// TestRender_HarnessKeyPresent_BranchesCorrectly is the FuncMap-wiring half
+// of TC-003/TC-004's belt-and-braces pattern (test-plan.md Test
+// Infrastructure): FuncMap correctness in isolation (above), then wiring
+// correctness through the real Render call (here). The runNext-level
+// assertions (TC-003/TC-004 proper) belong to T-E34-F01-004.
+func TestRender_HarnessKeyPresent_BranchesCorrectly(t *testing.T) {
+	fixturesDir := setupTestFixtures(t)
+	renderer, err := NewOrchestratorRenderer(fixturesDir)
+	require.NoError(t, err)
+
+	claudeResult, err := renderer.Render("valid/harness.tmpl", map[string]string{"harness": "claude"})
+	require.NoError(t, err)
+	assert.Equal(t, "A", claudeResult)
+
+	codexResult, err := renderer.Render("valid/harness.tmpl", map[string]string{"harness": "codex"})
+	require.NoError(t, err)
+	assert.Equal(t, "B", codexResult)
+
+	emptyResult, err := renderer.Render("valid/harness.tmpl", map[string]string{"harness": ""})
+	require.NoError(t, err)
+	assert.Equal(t, "B", emptyResult, "empty (present) harness key renders the generic branch, not an error")
+}
+
+// TC-019: Renderer fails loudly when the "harness" key is missing from the
+// map entirely (D-F01-07 regression pin). This is the renderer-side half of
+// the "always three keys" contract; TestHarnessIdentity_Vars_* in
+// internal/services/harness_service_test.go covers the Vars()-producer side.
+//
+// Forbidden per test-plan.md: pre-populating the map with harness:"" before
+// calling Render — that would test the key-present-but-empty case (covered
+// above), not this key-absent case.
+func TestRender_HarnessKeyAbsent_FailsLoudly(t *testing.T) {
+	fixturesDir := setupTestFixtures(t)
+	renderer, err := NewOrchestratorRenderer(fixturesDir)
+	require.NoError(t, err)
+
+	// Deliberately omit "harness" entirely.
+	vars := map[string]string{}
+
+	result, err := renderer.Render("valid/harness.tmpl", vars)
+
+	require.Error(t, err, "an absent .harness key must fail the typed isClaude helper, not silently fall to the else branch")
+	assert.Contains(t, err.Error(), "invalid value")
+	assert.Contains(t, err.Error(), "harness")
+	assert.Empty(t, result)
+
+	// Negative case (test-plan.md TC-019): must not silently succeed with
+	// the {{else}} branch — that would mask a caller bug (failing to inject
+	// the harness keys at all) as if it were AC-04's correct degrade-to-B
+	// behavior (which only applies when the key is present and empty).
+	assert.NotEqual(t, "B", result)
 }
 
 // ============================================================================

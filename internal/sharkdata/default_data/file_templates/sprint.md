@@ -1,17 +1,11 @@
 ---
 sprint_key: {{.SprintKey}}
 name: {{.Name}}
-goal: {{.Goal}}
-status: {{.Status}}
-start_date: {{.StartDate}}
-end_date: {{.EndDate}}
 ---
 
 # Sprint: {{.Name}}
 
 **Sprint Key**: {{.SprintKey}}
-**Status**: {{.Status}}
-**Dates**: {{.StartDate}} to {{.EndDate}}
 
 ---
 
@@ -33,5 +27,3 @@ end_date: {{.EndDate}}
 - [Planning note]
 
 ---
-
-*Last Updated*: {{.Date}}

@@ -104,6 +104,37 @@ result:
 - `fail` — needs rework; parent routes back via `outcomes[fail]`.
 - `blocked` — external blocker; parent routes to the blocked/parking step.
 
+## `gate_result_v1` steps (structured gate results)
+
+Everything above is the `legacy` `result_contract` path (the default: free-form
+directive lines like `RECOMMENDED OUTCOME: blocked`, parsed leniently by the
+parent). A step whose `shark get`/`shark next --json` reports
+`result_contract: gate_result_v1` (T-E34-F05-005) instead requires the worker
+to return the single canonical worker-control envelope
+(`context/worker-control-schema.yaml`) with a nested `gate_result` payload —
+no free-form directive lines, no second Rider-only grammar:
+
+```
+{
+  "kind": "final",
+  "recommended_outcome": "pass",
+  "evidence": [],
+  "gate_result": {
+    "schema_version": 1,
+    "summary": "..."
+  }
+}
+```
+
+The ENTIRE trimmed response must be this JSON object. The host adapter — not
+the worker — then routes it through the shared ingestion CLI surface (see
+`context/host-adapter-contract.md`'s "`result_contract`-gated dispatch"
+section and `verbs/run.md`); it never parses this envelope as a legacy
+directive. A `gate_result_v1` step's worker must not emit the legacy
+free-form forms (`RECOMMENDED OUTCOME:`, `PARENT NOTE:`, bare kickback lines)
+— the parent fails the step closed rather than silently falling back to
+legacy parsing.
+
 ## Handling blockers
 
 Return the reason and `blocked` — let the parent persist the blocker and route

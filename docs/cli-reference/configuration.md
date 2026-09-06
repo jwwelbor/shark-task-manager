@@ -329,6 +329,57 @@ Precedence: an explicitly passed `--sequential` flag always wins; when the
 flag is not passed, the `sequential_dispatch` config value applies; when
 neither is set, the default is fan-out.
 
+### Harness metadata flags
+
+<a id="harness-metadata-flags"></a>
+
+`shark claim`, `shark next`, and `shark run` accept three optional flags that
+capture and resolve harness identity for prompt rendering:
+
+```bash
+shark claim <key> --by=agent1 --harness=claude --harness-version=2.1.0 --harness-model=opus
+shark next <key> --harness=claude --harness-version=2.1.0 --harness-model=opus
+shark run <key> --harness=claude --harness-version=2.1.0 --harness-model=opus
+```
+
+| Flag | Description |
+|------|-------------|
+| `--harness` | Harness type (e.g. `claude`, `codex`). |
+| `--harness-version` | Harness version string. |
+| `--harness-model` | Harness model string. |
+
+**Normalization differs by command.** `shark claim` trims and lowercases
+`--harness` before persisting it (`--harness-version`/`--harness-model` are
+trimmed only). `shark next` and `shark run` pass their three override flags
+through **verbatim** — no trimming or case-folding — because they feed the
+resolver's per-field precedence (below) rather than a persisted row; a value
+sourced from an active claim is already normalized by the time it reaches the
+resolver, but a raw `--harness` flag on `next`/`run` is not. Branching via
+`isClaude`/`isCodex`/`isHarness` is case-insensitive regardless, so this only
+affects the literal value echoed back on the wire (`resp.Harness` below), not
+whether a template branch matches.
+
+`shark claim` persists the three values on the entity's claim row so they
+outlive the claiming process. `shark next` and `shark run` resolve harness
+identity per field, highest precedence first: an explicit flag on the
+rendering command, the entity's active claim, the `SHARK_HARNESS` /
+`SHARK_HARNESS_VERSION` / `SHARK_HARNESS_MODEL` environment variables (see
+[Environment Variables](#environment-variables)), then unset (empty string).
+`shark run` accepts the same three flags as `shark next` so both dispatch
+surfaces render identically given the same inputs.
+
+Resolved harness identity is injected into prompt rendering under the
+`harness`, `harness_version`, and `harness_model` placeholder keys, and
+workflow prompts may branch on it via the `isHarness <name>`, `isClaude`, and
+`isCodex` template helpers. An entity with no resolvable harness metadata
+(no flag, no claim, no env var) renders the same as before this feature —
+these flags are purely additive.
+
+`shark next --json` additionally reports the resolved values on the response
+as `harness`, `harness_version`, and `harness_model` — each `omitempty`, so a
+run with no resolvable harness metadata emits a response byte-identical to
+before this feature existed.
+
 ### Web Server Configuration
 
 The `web` key configures the `shark web` dashboard server.
@@ -747,6 +798,9 @@ Shark supports environment variable substitution in config values:
 | `SHARK_DB_URL` | Database URL or file path |
 | `SHARK_AUTH_TOKEN_FILE` | Path to Turso auth token file |
 | `SHARK_OUTPUT` | Default output format (set to `json` for JSON) |
+| `SHARK_HARNESS` | Lowest-precedence source for the resolved harness type (see [Harness metadata flags](#harness-metadata-flags)). Read directly via `os.Getenv`, not substituted into `.sharkconfig.json`. |
+| `SHARK_HARNESS_VERSION` | Lowest-precedence source for the resolved harness version. Same read mechanism as `SHARK_HARNESS`. |
+| `SHARK_HARNESS_MODEL` | Lowest-precedence source for the resolved harness model. Same read mechanism as `SHARK_HARNESS`. |
 
 ---
 

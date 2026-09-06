@@ -482,6 +482,22 @@ func orchestratorFuncs() template.FuncMap {
 			return tier == "COMPLEX"
 		},
 
+		// Harness predicate helpers (E34-F01, spec.md §3.2/REQ-F-004),
+		// mirroring the isSimple/isStandard/isComplex precedent exactly.
+		// isHarness is the general case-insensitive form; isClaude/isCodex
+		// are convenience wrappers over the open harness-type string
+		// (D-F01-03 — not a closed enum, so an unrecognized harness value
+		// simply falls through to false rather than erroring).
+		"isHarness": func(want, got string) bool {
+			return strings.EqualFold(want, got)
+		},
+		"isClaude": func(got string) bool {
+			return strings.EqualFold(got, "claude")
+		},
+		"isCodex": func(got string) bool {
+			return strings.EqualFold(got, "codex")
+		},
+
 		// Sprig-parity helpers for partial composition.
 		//
 		// `dict` builds a map[string]interface{} from alternating key/value

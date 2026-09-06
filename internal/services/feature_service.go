@@ -13,6 +13,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/integration"
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -1461,10 +1462,30 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		return nil, fmt.Errorf("epic not found: %s", epicKey)
 	}
 
-	// Generate next feature key
-	featureKey, err := s.nextFeatureKey(ctx, epic.ID, epicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate feature key: %w", err)
+	// Determine feature key (B063: honor a custom key when supplied, following
+	// the same validation/uniqueness pattern as EpicService.CreateEpic).
+	var featureKey string
+	if input.CustomKey != "" {
+		var keyErr error
+		featureKey, keyErr = resolveFeatureCustomKey(input.CustomKey, epicKey)
+		if keyErr != nil {
+			return nil, keyErr
+		}
+		existing, err := s.repo.GetByKey(ctx, featureKey)
+		if err == nil && existing != nil {
+			if next := s.suggestNextFeatureKey(ctx, epic.ID, epicKey); next != "" {
+				return nil, fmt.Errorf("feature with key %q already exists (next available: %s)", featureKey, next)
+			}
+			return nil, fmt.Errorf("feature with key %q already exists", featureKey)
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to check existing feature key %s: %w", featureKey, err)
+		}
+	} else {
+		featureKey, err = s.nextFeatureKey(ctx, epic.ID, epicKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate feature key: %w", err)
+		}
 	}
 
 	// Resolve status
@@ -1721,6 +1742,33 @@ func (s *FeatureService) DeleteFeature(ctx context.Context, key string) error {
 	return nil
 }
 
+// resolveFeatureCustomKey normalizes a caller-supplied custom feature key and
+// verifies it names the epic the feature is actually being created under
+// (B063 BLOCKER-1). A bare suffix ("F07") is derived against epicKey; a full
+// key ("E01-F07") naming a *different* epic is rejected rather than silently
+// squatting a globally-unique features.key row that the named epic's own
+// auto-generation will collide with later.
+func resolveFeatureCustomKey(customKey, epicKey string) (string, error) {
+	trimmed := strings.ToUpper(strings.TrimSpace(customKey))
+
+	if keys.IsFeatureKeySuffix(trimmed) {
+		return epicKey + "-" + trimmed, nil
+	}
+
+	if keys.IsFeatureKey(trimmed) {
+		parentEpic, _, err := keys.ParseFeatureKey(trimmed)
+		if err != nil {
+			return "", fmt.Errorf("invalid feature key %q: %w", customKey, err)
+		}
+		if parentEpic != epicKey {
+			return "", fmt.Errorf("feature key %q does not belong to epic %q", trimmed, epicKey)
+		}
+		return trimmed, nil
+	}
+
+	return "", fmt.Errorf("invalid feature key %q: expected format F## or %s-F## (e.g. F07 or %s-F07)", customKey, epicKey, epicKey)
+}
+
 // nextFeatureKey generates the next available feature key (E##-F##) for a given epic.
 func (s *FeatureService) nextFeatureKey(ctx context.Context, epicID int64, epicKey string) (string, error) {
 	features, err := s.repo.ListByEpic(ctx, epicID)
@@ -1739,6 +1787,18 @@ func (s *FeatureService) nextFeatureKey(ctx context.Context, epicID int64, epicK
 		}
 	}
 	return fmt.Sprintf("%s-F%02d", epicKey, maxNum+1), nil
+}
+
+// suggestNextFeatureKey returns the next available feature key for use in
+// duplicate-key error messages, or the empty string if it could not be
+// computed. Best-effort: a failure here must not mask the original
+// duplicate-key error (B063).
+func (s *FeatureService) suggestNextFeatureKey(ctx context.Context, epicID int64, epicKey string) string {
+	next, err := s.nextFeatureKey(ctx, epicID, epicKey)
+	if err != nil {
+		return ""
+	}
+	return next
 }
 
 // resolveFeatureFilePath checks for file path collisions and handles force reassignment.

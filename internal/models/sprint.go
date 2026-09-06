@@ -37,12 +37,12 @@ type Sprint struct {
 }
 
 // SprintAssignment is a polymorphic association row linking a sprint to a
-// task, bug, change-card, or tech-debt item.
+// task, bug, change-card, tech-debt, epic, or feature item.
 //
 // EntityType is constrained at the app layer only (see
 // ValidateSprintAssignmentEntityType in validation.go); per the post-B018
 // convention, the underlying sprint_assignments table does NOT carry a
-// CHECK constraint on entity_type. Adding a fifth assignable entity type
+// CHECK constraint on entity_type. Adding another assignable entity type
 // later requires updating only the Go validator — no DB migration.
 //
 // RemovedAt is nullable: a NULL value means the assignment is currently
@@ -180,6 +180,37 @@ type SprintCompletion struct {
 	CompletedSizeSum     *float64  `json:"completed_size_sum,omitempty" db:"completed_size_sum"` // nil if all entities are unsized
 	CarryoverMode        string    `json:"carryover_mode" db:"carryover_mode"`                   // "next" | "backlog"
 	NextSprintID         *int64    `json:"next_sprint_id,omitempty" db:"next_sprint_id"`
+}
+
+// SprintAdmissionOverride records an audited exception to roadmap admission.
+type SprintAdmissionOverride struct {
+	ID          int64     `json:"id" db:"id"`
+	SprintID    int64     `json:"sprint_id" db:"sprint_id"`
+	EntityType  string    `json:"entity_type" db:"entity_type"`
+	EntityID    int64     `json:"entity_id" db:"entity_id"`
+	Reason      string    `json:"reason" db:"reason"`
+	RequestedBy string    `json:"requested_by" db:"requested_by"`
+	ReasonCode  string    `json:"reason_code" db:"reason_code"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
+
+type SprintGoalReviewOutcome string
+
+const (
+	SprintGoalReviewAccepted SprintGoalReviewOutcome = "accepted"
+	SprintGoalReviewRejected SprintGoalReviewOutcome = "rejected"
+)
+
+// SprintGoalReview records evidence used to accept or reject a sprint goal.
+type SprintGoalReview struct {
+	ID           int64                   `json:"id" db:"id"`
+	SprintID     int64                   `json:"sprint_id" db:"sprint_id"`
+	Goal         string                  `json:"goal" db:"goal"`
+	BeforeResult string                  `json:"before_result" db:"before_result"`
+	AfterResult  string                  `json:"after_result" db:"after_result"`
+	Reviewer     string                  `json:"reviewer" db:"reviewer"`
+	Outcome      SprintGoalReviewOutcome `json:"outcome" db:"outcome"`
+	ReviewedAt   time.Time               `json:"reviewed_at" db:"reviewed_at"`
 }
 
 // Validate enforces structural invariants on a SprintAssignment row:

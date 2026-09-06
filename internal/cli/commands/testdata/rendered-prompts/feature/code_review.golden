@@ -7,10 +7,6 @@ Read feature metadata: shark get E07-F01 --json → `complexity_tier` (also reco
 - **SIMPLE / STANDARD** (or tier unknown): this is the ONLY same-model verification gate — perform ALL FOUR parts below in this single pass. Do not slim it: there is no separate QA pass behind you, and tasks receive no per-task review.
 - **COMPLEX**: perform Part 1 (craft review) only; Parts 2–4 run as a separate deep QA gate next.
 
-Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `approval`; COMPLEX: `code_review`, `qa`, `approval` (canonical source: `skills/quality/context/tier-matrix.md`).
-
-RE-REVIEW ROUND (a prior code-review report matching docs/review/E07/E07-F01/code-review-*-E07-F01.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (Parts 1–4 below) over the feature surface, not only the previously-flagged area.
-
 
 # Workflow: Code Review (Craft Review)
 
@@ -383,17 +379,6 @@ If `prior_rejection_count >= 1` for this task at code review, **escalate to the 
 - Respect the developer's effort. The goal is better code shipped, not a higher rejection count.
 
 
-OVERRIDE — loop-guard escalation for this gate: the included workflow's
-"Loop-guard awareness" section escalates on raw `prior_rejection_count >= 1`.
-For this feature-level gate, that raw round count is superseded by
-`skills/quality/workflows/defect-class-sweep.md`'s evidence-based recurrence
-classification: escalate to the user only when a finding is genuine
-recurrence per that workflow — the same fingerprint resurfacing after a
-recorded repair, or a new fingerprint sharing both the same `class_key` and
-scope membership in a previously completed sweep — never on round count
-alone. A new, non-recurring finding on a later round is ordinary rework, not
-a loop.
-
 READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for architecture decisions and acceptance criteria
 (2) Feature test-plan.md for all expected test cases, coverage requirements, and Caller-Path Contracts
@@ -403,8 +388,6 @@ READ:
 (6) Implementation code for all changed files
 (7) Parent interaction map and cross-epic maps if the feature spec declares
     I-## or X-## rows
-
-I-03/I-04 EVIDENCE: consume E34-F06's I-03 DefectClassSweep (`skills/quality/workflows/defect-class-sweep.md`) and E34-F07's I-04 ChangeImpactSet (`skills/quality/workflows/state-space-coverage.md`) evidence for prior blocking defect classes and material decisions in scope — read their existing records rather than re-deriving this feature's own.
 
 PART 1 — CRAFT REVIEW (all tiers; treat as a single PR review, not per-task):
 - Code quality, security, and adherence to CLAUDE.md across the full changeset
@@ -460,22 +443,65 @@ PRODUCE verification report to docs/review/E07/E07-F01/code-review-<timestamp>-E
   - Findings grouped by task with file paths, evidence, failed commands/tests, affected AC/TC/I-##/X-## IDs, defect-class statements for blocking findings, and concrete fix guidance
   - Notes on any non-blocking observations
 
-REVIEW-FINDING LOG (structured, queryable — only when findings exist, on PASS or FAIL):
-- One note per finding: shark create note E07-F01 "<one-line finding summary>" --type=review-finding --created-by="<reviewer model>" --metadata='{"gate":"code_review","round":<N>,"severity":"<critical|high|medium|low>","defect_class":"<one-line class statement>","fingerprint":"<file>:<symbol>:<class-slug>","tc_id":"<TC-ID or omit>","disposition":"open"}'
-- round = how many times this gate has run for this feature (count prior code-review reports in docs/review/E07/E07-F01/). The fingerprint lets the same finding resurfacing across rounds group mechanically.
-- Zero-finding PASS writes no `review-finding` notes.
+ON PASS: gate_result.summary states "Feature verification gate passed — see report".
+- SIMPLE / STANDARD → recommended_outcome: pass
+- COMPLEX → recommended_outcome: deep_verify
 
-ON PASS:
-- Include `PARENT NOTE: Feature verification gate passed — see report` in your final response
-- SIMPLE / STANDARD → end with `RECOMMENDED OUTCOME: pass`
-- COMPLEX → end with `RECOMMENDED OUTCOME: deep_verify`
-
-ON FAIL (blockers, spec drift, missing ACs, contract violations):
+ON FAIL (blockers, spec drift, missing ACs, contract violations): recommended_outcome: fail.
 - Write the detailed report with findings grouped by task
   - Verdict: FAIL
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
-- In your final response, list the exact task kickbacks the parent loop should apply, using the reason format:
-  `<task-id> -> development --reason "<defect-class statement> — <specific findings>. Apply the defect-class sweep procedure (skills/quality/workflows/defect-class-sweep.md) before re-fixing; list swept sites in the completion note."`
-- Include `PARENT NOTE: Verification gate failed — see report, tasks kicked back`
-- End with `RECOMMENDED OUTCOME: fail`
+- This outcome's role is `kickback_rework` — `gate_result.kickbacks` must
+  contain one entry per task that needs to reopen (`entity_key`: the task
+  key, `target_status`: development, `reason`: "<defect-class statement> —
+  <specific findings>. Before fixing the cited instance, sweep the touched
+  module(s) for every other instance of this defect class; fix all; list
+  swept sites in the completion note.")
 - Do NOT run Shark status commands yourself; the parent loop will reopen tasks and reset the feature.
+
+FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
+Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOTE: <text>` line, or a bare `<entity-id> -> <status> --reason "<why>"` kickback line — those are the legacy free-form directive grammar and this step does not use it. Instead, the ENTIRE trimmed final response must be exactly one worker-control envelope (`kind: final`), with a nested `gate_result` payload:
+
+```
+{
+  "kind": "final",
+  "recommended_outcome": "<the outcome key you are recommending, e.g. pass or fail>",
+  "evidence": [],
+  "gate_result": {
+    "schema_version": 1,
+    "summary": "<one paragraph: verdict and why>",
+    "findings": [ ... ],
+    "kickbacks": [ ... ],
+    "no_kickback_reason": "<only when required — see below>"
+  }
+}
+```
+
+The nested `gate_result` shape is validated and typed in `internal/gateresult`
+(see its doc comment for the full field list — `findings[]`,
+`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
+not restate it. Two rules this step's outcomes commonly need:
+
+- Whether `kickbacks` must be empty or non-empty for a given outcome depends
+  on that outcome's configured semantic role (`outcome_roles`, visible via
+  `shark get E07-F01 --json` or `shark next E07-F01 --json` ->
+  `result_contract`/`outcome_roles`), not on this prompt's own text:
+  - role `success` (typically `pass`): zero `kickbacks`, and no `findings`
+    left with `disposition: open` or `severity_conflict`.
+  - role `kickback_rework` (a per-item rework outcome): at least one
+    `kickbacks` entry (`entity_key`, `target_status`, `reason`) — one per
+    item that must reopen, replacing the legacy
+    `<entity-id> -> <status> --reason "<why>"` line format.
+  - role `route_rework` (this step's own main entity re-routes as a whole):
+    zero `kickbacks` — the configured route itself is the rework path; do
+    not also emit per-item kickbacks for this role.
+  - roles `blocked`/`hold`/`cancelled`: either at least one kickback or a
+    non-empty `no_kickback_reason` explaining why none applies.
+- A blocking finding you are reporting (not fixing) must carry
+  `disposition: open` (or `severity_conflict` when reviewers disagree);
+  every other GateResult field constraint is enforced the same way
+  regardless of which role this outcome carries.
+
+Write your full narrative report to the file this step already directs
+(unchanged); the envelope's `summary` is a compact verdict statement, not a
+duplicate of that report.

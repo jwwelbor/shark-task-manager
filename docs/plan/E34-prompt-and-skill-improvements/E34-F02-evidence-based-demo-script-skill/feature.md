@@ -2,7 +2,7 @@
 feature_key: E34-F02-evidence-based-demo-script-skill
 epic_key: E34
 title: Evidence-Based Demo Script Skill
-description: Provide a portable Shark Rider demo-script recipe that turns accepted epic or feature evidence into an accurate, readiness-aware walkthrough without treating completion status, an owner override, or a demo as a UAT verdict.
+description: Provide a portable Shark Rider demo-script recipe that turns accepted epic, feature, or sprint evidence into an accurate, readiness-aware walkthrough without treating completion status, an owner override, or a demo as a UAT verdict.
 ---
 
 # Evidence-Based Demo Script Skill
@@ -24,10 +24,10 @@ description: Provide a portable Shark Rider demo-script recipe that turns accept
 Project teams need a clear way to demonstrate delivered work to stakeholders, but existing demo-script guidance is coupled to a specific web stack, GitHub Actions, Playwright, screenshots, and repository layout. Those assumptions exclude valid Shark projects such as CLIs, APIs, libraries, batch pipelines, infrastructure, and background processes. Without a portable workflow, demo claims can drift from the actual delivered scope or omit the evidence needed for a presenter to show the result confidently.
 
 ### Solution
-Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]`, backed by an embedded `demo-script` skill and template. The action will gather Shark entity state, acceptance/readiness evidence, and project guidance; organize delivered work into stakeholder-oriented scenarios; and produce a walkthrough whose claims are tied to observable evidence. It must support appropriate evidence for each product surface rather than assuming screenshots are always available.
+Add an explicit Mode 3 Rider action, `/shark-rider demo <epic-key|feature-key|sprint-key> [--draft]`, backed by an embedded `demo-script` skill and template. The action will gather Shark entity state, acceptance/readiness evidence, and project guidance; organize delivered work into stakeholder-oriented scenarios; and produce a walkthrough whose claims are tied to observable evidence. It must support appropriate evidence for each product surface rather than assuming screenshots are always available.
 
 ### Impact
-- Demo scripts can be generated for epic and feature scopes across supported project types, including non-UI products.
+- Demo scripts can be generated for epic, feature, and sprint scopes across supported project types, including non-UI products.
 - Every normal-mode scenario has a traceable source requirement and verified observable evidence; incomplete work is identified as not demonstrated.
 - Contract-only behavior, open activation obligations, and owner-overridden findings remain visible and cannot be presented as verified end-to-end delivery.
 - Demo preparation remains separate from UAT and does not add a mandatory default workflow status.
@@ -38,13 +38,17 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
 
 ### Must-Have Stories
 
-**Story 1**: As a project presenter, I want an accurate demo script for a completed epic or feature so that I can show stakeholder value without overstating incomplete or unverified work.
+**Story 1**: As a project presenter, I want an accurate demo script for a completed epic, feature, or sprint so that I can show stakeholder value without overstating incomplete or unverified work.
 
 **Acceptance Criteria**:
-- [ ] The action accepts only epic or feature keys and reads their relevant scope, statuses, acceptance criteria, notes, related documents, completed child work, latest UAT assessor verdict, separate owner decision, open conditions, and integration activation state.
-- [ ] The resulting script groups epic work into user journeys rather than a raw feature inventory, and feature work into its outcomes and relevant integrations.
+- [ ] The action accepts epic, feature, or sprint keys and reads their relevant scope, statuses, acceptance criteria, notes, related documents, completed child work, latest UAT assessor verdict, separate owner decision, open conditions, and integration activation state.
+- [ ] The resulting script groups epic work into user journeys rather than a raw feature inventory, feature work into its outcomes and relevant integrations, and sprint work by the underlying epic/feature journeys or outcomes of its assigned backlog items rather than by sprint backlog order.
 - [ ] Incomplete work is explicitly placed under “Not demonstrated” rather than presented as complete.
 - [ ] Completed status is treated as context rather than proof; a contract-only obligation or owner-overridden rejection cannot become a verified normal-mode claim.
+
+> **Scope note:** Extended 2026-08-31 to include sprint targets, tracking the
+> sprint-demo capability shipped in PR #186 (2026-08-17) for E19 sprint work —
+> see the shark decision note on E34-F02 for the decision record.
 
 **Story 2**: As a maintainer of a CLI, API, library, pipeline, or infrastructure project, I want evidence requirements that match my product surface so that I can demonstrate the delivered behavior without fabricating screenshots.
 
@@ -62,7 +66,7 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
    - **Description**: Ship a `demo` Rider verb plus an embedded `demo-script` skill and reference template. The verb retrieves the portable instructions through `shark skill get`, not through a new Go command, database table, or entity type.
    - **Priority**: Must-Have
    - **Acceptance Criteria**:
-     - [ ] `/shark-rider demo <epic-key>` and `/shark-rider demo <feature-key>` resolve the documented recipe.
+     - [ ] `/shark-rider demo <epic-key>`, `/shark-rider demo <feature-key>`, and `/shark-rider demo <sprint-key>` resolve the documented recipe.
      - [ ] Rider router/help/capability references, bundle manifest, and skill documentation expose the new capability.
 
 2. **REQ-F-002**: Build an evidence-backed scenario map
@@ -111,7 +115,7 @@ Add an explicit Mode 3 Rider action, `/shark-rider demo <epic|feature> [--draft]
 - **And** each demonstrated claim maps to committed scope and observable evidence.
 
 **Scenario 2: Produce a safe draft when evidence cannot be captured**
-- **Given** an eligible epic or feature whose architecture documentation does not explain how to run or capture a required surface
+- **Given** an eligible epic, feature, or sprint whose architecture documentation does not explain how to run or capture a required surface
 - **When** the presenter runs the action with `--draft`
 - **Then** the generated script records the evidence gap and uncaptured steps
 - **And** it does not invent setup commands, credentials, deployments, or proof.
