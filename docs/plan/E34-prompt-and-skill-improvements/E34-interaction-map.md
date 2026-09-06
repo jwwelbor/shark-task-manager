@@ -57,8 +57,10 @@ guard closure, recurrence, and re-verification. E34-F08 rejects final
 integration closure when a prior blocking class lacks a complete I-03 or its
 guard is unverified.
 
-The planned shared contract test is
-`E34-F06-defect-class-completeness-and-recurrence-routing/test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE`.
+The shared contract test is
+`E34-F06-defect-class-completeness-and-recurrence-routing/scenario-review-TC-005-TC-009.md#tc-i-03-defect-class-closure-cross-reference`
+(the original `test-plan.md#TC-I-03-DEFECT-CLASS-CLOSURE` anchor never
+resolved; this is the actual, existing anchor — TD-198).
 
 ### I-04 ChangeImpactSet
 

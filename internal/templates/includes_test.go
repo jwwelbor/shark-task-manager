@@ -680,7 +680,7 @@ func TestIncludeResolverWithEmbed_StateSpaceCoverageRenders(t *testing.T) {
 		assert.Contains(t, out, section, "state-space-coverage.md must contain section %q", section)
 	}
 
-	// Closed lifecycle tables: the detection heuristic and all six required
+	// Closed lifecycle tables: the detection heuristic and all seven required
 	// table columns (TC-001 clause 1).
 	assert.Contains(t, out, "behavior-bearing", "must state the lifecycle-field detection heuristic")
 	for _, column := range []string{
