@@ -35,25 +35,30 @@ implements the comparison and publication behavior from new I-07/I-08 records.
 
 | ID | Scenario | Verify | Owner and criteria |
 |---|---|---|---|
-| UAT-08 | All four lifecycle families are admitted correctly | Load one versioned feature, bug, change-card, and tech-debt package on the controlled Python fixture. Verify stable identity, adapter selection, final predicate, and the exact applicable/non-applicable stage matrix. Reject a malformed or non-runnable package with the failing field named. | E40-F05; G8; I-04 |
+| UAT-08 | All six lifecycle families are admitted correctly | Load one versioned epic, feature, task, bug, change-card, and tech-debt package on the controlled Python fixture. Verify stable identity, adapter selection, final predicate, and the exact applicable/non-applicable stage matrix — including D01–D05 `applicable: true` on `feature` only, with a family-specific non-applicability reason recorded for the other five. Verify the admitted family vocabulary is the closed six-value set and that the Go validator and `admit-scenario.sh` reject an identical negative set. Reject a malformed or non-runnable package with the failing field named. | E40-F05 (four families); E40-F11 (widened to six); G8; I-04 |
 | UAT-09 | Evaluator truth is isolated and stage evidence replays | Inspect both agent-visible roots immediately before every dispatch and prove that references, answer keys, patches, and hidden tests are absent. After the stage or run, grant recorded evaluator access and replay the snapshot without rerunning the worker. | E40-F06; G9; I-05; X-09 |
 | UAT-10 | Product design replays without live input | Run a feature scenario through the existing Rider D01-D05 action using only its versioned response bundle. Record each consumed response and artifact lineage. Disable live research and human input; a missing response stops as `unresolved_gate`. Verify other families record D01-D05 as non-applicable. | E40-F07; G10; I-06; X-10 |
 | UAT-11 | The canonical keyed lifecycle executes every eligible entity | Exercise a hierarchy fork and agent-generated child tasks. Preserve each dispatch response, record the scheduling choice, claim and heartbeat the concrete entity, pass its prompt unchanged, persist the semantic outcome, apply the configured transition, release on every path, and execute every eligible task. | E40-F08; G11; I-07; X-11 |
-| UAT-12 | Questions, failures, and safety stops remain truthful | Exercise Question routing, missing replay input, lease loss, worker failure, missing outcome, cancellation, pause, archive, error, and each resource ceiling. Verify the named stop outcome, retained partial evidence, released lease where owned, and baseline ineligibility. | E40-F08; G12; I-07; X-13 |
+| UAT-12 | Questions, failures, and safety stops remain truthful | Exercise Question routing, missing replay input, lease loss, worker failure, missing outcome, cancellation, pause, archive, error, and each resource ceiling. Verify the named stop outcome, retained partial evidence, released lease where owned, and baseline ineligibility. The ceiling set is **four** — provider-cost, wall-clock, generated-task, and provider-call (G12, widened by E40-F11) — and each is exercised independently. | E40-F08; G12; I-07; X-13 |
 | UAT-13 | Structural, judge, and execution truth stay separate | Supply artifacts with a structural defect, a calibrated-judge disagreement, and an implementation that reaches terminal workflow status but fails the held-back oracle. Verify all three results remain distinct and each blocks publication as configured. | E40-F09; G13; I-08 |
 | UAT-14 | Comparison identity fails closed | Omit each required identity field and mix one field at a time across otherwise valid runs. Reject every aggregate, retain the invalid inventory and divergence reason, and accept only a fully uniform set. | E40-F09; G14; I-08; X-12 |
-| UAT-15 | Operator commands prevent accidental spend and gate publication | Run preview and report operations with provider access monitored and verify zero calls. Verify pilot and baseline operations refuse missing acknowledgement or non-positive limits. Retain and inspect one real pilot per family, including raw artifacts and oracle evidence, before publishing a repeated baseline. | E40-F10; G15; I-07, I-08 |
+| UAT-15 | Operator commands prevent accidental spend and gate publication | Run preview and report operations with provider access monitored and verify zero calls — proven by a PATH-stubbed provider executable's own invocation counter reading zero, not by the harness-reported `provider_calls` field alone. Verify pilot and baseline operations refuse a missing `--acknowledge-provider-spend` acknowledgement, and refuse any of the **four** required ceilings (cost, wall-clock, generated-task, provider-call) when absent, zero, negative, boolean, non-numeric, NaN, or infinite. Retain and inspect one real pilot per family, including raw artifacts and oracle evidence, before publishing a repeated baseline; the family count is derived from the selected batch policy, not a literal list, so it resolves to six once E40-F11 lands. | E40-F10; E40-F11 (six-family resolution and independent zero-call proof); G15; I-07, I-08 |
 | UAT-16 | Stage time separates work from coordination | Run a scenario containing provider work, tests, a replayed gate, and retry or wait time. Verify every stage has one category, its provider-active, tool/test, queue/claim, replay/human-gate, retry/backoff, and unclassified intervals do not overlap, and their union reconciles to stage and lifecycle wall time. | E40-F06/E40-F08/E40-F10; G16; I-05, I-07 |
 | UAT-17 | QA and finish-feature deep review have measurable incremental value | First run feature QA and finish-feature deep review independently against the same frozen candidate with no fixes between them. Then run the real sequential policy with every intervening candidate retained. Verify raw and normalized findings preserve gate, round, severity, defect class, fingerprint, criterion, disposition, confirmation, duplicates, recurrence, resolution, and first-seen gate. Report overlap and unique confirmed yield; publish precision or recall only for seeded defects and clean controls. | E40-F08/E40-F09/E40-F10; G17; I-07, I-08 |
 | UAT-18 | Artifact use and replayed interaction burden are visible | Produce one planning artifact consumed downstream and one orphan. Verify typed producer and consumer edges distinguish them. Replay D01-D05 and reproduce request and response counts and sizes, revisions, and unresolved gates; verify no report labels those proxies as observed human minutes. | E40-F06/E40-F07/E40-F08/E40-F10; G18; I-05, I-06, I-07 |
 | UAT-19 | Candidate and workflow-policy identity fail closed | Change one candidate or policy field at a time: tree, binary diff, changed paths, untracked manifest, test-suite digest, enabled gates, gate order, reviewer provider/model/effort/prompt, review-bundle digest, or fix policy. Reject each paired comparison and retain the exact divergence. Accept a comparison only when both candidates and the required policy fields match its declared independent or sequential mode. | E40-F06/E40-F08/E40-F09; G19; I-05, I-07, I-08 |
+| UAT-20 | Preflight fails closed and never authorizes spend on an unresolved scenario | Reproduce the 2026-09-04 four-blocker state. Verify preflight consumes a structured per-scenario resolution ledger rather than scraping preview stdout, so a scenario that is skipped — unconfigured root key, absent scratch root, missing ledger record — is a blocker rather than an invisible pass. Verify the status vocabulary contains no `pass_with_dry_run_limitations`, that each of the seven pass conditions falsified alone yields its own named blocker, that exit is non-zero when blocked, and that a retained failed-run root registered for retention is rejected by every operator subcommand unconditionally, naming the registry entry without altering a byte. | E40-F11; G12, G15; I-04, I-07 |
+| UAT-21 | Replay preparation is spend-gated, operator-approved, and independently proven callless | Verify `prepare-replay` previews with no acknowledgement and refuses to proceed without both explicit acknowledgement and all four strictly positive ceilings (cost, wall-clock, provider calls, generated tasks), rejecting absent, zero, negative, boolean, and non-numeric values for each. Verify a produced replay bundle is verified against the package's admitted reference before preflight accepts it, and that a producer failure yields non-zero with no path printed. Prove the zero-call preview path independently: a PATH-stubbed provider executable logs every invocation, and the assertion is that its log is empty and egress is unobserved — never the harness's own reported counter. | E40-F11; G10, G15; I-06 |
 
 ## Interaction coverage
 
 - **I-01-I-03:** preserve the completed v1 corpus, record, and liveness shapes
   through UAT-01, UAT-02, UAT-05, UAT-06, and UAT-07.
 - **I-04:** UAT-08 validates the lifecycle scenario package before E40-F06,
-  E40-F07, or E40-F08 consumes it.
+  E40-F07, or E40-F08 consumes it. UAT-20 additionally validates the revised
+  six-family shape E40-F11 produces. Ownership of that revision is **not yet
+  settled** — see Q007; until it is answered, UAT-08's E40-F11 attribution is a
+  provisional revision-owner record, not a transfer of E40-F05's ownership.
 - **I-05:** UAT-09, UAT-16, UAT-18, and UAT-19 validate isolation, time,
   candidate, and artifact evidence before E40-F09 or E40-F10 trusts it.
 - **I-06:** UAT-10 and UAT-18 validate product-design replay and interaction
@@ -63,9 +68,18 @@ implements the comparison and publication behavior from new I-07/I-08 records.
 - **I-08:** UAT-13, UAT-14, UAT-17, and UAT-19 validate evaluation, normalized
   findings, and comparison identity before E40-F10 publishes them.
 - **X-07-X-09:** preserve and extend runner/usage compatibility through the
-  named Phase 1 and v2 scenarios.
+  named Phase 1 and v2 scenarios. E40-F11 modifies no `shark run` caller
+  (`shark run` is invoked only by `bench/scripts/run-one.sh` and the X-07 canary
+  `bench/scripts/canary-runsurface.sh`, neither of which F11 touches), so its
+  obligation on X-07/X-08 is **preservation**: the existing canary and the
+  stdout-shape check must remain green across F11's changes to
+  `run-lifecycle.sh`, `run-lifecycle-batch.sh`, and `e40_benchmark.py`.
 - **X-10-X-13:** UAT-10, UAT-11, UAT-12, and UAT-14 cover product design, Rider
-  execution, Shark-data identity, and Questions respectively.
+  execution, Shark-data identity, and Questions respectively. UAT-21 adds the
+  spend-gated, independently-proven-callless path for X-10's replay.
+- **X-14:** not covered by any E40 scenario. The row is `proposed`, names E40 at
+  epic level rather than a feature, and its coverage pointer remains `TBD`
+  against E40 decomposition. E40-F11 does not close it (E40-F11 `spec.md` §1.4).
 
 ## Non-functional evidence
 

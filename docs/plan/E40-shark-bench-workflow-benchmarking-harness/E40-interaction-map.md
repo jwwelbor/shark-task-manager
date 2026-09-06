@@ -62,6 +62,34 @@ Consumer split: F07 reads `stage_matrix.prelude`/`replay_reference`; F06 reads
 | `review_basis` | E40-F05's completed specification (`spec.md`) and this map row, present together at F05 task_review |
 | `demonstrability_disposition` | `pending-integration` until each consumer's live wiring closes; no override makes it demonstrated-now |
 
+### Provisional revision-owner record (E40-F11)
+
+E40-F11 revises this shape: a closed six-value `entity_family` vocabulary, an
+`expected_entity_graph` block, two new `final_predicate` kinds, a fourth
+provider-call ceiling, and a `schema_version` bump. Shape source:
+[architecture.md § I-04 revision (E40-F11)](architecture.md#i-04-revision-e40-f11).
+
+**Ownership of the revision and of the consumer updates is unsettled — see
+Q007.** E40-F05 remains this row's **producer of record** until Q007 is
+answered. This entry is a provisional revision-owner record, not a transfer:
+
+- E40-F11 is **not** written in as producer.
+- E40-F06/F07/F08's consumer updates are **not** recorded as absorbed.
+- **No assigned value in the table above is altered by E40-F11** — `gate_mode`,
+  `activation_owner`, `closure_key`, `counterpart_status`, `review_basis`, and
+  `demonstrability_disposition` all stand as written. The three Q007 options
+  differ in which feature *discharges* the obligation, never in the obligation
+  itself.
+
+This annotation is required by this map's own boundary rule: a feature workflow
+that refines a shape must update the architecture source, this row, every named
+consumer, and the matching UAT scenario before passing feature review. Leaving
+the row untouched would breach that rule, so the record is unconditional even
+though the ownership question is open. The contract test
+(`tests/contracts/e40_i04_scenario_contract_test.go#TC-030`) is keyed to
+`schema_version` rather than to the authoring feature, so it holds under all
+three Q007 outcomes.
+
 The map table above supplies the counterpart identities (E40-F05 producer;
 E40-F06/F07/F08 consumers) and the shared contract evidence (shape source,
 payload, shared contract-test pointer `tests/contracts/e40_i04_scenario_contract_test.go#TC-030`).

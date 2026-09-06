@@ -118,6 +118,55 @@ E40-F05 writes I-04. E40-F06, E40-F07, and E40-F08 treat it as read-only. The
 adapter owns language-specific commands; no generic workflow or evaluator may
 branch on Python, Go, or a package manager.
 
+### I-04 revision (E40-F11)
+
+E40-F11 revises this shape. The revision bumps `schema_version` and adds:
+
+- a **closed six-value `entity_family` vocabulary** — `epic`, `feature`, `task`,
+  `bug`, `change_card`, `tech_debt` — replacing the four-family set F05
+  admitted, so "full-family" is unambiguous;
+- an optional **`expected_entity_graph`** block declaring `root_family`,
+  `descendants[]` (`family`, `required`, `min`, `max`),
+  `required_terminal_states` (**a mapping from descendant family to that
+  family's own terminal status** — terminal vocabularies differ per family, so a
+  flat list cannot express a mixed-family graph), `unexpected_descendants`,
+  `required_artifacts[]`, and `required_provenance[]`. Required for `epic`,
+  optional for `feature`, forbidden for the other four;
+- two new **`final_predicate` kinds** for the task and epic families;
+- a fourth **provider-call ceiling** in `resource_policy`, alongside the existing
+  cost, wall-clock, and generated-task ceilings (epic gate G12).
+
+D01-D05 replay (I-06) stays **feature-only**; the two new families record it
+non-applicable with a family-specific reason.
+
+### ADRs recorded by E40-F11
+
+Full statements, rationale, and trade-offs are in
+`E40-F11-…/spec.md` §2.4; recorded here so the epic's ADR record is complete.
+
+| ADR | Decision |
+|---|---|
+| ADR-F11-01 | Single supported I-04 schema version; no dual-version window |
+| ADR-F11-02 | One authoritative family vocabulary; every other reference derives from it |
+| ADR-F11-03 | One immutable fixture checkout per `(fixture_id, base_sha)` per operator run |
+| ADR-F11-04 | Two new `final_predicate` kinds, preserving the kind→family 1:1 mapping |
+| ADR-F11-05 | Fail-closed preflight consumes a structured ledger, not scraped stdout |
+| ADR-F11-06 | REQ-F-012's seeding block is rewritten, not patched |
+| ADR-F11-07 | *(provisional working assumption, not a decision — Q007 owns the call)* E40-F11 carries the I-04 consumer updates in-place |
+| ADR-F11-08 | No production Go change; nothing under `internal/` or `cmd/` is touched |
+| ADR-F11-09 | `expected_entity_graph` is required only for `epic`, optional for `feature`, forbidden elsewhere |
+| ADR-F11-10 | The retention guard attaches to `ensure_external_operator_root`, not to each subcommand |
+| ADR-F11-11 | `required_terminal_states` is a mapping family→status, not a flat list — terminal vocabularies differ per family |
+| ADR-F11-12 | Provider-call arithmetic is defined per descendant family; descendant maxima are **summed**, not maximized |
+
+**Ownership of this revision is not settled.** E40-F05 remains I-04's producer
+of record. Whether E40-F11 may absorb the revision and its consumer updates
+in-place, whether E40-F06/F07/F08 must reopen for their own slices, or whether a
+new feature should own contract revisions generally, is tracked as **Q007** and
+is open. Complete conditional matrices for all three options are in
+`E40-F11-…/spec.md` Part 5; every implementation artifact is identical across
+them, so only attribution and re-acceptance routing depend on the answer.
+
 ## Stage evidence and isolation contract
 
 I-05 defines three roots:
@@ -309,7 +358,8 @@ A fallback does exist, so this is a strong preference rather than a hard block. 
 | F02 Run driver | Operator runs one (item, variant, rep) unattended | UAT-5 bounded timeout with the stalled stage recorded; complete metric families per run | F01 manifest, F04 liveness; JSONL record (I-02) |
 | F03 Baseline and noise band | Operator starts the 10 x 3 batch and walks away; or replays a stored manifest | UAT-1 batch completes and the report states per-metric spread; UAT-7 replay reproduces the manifest's metrics within the published band | F02 artifacts; published noise band; replay verification result (G7) |
 | F04 `shark run` liveness | Any `shark run` invocation, bench or human | UAT-6 in-flight observability; stdout still one document | None; stderr NDJSON + `run.log` (I-03) |
-| F05 Lifecycle scenarios | Curator admits a versioned scenario package | UAT-08 loads all four families and rejects malformed or non-runnable cases | Phase 1 corpus principles (I-01); lifecycle scenario package (I-04) |
+| F05 Lifecycle scenarios | Curator admits a versioned scenario package | UAT-08 loads all six families and rejects malformed or non-runnable cases | Phase 1 corpus principles (I-01); lifecycle scenario package (I-04) |
+| F11 Six-family readiness and coverage | Operator reaches a six-family lifecycle baseline without accidental spend | UAT-08 (widened to six), UAT-15 (six-family resolution), UAT-20 (fail-closed preflight), UAT-21 (spend-gated replay) | Lifecycle scenario package revision (I-04); stage evidence (I-05); replay (I-06); run record (I-07); evaluation (I-08) |
 | F06 Stage evidence and isolation | Harness admits and dispatches an applicable stage | UAT-09 and UAT-16 prove hidden truth absent, replay the stage, reconcile its time ledger, and detect candidate or artifact-evidence drift | I-04 and X-09; stage evidence bundle (I-05) |
 | F07 Product-design replay | Operator starts an admitted feature scenario | UAT-10 and UAT-18 complete D01-D05 from frozen responses, retain interaction proxies and artifact-use edges, or stop at `unresolved_gate` | I-04 and X-10; product-design replay result (I-06) |
 | F08 Keyed lifecycle runner | Product-design prelude completes or a non-feature root is admitted | UAT-11, UAT-12, UAT-16, and UAT-17 cover lease and transition paths plus runtime stage, policy, candidate, artifact-use, and structured-finding capture | I-04, I-05, I-06, X-11, X-13; lifecycle run record (I-07) |
