@@ -277,7 +277,17 @@ E34-F08 adds immutable
 atomic `.shark/runs/<epic-run-id>/integration-candidate.json` head. As shipped
 (`internal/integration/event.go`, `candidate.go`), an `IntegrationEvent`
 contains `event_id`, `epic_run_id`, `feature_key`, `feature_commit`,
-`tracked_paths`/`untracked_paths`, and `recorded_at`. The candidate
+`tracked_paths`/`untracked_paths`, and `recorded_at`. In the shipped
+steady-state feature-completion path (`FeatureService.recordIntegrationEventForTerminalTransition`)
+these two fields are always `nil`/JSON `null` — per-event dirty/untracked
+path tracking is not how this feature tracks working-tree drift.
+Working-tree drift is a **candidate**-level concern: `UpdateCandidate`
+separately computes `TrackedPathDigests`/`UntrackedPathDigests` (T-E34-F08-016)
+from the current working tree at update time and stores them on the
+candidate itself, `omitempty`, present only when the tree was actually
+dirty. A `null` `tracked_paths`/`untracked_paths` pair on every event is
+therefore the correct, expected value for a clean working tree at every
+completion — not a missing-evidence defect. The candidate
 (`IntegrationCandidate`) contains immutable `epic_run_id`, `base_commit`,
 `head_commit` (this feature's implementation name for the field originally
 called `candidate_head` above), the sorted `event_ids`, `tracked_path_digests`
