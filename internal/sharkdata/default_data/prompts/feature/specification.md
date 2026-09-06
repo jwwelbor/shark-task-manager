@@ -7,6 +7,8 @@ Check for existing spec.md in feature directory. If spec exists meeting exit gat
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 COMBINED REQUIREMENTS + ARCHITECTURE SPECIFICATION
 
 This is a SINGLE document (spec.md) that covers both what to build and how to build it. In brownfield development, the architect who understands the codebase is best positioned to write both.

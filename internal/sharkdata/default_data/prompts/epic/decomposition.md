@@ -7,6 +7,8 @@ Check for existing features: {{template "list" .}}. If features exist covering a
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 {{include: skills/specification-writing/workflows/write-feature-prd.md}}
 
 READ:

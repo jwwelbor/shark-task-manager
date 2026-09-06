@@ -5,6 +5,8 @@ If report exists with PASS verdict, advance immediately. If FAIL, send back to t
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 TASK DECOMPOSITION REVIEW
 
 This is a quality gate comparing the generated tasks against the feature specification. The goal is to catch gaps, ordering issues, or spec misalignment BEFORE development begins.

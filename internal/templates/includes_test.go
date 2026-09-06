@@ -2,6 +2,8 @@ package templates
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -494,6 +496,164 @@ func TestProductCriticalPathGuardPartial_RendersStandalone(t *testing.T) {
 		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(status) + `\b`)
 		assert.False(t, re.MatchString(out), "guard must not contain bare workflow status name %q", status)
 	}
+}
+
+// productCriticalPathGuardInvocation is the exact literal invocation string
+// spec.md REQ-F-033 requires each of the twelve consuming prompts to contain
+// (test-plan.md TC-002).
+const productCriticalPathGuardInvocation = `{{template "_product_critical_path_guard" .}}`
+
+// productCriticalPathGuardConsumingPrompts is the exact twelve-prompt set
+// spec.md's Architecture table and T-E34-F10-002's task Scope name.
+var productCriticalPathGuardConsumingPrompts = []string{
+	"sprint/planning.md",
+	"sprint/active.md",
+	"sprint/closing.md",
+	"epic/assessment.md",
+	"epic/decomposition.md",
+	"epic/active.md",
+	"feature/specification.md",
+	"feature/test_planning.md",
+	"feature/task_generation.md",
+	"feature/task_review.md",
+	"feature/approval.md",
+	"task/development.md",
+}
+
+// productCriticalPathGuardRestatementSignals are fragments unique to the
+// guard partial's own reporting-field prose (REQ-F-033/034). None of the
+// twelve consuming prompts pre-dated these phrases (grep-confirmed empty
+// before this task, per research-report.md); their presence in a consuming
+// prompt outside the single template invocation would mean the prompt
+// paraphrased the guard's fields inline instead of referencing it — the
+// twelve-copy drift risk research-report.md finding 3 warns against.
+var productCriticalPathGuardRestatementSignals = []string{
+	"unresolved prerequisite:",
+	"side quest",
+	"side-quest",
+	"executable advancement evidence",
+	"hand-authored test actor",
+	"component-level test suite",
+}
+
+// TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce is test-plan.md
+// TC-002 (spec.md AC-2): each of the twelve prompts named in REQ-F-033
+// contains the guard's literal invocation string exactly once, and none of
+// them restates the guard's own reporting-field language inline.
+func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
+	for _, prompt := range productCriticalPathGuardConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			body, err := sharkdata.ReadEmbedded("prompts/" + prompt)
+			require.NoError(t, err, "embedded prompt %s must exist", prompt)
+			content := string(body)
+
+			count := strings.Count(content, productCriticalPathGuardInvocation)
+			assert.Equal(t, 1, count,
+				"%s must invoke the guard template exactly once (found %d)", prompt, count)
+
+			for _, signal := range productCriticalPathGuardRestatementSignals {
+				assert.NotContains(t, content, signal,
+					"%s must not restate the guard's reporting fields inline (found %q)", prompt, signal)
+			}
+		})
+	}
+}
+
+// productCriticalPathGuardBaselineSHA256 records the SHA-256 of each of the
+// twelve wired prompts' content exactly as it existed before T-E34-F10-002
+// added the guard invocation (captured from the pre-edit checked-in files).
+// TestTwelvePromptsAddGuardAsPureAddition reconstructs each file's
+// pre-invocation content by removing the single guard paragraph and
+// re-hashes it — any other change to the file (a reordered section, an
+// altered pre-existing line) changes the hash and fails this test
+// (test-plan.md TC-003, spec.md AC-3/REQ-NF-001).
+var productCriticalPathGuardBaselineSHA256 = map[string]string{
+	"sprint/planning.md":         "f27d56ae7e922347d611389a6d5797fa39402b4887e41bb1dc815a10799d4248",
+	"sprint/active.md":           "86752cf41ecdc68c08063e392616b149f5ffdf5e42c6e7db18426f673898b5c4",
+	"sprint/closing.md":          "94f8057747fae8ffa85b95fab0cf86146c8f8298e285322737c5457f4f9e3a59",
+	"epic/assessment.md":         "6e9c5516db6e8c415000795fbbdbe2c48a5acebb4e8c493f77f00ae724ee27fb",
+	"epic/decomposition.md":      "76a7558c41c97ed3fd9eba3dc6671799da58c3e0a94ff340f7c308f166704131",
+	"epic/active.md":             "d821d8ffef1ed1f3422133397e318c9bb92e7be702ec2e695ce0430f04c9f23a",
+	"feature/specification.md":   "86d4f832ae56cabedd17e1f71124fcea7e221c165f2db0fb0b3ca4938db1aeb2",
+	"feature/test_planning.md":   "5cd61c8dd46bc25e1a7956b2227aff7170e7b861f82dae0aa9e1462d7cada813",
+	"feature/task_generation.md": "3bd98c3bab9d9233825d044d9889f810da99f2f41f692100718490b5e205a1cf",
+	"feature/task_review.md":     "daa07bf402403e587252c0de336d85d66b0c6458c1b435116eee14fe8659c6ad",
+	"feature/approval.md":        "6ecebcad21bbbd0006f8802ecee94aa6483c90636124ca1f232b061fecc1122b",
+	"task/development.md":        "7c6f658345c95bbf5f264b59150483d7617c6011a3107b80cee7f59955d7850b",
+}
+
+// stripProductCriticalPathGuardParagraph removes the guard invocation's
+// standalone paragraph block from content and returns what remains. content
+// is expected to end in exactly one trailing newline (true of every shipped
+// prompt), so that single newline is set aside before splitting on the
+// blank-line paragraph separator ("\n\n") and restored afterward — this
+// makes the reconstruction independent of where in the file the guard
+// paragraph was inserted, so long as it was inserted as its own
+// blank-line-delimited block.
+func stripProductCriticalPathGuardParagraph(t *testing.T, content string) string {
+	t.Helper()
+	require.True(t, strings.HasSuffix(content, "\n"), "prompt file must end with a trailing newline")
+	trimmed := strings.TrimSuffix(content, "\n")
+
+	blocks := strings.Split(trimmed, "\n\n")
+	var kept []string
+	removed := 0
+	for _, b := range blocks {
+		if b == productCriticalPathGuardInvocation {
+			removed++
+			continue
+		}
+		kept = append(kept, b)
+	}
+	require.Equal(t, 1, removed,
+		"guard invocation must appear as exactly one standalone paragraph block")
+
+	return strings.Join(kept, "\n\n") + "\n"
+}
+
+// TestTwelvePromptsAddGuardAsPureAddition is test-plan.md TC-003 (spec.md
+// AC-3/REQ-NF-001): removing the guard's standalone paragraph from each of
+// the twelve wired prompts' current content reproduces that file's exact
+// pre-edit bytes, proving the guard was wired in as a pure addition with
+// every pre-existing line byte-identical.
+func TestTwelvePromptsAddGuardAsPureAddition(t *testing.T) {
+	for _, prompt := range productCriticalPathGuardConsumingPrompts {
+		t.Run(prompt, func(t *testing.T) {
+			body, err := sharkdata.ReadEmbedded("prompts/" + prompt)
+			require.NoError(t, err, "embedded prompt %s must exist", prompt)
+			content := string(body)
+
+			stripped := stripProductCriticalPathGuardParagraph(t, content)
+
+			wantHash, ok := productCriticalPathGuardBaselineSHA256[prompt]
+			require.True(t, ok, "missing pre-edit baseline hash for %s", prompt)
+
+			sum := sha256.Sum256([]byte(stripped))
+			gotHash := hex.EncodeToString(sum[:])
+			assert.Equal(t, wantHash, gotHash,
+				"%s: removing the guard paragraph must reproduce the file's exact pre-edit content; a hash mismatch means some other line changed", prompt)
+		})
+	}
+}
+
+// TestDevelopmentPromptGuardSitsInCompletionReportingSection is test-plan.md
+// TC-003's structural-position check for task/development.md (spec.md AC-T3):
+// the guard invocation must land inside the completion-reporting section —
+// specifically after the closing "When done: stop and summarize" line — not
+// prepended to the file.
+func TestDevelopmentPromptGuardSitsInCompletionReportingSection(t *testing.T) {
+	body, err := sharkdata.ReadEmbedded("prompts/task/development.md")
+	require.NoError(t, err, "embedded prompts/task/development.md must exist")
+	content := string(body)
+
+	closingIdx := strings.Index(content, "When done: stop and summarize")
+	require.NotEqual(t, -1, closingIdx, "development.md must contain the closing completion-reporting line")
+
+	guardIdx := strings.Index(content, productCriticalPathGuardInvocation)
+	require.NotEqual(t, -1, guardIdx, "development.md must contain the guard invocation")
+
+	assert.Greater(t, guardIdx, closingIdx,
+		"guard invocation must come after the closing completion-reporting line, not be prepended to the file")
 }
 
 // TestIncludeResolverWithEmbed_StateSpaceCoverageRenders verifies that the

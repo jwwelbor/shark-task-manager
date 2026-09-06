@@ -7,6 +7,8 @@ Check for existing tasks: {{template "list_json" .}}. If tasks exist covering al
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 ## Step 0: Determine Complexity Tier
 
 Check `shark feature notes {{.id}}` (or {{template "get_json" .}}) for the most recent `COMPLEXITY: <TIER>` decision note — assessment records one, and an escalation below may have added a later, superseding one. **The latest such note wins.**

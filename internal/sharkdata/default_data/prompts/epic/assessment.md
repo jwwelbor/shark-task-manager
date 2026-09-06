@@ -10,6 +10,8 @@ READ:
 (1) Epic description at {{.file_path}}
 (2) Codebase via quick grep for related files, runtime code, and existing entities that might already cover this work
 
+{{template "_product_critical_path_guard" .}}
+
 ## Step 1: Classification Validation
 
 Is this genuinely an EPIC?

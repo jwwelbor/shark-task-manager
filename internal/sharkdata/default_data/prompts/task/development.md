@@ -49,3 +49,5 @@ EXIT GATE:
 - No unrelated changes included
 
 When done: stop and summarize what changed, what tests ran, and whether the task is ready for the parent loop to advance to completed. Do NOT run Shark status commands yourself — code review, QA, and UAT still run at feature level once all tasks are done.
+
+{{template "_product_critical_path_guard" .}}

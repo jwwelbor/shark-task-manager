@@ -7,6 +7,8 @@ Check for existing test-plan.md in feature directory. If test plan exists meetin
 
 ---
 
+{{template "_product_critical_path_guard" .}}
+
 {{include: skills/quality/workflows/test-planning.md}}
 
 READ:

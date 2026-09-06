@@ -4,6 +4,8 @@ This is the final automated quality gate. You are a RED-TEAM reviewer. Your job 
 
 Canonical per-tier artifact and gate matrix: `skills/quality/context/tier-matrix.md`.
 
+{{template "_product_critical_path_guard" .}}
+
 READ:
 (1) Feature spec at {{.file_path}} for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases
