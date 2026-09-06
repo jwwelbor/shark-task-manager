@@ -290,9 +290,12 @@ unchanged to `integration-heads/<prior-digest>.json` before publishing the
 next head, so the equivalent provenance chain is recomputable from retained
 archives rather than carried as a field.
 
-Every event and candidate digest is SHA-256 over UTF-8 canonical JSON with
-object keys sorted lexicographically, arrays already in contract order, and
-the object's own digest field omitted. Before replacing the candidate head,
+Every event and candidate digest is SHA-256 over the record's Go
+`encoding/json` marshaling (`computeDigest` in `internal/integration/candidate.go`
+and `event.go`'s equivalent) — object keys in struct-tag declaration order,
+not lexicographically sorted — with `EventIDs` pre-sorted by the caller for
+stability and the object's own digest field cleared before marshaling.
+Before replacing the candidate head,
 the coordinator writes the prior head unchanged to
 `integration-heads/<digest>.json`, so every predecessor is recomputable from
 retained bytes. A run-scoped registration lock (`internal/integration/lock.go`)
