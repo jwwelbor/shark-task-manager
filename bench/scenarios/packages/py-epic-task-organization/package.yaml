@@ -1,0 +1,152 @@
+# I-04 lifecycle scenario package: py-epic-task-organization (REQ-F-011
+# epic-root seed, T-E40-F11-009). The subject is bench/fixture-py's
+# TaskManager: at the shared frozen fixture.base_sha, tasks have no way to
+# be tagged or listed by tag at all -- neither `Task.tags` nor
+# `TaskManager.tag_task`/`list_tasks(tag=...)` exists. This package's
+# reference solution adds a bounded, two-feature-slice capability (task
+# tagging; tag-filtered listing) -- distinct from py-feature-recurring-
+# tasks' recurring-task capability (different fields, different methods,
+# different test file) and not an unbounded product build (AC-F11-35). The
+# scenario's dedicated hierarchy is a single target epic, seeded by
+# T-E40-F11-017's scenario-root isolation foundation (REQ-F-012), keyed by
+# this package's own scenario_id, never by entity_family -- an epic-root
+# scenario needs no separate "host" wrapper above it, unlike feature-root/
+# task-root scenarios (seed_scenario_root's own family == "epic" branch).
+#
+# fixture.base_sha reuses the same frozen SHA every other seed pins
+# (T-E40-F05-014, ADR-F11-03: one immutable checkout per (fixture_id,
+# base_sha) shared across scenarios) -- no new fixture-py commit was needed;
+# the tagging/filtered-listing gap was already present in the fixture's
+# base state.
+#
+# final_predicate.kind: descendant_oracles_union is the new kind
+# T-E40-F11-005/ADR-F11-04 reserved for entity_family "epic" without adding
+# it to the Go validator's per-kind operand switch there (deliberately left
+# to this task, per e40_i04_scenario_contract_test.go's own comment on
+# e40I04FinalPredicateFamilies). Its operand shape (integration_test_ids +
+# child_oracles) is reused verbatim from the existing "child_oracles_union"
+# kind (feature family) -- the arithmetic eval-predicate.sh/
+# run-heldback-oracle.sh perform is identical, only the permitted
+# entity_family differs (this task also adds the analogous
+# `case "descendant_oracles_union":` operand-presence check to the Go
+# validator's switch, discharging the accountability the T-005 comment
+# assigned to this task by name).
+#
+# expected_entity_graph below is copied verbatim from spec.md's own §2.3.5
+# worked example, which explicitly names this package
+# ("the py-epic-task-organization package of §2.3.5"): feature min 2/max 2,
+# task min 2/max 8, required_terminal_states {feature: completed,
+# task: completed}, unexpected_descendants: invalidate. resource_policy.
+# max_generated_tasks: 30 matches spec.md §2.3.3a's own worked-example
+# arithmetic (2*9 + 8*1 = 26 <= 30, "Both sources present" clause).
+#
+# The admission: block below (AC-F11-37) was written by a real
+# `admit-scenario.sh` run against this file at this base_sha -- not
+# hand-authored -- so it satisfies TC-034's caller-path contract (no
+# hardcoded verdicts).
+schema_version: "1.1"
+scenario_id: "py-epic-task-organization"
+scenario_version: 1
+entity_family: epic
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "epic scenarios skip the product-design prelude (entity_family: epic)"}
+    D02: {applicable: false, reason: "epic scenarios skip the product-design prelude (entity_family: epic)"}
+    D03: {applicable: false, reason: "epic scenarios skip the product-design prelude (entity_family: epic)"}
+    D04: {applicable: false, reason: "epic scenarios skip the product-design prelude (entity_family: epic)"}
+    D05: {applicable: false, reason: "epic scenarios skip the product-design prelude (entity_family: epic)"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter:
+  name: python
+  version: "1.0.0"
+# Captured from a real `bench/adapters/python/adapter.sh identity --checkout
+# <checkout of base_sha>` run (REQ-F-008) -- not hand-typed. Identical to
+# every other seed's toolchain_identity: pyproject.toml is unchanged by this
+# package's subject (no fixture-py commit was needed).
+toolchain_identity:
+  - key: python_version
+    value: "3.12.3"
+  - key: pytest_version
+    value: "9.1.1"
+  - key: ruff_version
+    value: "0.16.2"
+  - key: black_version
+    value: "26.5.1"
+  - key: pyproject_sha256
+    value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"
+input:
+  agent_visible: input/prompt.md
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_task_organization.py
+  answer_keys: []
+final_predicate:
+  kind: descendant_oracles_union
+  # p2p_selection excludes this package's own five test ids (queried
+  # independently as this predicate's named ids, and meant to fail at base)
+  # and test_manager.py's recurring-tasks placeholder (a
+  # @pytest.mark.skip stand-in for the py-feature-recurring-tasks seed -- a
+  # non-"pass" skip outcome would otherwise also fail the absolute P2P
+  # clause), matching every other seed's own exclusion of that same
+  # placeholder. Verified against the real adapter at the frozen base_sha:
+  # 13 entries, all "pass", at base (the fixture's existing suite minus the
+  # injected oracle tests and the skip placeholder) and 18 entries, all
+  # "pass", after the reference patch is applied.
+  p2p_selection:
+    include: ["tests"]
+    exclude_test_ids:
+      - "tests.test_task_organization::test_add_task_accepts_tags"
+      - "tests.test_task_organization::test_tag_task_is_idempotent"
+      - "tests.test_task_organization::test_list_tasks_filters_by_tag"
+      - "tests.test_task_organization::test_list_tasks_without_filter_is_unchanged"
+      - "tests.test_task_organization::test_tagging_and_filtered_listing_integrate_end_to_end"
+      - "tests.test_manager::test_recurring_task_generates_next_occurrence"
+  integration_test_ids:
+    - "tests.test_task_organization::test_tagging_and_filtered_listing_integrate_end_to_end"
+  child_oracles:
+    - "tests.test_task_organization::test_add_task_accepts_tags"
+    - "tests.test_task_organization::test_tag_task_is_idempotent"
+    - "tests.test_task_organization::test_list_tasks_filters_by_tag"
+    - "tests.test_task_organization::test_list_tasks_without_filter_is_unchanged"
+resource_policy:
+  max_cost_usd: 15.0
+  max_wall_clock_seconds: 1800
+  max_generated_tasks: 30
+
+# REQ-F-009/§2.3.5: required for root_family: epic (ADR-F11-09). Copied
+# verbatim from spec.md's worked example (see header comment) -- this
+# package IS that worked example.
+expected_entity_graph:
+  root_family: epic
+  descendants:
+    - {family: feature, required: true, min: 2, max: 2}
+    - {family: task, required: true, min: 2, max: 8}
+  required_terminal_states:
+    feature: completed
+    task: completed
+  unexpected_descendants: invalidate
+  required_artifacts: [spec.md, test-plan.md]
+  required_provenance: [candidate_identity, workflow_routing_identity]
+
+admission:
+  status: admitted
+  base_outcome: false
+  reference_outcome: true
+  toolchain_identity:
+    - key: python_version
+      value: "3.12.3"
+    - key: pytest_version
+      value: "9.1.1"
+    - key: ruff_version
+      value: "0.16.2"
+    - key: black_version
+      value: "26.5.1"
+    - key: pyproject_sha256
+      value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"

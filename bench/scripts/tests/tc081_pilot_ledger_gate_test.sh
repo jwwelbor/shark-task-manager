@@ -176,7 +176,7 @@ out="$("$PILOT_LEDGER" --retention-root "$ROOT" --verify --family family-a 2>&1)
 [[ "$rc" -ne 0 ]] || fail "negative case: family-a verified despite no attestation ever being recorded for it (sibling families' attestations must not leak): $out"
 echo "$out" | grep -q "no_attestation" || fail "negative case: expected no_attestation condition for family-a, got: $out"
 
-GOOD_CEILINGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10)
+GOOD_CEILINGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 --max-provider-calls 15)
 
 # batch.json must not exist yet -- proves every refusal below is genuinely
 # pre-dispatch, not just a fast-failing run that still reached the

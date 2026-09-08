@@ -4,7 +4,7 @@
 # string and never resolved it against the filesystem, contradicting
 # AC-001's stated claim that "every referenced input... path exists".
 # Expected failing field: input.agent_visible.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-23-agent-visible-missing-file"
 scenario_version: 1
 entity_family: bug

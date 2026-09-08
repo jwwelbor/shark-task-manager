@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
-# TC-034 (test-plan.md AC test matrix; T-E40-F05-015 task spec Test Cases).
+# TC-034 (test-plan.md AC test matrix; T-E40-F05-015 task spec Test Cases;
+# T-E40-F11-008 AC-F11-31/spec.md line 507-508 extends this file's existing
+# loop to also cover the new py-task-delete-task task-root package -- the
+# loop already reads scenarios.yaml dynamically, so registering the package
+# there and bumping this file's expected-count assertion is the only change
+# needed to run it twice, byte-identical, alongside the four original seeds.
+# T-E40-F11-009 (AC-F11-37) does the same for py-epic-task-organization).
 #
 # Exercises AC-008 / REQ-NF-004 ("Determinism boundary" section of
-# test-plan.md): bench/scripts/admit-scenario.sh over all four REQ-F-014
-# seed packages, run twice, each round against an independently provisioned
-# scratch copy of every package -- admit-scenario.sh itself provisions a
-# fresh checkout-scenario-fixture.sh checkout per candidate internally, so
-# no checkout is shared between rounds, and no candidate copy is reused
-# between rounds either (a memoizing/caching implementation must not be
-# able to pass by reading round 1's own output back).
+# test-plan.md): bench/scripts/admit-scenario.sh over all six registered
+# I-04 seed packages, run twice, each round against an independently
+# provisioned scratch copy of every package -- admit-scenario.sh itself
+# provisions a fresh checkout-scenario-fixture.sh checkout per candidate
+# internally, so no checkout is shared between rounds, and no candidate copy
+# is reused between rounds either (a memoizing/caching implementation must
+# not be able to pass by reading round 1's own output back).
 #
 # Asserts byte-identical stdout (the JSON verdict line) and exit code per
 # candidate across both rounds, and, per the Determinism boundary section's
@@ -54,7 +60,7 @@ for rel in sorted(data["scenarios"]):
     print(rel)
 PYEOF
 )
-[[ "${#package_rel_dirs[@]}" -eq 4 ]] || fail "expected exactly 4 registered scenarios in scenarios.yaml, found ${#package_rel_dirs[@]}"
+[[ "${#package_rel_dirs[@]}" -eq 6 ]] || fail "expected exactly 6 registered scenarios in scenarios.yaml, found ${#package_rel_dirs[@]}"
 
 # run_round <round_dir> -- admits all four seeds from a freshly-copied set of
 # candidate package dirs, writing one stdout/exit file pair per scenario_id.

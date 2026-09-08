@@ -4,7 +4,7 @@
 # that does not exist on disk. The pre-rework validator checked only that
 # replay_reference was a non-empty string when present and never resolved
 # it against the filesystem. Expected failing field: replay_reference.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-24-replay-reference-missing-file"
 scenario_version: 1
 entity_family: feature

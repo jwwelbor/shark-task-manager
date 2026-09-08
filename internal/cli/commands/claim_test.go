@@ -152,6 +152,23 @@ func buildClaimCmdForTest() *cobra.Command {
 	return cmd
 }
 
+// buildUnclaimCmdForTest returns a fresh, isolated `shark release` command
+// with the same flags as the production unclaimCmd (claim.go) bound to the
+// real runUnclaim entrypoint, mirroring buildClaimCmdForTest above.
+func buildUnclaimCmdForTest() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:  "release <key>",
+		Args: cobra.ExactArgs(1),
+		RunE: runUnclaim,
+	}
+	cmd.Flags().Bool("force", false, "")
+	cmd.Flags().String("session", "", "")
+	cmd.Flags().String("outcome", "", "")
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	return cmd
+}
+
 func buildClaimsCmdForTest() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:  "claims",
@@ -415,4 +432,68 @@ func TestRunClaim_TC013_EdgeCase_VersionAndModelIndependentlyCapped(t *testing.T
 			t.Fatalf("no partial claim row: repository Claim must not be called, got %d calls", repo.claimCalls)
 		}
 	})
+}
+
+// TestRunUnclaim_JSON_ReleasedTrue covers runUnclaim's --json branch
+// (claim.go's runUnclaim, ~lines 199-206) for the released-successfully
+// path: claim an entity, then release it with a matching --session, and
+// assert the JSON body reports released:true with the correct entity
+// type/key.
+func TestRunUnclaim_JSON_ReleasedTrue(t *testing.T) {
+	repo := newFakeClaimRepo()
+	withClaimSvcOverride(t, repo)
+
+	claimCmd := buildClaimCmdForTest()
+	claimCmd.SetArgs([]string{"E34-F01-010", "--by=agent1", "--session=sess-1"})
+	if err := claimCmd.Execute(); err != nil {
+		t.Fatalf("claim Execute() error = %v", err)
+	}
+
+	withJSONOutput(t)
+	out := captureStdout(t, func() {
+		unclaimCmd := buildUnclaimCmdForTest()
+		unclaimCmd.SetArgs([]string{"E34-F01-010", "--session=sess-1"})
+		if err := unclaimCmd.Execute(); err != nil {
+			t.Fatalf("release Execute() error = %v", err)
+		}
+	})
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("unmarshal release JSON: %v (output: %s)", err, out)
+	}
+	if released, _ := result["released"].(bool); !released {
+		t.Errorf("released = %v, want true", result["released"])
+	}
+	if result["entity_type"] != "task" {
+		t.Errorf("entity_type = %v, want task", result["entity_type"])
+	}
+	if result["entity_key"] != "E34-F01-010" {
+		t.Errorf("entity_key = %v, want E34-F01-010", result["entity_key"])
+	}
+}
+
+// TestRunUnclaim_JSON_ReleasedFalse_NoMatchingClaim covers runUnclaim's
+// --json branch for the no-op path: releasing a key with no live claim
+// must report released:false rather than erroring.
+func TestRunUnclaim_JSON_ReleasedFalse_NoMatchingClaim(t *testing.T) {
+	repo := newFakeClaimRepo()
+	withClaimSvcOverride(t, repo)
+	withJSONOutput(t)
+
+	out := captureStdout(t, func() {
+		unclaimCmd := buildUnclaimCmdForTest()
+		unclaimCmd.SetArgs([]string{"E34-F01-011", "--force"})
+		if err := unclaimCmd.Execute(); err != nil {
+			t.Fatalf("release Execute() error = %v", err)
+		}
+	})
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("unmarshal release JSON: %v (output: %s)", err, out)
+	}
+	if released, _ := result["released"].(bool); released {
+		t.Errorf("released = %v, want false", result["released"])
+	}
 }

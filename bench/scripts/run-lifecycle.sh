@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 # run-lifecycle.sh --scenario <package.yaml> --run-id <id> --root <key>
 #                    --scratch-root <dir> [--output <lifecycle.jsonl>]
-#                    [--limits <policy.yaml>] [--mode contract|dry-run]
+#                    [--limits <policy.yaml>]
+#                    [--mode contract|dry-run|resolve-route]
 #
 # Host-side F08 controller. Shark remains the owner of prompt assembly,
 # claims, leases, workflow routing, and Question state; this script only
 # drives the public keyed command sequence and records bounded evidence.
+#
+# --mode resolve-route (T-E40-F11-007, spec.md REQ-F-005/§2.3.1): traces the
+# configured success route (every outcome resolved as "pass") for a scenario
+# without requiring any artifact only a live worker can produce -- no
+# candidate/scratch-content digests, no prompt-out byte verification, no
+# resource-ceiling enforcement. Writes a single JSONL record carrying
+# `evidence_mode: "route_resolution_only"` so it can never be mistaken for
+# live I-05 stage evidence (AC-F11-15; enforced by verify-stage-evidence.sh).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +58,7 @@ def usage():
     print(
         "usage: run-lifecycle.sh --scenario <package.yaml> --run-id <id> "
         "--root <key> --scratch-root <dir> [--output <path>] "
-        "[--limits <policy.yaml>] [--mode contract|dry-run]",
+        "[--limits <policy.yaml>] [--mode contract|dry-run|resolve-route]",
         file=sys.stderr,
     )
     raise SystemExit(2)
@@ -70,7 +79,7 @@ def parse_args(argv):
         usage()
     if any(not values.get(name) for name in required.values()):
         usage()
-    if values["mode"] not in {"live", "contract", "dry-run"}:
+    if values["mode"] not in {"live", "contract", "dry-run", "resolve-route"}:
         print(f"run-lifecycle: unsupported mode: {values['mode']}", file=sys.stderr)
         raise SystemExit(2)
     return values
@@ -407,6 +416,278 @@ def route_worker_question(worker_result, entity, session, runner_id, cwd, shark)
     return question_key
 
 
+# AC-F11-14, generalized: `entity_service.go`'s `requiresResearchEvidence()`
+# gates every entity family's "research"-phase step the same way -- a real
+# `<key>.research-report.md` produced by a live researcher agent
+# (`internal/research/validator.go#ValidateEntity`) -- and wraps a missing/
+# invalid report as `"cannot advance %s %s from research: research report:
+# %w"` (entity_service.go). `resolve_route` never spawns a worker, so this
+# failure is expected for ANY family whose research step it dispatches, not
+# only the one family (feature) that happens to ship a pre-committed
+# replay bundle. Matching on the Go error's own wrapped-error prefix keeps
+# this generalized to any family/step declaring the same live-worker-only
+# artifact dependency, rather than re-hardcoding a family allowlist.
+RESEARCH_ARTIFACT_DEFERRED_MARKER = "research report:"
+
+
+def dispatch_failure_deferred_reason(reason):
+    """Is a `run_command` failure raised during route dispatch actually an
+    expected, live-worker-only-artifact absence (AC-F11-14: `artifact_deferred`),
+    rather than a genuine route defect? See module-level comment above.
+    """
+    if RESEARCH_ARTIFACT_DEFERRED_MARKER in reason:
+        return reason
+    return ""
+
+
+def replay_artifact_deferred_reason(scenario_path, scenario):
+    """AC-F11-14 (feature-specific half): is the I-06 replay bundle a
+    feature scenario's own `resolve_route` pass would need (never invoked by
+    resolve_route itself, but required downstream) present? Unlike
+    `pre_dispatch_gates`, this checks existence and shape only -- it never
+    invokes verify-replay-isolation.sh, which requires a real fixture
+    checkout and scratch tree (exactly the live-worker-only artifacts
+    AC-F11-13 says route resolution must not require). Returns "" when
+    nothing is deferred, else a human-readable reason. This is a static,
+    scenario-package-level check (the bundle either ships in the package or
+    it doesn't); the research-report class above is instead detected
+    reactively from an actual dispatch failure, because no scenario package
+    ships a pre-committed research report the way feature packages ship a
+    replay bundle.
+    """
+    if scenario.get("entity_family") != "feature":
+        return ""
+    replay_reference = scenario.get("replay_reference")
+    if not isinstance(replay_reference, str) or not replay_reference.strip():
+        return "feature scenario is missing replay_reference"
+    package_root = scenario_path.parent.resolve()
+    bundle_path = (package_root / replay_reference).resolve()
+    try:
+        bundle_path.relative_to(package_root)
+    except ValueError:
+        return "replay_reference escapes the scenario package"
+    if not bundle_path.is_file():
+        return f"replay bundle is missing: {bundle_path}"
+    return ""
+
+
+def _dispatch_and_advance(shark, scratch, run_id, requested, next_ordinal, response, dispatches, stages):
+    """resolve_route()'s per-step spawn_agent handling: build the dispatch
+    and stage records for the requested entity and append them to the
+    caller's lists, then claim/advance/release it along the "pass" route.
+    The dispatch/stage records are appended BEFORE the claim/advance
+    attempt (matching pre-extraction behavior) so a failure there (e.g. an
+    artifact-deferred dispatch) still leaves the traced stage in the
+    ledger -- only raises RuntimeError, never returns a value.
+    """
+    entity = str(response.get("entity_key", ""))
+    if not entity:
+        raise RuntimeError("keyed response omitted entity_key")
+    stage_id = str(response.get("status", ""))
+    dispatches.append({
+        "ordinal": next_ordinal,
+        "requested_key": requested,
+        "entity_key": entity,
+        "stage_id": stage_id,
+        "route": "pass",
+    })
+    stages.append({
+        "stage_id": stage_id,
+        "route": "pass",
+        "provider": str(response.get("provider", "")),
+        "model": str(response.get("model", "")),
+        "effort": str(response.get("effort", "")),
+        "terminal": False,
+        "artifact_dependencies_deferred": True,
+    })
+    session = ""
+    # try/except/else (not try/finally): a `finally` block's own
+    # release() call raising would replace the ORIGINAL exception
+    # (e.g. a genuine status-advance route_defect) with the cleanup
+    # failure, masking the real defect. Attempting release only on
+    # the two disjoint paths below means a cleanup failure is
+    # always attempted, but never allowed to hide a defect that
+    # already occurred -- and, on the success path, a cleanup
+    # failure still surfaces normally (nothing to mask there).
+    try:
+        claim = run_command(
+            shark,
+            ["claim", entity, "--by", os.environ.get("LIFECYCLE_RUNNER_ID", run_id), "--json"],
+            scratch,
+        )
+        session = str(claim.get("session_id", ""))
+        if not session:
+            raise RuntimeError(f"claim for {entity} omitted session_id")
+        run_command(
+            shark,
+            [
+                "status", "advance", entity, "--outcome", "pass",
+                "--session", session, "--from-status", stage_id,
+                "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}",
+                "--json",
+            ],
+            scratch,
+        )
+    except RuntimeError:
+        if session:
+            try:
+                run_command(shark, ["release", entity, "--session", session, "--outcome", "route_resolution", "--json"], scratch)
+            except RuntimeError:
+                pass  # cleanup failure must never mask the defect being propagated below
+        raise
+    else:
+        if session:
+            run_command(shark, ["release", entity, "--session", session, "--outcome", "route_resolution", "--json"], scratch)
+
+
+def _classify_route_result(terminal, route_defect_reason, artifact_deferred_reason, reason):
+    """resolve_route()'s post-loop resolution/cause_class classification.
+    Same precedence order as before extraction: route_defect_reason >
+    artifact_deferred_reason > terminal == "error" > resolved. Returns
+    (resolution, cause_class, reason, terminal) -- terminal is echoed back
+    since the artifact_deferred branch can rewrite it.
+    """
+    if route_defect_reason:
+        resolution = "failed"
+        cause_class = "route_defect"
+        reason = route_defect_reason
+    elif artifact_deferred_reason:
+        resolution = "resolved"
+        cause_class = "artifact_deferred"
+        reason = artifact_deferred_reason
+        # The deferred artifact does not fail resolution (AC-F11-14) --
+        # a dispatch-loop exception that was reclassified as deferred above
+        # must not leave a stale "error" terminal contradicting that.
+        if terminal == "error":
+            terminal = "complete"
+    elif terminal == "error":
+        # A harness/CLI output-contract failure (see below): resolution
+        # still fails -- the route was not actually traced to a terminal
+        # step -- but it is never reported as route_defect.
+        resolution = "failed"
+        cause_class = None
+    else:
+        resolution = "resolved"
+        cause_class = None
+    return resolution, cause_class, reason, terminal
+
+
+def resolve_route(args, scenario_path, scenario, scratch, shark):
+    """--mode resolve-route (AC-F11-13/14/15): trace the configured success
+    route (every outcome resolved as "pass") using real `shark next` /
+    `status advance` calls against the scratch project, without any of the
+    live-run evidence machinery (candidate identity, scratch-content digest,
+    prompt-out verification, resource ceilings, adapter subprocess).
+    """
+    default_output = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "runs" / args["run_id"] / "resolution.jsonl"
+    output = Path(args["output"]).resolve() if args["output"] else Path(os.environ.get("LIFECYCLE_OUTPUT", str(default_output))).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    scenario_id = str(scenario.get("scenario_id", scenario_path.stem))
+    scenario_version = str(scenario.get("scenario_version", "1"))
+    family = str(scenario.get("entity_family", "unknown"))
+
+    # AC-F11-14: an absent live-only artifact is noted, not fatal -- route
+    # resolution keeps tracing regardless of what this returns.
+    artifact_deferred_reason = replay_artifact_deferred_reason(scenario_path, scenario)
+
+    dispatches = []
+    stages = []
+    terminal = "complete"
+    reason = "all eligible dispatches completed"
+    route_defect_reason = ""
+    queue = [args["root"]]
+    finished = set()
+    next_ordinal = 0
+
+    try:
+        while queue:
+            requested = queue.pop(0)
+            if requested in finished:
+                continue
+            finished.add(requested)
+            next_ordinal += 1
+            # --prompt-out is unused by route resolution (AC-F11-13: no
+            # artifact only a live worker can produce is required) -- it is
+            # still passed so `shark next` behaves identically to every
+            # other mode's caller-path, matching the convention every
+            # existing stub `shark` in this suite (tc061, tc079) already
+            # assumes.
+            prompt_path = scratch / "route-prompts" / f"{next_ordinal:04d}"
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            response = run_command(shark, ["next", requested, "--json", "--prompt-out", str(prompt_path)], scratch)
+            action = response.get("action")
+            if action == "parallel_candidates":
+                candidates = fork_candidates(response)
+                queue[0:0] = [item["entity_key"] for item in candidates]
+                queue.sort()
+                continue
+            if action != "spawn_agent":
+                terminal = str(action) if action in STOP_OUTCOMES else "error"
+                reason = str(response.get("error") or f"keyed dispatch returned action {action!r}")
+                if terminal == "error" and not route_defect_reason:
+                    route_defect_reason = reason
+                continue
+            _dispatch_and_advance(
+                shark, scratch, args["run_id"], requested, len(dispatches) + 1, response,
+                dispatches, stages,
+            )
+    except RuntimeError as exc:
+        terminal = "error"
+        reason = str(exc)
+        # AC-F11-14 draws a hard line at "an outcome target naming an
+        # undefined step, a missing dispatch resolution" -- a `shark`
+        # subcommand that exits non-zero (or can't be executed at all) is
+        # evidence of exactly that. A command that exits 0 but prints text
+        # `load_json` can't parse is a DIFFERENT thing: the harness/CLI
+        # output contract was violated, not the workflow route. Conflating
+        # the two would mislabel a caller-path defect as a route defect --
+        # the same failure-to-distinguish AC-F11-14 exists to forbid, just
+        # one level down. §2.3.2's closed cause_class enum has no slot for
+        # "the CLI didn't answer in JSON", so this stays cause_class: null
+        # with an honest reason rather than an invented eighth value.
+        #
+        # A dispatch failure caused by an absent live-worker-only artifact
+        # (e.g. a missing research report at a "research"-phase step) is
+        # a THIRD thing, generalized across every family -- see
+        # dispatch_failure_deferred_reason(). It is reported as
+        # artifact_deferred, never route_defect, regardless of which
+        # family's step raised it.
+        if "returned non-JSON output" not in reason:
+            deferred = dispatch_failure_deferred_reason(reason)
+            if deferred and not artifact_deferred_reason:
+                artifact_deferred_reason = deferred
+            elif not deferred:
+                route_defect_reason = reason
+
+    if stages:
+        stages[-1]["terminal"] = True
+
+    resolution, cause_class, reason, terminal = _classify_route_result(
+        terminal, route_defect_reason, artifact_deferred_reason, reason
+    )
+
+    record = {
+        "evidence_mode": "route_resolution_only",
+        "scenario_id": scenario_id,
+        "scenario_version": scenario_version,
+        "family": family,
+        "root": args["root"],
+        "run_id": args["run_id"],
+        "resolution": resolution,
+        "cause_class": cause_class,
+        "reason": reason,
+        "dispatch_count": len(dispatches),
+        "stage_count": len(stages),
+        "dispatches": dispatches,
+        "stages": stages,
+        "outcome": {"terminal": terminal, "reason": reason},
+        "artifact_dependencies_deferred": True,
+    }
+    output.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    return 1 if resolution == "failed" else 0
+
+
 def main(argv):
     args = parse_args(argv)
     scenario_path = Path(args["scenario"]).resolve()
@@ -421,17 +702,33 @@ def main(argv):
 
     scratch = Path(args["scratch_root"]).resolve()
     scratch.mkdir(parents=True, exist_ok=True)
+
+    # resolve-route (T-E40-F11-007) deliberately skips resource-ceiling
+    # enforcement (module docstring above) -- it resolves the `shark`
+    # binary and returns without ever calling limits_from(). Every other
+    # mode's ceiling-positivity check (limits_from(), AC-T3) must run
+    # BEFORE this function resolves the `shark` binary from PATH: a caller
+    # invoking a mode that fails cheap, static ceiling validation should
+    # get that refusal even with no `shark` on PATH at all, not a
+    # PATH-resolution error that masks the real one (tc080's AC-T3 block).
+    if args["mode"] == "resolve-route":
+        shark = os.environ.get("SHARK_BIN", "shark")
+        if not shutil.which(shark):
+            raise RuntimeError(f"shark executable not found on PATH: {shark}")
+        return resolve_route(args, scenario_path, scenario, scratch, shark)
+
     default_output = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "runs" / args["run_id"] / "lifecycle.jsonl"
     output = Path(args["output"]).resolve() if args["output"] else Path(os.environ.get("LIFECYCLE_OUTPUT", str(default_output))).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     limits = limits_from(scenario, args["limits"])
+    adapter = os.environ.get("LIFECYCLE_ADAPTER") or os.environ.get("LIFECYCLE_ADAPTER_PATH", "")
+    if args["mode"] not in {"contract", "dry-run"} and not adapter:
+        raise RuntimeError("LIFECYCLE_ADAPTER is required for live lifecycle runs")
+
     shark = os.environ.get("SHARK_BIN", "shark")
     resolved_shark = shutil.which(shark)
     if not resolved_shark:
         raise RuntimeError(f"shark executable not found on PATH: {shark}")
-    adapter = os.environ.get("LIFECYCLE_ADAPTER") or os.environ.get("LIFECYCLE_ADAPTER_PATH", "")
-    if args["mode"] not in {"contract", "dry-run"} and not adapter:
-        raise RuntimeError("LIFECYCLE_ADAPTER is required for live lifecycle runs")
 
     identity = scenario_identity(scenario_path, scenario)
     identity["run_id"] = args["run_id"]
@@ -540,8 +837,8 @@ def main(argv):
                         dispatch["outcome"] = terminal
                 else:
                     dispatch["outcome"] = str(outcome)
-                    run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}"], scratch)
-                    dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", "")}
+                    advance_response = run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}", "--json"], scratch)
+                    dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", ""), "to_status": str(advance_response.get("new_status", ""))}
             except LeaseLoss as exc:
                 terminal = "lease_loss"
                 reason = str(exc)
@@ -553,7 +850,7 @@ def main(argv):
             finally:
                 if session:
                     try:
-                        dispatch["release"] = bounded(run_command(shark, ["release", entity, "--session", session, "--outcome", dispatch["outcome"]], scratch))
+                        dispatch["release"] = bounded(run_command(shark, ["release", entity, "--session", session, "--outcome", dispatch["outcome"], "--json"], scratch))
                     except RuntimeError as exc:
                         dispatch["release"] = {"error": str(exc)}
                         if terminal == "complete":

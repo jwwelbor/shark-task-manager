@@ -16,7 +16,7 @@
 # NOT part of this case's expected violation -- only the leak-surface
 # check on input.agent_visible is). Expected failing field:
 # input.agent_visible.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-27-agent-visible-symlink-redirect-into-evaluator"
 scenario_version: 1
 entity_family: bug

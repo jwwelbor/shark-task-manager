@@ -259,7 +259,7 @@ gates:
     scratch_root: ""
 EOF
 
-ACK_FLAGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10)
+ACK_FLAGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 --max-provider-calls 15)
 
 run_case() {
 	# run_case <label> <root> <comparison_mode>

@@ -289,7 +289,7 @@ RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" 
 	ENTITY_HISTORY_EXPORT_BIN="$DRIVER_ENTITY_HISTORY_STUB" \
 	"$BATCH" --batch "$DRIVER_WORKDIR/policy.yaml" --retention-root "$DRIVER_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
-	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--max-wall-clock-seconds 600 --max-generated-tasks 10 --max-provider-calls 15 \
 	>"$WORKDIR/driver-batch.out" 2>"$WORKDIR/driver-batch.err" || driver_batch_rc=$?
 [[ "$driver_batch_rc" -eq 0 ]] || fail "(a2) driver-path: real run-lifecycle-batch.sh --mode pilot invocation failed: exit $driver_batch_rc; stdout: $(cat "$WORKDIR/driver-batch.out"); stderr: $(cat "$WORKDIR/driver-batch.err")"
 [[ -f "$DRIVER_ROOT/scenarios/$DRIVER_SCENARIO_ID/1/manifest.json" ]] || fail "(a2) driver-path: real driver did not retain the expected pair directory"
@@ -856,7 +856,7 @@ mkdir -p "$INCOMPLETE_DIR"
 echo "prior attempt marker" >"$INCOMPLETE_DIR/package.yaml"
 BEFORE_DIGEST="$(sha256sum "$INCOMPLETE_DIR/package.yaml" | awk '{print $1}')"
 
-GOOD_CEILINGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10)
+GOOD_CEILINGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 --max-provider-calls 15)
 
 # Plain repeat: no --reclaim-incomplete. classify_pair reports
 # incomplete_prior_attempt and the driver skips it untouched -- no

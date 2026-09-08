@@ -283,6 +283,7 @@ run_ac_t2_batch() {
 		"$BATCH" --batch "$WORKDIR/ac-t2-policy.yaml" --retention-root "$AC_T2_ROOT" \
 		--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 		--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--max-provider-calls 15 \
 		--scenarios py-bug-due-date-boundary --reps 1 "$@"
 }
 
@@ -409,6 +410,7 @@ RUN_LIFECYCLE_BIN="$WORKDIR/stubbin/run-lifecycle-stub.sh" \
 	"$BATCH" --batch "$WORKDIR/missing-source-policy.yaml" --retention-root "$MISSING_SOURCE_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--max-provider-calls 15 \
 	--scenarios py-bug-due-date-boundary --reps 1 >"$WORKDIR/missing-source.out" 2>&1
 missing_source_rc=$?
 set -e
@@ -512,6 +514,7 @@ RUN_LIFECYCLE_BIN="$WORKDIR/stubbin/run-lifecycle-stub.sh" \
 	"$BATCH" --batch "$WORKDIR/retain-content-policy.yaml" --retention-root "$RETAIN_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
 	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--max-provider-calls 15 \
 	--scenarios py-bug-due-date-boundary --reps 1 >"$WORKDIR/retain-content.out" 2>&1
 retain_content_rc=$?
 set -e

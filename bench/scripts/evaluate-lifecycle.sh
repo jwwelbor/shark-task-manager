@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # TC-067 / TC-069: offline I-08 lifecycle evaluator.
+# TC-110 (T-E40-F11-009, AC-F11-36): also runs the expected_entity_graph
+# structural evaluator, unioned with the held-back oracle.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -159,7 +161,7 @@ def write(record):
 
 
 def fail_input(detail):
-    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}})
+    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "expected_entity_graph": {"applicability": "not_applicable", "checks": [], "observed_result": "not_applicable", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "expected_entity_graph_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}})
 
 
 def load_inputs():
@@ -410,6 +412,139 @@ def run_judge(package, reasons):
     return judge
 
 
+DESCENDANT_PROVENANCE_RESOLVERS = {
+    # expected_entity_graph.required_provenance names provenance CONCEPTS
+    # (§2.3.5's worked example), not JSON paths -- the spec never states a
+    # field mapping (T-E40-F11-009). This resolver is the one place that
+    # mapping is made explicit: "candidate_identity" is the descendant's own
+    # last-dispatch candidate identity digest (already validated elsewhere
+    # by validate_candidate_snapshots' identity_digest/six-field check);
+    # "workflow_routing_identity" is the whole run's workflow-policy
+    # identity digest (routing is a run-level decision, not re-derived per
+    # descendant). An unrecognized name always fails closed (never silently
+    # satisfied) so a typo in a package's required_provenance list is
+    # reported, not ignored.
+    "candidate_identity": lambda candidate, workflow_policy: bool(candidate.get("identity_digest")),
+    "workflow_routing_identity": lambda candidate, workflow_policy: bool(workflow_policy.get("workflow_policy_identity_digest")),
+}
+
+
+def descendant_terminal_status(dispatches_by_key, key):
+    """The observed terminal status for one descendant entity.
+
+    dispatch["response"]["status"] is the workflow step the entity was
+    executing BEFORE its outcome was applied -- never the status a
+    dispatch's own `shark status advance` produced, since terminal steps
+    (action: archive) are never themselves dispatched. The LAST dispatch's
+    transition["to_status"] (the resulting status `shark status advance
+    --json` reported as `new_status`) is therefore the authoritative
+    observed terminal status; fall back to response["status"] only when no
+    transition was recorded (older evidence, or an entity still in-flight
+    at a non-terminal step, in which case the fallback correctly yields a
+    non-terminal status that fails the terminal-state comparison).
+    """
+    entries = dispatches_by_key.get(key) or []
+    if not entries:
+        return None
+    last = entries[-1]
+    transition = last.get("transition") if isinstance(last.get("transition"), dict) else {}
+    status = transition.get("to_status")
+    if not status:
+        response = last.get("response") if isinstance(last.get("response"), dict) else {}
+        status = response.get("status")
+    return status or None
+
+
+def validate_expected_entity_graph(package, lifecycle, workflow_policy, reasons):
+    """REQ-F-009/AC-F11-36: the expected_entity_graph structural evaluator,
+    unioned with the held-back oracle (run_oracle) into overall eligibility
+    for descendant_oracles_union (and any other package declaring the
+    block). Gated on the block's PRESENCE in the package -- required for
+    epic, optional for feature, forbidden elsewhere (ADR-F11-09) -- never on
+    final_predicate.kind, so a feature package that opts into the block is
+    covered too, and the four pre-existing packages (AC-F11-25a, no block)
+    are entirely unaffected.
+
+    Emits one distinct, named invalidity reason per violated assertion
+    (AC-F11-36): descendant_count_below_min, descendant_count_above_max,
+    unexpected_descendant_family, descendant_not_terminal,
+    descendant_provenance_incomplete (spec.md §7.3.6 G3-G9).
+    """
+    graph = package.get("expected_entity_graph")
+    if not isinstance(graph, dict):
+        return {"applicability": "not_applicable", "checks": [], "observed_result": "not_applicable", "invalidity_reasons": []}
+
+    entity_graph = lifecycle.get("entity_graph") if isinstance(lifecycle.get("entity_graph"), dict) else {}
+    selected_keys = entity_graph.get("selected_keys") if isinstance(entity_graph.get("selected_keys"), list) else []
+    selected_types = entity_graph.get("selected_types") if isinstance(entity_graph.get("selected_types"), list) else []
+    families_by_key = dict(zip(selected_keys, selected_types))
+
+    dispatches_by_key = {}
+    for dispatch in lifecycle.get("dispatches") or []:
+        if isinstance(dispatch, dict):
+            dispatches_by_key.setdefault(dispatch.get("requested_key"), []).append(dispatch)
+    for entries in dispatches_by_key.values():
+        entries.sort(key=lambda d: d.get("ordinal", 0))
+    stage_by_ordinal = {stage.get("dispatch_ordinal"): stage for stage in (lifecycle.get("stages") or []) if isinstance(stage, dict)}
+
+    declared = {entry["family"]: entry for entry in (graph.get("descendants") or []) if isinstance(entry, dict) and entry.get("family")}
+    required_terminal_states = graph.get("required_terminal_states") if isinstance(graph.get("required_terminal_states"), dict) else {}
+    required_provenance = graph.get("required_provenance") if isinstance(graph.get("required_provenance"), list) else []
+    unexpected_policy = graph.get("unexpected_descendants", "invalidate")
+
+    counts = {}
+    for family in families_by_key.values():
+        counts[family] = counts.get(family, 0) + 1
+
+    checks = []
+    graph_reasons = []
+
+    def add(code, path, detail):
+        item = reason(code, path, detail)
+        graph_reasons.append(item)
+        reasons.append(item)
+
+    for family, spec in declared.items():
+        observed = counts.get(family, 0)
+        minimum = spec.get("min")
+        maximum = spec.get("max")
+        ok = True
+        if isinstance(minimum, int) and observed < minimum:
+            add("descendant_count_below_min", "/entity_graph/descendants/" + family, f"{family}: observed {observed}, required minimum {minimum}")
+            ok = False
+        if isinstance(maximum, int) and observed > maximum:
+            add("descendant_count_above_max", "/entity_graph/descendants/" + family, f"{family}: observed {observed}, declared maximum {maximum}")
+            ok = False
+        checks.append({"check_id": "descendant_count:" + family, "applicability": "applicable", "stage": "lifecycle", "entity": family, "result": "pass" if ok else "fail", "reason": None if ok else "descendant count outside declared bounds"})
+
+    for family in sorted(set(counts) - set(declared)):
+        offending = sorted(key for key, fam in families_by_key.items() if fam == family)
+        invalidated = unexpected_policy == "invalidate"
+        checks.append({"check_id": "unexpected_descendant_family:" + family, "applicability": "applicable", "stage": "lifecycle", "entity": family, "result": "fail" if invalidated else "pass", "reason": None if not invalidated else "undeclared descendant family present"})
+        if invalidated:
+            add("unexpected_descendant_family", "/entity_graph/selected_types", f"undeclared descendant family {family!r} present ({len(offending)} entities): {offending[:8]}")
+
+    for key, family in families_by_key.items():
+        if family not in declared:
+            continue  # already reported above as unexpected_descendant_family (or explicitly ignored)
+        required_status = required_terminal_states.get(family)
+        observed_status = descendant_terminal_status(dispatches_by_key, key)
+        terminal_ok = bool(required_status) and observed_status == required_status
+        checks.append({"check_id": "descendant_terminal:" + key, "applicability": "applicable", "stage": "lifecycle", "entity": key, "result": "pass" if terminal_ok else "fail", "reason": None if terminal_ok else "descendant did not reach its required terminal status"})
+        if not terminal_ok:
+            add("descendant_not_terminal", "/entity_graph/" + key, f"{key} ({family}): observed status {observed_status!r}, required terminal status {required_status!r}")
+
+        entries = dispatches_by_key.get(key) or []
+        last_stage = stage_by_ordinal.get(entries[-1].get("ordinal")) if entries else None
+        candidate = last_stage.get("candidate") if isinstance(last_stage, dict) and isinstance(last_stage.get("candidate"), dict) else {}
+        missing = [name for name in required_provenance if not DESCENDANT_PROVENANCE_RESOLVERS.get(name, lambda c, w: False)(candidate, workflow_policy)]
+        checks.append({"check_id": "descendant_provenance:" + key, "applicability": "applicable", "stage": "lifecycle", "entity": key, "result": "pass" if not missing else "fail", "reason": None if not missing else "descendant provenance incomplete"})
+        if missing:
+            add("descendant_provenance_incomplete", "/entity_graph/" + key, f"{key} ({family}): missing required_provenance {missing}")
+
+    return {"applicability": "applicable", "checks": checks, "observed_result": "pass" if not graph_reasons else "fail", "invalidity_reasons": graph_reasons}
+
+
 def run_oracle(i05, reasons):
     """Invoke the held-back oracle when an agent fixture checkout is available."""
     checkout = (i05.get("roots") or {}).get("agent_fixture_checkout")
@@ -467,7 +602,7 @@ def normalize_findings(reasons):
     return review_findings
 
 
-def build_record(evaluation_id, identity, sources, structural, judge, oracle_result, review_findings, candidate_snapshots, workflow_policy, lifecycle, reasons):
+def build_record(evaluation_id, identity, sources, structural, judge, oracle_result, expected_entity_graph, review_findings, candidate_snapshots, workflow_policy, lifecycle, reasons):
     """Assemble and emit the final I-08 record."""
     identity["source_identity_digest"] = canonical_digest(identity)
     unique = []
@@ -477,8 +612,9 @@ def build_record(evaluation_id, identity, sources, structural, judge, oracle_res
         if key not in seen:
             unique.append(item)
             seen.add(key)
-    aggregate = not unique and structural["observed_result"] == "pass" and judge["observed_result"] in {"pass", "not_applicable"} and oracle_result.get("observed_result") == "pass"
-    write({"schema_version": "1.0", "evaluation_id": evaluation_id, "identity": identity, "source_artifacts": sources, "structural": structural, "judge": judge, "execution_oracle": oracle_result, "review_findings": review_findings, "candidate_snapshots": candidate_snapshots, "workflow_policy": workflow_policy, "comparison": {"mode": None, "accepted": False, "quality_delta": None}, "metrics": derive_metrics(lifecycle, review_findings, judge), "eligibility": {"structural_valid": structural["observed_result"] == "pass", "judge_valid": judge["observed_result"] in {"pass", "not_applicable"}, "oracle_valid": oracle_result.get("observed_result") == "pass", "aggregate_eligible": aggregate, "publication_eligible": aggregate, "invalidity_reasons": unique}})
+    graph_valid = expected_entity_graph["observed_result"] in {"pass", "not_applicable"}
+    aggregate = not unique and structural["observed_result"] == "pass" and judge["observed_result"] in {"pass", "not_applicable"} and oracle_result.get("observed_result") == "pass" and graph_valid
+    write({"schema_version": "1.0", "evaluation_id": evaluation_id, "identity": identity, "source_artifacts": sources, "structural": structural, "judge": judge, "execution_oracle": oracle_result, "expected_entity_graph": expected_entity_graph, "review_findings": review_findings, "candidate_snapshots": candidate_snapshots, "workflow_policy": workflow_policy, "comparison": {"mode": None, "accepted": False, "quality_delta": None}, "metrics": derive_metrics(lifecycle, review_findings, judge), "eligibility": {"structural_valid": structural["observed_result"] == "pass", "judge_valid": judge["observed_result"] in {"pass", "not_applicable"}, "oracle_valid": oracle_result.get("observed_result") == "pass", "expected_entity_graph_valid": graph_valid, "aggregate_eligible": aggregate, "publication_eligible": aggregate, "invalidity_reasons": unique}})
 
 
 try:
@@ -493,9 +629,10 @@ try:
     structural = run_structural_checks(i05, lifecycle, lifecycle_rows, reasons)
     judge = run_judge(package, reasons)
     oracle_result = run_oracle(i05, reasons)
+    expected_entity_graph = validate_expected_entity_graph(package, lifecycle, workflow_policy, reasons)
     sources = build_source_artifacts(i05_json, lifecycle)
     review_findings = normalize_findings(reasons)
-    build_record(evaluation_id, identity, sources, structural, judge, oracle_result, review_findings, candidate_snapshots, workflow_policy, lifecycle, reasons)
+    build_record(evaluation_id, identity, sources, structural, judge, oracle_result, expected_entity_graph, review_findings, candidate_snapshots, workflow_policy, lifecycle, reasons)
 except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError, yaml.YAMLError, json.JSONDecodeError) as exc:
     fail_input(str(exc))
 PYEOF

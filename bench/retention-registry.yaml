@@ -1,0 +1,19 @@
+# Committed retention registry (data, not source; spec.md 2.1.2a, AC-F11-01a).
+#
+# Every retained operator root that must never be reused, retried, or
+# overwritten by any of the nine operator subcommands is listed here by an
+# opaque `registry_id`. This file holds the ONLY copy of any
+# operator-specific absolute path this repository carries -- no `bench/`
+# source file may name one (AC-F11-01a; enforced by tc099's static grep).
+#
+# `root_path` is machine-local operator evidence: a registry entry whose
+# root does not exist on the current host is a no-match (the guard allows
+# the invocation), not a rejection -- a registry shared across machines via
+# git must never block a host that never held the root.
+schema_version: "1.0"
+entries:
+  - registry_id: "2026-09-04-e40-full-family"
+    root_path: "/home/jwwel/e40-benchmarks/2026-09-04-e40-full-family"
+    registered_at: "2026-09-06T13:30:04Z"
+    classification: "incomplete"
+    tree_manifest_path: "bench/retention-manifests/2026-09-04-e40-full-family.sha256"

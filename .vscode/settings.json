@@ -9,10 +9,11 @@
             "group": "shark-dev"
         }
     ],
-    "markdown-preview-enhanced.frontMatterRenderingOption": "table",
-    "markdown-preview-enhanced.hideDefaultVSCodeMarkdownPreviewButtons": false,
-    "markdown-preview-enhanced.mermaidTheme": "dark",
-    "markdown-preview-enhanced.previewMode": "Single Preview",
-    "markdown-preview-enhanced.previewTheme": "github-dark.css",
-    "markdown-preview-enhanced.automaticallyShowPreviewOfMarkdownBeingEdited": false
+    "[markdown]": {
+        "editor.formatOnSave": true,
+        "editor.wordWrap": "on",
+        "editor.renderWhitespace": "all",
+        "editor.acceptSuggestionOnEnter": "off",
+        "files.trimTrailingWhitespace": false
+    }
 }

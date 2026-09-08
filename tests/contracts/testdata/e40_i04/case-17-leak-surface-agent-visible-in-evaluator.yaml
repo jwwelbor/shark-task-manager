@@ -2,7 +2,7 @@
 # input.agent_visible resolves inside the package's evaluator/
 # subtree -- the leak surface REQ-F-009 forbids. Expected failing
 # field: input.agent_visible.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-17-leak-surface-agent-visible-in-evaluator"
 scenario_version: 1
 entity_family: bug

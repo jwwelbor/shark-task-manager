@@ -1,7 +1,7 @@
 # TC-030 case 10/17 (AC-005, REQ-F-003/015): stage_matrix.prelude.D03
 # carries no explicit "applicable" boolean. Expected failing field:
 # stage_matrix.prelude.D03.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-10-prelude-stage-missing-boolean"
 scenario_version: 1
 entity_family: bug

@@ -1,0 +1,33 @@
+diff --git a/taskmanager/manager.py b/taskmanager/manager.py
+index d7f2b8d..fd434ae 100644
+--- a/taskmanager/manager.py
++++ b/taskmanager/manager.py
+@@ -12,6 +12,10 @@ from .priority import validate_priority
+ from .validation import non_empty_title
+ 
+ 
++class TaskNotFoundError(KeyError):
++    """Raised when an operation names a task_id that does not exist."""
++
++
+ class TaskManager:
+     """A minimal in-memory task manager."""
+ 
+@@ -36,6 +40,17 @@ class TaskManager:
+         task.status = Status.DONE
+         return task
+ 
++    def delete_task(self, task_id: int) -> None:
++        """Remove a task permanently.
++
++        Raises TaskNotFoundError (never a bare KeyError) if task_id does not
++        exist, so callers can distinguish "not found" from any other
++        dict-shaped error.
++        """
++        if task_id not in self._tasks:
++            raise TaskNotFoundError(f"no task with id {task_id}")
++        del self._tasks[task_id]
++
+     def list_tasks(self) -> list[Task]:
+         return list(self._tasks.values())
+ 

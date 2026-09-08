@@ -674,6 +674,21 @@ ceilings = {
     "max_wall_clock_seconds": ceiling_number(raw_ceilings, "max_wall_clock_seconds"),
     "max_generated_tasks": ceiling_number(raw_ceilings, "max_generated_tasks"),
 }
+# T-E40-F11-003 (AC-F11-06a): the fourth ceiling. Every batch.json produced
+# by a real e40_benchmark module pilot/baseline/variant invocation carries it
+# (run-lifecycle-batch.sh's writer records it unconditionally once S1 makes
+# --max-provider-calls required=True), so it is projected here when
+# present -- keeping aggregate.json's identity.ceilings in lockstep with
+# the e40_benchmark module's RESOURCE_CEILING_NAMES comparisons. Optional (unlike
+# the other three, which fail closed) rather than newly required: a batch.json
+# retained before this task landed, or written by a driver invocation that
+# never declared it, has no fourth ceiling to lose -- only a genuinely
+# APPROVED-then-DROPPED ceiling is the defect AC-F11-06a targets.
+ceilings["max_provider_calls"] = (
+    ceiling_number(raw_ceilings, "max_provider_calls")
+    if raw_ceilings.get("max_provider_calls") is not None
+    else None
+)
 
 # ---------------------------------------------------------------------------
 # Enumerate retained (scenario, rep) pairs under scenarios/<id>/<rep>/,

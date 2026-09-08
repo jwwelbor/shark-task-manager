@@ -11,7 +11,7 @@
 # by a real `admit-scenario.sh` run against this file at that frozen SHA --
 # not hand-authored -- so it satisfies TC-032's caller-path contract (no
 # hardcoded verdicts), superseding T-E40-F05-009's original interim run.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "py-bug-due-date-boundary"
 scenario_version: 1
 entity_family: bug

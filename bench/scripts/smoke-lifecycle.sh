@@ -92,9 +92,9 @@ if entry is None:
     print(f"smoke-lifecycle: unknown scenario {scenario_id!r}; known scenarios: {known}", file=sys.stderr)
     raise SystemExit(2)
 
-root_key = result["root_keys"].get(entry["family"])
+root_key = result["root_keys"].get(entry["scenario_id"])
 if not root_key:
-    print(f"smoke-lifecycle: no seeded root_key for family {entry['family']!r}", file=sys.stderr)
+    print(f"smoke-lifecycle: no seeded root_key for scenario {entry['scenario_id']!r}", file=sys.stderr)
     raise SystemExit(2)
 
 print(result["shark_binary"]["path"], result["scratch_root"], entry["package_path"], root_key)

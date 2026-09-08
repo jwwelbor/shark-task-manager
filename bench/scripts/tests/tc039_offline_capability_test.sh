@@ -2,8 +2,8 @@
 # TC-039 (test-plan.md AC test matrix; T-E40-F05-015 task spec Test Cases).
 #
 # Exercises AC-018 (REQ-NF-004): with dependency caches warm, the admission
-# gate (bench/scripts/admit-scenario.sh) completes offline over all four
-# REQ-F-014 seed packages, run under TWO independent network-isolation
+# gate (bench/scripts/admit-scenario.sh) completes offline over all six
+# registered I-04 seed packages, run under TWO independent network-isolation
 # mechanisms so neither is merely an assumed-equivalent, untested fallback --
 #   1. `unshare --user --net` -- a real Linux network-namespace block. Works
 #      unprivileged on this host without CAP_SYS_ADMIN in the parent
@@ -71,12 +71,12 @@ for rel in sorted(data["scenarios"]):
     print(rel)
 PYEOF
 )
-[[ "${#package_rel_dirs[@]}" -eq 4 ]] || fail "expected exactly 4 registered scenarios in scenarios.yaml, found ${#package_rel_dirs[@]}"
+[[ "${#package_rel_dirs[@]}" -eq 6 ]] || fail "expected exactly 6 registered scenarios in scenarios.yaml, found ${#package_rel_dirs[@]}"
 
 network_attempt_pattern='dial tcp|connection refused|no such host|network is unreachable|could not resolve|temporary failure in name resolution|NewConnectionError|ConnectTimeoutError|Failed to establish a new connection'
 
 # run_offline <mech_label> <net_wrap_cmd...> -- runs admit-scenario.sh
-# against a fresh candidate copy of each of the four seeds under the given
+# against a fresh candidate copy of each registered seed under the given
 # isolation wrapper (a prefix argv array, possibly empty for the
 # environment-variable-only portable fallback). Asserts every seed is
 # admitted (exit 0) with no outbound-network-attempt pattern on stderr.
@@ -131,5 +131,5 @@ run_offline "portable-fallback" env \
 	HTTP_PROXY="http://127.0.0.1:9" \
 	HTTPS_PROXY="http://127.0.0.1:9"
 
-echo "TC-039: both isolation mechanisms independently completed the admission gate over all four seeds, offline"
+echo "TC-039: both isolation mechanisms independently completed the admission gate over all six seeds, offline"
 echo "TC-039: PASS"

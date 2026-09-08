@@ -213,7 +213,7 @@ with open(os.path.join(dest_root, "invalid", "index.jsonl"), "w", encoding="utf-
 batch = {
     "phase": "lifecycle_v2", "batch_id": "batch-tc088", "mode": "baseline", "min_reps": 2,
     "batch_policy_digest": "f" * 64,
-    "ceilings": {"max_cost_usd": "100", "max_wall_clock_seconds": "3600", "max_generated_tasks": "20"},
+    "ceilings": {"max_cost_usd": "100", "max_wall_clock_seconds": "3600", "max_generated_tasks": "20", "max_provider_calls": "30"},
     "acknowledgement_ref": {"flag": "--acknowledge-provider-spend", "present": True},
 }
 write_json(os.path.join(dest_root, "batch.json"), batch)
@@ -593,7 +593,7 @@ agg = {
     "identity": {
         "schema_version": "1.0", "batch_id": "batch-tc088-handbuilt", "phase": "lifecycle_v2",
         "retention_root_digest": "a" * 64, "batch_policy_digest": "b" * 64,
-        "ceilings": {"max_cost_usd": 100, "max_wall_clock_seconds": 3600, "max_generated_tasks": 20},
+        "ceilings": {"max_cost_usd": 100, "max_wall_clock_seconds": 3600, "max_generated_tasks": 20, "max_provider_calls": 30},
         "acknowledgement_ref": {"flag": "--acknowledge-provider-spend", "present": True},
         "min_reps": 2,
     },
@@ -974,7 +974,7 @@ chmod +x "$E2E_ENTITY_HISTORY_STUB"
 # evaluation.jsonl exists yet under $E2E_ROOT, so this is the real dispatch
 # path -- retain_gate()/lib/retain_pair genuinely executes for both gates,
 # not the skipped_complete shortcut. ---------------------------------------
-E2E_ACK_FLAGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10)
+E2E_ACK_FLAGS=(--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 --max-provider-calls 15)
 e2e_comparison_rc=0
 RUN_LIFECYCLE_BIN="$E2E_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$E2E_EVAL_STUB" \
 	ENTITY_HISTORY_EXPORT_BIN="$E2E_ENTITY_HISTORY_STUB" \
@@ -1022,7 +1022,7 @@ RUN_LIFECYCLE_BIN="$E2E_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$E2E_EVAL_STUB" \
 	ENTITY_HISTORY_EXPORT_BIN="$E2E_ENTITY_HISTORY_STUB" \
 	"$BATCH" --batch "$E2E_BATCH_POLICY" --retention-root "$E2E_ROOT" \
 	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
-	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--max-wall-clock-seconds 600 --max-generated-tasks 10 --max-provider-calls 15 \
 	>"$E2E_WORKDIR/batch.stdout" 2>"$E2E_WORKDIR/batch.stderr" || e2e_batch_rc=$?
 [[ "$e2e_batch_rc" -eq 0 ]] || fail "T-E40-F10-005 round-3 rework: real run-lifecycle-batch.sh --mode pilot dispatch (SAME scenario_id as the already-retained gate pairs) failed: exit $e2e_batch_rc; stdout: $(cat "$E2E_WORKDIR/batch.stdout"); stderr: $(cat "$E2E_WORKDIR/batch.stderr")"
 [[ ! -s "$E2E_ROOT/invalid/index.jsonl" ]] || fail "T-E40-F10-005 round-3 rework: batch classified a pair invalid instead of genuinely dispatching: $(cat "$E2E_ROOT/invalid/index.jsonl")"

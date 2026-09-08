@@ -104,6 +104,25 @@
 #                                    value computed here by subtracting two
 #                                    evaluations' own elapsed_time/
 #                                    provider_cost, which AC-T2 forbids.
+#   Findings by family           -- T-E40-F11-013 (REQ-F-013, AC-F11-43):
+#                                    one independent section per family
+#                                    present in `/scenarios[]/family`
+#                                    (itself package-driven, never a
+#                                    private/hardcoded family list). A
+#                                    family renders `0 findings` only when
+#                                    every contributing scenario recorded a
+#                                    genuine (possibly zero) integer via its
+#                                    own `/noise_bands[]` confirmed_findings
+#                                    band and the largest such value is
+#                                    exactly zero; it renders `not measured`
+#                                    only when no contributing scenario ever
+#                                    recorded a genuine value -- named with
+#                                    the distinct, permanent
+#                                    `FAMILY_FINDINGS_NOT_MEASURED_
+#                                    UPSTREAM_GAP` reason, never bare. The
+#                                    two verdicts are never collapsed into
+#                                    one string. Rendered in BOTH views
+#                                    (AC-F11-43 names "both reports").
 #
 # Exit status (mirrors report-baseline.sh's own contract):
 #   0        report printed to stdout (including a not-correct verdict --
@@ -197,6 +216,21 @@ DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP = (
     "elapsed_time/provider_cost dimensions (REQ-F-008)"
 )
 
+# T-E40-F11-013 (REQ-F-013, AC-F11-43). A family whose every contributing
+# scenario never had I-08 mark metrics.quality.confirmed_findings
+# available for any retained rep has NO measurement at all -- a permanent
+# per-family upstream contract gap, named here exactly like this script's
+# existing DIMENSION_PAIRED_DELTA_TIME_COST_UPSTREAM_GAP precedent -- and
+# is never rendered as (nor collapsed into) the distinct, real "0
+# findings" verdict a family earns by every contributing rep recording a
+# genuine, verified zero.
+FAMILY_FINDINGS_NOT_MEASURED_UPSTREAM_GAP = (
+    "upstream_contract_gap: I-08's evaluation.jsonl metrics.quality."
+    "confirmed_findings was not marked available for any retained rep of "
+    "this family -- distinct from a family that ran to completion and "
+    "recorded a genuine zero (REQ-F-008)"
+)
+
 
 def fail(msg):
     """Hard-abort with NOTHING printed to stdout: only ever called before
@@ -269,6 +303,100 @@ def emit_partition(title, block):
     for key in sorted(block):
         emit("- `%s`: %s" % (key, fmt(block[key])))
     emit()
+
+
+def emit_family_findings_section(agg):
+    """T-E40-F11-013 (REQ-F-013, AC-F11-42/AC-F11-43): one independent
+    section per SELECTED family -- the family set is read directly from
+    /scenarios[]/family (itself package-driven, aggregate-lifecycle.sh's
+    own already-verbatim projection of each retained pair's
+    entity_family), never a private/hardcoded family list, so this
+    section's own count always equals however many families the batch
+    policy actually selected, four or six or otherwise.
+
+    Every value below is read verbatim from this aggregate's own already-
+    published /noise_bands[] entries (one per scenario_id x
+    confirmed_findings, unconditionally emitted by aggregate-lifecycle.sh
+    for every retained scenario) -- this function computes no new
+    statistic, matching this script's own purity discipline (ADR-F10-06).
+    A family earns the literal `0 findings` verdict only when every
+    contributing scenario recorded a genuine (possibly-zero) integer
+    confirmed_findings value for at least one rep, and the largest such
+    value is exactly zero -- a real, measured clean pass. A family earns
+    the literal `not measured` verdict only when NO contributing scenario
+    ever recorded a genuine integer (every band's own `min` is the string
+    `unavailable`) -- a permanent upstream contract gap, named immediately
+    below the verdict, never bare. The two verdicts are never rendered as
+    each other and never collapsed into one string (AC-F11-43).
+    """
+    scenarios = agg.get("scenarios") or []
+    families = {}
+    for s in scenarios:
+        families.setdefault(s.get("family"), set()).add(s.get("scenario_id"))
+
+    band_by_scenario = {
+        band.get("scenario_id"): band
+        for band in (agg.get("noise_bands") or [])
+        if band.get("metric") == "confirmed_findings"
+    }
+
+    emit("## Findings by family")
+    emit()
+    if not families:
+        emit("_No families present in this aggregate._")
+        emit()
+        return
+
+    for family in sorted(families, key=lambda f: (f is None, f)):
+        scenario_ids = sorted(families[family])
+        emit("### `%s`" % fmt(family))
+        emit()
+        emit("- Scenarios: %s" % ", ".join("`%s`" % fmt(sid) for sid in scenario_ids))
+
+        measured_maxima = []
+        any_not_measured = False
+        for sid in scenario_ids:
+            band = band_by_scenario.get(sid)
+            band_min = band.get("min") if isinstance(band, dict) else None
+            if not isinstance(band, dict) or band_min == "unavailable":
+                any_not_measured = True
+                continue
+            band_max = band.get("max")
+            if isinstance(band_max, (int, float)) and not isinstance(band_max, bool):
+                measured_maxima.append(band_max)
+            else:
+                any_not_measured = True
+
+        if not measured_maxima:
+            # Not one contributing scenario ever recorded a genuine value --
+            # never rendered as (or mixed with) the distinct "0 findings"
+            # line below.
+            emit("- Findings: not measured")
+            emit("  - %s" % FAMILY_FINDINGS_NOT_MEASURED_UPSTREAM_GAP)
+        elif max(measured_maxima) == 0:
+            # Every rep that DID contribute a genuine value contributed
+            # exactly zero -- a real, verified clean pass, never the bare
+            # "not measured" line above.
+            emit("- Findings: 0 findings")
+            if any_not_measured:
+                emit(
+                    "  - at least one scenario in this family measured 0 "
+                    "findings; another contributed no genuine measurement -- "
+                    "the two are reported separately, never collapsed into "
+                    "this family's own verdict"
+                )
+        else:
+            emit(
+                "- Findings: %s confirmed finding(s) observed (measured)"
+                % fmt(max(measured_maxima))
+            )
+            if any_not_measured:
+                emit(
+                    "  - at least one scenario in this family contributed no "
+                    "genuine measurement -- reported separately, never "
+                    "collapsed into this family's own verdict"
+                )
+        emit()
 
 
 if view == "stage_diagnostic":
@@ -375,6 +503,11 @@ if view == "stage_diagnostic":
     emit()
     emit_partition("Stage-category partition", cost_block.get("stage_category"))
     emit_partition("Interval-category partition", cost_block.get("interval_category"))
+
+    # AC-F11-43: "both reports" carry the per-family findings section --
+    # this view's own exit is BEFORE the headline-only code below, so it is
+    # rendered here too, not only in the headline branch.
+    emit_family_findings_section(agg)
 
     print("\n".join(lines))
     sys.exit(0)
@@ -737,6 +870,8 @@ for sid in sorted(bands_by_scenario):
                 "confirmed_findings noise band" % fmt(quality_delta)
             )
         emit()
+
+emit_family_findings_section(agg)
 
 print("\n".join(lines))
 sys.exit(0)

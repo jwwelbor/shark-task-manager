@@ -258,6 +258,15 @@ def route_questions(result, run_id, scratch_root):
 
 
 def isolation_gate(package_path, fixture_root, scratch_root, evaluator_root):
+    # REQ-F-002/ADR-F11-03: fixture_root is expected to already be the
+    # caller's admitted_fixture_checkout()-verified, read-only checkout of
+    # the package's fixture.base_sha (lib/e40_benchmark.py), not the
+    # repository submodule's incidental working-tree HEAD -- this function
+    # threads it through to the guard unchanged, in the same argument
+    # position it always occupied. The guard re-verifies the binding
+    # itself against the package's fixture.base_sha before any collector
+    # process starts, so a caller that ever supplied an unverified path is
+    # still caught here rather than trusted silently.
     guard = Path(os.environ["LIFECYCLE_PRELUDE_BENCH_DIR"]) / "scripts" / "verify-evidence-roots.sh"
     try:
         process = subprocess.run([str(guard), package_path, fixture_root, scratch_root, evaluator_root], text=True, capture_output=True, check=False)

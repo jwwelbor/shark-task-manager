@@ -1,0 +1,114 @@
+# I-04 lifecycle scenario package: py-task-delete-task (REQ-F-010 task-root
+# seed, T-E40-F11-008). The subject is bench/fixture-py's TaskManager: at
+# the shared frozen fixture.base_sha, TaskManager has no way to remove a
+# task once added at all (no delete_task method exists) -- this package's
+# reference solution adds one. The task's dedicated hierarchy (host epic +
+# host feature + this target task) is seeded by T-E40-F11-017's
+# scenario-root isolation foundation (REQ-F-012), keyed by this package's
+# own scenario_id, never by entity_family.
+#
+# fixture.base_sha reuses the same frozen SHA every other seed pins
+# (T-E40-F05-014, ADR-F11-03: one immutable checkout per (fixture_id,
+# base_sha) shared across scenarios) -- no new fixture-py commit was needed;
+# the delete_task gap was already present in the fixture's base state.
+#
+# final_predicate.kind: task_acceptance_tests is the new kind
+# T-E40-F11-005/ADR-F11-04 reserved for entity_family "task" without adding
+# it to the Go validator's per-kind operand switch (deliberately left to
+# this task, per e40_i04_scenario_contract_test.go's own comment on
+# e40I04FinalPredicateFamilies). Its operand shape is acceptance_test_ids,
+# reused verbatim from the existing "acceptance_tests" kind (change_card) --
+# the arithmetic eval-predicate.sh performs is identical, only the
+# permitted entity_family differs.
+#
+# The admission: block below (AC-F11-31) was written by a real
+# `admit-scenario.sh` run against this file at this base_sha -- not
+# hand-authored -- so it satisfies TC-034's caller-path contract (no
+# hardcoded verdicts).
+schema_version: "1.1"
+scenario_id: "py-task-delete-task"
+scenario_version: 1
+entity_family: task
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "task scenarios skip the product-design prelude (entity_family: task)"}
+    D02: {applicable: false, reason: "task scenarios skip the product-design prelude (entity_family: task)"}
+    D03: {applicable: false, reason: "task scenarios skip the product-design prelude (entity_family: task)"}
+    D04: {applicable: false, reason: "task scenarios skip the product-design prelude (entity_family: task)"}
+    D05: {applicable: false, reason: "task scenarios skip the product-design prelude (entity_family: task)"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter:
+  name: python
+  version: "1.0.0"
+# Captured from a real `bench/adapters/python/adapter.sh identity --checkout
+# <checkout of base_sha>` run (REQ-F-008) -- not hand-typed. Identical to
+# every other seed's toolchain_identity: pyproject.toml is unchanged by this
+# package's subject (no fixture-py commit was needed).
+toolchain_identity:
+  - key: python_version
+    value: "3.12.3"
+  - key: pytest_version
+    value: "9.1.1"
+  - key: ruff_version
+    value: "0.16.2"
+  - key: black_version
+    value: "26.5.1"
+  - key: pyproject_sha256
+    value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"
+input:
+  agent_visible: input/prompt.md
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_delete_task.py
+  answer_keys: []
+final_predicate:
+  kind: task_acceptance_tests
+  # p2p_selection excludes all three held-back oracle ids (so check (b)'s
+  # "every P2P entry is pass at base" isn't poisoned by tests this
+  # predicate expects to fail at base) and test_manager.py's
+  # recurring-tasks placeholder (a `@pytest.mark.skip` stand-in for the
+  # py-feature-recurring-tasks seed -- a non-"pass" skip outcome would
+  # otherwise also fail the absolute P2P clause), matching every other
+  # seed's own exclusion of that same placeholder. Verified against the
+  # real adapter at the frozen base_sha: 13 entries, all "pass", at base
+  # (the fixture's existing suite minus the injected oracle tests and the
+  # skip placeholder) and 16 entries, all "pass", after the reference
+  # patch is applied.
+  p2p_selection:
+    include: ["tests"]
+    exclude_test_ids:
+      - "tests.test_delete_task::test_delete_task_removes_task"
+      - "tests.test_delete_task::test_delete_task_raises_for_missing_id"
+      - "tests.test_delete_task::test_delete_task_does_not_regress_existing_manager_behavior"
+      - "tests.test_manager::test_recurring_task_generates_next_occurrence"
+  acceptance_test_ids:
+    - "tests.test_delete_task::test_delete_task_removes_task"
+    - "tests.test_delete_task::test_delete_task_raises_for_missing_id"
+    - "tests.test_delete_task::test_delete_task_does_not_regress_existing_manager_behavior"
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20
+
+admission:
+  status: admitted
+  base_outcome: false
+  reference_outcome: true
+  toolchain_identity:
+    - key: python_version
+      value: "3.12.3"
+    - key: pytest_version
+      value: "9.1.1"
+    - key: ruff_version
+      value: "0.16.2"
+    - key: black_version
+      value: "26.5.1"
+    - key: pyproject_sha256
+      value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"

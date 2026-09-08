@@ -110,6 +110,22 @@ tests=(
 	"$SCRIPT_DIR/tc096_admit_run_selector_expected_filter_test.sh"
 	"$SCRIPT_DIR/tc097_admit_run_selector_grammar_test.sh"
 	"$SCRIPT_DIR/tc098_admit_run_selector_zero_match_test.sh"
+	"$SCRIPT_DIR/tc099_retained_root_immutability_test.sh"
+	"$SCRIPT_DIR/tc100_admitted_fixture_checkout_binding_test.sh"
+	"$SCRIPT_DIR/tc101_replay_preparation_spend_gate_test.sh"
+	"$SCRIPT_DIR/tc102_replay_preparation_verified_result_test.sh"
+	"$SCRIPT_DIR/tc103_preflight_fail_closed_test.sh"
+	"$SCRIPT_DIR/tc104_preflight_skipped_scenario_blocker_test.sh"
+	"$SCRIPT_DIR/tc105_route_resolution_without_live_artifacts_test.sh"
+	"$SCRIPT_DIR/tc106_provider_call_plan_test.sh"
+	"$SCRIPT_DIR/tc108_expected_entity_graph_contract_test.sh"
+	"$SCRIPT_DIR/tc109_task_root_scenario_test.sh"
+	"$SCRIPT_DIR/tc110_epic_root_scenario_test.sh"
+	"$SCRIPT_DIR/tc111_scenario_root_isolation_test.sh"
+	"$SCRIPT_DIR/tc111a_scenario_index_seeding_test.sh"
+	"$SCRIPT_DIR/tc112_six_family_reporting_test.sh"
+	"$SCRIPT_DIR/tc113_baseline_capture_gate_sequence_test.sh"
+	"$SCRIPT_DIR/tc114_six_family_doc_gate_test.sh"
 )
 
 status=0

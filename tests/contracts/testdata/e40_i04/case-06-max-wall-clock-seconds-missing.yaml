@@ -1,7 +1,7 @@
 # TC-030 case 6/17 (AC-005, REQ-F-011/015):
 # resource_policy.max_wall_clock_seconds is missing entirely. Expected
 # failing field: resource_policy.max_wall_clock_seconds.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-06-max-wall-clock-seconds-missing"
 scenario_version: 1
 entity_family: bug

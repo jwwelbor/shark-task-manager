@@ -2,7 +2,7 @@
 # real vocabulary kind (child_oracles_union, feature-only) but
 # entity_family stays bug, so the kind is not permitted for the
 # declared family. Expected failing field: final_predicate.kind.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-14-predicate-kind-not-permitted-for-family"
 scenario_version: 1
 entity_family: bug

@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # TC-032 (test-plan.md AC test matrix; T-E40-F05-015 task spec Test Cases).
 #
-# Exercises AC-006 / AC-T2: bench/scripts/admit-scenario.sh over all four
-# REQ-F-014 seed packages (one candidate per invocation -- admit-scenario.sh
-# takes exactly one package.yaml, never a corpus-wide run), each against a
-# real checkout-scenario-fixture.sh checkout of the frozen base_sha --
+# Exercises AC-006 / AC-T2: bench/scripts/admit-scenario.sh over all six
+# registered I-04 seed packages (one candidate per invocation --
+# admit-scenario.sh takes exactly one package.yaml, never a corpus-wide
+# run), each against a real checkout-scenario-fixture.sh checkout of the
+# frozen base_sha --
 #   - every seed is admitted (status "admitted", failing_check null, every
 #     one of the six named checks true)
 #   - every seed records base_outcome: false and reference_outcome: true
-#   - the four admitted scenario_ids cover entity_family
-#     {bug, change_card, tech_debt, feature} exactly once each -- one seed
-#     per family, no duplicate, no family missing
+#   - the six admitted scenario_ids cover entity_family
+#     {bug, change_card, tech_debt, feature, task, epic} exactly once each --
+#     one seed per family, no duplicate, no family missing (T-E40-F11-008
+#     added the task-family seed py-task-delete-task; T-E40-F11-009 added
+#     the epic-family seed py-epic-task-organization)
 #
 # "One admitted scenario per family" is this test's own cross-seed
 # assertion (admit-scenario.sh itself only ever emits one verdict per
-# invocation) -- built by iterating the four scenario_ids registered in
-# bench/scenarios/scenarios.yaml, never a hardcoded id list, so a fifth
+# invocation) -- built by iterating the scenario_ids registered in
+# bench/scenarios/scenarios.yaml, never a hardcoded id list, so a seventh
 # registered scenario would be picked up automatically.
 #
 # Caller-Path Contract (test-plan.md TC-032): real git clone/checkout of the
@@ -61,7 +64,7 @@ for rel in data["scenarios"]:
     print(rel)
 PYEOF
 )
-[[ "${#package_rel_dirs[@]}" -eq 4 ]] || fail "expected exactly 4 registered scenarios in scenarios.yaml, found ${#package_rel_dirs[@]}: ${package_rel_dirs[*]}"
+[[ "${#package_rel_dirs[@]}" -eq 6 ]] || fail "expected exactly 6 registered scenarios in scenarios.yaml, found ${#package_rel_dirs[@]}: ${package_rel_dirs[*]}"
 
 verdicts_file="$WORKDIR/verdicts.jsonl"
 : >"$verdicts_file"
@@ -97,8 +100,8 @@ verdicts_path, scenarios_yaml_path, workdir = sys.argv[1:4]
 with open(verdicts_path) as f:
     verdicts = [json.loads(line) for line in f.read().splitlines() if line]
 
-if len(verdicts) != 4:
-    sys.exit(f"TC-032 FAIL: expected 4 verdicts, got {len(verdicts)}")
+if len(verdicts) != 6:
+    sys.exit(f"TC-032 FAIL: expected 6 verdicts, got {len(verdicts)}")
 
 families = []
 for v in verdicts:
@@ -125,14 +128,14 @@ for v in verdicts:
         sys.exit(f"TC-032 FAIL: candidate dir for {scenario_id!r} did not resolve to a package.yaml naming that scenario_id")
     families.append(package["entity_family"])
 
-expected = {"bug", "change_card", "tech_debt", "feature"}
+expected = {"bug", "change_card", "tech_debt", "feature", "task", "epic"}
 actual = set(families)
 if actual != expected:
     sys.exit(f"TC-032 FAIL: admitted entity_family set is {sorted(actual)}, expected exactly {sorted(expected)}")
 if len(families) != len(set(families)):
-    sys.exit(f"TC-032 FAIL: a family appears more than once among the four admitted seeds: {families}")
+    sys.exit(f"TC-032 FAIL: a family appears more than once among the six admitted seeds: {families}")
 
-print(f"TC-032: all four seeds admitted, one per family: {sorted(zip(families, [v['scenario_id'] for v in verdicts]))}")
+print(f"TC-032: all six seeds admitted, one per family: {sorted(zip(families, [v['scenario_id'] for v in verdicts]))}")
 PYEOF
 
 echo "TC-032: PASS"

@@ -1,0 +1,54 @@
+# TC-030 case 28 (T-E40-F11-005, AC-F11-25, ADR-F11-09): an epic-family
+# package with the expected_entity_graph block omitted entirely. Required
+# for root_family: epic (REQ-F-009's own field table, §2.3.5) -- a
+# hierarchical root that produces descendants must declare its expected
+# graph. entity_family: epic and final_predicate.kind:
+# descendant_oracles_union (ADR-F11-04) are otherwise valid so the failure
+# is attributable to the missing block, not unrelated noise; the shared
+# valid/ evaluator and input assets are reused, same as every other
+# case-*.yaml in this directory. Expected failing field:
+# expected_entity_graph.
+schema_version: "1.1"
+scenario_id: "test-case-28-expected-entity-graph-required-for-epic"
+scenario_version: 1
+entity_family: epic
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "epic scenario's own assessment, refinement, research, design, and decomposition stages supersede the prelude"}
+    D02: {applicable: false, reason: "epic scenario's own assessment, refinement, research, design, and decomposition stages supersede the prelude"}
+    D03: {applicable: false, reason: "epic scenario's own assessment, refinement, research, design, and decomposition stages supersede the prelude"}
+    D04: {applicable: false, reason: "epic scenario's own assessment, refinement, research, design, and decomposition stages supersede the prelude"}
+    D05: {applicable: false, reason: "epic scenario's own assessment, refinement, research, design, and decomposition stages supersede the prelude"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "0000000000000000000000000000000000000000"
+adapter:
+  name: python
+  version: "1.0.0"
+toolchain_identity:
+  - key: python_version
+    value: "3.12.0"
+  - key: pytest_version
+    value: "8.0.0"
+input:
+  agent_visible: valid/input/prompt.md
+evaluator_only:
+  reference_solution: valid/evaluator/reference.patch
+  oracle_tests:
+    - valid/evaluator/oracle_test.txt
+  answer_keys: []
+final_predicate:
+  kind: descendant_oracles_union
+  p2p_selection:
+    include: ["taskmanager"]
+    exclude_test_ids: []
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20
+# expected_entity_graph is deliberately absent -- required for
+# root_family: epic (ADR-F11-09, AC-F11-25).

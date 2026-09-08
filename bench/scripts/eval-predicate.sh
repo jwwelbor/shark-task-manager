@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # eval-predicate.sh <package.yaml> <test-output.json> <lint-output.json>
 #
-# The single named owner of the REQ-F-010 final_predicate arithmetic for all
-# four kinds (f2p_p2p, acceptance_tests, p2p_plus_rule_drop,
-# child_oracles_union) -- research-report.md Decision 1's single-named-owner
+# The single named owner of the REQ-F-010 final_predicate arithmetic --
+# originally four kinds (f2p_p2p, acceptance_tests, p2p_plus_rule_drop,
+# child_oracles_union); T-E40-F11-008 (ADR-F11-04) adds task_acceptance_tests,
+# reusing acceptance_tests' own acceptance_test_ids operand shape (the task
+# family's final predicate is arithmetically identical to change_card's, just
+# gated to a different family); T-E40-F11-009 (ADR-F11-04) adds
+# descendant_oracles_union, reusing child_oracles_union's own
+# integration_test_ids/child_oracles operand shape (the epic family's final
+# predicate is arithmetically identical to feature's, just gated to a
+# different family) -- research-report.md Decision 1's single-named-owner
 # discipline for I-01's own arithmetic-owning diff tool, carried forward
 # here. admit-scenario.sh and later E40-F09 invoke this script instead of
 # re-deriving REQ-F-010's semantics themselves.
@@ -100,7 +107,14 @@ import yaml
 
 package_yaml_path, test_output_path, lint_output_path = sys.argv[1:4]
 
-KNOWN_KINDS = {"f2p_p2p", "acceptance_tests", "p2p_plus_rule_drop", "child_oracles_union"}
+# task_acceptance_tests added by T-E40-F11-008 (ADR-F11-04): the operand
+# shape (acceptance_test_ids) is identical to acceptance_tests', just gated
+# to entity_family "task" instead of "change_card" -- see named_ids_for below.
+# descendant_oracles_union added by T-E40-F11-009 (ADR-F11-04): the operand
+# shape (integration_test_ids + child_oracles) is identical to
+# child_oracles_union's, just gated to entity_family "epic" instead of
+# "feature".
+KNOWN_KINDS = {"f2p_p2p", "acceptance_tests", "p2p_plus_rule_drop", "child_oracles_union", "task_acceptance_tests", "descendant_oracles_union"}
 
 
 def fail(msg):
@@ -147,9 +161,9 @@ def named_ids_for(kind, predicate):
     ids of its own (REQ-F-010's Final predicate vocabulary table)."""
     if kind == "f2p_p2p":
         return list(predicate.get("f2p_test_ids") or [])
-    if kind == "acceptance_tests":
+    if kind in ("acceptance_tests", "task_acceptance_tests"):
         return list(predicate.get("acceptance_test_ids") or [])
-    if kind == "child_oracles_union":
+    if kind in ("child_oracles_union", "descendant_oracles_union"):
         return list(predicate.get("integration_test_ids") or []) + list(predicate.get("child_oracles") or [])
     return []  # p2p_plus_rule_drop
 

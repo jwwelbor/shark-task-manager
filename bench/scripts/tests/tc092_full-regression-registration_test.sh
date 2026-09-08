@@ -133,3 +133,14 @@ for id in 003 004 005 006 007 008 009 010 011 013 014 015 016 017 018 019 020 03
 	assert_executable_registration "$id"
 done
 echo "TC-092: F01-F09 and complete F10 registration pass"
+
+# tc107_six_family_admission_test.sh (test-plan.md TC-19/20/21) is not
+# included below: no F11 task's Scope ever created that file (T-E40-F11-004
+# only produced the Go-side TC-030 extension), so there is nothing on disk
+# to register. This is a real coverage gap flagged for a follow-up task, not
+# audited here -- auditing a nonexistent file would make this check
+# vacuously pass by omission.
+for id in 099 100 101 102 103 104 105 106 108 109 110 111 111a 112 113; do
+	assert_executable_registration "$id"
+done
+echo "TC-092: complete F11 six-family suite (TC-099 through TC-113) registered in run-all.sh"

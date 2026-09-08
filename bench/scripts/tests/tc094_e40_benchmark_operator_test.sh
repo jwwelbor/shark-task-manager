@@ -19,8 +19,8 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 grep -q 'driver_bin = SCRIPTS_DIR / "run-lifecycle-batch.sh"' \
 	"$SCRIPTS_DIR/lib/e40_benchmark.py" \
 	|| fail "provider-backed operator execution is not pinned to the F10 batch driver"
-[[ "$(grep -c 'staging_handle = secure_mkdtemp' "$SCRIPTS_DIR/lib/e40_benchmark.py")" -eq 2 ]] \
-	|| fail "setup and validate-variant are not both wired to descriptor-relative staging"
+[[ "$(grep -c 'staging_handle = secure_mkdtemp' "$SCRIPTS_DIR/lib/e40_benchmark.py")" -eq 3 ]] \
+	|| fail "setup, validate-variant, and prepare-replay are not all wired to descriptor-relative staging"
 
 python3 - "$SCRIPTS_DIR/lib/e40_benchmark.py" "$WORKDIR" <<'PY'
 import importlib.util
@@ -194,20 +194,29 @@ preflight_pid_b=$!
 wait "$preflight_pid_a"; preflight_rc_a=$?
 wait "$preflight_pid_b"; preflight_rc_b=$?
 set -e
-if [[ "$preflight_rc_a" -ne 0 && "$preflight_rc_b" -ne 0 ]]; then
-	fail "both concurrent preflight invocations failed ($preflight_rc_a, $preflight_rc_b)"
+# T-E40-F11-010 (AC-F11-09): this config never configures
+# scenario_roots.<id>.i05_bundle_dir, so P5 alone always yields
+# status=="blocked" (exit PREFLIGHT_BLOCKED_EXIT=1) once preflight actually
+# runs to completion -- 0 is no longer a possible completion exit here.
+if [[ "$preflight_rc_a" -ne 1 && "$preflight_rc_b" -ne 1 ]]; then
+	fail "both concurrent preflight invocations failed to complete ($preflight_rc_a, $preflight_rc_b)"
 fi
 for preflight_rc in "$preflight_rc_a" "$preflight_rc_b"; do
-	[[ "$preflight_rc" -eq 0 || "$preflight_rc" -eq 4 ]] \
+	[[ "$preflight_rc" -eq 1 || "$preflight_rc" -eq 4 ]] \
 		|| fail "unexpected concurrent preflight exit $preflight_rc"
 done
 [[ ! -e "$WORKDIR/provider.log" ]] || fail "preflight invoked the provider adapter"
 
 # Zero-spend is a structural boundary: neither an environment-selected batch
 # driver nor config-selected provider/binary seams may execute in preflight.
+# (blocked on P5 as above; only the absence of a provider call matters here.)
+set +e
 E40_RUN_LIFECYCLE_BATCH_BIN="$provider_spy" PROVIDER_SPY_LOG="$WORKDIR/provider.log" \
 	"$OPERATOR" preflight --config "$operator_root/e40-demo.yaml" --reps 1 \
 	--out "$WORKDIR/preflight-driver-spy" >/dev/null
+driver_spy_rc=$?
+set -e
+[[ "$driver_spy_rc" -eq 1 ]] || fail "unexpected preflight exit against the driver-spy scaffold: $driver_spy_rc"
 [[ ! -e "$WORKDIR/provider.log" ]] || fail "preflight invoked an environment-selected batch driver"
 
 fd_preview_root="$WORKDIR/fd-preview-root"
@@ -247,9 +256,16 @@ config["runtime"]["lifecycle_adapter"] = sys.argv[2]
 config["runtime"]["provider_command"] = [sys.argv[2]]
 path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 PY
+set +e
 PROVIDER_SPY_LOG="$WORKDIR/provider.log" \
 	"$OPERATOR" preflight --config "$WORKDIR/hostile-runtime.yaml" --reps 1 \
 	--out "$WORKDIR/preflight-runtime-spy" >/dev/null
+runtime_spy_rc=$?
+set -e
+# Still blocked on P5 (i05_bundle_dir unconfigured) even with a
+# config-selected adapter/provider_command -- what this case actually
+# proves is that the spy never ran, not that preflight reached "pass".
+[[ "$runtime_spy_rc" -eq 1 ]] || fail "unexpected preflight exit against the hostile-runtime scaffold: $runtime_spy_rc"
 [[ ! -e "$WORKDIR/provider.log" ]] || fail "preflight invoked a config-selected provider seam"
 
 cp "$operator_root/e40-demo.yaml" "$WORKDIR/scalar-runtime.yaml"
@@ -320,14 +336,24 @@ if missing:
 for field in ("content_bundle_digest", "prompt_bundle_digest", "workflow_bundle_digest"):
     if not re.fullmatch(r"[0-9a-f]{64}", setup[field]):
         raise SystemExit(f"setup {field} is not a digest")
-if len(setup["scenario_matrix"]) != 4 or len(setup["root_keys"]) != 4:
-    raise SystemExit("setup did not seed the four admitted lifecycle families")
+if len(setup["scenario_matrix"]) != 6 or len(setup["root_keys"]) != 6:
+    raise SystemExit("setup did not seed the six admitted lifecycle families")
 if preflight["provider_calls"] != 0 or preflight["live_database_mutations"] != 0:
     raise SystemExit("preflight did not report its zero-spend boundary")
 if preflight["provider_ready"] is not False or not preflight["missing_real_runtime_inputs"]:
     raise SystemExit("preflight hid missing real-runtime inputs")
-if preflight["dry_run_stage_resolution_failures"] and not preflight["dry_run_limitation"]:
-    raise SystemExit("preflight hid the existing F08 dry-run artifact limitation")
+# T-E40-F11-010 (AC-F11-09/AC-F11-10): `dry_run_stage_resolution_failures`/
+# `dry_run_limitation` are removed; `status` is narrowed to
+# pass|blocked|preview_failed and every non-pass reason is named in
+# blockers[] (requirement/scenario_id/cause/detail), never a bare count.
+if preflight["status"] != "blocked":
+    raise SystemExit(f"expected status=blocked (P4/P5 unmet), got {preflight['status']!r}")
+if not preflight["blockers"]:
+    raise SystemExit("preflight hid its blockers[] on an unready scaffold")
+for blocker in preflight["blockers"]:
+    for field in ("requirement", "scenario_id", "cause", "detail"):
+        if field not in blocker:
+            raise SystemExit(f"blocker missing required field {field!r}: {blocker!r}")
 identity = preflight.get("planned_identity") or {}
 for field in ("scenario_set_digest", "fixture_set_digest", "adapter_set_digest", "prompt_bundle_digest"):
     if not re.fullmatch(r"[0-9a-f]{64}", str(identity.get(field, ""))):
@@ -476,6 +502,7 @@ def fixture_run_process(command, **kwargs):
                 "max_cost_usd": values["--max-cost-usd"],
                 "max_wall_clock_seconds": values["--max-wall-clock-seconds"],
                 "max_generated_tasks": values["--max-generated-tasks"],
+                "max_provider_calls": values["--max-provider-calls"],
             },
             "acknowledgement_ref": {
                 "flag": "--acknowledge-provider-spend",
@@ -521,7 +548,7 @@ set +e
 python3 "$fixture_harness" "$SCRIPTS_DIR/lib/e40_benchmark.py" \
 	baseline --config "$configured_run_config" --run-id linked-run-store \
 	--reps 1 --acknowledge-provider-spend --max-cost-usd 1 \
-	--max-wall-clock-seconds 30 --max-generated-tasks 1 \
+	--max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 	>/dev/null 2>"$WORKDIR/configured-run-store.err"
 configured_run_store_rc=$?
 set -e
@@ -538,7 +565,7 @@ assert_configured_scratch_refused() {
 		python3 "$fixture_harness" "$SCRIPTS_DIR/lib/e40_benchmark.py" \
 		baseline --config "$config_path" --run-id "$case_name" \
 		--reps 1 --acknowledge-provider-spend --max-cost-usd 1 \
-		--max-wall-clock-seconds 30 --max-generated-tasks 1 \
+		--max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 		>/dev/null 2>"$WORKDIR/$case_name.err"
 	local scratch_rc=$?
 	set -e
@@ -597,7 +624,7 @@ scratch_digest_after="$($SCRIPTS_DIR/lib/digest_path "$operator_root/scratch-tem
 set +e
 DRIVER_STUB_LOG="$WORKDIR/driver.log" E40_RUN_LIFECYCLE_BATCH_BIN="$driver_stub" \
 	"$OPERATOR" baseline --config "$operator_root/e40-demo.yaml" --run-id no-ack \
-	--reps 1 --max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 \
+	--reps 1 --max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 	>"$WORKDIR/no-ack.out" 2>"$WORKDIR/no-ack.err"
 no_ack_rc=$?
 set -e
@@ -612,7 +639,7 @@ FIXTURE_AUTHORITY_SYMLINK_TARGET="$authority_symlink_target" \
 	python3 "$fixture_harness" "$SCRIPTS_DIR/lib/e40_benchmark.py" \
 	baseline --config "$operator_root/e40-demo.yaml" --run-id authority-symlink \
 	--reps 1 --acknowledge-provider-spend --max-cost-usd 1 \
-	--max-wall-clock-seconds 30 --max-generated-tasks 1 \
+	--max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 	>/dev/null 2>"$WORKDIR/authority-symlink.err"
 authority_symlink_rc=$?
 set -e
@@ -637,7 +664,7 @@ run_fixture_profile() {
 	python3 "$fixture_harness" "$SCRIPTS_DIR/lib/e40_benchmark.py" \
 		"$command_name" --config "$operator_root/e40-demo.yaml" "$@" \
 		--run-id "$run_id" --reps 1 --acknowledge-provider-spend \
-		--max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 \
+		--max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 		>"$WORKDIR/$run_id.out"
 }
 
@@ -671,7 +698,7 @@ FIXTURE_SWAP_RUN_ROOT_TARGET="$detached_run_root" \
 	python3 "$fixture_harness" "$SCRIPTS_DIR/lib/e40_benchmark.py" \
 	baseline --config "$operator_root/e40-demo.yaml" --run-id root-swap \
 	--reps 1 --acknowledge-provider-spend --max-cost-usd 1 \
-	--max-wall-clock-seconds 30 --max-generated-tasks 1 \
+	--max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 	>/dev/null 2>"$WORKDIR/root-swap.err"
 root_swap_rc=$?
 set -e
@@ -702,7 +729,7 @@ assert_resume_refused_without_driver() {
 		python3 "$fixture_harness" "$SCRIPTS_DIR/lib/e40_benchmark.py" \
 		baseline --config "$operator_root/e40-demo.yaml" \
 		--run-id baseline-manifest --reps 1 --acknowledge-provider-spend \
-		--max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 \
+		--max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 		>/dev/null 2>"$WORKDIR/resume-$case_name.err"
 	local resume_rc=$?
 	set -e
@@ -758,7 +785,7 @@ set +e
 python3 "$fixture_harness" "$SCRIPTS_DIR/lib/e40_benchmark.py" \
 	baseline --config "$operator_root/e40-demo.yaml" \
 	--run-id attempt-symlink --reps 1 --acknowledge-provider-spend \
-	--max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 \
+	--max-cost-usd 1 --max-wall-clock-seconds 30 --max-generated-tasks 1 --max-provider-calls 2 \
 	>/dev/null 2>"$WORKDIR/attempt-symlink.err"
 attempt_symlink_rc=$?
 set -e
@@ -936,7 +963,7 @@ def manifest(path, role, allowed=(), mutation=None):
         "schema_version": "1.0", "phase": "lifecycle_v2", "role": role,
         "run_mode": "baseline", "run_id": path.name, "created_at": "2026-08-23T00:00:00Z",
         "profile": path.name, "identity": ident, "scenario_matrix": matrix,
-        "resource_policy": {"max_cost_usd": 100.0, "max_wall_clock_seconds": 3600.0, "max_generated_tasks": 20, "repetitions": 2},
+        "resource_policy": {"max_cost_usd": 100.0, "max_wall_clock_seconds": 3600.0, "max_generated_tasks": 20, "max_provider_calls": 30, "repetitions": 2},
         "comparison_boundary": {
             "allowed_change_axes": list(allowed),
             "baseline_definition_digest": config_digest if role == "variant" else None,
@@ -1026,7 +1053,7 @@ def prepare_retention_root(path):
     batch.update({
         "batch_id": f"batch-{path.name}", "mode": "baseline", "min_reps": 2,
         "retention_root": str(path), "batch_policy_digest": hashlib.sha256(policy_bytes).hexdigest(),
-        "ceilings": {"max_cost_usd": "100", "max_wall_clock_seconds": "3600", "max_generated_tasks": "20"},
+        "ceilings": {"max_cost_usd": "100", "max_wall_clock_seconds": "3600", "max_generated_tasks": "20", "max_provider_calls": "30"},
         "acknowledgement_ref": {"flag": "--acknowledge-provider-spend", "present": True},
     })
     (path / "batch.json").write_text(
@@ -1051,7 +1078,7 @@ def write_batch_authority(path, manifest_value):
     authority = {
         "phase": batch["phase"], "batch_id": batch["batch_id"], "mode": batch["mode"],
         "retention_root": str(path.resolve()), "batch_policy_digest": batch["batch_policy_digest"],
-        "ceilings": {"max_cost_usd": 100, "max_wall_clock_seconds": 3600, "max_generated_tasks": 20},
+        "ceilings": {"max_cost_usd": 100, "max_wall_clock_seconds": 3600, "max_generated_tasks": 20, "max_provider_calls": 30},
         "acknowledgement_ref": batch["acknowledgement_ref"], "min_reps": batch["min_reps"],
     }
     record = {
@@ -1096,6 +1123,8 @@ def write_case(name, role, aggregate_options, allowed=(), mutation=None, batch_t
             batch["ceilings"]["max_cost_usd"] = "101"
         elif batch_tamper == "min_reps":
             batch["min_reps"] = 3
+        elif batch_tamper == "ceilings_legacy_missing_fourth":
+            del batch["ceilings"]["max_provider_calls"]
         else:
             raise SystemExit(f"unknown batch tamper: {batch_tamper}")
         (path / "batch.json").write_text(
@@ -1106,6 +1135,23 @@ def write_case(name, role, aggregate_options, allowed=(), mutation=None, batch_t
             authority_path = path / "batch-authorities" / f"{batch['batch_id']}.json"
             authority = json.loads(authority_path.read_text(encoding="utf-8"))
             authority["batch_authority"]["retention_root"] = batch["retention_root"]
+            authority["authority_digest"] = digest({
+                key: value for key, value in authority.items()
+                if key != "authority_digest"
+            })
+            authority_path.write_text(
+                json.dumps(authority, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        if batch_tamper == "ceilings_legacy_missing_fourth":
+            # A genuinely legacy batch authority never recorded the fourth
+            # ceiling either -- re-sign the journaled authority record to
+            # match, rather than leaving a value there that batch.json no
+            # longer has (which would just be a different tamper, not this
+            # fixture's target scenario).
+            authority_path = path / "batch-authorities" / f"{batch['batch_id']}.json"
+            authority = json.loads(authority_path.read_text(encoding="utf-8"))
+            authority["batch_authority"]["ceilings"]["max_provider_calls"] = None
             authority["authority_digest"] = digest({
                 key: value for key, value in authority.items()
                 if key != "authority_digest"
@@ -1168,6 +1214,10 @@ for authority_field in (
 write_case(
     "tampered-retention-root-symlink-alias", "variant", normal,
     batch_tamper="retention_root_symlink_alias",
+)
+write_case(
+    "ceilings-legacy-missing-fourth", "variant", normal,
+    batch_tamper="ceilings_legacy_missing_fourth",
 )
 PY
 
@@ -1479,6 +1529,17 @@ for authority_field in batch_id batch_policy_digest acknowledgement_ref mode ret
 	[[ "$rc" -eq 5 ]] \
 		|| fail "tampered batch authority field $authority_field returned $rc, expected 5"
 done
+
+if ! "$OPERATOR" compare --baseline "$fixtures/baseline" \
+	--variant "$fixtures/ceilings-legacy-missing-fourth" \
+	--out "$WORKDIR/comparisons/ceilings-legacy-missing-fourth" \
+	>"$WORKDIR/ceilings-legacy-missing-fourth.out" 2>&1; then
+	fail "legacy batch missing max_provider_calls should compare cleanly: $(cat "$WORKDIR/ceilings-legacy-missing-fourth.out")"
+fi
+if grep -qE 'aggregate_batch_identity_mismatch|aggregate_manifest_ceiling_mismatch' \
+	"$WORKDIR/comparisons/ceilings-legacy-missing-fourth/comparison.json" 2>/dev/null; then
+	fail "legacy batch missing max_provider_calls must not report a ceilings identity mismatch"
+fi
 
 set +e
 "$OPERATOR" compare --baseline "$fixtures/baseline" \
