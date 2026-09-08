@@ -3007,12 +3007,7 @@ def calls_per_entity(workflow_root: Path, family: str) -> int:
     This matters because the benchmark compares candidate configurations
     whose workflows differ; a hardcoded count would silently misprice a
     variant."""
-    steps = family_workflow_steps(workflow_root, family)
-    return sum(
-        1
-        for step in steps.values()
-        if isinstance(step, dict) and step.get("action") == "spawn_agent"
-    )
+    return len(family_spawn_agent_step_names(workflow_root, family))
 
 
 def family_gate_step_names(workflow_root: Path, family: str) -> set[str]:
@@ -4711,11 +4706,20 @@ def aggregate_binding_reasons(
 
     resources = manifest.get("resource_policy") or {}
     expected_ceilings = {key: resources.get(key) for key in RESOURCE_CEILING_NAMES}
+    observed_ceilings = dict(identity.get("ceilings") or {})
+    # T-E40-F11-003 (AC-F11-06a): a legacy batch that never declared
+    # max_provider_calls has no identity claim to defend on that axis --
+    # drop it from both sides rather than force agreement with whatever
+    # the run manifest's resource_policy.max_provider_calls happens to
+    # record (which can differ from a batch that predates the field).
+    if observed_ceilings.get("max_provider_calls") is None:
+        expected_ceilings.pop("max_provider_calls", None)
+        observed_ceilings.pop("max_provider_calls", None)
     mismatch(
         "aggregate/identity/ceilings",
         "aggregate_manifest_ceiling_mismatch",
         expected_ceilings,
-        identity.get("ceilings"),
+        observed_ceilings,
     )
     mismatch(
         "aggregate/identity/min_reps",

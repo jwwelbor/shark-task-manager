@@ -1123,6 +1123,8 @@ def write_case(name, role, aggregate_options, allowed=(), mutation=None, batch_t
             batch["ceilings"]["max_cost_usd"] = "101"
         elif batch_tamper == "min_reps":
             batch["min_reps"] = 3
+        elif batch_tamper == "ceilings_legacy_missing_fourth":
+            del batch["ceilings"]["max_provider_calls"]
         else:
             raise SystemExit(f"unknown batch tamper: {batch_tamper}")
         (path / "batch.json").write_text(
@@ -1133,6 +1135,23 @@ def write_case(name, role, aggregate_options, allowed=(), mutation=None, batch_t
             authority_path = path / "batch-authorities" / f"{batch['batch_id']}.json"
             authority = json.loads(authority_path.read_text(encoding="utf-8"))
             authority["batch_authority"]["retention_root"] = batch["retention_root"]
+            authority["authority_digest"] = digest({
+                key: value for key, value in authority.items()
+                if key != "authority_digest"
+            })
+            authority_path.write_text(
+                json.dumps(authority, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        if batch_tamper == "ceilings_legacy_missing_fourth":
+            # A genuinely legacy batch authority never recorded the fourth
+            # ceiling either -- re-sign the journaled authority record to
+            # match, rather than leaving a value there that batch.json no
+            # longer has (which would just be a different tamper, not this
+            # fixture's target scenario).
+            authority_path = path / "batch-authorities" / f"{batch['batch_id']}.json"
+            authority = json.loads(authority_path.read_text(encoding="utf-8"))
+            authority["batch_authority"]["ceilings"]["max_provider_calls"] = None
             authority["authority_digest"] = digest({
                 key: value for key, value in authority.items()
                 if key != "authority_digest"
@@ -1195,6 +1214,10 @@ for authority_field in (
 write_case(
     "tampered-retention-root-symlink-alias", "variant", normal,
     batch_tamper="retention_root_symlink_alias",
+)
+write_case(
+    "ceilings-legacy-missing-fourth", "variant", normal,
+    batch_tamper="ceilings_legacy_missing_fourth",
 )
 PY
 
@@ -1506,6 +1529,17 @@ for authority_field in batch_id batch_policy_digest acknowledgement_ref mode ret
 	[[ "$rc" -eq 5 ]] \
 		|| fail "tampered batch authority field $authority_field returned $rc, expected 5"
 done
+
+if ! "$OPERATOR" compare --baseline "$fixtures/baseline" \
+	--variant "$fixtures/ceilings-legacy-missing-fourth" \
+	--out "$WORKDIR/comparisons/ceilings-legacy-missing-fourth" \
+	>"$WORKDIR/ceilings-legacy-missing-fourth.out" 2>&1; then
+	fail "legacy batch missing max_provider_calls should compare cleanly: $(cat "$WORKDIR/ceilings-legacy-missing-fourth.out")"
+fi
+if grep -qE 'aggregate_batch_identity_mismatch|aggregate_manifest_ceiling_mismatch' \
+	"$WORKDIR/comparisons/ceilings-legacy-missing-fourth/comparison.json" 2>/dev/null; then
+	fail "legacy batch missing max_provider_calls must not report a ceilings identity mismatch"
+fi
 
 set +e
 "$OPERATOR" compare --baseline "$fixtures/baseline" \

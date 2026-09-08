@@ -684,8 +684,11 @@ ceilings = {
 # retained before this task landed, or written by a driver invocation that
 # never declared it, has no fourth ceiling to lose -- only a genuinely
 # APPROVED-then-DROPPED ceiling is the defect AC-F11-06a targets.
-if raw_ceilings.get("max_provider_calls") is not None:
-    ceilings["max_provider_calls"] = ceiling_number(raw_ceilings, "max_provider_calls")
+ceilings["max_provider_calls"] = (
+    ceiling_number(raw_ceilings, "max_provider_calls")
+    if raw_ceilings.get("max_provider_calls") is not None
+    else None
+)
 
 # ---------------------------------------------------------------------------
 # Enumerate retained (scenario, rep) pairs under scenarios/<id>/<rep>/,

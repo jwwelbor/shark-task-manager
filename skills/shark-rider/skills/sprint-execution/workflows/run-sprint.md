@@ -35,14 +35,15 @@ Parse the JSON response. Extract:
 - `key` — canonical sprint key (use this for all subsequent calls)
 
 **If status is `planning`**:
-Auto-start it without asking — the user has standing authorization for
-this (confirmed 2026-09-05: asking here wasted hours waiting on a decision
-that should be automatic). Call `shark sprint start {SPRINT_KEY} --json`.
-Parse response. If the call fails, print the error and exit. Print a notice
-either way:
 ```
-Sprint {SPRINT_KEY} was in `planning` status; started automatically.
+Sprint {SPRINT_KEY} is in `planning` status and has not been started yet.
+Call `shark sprint start {SPRINT_KEY}` to start it now? (yes/no)
 ```
+- **yes** → call `shark sprint start {SPRINT_KEY} --json`. Parse response. If the call fails, print the error and exit.
+- **no** → exit cleanly:
+  ```
+  Exiting. Start the sprint first, then re-run /shark-rider run-sprint {SPRINT_KEY}.
+  ```
 
 **If status is `completed`, `archived`, or `cancelled`**:
 ```

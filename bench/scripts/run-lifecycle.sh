@@ -471,6 +471,107 @@ def replay_artifact_deferred_reason(scenario_path, scenario):
     return ""
 
 
+def _dispatch_and_advance(shark, scratch, run_id, requested, next_ordinal, response, dispatches, stages):
+    """resolve_route()'s per-step spawn_agent handling: build the dispatch
+    and stage records for the requested entity and append them to the
+    caller's lists, then claim/advance/release it along the "pass" route.
+    The dispatch/stage records are appended BEFORE the claim/advance
+    attempt (matching pre-extraction behavior) so a failure there (e.g. an
+    artifact-deferred dispatch) still leaves the traced stage in the
+    ledger -- only raises RuntimeError, never returns a value.
+    """
+    entity = str(response.get("entity_key", ""))
+    if not entity:
+        raise RuntimeError("keyed response omitted entity_key")
+    stage_id = str(response.get("status", ""))
+    dispatches.append({
+        "ordinal": next_ordinal,
+        "requested_key": requested,
+        "entity_key": entity,
+        "stage_id": stage_id,
+        "route": "pass",
+    })
+    stages.append({
+        "stage_id": stage_id,
+        "route": "pass",
+        "provider": str(response.get("provider", "")),
+        "model": str(response.get("model", "")),
+        "effort": str(response.get("effort", "")),
+        "terminal": False,
+        "artifact_dependencies_deferred": True,
+    })
+    session = ""
+    # try/except/else (not try/finally): a `finally` block's own
+    # release() call raising would replace the ORIGINAL exception
+    # (e.g. a genuine status-advance route_defect) with the cleanup
+    # failure, masking the real defect. Attempting release only on
+    # the two disjoint paths below means a cleanup failure is
+    # always attempted, but never allowed to hide a defect that
+    # already occurred -- and, on the success path, a cleanup
+    # failure still surfaces normally (nothing to mask there).
+    try:
+        claim = run_command(
+            shark,
+            ["claim", entity, "--by", os.environ.get("LIFECYCLE_RUNNER_ID", run_id), "--json"],
+            scratch,
+        )
+        session = str(claim.get("session_id", ""))
+        if not session:
+            raise RuntimeError(f"claim for {entity} omitted session_id")
+        run_command(
+            shark,
+            [
+                "status", "advance", entity, "--outcome", "pass",
+                "--session", session, "--from-status", stage_id,
+                "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}",
+                "--json",
+            ],
+            scratch,
+        )
+    except RuntimeError:
+        if session:
+            try:
+                run_command(shark, ["release", entity, "--session", session, "--outcome", "route_resolution", "--json"], scratch)
+            except RuntimeError:
+                pass  # cleanup failure must never mask the defect being propagated below
+        raise
+    else:
+        if session:
+            run_command(shark, ["release", entity, "--session", session, "--outcome", "route_resolution", "--json"], scratch)
+
+
+def _classify_route_result(terminal, route_defect_reason, artifact_deferred_reason, reason):
+    """resolve_route()'s post-loop resolution/cause_class classification.
+    Same precedence order as before extraction: route_defect_reason >
+    artifact_deferred_reason > terminal == "error" > resolved. Returns
+    (resolution, cause_class, reason, terminal) -- terminal is echoed back
+    since the artifact_deferred branch can rewrite it.
+    """
+    if route_defect_reason:
+        resolution = "failed"
+        cause_class = "route_defect"
+        reason = route_defect_reason
+    elif artifact_deferred_reason:
+        resolution = "resolved"
+        cause_class = "artifact_deferred"
+        reason = artifact_deferred_reason
+        # The deferred artifact does not fail resolution (AC-F11-14) --
+        # a dispatch-loop exception that was reclassified as deferred above
+        # must not leave a stale "error" terminal contradicting that.
+        if terminal == "error":
+            terminal = "complete"
+    elif terminal == "error":
+        # A harness/CLI output-contract failure (see below): resolution
+        # still fails -- the route was not actually traced to a terminal
+        # step -- but it is never reported as route_defect.
+        resolution = "failed"
+        cause_class = None
+    else:
+        resolution = "resolved"
+        cause_class = None
+    return resolution, cause_class, reason, terminal
+
+
 def resolve_route(args, scenario_path, scenario, scratch, shark):
     """--mode resolve-route (AC-F11-13/14/15): trace the configured success
     route (every outcome resolved as "pass") using real `shark next` /
@@ -527,64 +628,10 @@ def resolve_route(args, scenario_path, scenario, scratch, shark):
                 if terminal == "error" and not route_defect_reason:
                     route_defect_reason = reason
                 continue
-            entity = str(response.get("entity_key", ""))
-            if not entity:
-                raise RuntimeError("keyed response omitted entity_key")
-            stage_id = str(response.get("status", ""))
-            dispatches.append({
-                "ordinal": len(dispatches) + 1,
-                "requested_key": requested,
-                "entity_key": entity,
-                "stage_id": stage_id,
-                "route": "pass",
-            })
-            stages.append({
-                "stage_id": stage_id,
-                "route": "pass",
-                "provider": str(response.get("provider", "")),
-                "model": str(response.get("model", "")),
-                "effort": str(response.get("effort", "")),
-                "terminal": False,
-                "artifact_dependencies_deferred": True,
-            })
-            session = ""
-            # try/except/else (not try/finally): a `finally` block's own
-            # release() call raising would replace the ORIGINAL exception
-            # (e.g. a genuine status-advance route_defect) with the cleanup
-            # failure, masking the real defect. Attempting release only on
-            # the two disjoint paths below means a cleanup failure is
-            # always attempted, but never allowed to hide a defect that
-            # already occurred -- and, on the success path, a cleanup
-            # failure still surfaces normally (nothing to mask there).
-            try:
-                claim = run_command(
-                    shark,
-                    ["claim", entity, "--by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"]), "--json"],
-                    scratch,
-                )
-                session = str(claim.get("session_id", ""))
-                if not session:
-                    raise RuntimeError(f"claim for {entity} omitted session_id")
-                run_command(
-                    shark,
-                    [
-                        "status", "advance", entity, "--outcome", "pass",
-                        "--session", session, "--from-status", stage_id,
-                        "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}",
-                        "--json",
-                    ],
-                    scratch,
-                )
-            except RuntimeError:
-                if session:
-                    try:
-                        run_command(shark, ["release", entity, "--session", session, "--outcome", "route_resolution", "--json"], scratch)
-                    except RuntimeError:
-                        pass  # cleanup failure must never mask the defect being propagated below
-                raise
-            else:
-                if session:
-                    run_command(shark, ["release", entity, "--session", session, "--outcome", "route_resolution", "--json"], scratch)
+            _dispatch_and_advance(
+                shark, scratch, args["run_id"], requested, len(dispatches) + 1, response,
+                dispatches, stages,
+            )
     except RuntimeError as exc:
         terminal = "error"
         reason = str(exc)
@@ -616,28 +663,9 @@ def resolve_route(args, scenario_path, scenario, scratch, shark):
     if stages:
         stages[-1]["terminal"] = True
 
-    if route_defect_reason:
-        resolution = "failed"
-        cause_class = "route_defect"
-        reason = route_defect_reason
-    elif artifact_deferred_reason:
-        resolution = "resolved"
-        cause_class = "artifact_deferred"
-        reason = artifact_deferred_reason
-        # The deferred artifact does not fail resolution (AC-F11-14) --
-        # a dispatch-loop exception that was reclassified as deferred above
-        # must not leave a stale "error" terminal contradicting that.
-        if terminal == "error":
-            terminal = "complete"
-    elif terminal == "error":
-        # A harness/CLI output-contract failure (see above): resolution
-        # still fails -- the route was not actually traced to a terminal
-        # step -- but it is never reported as route_defect.
-        resolution = "failed"
-        cause_class = None
-    else:
-        resolution = "resolved"
-        cause_class = None
+    resolution, cause_class, reason, terminal = _classify_route_result(
+        terminal, route_defect_reason, artifact_deferred_reason, reason
+    )
 
     record = {
         "evidence_mode": "route_resolution_only",
@@ -809,8 +837,8 @@ def main(argv):
                         dispatch["outcome"] = terminal
                 else:
                     dispatch["outcome"] = str(outcome)
-                    run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}", "--json"], scratch)
-                    dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", "")}
+                    advance_response = run_command(shark, ["status", "advance", entity, "--outcome", str(outcome), "--session", session, "--from-status", str(response.get("status", "")), "--agent", f"{response.get('agent_type', '')}@{response.get('provider', '')}", "--json"], scratch)
+                    dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", ""), "to_status": str(advance_response.get("new_status", ""))}
             except LeaseLoss as exc:
                 terminal = "lease_loss"
                 reason = str(exc)

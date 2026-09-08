@@ -425,7 +425,19 @@ selected_types = []
 for i, (key, family, status, candidate_ok) in enumerate(entities, start=1):
     selected_keys.append(key)
     selected_types.append(family)
-    dispatches.append({"ordinal": i, "requested_key": key, "response": {"status": status}, "transition": {}})
+    # descendant_terminal_status() reads transition["to_status"] (the
+    # status a real `shark status advance` produced) first, falling back
+    # to response["status"] (the step being executed pre-transition) only
+    # when no transition was recorded. A dispatch never reaches its own
+    # target status via response["status"] in real evidence, so exercise
+    # that shape here: entities meant to reach `status` are modeled as a
+    # non-terminal "development" dispatch whose transition advanced them
+    # to `status`; the one still-in-flight negative case (status ==
+    # "development") keeps an empty transition, exercising the fallback.
+    if status == "development":
+        dispatches.append({"ordinal": i, "requested_key": key, "response": {"status": "development"}, "transition": {}})
+    else:
+        dispatches.append({"ordinal": i, "requested_key": key, "response": {"status": "development"}, "transition": {"to_status": status}})
     candidate = {"identity_digest": f"sha256-{key}"} if candidate_ok else {}
     stages.append({"dispatch_ordinal": i, "candidate": candidate})
 record = {

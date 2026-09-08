@@ -432,22 +432,26 @@ DESCENDANT_PROVENANCE_RESOLVERS = {
 def descendant_terminal_status(dispatches_by_key, key):
     """The observed terminal status for one descendant entity.
 
-    I-07 never stamps a "final status reached" field directly. What it does
-    record is dispatch["response"]["status"] -- the workflow step the
-    entity was executing at the time of that dispatch. An entity that has
-    reached a genuine terminal step (no configured outcomes) is never
-    re-dispatched, so the LAST dispatch requesting that key names the
-    terminal status actually reached; any earlier dispatch for the same key
-    named an intermediate, since-superseded step.
+    dispatch["response"]["status"] is the workflow step the entity was
+    executing BEFORE its outcome was applied -- never the status a
+    dispatch's own `shark status advance` produced, since terminal steps
+    (action: archive) are never themselves dispatched. The LAST dispatch's
+    transition["to_status"] (the resulting status `shark status advance
+    --json` reported as `new_status`) is therefore the authoritative
+    observed terminal status; fall back to response["status"] only when no
+    transition was recorded (older evidence, or an entity still in-flight
+    at a non-terminal step, in which case the fallback correctly yields a
+    non-terminal status that fails the terminal-state comparison).
     """
     entries = dispatches_by_key.get(key) or []
     if not entries:
         return None
     last = entries[-1]
-    response = last.get("response") if isinstance(last.get("response"), dict) else {}
-    status = response.get("status")
+    transition = last.get("transition") if isinstance(last.get("transition"), dict) else {}
+    status = transition.get("to_status")
     if not status:
-        status = (last.get("transition") or {}).get("from_status")
+        response = last.get("response") if isinstance(last.get("response"), dict) else {}
+        status = response.get("status")
     return status or None
 
 
