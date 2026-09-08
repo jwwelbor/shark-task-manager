@@ -1,6 +1,6 @@
 # TC-030 case 4/17 (AC-005, REQ-F-011/015): resource_policy.max_cost_usd
 # is missing entirely. Expected failing field: resource_policy.max_cost_usd.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-04-max-cost-usd-missing"
 scenario_version: 1
 entity_family: bug

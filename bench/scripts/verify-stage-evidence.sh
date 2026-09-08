@@ -18,6 +18,12 @@
 # tasks to build on; nothing else about this script's internal structure is
 # a promise.
 #
+# T-E40-F11-007 (spec.md AC-F11-15, REQ-F-005): before any other check runs,
+# `bundle.json` and every indexed stage snapshot are rejected outright if
+# either carries `evidence_mode: "route_resolution_only"` -- the marker
+# `run-lifecycle.sh --mode resolve-route` stamps on its own output precisely
+# so this validator can never mistake a route trace for live I-05 evidence.
+#
 # Reads the bundle's `bundle.json` stage index (`<bundle_dir>/bundle.json`
 # `stages[]`, spec.md "Bundle layout (I-05)"), then for each indexed stage
 # snapshot (`<bundle_dir>/<snapshot_path>`) validates its `time_ledger`
@@ -603,6 +609,24 @@ class EligibilityViolation(Violation):
     bundle that also declares publication_eligible: true."""
 
 
+class RouteResolutionViolation(Violation):
+    """AC-F11-15 (T-E40-F11-007, REQ-F-005): a record produced by
+    `run-lifecycle.sh --mode resolve-route` carries `evidence_mode:
+    "route_resolution_only"` precisely so this validator can reject it --
+    route resolution proves the configured route, never live I-05 stage
+    evidence. Checked before any other bundle/snapshot validation runs."""
+
+
+def reject_route_resolution_only(label, obj):
+    if isinstance(obj, dict) and obj.get("evidence_mode") == "route_resolution_only":
+        raise RouteResolutionViolation(
+            "route_resolution_evidence_mode",
+            f"{label} carries evidence_mode: \"route_resolution_only\" -- "
+            "resolve-route output is deliberately never accepted as live "
+            "I-05 stage evidence (AC-F11-15)",
+        )
+
+
 def load_yaml(path, label):
     with open(path) as f:
         data = yaml.safe_load(f)
@@ -969,6 +993,7 @@ def main():
     if not os.path.isfile(bundle_json_path):
         raise ScriptError(f"bundle.json not found: {bundle_json_path}")
     bundle = load_json(bundle_json_path, "bundle.json")
+    reject_route_resolution_only("bundle.json", bundle)
 
     stages_index = bundle.get("stages")
     if not isinstance(stages_index, list) or not stages_index:
@@ -987,6 +1012,7 @@ def main():
             raise ScriptError(f"stage={stage_key} dispatch_ordinal={dispatch_ordinal}: snapshot file not found: {snapshot_path}")
 
         snapshot = load_json(snapshot_path, f"stage snapshot ({stage_key})")
+        reject_route_resolution_only(f"stage snapshot ({stage_key})", snapshot)
         ledger = snapshot.get("time_ledger")
         if not isinstance(ledger, dict):
             raise ScriptError(f"stage={stage_key} dispatch_ordinal={dispatch_ordinal}: snapshot has no time_ledger object")

@@ -7,7 +7,7 @@
 # (tests/contracts/e40_i04_scenario_contract_test.go) currently supports.
 # Bumping it is required before adding a seventh adapter capability
 # (REQ-F-006) or any other field-shape change.
-schema_version: "1.0"
+schema_version: "1.1"
 
 # Registered fixtures: fixture_id -> submodule_path. Both the controlled
 # Python fixture (the four seed scenarios, REQ-F-005) and the existing Go
@@ -41,3 +41,5 @@ scenarios:
   - packages/py-change-priority-scale
   - packages/py-feature-recurring-tasks
   - packages/py-techdebt-consolidate-validation
+  - packages/py-task-delete-task
+  - packages/py-epic-task-organization

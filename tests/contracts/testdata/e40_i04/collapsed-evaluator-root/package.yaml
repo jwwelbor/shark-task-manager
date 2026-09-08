@@ -16,7 +16,7 @@
 # (and oracle_tests) incorrectly passed the requireEvaluator containment
 # check. Expected failing field: evaluator_only.reference_solution (and
 # evaluator_only.oracle_tests[0], same root cause).
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-26-evaluator-symlink-collapses-onto-package-root"
 scenario_version: 1
 entity_family: bug

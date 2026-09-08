@@ -3,6 +3,14 @@
 # Contracts row tc057; T-E40-F07-010 task spec Acceptance Criteria
 # AC-T1/AC-T2/AC-T3).
 #
+# T-E40-F11-005 update (REQ-F-008/AC-F11-23/-24, test-plan.md TC-23/24):
+# extends AC-010's non-applicable-record coverage from the three original
+# non-feature families to the two REQ-F-007 added (epic, task), via scratch
+# packages (no committed epic/task package exists yet -- those land with
+# T-E40-F11-008/-009), plus an N-E check (spec.md §7.3.8) that no two
+# non-feature families share byte-identical D01-D05 reason text. See the
+# "T-E40-F11-005" section below.
+#
 # Proves REQ-F-013 (an all-non-applicable I-04 package never invokes the
 # Rider action and still gets an explicit not_applicable replay result, and
 # an absent result for such a scenario is itself a named failure) and
@@ -176,6 +184,90 @@ run_non_applicable_case() {
 run_non_applicable_case "bug" "$BUG_PKG"
 run_non_applicable_case "change_card" "$CHANGE_PKG"
 run_non_applicable_case "tech_debt" "$TECHDEBT_PKG"
+
+# ---------------------------------------------------------------------------
+# T-E40-F11-005 (REQ-F-008/AC-F11-23/-24, test-plan.md TC-23/24): the
+# all-non-applicable path also covers the two families REQ-F-007 added
+# (epic, task). Neither has a committed package yet -- py-task-delete-task
+# and py-epic-task-organization are curated by T-E40-F11-008/-009, which
+# depend on this task -- so this proves run-prelude.sh's dispatch path is
+# already family-agnostic (no family enum check anywhere in
+# run-prelude.sh: it reads stage_matrix.prelude directly) using scratch
+# copies of the real, committed tech_debt package with entity_family and
+# D01-D05 reasons swapped to each family's own, spec.md §7.3.8-mandated
+# reason content -- never a file under bench/scenarios/.
+#
+# build_scratch_family_package <family> <reason> <dst> -- a scratch copy of
+# the real committed tech_debt package (itself an all-non-applicable
+# five-stage package, structurally identical to what an epic/task package
+# needs for this test) with entity_family and every D0X reason replaced.
+# ---------------------------------------------------------------------------
+build_scratch_family_package() {
+	python3 - "$TECHDEBT_PKG" "$1" "$2" "$3" <<'PYEOF'
+import sys
+import yaml
+
+src, family, reason, dst = sys.argv[1:5]
+with open(src) as f:
+    data = yaml.safe_load(f)
+data["entity_family"] = family
+for stage in ("D01", "D02", "D03", "D04", "D05"):
+    data["stage_matrix"]["prelude"][stage]["reason"] = reason
+with open(dst, "w") as f:
+    yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+PYEOF
+}
+
+# spec.md §7.3.8's required reason content per non-feature family --
+# reused below both to build each scratch package and to prove N-E
+# (spec.md §7.3.8's negative class N-E: "two non-feature families sharing
+# byte-identical reason text" must never happen among the families this
+# test actually exercises).
+EPIC_REASON="the epic scenario's own assessment, refinement, research, design, and decomposition stages supersede the prelude; D01-D05 is a feature-scoped product-design activity and an epic root would double-count it across its descendant features"
+TASK_REASON="a task is a leaf implementation unit admitted beneath an existing feature; its product design was settled by that feature"
+
+EPIC_SCRATCH="$WORKDIR/epic-scratch-package.yaml"
+TASK_SCRATCH="$WORKDIR/task-scratch-package.yaml"
+build_scratch_family_package epic "$EPIC_REASON" "$EPIC_SCRATCH"
+build_scratch_family_package task "$TASK_REASON" "$TASK_SCRATCH"
+
+run_non_applicable_case "epic" "$EPIC_SCRATCH"
+run_non_applicable_case "task" "$TASK_SCRATCH"
+
+# ---------------------------------------------------------------------------
+# N-E (spec.md §7.3.8): no two of the non-feature families exercised by
+# this test share byte-identical D01 reason text. AC-F11-23 requires each
+# non-feature family's reason to be family-specific; a shared/generic
+# reason across families is a distinct defect from an EMPTY reason
+# (already covered by REQ-F-003's own "reason required when applicable is
+# false" check elsewhere) or a WHITESPACE-only reason.
+# ---------------------------------------------------------------------------
+echo "TC-057: case N-E - no two non-feature families share byte-identical D01-D05 reason text"
+
+ne_err="$WORKDIR/n-e.err"
+set +e
+python3 - "$BUG_PKG" "$CHANGE_PKG" "$TECHDEBT_PKG" "$EPIC_SCRATCH" "$TASK_SCRATCH" >"$ne_err" 2>&1 <<'PYEOF'
+import sys
+import yaml
+
+by_reason = {}
+for path in sys.argv[1:6]:
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    family = data["entity_family"]
+    reason = data["stage_matrix"]["prelude"]["D01"]["reason"]
+    if reason in by_reason:
+        sys.exit(
+            f"N-E violation: families {by_reason[reason]!r} and {family!r} share "
+            f"byte-identical D01 reason text {reason!r}, want family-specific text"
+        )
+    by_reason[reason] = family
+PYEOF
+ne_code=$?
+set -e
+[[ "$ne_code" -eq 0 ]] || fail "N-E: two non-feature families shared byte-identical reason text: $(cat "$ne_err")"
+
+echo "TC-057(case N-E: all five non-feature families' D01 reasons are pairwise distinct) PASS"
 
 # ---------------------------------------------------------------------------
 # AC-010 case (iv): producing no result for a non-applicable scenario is

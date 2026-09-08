@@ -1,10 +1,14 @@
-# TC-030 case 1/17 (AC-005, REQ-F-015): entity_family is not one of the
-# closed enum feature|bug|change_card|tech_debt. Expected failing field:
-# entity_family.
-schema_version: "1.0"
+# TC-030 case 1/17 (AC-005, REQ-F-015; widened by REQ-F-007/AC-F11-19):
+# entity_family is not one of the closed six-value enum
+# epic|feature|task|bug|change_card|tech_debt. "sprint" is used here
+# because feature.md REQ-F-007 deliberately excludes sprint/question as
+# delivery-scenario roots -- it is not merely absent from the vocabulary,
+# it is a value the vocabulary must actively keep out. Expected failing
+# field: entity_family.
+schema_version: "1.1"
 scenario_id: "test-case-01-unknown-entity-family"
 scenario_version: 1
-entity_family: task
+entity_family: sprint
 stage_matrix:
   prelude:
     D01: {applicable: false, reason: "bug scenarios skip the product-design prelude"}

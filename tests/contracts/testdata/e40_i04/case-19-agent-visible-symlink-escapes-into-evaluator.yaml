@@ -6,7 +6,7 @@
 # valid/evaluator/reference.patch. Only resolving the symlink before the
 # containment check catches this leak. Expected failing field:
 # input.agent_visible.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-19-agent-visible-symlink-escapes-into-evaluator"
 scenario_version: 1
 entity_family: bug

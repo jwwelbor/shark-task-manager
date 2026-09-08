@@ -21,6 +21,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -41,9 +42,23 @@ DEFAULT_SCENARIO_INDEX = BENCH_DIR / "scenarios" / "scenarios.yaml"
 DEFAULT_SCHEMA = BENCH_DIR / "reports" / "lifecycle-baseline-schema.yaml"
 DEFAULT_I05_SCHEMA = BENCH_DIR / "evidence" / "i05-schema.yaml"
 DEFAULT_I07_SCHEMA = BENCH_DIR / "runs" / "i07-schema.yaml"
+RETENTION_REGISTRY_PATH = BENCH_DIR / "retention-registry.yaml"
+CHECKOUT_SCENARIO_FIXTURE_BIN = SCRIPTS_DIR / "checkout-scenario-fixture.sh"
+FIXTURE_BASE_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 CHANGE_AXES = {"prompt", "workflow", "provider", "model", "effort", "policy"}
 UNAVAILABLE = "unavailable"
+# AC-F11-06a: the four operator-approved resource ceilings, named once so
+# every projection/comparison site (S3's allowlist, S6's expected-authority
+# and expected-ceilings blocks) stays in sync -- a ceiling present in one
+# but not another is exactly the "accepted but silently dropped" defect
+# this tuple exists to prevent.
+RESOURCE_CEILING_NAMES = (
+    "max_cost_usd",
+    "max_wall_clock_seconds",
+    "max_generated_tasks",
+    "max_provider_calls",
+)
 
 
 class OperatorError(RuntimeError):
@@ -752,12 +767,43 @@ def require_safe_id(value: str, label: str) -> str:
 
 
 def require_positive(value: Any, label: str, integer: bool = False) -> int | float:
+    # AC-F11-06b: harden against non-finite and lossy inputs the plain
+    # int()/float() conversion below would otherwise accept silently.
+    # Finiteness is checked via a float parse BEFORE any int() truncation,
+    # so a fractional or non-finite value is caught before its information
+    # is thrown away -- int(2.5) or int(float("nan")) would otherwise
+    # either silently truncate or raise the wrong (generic) error.
     if isinstance(value, bool):
         raise OperatorError(f"{label} must be strictly positive")
     try:
-        parsed = int(value) if integer else float(value)
+        as_float = float(value)
+    except OverflowError:
+        # An int literal too large for a float to represent at all (e.g.
+        # 10**400) is unbounded in the same sense "inf" is.
+        raise OperatorError(f"{label} must be a finite number") from None
     except (TypeError, ValueError) as exc:
         raise OperatorError(f"{label} must be numeric and strictly positive") from exc
+    if math.isnan(as_float) or math.isinf(as_float):
+        raise OperatorError(f"{label} must be a finite number")
+    if not integer:
+        parsed: int | float = as_float
+    elif not as_float.is_integer():
+        raise OperatorError(f"{label} must be a whole number, got {value}")
+    else:
+        try:
+            # int(value) on the ORIGINAL value (not as_float) so a large
+            # exact integer (e.g. 10**30) keeps its exact magnitude rather
+            # than round-tripping through float precision loss.
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            # Reached only when as_float is finite and whole but int()
+            # itself still refuses the original value -- e.g. the decimal-
+            # point string "5.0", which int() has always rejected. Preserve
+            # that existing rejection rather than silently widening
+            # acceptance to a shape the committed-data sweep never covered.
+            raise OperatorError(
+                f"{label} must be numeric and strictly positive"
+            ) from exc
     if parsed <= 0:
         raise OperatorError(f"{label} must be strictly positive")
     return parsed
@@ -784,11 +830,7 @@ def batch_authority_projection(batch: dict[str, Any]) -> dict[str, Any]:
         "batch_policy_digest": batch.get("batch_policy_digest"),
         "ceilings": {
             key: normalized_ceiling(raw_ceilings.get(key))
-            for key in (
-                "max_cost_usd",
-                "max_wall_clock_seconds",
-                "max_generated_tasks",
-            )
+            for key in RESOURCE_CEILING_NAMES
         },
         "acknowledgement_ref": batch.get("acknowledgement_ref"),
         "min_reps": batch.get("min_reps"),
@@ -812,6 +854,197 @@ def config_path_value(config: dict[str, Any], base: Path, key: str) -> Path:
     return resolve_path(raw, base)
 
 
+def retention_registry_entries() -> list[dict[str, Any]]:
+    """Load `bench/retention-registry.yaml`'s `entries[]` (AC-F11-01a).
+
+    The registry is a committed data file, not source: it holds the ONLY
+    copy of any operator-specific absolute path this repository carries.
+    Missing file -> no entries (a fresh checkout has frozen nothing yet).
+    """
+    if not RETENTION_REGISTRY_PATH.is_file():
+        return []
+    registry = load_yaml(RETENTION_REGISTRY_PATH, "retention registry")
+    entries = registry.get("entries")
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        raise OperatorError(
+            f"retention registry entries must be a list: {RETENTION_REGISTRY_PATH}"
+        )
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise OperatorError(
+                f"retention registry entry must be a mapping: {RETENTION_REGISTRY_PATH}"
+            )
+        for field in ("registry_id", "root_path", "classification", "tree_manifest_path"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value:
+                raise OperatorError(
+                    f"retention registry entry is missing {field}: {RETENTION_REGISTRY_PATH}"
+                )
+    return entries
+
+
+def retention_registry_entry(registry_id: str) -> dict[str, Any]:
+    for entry in retention_registry_entries():
+        if entry["registry_id"] == registry_id:
+            return entry
+    raise OperatorError(
+        f"retention registry has no entry for registry_id {registry_id!r}: "
+        f"{RETENTION_REGISTRY_PATH}"
+    )
+
+
+def retention_registry_lookup(path: Path) -> dict[str, Any] | None:
+    """Match a candidate path against every registered retention root.
+
+    Returns the matching entry, or None if the path is not (and is not
+    nested inside) any registered root. AC-F11-01a: an entry whose
+    `root_path` resolves inside REPO_ROOT is a validation error -- the
+    registry must never smuggle a live-repo path back into scope. An entry
+    whose `root_path` does not exist on the current host is a no-match, not
+    a rejection -- retention roots are machine-local operator evidence.
+    """
+    candidate = path.resolve()
+    for entry in retention_registry_entries():
+        raw_root = entry["root_path"]
+        root_path = Path(raw_root)
+        if not root_path.is_absolute():
+            raise OperatorError(
+                f"retention registry root_path must be absolute: {raw_root}"
+            )
+        resolved_root = root_path.resolve()
+        if resolved_root == REPO_ROOT or REPO_ROOT in resolved_root.parents:
+            raise OperatorError(
+                f"retention registry entry {entry['registry_id']!r} root_path "
+                f"resolves inside the repository: {root_path}"
+            )
+        if not resolved_root.exists():
+            continue
+        if candidate == resolved_root or resolved_root in candidate.parents:
+            return entry
+    return None
+
+
+def _tree_manifest_entries(text: str) -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for line in text.splitlines():
+        if line.startswith("# files="):
+            continue
+        relative_path, separator, value = line.partition(" ")
+        if relative_path and separator:
+            entries[relative_path] = value
+    return entries
+
+
+def diff_tree_manifests(
+    recorded_text: str, recomputed_text: str
+) -> list[dict[str, str]]:
+    """Name every relative path whose entry differs between two manifests.
+
+    AC-F11-01b: a single changed, added, removed, or renamed file anywhere
+    in the tree fails the check with the differing path named. A rename
+    surfaces as one removed path plus one added path -- both are named.
+    """
+    recorded = _tree_manifest_entries(recorded_text)
+    recomputed = _tree_manifest_entries(recomputed_text)
+    differences: list[dict[str, str]] = []
+    for relative_path in sorted(set(recorded) | set(recomputed)):
+        before = recorded.get(relative_path)
+        after = recomputed.get(relative_path)
+        if before == after:
+            continue
+        if before is None:
+            differences.append({"path": relative_path, "change": "added"})
+        elif after is None:
+            differences.append({"path": relative_path, "change": "removed"})
+        else:
+            differences.append({"path": relative_path, "change": "modified"})
+    return differences
+
+
+def compute_tree_manifest(root: Path) -> str:
+    """Whole-tree digest manifest of `root` (AC-F11-01b).
+
+    Every regular file contributes a sorted `<relative-path> <sha256>`
+    line. Symlinks are recorded by their link TARGET text, never followed
+    (a followed symlink would hash content outside the retained tree, or
+    silently vanish if dangling). A trailing `# files=<n> bytes=<n>` footer
+    names the total entry count and the total byte size of regular-file
+    content.
+    """
+    root = root.resolve()
+    lines: list[str] = []
+    file_count = 0
+    total_bytes = 0
+    for entry in root.rglob("*"):
+        relative_path = entry.relative_to(root).as_posix()
+        if entry.is_symlink():
+            lines.append(f"{relative_path} symlink:{os.readlink(entry)}")
+            file_count += 1
+            continue
+        if entry.is_dir():
+            continue
+        if not entry.is_file():
+            raise OperatorError(
+                f"retention root contains an unsupported filesystem entry: {entry}"
+            )
+        lines.append(f"{relative_path} {file_digest(entry)}")
+        file_count += 1
+        total_bytes += entry.stat().st_size
+    lines.sort()
+    lines.append(f"# files={file_count} bytes={total_bytes}")
+    return "\n".join(lines) + "\n"
+
+
+def verify_tree_manifest(
+    registry_id: str, *, root_override: Path | None = None
+) -> dict[str, Any]:
+    """Recompute a registered root's tree manifest and diff it against the
+    manifest captured at registration time (AC-F11-01b).
+
+    `root_override` lets a caller (the `tc099` mutation sweep) recompute
+    against a disposable COPY of the root while still diffing against the
+    real registry entry's recorded manifest -- the registered root itself
+    is never touched by this function.
+
+    Returns `{"status": "match"|"mismatch"|"not_present_on_host", ...}`.
+    `not_present_on_host` is distinct from both `match` and `mismatch`
+    (AC-F11-01a): a registry entry whose root does not exist on this host
+    cannot be verified here, one way or the other.
+    """
+    entry = retention_registry_entry(registry_id)
+    root_path = Path(entry["root_path"])
+    if not root_path.is_absolute():
+        raise OperatorError(f"retention registry root_path must be absolute: {root_path}")
+    resolved_root = root_path.resolve()
+    if resolved_root == REPO_ROOT or REPO_ROOT in resolved_root.parents:
+        raise OperatorError(
+            f"retention registry entry {registry_id!r} root_path resolves "
+            f"inside the repository: {root_path}"
+        )
+    verify_root = root_override.resolve() if root_override is not None else resolved_root
+    if root_override is None and not resolved_root.exists():
+        return {
+            "status": "not_present_on_host",
+            "registry_id": registry_id,
+            "root_path": str(root_path),
+        }
+    manifest_path = REPO_ROOT / entry["tree_manifest_path"]
+    if not manifest_path.is_file():
+        raise OperatorError(f"registered tree manifest is missing: {manifest_path}")
+    recorded_text = manifest_path.read_text(encoding="utf-8")
+    recomputed_text = compute_tree_manifest(verify_root)
+    if recomputed_text == recorded_text:
+        return {"status": "match", "registry_id": registry_id, "root_path": str(root_path)}
+    return {
+        "status": "mismatch",
+        "registry_id": registry_id,
+        "root_path": str(root_path),
+        "differences": diff_tree_manifests(recorded_text, recomputed_text),
+    }
+
+
 def ensure_external_operator_root(path: Path) -> None:
     candidate = path.resolve()
     if candidate == REPO_ROOT or REPO_ROOT in candidate.parents:
@@ -820,6 +1053,102 @@ def ensure_external_operator_root(path: Path) -> None:
         )
     if candidate == Path(candidate.anchor):
         raise OperatorError(f"operator root is too broad: {candidate}")
+    registered = retention_registry_lookup(candidate)
+    if registered is not None:
+        raise OperatorError(
+            "operator root is frozen as retained evidence "
+            f"(registry_id={registered['registry_id']}, "
+            f"root_path={registered['root_path']}): {candidate}"
+        )
+
+
+def fixture_checkout_head(checkout_dir: Path) -> str:
+    process = subprocess.run(
+        ["git", "-C", str(checkout_dir), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        raise OperatorError(
+            f"cannot resolve fixture checkout HEAD: {checkout_dir}: {process.stderr.strip()}"
+        )
+    return process.stdout.strip()
+
+
+def verify_fixture_checkout_binding(checkout_dir: Path, base_sha: str) -> None:
+    """AC-F11-03: the checkout's resolved HEAD must equal the package's
+    admitted fixture.base_sha before any collector process starts. Raises
+    OperatorError naming both SHAs on mismatch -- never silently proceeds."""
+    actual = fixture_checkout_head(checkout_dir)
+    if actual != base_sha:
+        raise OperatorError(
+            "admitted fixture checkout HEAD mismatch: "
+            f"checkout={checkout_dir} expected fixture.base_sha={base_sha} got={actual}"
+        )
+
+
+def mark_tree_read_only(root: Path) -> None:
+    """Clears write permission on every regular file under `root` (ADR-F11-03:
+    the checkout is marked read-only once verified), so no in-place content
+    edit -- by a collector, an isolation-guard bug, or an operator typo --
+    can silently succeed against a checkout other scenarios in the same
+    operator run are relying on. Directory write bits are deliberately left
+    untouched: unlinking a file only requires write permission on its
+    PARENT directory, not the file itself, so a caller tearing down an
+    operator run with a plain `rm -rf` still works. A content edit is
+    blocked by permission; a directory-level tamper (rename, add, remove)
+    is instead caught the next time this checkout is reused, by the HEAD
+    re-verification in admitted_fixture_checkout(). Symlinks are skipped --
+    chmod on a symlink follows it and would affect its target, not the
+    link itself."""
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            entry = os.path.join(dirpath, name)
+            if os.path.islink(entry):
+                continue
+            mode = os.stat(entry, follow_symlinks=False).st_mode
+            os.chmod(entry, mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
+
+
+def admitted_fixture_checkout(fixture_id: str, base_sha: str, cache_root: Path) -> Path:
+    """REQ-F-002/ADR-F11-03: one immutable checkout per (fixture_id,
+    base_sha) per operator run, shared across scenarios that admit the
+    same pair.
+
+    Creates or reuses `<cache_root>/<fixture_id>/<base_sha>/`, delegating
+    the actual clone/checkout to checkout-scenario-fixture.sh (REQ-NF-006:
+    that script's <fixture_id> <base_sha> <dest_dir> interface is frozen).
+    Verifies the resulting checkout's HEAD against base_sha, marks the tree
+    read-only, and returns its absolute path. Never touches the repository
+    submodule -- checkout-scenario-fixture.sh only ever clones FROM it into
+    a caller-supplied, brand-new dest_dir.
+    """
+    require_safe_id(fixture_id, "fixture_id")
+    if not FIXTURE_BASE_SHA_PATTERN.fullmatch(base_sha):
+        raise OperatorError(
+            f"fixture base_sha must be a 40-character commit SHA: {base_sha!r}"
+        )
+    checkout_dir = (cache_root / fixture_id / base_sha).resolve()
+    if checkout_dir.is_dir():
+        # Reuse: checkout-scenario-fixture.sh itself refuses a pre-existing
+        # dest_dir, so a second (fixture_id, base_sha) request within the
+        # same operator run re-verifies the existing checkout rather than
+        # re-cloning it.
+        verify_fixture_checkout_binding(checkout_dir, base_sha)
+        return checkout_dir
+    checkout_dir.parent.mkdir(parents=True, exist_ok=True)
+    process = run_process(
+        [str(CHECKOUT_SCENARIO_FIXTURE_BIN), fixture_id, base_sha, str(checkout_dir)]
+    )
+    if process.returncode != 0:
+        raise OperatorError(
+            f"admitted fixture checkout failed for {fixture_id}@{base_sha}: "
+            f"{process.stderr.strip() or process.stdout.strip()}"
+        )
+    verify_fixture_checkout_binding(checkout_dir, base_sha)
+    mark_tree_read_only(checkout_dir)
+    return checkout_dir
 
 
 def isolated_environment() -> dict[str, str]:
@@ -898,7 +1227,11 @@ def scenario_packages(index_path: Path) -> list[tuple[Path, dict[str, Any]]]:
 
 
 def selected_matrix(
-    config: dict[str, Any], config_base: Path, selected: list[str] | None, reps: int
+    config: dict[str, Any],
+    config_base: Path,
+    selected: list[str] | None,
+    reps: int,
+    cache_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     index_path = resolve_path(
         str(config.get("scenario_index") or DEFAULT_SCENARIO_INDEX), config_base
@@ -913,6 +1246,20 @@ def selected_matrix(
         fixture = package.get("fixture") or {}
         adapter = package.get("adapter") or {}
         resource_policy = package.get("resource_policy") or {}
+        fixture_id = fixture.get("fixture_id")
+        fixture_base_sha = fixture.get("base_sha")
+        fixture_checkout = None
+        # REQ-F-002/AC-F11-05: bound to the admitted fixture.base_sha via an
+        # immutable checkout, never the submodule's incidental working-tree
+        # HEAD -- computed only when a cache_root is supplied (preflight and
+        # provider-backed execution; setup has no operator run yet to scope
+        # the cache to).
+        if cache_root is not None and fixture_id and fixture_base_sha:
+            fixture_checkout = str(
+                admitted_fixture_checkout(
+                    str(fixture_id), str(fixture_base_sha), cache_root
+                )
+            )
         rows.append(
             {
                 "scenario_id": scenario_id,
@@ -922,8 +1269,9 @@ def selected_matrix(
                 "package_digest": path_digest(
                     package_path.parent, f"scenario package {scenario_id}"
                 ),
-                "fixture_id": str(fixture.get("fixture_id")),
-                "fixture_base_sha": str(fixture.get("base_sha")),
+                "fixture_id": str(fixture_id),
+                "fixture_base_sha": str(fixture_base_sha),
+                "fixture_checkout": fixture_checkout,
                 "adapter_id": str(adapter.get("name")),
                 "adapter_version": str(adapter.get("version")),
                 "toolchain_identity": package.get("toolchain_identity"),
@@ -1004,24 +1352,116 @@ def candidate_identity(repo_root: Path) -> dict[str, str]:
     return components
 
 
+def seed_scenario_root(
+    scratch_binary: Path, scratch: Path, scenario_id: str, family: str
+) -> str:
+    """Seed a dedicated hierarchy for one scenario_id (REQ-F-012) and return
+    its root_key -- the entity the lifecycle harness operates against.
+
+    Every level is a fresh entity created just for this scenario_id and
+    captured from Shark's own JSON response (AC-F11-40); no epic or feature
+    created here is ever reused by another scenario_id (AC-F11-39): epic
+    scenarios get a dedicated target epic; feature scenarios get a dedicated
+    host epic plus target feature; task scenarios get a dedicated host epic,
+    host feature, and target task; bug/change_card/tech_debt scenarios each
+    get a dedicated standalone root.
+    """
+    label = f"E40 {scenario_id}"
+    description = "Isolated E40 lifecycle benchmark root"
+
+    def create(
+        entity: str, positionals: list[str], flags: list[str], note: str
+    ) -> dict[str, Any]:
+        return shark_json(
+            scratch_binary,
+            scratch,
+            ["create", entity, *positionals, *flags],
+            f"seed {note} for scenario {scenario_id}",
+        )
+
+    if family == "epic":
+        epic = create("epic", [f"{label} epic root"], ["--size", "S"], "epic root")
+        return str(epic.get("key") or "")
+
+    if family in ("feature", "task"):
+        epic = create("epic", [f"{label} host epic"], ["--size", "S"], "host epic")
+        epic_key = str(epic.get("key") or "")
+        if family == "task":
+            feature = create(
+                "feature",
+                [epic_key, f"{label} host feature"],
+                ["--description", description, "--size", "S"],
+                "host feature",
+            )
+            feature_key = str(feature.get("key") or "")
+            task = create(
+                "task",
+                [feature_key, f"{label} target task"],
+                ["--size", "S"],
+                "target task",
+            )
+            return str(task.get("key") or "")
+        feature = create(
+            "feature",
+            [epic_key, f"{label} target feature"],
+            ["--description", description, "--size", "S"],
+            "target feature",
+        )
+        return str(feature.get("key") or "")
+
+    if family == "bug":
+        bug = create(
+            "bug",
+            [f"{label} bug root"],
+            ["--description", description, "--severity", "medium", "--size", "S"],
+            "bug root",
+        )
+        return str(bug.get("key") or "")
+
+    if family == "change_card":
+        change = create(
+            "change",
+            [f"{label} change root"],
+            ["--description", description, "--size", "S"],
+            "change-card root",
+        )
+        return str(change.get("key") or "")
+
+    if family == "tech_debt":
+        tech_debt = create(
+            "tech-debt",
+            [f"{label} tech-debt root"],
+            [
+                "--description",
+                description,
+                "--category",
+                "code-quality",
+                "--severity",
+                "medium",
+                "--size",
+                "S",
+            ],
+            "tech-debt root",
+        )
+        return str(tech_debt.get("key") or "")
+
+    raise OperatorError(
+        f"scenario {scenario_id} has unsupported entity_family for root seeding: {family!r}"
+    )
+
+
 def setup_config(
-    operator_root: Path, scratch: Path, roots: dict[str, str]
+    operator_root: Path,
+    scratch: Path,
+    scenario_index_path: Path,
+    scenario_roots: dict[str, Any],
 ) -> dict[str, Any]:
-    matrix_roots: dict[str, Any] = {}
-    for package_path, package in scenario_packages(DEFAULT_SCENARIO_INDEX):
-        scenario_id = str(package["scenario_id"])
-        family = str(package["entity_family"])
-        matrix_roots[scenario_id] = {
-            "root_key": roots[family],
-            "scratch_root": str(scratch),
-            "i05_bundle_dir": None,
-        }
     return {
         "schema_version": "1.0",
         "operator_root": str(operator_root),
         "run_store": str(operator_root / "runs"),
         "comparison_store": str(operator_root / "comparisons"),
-        "scenario_index": str(DEFAULT_SCENARIO_INDEX),
+        "scenario_index": str(scenario_index_path),
         "candidate_root": str(REPO_ROOT),
         "scratch_template": str(scratch),
         "shark_binary": str(scratch / "shark"),
@@ -1041,9 +1481,10 @@ def setup_config(
             "max_cost_usd": 5.0,
             "max_wall_clock_seconds": 900,
             "max_generated_tasks": 20,
+            "max_provider_calls": 30,
         },
         "repetitions": 3,
-        "scenario_roots": matrix_roots,
+        "scenario_roots": scenario_roots,
         "profile": {
             "name": "baseline",
             "role": "baseline",
@@ -1090,6 +1531,22 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
             raise OperatorError(
                 f"existing config belongs to a different operator root: {config_path}"
             )
+        if getattr(args, "scenario_index", None):
+            # AC-F11-38/39: --scenario-index must not be silently accepted
+            # and then dropped on the idempotent re-run path -- a caller
+            # requesting a different index than the one this operator root
+            # was actually seeded from gets a named refusal, never a quiet
+            # "already_prepared" that keeps the old index in place.
+            requested_scenario_index = lexical_absolute_path(args.scenario_index)
+            existing_scenario_index = resolve_path(
+                str(config.get("scenario_index") or DEFAULT_SCENARIO_INDEX),
+                config_path.parent,
+            )
+            if requested_scenario_index != existing_scenario_index:
+                raise OperatorError(
+                    "existing config was prepared with a different scenario_index: "
+                    f"requested {requested_scenario_index}, existing {existing_scenario_index}"
+                )
         setup_result_path = operator_root / "setup-result.json"
         scratch_binary = operator_root / "scratch-template" / "shark"
         content_root = operator_root / "scratch-template" / "shark-data"
@@ -1196,85 +1653,35 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
         )
     shutil.copy2(binary, scratch / "shark")
     scratch_binary = scratch / "shark"
-    epic = shark_json(
-        scratch_binary,
-        scratch,
-        ["create", "epic", "E40 benchmark demo", "--size", "S"],
-        "seed demo epic",
+
+    # REQ-F-012/AC-F11-38/39: key setup roots by scenario_id, not by
+    # entity_family, so same-family scenarios can never collide. The
+    # scenario index is injectable (--scenario-index, defaulting to
+    # bench/scenarios/scenarios.yaml) so a caller can seed a dedicated set
+    # of packages through this production CLI rather than editing harness
+    # internals.
+    scenario_index_path = (
+        lexical_absolute_path(args.scenario_index)
+        if getattr(args, "scenario_index", None)
+        else DEFAULT_SCENARIO_INDEX
     )
-    epic_key = str(epic.get("key") or "")
-    feature = shark_json(
-        scratch_binary,
-        scratch,
-        [
-            "create",
-            "feature",
-            epic_key,
-            "E40 benchmark feature root",
-            "--description",
-            "Isolated E40 lifecycle benchmark root",
-            "--size",
-            "S",
-        ],
-        "seed feature root",
-    )
-    bug = shark_json(
-        scratch_binary,
-        scratch,
-        [
-            "create",
-            "bug",
-            "E40 benchmark bug root",
-            "--description",
-            "Isolated E40 lifecycle benchmark root",
-            "--severity",
-            "medium",
-            "--size",
-            "S",
-        ],
-        "seed bug root",
-    )
-    change = shark_json(
-        scratch_binary,
-        scratch,
-        [
-            "create",
-            "change",
-            "E40 benchmark change root",
-            "--description",
-            "Isolated E40 lifecycle benchmark root",
-            "--size",
-            "S",
-        ],
-        "seed change-card root",
-    )
-    tech_debt = shark_json(
-        scratch_binary,
-        scratch,
-        [
-            "create",
-            "tech-debt",
-            "E40 benchmark tech-debt root",
-            "--description",
-            "Isolated E40 lifecycle benchmark root",
-            "--category",
-            "code-quality",
-            "--severity",
-            "medium",
-            "--size",
-            "S",
-        ],
-        "seed tech-debt root",
-    )
-    roots = {
-        "feature": str(feature.get("key")),
-        "bug": str(bug.get("key")),
-        "change_card": str(change.get("key")),
-        "tech_debt": str(tech_debt.get("key")),
-    }
     final_root = operator_root
     final_scratch = final_root / "scratch-template"
-    config = setup_config(final_root, final_scratch, roots)
+    scenario_roots: dict[str, Any] = {}
+    root_keys: dict[str, str] = {}
+    for _package_path, package in scenario_packages(scenario_index_path):
+        scenario_id = require_safe_id(
+            str(package.get("scenario_id") or ""), "scenario_id"
+        )
+        family = str(package.get("entity_family") or "")
+        root_key = seed_scenario_root(scratch_binary, scratch, scenario_id, family)
+        scenario_roots[scenario_id] = {
+            "root_key": root_key,
+            "scratch_root": str(final_scratch),
+            "i05_bundle_dir": None,
+        }
+        root_keys[scenario_id] = root_key
+    config = setup_config(final_root, final_scratch, scenario_index_path, scenario_roots)
     staging_config = (
         staging / config_path.name
         if config_path.parent == operator_root
@@ -1326,7 +1733,7 @@ def _cmd_setup_locked(args: argparse.Namespace) -> int:
         "scenario_matrix": selected_matrix(
             config, operator_root, None, config["repetitions"]
         ),
-        "root_keys": roots,
+        "root_keys": root_keys,
         "provider_ready": False,
         "missing_real_runtime_inputs": config["runtime"]["missing_real_runtime_inputs"],
     }
@@ -1593,36 +2000,297 @@ def _cmd_validate_variant_locked(args: argparse.Namespace) -> int:
     return 0
 
 
+# T-E40-F11-010 (spec.md REQ-F-004, §7.3.3): the seven independently
+# falsifiable conditions of the fail-closed preflight gate. `PREFLIGHT_*`
+# document the labels used in `blockers[]`/`diagnostics[]` entries so the
+# gate's own code and its tests share one vocabulary with the spec.
+PREFLIGHT_BLOCKED_EXIT = 1
+
+# AC-F11-09/§7.3.3 P3: the only terminal outcome `run-lifecycle.sh --mode
+# resolve-route` (or a live run) may reach that counts as a genuine success
+# for gating purposes. Every other STOP_OUTCOMES value -- including `pause`
+# and `unresolved_gate`, which resolve_route reports as `resolution:
+# resolved` because tracing itself did not fail -- is a real blocker here:
+# this is exactly the X-13 requirement that `unresolved_gate` never reads as
+# provider-ready (spec.md Notes for Agent, T-E40-F11-010).
+SUCCESS_TERMINAL_STATES = frozenset({"complete"})
+
+# AC-F11-10/§7.1a row 10: the diagnostics[] type vocabulary is closed to
+# exactly these five entries.
+DIAGNOSTIC_TYPES = frozenset(
+    {
+        "dry_run_limitation",
+        "missing_runtime_input",
+        "unverified_fixture_checkout",
+        "missing_ledger_record",
+        "ceiling_exceeded",
+    }
+)
+
+
+def replay_requirement_status(
+    package_path: Path, package: dict[str, Any], operator_root: Path, scenario_id: str
+) -> tuple[bool, str | None]:
+    """AC-F11-09 P6/AC-F11-12: a scenario whose prelude has at least one
+    D01-D05 stage that is `applicable` and not already answered by the
+    package's own shipped `replay_reference` bundle needs a genuinely
+    prepared, verified replay result (T-E40-F11-006's `prepare-replay`)
+    before it can be reported provider-ready. Ordinary preflight never
+    prepares one itself (spec.md Notes for Agent: "Ordinary preflight only
+    validates an existing replay") -- it looks for the most recent attempt
+    under `<operator_root>/replay/<scenario_id>/` and re-runs
+    `verify-replay-result.sh` against it, exactly as `prepare-replay` did
+    when it was created."""
+    prelude = (package.get("stage_matrix") or {}).get("prelude") or {}
+    if not isinstance(prelude, dict):
+        prelude = {}
+    already_replayed = replay_bundle_stage_ids(package_path, package)
+    needs_replay = any(
+        isinstance(entry, dict)
+        and entry.get("applicable")
+        and stage not in already_replayed
+        for stage, entry in prelude.items()
+    )
+    if not needs_replay:
+        return True, None
+
+    replay_root = operator_root / "replay" / scenario_id
+    if not replay_root.is_dir():
+        return False, (
+            f"scenario {scenario_id} requires a prepared replay result but "
+            f"none exists under {replay_root} (run prepare-replay first)"
+        )
+    replay_reference = package.get("replay_reference")
+    bundle_path = (
+        (package_path.parent / str(replay_reference)).resolve()
+        if replay_reference
+        else None
+    )
+    attempts = sorted(
+        (path for path in replay_root.iterdir() if path.is_dir()),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+    verify_bin = SCRIPTS_DIR / "verify-replay-result.sh"
+    for attempt_dir in attempts:
+        result_path = attempt_dir / "result.json"
+        if not result_path.is_file():
+            continue
+        if bundle_path is None:
+            return True, None
+        if not bundle_path.is_file():
+            continue
+        process = run_process([str(verify_bin), str(result_path), str(bundle_path)])
+        if process.returncode == 0:
+            return True, None
+    return False, (
+        f"scenario {scenario_id} has no prepared replay result under "
+        f"{replay_root} that verifies against its replay_reference bundle"
+    )
+
+
+def evaluator_collection_status(
+    package_path: Path, fixture_checkout: Path | None
+) -> tuple[bool, str | None]:
+    """AC-F11-09 P7 (evaluator half): re-run the REQ-F-010/F-011 isolation
+    guard (`verify-evidence-roots.sh`) at preflight time, before any agent
+    has touched the fixture. With no live dispatch yet, the "scratch
+    project" argument the guard requires is the pristine admitted fixture
+    checkout itself -- the same admission-time shape `admit-scenario.sh`
+    exercises -- so this re-verifies that no evaluator-only material has
+    leaked into the agent-visible fixture since admission, at zero
+    provider cost."""
+    # verify-evidence-roots.sh resolves each declared evaluator_only path
+    # (e.g. "evaluator/reference.patch") against evaluator_root itself, so
+    # evaluator_root is the PACKAGE root (package_path.parent), not its
+    # "evaluator" subdirectory -- passing the subdirectory double-joins the
+    # declared path's own leading "evaluator/" segment.
+    evaluator_root = package_path.parent.resolve()
+    if not (evaluator_root / "evaluator").is_dir():
+        return True, None
+    if fixture_checkout is None:
+        return False, (
+            "evaluator collection requires an admitted fixture checkout, "
+            "but none is available"
+        )
+    guard = SCRIPTS_DIR / "verify-evidence-roots.sh"
+    process = run_process(
+        [
+            str(guard),
+            str(package_path),
+            str(fixture_checkout),
+            str(fixture_checkout),
+            str(evaluator_root),
+        ]
+    )
+    if process.returncode != 0:
+        detail = (process.stderr or process.stdout).strip()
+        return False, f"evaluator collection isolation guard rejected the roots: {detail}"
+    return True, None
+
+
 def runtime_readiness(
     config: dict[str, Any], config_base: Path, matrix: list[dict[str, Any]]
-) -> tuple[bool, list[str]]:
-    blockers: list[str] = []
+) -> tuple[bool, list[dict[str, Any]]]:
+    """AC-F11-09 P4/P5: global provider plumbing (the adapter itself) and
+    per-scenario I-05 evidence input. Returns `(ready, blockers)` where
+    each blocker is a `{"requirement", "scenario_id", "cause", "detail"}`
+    mapping -- `requirement` is `"P4"` (global) or `"P5"` (per-scenario) so
+    a caller can classify and report each finding by its own cause without
+    re-deriving it, and `ready` is `not blockers` (P4 and P5 combined),
+    matching this function's pre-existing meaning and strictness for
+    `execute_profile`'s own spend gate (pilot/baseline/variant) --
+    unchanged by T-E40-F11-010. `runtime.provider_command` is checked
+    separately, by `preflight_provider_command_finding`, called only from
+    `_cmd_preflight_locked`: folding it in here would tighten
+    `execute_profile`'s existing spend gate too, which is out of this
+    task's scope and breaks scaffolds (e.g. tc094's symlinked-run_store
+    case) that configure an adapter but not a provider_command and rely on
+    reaching a later check. P6/P7 (replay requirement, fixture/evaluator
+    isolation) are likewise `_cmd_preflight_locked`'s own additional
+    findings, not folded in here."""
+    blockers: list[dict[str, Any]] = []
     runtime = runtime_config(config)
     adapter = runtime.get("lifecycle_adapter")
     if not isinstance(adapter, str) or not adapter:
-        blockers.append("runtime.lifecycle_adapter is not configured")
+        blockers.append(
+            {
+                "requirement": "P4",
+                "scenario_id": None,
+                "cause": "provider_not_ready",
+                "detail": "runtime.lifecycle_adapter is not configured",
+            }
+        )
     else:
         adapter_path = resolve_path(adapter, config_base)
         if not adapter_path.is_file() or not os.access(adapter_path, os.X_OK):
             blockers.append(
-                f"runtime.lifecycle_adapter is not executable: {adapter_path}"
+                {
+                    "requirement": "P4",
+                    "scenario_id": None,
+                    "cause": "provider_not_ready",
+                    "detail": f"runtime.lifecycle_adapter is not executable: {adapter_path}",
+                }
             )
+
     roots = config.get("scenario_roots") or {}
     for row in matrix:
-        entry = roots.get(row["scenario_id"]) if isinstance(roots, dict) else None
+        scenario_id = row["scenario_id"]
+        entry = roots.get(scenario_id) if isinstance(roots, dict) else None
         i05 = entry.get("i05_bundle_dir") if isinstance(entry, dict) else None
         if not isinstance(i05, str) or not i05:
             blockers.append(
-                f"scenario_roots.{row['scenario_id']}.i05_bundle_dir is not configured"
+                {
+                    "requirement": "P5",
+                    "scenario_id": scenario_id,
+                    "cause": "missing_runtime_input",
+                    "detail": f"scenario_roots.{scenario_id}.i05_bundle_dir is not configured",
+                }
             )
         else:
             i05_path = resolve_path(i05, config_base)
             if i05_path.is_symlink() or not i05_path.is_dir():
                 blockers.append(
-                    f"scenario_roots.{row['scenario_id']}.i05_bundle_dir is not a real directory: "
-                    f"{i05_path}"
+                    {
+                        "requirement": "P5",
+                        "scenario_id": scenario_id,
+                        "cause": "missing_runtime_input",
+                        "detail": (
+                            f"scenario_roots.{scenario_id}.i05_bundle_dir is not a "
+                            f"real directory: {i05_path}"
+                        ),
+                    }
                 )
+
     return not blockers, blockers
+
+
+def preflight_provider_command_finding(config: dict[str, Any]) -> dict[str, Any] | None:
+    """AC-F11-09 P4 (preflight-only half): the shipped default
+    `lifecycle_adapter` (`lifecycle-worker-adapter.sh`) reads
+    `runtime.provider_command` to know which provider CLI to invoke and
+    refuses to run without one. `runtime_readiness` deliberately does not
+    check this (see its own docstring) because it is shared with
+    `execute_profile`'s spend gate; preflight's own, additional readiness
+    reporting checks it here instead, only when an adapter is configured at
+    all -- an unconfigured adapter is already its own P4 finding from
+    `runtime_readiness`, and this would otherwise double-report it."""
+    runtime = runtime_config(config)
+    adapter = runtime.get("lifecycle_adapter")
+    if isinstance(adapter, str) and adapter and not runtime.get("provider_command"):
+        return {
+            "requirement": "P4",
+            "scenario_id": None,
+            "cause": "provider_not_ready",
+            "detail": "runtime.provider_command is not configured",
+        }
+    return None
+
+
+def preflight_replay_and_evidence_findings(
+    matrix: list[dict[str, Any]], operator_root: Path
+) -> list[dict[str, Any]]:
+    """AC-F11-09 P6/P7: replay requirement and fixture-checkout/evaluator-
+    collection isolation. Preflight-only (never folded into
+    `runtime_readiness`, which `execute_profile`'s pre-existing spend gate
+    also calls) -- P6/P7 involve real subprocess work
+    (`verify-replay-result.sh`, `verify-evidence-roots.sh`) that only
+    `preflight`'s own zero-spend gate is specified to run (spec.md §7.7's
+    permission table: "preflight (evaluator collection): allow")."""
+    findings: list[dict[str, Any]] = []
+    for row in matrix:
+        scenario_id = row["scenario_id"]
+        package_path = Path(row["package_path"])
+        package = load_yaml(package_path, "scenario package")
+
+        replay_ok, replay_reason = replay_requirement_status(
+            package_path, package, operator_root, scenario_id
+        )
+        if not replay_ok:
+            findings.append(
+                {
+                    "requirement": "P6",
+                    "scenario_id": scenario_id,
+                    "cause": "missing_replay",
+                    "detail": replay_reason,
+                }
+            )
+
+        fixture_checkout = row.get("fixture_checkout")
+        fixture_required = row.get("fixture_id") not in (None, "", "None")
+        if fixture_required and not fixture_checkout:
+            findings.append(
+                {
+                    "requirement": "P7",
+                    "scenario_id": scenario_id,
+                    "cause": "fixture_identity_mismatch",
+                    "detail": f"no admitted fixture checkout resolved for scenario {scenario_id}",
+                }
+            )
+        elif fixture_checkout and not Path(fixture_checkout).is_dir():
+            findings.append(
+                {
+                    "requirement": "P7",
+                    "scenario_id": scenario_id,
+                    "cause": "fixture_identity_mismatch",
+                    "detail": f"admitted fixture checkout is not a real directory: {fixture_checkout}",
+                }
+            )
+        else:
+            evaluator_ok, evaluator_reason = evaluator_collection_status(
+                package_path, Path(fixture_checkout) if fixture_checkout else None
+            )
+            if not evaluator_ok:
+                findings.append(
+                    {
+                        "requirement": "P7",
+                        "scenario_id": scenario_id,
+                        "cause": "evaluator_collection_failure",
+                        "detail": evaluator_reason,
+                    }
+                )
+
+    return findings
 
 
 def runtime_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -1959,6 +2627,94 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         release_lock(lock)
 
 
+def evaluate_ledger_conditions(
+    matrix: list[dict[str, Any]], ledger_records: dict[str, dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """AC-F11-09/AC-F11-11 P1/P2/P3, pure over an already-parsed ledger: a
+    small, directly testable function so P1 (`missing_ledger_record`) has a
+    seam reachable without depending on `run-lifecycle-batch.sh` itself
+    ever actually omitting a record for a selected scenario -- which, by
+    inspection of its own `emit_ledger_record` call sites, it never does on
+    any of its current code paths. Returns `(blockers, diagnostics)`."""
+    blockers: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+
+    for row in matrix:
+        scenario_id = row["scenario_id"]
+        record = ledger_records.get(scenario_id)
+        if record is None:
+            detail = f"resolution-ledger.jsonl has no record for scenario {scenario_id}"
+            blockers.append(
+                {
+                    "requirement": "P1",
+                    "scenario_id": scenario_id,
+                    "cause": "missing_ledger_record",
+                    "detail": detail,
+                }
+            )
+            diagnostics.append(
+                {
+                    "type": "missing_ledger_record",
+                    "spend_eligible": False,
+                    "scenario_id": scenario_id,
+                    "detail": detail,
+                }
+            )
+            continue
+
+        resolution = record.get("resolution")
+        cause_class = record.get("cause_class")
+        if resolution != "resolved":
+            # AC-F11-11: `resolution: skipped` (unconfigured_root /
+            # missing_scratch_root) and `resolution: failed` (route_defect,
+            # or the residual caller-path/output-contract class with
+            # cause_class None) are both hard blockers here -- never a
+            # silent omission.
+            blockers.append(
+                {
+                    "requirement": "P2",
+                    "scenario_id": scenario_id,
+                    "cause": cause_class or "route_resolution_incomplete",
+                    "detail": record.get("reason")
+                    or f"scenario {scenario_id} did not resolve (resolution={resolution!r})",
+                }
+            )
+            continue
+
+        # P3 only applies once a scenario actually resolved -- an
+        # unresolved scenario's terminal is not a fresh, independent
+        # falsification of the same condition.
+        terminal = record.get("terminal")
+        if terminal not in SUCCESS_TERMINAL_STATES:
+            blockers.append(
+                {
+                    "requirement": "P3",
+                    "scenario_id": scenario_id,
+                    "cause": "terminal_not_in_success_set",
+                    "detail": (
+                        f"scenario {scenario_id} resolved to terminal {terminal!r}, "
+                        f"outside the declared success set {sorted(SUCCESS_TERMINAL_STATES)}"
+                    ),
+                }
+            )
+
+        if cause_class == "artifact_deferred":
+            # AC-F11-10/AC-F11-14: an absent live-only artifact never fails
+            # route resolution and never blocks `pass` -- reported as an
+            # informational, spend-eligible diagnostic instead.
+            diagnostics.append(
+                {
+                    "type": "dry_run_limitation",
+                    "spend_eligible": True,
+                    "scenario_id": scenario_id,
+                    "detail": record.get("reason")
+                    or "a live-worker-only artifact was deferred during route resolution",
+                }
+            )
+
+    return blockers, diagnostics
+
+
 def _cmd_preflight_locked(args: argparse.Namespace) -> int:
     config_path = Path(args.config).resolve()
     config, config_base = config_context(config_path)
@@ -1968,9 +2724,11 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
         )
     )
     selected = [args.scenario] if args.scenario else None
-    matrix = selected_matrix(config, config_base, selected, reps)
     operator_root = config_path_value(config, config_base, "operator_root")
     ensure_external_operator_root(operator_root)
+    matrix = selected_matrix(
+        config, config_base, selected, reps, operator_root / "fixture-checkouts"
+    )
     output_root = (
         lexical_absolute_path(args.out)
         if args.out
@@ -1999,10 +2757,66 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
     )
     preview_text = process.stdout + process.stderr
     atomic_write(output_root / "preview.txt", preview_text.encode("utf-8"))
-    ready, blockers = runtime_readiness(config, config_base, matrix)
-    stage_resolution_failures = len(
-        re.findall(r"stage resolution: FAILED", preview_text)
+
+    # AC-F11-09/AC-F11-11/§2.3.2: the fail-closed gate consumes the
+    # structured `resolution-ledger.jsonl` `run-lifecycle-batch.sh --mode
+    # preview` wrote (T-E40-F11-007) -- never a regex scrape of the preview's
+    # human-readable stdout/stderr, which cannot see a "skipped" record at
+    # all (that was the exact 2026-09-04 defect class, AC-F11-11).
+    ledger_path = output_root / "retention-preview" / "resolution-ledger.jsonl"
+    ledger_records: dict[str, dict[str, Any]] = {}
+    if ledger_path.is_file():
+        for line in ledger_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            ledger_records[record["scenario_id"]] = record
+
+    # §7.3.3 P1/P2/P3: every selected scenario must be present, resolved,
+    # and terminate inside the declared success set.
+    blockers, diagnostics = evaluate_ledger_conditions(matrix, ledger_records)
+
+    # §7.3.3 P4/P5/P6/P7: provider plumbing, I-05 evidence input, replay
+    # requirement, and fixture/evaluator isolation.
+    ready, runtime_blockers = runtime_readiness(config, config_base, matrix)
+    provider_command_finding = preflight_provider_command_finding(config)
+    if provider_command_finding is not None:
+        runtime_blockers = runtime_blockers + [provider_command_finding]
+    runtime_blockers = runtime_blockers + preflight_replay_and_evidence_findings(
+        matrix, operator_root
     )
+    blockers.extend(runtime_blockers)
+    for blocker in runtime_blockers:
+        if blocker["requirement"] == "P5":
+            diagnostics.append(
+                {
+                    "type": "missing_runtime_input",
+                    "spend_eligible": False,
+                    "scenario_id": blocker["scenario_id"],
+                    "detail": blocker["detail"],
+                }
+            )
+        elif blocker["cause"] == "fixture_identity_mismatch":
+            diagnostics.append(
+                {
+                    "type": "unverified_fixture_checkout",
+                    "spend_eligible": False,
+                    "scenario_id": blocker["scenario_id"],
+                    "detail": blocker["detail"],
+                }
+            )
+    missing_real_runtime_inputs = [
+        blocker["detail"] for blocker in runtime_blockers if blocker["requirement"] == "P5"
+    ]
+
+    if process.returncode != 0:
+        status = "preview_failed"
+    elif blockers:
+        status = "blocked"
+    else:
+        status = "pass"
+
     configured_resources = config.get("resource_policy") or {}
     planned_resources = {
         "max_cost_usd": require_positive(
@@ -2017,19 +2831,23 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
             "resource_policy.max_generated_tasks",
             integer=True,
         ),
+        "max_provider_calls": require_positive(
+            configured_resources.get("max_provider_calls"),
+            "resource_policy.max_provider_calls",
+            integer=True,
+        ),
         "repetitions": reps,
     }
+    # REQ-F-006/§2.3.3: the conservative, evidence-backed provider-call plan
+    # -- derived (and admission-rejected on a package/policy mismatch)
+    # before any spend can be approved against it, independent of the
+    # ledger-based blockers computed above.
+    call_plan = derive_call_plan(config, config_base, matrix, planned_resources)
     result = {
         "schema_version": "1.0",
-        "status": (
-            "pass"
-            if process.returncode == 0 and stage_resolution_failures == 0
-            else (
-                "pass_with_dry_run_limitations"
-                if process.returncode == 0
-                else "preview_failed"
-            )
-        ),
+        # AC-F11-10: narrowed to exactly these three values --
+        # `pass_with_dry_run_limitations` is no longer producible.
+        "status": status,
         "provider_calls": 0,
         "live_database_mutations": 0,
         "profile": profile_name(config),
@@ -2041,22 +2859,677 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
         "planned_identity": identity_profile(
             config, config_base, matrix, planned_resources
         ),
+        "call_plan": call_plan,
         "provider_ready": ready,
-        "missing_real_runtime_inputs": blockers,
-        "dry_run_stage_resolution_failures": stage_resolution_failures,
-        "dry_run_limitation": (
-            "the existing F08 dry-run worker does not synthesize workflow-required artifacts"
-            if stage_resolution_failures
-            else None
-        ),
+        "missing_real_runtime_inputs": missing_real_runtime_inputs,
+        # AC-F11-09: every combination that is not `pass` names its
+        # requirement, scenario, and cause here -- never a silent omission.
+        "blockers": blockers,
+        # AC-F11-10: the closed, typed vocabulary that replaces the single
+        # `dry_run_limitation` string field.
+        "diagnostics": diagnostics,
+        "resolution_ledger": [
+            ledger_records[row["scenario_id"]]
+            for row in matrix
+            if row["scenario_id"] in ledger_records
+        ],
+        "resolution_ledger_path": str(ledger_path),
         "preview_exit_code": process.returncode,
         "preview_output": str(output_root / "preview.txt"),
     }
+    # AC-F11-10/§7.1a row 10: diagnostics[] is closed to exactly 5 named
+    # types, and a `spend_eligible: false` diagnostic never coexists with
+    # `status == "pass"` -- both are structural invariants of this
+    # function's own construction above, asserted here so a future edit
+    # that violates either fails loudly instead of silently shipping.
+    for entry in diagnostics:
+        if entry["type"] not in DIAGNOSTIC_TYPES:
+            raise OperatorError(
+                f"internal error: diagnostics[] type {entry['type']!r} is outside "
+                f"the closed vocabulary {sorted(DIAGNOSTIC_TYPES)}"
+            )
+        if status == "pass" and not entry["spend_eligible"]:
+            raise OperatorError(
+                "internal error: a non-spend-eligible diagnostic coexists with "
+                f"status == \"pass\": {entry!r}"
+            )
     write_json(output_root / "preflight-result.json", result)
     if preview_text:
         sys.stdout.write(preview_text)
     print(json.dumps(result, sort_keys=True))
-    return 0 if process.returncode == 0 else process.returncode
+    if status == "preview_failed":
+        return process.returncode
+    if status == "blocked":
+        return PREFLIGHT_BLOCKED_EXIT
+    return 0
+
+
+# REQ-F-003/AC-F11-06..08: prepare-replay's own refusal exit codes, kept
+# distinct from require_positive's default OperatorError exit (2, shared
+# with argparse) and from a genuine dispatch/verification failure (1) --
+# spec.md §7.3.2 C1b/C1c requires the no-acknowledgement preview refusal to
+# be distinguishable from an OperatorError, and re-using execute_profile's
+# own "spend not yet authorized" exit (3, see its own
+# "--acknowledge-provider-spend" check) keeps one vocabulary across both
+# seams rather than inventing a second.
+PREPARE_REPLAY_PREVIEW_EXIT = 3
+
+
+def replay_bundle_stage_ids(package_path: Path, package: dict[str, Any]) -> set[str]:
+    """§2.3.6/§2.3.3a: the set of D01-D05 stage ids that already carry at
+    least one versioned response in the package's own replay_reference
+    bundle -- read the same way run-prelude.sh's check_consistency (and
+    replay-answer.sh's own stage lookup) do, never re-derived. A missing or
+    unreadable replay_reference means "nothing is replayable yet", which is
+    exactly the empty set, not an error: an all-non-applicable package
+    legitimately carries no replay_reference at all (REQ-F-014)."""
+    replay_reference = package.get("replay_reference")
+    if not replay_reference or not str(replay_reference).strip():
+        return set()
+    bundle_path = (package_path.parent / str(replay_reference)).resolve()
+    if not bundle_path.is_file():
+        return set()
+    try:
+        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    entries = bundle.get("entries") if isinstance(bundle, dict) else None
+    if not isinstance(entries, list):
+        return set()
+    return {
+        entry.get("stage")
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("stage")
+    }
+
+
+
+# REQ-F-006/§2.3.3a (ADR-F11-12): family -> workflow YAML filename under
+# shark-data/workflow/. Kebab-case filenames follow the canonical Shark 2.0
+# layout (tech-debt.yaml, change.yaml), which does not match the
+# package.yaml `entity_family` spelling (tech_debt, change_card) --
+# internal/config/workflow/yaml_loader.go's own `yamlEntityFiles` table is
+# the source of truth this mirrors, never re-invented.
+FAMILY_WORKFLOW_FILENAMES = {
+    "epic": "epic.yaml",
+    "feature": "feature.yaml",
+    "task": "task.yaml",
+    "bug": "bug.yaml",
+    "change_card": "change.yaml",
+    "tech_debt": "tech-debt.yaml",
+}
+
+# AC-F11-18: every derived call_plan limit is evidenced by exactly these
+# eight named fields.
+CALL_PLAN_EVIDENCE_FIELDS = (
+    "limit",
+    "package_path",
+    "package_digest",
+    "workflow_file",
+    "workflow_routing_digest",
+    "model",
+    "provider",
+    "resource_policy_digest",
+)
+
+
+def family_workflow_path(workflow_root: Path, family: str) -> Path:
+    filename = FAMILY_WORKFLOW_FILENAMES.get(family)
+    if not filename:
+        raise OperatorError(
+            f"call_plan: no workflow file mapping for entity_family {family!r}"
+        )
+    path = workflow_root / filename
+    if not path.is_file():
+        raise OperatorError(
+            f"call_plan: workflow file for family {family!r} does not exist: {path}"
+        )
+    return path
+
+
+def family_workflow_steps(workflow_root: Path, family: str) -> dict[str, Any]:
+    """§2.3.3a: the `steps:` mapping of `family`'s own resolved workflow
+    file -- read from disk on every call, never cached or hardcoded, so a
+    mutated workflow file changes `calls_per_entity` on the very next read
+    (spec.md §7.1 row 17's negative case)."""
+    path = family_workflow_path(workflow_root, family)
+    document = load_yaml(path, f"{family} workflow file")
+    steps = document.get("steps")
+    if not isinstance(steps, dict):
+        raise OperatorError(f"call_plan: {path} declares no steps: mapping")
+    return steps
+
+
+def calls_per_entity(workflow_root: Path, family: str) -> int:
+    """§2.3.3a: the number of steps in `family`'s resolved workflow whose
+    `action` is `spawn_agent` -- read from the workflow file identified by
+    `call_plan.evidence[].workflow_file`, never a harness literal table.
+    This matters because the benchmark compares candidate configurations
+    whose workflows differ; a hardcoded count would silently misprice a
+    variant."""
+    steps = family_workflow_steps(workflow_root, family)
+    return sum(
+        1
+        for step in steps.values()
+        if isinstance(step, dict) and step.get("action") == "spawn_agent"
+    )
+
+
+def family_gate_step_names(workflow_root: Path, family: str) -> set[str]:
+    """The subset of `family`'s own steps carrying `result_contract:
+    gate_result_v1` -- the only statically-named review-gate set available
+    before any live run has produced a `workflow_policy.enabled_gates` list
+    (that field is populated by run-lifecycle.sh's own dispatch, §2.5's
+    `make_record`, and does not exist yet at preflight time)."""
+    steps = family_workflow_steps(workflow_root, family)
+    return {
+        name
+        for name, step in steps.items()
+        if isinstance(step, dict) and step.get("result_contract") == "gate_result_v1"
+    }
+
+
+def family_spawn_agent_step_names(workflow_root: Path, family: str) -> set[str]:
+    steps = family_workflow_steps(workflow_root, family)
+    return {
+        name
+        for name, step in steps.items()
+        if isinstance(step, dict) and step.get("action") == "spawn_agent"
+    }
+
+
+def aggregate_models_and_providers(
+    workflow_root: Path, families: "list[str]"
+) -> tuple[str, str]:
+    """AC-F11-18's `model`/`provider` evidence fields: the distinct
+    `model`/`provider` values named by the given families' own spawn_agent
+    steps, joined deterministically when more than one is in play (an
+    epic's own steps alone span haiku/sonnet/opus/gpt-5.6-terra) -- never a
+    single hardcoded literal."""
+    models: set[str] = set()
+    providers: set[str] = set()
+    for family in families:
+        steps = family_workflow_steps(workflow_root, family)
+        for step in steps.values():
+            if isinstance(step, dict) and step.get("action") == "spawn_agent":
+                models.add(str(step.get("model") or UNAVAILABLE))
+                providers.add(str(step.get("provider") or UNAVAILABLE))
+    return "+".join(sorted(models)) or UNAVAILABLE, "+".join(sorted(providers)) or UNAVAILABLE
+
+
+def fixed_prelude_call_count(package_path: Path, package: dict[str, Any]) -> int:
+    """§2.3.3a: D01-D05 prelude stages that are `applicable` and carry no
+    versioned response in the package's replay bundle -- the same
+    applicable-and-unreplayed set `cmd_prepare_replay`'s own
+    `proposed_calls` computes, reused here rather than re-derived a second
+    way. A package passing AC-F11-04's replay requirement always yields 0;
+    a non-zero value here is itself a preflight inconsistency."""
+    prelude = (package.get("stage_matrix") or {}).get("prelude") or {}
+    if not isinstance(prelude, dict):
+        return 0
+    already_replayed = replay_bundle_stage_ids(package_path, package)
+    return sum(
+        1
+        for stage, entry in prelude.items()
+        if isinstance(entry, dict)
+        and entry.get("applicable")
+        and stage not in already_replayed
+    )
+
+
+def review_gate_call_count(workflow_root: Path, root_family: str) -> int:
+    """§2.3.3a: `enabled_gates(workflow_policy_identity) \\
+    spawn_agent_steps(root_family)` -- counting only review gates not
+    already priced by `fixed_root_lifecycle_calls`, so no gate is
+    double-counted. Statically (no live run has happened yet at preflight
+    time), the only enabled-gate set this benchmark can name is
+    `root_family`'s own `result_contract: gate_result_v1` steps, which are
+    already members of `spawn_agent_steps(root_family)` by construction --
+    the set difference is computed honestly rather than asserted as the
+    literal 0 the worked example reports."""
+    gates = family_gate_step_names(workflow_root, root_family)
+    spawn_steps = family_spawn_agent_step_names(workflow_root, root_family)
+    return len(gates - spawn_steps)
+
+
+def bounded_descendant_call_count(
+    workflow_root: Path,
+    package_path: Path,
+    package: dict[str, Any],
+    resource_policy: dict[str, Any],
+) -> tuple[int, list[str]]:
+    """§2.3.3a: SUM(d.max * calls_per_entity(d.family)) over
+    `expected_entity_graph.descendants[]`, summation not maximum -- or the
+    `max_generated_tasks` fallback when the block is absent (AC-F11-25a).
+    Returns (count, families-consulted). `resource_policy.max_generated_tasks`
+    is always required (§7.3.4 B5/B6): its absence is a package/config
+    defect, not a silent zero. When both sources are present and the
+    graph's own task maxima exceed the ceiling, that is a package defect
+    and admission rejects it (§2.3.3a "Both sources present") rather than
+    one value silently overriding the other."""
+    graph = package.get("expected_entity_graph")
+    raw_max_generated_tasks = (
+        resource_policy.get("max_generated_tasks")
+        if isinstance(resource_policy, dict)
+        else None
+    )
+    if raw_max_generated_tasks is None:
+        raise OperatorError(
+            f"scenario package {package_path}: resource_policy.max_generated_tasks "
+            "is required to derive call_plan.bounded_descendant_calls"
+        )
+    max_generated_tasks = int(raw_max_generated_tasks)
+
+    if isinstance(graph, dict) and graph.get("descendants"):
+        descendants = [d for d in graph["descendants"] if isinstance(d, dict)]
+        task_max = sum(
+            int(d.get("max") or 0) for d in descendants if d.get("family") == "task"
+        )
+        if task_max > max_generated_tasks:
+            raise OperatorError(
+                f"scenario package {package_path}: expected_entity_graph declares up "
+                f"to {task_max} task descendants, exceeding "
+                f"resource_policy.max_generated_tasks={max_generated_tasks}"
+            )
+        total = sum(
+            int(d.get("max") or 0)
+            * calls_per_entity(workflow_root, str(d.get("family") or ""))
+            for d in descendants
+        )
+        families = sorted({str(d.get("family")) for d in descendants if d.get("family")})
+        return total, families
+
+    # AC-F11-25a fallback: the block is absent, so calls_per_entity cannot be
+    # resolved per family. max_generated_tasks counts generated tasks
+    # specifically, so the fallback is bound to the "task" family.
+    return max_generated_tasks * calls_per_entity(workflow_root, "task"), ["task"]
+
+
+# AC-F11-17/AC-F11-25a: only `bounded_descendant_calls` is a ceiling
+# ("labelled bound: true") -- the other three are exact counts derived from
+# the package's own applicable-and-unreplayed prelude set, the root
+# family's fixed step count, and the enabled-gate set difference
+# (§2.3.3a), never presented as a bound.
+CALL_PLAN_BOUNDED_LIMITS = frozenset({"bounded_descendant_calls", "worst_case_total_calls"})
+
+
+def build_call_plan_evidence_entry(**fields: Any) -> dict[str, Any]:
+    """AC-F11-18: every derived limit names all eight fields, each
+    non-blank -- a limit whose evidence cannot be fully populated is a
+    preflight defect, not a partially-evidenced ceiling. Also carries
+    `bound` (AC-F11-17/-25a: "labelled bound: true"/"bound: false"),
+    additive to the eight required fields, never a substitute for one of
+    them."""
+    entry = {name: fields.get(name) for name in CALL_PLAN_EVIDENCE_FIELDS}
+    for name in CALL_PLAN_EVIDENCE_FIELDS:
+        value = entry[name]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise OperatorError(
+                f"call_plan.evidence: field {name!r} is required and must be "
+                f"non-blank (limit={fields.get('limit')!r})"
+            )
+    entry["bound"] = fields.get("limit") in CALL_PLAN_BOUNDED_LIMITS
+    return entry
+
+
+def validate_call_plan_schema(call_plan: dict[str, Any]) -> None:
+    """AC-F11-16: `call_plan` names four per-scenario integers and four
+    aggregate totals (plus the fourth-ceiling `max_provider_calls`,
+    AC-F11-06a) -- a schema silently missing any one of them is rejected
+    rather than shipped thin."""
+    for scenario_id, entry in call_plan.get("per_scenario", {}).items():
+        for field in (
+            "fixed_prelude_calls",
+            "fixed_root_lifecycle_calls",
+            "review_gate_calls",
+            "bounded_descendant_calls",
+            "worst_case_total_calls",
+        ):
+            if field not in entry:
+                raise OperatorError(
+                    f"call_plan.per_scenario[{scenario_id!r}] is missing required "
+                    f"field {field!r}"
+                )
+    totals = call_plan.get("totals", {})
+    for field in (
+        "worst_case_total_calls",
+        "max_cost_usd",
+        "max_wall_clock_seconds",
+        "max_generated_tasks",
+        "max_provider_calls",
+    ):
+        if field not in totals:
+            raise OperatorError(f"call_plan.totals is missing required field {field!r}")
+
+
+def derive_call_plan(
+    config: dict[str, Any],
+    config_base: Path,
+    matrix: list[dict[str, Any]],
+    resources: dict[str, Any],
+) -> dict[str, Any]:
+    """REQ-F-006/§2.3.3: builds `preflight-result.json.call_plan` -- the
+    conservative, evidence-backed provider-call plan an operator approves
+    spend against, per scenario and in aggregate (AC-F11-16)."""
+    workflow_root = config_path_value(config, config_base, "workflow_root")
+    routing_digest = workflow_routing_identity(workflow_root)["routing_digest"]
+    per_scenario: dict[str, Any] = {}
+    evidence: list[dict[str, Any]] = []
+    worst_case_total = 0
+
+    for row in matrix:
+        package_path = Path(row["package_path"])
+        package = load_yaml(package_path, "scenario package")
+        family = str(row["family"])
+        resource_policy = row.get("resource_policy") or {}
+        package_digest = row["package_digest"]
+        resource_policy_digest = row["resource_policy_digest"]
+
+        fixed_prelude_calls = fixed_prelude_call_count(package_path, package)
+        fixed_root_lifecycle_calls = calls_per_entity(workflow_root, family)
+        review_gate_calls = review_gate_call_count(workflow_root, family)
+        bounded_descendant_calls, descendant_families = bounded_descendant_call_count(
+            workflow_root, package_path, package, resource_policy
+        )
+        scenario_worst_case = (
+            fixed_prelude_calls
+            + fixed_root_lifecycle_calls
+            + review_gate_calls
+            + bounded_descendant_calls
+        )
+        worst_case_total += scenario_worst_case
+
+        per_scenario[row["scenario_id"]] = {
+            "fixed_prelude_calls": fixed_prelude_calls,
+            "fixed_root_lifecycle_calls": fixed_root_lifecycle_calls,
+            "review_gate_calls": review_gate_calls,
+            "bounded_descendant_calls": bounded_descendant_calls,
+            "worst_case_total_calls": scenario_worst_case,
+        }
+
+        root_model, root_provider = aggregate_models_and_providers(
+            workflow_root, [family]
+        )
+        descendant_model, descendant_provider = aggregate_models_and_providers(
+            workflow_root, descendant_families
+        )
+        common = {
+            "package_path": str(package_path),
+            "package_digest": package_digest,
+            "workflow_file": str(family_workflow_path(workflow_root, family)),
+            "workflow_routing_digest": routing_digest,
+            "resource_policy_digest": resource_policy_digest,
+        }
+        evidence.append(
+            build_call_plan_evidence_entry(
+                limit="fixed_prelude_calls",
+                model=root_model,
+                provider=root_provider,
+                **common,
+            )
+        )
+        evidence.append(
+            build_call_plan_evidence_entry(
+                limit="fixed_root_lifecycle_calls",
+                model=root_model,
+                provider=root_provider,
+                **common,
+            )
+        )
+        evidence.append(
+            build_call_plan_evidence_entry(
+                limit="review_gate_calls",
+                model=root_model,
+                provider=root_provider,
+                **common,
+            )
+        )
+        evidence.append(
+            build_call_plan_evidence_entry(
+                limit="bounded_descendant_calls",
+                model=descendant_model,
+                provider=descendant_provider,
+                **common,
+            )
+        )
+        # worst_case_total_calls is itself a ceiling (it sums a bounded
+        # term), not an exact count -- AC-F11-17's "no field in call_plan
+        # presents a bounded figure as an exact count" applies to it too,
+        # so it is evidenced and labelled bound: true like
+        # bounded_descendant_calls, never left unlabelled.
+        evidence.append(
+            build_call_plan_evidence_entry(
+                limit="worst_case_total_calls",
+                model=root_model,
+                provider=root_provider,
+                **common,
+            )
+        )
+
+    call_plan = {
+        "per_scenario": per_scenario,
+        "totals": {
+            "worst_case_total_calls": worst_case_total,
+            "max_cost_usd": resources["max_cost_usd"],
+            "max_wall_clock_seconds": resources["max_wall_clock_seconds"],
+            "max_generated_tasks": resources["max_generated_tasks"],
+            "max_provider_calls": resources["max_provider_calls"],
+        },
+        "evidence": evidence,
+    }
+    validate_call_plan_schema(call_plan)
+    return call_plan
+
+
+def cmd_prepare_replay(args: argparse.Namespace) -> int:
+    config_path = Path(args.config).resolve()
+    config, config_base = config_context(config_path)
+    operator_root = config_path_value(config, config_base, "operator_root")
+    # ADR-F11-10: prepare-replay inherits the retention-root guard by using
+    # the same choke point every other operator seam resolves through --
+    # never a private root check of its own.
+    ensure_external_operator_root(operator_root)
+    scenario_id = require_safe_id(args.scenario, "scenario")
+    # cache_root=None: prepare-replay operates on the I-04 prelude only
+    # (the X-10 product-design wrapper), which is not fixture-bound, so no
+    # admitted-fixture checkout is resolved or cloned here (that is
+    # preflight's and execute_profile's own concern for the fixture-bound
+    # collector stages).
+    matrix = selected_matrix(config, config_base, [scenario_id], 1, None)
+    row = matrix[0]
+    package_path = Path(row["package_path"])
+    package = load_yaml(package_path, "scenario package")
+    prelude = (package.get("stage_matrix") or {}).get("prelude") or {}
+    if not isinstance(prelude, dict):
+        raise OperatorError(f"scenario package has no stage_matrix.prelude: {package_path}")
+    already_replayed = replay_bundle_stage_ids(package_path, package)
+    # §2.3.6/§2.3.3a: reuses the fixed_prelude_calls term verbatim -- the
+    # applicable-and-unreplayed D01-D05 stage set, sorted for a
+    # deterministic preview rather than dict/set iteration order.
+    proposed_calls = sorted(
+        stage
+        for stage, entry in prelude.items()
+        if isinstance(entry, dict)
+        and entry.get("applicable")
+        and stage not in already_replayed
+    )
+    preview_dir = (
+        lexical_absolute_path(args.out)
+        if args.out
+        else operator_root / "replay-preview" / scenario_id
+    )
+    ensure_external_operator_root(preview_dir)
+    ensure_real_directory(preview_dir, "prepare-replay preview directory")
+    preview = {
+        "schema_version": "1.0",
+        "scenario_id": scenario_id,
+        "package_path": str(package_path),
+        # Honest, not fabricated: run-prelude.sh's dispatch has no
+        # configurable model/effort axis today (PROVIDER_BIN_NAME is the
+        # only fixed identity), so those two are reported null rather than
+        # invented.
+        "provider": "claude",
+        "model": None,
+        "effort": None,
+        "proposed_provider_calls": proposed_calls,
+        "proposed_provider_call_count": len(proposed_calls),
+        "resource_ceilings_required": list(RESOURCE_CEILING_NAMES),
+    }
+    write_json(preview_dir / "prepare-replay-preview.json", preview)
+
+    if not args.acknowledge_provider_spend:
+        # AC-F11-06: preview only, zero provider calls, writes nothing
+        # outside preview_dir, exits non-zero -- distinct from both
+        # argparse's exit 2 and a handler-required OperatorError (also 2),
+        # per §7.3.2 C1c.
+        print(json.dumps(preview, sort_keys=True))
+        return PREPARE_REPLAY_PREVIEW_EXIT
+
+    # AC-F11-06a/§7.2: the four ceilings are parser-optional but
+    # handler-required once acknowledged -- validated with the same
+    # require_positive() hardening (AC-F11-06b) every other seam uses, and
+    # labelled resource_policy.<field> (not the execution seams' bare
+    # "--max-*" labels) so a missing/invalid ceiling here reads the same
+    # way preflight's own resource resolution does (§7.3.2 C1b).
+    resources = {
+        "max_cost_usd": require_positive(
+            args.max_cost_usd, "resource_policy.max_cost_usd"
+        ),
+        "max_wall_clock_seconds": require_positive(
+            args.max_wall_clock_seconds, "resource_policy.max_wall_clock_seconds"
+        ),
+        "max_generated_tasks": require_positive(
+            args.max_generated_tasks,
+            "resource_policy.max_generated_tasks",
+            integer=True,
+        ),
+        "max_provider_calls": require_positive(
+            args.max_provider_calls,
+            "resource_policy.max_provider_calls",
+            integer=True,
+        ),
+    }
+    # §2.3.6: "[proposed_provider_calls] is the quantity this subcommand
+    # spends against, and --max-provider-calls bounds it" -- validating the
+    # ceiling's own shape (above) is not the same as enforcing it. Checked
+    # before any dispatch is attempted (fail closed), so an operator-
+    # approved ceiling can never be silently exceeded by this seam.
+    if len(proposed_calls) > resources["max_provider_calls"]:
+        raise OperatorError(
+            f"prepare-replay: {len(proposed_calls)} proposed provider call(s) for "
+            f"scenario {scenario_id} exceed resource_policy.max_provider_calls="
+            f"{resources['max_provider_calls']}",
+            3,
+        )
+
+    # AC-F11-07: retained under <operator_root>/replay/<scenario_id>/<attempt_id>/.
+    replay_root = operator_root / "replay" / scenario_id
+    ensure_external_operator_root(replay_root)
+    ensure_real_directory(replay_root, "prepare-replay retention root")
+    lock = acquire_lock(replay_root, ".e40-prepare-replay.lock")
+    try:
+        staging_handle = secure_mkdtemp(
+            replay_root, "attempt-", "prepare-replay attempt directory"
+        )
+        verify_staging_directory(staging_handle, "prepare-replay attempt directory")
+        attempt_dir = staging_handle.path
+        artifact_root = attempt_dir / "artifact-root"
+        ensure_real_directory(artifact_root, "prepare-replay artifact root")
+
+        limits_path = attempt_dir / "limits.json"
+        write_json(limits_path, resources, overwrite=False)
+
+        result_path = attempt_dir / "result.json"
+        transcript_path = attempt_dir / "transcript.txt"
+        usage_path = attempt_dir / "usage.json"
+        validation_path = attempt_dir / "validation.json"
+
+        run_prelude_bin = SCRIPTS_DIR / "run-prelude.sh"
+        started = time.monotonic()
+        process = run_process(
+            [
+                str(run_prelude_bin),
+                "--package",
+                str(package_path),
+                "--result-out",
+                str(result_path),
+                "--artifact-root",
+                str(artifact_root),
+            ],
+            cwd=REPO_ROOT,
+            env=isolated_environment(),
+        )
+        wall_clock_seconds = time.monotonic() - started
+        transcript = process.stdout + process.stderr
+        atomic_write(transcript_path, transcript.encode("utf-8"), overwrite=False)
+        # AC-F11-07/§7.7: whether a dispatch was actually ATTEMPTED --
+        # mirrors run-prelude.sh's own main() condition (any prelude stage
+        # applicable), never proposed_calls: proposed_calls is a
+        # preview-time estimate of calls still needed against the bundle,
+        # but run-prelude.sh dispatches once whenever any stage is
+        # applicable, whether or not that stage already carries a
+        # versioned response (REQ-F-013's short-circuit is the only thing
+        # that skips dispatch). Reporting proposed_calls here instead would
+        # under-report a real dispatch against an already-fully-replayed
+        # package. Real and measured, never the hardcoded provider_calls
+        # literal preflight prints elsewhere.
+        any_applicable_stage = any(
+            isinstance(entry, dict) and entry.get("applicable")
+            for entry in prelude.values()
+        )
+        usage = {
+            "schema_version": "1.0",
+            "wall_clock_seconds": wall_clock_seconds,
+            "provider_calls": 1 if any_applicable_stage else 0,
+            # Not tracked by this offline-capable flow: no live-provider
+            # cost accounting exists yet, so this is left an honest null
+            # rather than a fabricated figure (mirrors run-prelude.sh's own
+            # write_complete_result placeholder discipline).
+            "cost_usd": None,
+        }
+        write_json(usage_path, usage, overwrite=False)
+
+        if process.returncode != 0 or not result_path.is_file():
+            raise OperatorError(
+                "prepare-replay: genuine replay producer failed for scenario "
+                f"{scenario_id} (exit {process.returncode}): {transcript.strip()}",
+                1,
+            )
+
+        replay_reference = package.get("replay_reference")
+        if replay_reference:
+            bundle_path = (package_path.parent / str(replay_reference)).resolve()
+            verify_bin = SCRIPTS_DIR / "verify-replay-result.sh"
+            verify_process = run_process(
+                [str(verify_bin), str(result_path), str(bundle_path)]
+            )
+            validation_text = verify_process.stdout or verify_process.stderr
+            atomic_write(
+                validation_path, validation_text.encode("utf-8"), overwrite=False
+            )
+            if verify_process.returncode != 0:
+                # AC-F11-07 negative case: a result failing verification
+                # prints no path, on stdout or otherwise.
+                raise OperatorError(
+                    "prepare-replay: replay result failed verify-replay-result.sh "
+                    f"for scenario {scenario_id}: {verify_process.stderr.strip()}",
+                    1,
+                )
+        else:
+            # No applicable prelude stage carries a replay_reference at all
+            # (REQ-F-014) -- nothing for verify-replay-result.sh to reconcile.
+            write_json(
+                validation_path,
+                {"scenario_id": scenario_id, "skipped": "no_replay_reference"},
+                overwrite=False,
+            )
+
+        result_absolute = str(result_path.resolve())
+    finally:
+        release_lock(lock)
+
+    print(result_absolute)
+    return 0
 
 
 def identity_profile(
@@ -2403,11 +3876,7 @@ def capture_batch_authority(
         "batch_policy_digest": hashlib.sha256(
             load_bytes_at(run_descriptor, batch_policy_name, "operator batch policy")
         ).hexdigest(),
-        "ceilings": {
-            "max_cost_usd": resources.get("max_cost_usd"),
-            "max_wall_clock_seconds": resources.get("max_wall_clock_seconds"),
-            "max_generated_tasks": resources.get("max_generated_tasks"),
-        },
+        "ceilings": {key: resources.get(key) for key in RESOURCE_CEILING_NAMES},
         "acknowledgement_ref": {
             "flag": "--acknowledge-provider-spend",
             "present": True,
@@ -2495,6 +3964,15 @@ def aggregate_and_report(run_descriptor: int, run_root: Path) -> dict[str, Any]:
         aggregate.stdout.encode("utf-8"),
         label="retained aggregate",
     )
+    # AC-F11-45 gate G-11: aggregate-lifecycle.sh exits 0 whether or not its
+    # own `invalid[]` array is non-empty (a non-empty `invalid[]` is a
+    # reporting finding, not a usage error) -- so publication eligibility
+    # below must read this count explicitly rather than inferring it from
+    # aggregate_exit_code, which cannot distinguish the two cases.
+    try:
+        aggregate_invalid_count = len(json.loads(aggregate.stdout).get("invalid") or [])
+    except (json.JSONDecodeError, AttributeError):
+        aggregate_invalid_count = None
     reports = run_root / "reports"
     reports_descriptor = ensure_child_directory_at(
         run_descriptor, reports.name, "retained reports directory"
@@ -2565,6 +4043,7 @@ def aggregate_and_report(run_descriptor: int, run_root: Path) -> dict[str, Any]:
     return {
         "aggregate_exit_code": 0,
         "aggregate": str(aggregate_path),
+        "aggregate_invalid_count": aggregate_invalid_count,
         "reports": report_results,
         "retention_verification_exit_code": verified.returncode,
     }
@@ -2588,7 +4067,16 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
         )
     )
     selected = [args.scenario] if args.scenario else None
-    matrix = selected_matrix(config, config_base, selected, reps)
+    operator_root = config_path_value(config, config_base, "operator_root")
+    # REQ-F-001: reject a registered (retained) operator root BEFORE
+    # admitted_fixture_checkout() (inside selected_matrix) can write a
+    # fixture checkout under it -- ensure_external_operator_root is the one
+    # choke point (ADR-F11-10), and it must run before anything is written,
+    # not only before run_root is created below.
+    ensure_external_operator_root(operator_root)
+    matrix = selected_matrix(
+        config, config_base, selected, reps, operator_root / "fixture-checkouts"
+    )
     if not args.acknowledge_provider_spend:
         raise OperatorError(
             "provider-backed execution requires --acknowledge-provider-spend", 3
@@ -2597,7 +4085,7 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
     if not ready:
         raise OperatorError(
             "provider-backed execution is not ready; run preflight and supply: "
-            + "; ".join(blockers),
+            + "; ".join(blocker["detail"] for blocker in blockers),
             3,
         )
     resources = {
@@ -2608,9 +4096,11 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
         "max_generated_tasks": require_positive(
             args.max_generated_tasks, "max-generated-tasks", integer=True
         ),
+        "max_provider_calls": require_positive(
+            args.max_provider_calls, "max-provider-calls", integer=True
+        ),
         "repetitions": reps,
     }
-    operator_root = config_path_value(config, config_base, "operator_root")
     run_store = resolve_path(
         str(config.get("run_store") or operator_root / "runs"), config_base
     )
@@ -2710,6 +4200,8 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
             str(resources["max_wall_clock_seconds"]),
             "--max-generated-tasks",
             str(resources["max_generated_tasks"]),
+            "--max-provider-calls",
+            str(resources["max_provider_calls"]),
             "--reps",
             str(reps),
         ]
@@ -2795,6 +4287,7 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
             "publication_eligible": bool(
                 process.returncode == 0
                 and derived.get("aggregate_exit_code") == 0
+                and derived.get("aggregate_invalid_count") == 0
                 and derived.get("retention_verification_exit_code") == 0
                 and authority_path is not None
                 and run_mode == "baseline"
@@ -3217,11 +4710,7 @@ def aggregate_binding_reasons(
         )
 
     resources = manifest.get("resource_policy") or {}
-    expected_ceilings = {
-        "max_cost_usd": resources.get("max_cost_usd"),
-        "max_wall_clock_seconds": resources.get("max_wall_clock_seconds"),
-        "max_generated_tasks": resources.get("max_generated_tasks"),
-    }
+    expected_ceilings = {key: resources.get(key) for key in RESOURCE_CEILING_NAMES}
     mismatch(
         "aggregate/identity/ceilings",
         "aggregate_manifest_ceiling_mismatch",
@@ -4422,7 +5911,9 @@ def cmd_compare(args: argparse.Namespace) -> int:
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
-    setup_args = argparse.Namespace(out=args.out, config_out=None)
+    setup_args = argparse.Namespace(
+        out=args.out, config_out=None, scenario_index=None
+    )
     setup_status = cmd_setup(setup_args)
     if setup_status != 0:
         return setup_status
@@ -4445,6 +5936,10 @@ def add_execution_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-cost-usd", required=True)
     parser.add_argument("--max-wall-clock-seconds", required=True)
     parser.add_argument("--max-generated-tasks", required=True)
+    # AC-F11-06a seam S1: the fourth ceiling, required=True so pilot,
+    # baseline, and variant all inherit it (unlike S2's prepare-replay,
+    # which is parser-optional/handler-required -- T-E40-F11-006).
+    parser.add_argument("--max-provider-calls", required=True)
     parser.add_argument("--retry-incomplete", action="store_true")
 
 
@@ -4464,6 +5959,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicit operator root outside the live repository",
     )
     setup.add_argument("--config-out")
+    setup.add_argument(
+        "--scenario-index",
+        help=(
+            "scenario-index YAML to seed dedicated roots from; defaults to "
+            "bench/scenarios/scenarios.yaml (REQ-F-012)"
+        ),
+    )
     setup.set_defaults(handler=cmd_setup)
 
     preflight = subparsers.add_parser(
@@ -4524,6 +6026,25 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--reps", type=int, default=1)
     demo.add_argument("--scenario")
     demo.set_defaults(handler=cmd_demo)
+
+    prepare_replay = subparsers.add_parser(
+        "prepare-replay",
+        help="preview, or spend-gated run, the I-06 replay preparation for one scenario",
+    )
+    prepare_replay.add_argument("--config", required=True)
+    prepare_replay.add_argument("--scenario", required=True)
+    prepare_replay.add_argument("--out")
+    prepare_replay.add_argument("--acknowledge-provider-spend", action="store_true")
+    # AC-F11-06a S2: same four flag names as add_execution_arguments, but
+    # parser-optional -- mandatory only in the handler, once
+    # --acknowledge-provider-spend is present (§7.2). required=True here
+    # would make the ceiling-free preview AC-F11-06 requires die at
+    # argparse before the handler ever ran.
+    prepare_replay.add_argument("--max-cost-usd")
+    prepare_replay.add_argument("--max-wall-clock-seconds")
+    prepare_replay.add_argument("--max-generated-tasks")
+    prepare_replay.add_argument("--max-provider-calls")
+    prepare_replay.set_defaults(handler=cmd_prepare_replay)
     return parser
 
 

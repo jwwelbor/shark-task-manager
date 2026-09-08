@@ -2,7 +2,7 @@
 # all five prelude stages false, but D01 is declared applicable: true.
 # Expected failing field/message: names both the offending family (bug)
 # and stage (D01).
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-12-family-invariant-violation"
 scenario_version: 1
 entity_family: bug

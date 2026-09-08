@@ -1,0 +1,86 @@
+# Synthetic seventh scenario package, test-only fixture for AC-F11-38a
+# (spec.md REQ-F-012). A copy of
+# bench/scenarios/packages/py-bug-due-date-boundary/package.yaml with only
+# `scenario_id` changed, so it shares `entity_family: bug` with a real
+# admitted package while remaining a distinct scenario.
+#
+# This package is NEVER added to bench/scenarios/scenarios.yaml -- it is
+# reachable only through a test-owned scenario-index YAML passed to
+# `e40-benchmark.sh setup --scenario-index <path>` (tc111_scenario_root_
+# isolation_test.sh). It proves that two packages sharing an entity_family
+# receive two distinct scenario roots under AC-F11-38's per-scenario_id
+# `scenario_roots` keying -- something the pre-rework family-keyed
+# `roots[family]` lookup could not do (the two would collide on one root).
+#
+# `setup` only reads `scenario_id` and `entity_family` from a package to
+# seed a root (bench/scripts/lib/e40_benchmark.py:seed_scenario_root); the
+# remaining fields are carried for shape-fidelity with a real package and
+# are not exercised by this test.
+schema_version: "1.1"
+scenario_id: "py-bug-second-scenario"
+scenario_version: 1
+entity_family: bug
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D02: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D03: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D04: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+    D05: {applicable: false, reason: "bug scenarios skip the product-design prelude (entity_family: bug)"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter:
+  name: python
+  version: "1.0.0"
+toolchain_identity:
+  - key: python_version
+    value: "3.12.3"
+  - key: pytest_version
+    value: "9.1.1"
+  - key: ruff_version
+    value: "0.16.2"
+  - key: black_version
+    value: "26.5.1"
+  - key: pyproject_sha256
+    value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"
+input:
+  agent_visible: input/prompt.md
+evaluator_only:
+  reference_solution: evaluator/reference.patch
+  oracle_tests:
+    - evaluator/test_due_date_boundary.py
+  answer_keys: []
+final_predicate:
+  kind: f2p_p2p
+  p2p_selection:
+    include: ["tests"]
+    exclude_test_ids:
+      - "tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today"
+      - "tests.test_manager::test_recurring_task_generates_next_occurrence"
+  f2p_test_ids:
+    - "tests.test_due_date_boundary::test_is_overdue_true_for_task_due_today"
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20
+
+admission:
+  status: admitted
+  base_outcome: false
+  reference_outcome: true
+  toolchain_identity:
+    - key: python_version
+      value: "3.12.3"
+    - key: pytest_version
+      value: "9.1.1"
+    - key: ruff_version
+      value: "0.16.2"
+    - key: black_version
+      value: "26.5.1"
+    - key: pyproject_sha256
+      value: "62da9a122961381ec0580167ee8ea4d622df610b4e082f41ab4e903fe82e1d8c"

@@ -2,7 +2,7 @@
 # predicate-operand path (evaluator_only.reference_solution) does not
 # exist on disk. Expected failing field:
 # evaluator_only.reference_solution.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-15-predicate-operand-path-missing"
 scenario_version: 1
 entity_family: bug

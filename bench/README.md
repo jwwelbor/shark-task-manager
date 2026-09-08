@@ -93,8 +93,10 @@ require a generated artifact.
    ```
 
    Read `/tmp/e40-smoke/setup-result.json` for `root_keys` (the seeded
-   feature/bug/change_card/tech_debt entity keys, keyed by `entity_family`),
-   `scratch_root` (the scratch project path), and `scenario_matrix` (each
+   entity key for every admitted scenario, keyed by `scenario_id` --
+   REQ-F-012 keys every root by `scenario_id`, never by `entity_family`, so
+   same-family scenarios can never collide), `scratch_root` (the scratch
+   project path), and `scenario_matrix` (each
    admitted scenario's `package_path`, keyed by `scenario_id`) —
    `run-lifecycle.sh`'s `--root` argument must name an entity that already
    exists in the scratch project (it never creates one itself), and its
@@ -106,7 +108,7 @@ require a generated artifact.
    bench/scripts/run-lifecycle.sh \
      --scenario bench/scenarios/packages/py-bug-due-date-boundary/package.yaml \
      --run-id smoke-1 \
-     --root <root_keys.bug from setup-result.json> \
+     --root <root_keys.py-bug-due-date-boundary from setup-result.json> \
      --scratch-root <scratch_root from setup-result.json> \
      --output /tmp/e40-smoke/lifecycle.jsonl \
      --mode dry-run
@@ -138,7 +140,7 @@ require a generated artifact.
    bench/scripts/run-lifecycle.sh \
      --scenario bench/scenarios/packages/py-bug-due-date-boundary/package.yaml \
      --run-id smoke-1-live \
-     --root <root_keys.bug from setup-result.json> \
+     --root <root_keys.py-bug-due-date-boundary from setup-result.json> \
      --scratch-root <scratch_root from setup-result.json> \
      --output /tmp/e40-smoke/lifecycle-live.jsonl \
      --mode live
@@ -381,9 +383,9 @@ verdicts and identity sets) still holds.
 ## I-04 lifecycle scenario corpus and adapter contract (E40-F05)
 
 `bench/scenarios/` is I-04: a versioned lifecycle scenario corpus independent
-of `bench/corpus/corpus.yaml` (REQ-F-001) covering the four lifecycle
-families (`feature`, `bug`, `change_card`, `tech_debt`) on a second,
-controlled Python fixture (`bench/fixture-py`, a git submodule, same
+of `bench/corpus/corpus.yaml` (REQ-F-001) covering all six lifecycle
+families (`epic`, `feature`, `task`, `bug`, `change_card`, `tech_debt`) on a
+second, controlled Python fixture (`bench/fixture-py`, a git submodule, same
 convention as `bench/fixture-repo`). `bench/fixture-repo` and its I-01
 tooling above are unmodified and remain registered as the `go` compatibility
 adapter. E40-F06, E40-F07, and E40-F08 read this section instead of
@@ -394,7 +396,7 @@ from `bench/scenarios/**` or the scripts directly — the same role the
 ### I-04 scenario package schema
 
 `bench/scenarios/scenarios.yaml`, schema-versioned via its top-level
-`schema_version` (currently `"1.0"`), registers three things: `fixtures`
+`schema_version` (currently `"1.1"`), registers three things: `fixtures`
 (`fixture_id` → `submodule_path`, both `py` and `go`), `adapters` (`name` →
 `path`, `version`), and `scenarios` (a list of `packages/<scenario_id>`
 directory paths, relative to `bench/scenarios/`). Resolving a package's
@@ -411,8 +413,9 @@ package twice MUST yield byte-identical values for every field below
 | `schema_version` | string | Matches the index; the version the validator supports. |
 | `scenario_id` | string | Unique lowercase-kebab identity; the package's own directory name. |
 | `scenario_version` | integer | Incremented on any content change. |
-| `entity_family` | enum | `feature` \| `bug` \| `change_card` \| `tech_debt`. |
-| `stage_matrix.prelude.D01`…`.D05` | object | `{applicable: bool, reason: string}`; `reason` required when `applicable: false`. Family invariant (REQ-F-004): `feature` requires all five `true`; `bug`/`change_card`/`tech_debt` require all five `false`, each with a reason. |
+| `entity_family` | enum | `epic` \| `feature` \| `task` \| `bug` \| `change_card` \| `tech_debt` (REQ-F-007, AC-F11-19). |
+| `stage_matrix.prelude.D01`…`.D05` | object | `{applicable: bool, reason: string}`; `reason` required when `applicable: false`. Family invariant (REQ-F-004/REQ-F-008): `feature` requires all five `true`; `epic`/`task`/`bug`/`change_card`/`tech_debt` require all five `false`, each with a distinct, non-empty reason. |
+| `expected_entity_graph` | object, required for `epic`, optional for `feature`, forbidden for `task`/`bug`/`change_card`/`tech_debt` | `{root_family, descendants: [{family, required, min, max}], required_terminal_states, unexpected_descendants: invalidate\|ignore, required_artifacts[], required_provenance[]}` (REQ-F-009, ADR-F11-09). `required_terminal_states` is a **mapping** from descendant family to that family's own terminal status, key-complete against `descendants[].family` (AC-F11-25b, ADR-F11-11) — never a flat list, and never a hardcoded literal, because terminal statuses are per-family (`tech_debt` has no `completed` step). When the block is absent on a package that generates descendants, the call planner falls back to `resource_policy.max_generated_tasks` (AC-F11-25a). See spec.md §2.3.5 for the full contract. |
 | `stage_matrix.lifecycle` | object | `{mode: all_dispatched, evidence_required: true}` — a declarative rule, never an enumerated status list. |
 | `fixture` | object | `{fixture_id, submodule_path, base_sha}`; `fixture_id` must resolve in `scenarios.yaml`'s `fixtures:` map. |
 | `adapter` | object | `{name, version}`; `name` must resolve in `scenarios.yaml`'s `adapters:` map. |
@@ -432,7 +435,7 @@ as a reader's map to that test, not a substitute for it.
 
 ### Final predicate vocabulary
 
-A closed set of four kinds, one permitted per family, each evaluable from an
+A closed set of six kinds, one permitted per family, each evaluable from an
 adapter's `test`/`lint` capability output alone (REQ-F-010) — no ledger file
 is read and none is committed under `bench/scenarios/` (AC-021).
 `bench/scripts/eval-predicate.sh <package.yaml> <test-output.json>
@@ -445,6 +448,8 @@ else re-derives it.
 | `acceptance_tests` | `change_card` | `acceptance_test_ids[]`, `p2p_selection` | Every acceptance test is `pass` and every `p2p_selection` entry is `pass`. |
 | `p2p_plus_rule_drop` | `tech_debt` | `p2p_selection`, `rule`, `max_remaining` | Every `p2p_selection` entry is `pass` and the count of `lint` issues whose `rule` matches is `<= max_remaining`. |
 | `child_oracles_union` | `feature` | `integration_test_ids[]`, `child_oracles[]`, `p2p_selection` | Every integration test is `pass`, every declared child oracle evaluates true, and every `p2p_selection` entry is `pass`. |
+| `task_acceptance_tests` | `task` | `acceptance_test_ids[]`, `p2p_selection` | Every acceptance test is `pass` and every `p2p_selection` entry is `pass` (T-E40-F11-008, ADR-F11-04: same arithmetic as `acceptance_tests`, gated to `task` instead of `change_card`). |
+| `descendant_oracles_union` | `epic` | `integration_test_ids[]`, `child_oracles[]`, `p2p_selection` | Every integration test is `pass`, every declared child oracle evaluates true, and every `p2p_selection` entry is `pass` (T-E40-F11-009, ADR-F11-04: same arithmetic as `child_oracles_union`, gated to `epic` instead of `feature`). Evaluation additionally unions this predicate with the declared descendant-graph structural evaluator (REQ-F-009). |
 
 Every kind's P2P clause is absolute (REQ-F-017, ADR-F05-10), not
 base-relative: every entry the `p2p_selection` resolves to must be `pass`,
@@ -494,8 +499,8 @@ consumer — `admit-scenario.sh`, `eval-predicate.sh`, or a future E40-F06/08
 component — read "did the check run" and "did the code pass" as two
 independent signals without ever branching on which adapter answered.
 
-Two adapters are registered today: `python` (`bench/adapters/python/`, the
-four seed scenarios' fixture) and `go` (`bench/adapters/go/`, the I-01
+Two adapters are registered today: `python` (`bench/adapters/python/`, all
+six seed scenarios' fixture) and `go` (`bench/adapters/go/`, the I-01
 compatibility adapter — its `test`/`lint` delegate to the unmodified
 `bench/scripts/build-ledgers.sh`/`diff-ledgers.sh`, reshaped into this JSON
 shape). `bench/scripts/tests/tc031_adapter_conformance_test.sh` runs the
@@ -546,12 +551,14 @@ git submodule update --init
 #    p2p_selection, so run this before admitting any package against it.
 bench/scripts/verify-fixture-py-base.sh 964fa68e4c9e0c4e0f3756d9efd78b888c558fd9
 
-# 3. Admit each of the four seed packages (REQ-F-012/013). Each writes its
+# 3. Admit each of the six seed packages (REQ-F-012/013). Each writes its
 #    own package.yaml's admission: block in place on an admitted verdict.
 bench/scripts/admit-scenario.sh bench/scenarios/packages/py-bug-due-date-boundary/package.yaml
 bench/scripts/admit-scenario.sh bench/scenarios/packages/py-change-priority-scale/package.yaml
 bench/scripts/admit-scenario.sh bench/scenarios/packages/py-techdebt-consolidate-validation/package.yaml
 bench/scripts/admit-scenario.sh bench/scenarios/packages/py-feature-recurring-tasks/package.yaml
+bench/scripts/admit-scenario.sh bench/scenarios/packages/py-task-delete-task/package.yaml
+bench/scripts/admit-scenario.sh bench/scenarios/packages/py-epic-task-organization/package.yaml
 
 # 4. To check one package's final_predicate directly against a captured
 #    test/lint state (e.g. while authoring a new package), invoke the
@@ -1860,8 +1867,10 @@ bench/scripts/e40-benchmark.sh preflight \
 ```
 
 `setup` initializes a local SQLite Shark project on a minimal local `main`
-checkout, installs Shark data, and seeds one feature, bug, change card, and
-tech-debt root. It writes `setup-result.json` and `e40-demo.yaml` under the
+checkout, installs Shark data, and seeds one root per admitted family — epic,
+feature, task, bug, change card, and tech-debt — each keyed by its own
+`scenario_id`, never by `entity_family` (REQ-F-012). It writes
+`setup-result.json` and `e40-demo.yaml` under the
 operator root. The setup result records the Shark binary, content, prompt,
 workflow, enabled-gate, scenario-package, fixture, adapter, toolchain, and
 provider/model/effort route identities. It never reads or writes the
@@ -1921,7 +1930,9 @@ bench/scripts/e40-benchmark.sh pilot \
 ```
 
 Inspect one retained pilot from every selected family. Record and verify the
-four family attestations against the same root:
+attestations — one per selected family, the count derived from the batch
+policy, never a hardcoded family list (REQ-F-013, AC-F11-42) — against the
+same root:
 
 ```bash
 BASELINE_ROOT="$E40_ROOT/runs/$BASELINE_ID"
@@ -2222,8 +2233,8 @@ one pair fails, `2` usage error.
 ### Pilot inspection checklist (REQ-F-005, ADR-F10-09)
 
 `pilot-ledger.sh` is the offline pilot-inspection attestation ledger — one
-row per scenario **family** (`feature`/`bug`/`change_card`/`tech_debt`),
-appended to `<retention_root>/pilot-ledger.jsonl`:
+row per scenario **family** (`epic`/`feature`/`task`/`bug`/`change_card`/
+`tech_debt`), appended to `<retention_root>/pilot-ledger.jsonl`:
 
 ```bash
 # Record one attestation after an operator has actually inspected a pilot
@@ -2361,3 +2372,54 @@ F10 cases are TC-078 (Go contract test, `make test`) through TC-092. The
 full quality gate remains `make fmt && make lint && make test`, and this
 task's own exit gate additionally requires the two-step sequence above to
 pass with zero pre-F10 marker or wrapper-line misses.
+
+## E40-F11 six-family readiness and cover additions
+
+Widens I-04 admission to the closed six-value family set (`epic`, `feature`,
+`task`, `bug`, `change_card`, `tech_debt` — see "I-04 scenario package
+schema" above) and adds the readiness surfaces below. As with the sections
+above, this is a reader's map to the owning script and spec section, not a
+substitute for either.
+
+- **`expected_entity_graph`** — the declarative descendant-count contract on
+  an I-04 package (required for `epic`, optional for `feature`, forbidden
+  for the four flat families). Documented as its own row in the "I-04
+  scenario package schema" table above; full contract in spec.md §2.3.5.
+- **`call_plan`** — `preflight-result.json`'s per-scenario and total
+  provider-call ceilings, including the fourth ceiling
+  (`max_provider_calls`, threaded through every provider-spending seam).
+  Every `bound: true` figure is a ceiling, never an estimate; its
+  `evidence[]` names all 8 fields a derived limit must carry
+  (`limit`, `package_path`, `package_digest`, `workflow_file`,
+  `workflow_routing_digest`, `model`, `provider`, `resource_policy_digest`).
+  `bounded_descendant_calls` is computed from `expected_entity_graph` (or,
+  absent that block, from `resource_policy.max_generated_tasks`) by summing
+  each descendant family's declared maximum against the `spawn_agent` step
+  count in that family's own workflow file — never a harness literal.
+  Emitted by `preflight`; full arithmetic and shape in spec.md §2.3.3/§2.3.3a.
+- **The resolution ledger** (`retention-preview/resolution-ledger.jsonl`) —
+  written by `run-lifecycle-batch.sh`'s stage-resolution pass and read by
+  `preflight` to evaluate the fail-closed conditions below; one record per
+  selected scenario recording `resolution` (`resolved` \| `skipped` \|
+  `failed`) and, on failure, a `cause_class`.
+- **Fail-closed `preflight`** — `preflight` now derives its `status`
+  (`pass` \| `blocked` \| `pass_with_dry_run_limitations`) from the
+  resolution ledger and a fixed set of pass conditions; any missing or
+  unresolved condition yields `blocked` with a `blockers[]` entry naming
+  the requirement, scenario, and cause class, never a silent partial pass.
+  Full condition set in spec.md §7.3.3.
+- **`prepare-replay`** — `e40-benchmark.sh prepare-replay --config <cfg>
+  --scenario <feature-scenario-id> [--acknowledge-provider-spend] [the four
+  ceiling flags]` previews (no provider calls) or, once acknowledged and
+  ceilinged, spend-gates a real I-06 replay-preparation run for one feature
+  scenario, verifying the result against `verify-replay-result.sh` before
+  printing its absolute path. Feature-only, same acknowledgement/ceiling
+  discipline as `pilot`/`baseline`/`variant`. Full contract in spec.md
+  AC-F11-06/06a and §7.2.
+- **`run-lifecycle.sh --mode resolve-route`** — traces a scenario's
+  configured success route through its workflow's status graph without any
+  live-only artifact, writing a resolution record per stage
+  (`stage_id`, `route`, `provider`, `model`, `effort`, `terminal`,
+  `artifact_dependencies_deferred`). Never accepted by
+  `verify-stage-evidence.sh` as live I-05 evidence. Full contract in
+  spec.md REQ-F-005/§2.3.1.

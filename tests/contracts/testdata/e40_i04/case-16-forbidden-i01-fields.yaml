@@ -6,7 +6,7 @@
 # the I-04 schema (ADR-F05-01), so strict unknown-field rejection must
 # name them. Expected failing fields: fixture (unknown "toolchain"),
 # p2p_sets, reference_patch_path.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-16-forbidden-i01-fields"
 scenario_version: 1
 entity_family: bug

@@ -1028,3 +1028,224 @@ if [[ -s "$R5_CMP_SPY_LOG" ]]; then
 fi
 
 echo "TC-080(UAT-R5-HIGH-2 regression, comparison driver, T-E40-F10-005 coordination): real run-review-comparison.sh --mode baseline refuses on an unattested family even with a present pilot-ledger.jsonl, with no change required to run-review-comparison.sh itself -- PASS"
+
+# ===========================================================================
+# T-E40-F11-003 (spec.md AC-F11-06a/AC-F11-06b, REQ-F-003/REQ-NF-002):
+# hardened require_positive() (TC-06b) and the fourth ceiling
+# (--max-provider-calls) threaded through the seams that exist today -- S1,
+# S3, S4, S5, S6, S7, S8. S2 (prepare-replay) does not exist yet (added by
+# T-E40-F11-006, which depends on this task) and is out of scope here.
+#
+# No dedicated tc0NN number was free for this coverage: tc099-tc113 are all
+# already reserved by sibling F11 tasks (T-E40-F11-001 through -013, per
+# their own task files' "Files to create" lines), and this task's own file
+# declares no "Files to create" line. Folded into TC-080 (already the
+# ceiling-validation suite) instead of squatting a reserved number --
+# flagged here for T-E40-F11-015 (which registers tc099-tc113 in run-all.sh)
+# to fold into its own registration/audit sweep.
+# ===========================================================================
+MODULE="$SCRIPTS_DIR/lib/e40_benchmark.py"
+
+echo "TC-06b: require_positive 12-class boundary-value hardening"
+python3 - "$MODULE" <<'PY'
+import importlib.util
+import sys
+
+module_path = sys.argv[1]
+spec = importlib.util.spec_from_file_location("e40_benchmark", module_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+require_positive = module.require_positive
+OperatorError = module.OperatorError
+
+
+def expect_reject(value, integer, contains, label):
+    try:
+        result = require_positive(value, "ceiling", integer=integer)
+    except OperatorError as exc:
+        if contains and contains not in str(exc):
+            raise SystemExit(f"{label}: expected {contains!r} in message, got {exc!r}")
+        return
+    raise SystemExit(f"{label}: expected rejection, got {result!r}")
+
+
+def expect_accept(value, integer, expected, label):
+    result = require_positive(value, "ceiling", integer=integer)
+    if result != expected:
+        raise SystemExit(f"{label}: expected {expected!r}, got {result!r}")
+
+
+# spec.md section 7.3.2's 12-class BVA, applied uniformly -- AC-F11-06b
+# hardens require_positive at one site shared by all four ceilings, so
+# this file's own generic check stands in for a per-ceiling repeat.
+expect_reject("nan", False, "must be a finite number", "class1-nan-string")
+expect_reject("NaN", False, "must be a finite number", "class1-NaN-string")
+expect_reject(float("nan"), False, "must be a finite number", "class1-nan-float")
+expect_reject("inf", False, "must be a finite number", "class2-inf-string")
+expect_reject("infinity", False, "must be a finite number", "class2-infinity-string")
+expect_reject(float("inf"), False, "must be a finite number", "class2-inf-float")
+expect_reject("1e400", False, "must be a finite number", "class3-overflow-string")
+expect_reject(2.5, True, "must be a whole number, got 2.5", "class4-fractional-under-integer")
+expect_accept(" 3 ", False, 3.0, "class5-whitespace-lexical")
+expect_accept("1_0", False, 10.0, "class6-pep515-lexical")
+expect_accept(10**30, True, 10**30, "class7-large-exact-integer")
+expect_reject("-inf", False, None, "class8-negative-infinity")
+expect_reject(0, False, None, "class9-zero")
+expect_reject(-1, False, None, "class9-negative")
+expect_reject(True, False, None, "class10-bool")
+expect_reject("abc", False, None, "class11-non-numeric")
+expect_reject("2.5", True, None, "class12-fractional-string-under-integer")
+print("require_positive 12-class BVA: all classes verified")
+
+# AC-F11-46 component (iv): resource_policy_digest is part of comparison
+# identity, so the fourth ceiling must be able to move it -- not merely be
+# present alongside it inertly.
+base = {
+    "max_cost_usd": 5, "max_wall_clock_seconds": 600,
+    "max_generated_tasks": 10, "max_provider_calls": 15, "repetitions": 1,
+}
+changed = dict(base, max_provider_calls=16)
+if module.canonical_digest(base) == module.canonical_digest(changed):
+    raise SystemExit(
+        "resource_policy_digest did not change when max_provider_calls changed "
+        "(AC-F11-46 component (iv))"
+    )
+print("resource_policy_digest changes with max_provider_calls (AC-F11-46 iv): verified")
+PY
+
+echo "TC-06a S1: pilot/baseline/variant all inherit --max-provider-calls, required=True"
+S1_WORKDIR="$WORKDIR/s1-seam"
+mkdir -p "$S1_WORKDIR"
+cat >"$S1_WORKDIR/config.yaml" <<EOF
+schema_version: "1.0"
+operator_root: "$S1_WORKDIR/operator"
+EOF
+s1_rc=0
+python3 "$MODULE" pilot --config "$S1_WORKDIR/config.yaml" --run-id s1-seam \
+	--acknowledge-provider-spend --max-cost-usd 5 --max-wall-clock-seconds 600 \
+	--max-generated-tasks 10 >"$S1_WORKDIR/out.txt" 2>&1 || s1_rc=$?
+[[ "$s1_rc" -eq 2 ]] \
+	|| fail "S1 seam: omitting --max-provider-calls must be an argparse usage error (exit 2), got $s1_rc: $(cat "$S1_WORKDIR/out.txt")"
+grep -qi "max-provider-calls" "$S1_WORKDIR/out.txt" \
+	|| fail "S1 seam: argparse error did not name --max-provider-calls: $(cat "$S1_WORKDIR/out.txt")"
+echo "TC-06a S1: pilot without --max-provider-calls refuses at argparse (exit 2) -- PASS"
+
+echo "TC-06a S7: execution ceiling capture rejects a non-finite --max-provider-calls"
+# selected_matrix() is monkeypatched to an empty list -- this test's target
+# is S7's require_positive(args.max_provider_calls, ...) call, which runs
+# BEFORE any scenario/fixture checkout, so a real admitted scenario is not
+# needed to reach it (matching tc094's own monkeypatch-the-seam precedent).
+S7_WORKDIR="$WORKDIR/s7-seam"
+mkdir -p "$S7_WORKDIR/operator"
+cat >"$S7_WORKDIR/adapter.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$S7_WORKDIR/adapter.sh"
+cat >"$S7_WORKDIR/config.yaml" <<EOF
+schema_version: "1.0"
+operator_root: "$S7_WORKDIR/operator"
+runtime:
+  lifecycle_adapter: "$S7_WORKDIR/adapter.sh"
+EOF
+python3 - "$MODULE" "$S7_WORKDIR/config.yaml" <<'PY'
+import argparse
+import importlib.util
+import sys
+
+module_path, config_path = sys.argv[1:3]
+spec = importlib.util.spec_from_file_location("e40_benchmark", module_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+module.selected_matrix = lambda *a, **kw: []
+
+args = argparse.Namespace(
+    config=config_path,
+    run_id="s7-seam",
+    out=None,
+    reps=1,
+    scenario=None,
+    acknowledge_provider_spend=True,
+    max_cost_usd="5",
+    max_wall_clock_seconds="600",
+    max_generated_tasks="10",
+    max_provider_calls="nan",
+    retry_incomplete=False,
+    variant_name=None,
+)
+try:
+    module.cmd_pilot(args)
+except module.OperatorError as exc:
+    if "max-provider-calls must be a finite number" not in str(exc):
+        raise SystemExit(f"S7 seam: unexpected message: {exc}")
+    print("S7 seam: OperatorError raised as expected:", exc)
+else:
+    raise SystemExit("S7 seam: expected an OperatorError, pilot did not refuse")
+PY
+echo "TC-06a S7: pilot --max-provider-calls nan refuses with the hardened finite-number message -- PASS"
+
+echo "TC-06a S4: setup's demo config ships a strictly positive max_provider_calls default"
+S4_WORKDIR="$WORKDIR/s4-seam"
+# setup's "git init" needs the real, unshadowed git -- $PATH has carried
+# this file's own spy shims (never restored, see the top-of-file comment)
+# since the AC-T1 sections far above.
+PATH="$ORIGINAL_PATH" python3 "$MODULE" setup --out "$S4_WORKDIR" >/dev/null
+python3 - "$S4_WORKDIR/e40-demo.yaml" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1]) as f:
+    config = yaml.safe_load(f)
+value = config.get("resource_policy", {}).get("max_provider_calls")
+if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+    raise SystemExit(f"S4 seam: demo resource_policy.max_provider_calls is not strictly positive: {value!r}")
+PY
+echo "TC-06a S4: setup's demo config declares a strictly positive max_provider_calls default -- PASS"
+
+echo "TC-06a S3/S5/S6/S8: static seam-presence checks (dynamic S3/S6/S7/S8 coverage lives in tc094's stubbed pilot fixture)"
+grep -q 'RESOURCE_CEILING_NAMES = (' "$MODULE" \
+	|| fail "S3/S6 seam: RESOURCE_CEILING_NAMES constant is missing (S3's allowlist and S6's expected-authority block must share one source of truth)"
+grep -q '"max_provider_calls"' "$MODULE" \
+	|| fail "S3/S4/S5/S6/S7 seam: max_provider_calls does not appear anywhere in $MODULE"
+grep -q 'resource_policy.max_provider_calls' "$MODULE" \
+	|| fail "S5 seam: preflight resource resolution does not name resource_policy.max_provider_calls"
+grep -q -- '"--max-provider-calls",$' "$MODULE" \
+	|| fail "S8 seam: the run-lifecycle-batch.sh argv construction does not carry --max-provider-calls"
+echo "TC-06a S3/S5/S6/S8: static presence checks -- PASS"
+
+echo "TC-06a breaking-change repair: run-lifecycle-batch.sh and run-review-comparison.sh tolerate the forwarded fourth ceiling"
+BREAK_WORKDIR="$WORKDIR/breaking-change-repair"
+mkdir -p "$BREAK_WORKDIR"
+cat >"$BREAK_WORKDIR/policy.yaml" <<EOF
+schema_version: "1.0"
+min_reps: 1
+EOF
+break_batch_rc=0
+"$SCRIPTS_DIR/run-lifecycle-batch.sh" --batch "$BREAK_WORKDIR/policy.yaml" \
+	--retention-root "$BREAK_WORKDIR/retention" --mode pilot --acknowledge-provider-spend \
+	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--max-provider-calls 15 >"$BREAK_WORKDIR/batch.out" 2>&1 || break_batch_rc=$?
+[[ "$break_batch_rc" -ne 2 ]] \
+	|| fail "run-lifecycle-batch.sh treated --max-provider-calls as an unknown flag (usage error): $(cat "$BREAK_WORKDIR/batch.out")"
+cat >"$BREAK_WORKDIR/candidate.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "py-bug-due-date-boundary"
+gates:
+  qa:
+    root_key: "ROOT-001"
+    scratch_root: "$BREAK_WORKDIR/scratch"
+  deep_review:
+    root_key: "ROOT-001"
+    scratch_root: "$BREAK_WORKDIR/scratch"
+EOF
+break_cmp_rc=0
+"$SCRIPTS_DIR/run-review-comparison.sh" --candidate "$BREAK_WORKDIR/candidate.yaml" \
+	--retention-root "$BREAK_WORKDIR/cmp-retention" --mode pilot \
+	--comparison-mode independent_frozen_candidate --acknowledge-provider-spend \
+	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	--max-provider-calls 15 >"$BREAK_WORKDIR/cmp.out" 2>&1 || break_cmp_rc=$?
+[[ "$break_cmp_rc" -ne 2 ]] \
+	|| fail "run-review-comparison.sh treated --max-provider-calls as an unknown flag (usage error): $(cat "$BREAK_WORKDIR/cmp.out")"
+echo "TC-06a breaking-change repair: both drivers accept the forwarded fourth ceiling without a usage error -- PASS"

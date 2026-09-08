@@ -196,6 +196,14 @@ func runUnclaim(cmd *cobra.Command, args []string) error {
 		cli.Error(err.Error())
 		return err
 	}
+
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]interface{}{
+			"entity_type": entityType,
+			"entity_key":  key,
+			"released":    released,
+		})
+	}
 	if !released {
 		cli.Warning(fmt.Sprintf("No matching claim to release on %s %s", entityType, key))
 		return nil

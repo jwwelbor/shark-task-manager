@@ -1,7 +1,7 @@
 # TC-030 case 11/17 (AC-005, REQ-F-003/015): stage_matrix.prelude.D02 is
 # "applicable: false" but carries no "reason". Expected failing field:
 # stage_matrix.prelude.D02.reason.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-11-prelude-false-stage-missing-reason"
 scenario_version: 1
 entity_family: bug

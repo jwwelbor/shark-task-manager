@@ -1,7 +1,7 @@
 # TC-030 case 13/17 (AC-005, REQ-F-010/015): final_predicate.kind is not
 # one of the closed four-kind vocabulary. Expected failing field:
 # final_predicate.kind.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-13-unknown-predicate-kind"
 scenario_version: 1
 entity_family: bug

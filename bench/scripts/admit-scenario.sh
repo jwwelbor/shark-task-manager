@@ -239,12 +239,19 @@ def resolve_scoped(base_dir, rel_path, *, subtree=None, label):
 def named_ids_for(kind, predicate):
     """Mirrors eval-predicate.sh's own named_ids_for -- the ids this kind
     must independently confirm via `adapter.sh test --only-id`, beyond the
-    shared p2p_selection clause (empty for p2p_plus_rule_drop)."""
+    shared p2p_selection clause (empty for p2p_plus_rule_drop).
+
+    task_acceptance_tests (T-E40-F11-008, ADR-F11-04) reuses
+    acceptance_tests' own acceptance_test_ids operand shape, gated to
+    entity_family "task" instead of "change_card". descendant_oracles_union
+    (T-E40-F11-009, ADR-F11-04) reuses child_oracles_union's own
+    integration_test_ids/child_oracles operand shape, gated to entity_family
+    "epic" instead of "feature"."""
     if kind == "f2p_p2p":
         return list(predicate.get("f2p_test_ids") or [])
-    if kind == "acceptance_tests":
+    if kind in ("acceptance_tests", "task_acceptance_tests"):
         return list(predicate.get("acceptance_test_ids") or [])
-    if kind == "child_oracles_union":
+    if kind in ("child_oracles_union", "descendant_oracles_union"):
         return list(predicate.get("integration_test_ids") or []) + list(predicate.get("child_oracles") or [])
     return []  # p2p_plus_rule_drop
 
@@ -320,8 +327,17 @@ def eval_predicate(package_yaml_path, test_doc, lint_doc, tmp_dir, tag):
 
 def validate_family_invariant(package):
     """REQ-F-004: entity_family 'feature' requires all five D01-D05
-    prelude stages true; 'bug'/'change_card'/'tech_debt' require all five
-    false, each with a non-empty reason."""
+    prelude stages true; 'epic'/'task'/'bug'/'change_card'/'tech_debt'
+    require all five false, each with a non-empty reason.
+
+    The six-value vocabulary (epic, feature, task, bug, change_card,
+    tech_debt) is REQ-F-007/ADR-F11-02's single authoritative set, defined
+    in tests/contracts/e40_i04_scenario_contract_test.go's
+    e40I04ValidEntityFamilies. This function is a consumer that must agree
+    with it, never a second source of truth. "sprint" and "question" stay
+    excluded -- they are orchestration workflows, not delivery-scenario
+    roots (feature.md REQ-F-007).
+    """
     family = package.get("entity_family")
     prelude = ((package.get("stage_matrix") or {}).get("prelude")) or {}
 
@@ -336,7 +352,7 @@ def validate_family_invariant(package):
             return False, f"entity_family 'feature' requires stage_matrix.prelude.{{{','.join(bad)}}} applicable: true"
         return True, None
 
-    if family in ("bug", "change_card", "tech_debt"):
+    if family in ("epic", "task", "bug", "change_card", "tech_debt"):
         bad = [s for s in PRELUDE_STAGES if prelude[s]["applicable"] is not False]
         if bad:
             return (
@@ -352,7 +368,7 @@ def validate_family_invariant(package):
             )
         return True, None
 
-    return False, f"entity_family is not one of feature|bug|change_card|tech_debt: {family!r}"
+    return False, f"entity_family is not one of epic|feature|task|bug|change_card|tech_debt: {family!r}"
 
 
 def validate_resource_policy(package):

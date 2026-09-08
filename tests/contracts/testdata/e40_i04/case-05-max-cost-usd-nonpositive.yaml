@@ -1,7 +1,7 @@
 # TC-030 case 5/17 (AC-005, REQ-F-011/015): resource_policy.max_cost_usd
 # is present but non-positive (0). Expected failing field:
 # resource_policy.max_cost_usd.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-05-max-cost-usd-nonpositive"
 scenario_version: 1
 entity_family: bug

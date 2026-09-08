@@ -4,6 +4,7 @@
 #                          [--acknowledge-provider-spend]
 #                          [--max-cost-usd <n>] [--max-wall-clock-seconds <n>]
 #                          [--max-generated-tasks <n>]
+#                          [--max-provider-calls <n>]
 #                          [--reps <n>] [--scenarios <id[,id...]>]
 #                          [--reclaim-incomplete]
 #
@@ -14,10 +15,21 @@
 # non-preview modes invokes the existing run-lifecycle.sh once per pair and
 # evaluate-lifecycle.sh once per completed pair, then retains their outputs
 # byte-for-byte under the operator-declared --retention-root. In preview
-# mode it invokes run-lifecycle.sh --mode dry-run once per requested
+# mode it invokes run-lifecycle.sh --mode resolve-route once per requested
 # scenario for stage resolution only and dispatches nothing else
 # (ADR-F10-01) -- --dry-run is a REQ-F-001 alias for --mode preview, never
 # a second flag convention.
+#
+# T-E40-F11-007 (spec.md REQ-F-005, §2.3.2): preview also writes
+# `resolution-ledger.jsonl` under --retention-root, one record per selected
+# scenario -- `{scenario_id, scenario_version, family, resolution,
+# cause_class, reason, dispatch_count, stage_count, terminal, stages[]}`.
+# The two scenarios below that never reach run-lifecycle.sh (unconfigured
+# root_key/scratch_root, or a configured scratch_root that does not exist)
+# still emit a `resolution: "skipped"` ledger record naming the cause --
+# never a silent omission (AC-F11-13/14, preflight's own fail-closed
+# requirement that every selected scenario resolve to exactly one ledger
+# record).
 #
 # --- Batch-policy.yaml (this script's own input contract; not an upstream
 # I-## shape) ---
@@ -101,6 +113,7 @@ usage: run-lifecycle-batch.sh --batch <policy.yaml> --retention-root <root>
                                [--max-cost-usd <n>]
                                [--max-wall-clock-seconds <n>]
                                [--max-generated-tasks <n>]
+                               [--max-provider-calls <n>]
                                [--reps <n>] [--scenarios <id[,id...]>]
                                [--reclaim-incomplete]
 
@@ -153,7 +166,7 @@ while [[ $# -gt 0 ]]; do
 	--acknowledge-provider-spend)
 		shift
 		;;
-	--max-cost-usd | --max-wall-clock-seconds | --max-generated-tasks)
+	--max-cost-usd | --max-wall-clock-seconds | --max-generated-tasks | --max-provider-calls)
 		[[ $# -ge 2 ]] || usage
 		shift 2
 		;;
@@ -524,12 +537,12 @@ readarray -t MATRIX_ROWS <"$MATRIX_TMP"
 
 # ---------------------------------------------------------------------------
 # PREVIEW (ADR-F10-01, REQ-F-001, REQ-NF-002): calls run-lifecycle.sh
-# --mode dry-run once per requested scenario for stage resolution only,
-# against an ephemeral copy of the scenario's declared scratch_root template
-# (never the template itself), and dispatches nothing else. Never aborts on
-# one scenario's resolution failure (matches run-batch.sh's non-aborting
-# discipline) -- an unconfigured or failing scenario is named, not fatal to
-# the preview as a whole.
+# --mode resolve-route once per requested scenario for stage resolution
+# only, against an ephemeral copy of the scenario's declared scratch_root
+# template (never the template itself), and dispatches nothing else. Never
+# aborts on one scenario's resolution failure (matches run-batch.sh's
+# non-aborting discipline) -- an unconfigured or failing scenario is named,
+# not fatal to the preview as a whole.
 # ---------------------------------------------------------------------------
 if [[ "$mode" == "preview" ]]; then
 	PREVIEW_WORK="$(mktemp -d)"
@@ -571,6 +584,40 @@ with open(matrix_path) as f:
 
 families = sorted({row["family"] for row in rows})
 
+# T-E40-F11-007 (spec.md REQ-F-005, §2.3.2): one resolution-ledger.jsonl
+# record per selected scenario -- written fresh each preview invocation
+# (this is a snapshot of THIS batch's selection, not an accumulating log).
+# `resolution`/`cause_class`/`reason`/`dispatch_count`/`stage_count`/
+# `stages[]`/`terminal` are never scraped from the human-readable text
+# below -- they are copied straight from run-lifecycle.sh's own structured
+# `--mode resolve-route` output record, or, for the two branches that never
+# reach run-lifecycle.sh, built directly from the same condition that
+# produces the printed "skipped" line.
+ledger_path = os.path.join(retention_root, "resolution-ledger.jsonl")
+ledger_records = []
+# Unlike pilot/baseline mode (which `mkdir -p "$out_root_canon"` before this
+# script's Python starts), preview mode never creates --retention-root --
+# it is documented as read-only there (only pilot-ledger.jsonl's presence
+# is ever checked, never written). Writing resolution-ledger.jsonl is new
+# for preview, so this is the one place that must create the directory.
+os.makedirs(retention_root, exist_ok=True)
+
+
+def emit_ledger_record(row, resolution, cause_class, reason, dispatch_count=0, stage_count=0, terminal=None, stages=None):
+    ledger_records.append({
+        "scenario_id": row["scenario_id"],
+        "scenario_version": row["scenario_version"],
+        "family": row["family"],
+        "resolution": resolution,
+        "cause_class": cause_class,
+        "reason": reason,
+        "dispatch_count": dispatch_count,
+        "stage_count": stage_count,
+        "terminal": terminal,
+        "stages": stages or [],
+    })
+
+
 print("=== run-lifecycle-batch: operator preview (zero provider calls) ===")
 print(f"retention root: {retention_root}")
 print("ceilings:")
@@ -598,10 +645,14 @@ for row in rows:
     root_key = row["root_key"]
     scratch_root = row["scratch_root"]
     if not root_key or not scratch_root:
-        print("    stage resolution: skipped (root_key/scratch_root not configured for this scenario in the batch policy)")
+        reason = "root_key/scratch_root not configured for this scenario in the batch policy"
+        print(f"    stage resolution: skipped ({reason})")
+        emit_ledger_record(row, "skipped", "unconfigured_root", reason)
         continue
     if not os.path.isdir(scratch_root):
-        print(f"    stage resolution: skipped (configured scratch_root does not exist: {scratch_root})")
+        reason = f"configured scratch_root does not exist: {scratch_root}"
+        print(f"    stage resolution: skipped ({reason})")
+        emit_ledger_record(row, "skipped", "missing_scratch_root", reason)
         continue
 
     ephemeral = os.path.join(work_dir, re.sub(r"[^A-Za-z0-9._-]", "_", row["scenario_id"]))
@@ -614,7 +665,7 @@ for row in rows:
     # at `ephemeral`, never a symlink to the template). Different copy
     # primitive, not vulnerable to the finding-2 defect class.
     shutil.copytree(scratch_root, ephemeral)
-    output_path = os.path.join(work_dir, f"{row['scenario_id']}-preview-lifecycle.jsonl")
+    output_path = os.path.join(work_dir, f"{row['scenario_id']}-preview-resolution.jsonl")
 
     process = subprocess.run(
         [
@@ -624,28 +675,45 @@ for row in rows:
             "--root", root_key,
             "--scratch-root", ephemeral,
             "--output", output_path,
-            "--mode", "dry-run",
+            "--mode", "resolve-route",
         ],
         text=True, capture_output=True, check=False,
     )
-    if process.returncode != 0:
+    if not os.path.isfile(output_path):
+        # run-lifecycle.sh never reached resolve_route's own record write --
+        # a usage/scenario-load error (bad --scenario, package not admitted,
+        # shark binary missing), not a route defect discovered while tracing.
         detail = (process.stderr or process.stdout).strip().splitlines()
         detail = detail[-1] if detail else "no diagnostic output"
-        print(f"    stage resolution: FAILED (run-lifecycle.sh --mode dry-run exited {process.returncode}: {detail})")
+        reason = f"run-lifecycle.sh --mode resolve-route exited {process.returncode} before writing a resolution record: {detail}"
+        print(f"    stage resolution: FAILED ({reason})")
+        emit_ledger_record(row, "failed", "route_defect", reason)
         continue
 
     with open(output_path) as f:
         record = json.loads(f.readline())
-    stage_count = len(record.get("stages") or [])
-    dispatch_count = len(record.get("dispatches") or [])
+    resolution = record.get("resolution", "failed")
+    cause_class = record.get("cause_class")
+    reason = record.get("reason", "")
+    stage_count = record.get("stage_count", len(record.get("stages") or []))
+    dispatch_count = record.get("dispatch_count", len(record.get("dispatches") or []))
     terminal = (record.get("outcome") or {}).get("terminal", "unknown")
-    print(f"    stage resolution: OK -- {dispatch_count} dispatch(es), {stage_count} stage(s) resolved, terminal={terminal}, planned provider calls=0 (dry-run short-circuit)")
+    emit_ledger_record(row, resolution, cause_class, reason, dispatch_count, stage_count, terminal, record.get("stages"))
+    if resolution == "failed":
+        print(f"    stage resolution: FAILED (run-lifecycle.sh --mode resolve-route: {reason})")
+    else:
+        deferral = f", artifact deferred: {reason}" if cause_class == "artifact_deferred" else ""
+        print(f"    stage resolution: OK -- {dispatch_count} dispatch(es), {stage_count} stage(s) resolved, terminal={terminal}, planned provider calls=0 (route resolution only){deferral}")
+
+with open(ledger_path, "w") as f:
+    for entry in ledger_records:
+        f.write(json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n")
 
 print("pilot-ledger state (per family, REQ-F-005 presence check):")
-ledger_path = os.path.join(retention_root, "pilot-ledger.jsonl")
+pilot_ledger_path = os.path.join(retention_root, "pilot-ledger.jsonl")
 attested_families = set()
-if os.path.isfile(ledger_path):
-    with open(ledger_path) as f:
+if os.path.isfile(pilot_ledger_path):
+    with open(pilot_ledger_path) as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -1261,6 +1329,7 @@ batch = {
         "max_cost_usd": flag_value(argv_joined, "--max-cost-usd"),
         "max_wall_clock_seconds": flag_value(argv_joined, "--max-wall-clock-seconds"),
         "max_generated_tasks": flag_value(argv_joined, "--max-generated-tasks"),
+        "max_provider_calls": flag_value(argv_joined, "--max-provider-calls"),
     },
     "acknowledgement_ref": {
         "flag": "--acknowledge-provider-spend",

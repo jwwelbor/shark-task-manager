@@ -1,0 +1,73 @@
+diff --git a/taskmanager/manager.py b/taskmanager/manager.py
+index d7f2b8d..39d30d6 100644
+--- a/taskmanager/manager.py
++++ b/taskmanager/manager.py
+@@ -19,13 +19,20 @@ class TaskManager:
+         self._tasks: dict[int, Task] = {}
+         self._next_id = 1
+ 
+-    def add_task(self, title: str, priority: str = "medium", due_date: str | None = None) -> Task:
++    def add_task(
++        self,
++        title: str,
++        priority: str = "medium",
++        due_date: str | None = None,
++        tags: list[str] | None = None,
++    ) -> Task:
+         validate_priority(priority)
+         task = Task(
+             id=self._next_id,
+             title=non_empty_title(title),
+             priority=priority,
+             due_date=due_date,
++            tags=list(tags or []),
+         )
+         self._tasks[task.id] = task
+         self._next_id += 1
+@@ -36,8 +43,23 @@ class TaskManager:
+         task.status = Status.DONE
+         return task
+ 
+-    def list_tasks(self) -> list[Task]:
+-        return list(self._tasks.values())
++    def tag_task(self, task_id: int, tag: str) -> Task:
++        """Attach a tag to a task, idempotently (re-tagging is a no-op)."""
++        task = self._tasks[task_id]
++        if tag not in task.tags:
++            task.tags.append(tag)
++        return task
++
++    def list_tasks(self, tag: str | None = None) -> list[Task]:
++        """List tasks, optionally filtered to those carrying `tag`.
++
++        With no filter, behavior is unchanged: every task, in insertion
++        order.
++        """
++        tasks = list(self._tasks.values())
++        if tag is None:
++            return tasks
++        return [t for t in tasks if tag in t.tags]
+ 
+     def overdue_tasks(self, today: date) -> list[Task]:
+         return [
+diff --git a/taskmanager/models.py b/taskmanager/models.py
+index 334e2d2..5366538 100644
+--- a/taskmanager/models.py
++++ b/taskmanager/models.py
+@@ -2,7 +2,7 @@
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
+ from enum import Enum
+ 
+ 
+@@ -19,6 +19,7 @@ class Task:
+     priority: str = "medium"
+     status: Status = Status.TODO
+     due_date: str | None = None  # ISO 8601 date string, e.g. "2026-01-15"
++    tags: list[str] = field(default_factory=list)
+ 
+     def is_done(self) -> bool:
+         return self.status == Status.DONE

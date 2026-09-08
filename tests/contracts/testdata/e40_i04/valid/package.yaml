@@ -5,7 +5,7 @@
 # broken, so the validator's per-case error is attributable to that one
 # field and not to unrelated noise (input/evaluator paths below are real,
 # committed files under valid/, shared by every case fixture).
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-valid-baseline"
 scenario_version: 1
 entity_family: bug

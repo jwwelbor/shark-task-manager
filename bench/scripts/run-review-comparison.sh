@@ -5,6 +5,7 @@
 #                           [--acknowledge-provider-spend]
 #                           [--max-cost-usd <n>] [--max-wall-clock-seconds <n>]
 #                           [--max-generated-tasks <n>]
+#                           [--max-provider-calls <n>]
 #
 # T-E40-F10-005 (spec.md REQ-F-014, REQ-F-015, ADR-F10-04): operator
 # review-comparison driver. Drives the feature-QA gate and the
@@ -100,6 +101,7 @@ usage: run-review-comparison.sh --candidate <candidate.yaml> --retention-root <r
                                  [--max-cost-usd <n>]
                                  [--max-wall-clock-seconds <n>]
                                  [--max-generated-tasks <n>]
+                                 [--max-provider-calls <n>]
 EOF
 	exit 2
 }
@@ -139,7 +141,7 @@ while [[ $# -gt 0 ]]; do
 	--acknowledge-provider-spend)
 		shift
 		;;
-	--max-cost-usd | --max-wall-clock-seconds | --max-generated-tasks)
+	--max-cost-usd | --max-wall-clock-seconds | --max-generated-tasks | --max-provider-calls)
 		[[ $# -ge 2 ]] || usage
 		shift 2
 		;;
@@ -446,6 +448,7 @@ ceilings = {
     "max_cost_usd": flag_value(argv_joined, "--max-cost-usd"),
     "max_wall_clock_seconds": flag_value(argv_joined, "--max-wall-clock-seconds"),
     "max_generated_tasks": flag_value(argv_joined, "--max-generated-tasks"),
+    "max_provider_calls": flag_value(argv_joined, "--max-provider-calls"),
 }
 
 rows = []

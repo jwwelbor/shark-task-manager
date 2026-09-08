@@ -94,3 +94,20 @@ mkdir -p "$(dirname "$dest_dir")"
 
 git -c advice.detachedHead=false clone --quiet -- "$fixture_submodule" "$dest_dir"
 git -C "$dest_dir" -c advice.detachedHead=false checkout --quiet "$base_sha" --
+
+# REQ-F-002/AC-F11-03: assert the clone actually landed where requested
+# before any caller treats $dest_dir as bound to base_sha. Resolves
+# base_sha through rev-parse (rather than a raw string compare) so an
+# admitted package's full 40-hex base_sha and this checkout's HEAD are
+# compared as the SAME commit even if a caller ever supplies an
+# abbreviated or symbolic base_sha; every committed package.yaml already
+# pins a full 40-hex SHA. Fails with both SHAs named -- this should be
+# unreachable in practice (git checkout <ref> cannot silently land
+# elsewhere), but the checkout binding this script exists to provide is
+# never allowed to rest on that assumption unverified.
+requested_head="$(git -C "$dest_dir" rev-parse "$base_sha^{commit}")"
+checked_out_head="$(git -C "$dest_dir" rev-parse HEAD)"
+if [[ "$checked_out_head" != "$requested_head" ]]; then
+	echo "checkout-scenario-fixture: checked-out HEAD ($checked_out_head) does not match requested base_sha ($requested_head, from $base_sha)" >&2
+	exit 1
+fi

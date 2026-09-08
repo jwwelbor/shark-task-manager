@@ -51,7 +51,7 @@
 # run against this file at the frozen base_sha (T-E40-F05-014) -- not
 # hand-authored -- so it satisfies TC-032's caller-path contract (no
 # hardcoded verdicts), superseding this task's original interim run.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "py-feature-recurring-tasks"
 scenario_version: 1
 entity_family: feature

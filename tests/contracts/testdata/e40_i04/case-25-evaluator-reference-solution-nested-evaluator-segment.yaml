@@ -10,7 +10,7 @@
 # check -- a decoy evaluator/ directory outside the package's real one was
 # enough to pass. Expected failing field:
 # evaluator_only.reference_solution.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-25-evaluator-reference-solution-nested-evaluator-segment"
 scenario_version: 1
 entity_family: bug

@@ -3,7 +3,7 @@
 # path field must be rejected outright when given as absolute -- an
 # absolute path sidesteps the package-root containment check entirely if
 # it isn't rejected on its own. Expected failing field: input.agent_visible.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-18-agent-visible-absolute-path"
 scenario_version: 1
 entity_family: bug

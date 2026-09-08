@@ -97,12 +97,22 @@
 # AC-009 case (d) observes via a PATH-stubbed dispatcher's empty invocation
 # log.
 #
+# REQ-F-002/AC-F11-03: before any collector process starts, <fixture_checkout>'s
+# resolved `git rev-parse HEAD` is asserted against the package's declared
+# fixture.base_sha (when the package declares one). A mismatch aborts with
+# both SHAs named -- the caller is expected to have built <fixture_checkout>
+# via lib/e40_benchmark.py's admitted_fixture_checkout(), which already
+# performs and enforces this same binding, but this guard never trusts that
+# unverified: it is the last checkpoint before signal (4)'s collector
+# subprocess actually spawns.
+#
 # Exit status: 0 = both roots clean ("CLEAN" on stdout). 1 = an isolation
 # violation was found -- a normal, informative verdict; the message on
 # stderr names the offending root, the offending path, the evaluator-only
 # source it matched, and the match kind. 2 = a script/usage/authoring error
 # (bad args, missing files, malformed package.yaml, a declared evaluator_only
-# path that escapes <evaluator_root> or does not exist on disk).
+# path that escapes <evaluator_root> or does not exist on disk, or a
+# fixture_checkout whose HEAD does not match the package's fixture.base_sha).
 #
 # Requires: python3 with PyYAML (`import yaml`) on PATH.
 set -euo pipefail
@@ -356,6 +366,40 @@ def derive_test_identities(package, package_yaml_path, resolved_path, fixture_ch
     return deduped
 
 
+def assert_fixture_checkout_binding(package_yaml_path, fixture_checkout):
+    """REQ-F-002/AC-F11-03: the caller-supplied <fixture_checkout>'s
+    resolved HEAD must equal the package's admitted fixture.base_sha
+    BEFORE any collector process starts (build_targets() is what spawns
+    the test-identity collector, via derive_test_identities()). Fails
+    closed (ScriptError, exit 2) naming both SHAs on a mismatch.
+
+    Skipped when the package declares no fixture.base_sha at all (e.g. a
+    non-applicable/offline fixture used only to exercise this guard's
+    other signals) -- there is nothing to bind against in that case."""
+    package = load_yaml(package_yaml_path, "package.yaml")
+    fixture = package.get("fixture")
+    if not isinstance(fixture, dict):
+        return
+    base_sha = fixture.get("base_sha")
+    if not isinstance(base_sha, str) or not base_sha:
+        return
+    process = subprocess.run(
+        ["git", "-C", fixture_checkout, "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if process.returncode != 0:
+        raise ScriptError(
+            f"cannot resolve fixture_checkout HEAD: {fixture_checkout}: {process.stderr.strip()}"
+        )
+    actual_head = process.stdout.strip()
+    if actual_head != base_sha:
+        raise ScriptError(
+            "fixture_checkout HEAD mismatch: "
+            f"checkout={fixture_checkout} expected fixture.base_sha={base_sha} got={actual_head}"
+        )
+
+
 def build_targets(package_yaml_path, evaluator_root, fixture_checkout, scenarios_yaml_path, collectors_dir):
     """Builds the ordered, package-derived list of search targets
     (REQ-F-010: "names MUST be derived from the package at call time, never
@@ -484,6 +528,8 @@ def main():
 
     root_fixture_checkout = "agent_fixture_checkout"
     root_scratch_project = "scratch_shark_project"
+
+    assert_fixture_checkout_binding(package_yaml_path, fixture_checkout)
 
     targets = build_targets(package_yaml_path, evaluator_root, fixture_checkout, scenarios_yaml_path, collectors_dir)
 

@@ -5,7 +5,7 @@
 # real, existing go.mod. The pre-rework validator's existence-only check
 # passed it -- an existing file outside the package entirely. Expected
 # failing field: evaluator_only.oracle_tests.
-schema_version: "1.0"
+schema_version: "1.1"
 scenario_id: "test-case-21-evaluator-oracle-tests-escapes-package-root"
 scenario_version: 1
 entity_family: bug

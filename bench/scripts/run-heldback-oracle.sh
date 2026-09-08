@@ -180,11 +180,21 @@ def resolve_reference_path(evaluator, package_root, evaluator_root):
 
 
 def resolve_predicate(package):
-    """Resolve and validate the final predicate kind and its test IDs."""
+    """Resolve and validate the final predicate kind and its test IDs.
+
+    task_acceptance_tests (T-E40-F11-008, ADR-F11-04) reuses acceptance_tests'
+    own acceptance_test_ids operand, already picked up unconditionally above --
+    it only needed adding to this kind allowlist, gated to entity_family
+    "task" instead of "change_card" (enforced at admission by the Go
+    validator, not here). descendant_oracles_union (T-E40-F11-009,
+    ADR-F11-04) reuses child_oracles_union's own integration_test_ids/
+    child_oracles operands, already picked up unconditionally above -- it
+    only needed adding to this kind allowlist, gated to entity_family "epic"
+    instead of "feature"."""
     predicate = package.get("final_predicate") or {}
     kind = predicate.get("kind")
     test_ids = list(predicate.get("acceptance_test_ids") or []) + list(predicate.get("integration_test_ids") or []) + list(predicate.get("child_oracles") or [])
-    if kind not in {"f2p_p2p", "acceptance_tests", "p2p_plus_rule_drop", "child_oracles_union"}:
+    if kind not in {"f2p_p2p", "acceptance_tests", "p2p_plus_rule_drop", "child_oracles_union", "task_acceptance_tests", "descendant_oracles_union"}:
         finish(invalid("source_malformed", "/final_predicate/kind", "unknown predicate kind"), 2)
     if kind == "f2p_p2p":
         test_ids = list(predicate.get("f2p_test_ids") or [])

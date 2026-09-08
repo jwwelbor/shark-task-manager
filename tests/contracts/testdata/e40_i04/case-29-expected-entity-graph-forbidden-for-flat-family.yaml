@@ -1,0 +1,60 @@
+# TC-030 case 29 (T-E40-F11-005, AC-F11-25, ADR-F11-09): a bug-family
+# package (entity_family: bug, a non-hierarchical/flat family) that
+# nonetheless declares an expected_entity_graph block. Forbidden for task,
+# bug, change_card, and tech_debt -- a flat package cannot silently declare
+# a descendant budget. Otherwise identical to valid/package.yaml (shared
+# valid/ evaluator and input assets reused, same as every other
+# case-*.yaml in this directory). Expected failing field:
+# expected_entity_graph.
+schema_version: "1.1"
+scenario_id: "test-case-29-expected-entity-graph-forbidden-for-flat-family"
+scenario_version: 1
+entity_family: bug
+stage_matrix:
+  prelude:
+    D01: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D02: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D03: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D04: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+    D05: {applicable: false, reason: "bug scenarios skip the product-design prelude"}
+  lifecycle:
+    mode: all_dispatched
+    evidence_required: true
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "0000000000000000000000000000000000000000"
+adapter:
+  name: python
+  version: "1.0.0"
+toolchain_identity:
+  - key: python_version
+    value: "3.12.0"
+  - key: pytest_version
+    value: "8.0.0"
+input:
+  agent_visible: valid/input/prompt.md
+evaluator_only:
+  reference_solution: valid/evaluator/reference.patch
+  oracle_tests:
+    - valid/evaluator/oracle_test.txt
+  answer_keys: []
+final_predicate:
+  kind: f2p_p2p
+  p2p_selection:
+    include: ["taskmanager"]
+    exclude_test_ids: []
+  f2p_test_ids: ["tests.test_due_date::test_boundary"]
+resource_policy:
+  max_cost_usd: 5.0
+  max_wall_clock_seconds: 600
+  max_generated_tasks: 20
+expected_entity_graph:
+  root_family: bug
+  descendants:
+    - {family: task, required: true, min: 1, max: 1}
+  required_terminal_states:
+    task: completed
+  unexpected_descendants: invalidate
+  required_artifacts: []
+  required_provenance: []
