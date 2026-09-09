@@ -11,7 +11,7 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
-mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch"
+mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch" "$WORKDIR/i05"
 
 cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
@@ -34,6 +34,10 @@ elif args[:2] == ["status", "advance"]:
     print('{"advanced":true}')
 elif args and args[0] == "release":
     print('{"released":true}')
+elif args[:3] == ["admin", "workflow", "list"]:
+    level = args[3]
+    with open(os.path.join(os.environ["SHARK_WORKFLOW_DIR"], level + ".json")) as f:
+        print(f.read())
 else:
     raise SystemExit("unexpected shark argv: " + repr(args))
 PY
@@ -51,9 +55,11 @@ chmod +x "$WORKDIR/adapter.sh"
 
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
 SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" ADAPTER_REQUEST="$WORKDIR/request.json" \
+SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.01 "$RUNNER" \
     --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
     --run-id tc061 --root ROOT-001 --scratch-root "$WORKDIR/scratch" \
+    --i05-bundle-dir "$WORKDIR/i05" \
     --output "$WORKDIR/lifecycle.jsonl" >/dev/null
 
 python3 - "$WORKDIR/events.ndjson" "$WORKDIR/request.json" "$WORKDIR/lifecycle.jsonl" <<'PY'
@@ -62,14 +68,21 @@ events = [json.loads(line) for line in open(sys.argv[1])]
 request = json.load(open(sys.argv[2]))
 record = json.loads(open(sys.argv[3]).readline())
 names = [e["argv"][0] for e in events]
-assert names[0:2] == ["next", "claim"] and names[-2:] == ["status", "release"], events
+# T-E40-F12-002: record_stage()'s own phase lookup (`admin workflow list`)
+# runs after the dispatch's claim/heartbeat/status/release sequence
+# completes, so it legitimately appends one trailing "admin" event here --
+# excluded from this test's own claim/heartbeat/transition/release
+# ordering assertion, which is what TC-061 actually covers.
+non_i05_names = [name for name in names if name != "admin"]
+assert non_i05_names[0:2] == ["next", "claim"] and non_i05_names[-2:] == ["status", "release"], events
 assert names.count("heartbeat") >= 1, events
 assert events[0]["argv"][:4] == ["next", "ROOT-001", "--json", "--prompt-out"]
 assert events[1]["argv"][1] == "TASK-002"
 heartbeats = [e for e in events if e["argv"][0] == "heartbeat"]
 assert all(e["argv"][1] == "TASK-002" and "SID-002" in e["argv"] for e in heartbeats)
-status = events[-2]
-release = events[-1]
+non_i05_events = [e for e in events if e["argv"][0] != "admin"]
+status = non_i05_events[-2]
+release = non_i05_events[-1]
 assert "SID-002" in status["argv"] and "development" in status["argv"]
 assert release["argv"][1] == "TASK-002" and "SID-002" in release["argv"]
 assert record["dispatches"][0]["heartbeats"]

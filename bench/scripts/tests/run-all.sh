@@ -126,6 +126,9 @@ tests=(
 	"$SCRIPT_DIR/tc112_six_family_reporting_test.sh"
 	"$SCRIPT_DIR/tc113_baseline_capture_gate_sequence_test.sh"
 	"$SCRIPT_DIR/tc114_six_family_doc_gate_test.sh"
+	"$SCRIPT_DIR/tc115_i05_producer_test.sh"
+	"$SCRIPT_DIR/tc116_content_identity_crosscheck_test.sh"
+	"$SCRIPT_DIR/tc117_i05_caller_pass_through_guard_test.sh"
 )
 
 status=0

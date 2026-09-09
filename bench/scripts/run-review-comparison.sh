@@ -798,6 +798,17 @@ dispatch_gate() {
 	fi
 	local lifecycle_out="$pair_work/lifecycle.jsonl"
 
+	# ADR-F12-07: this guard used to run AFTER run-lifecycle.sh dispatched
+	# (i.e. after real provider spend), only to then fail evaluation. Moved
+	# here, immediately before the run (after the scratch_root copy this
+	# function's other pre-dispatch failure modes already share), so a
+	# misconfigured gate is refused before a single dispatch is attempted.
+	if [[ -z "$i05_bundle_dir" ]]; then
+		echo "run-review-comparison: $gate gate: i05_bundle_dir not configured; cannot evaluate" >&2
+		rm -rf "$pair_work"
+		return 1
+	fi
+
 	echo "run-review-comparison: dispatching $gate gate" >&2
 	set +e
 	# UAT-R2-01: --limits carries the operator-acknowledged ceilings
@@ -807,17 +818,11 @@ dispatch_gate() {
 	# to the scenario package's resource_policy default.
 	"$RUN_LIFECYCLE_BIN" --scenario "$package_path" --run-id "cmp-${scenario_id}-${gate}" \
 		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out" \
-		--limits "$OPERATOR_LIMITS_FILE" </dev/null
+		--limits "$OPERATOR_LIMITS_FILE" --i05-bundle-dir "$i05_bundle_dir" </dev/null
 	local run_rc=$?
 	set -e
 	if [[ "$run_rc" -ne 0 ]]; then
 		echo "run-review-comparison: $gate gate FAILED (run-lifecycle.sh exit $run_rc)" >&2
-		rm -rf "$pair_work"
-		return 1
-	fi
-
-	if [[ -z "$i05_bundle_dir" ]]; then
-		echo "run-review-comparison: $gate gate: i05_bundle_dir not configured; cannot evaluate" >&2
 		rm -rf "$pair_work"
 		return 1
 	fi

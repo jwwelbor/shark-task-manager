@@ -1,0 +1,104 @@
+{
+  "levels": [
+    {
+      "level": "tech_debt",
+      "source": "default",
+      "version": "1.0",
+      "statuses": [
+        {
+          "name": "cancelled",
+          "description": "Tech debt no longer relevant",
+          "phase": "done",
+          "color": "red",
+          "transitions": []
+        },
+        {
+          "name": "identified",
+          "description": "Tech debt identified, not yet triaged",
+          "phase": "planning",
+          "color": "gray",
+          "is_planning": true,
+          "transitions": [
+            "research",
+            "identified",
+            "cancelled",
+            "wont_fix"
+          ]
+        },
+        {
+          "name": "in_progress",
+          "description": "Tech debt resolution in progress",
+          "phase": "development",
+          "color": "yellow",
+          "transitions": [
+            "resolved",
+            "identified",
+            "cancelled",
+            "wont_fix"
+          ],
+          "agent_types": [
+            "developer"
+          ]
+        },
+        {
+          "name": "research",
+          "description": "Ready for recipe-driven debt investigation before triage",
+          "phase": "research",
+          "color": "purple",
+          "is_planning": true,
+          "transitions": [
+            "triaged",
+            "identified",
+            "cancelled",
+            "wont_fix"
+          ],
+          "agent_types": [
+            "researcher"
+          ]
+        },
+        {
+          "name": "resolved",
+          "description": "Tech debt resolved and verified",
+          "phase": "done",
+          "color": "green",
+          "transitions": []
+        },
+        {
+          "name": "triaged",
+          "description": "Triaged and ready for resolution",
+          "phase": "development",
+          "color": "yellow",
+          "transitions": [
+            "in_progress",
+            "identified",
+            "cancelled",
+            "wont_fix"
+          ],
+          "agent_types": [
+            "developer"
+          ]
+        },
+        {
+          "name": "wont_fix",
+          "description": "Tech debt acknowledged but will not be fixed",
+          "phase": "done",
+          "color": "red",
+          "transitions": []
+        }
+      ],
+      "special_statuses": {
+        "_complete_": [
+          "cancelled",
+          "resolved",
+          "wont_fix"
+        ],
+        "_start_": [
+          "identified"
+        ]
+      },
+      "status_count": 7,
+      "transition_count": 16
+    }
+  ],
+  "config_path": "/tmp/shark-scratch-e40f12scratch-8JDPhh/.sharkconfig.json"
+}

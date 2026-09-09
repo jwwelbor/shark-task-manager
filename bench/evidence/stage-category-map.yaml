@@ -1,0 +1,86 @@
+# bench/evidence/stage-category-map.yaml
+#
+# The closed §2.4 workflow-phase -> I-05 stage_category table
+# (T-E40-F12-002, spec.md REQ-F-004, ADR-F12-04). Single machine-readable
+# owner, mirroring the discipline bench/evidence/i05-schema.yaml and
+# bench/evidence/usage-mapping.yaml already establish for their own closed
+# vocabularies -- the producer (bench/scripts/run-lifecycle.sh) reads this
+# file rather than embedding a private copy of the mapping, and MUST NOT
+# guess, default, or hard-code a stage_category for a phase this file does
+# not declare.
+#
+# Every phase every shipped default workflow declares (read live via
+# `shark admin workflow list <level> --json`, all six dispatchable levels --
+# task, feature, epic, bug, change, tech_debt -- captured 2026-09-09) is
+# assigned exactly one row here: 17 real phase values, no fallthrough, no
+# default. A dispatched status whose phase is absent from this table (or
+# has no phase at all) MUST yield a snapshot `errors[]` entry
+# `{kind: "unknown_stage_category"}` naming the status and phase -- never a
+# substituted category (REQ-F-004).
+#
+# `stage_category: null` marks a phase that is a real, named workflow phase
+# but carries no I-05 stage_category -- `blocked`/`paused`/`done` are
+# parking/terminal statuses `shark next` never dispatches via spawn_agent,
+# so no snapshot is ever written for them in practice. They still need a
+# row here (not a fallthrough into "unmapped") so this file's declared
+# phase set exactly matches the live union of phases across all six levels
+# -- the state-addition regression case a new workflow phase must trip.
+#
+# This file adds no new I-05 vocabulary: `stage_category` values are the
+# same closed eight-value enum bench/evidence/i05-schema.yaml already
+# declares.
+
+schema_version: "1.0"
+
+phases:
+  research:
+    stage_category: discovery
+    dispatchable: true
+  triage:
+    stage_category: discovery
+    dispatchable: true
+  refinement:
+    stage_category: specification
+    dispatchable: true
+  specification:
+    stage_category: specification
+    dispatchable: true
+  design:
+    stage_category: specification
+    dispatchable: true
+  decomposition:
+    stage_category: planning
+    dispatchable: true
+  planning:
+    stage_category: planning
+    dispatchable: true
+  test_planning:
+    stage_category: planning
+    dispatchable: true
+  development:
+    stage_category: code
+    dispatchable: true
+  code_review:
+    stage_category: review
+    dispatchable: true
+  review:
+    stage_category: review
+    dispatchable: true
+  qa:
+    stage_category: qa
+    dispatchable: true
+  approval:
+    stage_category: uat
+    dispatchable: true
+  execution:
+    stage_category: code
+    dispatchable: true
+  blocked:
+    stage_category: null
+    dispatchable: false
+  paused:
+    stage_category: null
+    dispatchable: false
+  done:
+    stage_category: null
+    dispatchable: false

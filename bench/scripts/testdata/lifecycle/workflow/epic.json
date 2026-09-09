@@ -1,0 +1,216 @@
+{
+  "levels": [
+    {
+      "level": "epic",
+      "source": "default",
+      "version": "1.0",
+      "statuses": [
+        {
+          "name": "active",
+          "description": "Features in progress, progress aggregated from children",
+          "phase": "execution",
+          "color": "yellow",
+          "aggregates_from": "features",
+          "transitions": [
+            "integration_review",
+            "feature_review",
+            "blocked",
+            "on_hold"
+          ]
+        },
+        {
+          "name": "assessment",
+          "description": "Ready for intake triage — confirm this is genuinely an epic before the heavyweight pipeline runs",
+          "phase": "triage",
+          "color": "purple",
+          "is_planning": true,
+          "transitions": [
+            "refinement",
+            "draft",
+            "blocked",
+            "cancelled",
+            "on_hold"
+          ],
+          "agent_types": [
+            "researcher"
+          ]
+        },
+        {
+          "name": "blocked",
+          "description": "External blocker preventing progress",
+          "phase": "blocked",
+          "color": "red",
+          "transitions": [
+            "active",
+            "assessment",
+            "decomposition",
+            "design",
+            "draft",
+            "feature_review",
+            "integration_review",
+            "refinement",
+            "research"
+          ]
+        },
+        {
+          "name": "cancelled",
+          "description": "Epic abandoned or reclassified into a lighter entity",
+          "phase": "done",
+          "color": "red",
+          "transitions": []
+        },
+        {
+          "name": "completed",
+          "description": "All features done, epic delivered",
+          "phase": "done",
+          "color": "green",
+          "transitions": []
+        },
+        {
+          "name": "decomposition",
+          "description": "Ready to break epic into features",
+          "phase": "decomposition",
+          "color": "blue",
+          "is_planning": true,
+          "transitions": [
+            "feature_review",
+            "design",
+            "blocked",
+            "cancelled",
+            "on_hold"
+          ],
+          "agent_types": [
+            "product-manager"
+          ]
+        },
+        {
+          "name": "design",
+          "description": "Ready for architecture decisions and UAT plan",
+          "phase": "design",
+          "color": "cyan",
+          "is_planning": true,
+          "transitions": [
+            "decomposition",
+            "research",
+            "blocked",
+            "cancelled",
+            "on_hold",
+            "refinement"
+          ],
+          "agent_types": [
+            "architect"
+          ]
+        },
+        {
+          "name": "draft",
+          "description": "Epic captured, not yet refined",
+          "phase": "planning",
+          "color": "gray",
+          "is_planning": true,
+          "transitions": [
+            "assessment",
+            "draft",
+            "blocked",
+            "active",
+            "cancelled"
+          ]
+        },
+        {
+          "name": "feature_review",
+          "description": "Ready for codex review of features against epic requirements",
+          "phase": "review",
+          "color": "magenta",
+          "is_planning": true,
+          "transitions": [
+            "active",
+            "decomposition",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "uat-agent"
+          ]
+        },
+        {
+          "name": "integration_review",
+          "description": "Ready for cross-feature integration review before epic completion",
+          "phase": "review",
+          "color": "cyan",
+          "transitions": [
+            "completed",
+            "active",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "uat-agent"
+          ]
+        },
+        {
+          "name": "on_hold",
+          "description": "Intentionally paused, awaiting product decision",
+          "phase": "paused",
+          "color": "gray",
+          "transitions": [
+            "active",
+            "assessment",
+            "decomposition",
+            "design",
+            "draft",
+            "feature_review",
+            "integration_review",
+            "refinement",
+            "research"
+          ]
+        },
+        {
+          "name": "refinement",
+          "description": "Ready for BA to write epic PRD",
+          "phase": "refinement",
+          "color": "orange",
+          "is_planning": true,
+          "transitions": [
+            "research",
+            "draft",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "business-analyst"
+          ]
+        },
+        {
+          "name": "research",
+          "description": "Ready for recipe-driven research before design",
+          "phase": "research",
+          "color": "purple",
+          "is_planning": true,
+          "transitions": [
+            "design",
+            "refinement",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "researcher"
+          ]
+        }
+      ],
+      "special_statuses": {
+        "_aggregation_": [
+          "active"
+        ],
+        "_complete_": [
+          "cancelled",
+          "completed"
+        ],
+        "_start_": [
+          "draft"
+        ]
+      },
+      "status_count": 13,
+      "transition_count": 59
+    }
+  ],
+  "config_path": "/tmp/shark-scratch-e40f12scratch-8JDPhh/.sharkconfig.json"
+}

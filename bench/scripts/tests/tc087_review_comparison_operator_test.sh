@@ -601,11 +601,14 @@ echo "TC-087(case J, round-5 finding 1): dispatch_gate now refuses when scenario
 # top-level shape too). The qa gate is pre-retained (skip path, mirroring
 # every other case's fixture discipline) so only the deep_review gate
 # actually dispatches; its scratch_root is ITSELF a symlink to a real
-# template directory. i05_bundle_dir is left unconfigured so the gate fails
-# AFTER the copy+dispatch step (same minimal-plumbing discipline as case L)
-# -- the point of this case is proving the stub WAS invoked (dispatch
-# proceeded) and that its write through the top-level-symlinked scratch_root
-# never reached the real template, not proving a full successful publish.
+# template directory. i05_bundle_dir IS configured (T-E40-F12-006 ADR-F12-07:
+# that guard now runs BEFORE dispatch, so leaving it unconfigured would
+# refuse the gate before the stub is ever invoked, defeating this case's own
+# point) and EVALUATE_LIFECYCLE_BIN is a deterministic always-fail stub, so
+# the gate still fails AFTER the copy+dispatch step -- the point of this
+# case is proving the stub WAS invoked (dispatch proceeded) and that its
+# write through the top-level-symlinked scratch_root never reached the real
+# template, not proving a full successful publish.
 # ---------------------------------------------------------------------------
 ROOT_K="$WORKDIR/root-k"
 mkdir -p "$ROOT_K"
@@ -637,12 +640,13 @@ gates:
   deep_review:
     root_key: "ROOT-TC087-SCRATCH-SYMLINK"
     scratch_root: "$SCRATCH_SYMLINK_K"
+    i05_bundle_dir: "$WORKDIR/i05-bundle-k"
 EOF
 
 # The stub touches a sentinel OUTSIDE its own --scratch-root argument (a
 # fixed WORKDIR path, not under pair_work, which gets rm -rf'd once
-# dispatch_gate's later i05_bundle_dir check fails) to prove it was
-# genuinely invoked -- proving dispatch proceeded rather than being refused.
+# dispatch_gate's later evaluation step fails) to prove it was genuinely
+# invoked -- proving dispatch proceeded rather than being refused.
 STUB_INVOKED_SENTINEL_K="$WORKDIR/stub-invoked-sentinel-k"
 SCRATCH_SYMLINK_STUB_K="$WORKDIR/scratch-symlink-stub-k.sh"
 cat >"$SCRATCH_SYMLINK_STUB_K" <<EOF
@@ -661,12 +665,24 @@ exit 0
 EOF
 chmod +x "$SCRATCH_SYMLINK_STUB_K"
 
+# T-E40-F12-006: i05_bundle_dir is now real (above), so dispatch reaches
+# evaluation -- this always-fail stub is what makes the gate ultimately
+# fail, standing in for the deliberately-unconfigured-i05_bundle_dir
+# mechanism this case used before ADR-F12-07 moved that guard pre-dispatch.
+EVAL_ALWAYS_FAIL_K="$WORKDIR/evaluate-lifecycle-always-fail-k.sh"
+cat >"$EVAL_ALWAYS_FAIL_K" <<'EOF'
+#!/usr/bin/env bash
+echo "tc087 case K fixture: deliberate evaluation failure" >&2
+exit 1
+EOF
+chmod +x "$EVAL_ALWAYS_FAIL_K"
+
 rc_k=0
-RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB_K" \
+RUN_LIFECYCLE_BIN="$SCRATCH_SYMLINK_STUB_K" EVALUATE_LIFECYCLE_BIN="$EVAL_ALWAYS_FAIL_K" \
 	"$COMPARISON" --candidate "$CANDIDATE_K_YAML" --retention-root "$ROOT_K" \
 	--mode pilot --comparison-mode independent_frozen_candidate "${ACK_FLAGS[@]}" \
 	>"$ROOT_K.out" 2>&1 || rc_k=$?
-[[ "$rc_k" -eq 4 ]] || fail "case K (round-6 generalization): expected exit 4 (deep_review gate fails after dispatch, since i05_bundle_dir is deliberately unconfigured; comparison never attempted), got $rc_k: $(cat "$ROOT_K.out")"
+[[ "$rc_k" -eq 4 ]] || fail "case K (round-6 generalization): expected exit 4 (deep_review gate dispatches for real then fails at evaluation via the always-fail stub; comparison never attempted), got $rc_k: $(cat "$ROOT_K.out")"
 [[ -f "$STUB_INVOKED_SENTINEL_K" ]] || fail "case K (round-6 generalization): the stub lifecycle worker was never invoked -- a TOP-LEVEL symlinked scratch_root must now be dereferenced and dispatched, not refused"
 SCRATCH_TEMPLATE_K_AFTER="$(sha256sum "$SCRATCH_REAL_TEMPLATE_K/marker.txt" | awk '{print $1}')"
 [[ "$SCRATCH_TEMPLATE_K_AFTER" == "$SCRATCH_TEMPLATE_K_BEFORE" ]] \
@@ -684,13 +700,13 @@ echo "TC-087(case K, round-6 generalization): dispatch_gate dereferences (copy_t
 # symlinked scratch_root (refused outright before any copy runs), this
 # scratch_root is real, so assert_source_not_symlink correctly allows
 # dispatch to proceed, and copy_tree_dereferenced must dereference the
-# nested symlink into a genuinely independent copy. i05_bundle_dir is left
-# unconfigured so the gate ultimately fails AFTER the copy+dispatch step
-# (mirroring this file's own "never fully drives a successful RUN_LIFECYCLE_
-# BIN dispatch" discipline) -- the point of this case is proving the STUB
-# WAS invoked (dispatch proceeded, unlike case K) and that its write through
-# the nested-symlink-shaped path never reached the external target, not
-# proving a full successful publish.
+# nested symlink into a genuinely independent copy. i05_bundle_dir IS
+# configured (T-E40-F12-006 ADR-F12-07; see case K's identical rationale
+# above) and EVALUATE_LIFECYCLE_BIN is a deterministic always-fail stub, so
+# the gate ultimately fails AFTER the copy+dispatch step -- the point of
+# this case is proving the STUB WAS invoked (dispatch proceeded, unlike
+# case K) and that its write through the nested-symlink-shaped path never
+# reached the external target, not proving a full successful publish.
 # ---------------------------------------------------------------------------
 ROOT_L="$WORKDIR/root-l"
 mkdir -p "$ROOT_L"
@@ -726,14 +742,15 @@ gates:
   deep_review:
     root_key: "ROOT-TC087-SCRATCH-NESTED-SYMLINK"
     scratch_root: "$SCRATCH_NESTED_ROOT_L"
+    i05_bundle_dir: "$WORKDIR/i05-bundle-l"
 EOF
 
 # The stub touches a sentinel OUTSIDE its own --scratch-root argument (a
 # fixed WORKDIR path, not under pair_work, which gets rm -rf'd once
-# dispatch_gate's later i05_bundle_dir check fails) to prove it was
-# genuinely invoked -- unlike case K, where the stub must NEVER run. It also
-# writes through the nested "prompts" path, mirroring what a real lifecycle
-# worker does.
+# dispatch_gate's later evaluation step fails) to prove it was genuinely
+# invoked -- unlike case K, where the stub must NEVER run. It also writes
+# through the nested "prompts" path, mirroring what a real lifecycle worker
+# does.
 STUB_INVOKED_SENTINEL_L="$WORKDIR/stub-invoked-sentinel-l"
 SCRATCH_NESTED_STUB_L="$WORKDIR/scratch-nested-stub-l.sh"
 cat >"$SCRATCH_NESTED_STUB_L" <<EOF
@@ -752,12 +769,21 @@ exit 0
 EOF
 chmod +x "$SCRATCH_NESTED_STUB_L"
 
+# T-E40-F12-006: see case K's identical rationale above.
+EVAL_ALWAYS_FAIL_L="$WORKDIR/evaluate-lifecycle-always-fail-l.sh"
+cat >"$EVAL_ALWAYS_FAIL_L" <<'EOF'
+#!/usr/bin/env bash
+echo "tc087 case L fixture: deliberate evaluation failure" >&2
+exit 1
+EOF
+chmod +x "$EVAL_ALWAYS_FAIL_L"
+
 rc_l=0
-RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB_L" \
+RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB_L" EVALUATE_LIFECYCLE_BIN="$EVAL_ALWAYS_FAIL_L" \
 	"$COMPARISON" --candidate "$CANDIDATE_L_YAML" --retention-root "$ROOT_L" \
 	--mode pilot --comparison-mode independent_frozen_candidate "${ACK_FLAGS[@]}" \
 	>"$ROOT_L.out" 2>&1 || rc_l=$?
-[[ "$rc_l" -eq 4 ]] || fail "case L (round-6 finding 1): expected exit 4 (deep_review gate fails after dispatch, since i05_bundle_dir is deliberately unconfigured; comparison never attempted), got $rc_l: $(cat "$ROOT_L.out")"
+[[ "$rc_l" -eq 4 ]] || fail "case L (round-6 finding 1): expected exit 4 (deep_review gate dispatches for real then fails at evaluation via the always-fail stub; comparison never attempted), got $rc_l: $(cat "$ROOT_L.out")"
 [[ -f "$STUB_INVOKED_SENTINEL_L" ]] || fail "case L (round-6 finding 1): the stub lifecycle worker was never invoked -- a real (non-symlink) scratch_root with a nested symlink must NOT be refused before dispatch (unlike case K's top-level symlink)"
 SCRATCH_NESTED_EXTERNAL_L_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL_L/marker.txt" | awk '{print $1}')"
 [[ "$SCRATCH_NESTED_EXTERNAL_L_AFTER" == "$SCRATCH_NESTED_EXTERNAL_L_BEFORE" ]] \

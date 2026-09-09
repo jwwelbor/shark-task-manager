@@ -1,0 +1,86 @@
+{
+  "levels": [
+    {
+      "level": "task",
+      "source": "default",
+      "version": "1.0",
+      "statuses": [
+        {
+          "name": "blocked",
+          "description": "External blocker preventing progress",
+          "phase": "blocked",
+          "color": "red",
+          "transitions": [
+            "development",
+            "draft"
+          ]
+        },
+        {
+          "name": "cancelled",
+          "description": "Task abandoned",
+          "phase": "done",
+          "color": "red",
+          "transitions": []
+        },
+        {
+          "name": "completed",
+          "description": "Task done and verified",
+          "phase": "done",
+          "color": "green",
+          "transitions": []
+        },
+        {
+          "name": "development",
+          "description": "Ready for TDD implementation",
+          "phase": "development",
+          "color": "yellow",
+          "transitions": [
+            "completed",
+            "draft",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "developer"
+          ]
+        },
+        {
+          "name": "draft",
+          "description": "Task created from feature decomposition",
+          "phase": "planning",
+          "color": "gray",
+          "is_planning": true,
+          "transitions": [
+            "development",
+            "draft",
+            "blocked",
+            "cancelled",
+            "on_hold"
+          ]
+        },
+        {
+          "name": "on_hold",
+          "description": "Intentionally paused",
+          "phase": "paused",
+          "color": "gray",
+          "transitions": [
+            "development",
+            "draft"
+          ]
+        }
+      ],
+      "special_statuses": {
+        "_complete_": [
+          "cancelled",
+          "completed"
+        ],
+        "_start_": [
+          "draft"
+        ]
+      },
+      "status_count": 6,
+      "transition_count": 13
+    }
+  ],
+  "config_path": "/tmp/shark-scratch-e40f12scratch-8JDPhh/.sharkconfig.json"
+}

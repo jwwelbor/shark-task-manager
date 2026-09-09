@@ -11,7 +11,7 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
-mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch"
+mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch" "$WORKDIR/i05"
 
 cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
@@ -43,6 +43,9 @@ elif args[0] == "claim": print(json.dumps({"session_id":"SID-" + args[1]}))
 elif args[0] == "heartbeat": print('{"ok":true}')
 elif args[:2] == ["status", "advance"]: print('{"advanced":true}')
 elif args[0] == "release": print('{"released":true}')
+elif args[:3] == ["admin", "workflow", "list"]:
+    with open(os.path.join(os.environ["SHARK_WORKFLOW_DIR"], args[3] + ".json")) as f:
+        print(f.read())
 else: raise SystemExit("unexpected shark argv: " + repr(args))
 PY
 SHARK
@@ -75,9 +78,11 @@ fi
 grep -q "scenario package is not admitted" "$WORKDIR/not-admitted.err" || fail "missing admission status was not rejected"
 
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
+SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
 LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" "$RUNNER" \
     --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
     --run-id tc062 --root ROOT-001 --scratch-root "$WORKDIR/scratch" \
+    --i05-bundle-dir "$WORKDIR/i05" \
     --limits "$SCRIPTS_DIR/testdata/lifecycle/limits/first-exceed.yaml" --output "$WORKDIR/lifecycle.jsonl"
 
 python3 - "$WORKDIR/events.ndjson" "$WORKDIR/lifecycle.jsonl" <<'PY'
