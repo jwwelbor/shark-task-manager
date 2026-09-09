@@ -1220,6 +1220,9 @@ the full resolution.
 | `stop_outcome` | string, optional | Absent on a clean terminal run; one of the ten values below otherwise. |
 | `publication_eligible` | bool | `false` whenever `stop_outcome` is present (REQ-F-014). |
 | `ineligibility_reasons` | array of string | Non-empty whenever `publication_eligible` is `false`. |
+| `scenario_id` | string | REQ-F-014 additive top-level join field, duplicated from `scenario.scenario_id`. Read live from the same identity object the loop already holds — never recomputed. |
+| `scenario_version` | string | REQ-F-014 additive top-level join field, duplicated from `scenario.scenario_version`. Same source as `scenario_id`. |
+| `dispatches` | array | REQ-F-014 additive top-level join field: the I-07 lifecycle record's own `dispatches` list, referenced (not copied) from the shared record object. |
 
 ### Stage-snapshot field reference
 
