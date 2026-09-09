@@ -8,7 +8,7 @@ RUNNER="$SCRIPTS_DIR/run-lifecycle.sh"
 fail() { echo "TC-066 FAIL: $1" >&2; exit 1; }
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
-mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch"
+mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch" "$WORKDIR/i05"
 
 cat >"$WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
@@ -34,6 +34,9 @@ elif args[:2] == ["question", "configure-workflow"] or args[0] == "link":
     print('{"ok":true}')
 elif args[0] == "release":
     print('{"released":true}')
+elif args[:3] == ["admin", "workflow", "list"]:
+    with open(os.path.join(os.environ["SHARK_WORKFLOW_DIR"], args[3] + ".json")) as f:
+        print(f.read())
 else:
     raise SystemExit("unexpected shark argv: " + repr(args))
 PY
@@ -51,8 +54,10 @@ chmod +x "$WORKDIR/adapter.sh"
 
 set +e
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" \
+  SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
   "$RUNNER" --scenario "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary/package.yaml" \
-  --run-id tc066 --root ROOT-001 --scratch-root "$WORKDIR/scratch" --output "$WORKDIR/lifecycle.jsonl" >"$WORKDIR/runner.out" 2>"$WORKDIR/runner.err"
+  --run-id tc066 --root ROOT-001 --scratch-root "$WORKDIR/scratch" --i05-bundle-dir "$WORKDIR/i05" \
+  --output "$WORKDIR/lifecycle.jsonl" >"$WORKDIR/runner.out" 2>"$WORKDIR/runner.err"
 code=$?
 set -e
 [[ "$code" -eq 1 ]] || { cat "$WORKDIR/runner.err" >&2; fail "question pause exited $code, want 1"; }
@@ -61,7 +66,12 @@ python3 - "$WORKDIR/events.ndjson" "$WORKDIR/lifecycle.jsonl" <<'PY'
 import json, sys
 events = [json.loads(line)["argv"] for line in open(sys.argv[1])]
 record = json.loads(open(sys.argv[2]).readline())
-assert [argv[0:2] for argv in events] == [
+# T-E40-F12-002: record_stage()'s own phase lookup (`admin workflow list`)
+# runs after release() completes, so it legitimately appends one trailing
+# "admin" event -- excluded here since this assertion is TC-066's own
+# claim/question/link/release ordering, not I-05 producer coverage.
+non_i05_events = [argv for argv in events if argv[0] != "admin"]
+assert [argv[0:2] for argv in non_i05_events] == [
     ["next", "ROOT-001"], ["claim", "TASK-001"],
     ["question", "create"], ["question", "configure-workflow"], ["link", "Q001"], ["release", "TASK-001"],
 ], events

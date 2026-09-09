@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # run-lifecycle.sh --scenario <package.yaml> --run-id <id> --root <key>
 #                    --scratch-root <dir> [--output <lifecycle.jsonl>]
-#                    [--limits <policy.yaml>]
+#                    [--limits <policy.yaml>] [--i05-bundle-dir <dir>]
 #                    [--mode contract|dry-run|resolve-route]
 #
 # Host-side F08 controller. Shark remains the owner of prompt assembly,
 # claims, leases, workflow routing, and Question state; this script only
 # drives the public keyed command sequence and records bounded evidence.
+#
+# --i05-bundle-dir (T-E40-F12-001, spec.md REQ-F-001): the I-05 evidence
+# bundle directory. Required in --mode live (the run fails before the first
+# dispatch when absent); optional in --mode contract/dry-run (no-op when
+# absent, matching pre-existing offline behavior); rejected in
+# --mode resolve-route (exits 2, never writes) since route resolution is
+# already fenced off from live stage evidence (REQ-F-001).
 #
 # --mode resolve-route (T-E40-F11-007, spec.md REQ-F-005/§2.3.1): traces the
 # configured success route (every outcome resolved as "pass") for a scenario
@@ -58,19 +65,21 @@ def usage():
     print(
         "usage: run-lifecycle.sh --scenario <package.yaml> --run-id <id> "
         "--root <key> --scratch-root <dir> [--output <path>] "
-        "[--limits <policy.yaml>] [--mode contract|dry-run|resolve-route]",
+        "[--limits <policy.yaml>] [--i05-bundle-dir <dir>] "
+        "[--mode contract|dry-run|resolve-route]",
         file=sys.stderr,
     )
     raise SystemExit(2)
 
 
 def parse_args(argv):
-    values = {"mode": "live", "output": "", "limits": ""}
+    values = {"mode": "live", "output": "", "limits": "", "i05_bundle_dir": ""}
     required = {"--scenario": "scenario", "--run-id": "run_id", "--root": "root", "--scratch-root": "scratch_root"}
+    optional = {"--output", "--limits", "--mode", "--i05-bundle-dir"}
     index = 0
     while index < len(argv):
         option = argv[index]
-        if option in required or option in {"--output", "--limits", "--mode"}:
+        if option in required or option in optional:
             if index + 1 >= len(argv):
                 usage()
             values[required.get(option, option[2:].replace("-", "_") or "mode")] = argv[index + 1]
@@ -81,6 +90,19 @@ def parse_args(argv):
         usage()
     if values["mode"] not in {"live", "contract", "dry-run", "resolve-route"}:
         print(f"run-lifecycle: unsupported mode: {values['mode']}", file=sys.stderr)
+        raise SystemExit(2)
+    # REQ-F-001: the bundle directory is required in --mode live (fail before
+    # the first dispatch, never run and silently produce no evidence) and
+    # rejected outright in --mode resolve-route (route resolution stays
+    # fenced off from live stage evidence at the producer end too). This
+    # check runs entirely inside parse_args(), before any `shark` binary is
+    # resolved or invoked, so a missing/rejected option never reaches the
+    # dispatch loop.
+    if values["mode"] == "live" and not values["i05_bundle_dir"]:
+        print("run-lifecycle: --i05-bundle-dir is required for --mode live", file=sys.stderr)
+        raise SystemExit(2)
+    if values["mode"] == "resolve-route" and values["i05_bundle_dir"]:
+        print("run-lifecycle: --i05-bundle-dir is not supported with --mode resolve-route", file=sys.stderr)
         raise SystemExit(2)
     return values
 
@@ -96,6 +118,22 @@ def sha256_file(path):
 def canonical_digest(value):
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return sha256_bytes(encoded)
+
+
+def stage_snapshot_digest(snapshot):
+    """REQ-F-003/REQ-F-015 `snapshot_digest`. NOT `canonical_digest()`'s own
+    compact form despite spec.md's prose naming it: the real, unmodified,
+    already-shipped `replay-stage-evidence.sh` (REQ-F-016's actual
+    acceptance mechanism for this field -- verify-stage-evidence.sh carries
+    no snapshot_digest check at all, spec.md Spec Drift item 2) computes
+    `recompute_snapshot_digest()` as `"sha256:" +
+    sha256(json.dumps(payload, sort_keys=True))` using Python's DEFAULT
+    separators/ensure_ascii, not canonical_digest()'s compact,
+    ensure_ascii=False form. Matching spec.md's prose instead of the real
+    script's code would make every produced snapshot fail replay -- this
+    function matches the real script byte-for-byte instead."""
+    payload = {key: value for key, value in snapshot.items() if key != "snapshot_digest"}
+    return "sha256:" + sha256_bytes(json.dumps(payload, sort_keys=True).encode("utf-8"))
 
 
 def git_bytes(repo_root, args):
@@ -238,10 +276,54 @@ def write_partial(path, record):
     partial.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 
 
-def scenario_identity(scenario_path, scenario):
+def content_digest(root):
+    """T-E40-F12-005/REQ-F-012 (ADR-F12-03): byte-for-byte identical to
+    `evaluate-lifecycle.sh`'s own `content_digest()` (bench/scripts/
+    evaluate-lifecycle.sh:102) -- same traversal order, same separator
+    bytes -- so the two independently-computed digests can ever agree.
+    Duplicated rather than imported: each of run-lifecycle.sh and
+    evaluate-lifecycle.sh is a single embedded-Python heredoc with no
+    importable module boundary between them. Returns None when `root` is
+    not a directory, matching the real function's own contract."""
+    root = os.path.abspath(root)
+    if not os.path.isdir(root):
+        return None
+    hasher = hashlib.sha256()
+    for current, directories, files in os.walk(root, followlinks=False):
+        directories.sort()
+        files.sort()
+        for name in files:
+            path = os.path.join(current, name)
+            relative = os.path.relpath(path, root).replace(os.sep, "/")
+            hasher.update(relative.encode("utf-8")); hasher.update(b"\0")
+            with open(path, "rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+def scenario_identity(scenario_path, scenario, scratch):
     fixture = scenario.get("fixture") or {}
     adapter = scenario.get("adapter") or {}
     version = scenario.get("scenario_version", "1")
+    # REQ-F-012/ADR-F12-03 (TD-132): content_root is the installed Shark-data
+    # canonical content tree INSIDE the scratch Shark project -- the
+    # `shark admin install-shark-data` default install location relative to
+    # the project root -- never the repo's own
+    # internal/sharkdata/default_data path and never the legacy whole-repo
+    # `git rev-parse HEAD^{tree}` hash. A half-wiring that declares
+    # content_root while keeping the legacy digest is forbidden (spec.md
+    # sec 1.4): shark_content_digest MUST be the walk-based digest of this
+    # same content_root, computed by the same scheme evaluate-lifecycle.sh's
+    # content_digest() uses, so the crosscheck can ever agree. When
+    # shark-data has not been installed into this scratch project,
+    # content_digest() returns None (not a directory yet) and
+    # shark_content_digest falls back to the digest of empty bytes -- never
+    # to the retired whole-repo scheme -- mirroring scratch_content_digest()'s
+    # own "root does not exist" convention above.
+    content_root = str((Path(scratch) / "shark-data").resolve())
+    content_digest_value = content_digest(content_root) or sha256_bytes(b"")
     return {
         "schema_version": "1.0",
         "run_id": "",
@@ -252,7 +334,9 @@ def scenario_identity(scenario_path, scenario):
         "adapter_id": str(adapter.get("name", "unknown")),
         "adapter_version": str(adapter.get("version", "unknown")),
         "shark_binary_digest": "0" * 64,
-        "shark_content_digest": sha256_bytes(git_bytes(Path.cwd(), ["rev-parse", "HEAD^{tree}"])),
+        "content_root": content_root,
+        "content_digest_scheme": "walk_v1",
+        "shark_content_digest": content_digest_value,
         "roots": {
             "agent_fixture_checkout": str(Path(fixture.get("submodule_path", scenario_path.parent)).resolve()),
             "scratch_shark_project": "",
@@ -306,6 +390,603 @@ def stage_record(dispatch, candidate):
     }
 
 
+I05_OWNED_ENTRIES = ("bundle.json", "stages", "access.jsonl", "transcripts")
+
+# spec.md §2.3: `shark next`'s `entity_type` maps to a
+# `shark admin workflow list <level>` level name unchanged, with one
+# normalization -- tech-debt -> tech_debt.
+WORKFLOW_LEVEL_NORMALIZE = {"tech-debt": "tech_debt"}
+
+
+def workflow_level_for(entity_type):
+    return WORKFLOW_LEVEL_NORMALIZE.get(entity_type, entity_type)
+
+
+_STAGE_CATEGORY_MAP_CACHE = {}
+
+
+def stage_category_map():
+    """REQ-F-004/ADR-F12-04: the closed phase -> stage_category table lives
+    in bench/evidence/stage-category-map.yaml, never embedded here. Loaded
+    once per run and cached."""
+    if "phases" not in _STAGE_CATEGORY_MAP_CACHE:
+        map_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "stage-category-map.yaml"
+        try:
+            data = yaml.safe_load(map_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise RuntimeError(f"cannot read stage-category map {map_path}: {exc}") from exc
+        phases = data.get("phases")
+        if not isinstance(phases, dict):
+            raise RuntimeError(f"stage-category map {map_path} is missing a phases table")
+        _STAGE_CATEGORY_MAP_CACHE["phases"] = phases
+    return _STAGE_CATEGORY_MAP_CACHE["phases"]
+
+
+_USAGE_MAPPING_CACHE = {}
+
+
+def usage_mapping_providers():
+    """X-09/ADR-F06-04: usage-mapping.yaml is the single owner of the
+    semantic-slot -> envelope-path bindings. Loaded once per run and
+    cached; never a hard-coded envelope path in this producer."""
+    if "providers" not in _USAGE_MAPPING_CACHE:
+        map_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "usage-mapping.yaml"
+        try:
+            data = yaml.safe_load(map_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise RuntimeError(f"cannot read usage mapping {map_path}: {exc}") from exc
+        providers = data.get("providers")
+        if not isinstance(providers, dict):
+            raise RuntimeError(f"usage mapping {map_path} is missing a providers table")
+        _USAGE_MAPPING_CACHE["providers"] = providers
+    return _USAGE_MAPPING_CACHE["providers"]
+
+
+def _envelope_lookup(envelope, path):
+    """Resolve a dotted usage-mapping.yaml `envelope_path` against the
+    worker envelope, or the one special-cased expression the mapping itself
+    declares for `model_ids` (`bench/evidence/usage-mapping.yaml`). Returns
+    (value, found)."""
+    if path == "sorted(modelUsage keys)":
+        model_usage = envelope.get("modelUsage")
+        if not isinstance(model_usage, dict):
+            return None, False
+        return sorted(model_usage.keys()), True
+    current = envelope
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None, False
+        current = current[part]
+    return current, True
+
+
+def resolve_usage(provider_name, envelope):
+    """REQ-F-003/X-09: populate the snapshot's `usage` block by semantic
+    slot name through bench/evidence/usage-mapping.yaml, never by a
+    hard-coded envelope path. A provider absent from the mapping (or
+    declared `status: unmapped`, e.g. openai_codex_cli today) yields an
+    empty usage block plus one `unmapped_provider` error -- never a
+    per-slot guess. For a mapped provider, a slot whose envelope_path
+    cannot be resolved is omitted from `usage` (never zero, never null)
+    with a matching `usage_slot_unavailable` error naming the slot and
+    path."""
+    providers = usage_mapping_providers()
+    block = providers.get(provider_name) if provider_name else None
+    if not isinstance(block, dict) or block.get("status") != "mapped":
+        return {}, [{"kind": "unmapped_provider", "provider": provider_name or ""}]
+    usage = {}
+    errors = []
+    for slot, binding in sorted((block.get("slots") or {}).items()):
+        path = binding.get("envelope_path") if isinstance(binding, dict) else None
+        if not path:
+            continue
+        value, found = _envelope_lookup(envelope, path)
+        if not found or value in (None, "", []):
+            errors.append({"kind": "usage_slot_unavailable", "slot": slot, "envelope_path": path})
+            continue
+        usage[slot] = value
+    return usage, errors
+
+
+def test_suite_reference(repo_root):
+    """AC-006's two replay-guard fields beyond REQ-F-006's six candidate
+    identity fields (`replay-stage-evidence.sh` reads both):
+    `test_suite_ids` and `test_suite_dir`. The candidate's test corpus is
+    Shark's own `*_test.go` files -- the same `git ls-files` query
+    `candidate_identity()` already uses for `test_suite_digest` (same
+    plumbing command, called independently here so `candidate_identity()`
+    itself stays unmodified/reused verbatim). Unlike a scenario's single
+    Python `tests/` directory, Go tests are not confined to one directory,
+    so ids are file-level (one id per test file, not per test function) and
+    `test_suite_dir` is the longest common directory prefix of those files
+    -- "." when they share none."""
+    test_paths = sorted(filter(None, git_bytes(repo_root, ["ls-files", "-z", "--", "*_test.go", "**/*_test.go"]).decode().split("\0")))
+    if not test_paths:
+        return [], "."
+    if len(test_paths) == 1:
+        common = os.path.dirname(test_paths[0])
+    else:
+        common = os.path.commonpath(test_paths)
+    return test_paths, (common or ".")
+
+
+def i05_schema_version():
+    """REQ-F-002: `schema_version` is read from bench/evidence/i05-schema.yaml
+    at run time, never hard-coded, so the producer cannot silently drift from
+    a schema bump."""
+    schema_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "i05-schema.yaml"
+    try:
+        schema = yaml.safe_load(schema_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError(f"cannot read I-05 schema {schema_path}: {exc}") from exc
+    version = schema.get("schema_version")
+    if not isinstance(version, str) or not version:
+        raise RuntimeError(f"I-05 schema {schema_path} is missing schema_version")
+    return version
+
+
+# T-E40-F12-003 (REQ-F-005/§2.5): one additive, bounded heartbeat retry
+# before declaring LeaseLoss. Existing behavior (immediate LeaseLoss on
+# heartbeat failure) becomes "retry once after this backoff, THEN LeaseLoss
+# on a second failure" -- the backoff+retry window is exactly what §2.5's
+# closed table calls `retry_or_backoff` ("only on a heartbeat retry").
+HEARTBEAT_RETRY_BACKOFF_SECONDS = 0.05
+
+# The six categories verify-stage-evidence.sh's validate_time_ledger()
+# accepts, per bench/evidence/i05-schema.yaml's interval_category vocabulary.
+# Pinned here (not read from the schema at call time) so every emitted
+# time_ledger always carries a fully-populated `intervals` object -- an
+# absent key is indistinguishable from "never happened" to a reader, but an
+# empty list is an honest "observed, zero occurrences."
+TIME_LEDGER_CATEGORIES = (
+    "provider_active", "tool_and_test", "queue_or_claim_wait",
+    "replay_or_human_gate_wait", "retry_or_backoff", "unclassified",
+)
+
+
+def _subtract_claimed(interval, claimed_union):
+    """Return the pieces of `interval` (a (start, end) tuple, integer ns)
+    not covered by any (start, end) span in `claimed_union`. Used to keep an
+    untrusted, envelope-reported `provider_active` interval (T-E40-F12-003,
+    AC-009 negative case) from ever overlapping a category the driver itself
+    already observed -- driver-observed windows always take priority over
+    whatever the envelope claims."""
+    pieces = [interval]
+    for claimed_start, claimed_end in claimed_union:
+        next_pieces = []
+        for start, end in pieces:
+            if claimed_end <= start or claimed_start >= end:
+                next_pieces.append((start, end))
+                continue
+            if claimed_start > start:
+                next_pieces.append((start, claimed_start))
+            if claimed_end < end:
+                next_pieces.append((claimed_end, end))
+        pieces = next_pieces
+    return [(start, end) for start, end in pieces if end > start]
+
+
+def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, claimed_so_far):
+    """T-E40-F12-003 (REQ-F-005, ADR-F12-05): read explicit `provider_active`
+    intervals from the worker envelope's TOP LEVEL `time_ledger` block (the
+    "envelope placement note", spec.md sec 2.5 -- never from `evidence`,
+    which the adapter's SAFE_EVIDENCE_KEYS would silently strip). This is
+    the producer-side half of a contract the adapter does not implement yet
+    (spec.md sec 1.4 item 6): each `[start_ns, end_ns]` pair is nanosecond
+    offsets relative to the adapter subprocess's own spawn instant
+    (`adapter_start_ns`), converted here to the run's shared monotonic
+    timeline and clipped to `[adapter_start_ns, adapter_end_ns]` -- the
+    real, driver-observed bound on anything the subprocess could have
+    reported, which also means a reported interval can never encroach on a
+    category recorded after `adapter_result()` returns (release,
+    `refresh_candidate()`). Any piece already covered by a category the
+    driver itself observed (`claimed_so_far`) is subtracted first, never
+    double-claimed. Returns a list of (start, end) tuples in `provider_active`
+    (never `[]` mutated into a fabricated non-empty entry -- absent/invalid
+    envelope data yields an empty list, per ADR-F12-05: unattributable time
+    is never assigned to `provider_active`)."""
+    ledger = worker_envelope.get("time_ledger") if isinstance(worker_envelope, dict) else None
+    raw = ledger.get("provider_active") if isinstance(ledger, dict) else None
+    if not isinstance(raw, list):
+        return []
+    claimed_union = []
+    for _category, start, end in sorted(claimed_so_far, key=lambda item: item[1]):
+        if claimed_union and start <= claimed_union[-1][1]:
+            claimed_union[-1] = (claimed_union[-1][0], max(claimed_union[-1][1], end))
+        else:
+            claimed_union.append((start, end))
+    claims = []
+    for pair in raw:
+        if not (isinstance(pair, list) and len(pair) == 2 and all(isinstance(value, (int, float)) for value in pair)):
+            continue
+        start = adapter_start_ns + int(pair[0])
+        end = adapter_start_ns + int(pair[1])
+        start = max(start, adapter_start_ns)
+        end = min(end, adapter_end_ns)
+        if end <= start:
+            continue
+        claims.extend(_subtract_claimed((start, end), claimed_union))
+    return claims
+
+
+def reconcile_time_ledger(origin_ns, timing):
+    """T-E40-F12-003 (REQ-F-005, AC-008): build one snapshot's `time_ledger`
+    from the real, driver-observed `timing` accumulator
+    (`{"stage_start": ns, "stage_end": ns, "claimed": [(category, start, end), ...]}`,
+    every value an absolute `time.monotonic_ns()` reading) by gap-filling
+    every span within `[stage_start, stage_end)` that no claimed category
+    covers into `unclassified`. This is the ONLY mechanism that can
+    guarantee `verify-stage-evidence.sh`'s reconciliation invariant
+    (`residual_ns <= reconciliation_epsilon_ns`) regardless of what did or
+    did not happen on a given dispatch (a failed claim, a worker failure
+    before any envelope existed, ...): every real path still calls this
+    with a valid stage window, and whatever real time it cannot name a
+    category for becomes an honest `unclassified` span rather than a
+    reconciliation failure. `origin_ns` is subtracted once, here, so every
+    timestamp in the emitted ledger is relative to a single run-scoped
+    origin (spec.md sec 2.5), matching every OTHER stage's ledger in the
+    same bundle."""
+    stage_start = timing["stage_start"] - origin_ns
+    stage_end = timing["stage_end"] - origin_ns
+    if stage_end <= stage_start:
+        # Defensive only: real work always takes >0ns. Never let a
+        # collapsed window reach validate_time_ledger() as a ScriptError
+        # (stage_end <= stage_start) instead of a real, if trivial, ledger.
+        stage_end = stage_start + 1
+    claimed = []
+    for category, start, end in timing["claimed"]:
+        start = max(start - origin_ns, stage_start)
+        end = min(end - origin_ns, stage_end)
+        if end > start:
+            claimed.append((category, start, end))
+    intervals = {name: [] for name in TIME_LEDGER_CATEGORIES}
+    for category, start, end in claimed:
+        intervals[category].append([start, end])
+    ordered = sorted(claimed, key=lambda item: (item[1], item[2]))
+    cursor = stage_start
+    for _category, start, end in ordered:
+        if start > cursor:
+            intervals["unclassified"].append([cursor, start])
+        cursor = max(cursor, end)
+    if cursor < stage_end:
+        intervals["unclassified"].append([cursor, stage_end])
+    return {
+        "stage_start": stage_start,
+        "stage_end": stage_end,
+        "reconciliation_epsilon_ns": 1_000_000,
+        "intervals": intervals,
+    }
+
+
+def stop_outcome_triad(terminal, reason):
+    """T-E40-F12-004 (REQ-F-009, spec.md sec 2.6): the closed 11-row
+    stop-outcome -> eligibility table, as a single, named, top-level
+    function -- mirroring `content_digest()`'s and `canonical_digest()`'s
+    shape -- so TC-014's source-extraction technique (the one
+    `tc075_content-identity_x12_test.sh` already established for
+    `content_digest()`) has a clean, unindented boundary to regex against.
+    `run-lifecycle.sh` is a single embedded-Python script with no
+    importable module, so this is the real seam: no direct `import` is
+    possible, and the logic must not stay inlined in `main()`'s loop body
+    with no named function boundary.
+
+    `terminal` is the same value the run's own I-07 `outcome.terminal`
+    carries; `reason` is that record's own `outcome.reason` -- already
+    carrying the row-specific name (the ceiling, the entity, the blocking
+    gate, the routed Question key, the archived entity, the signal, or the
+    exceeded window) from its own call site, never re-derived here. Returns
+    `(stop_outcome, publication_eligible, ineligibility_reasons)`."""
+    stop_outcome = terminal if terminal in STOP_OUTCOMES else None
+    publication_eligible = terminal == "complete"
+    ineligibility_reasons = [] if publication_eligible else [str(reason or terminal)]
+    return stop_outcome, publication_eligible, ineligibility_reasons
+
+
+class I05BundleWriter:
+    """T-E40-F12-001/002 (ADR-F12-01): the live I-05 evidence bundle
+    producer, living inside run-lifecycle.sh's own dispatch loop rather than
+    a shared library. Owns the `bundle.json` triad (REQ-F-002: written before
+    the first dispatch, rewritten after every dispatch, rewritten at
+    termination), the per-dispatch stage index this task's own tests
+    reconcile against real snapshot files (AC-003), the producer-owned reset
+    bounded to its four owned entries (REQ-F-011), REQ-F-014's additive
+    join-field emission (`scenario_id`, `scenario_version`, `dispatches`)
+    read live from the same in-process `identity`/`record` objects the loop
+    already holds -- never re-derived -- and, as of T-E40-F12-002, the
+    stage-snapshot writer itself: `stage_category` (REQ-F-004, via the
+    closed `stage-category-map.yaml` table), `usage` (REQ-F-003/X-09, via
+    `usage-mapping.yaml`), `candidate` (REQ-F-006, `code`/`review` only),
+    per-snapshot `errors[]`, and `access.jsonl` (REQ-F-006).
+
+    As of T-E40-F12-003: `time_ledger`'s real monotonic instrumentation
+    (REQ-F-005, via `reconcile_time_ledger()`) and `transcripts/`
+    materialization (REQ-F-007). `origin_ns` is captured once, here, at
+    writer construction (before the dispatch loop starts) as the run's
+    single shared `time.monotonic_ns()` origin every stage's `time_ledger`
+    is relative to (spec.md sec 2.5). The `roots` triad (REQ-F-008) needed
+    no change: `scenario_identity()` already resolves
+    `agent_fixture_checkout` to a real, existing directory.
+
+    As of T-E40-F12-004: the full §2.6 stop-outcome eligibility triad
+    (`finalize()`, via the top-level `stop_outcome_triad()`), wired into
+    both the normal termination path (`main()`) and the signal-termination
+    path (`release_on_signal()`), and fail-loud writes for every
+    bundle-artifact write this class owns.
+
+    As of T-E40-F12-005: `content_root`/`content_digest_scheme` and the
+    walk-based `shark_content_digest` scheme (TD-132) are populated by
+    `scenario_identity()` before this class is constructed; no change to
+    this class itself was needed (the `roots` triad note above already
+    explains why).
+    """
+
+    def __init__(self, bundle_dir, scenario_path, scenario, identity, run_id, record):
+        self.dir = Path(bundle_dir).resolve()
+        self.scenario_path = scenario_path
+        self.scenario = scenario
+        self.identity = identity
+        self.run_id = run_id
+        self.record = record
+        self.stages_dir = self.dir / "stages"
+        self.transcripts_dir = self.dir / "transcripts"
+        self.origin_ns = time.monotonic_ns()
+        self._stages_index = []
+        self._phase_cache = {}
+        self._stage_visit_counts = {}
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._refuse_symlinks()
+        self._reset_owned_entries()
+        self.stages_dir.mkdir(parents=True, exist_ok=True)
+        # REQ-F-007: a real directory (never a symlink -- _refuse_symlinks()
+        # above already checked), created up front so it exists even for a
+        # zero-dispatch run (retain_pair's own transcripts/ requirement,
+        # research-report Finding 6, is unconditional on dispatch count).
+        self.transcripts_dir.mkdir(parents=True, exist_ok=True)
+        self._create_access_log()
+        self._write_bundle(reached=False, reached_at=None, stop_outcome=None, publication_eligible=True, ineligibility_reasons=())
+
+    def _refuse_symlinks(self):
+        for name in I05_OWNED_ENTRIES:
+            path = self.dir / name
+            if path.is_symlink():
+                raise RuntimeError(f"i05 bundle dir entry is a symlink, refusing to reset it: {path}")
+
+    def _reset_owned_entries(self):
+        """REQ-F-011: remove exactly the four producer-owned entries, never
+        the directory itself and never any other entry inside it."""
+        for name in I05_OWNED_ENTRIES:
+            path = self.dir / name
+            if not path.exists():
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+    def _create_access_log(self):
+        """REQ-F-006: `access.jsonl` is created at run start (after the
+        reset above) so it exists even for a run with zero evaluator
+        access, and is only ever appended to afterward."""
+        access_path = self.dir / "access.jsonl"
+        try:
+            access_path.touch(exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(f"failed to create I-05 access.jsonl {access_path}: {exc}") from exc
+
+    def _append_access_events(self, events):
+        """REQ-F-006 negative case: any `evaluator_access` entry a snapshot
+        carries is also appended here, verbatim. This producer never
+        performs evaluator access during dispatch (REQ-F-006's own
+        rationale), so `events` is empty on every real run today; this
+        exists so a snapshot that ever does carry one is never silently
+        dropped from the bundle-level log."""
+        if not events:
+            return
+        access_path = self.dir / "access.jsonl"
+        try:
+            with access_path.open("a", encoding="utf-8") as handle:
+                for event in events:
+                    handle.write(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n")
+        except OSError as exc:
+            raise RuntimeError(f"failed to append I-05 access.jsonl {access_path}: {exc}") from exc
+
+    def _workflow_statuses(self, shark, cwd, level):
+        """ADR-F12-04: `shark admin workflow list <level> --json`, invoked
+        at most once per workflow level per run and cached in-process."""
+        if level not in self._phase_cache:
+            response = run_command(shark, ["admin", "workflow", "list", level, "--json"], cwd)
+            statuses = {}
+            for entry in response.get("levels", []):
+                if entry.get("level") != level:
+                    continue
+                for status in entry.get("statuses", []):
+                    name = status.get("name")
+                    if isinstance(name, str) and name:
+                        statuses[name] = status.get("phase", "") or ""
+            self._phase_cache[level] = statuses
+        return self._phase_cache[level]
+
+    def _stage_category_for(self, shark, cwd, entity_type, status_name):
+        """REQ-F-004: resolve `stage_category` through the closed
+        `stage-category-map.yaml` table keyed by workflow phase. A status
+        with no phase, or a phase absent from the table, yields (None, an
+        `unknown_stage_category` error naming the status and phase) --
+        never a substituted category."""
+        level = workflow_level_for(entity_type)
+        phase = self._workflow_statuses(shark, cwd, level).get(status_name, "")
+        row = stage_category_map().get(phase) if phase else None
+        category = row.get("stage_category") if isinstance(row, dict) else None
+        if not phase or row is None or not category:
+            return None, {"kind": "unknown_stage_category", "status": status_name, "phase": phase}
+        return category, None
+
+    def _bundle_dict(self, reached, reached_at, stop_outcome, publication_eligible, ineligibility_reasons):
+        stage_matrix = self.scenario.get("stage_matrix") or {}
+        body = {
+            "schema_version": i05_schema_version(),
+            "scenario": {
+                "scenario_id": self.identity["scenario_id"],
+                "scenario_version": self.identity["scenario_version"],
+                "entity_family": str(self.scenario.get("entity_family", "unknown")),
+            },
+            "run_id": self.run_id,
+            "roots": dict(self.identity["roots"]),
+            "stage_matrix_source": {
+                "package_path": str(self.scenario_path),
+                "package_digest": self.identity["fixture_digest"],
+                "prelude": stage_matrix.get("prelude") or {},
+                "lifecycle": stage_matrix.get("lifecycle") or {},
+            },
+            "stages": list(self._stages_index),
+            "terminal_status": {"reached": reached, "reached_at": reached_at},
+            "publication_eligible": publication_eligible,
+            "ineligibility_reasons": list(ineligibility_reasons),
+            # REQ-F-014: additive-only join references, read live from the
+            # same identity/record objects the loop already holds.
+            "scenario_id": self.identity["scenario_id"],
+            "scenario_version": self.identity["scenario_version"],
+            "dispatches": self.record["dispatches"],
+        }
+        if stop_outcome is not None:
+            body["stop_outcome"] = stop_outcome
+        return body
+
+    def _write_bundle(self, *, reached, reached_at, stop_outcome, publication_eligible, ineligibility_reasons):
+        body = self._bundle_dict(reached, reached_at, stop_outcome, publication_eligible, ineligibility_reasons)
+        path = self.dir / "bundle.json"
+        try:
+            path.write_text(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"failed to write I-05 bundle.json {path}: {exc}") from exc
+
+    def record_stage(self, dispatch, stage_candidate, shark, cwd, worker_envelope, timing):
+        """Called immediately after `record["stages"].append(...)` for the
+        same dispatch (ADR-F12-01): writes one immutable stage snapshot file
+        carrying every bench/README.md "Stage-snapshot field reference"
+        field this task owns (REQ-F-003/004/006/007), a real `time_ledger`
+        (REQ-F-005, via `reconcile_time_ledger()`), and a materialized
+        transcript artifact (REQ-F-007); rewrites `bundle.json`'s triad
+        (REQ-F-002/003 index). `replay_lineage`'s interior and `artifacts`'s
+        interior remain E40-F07's own scope -- this task writes their
+        shape-valid, honestly-empty placeholders.
+
+        `worker_envelope` is the FULL control envelope `adapter_result()`
+        returned for this dispatch (never the bounded `dispatch["worker"]
+        ["evidence"]` sub-field -- spec.md's own "envelope placement note"
+        warns the adapter's SAFE_EVIDENCE_KEYS silently strips a usage/
+        timing block placed there).
+
+        `timing` is the per-dispatch accumulator
+        (`{"stage_start": ns, "stage_end": ns, "claimed": [(category, start, end), ...]}`)
+        the caller's dispatch loop and `adapter_result()` both appended real
+        `time.monotonic_ns()` observations into, including on every
+        exception path -- see `reconcile_time_ledger()`."""
+        ordinal = dispatch["ordinal"]
+        response = dispatch["response"]
+        stage_key = str(response.get("status", "")) or "unknown"
+        entity_key = str(response.get("entity_key", ""))
+        entity_type = str(response.get("entity_type", ""))
+        entity = {"entity_key": entity_key, "entity_type": entity_type}
+        provider = str(response.get("provider", ""))
+
+        errors = []
+        category, category_error = self._stage_category_for(shark, cwd, entity_type, stage_key)
+        if category_error is not None:
+            errors.append(category_error)
+        if not provider:
+            errors.append({"kind": "missing_provider"})
+        usage, usage_errors = resolve_usage(provider, worker_envelope if isinstance(worker_envelope, dict) else {})
+        errors.extend(usage_errors)
+
+        visit_key = (entity_key, stage_key)
+        rework_count = self._stage_visit_counts.get(visit_key, 0)
+        self._stage_visit_counts[visit_key] = rework_count + 1
+
+        snapshot = {
+            "dispatch_ordinal": ordinal,
+            "entity": entity,
+            "stage_key": stage_key,
+            "prompt_digest": str(dispatch["evidence_refs"].get("prompt_sha256", "")),
+            "input_lineage": [],
+            "artifacts": [],
+            "usage": usage,
+            "time_ledger": reconcile_time_ledger(self.origin_ns, timing),
+            "rework_count": rework_count,
+            "evaluator_access": [],
+        }
+        if category is not None:
+            snapshot["stage_category"] = category
+        if str(self.scenario.get("entity_family", "")) == "feature":
+            snapshot["replay_lineage"] = []
+        if category in {"code", "review"}:
+            test_suite_ids, test_suite_dir = test_suite_reference(Path.cwd())
+            candidate = dict(stage_candidate)
+            candidate["test_suite_ids"] = test_suite_ids
+            candidate["test_suite_dir"] = test_suite_dir
+            snapshot["candidate"] = candidate
+        snapshot["errors"] = errors
+        snapshot["provider"] = provider
+
+        # T-E40-F12-007 (REQ-NF-002): times only the write path itself --
+        # serialize + write stages/<n>.json + transcript + access.jsonl
+        # append + bundle.json rewrite -- never the category/usage
+        # resolution above, which can itself shell out to `shark`. Emitted
+        # once per dispatch, opt-in only, so it never affects a default run.
+        write_start_ns = time.monotonic_ns()
+
+        snapshot_digest = stage_snapshot_digest(snapshot)
+        snapshot["snapshot_digest"] = snapshot_digest
+        snapshot_path = self.stages_dir / f"{ordinal}-{stage_key}.json"
+        try:
+            snapshot_path.write_text(json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"failed to write I-05 stage snapshot {snapshot_path}: {exc}") from exc
+
+        # REQ-F-007: one bounded transcript artifact per dispatch, into the
+        # real transcripts/ directory __init__ already materialized.
+        # `bounded()` truncates/redacts exactly like every other recorded
+        # response fragment (REQ-NF-003) -- the full envelope, never the
+        # rendered prompt (never passed to this function at all), so no
+        # prompt bytes or provider credentials can land here.
+        transcript_path = self.transcripts_dir / f"{ordinal}-{stage_key}.txt"
+        transcript_body = json.dumps(
+            bounded(worker_envelope if isinstance(worker_envelope, dict) else {}),
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        )
+        try:
+            transcript_path.write_text(transcript_body, encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"failed to write I-05 transcript {transcript_path}: {exc}") from exc
+
+        self._append_access_events(snapshot["evaluator_access"])
+        self._stages_index.append({
+            "dispatch_ordinal": ordinal,
+            "stage_key": stage_key,
+            "stage_category": category,
+            # bundle_dir-relative, matching every real reader's own
+            # resolve_within() (verify-stage-evidence.sh,
+            # replay-stage-evidence.sh) -- both reject an absolute
+            # snapshot_path outright.
+            "snapshot_path": str(snapshot_path.relative_to(self.dir)),
+            "snapshot_digest": snapshot_digest,
+        })
+        self._write_bundle(reached=False, reached_at=None, stop_outcome=None, publication_eligible=True, ineligibility_reasons=())
+
+        if os.environ.get("LIFECYCLE_BENCH_TIMING") == "1":
+            write_ms = (time.monotonic_ns() - write_start_ns) / 1_000_000
+            print(f"i05_write_ms={write_ms:.3f}", file=sys.stderr)
+
+    def finalize(self, terminal, reason):
+        """REQ-F-002's termination rewrite: the full §2.6 stop-outcome
+        eligibility triad, via the top-level `stop_outcome_triad()`
+        (T-E40-F12-004). Called from both `main()`'s normal end-of-run path
+        and `release_on_signal()`'s signal-termination path, so a
+        signal-terminated run's `bundle.json` triad is never left reflecting
+        a stale per-dispatch state."""
+        stop_outcome, publication_eligible, ineligibility_reasons = stop_outcome_triad(terminal, reason)
+        self._write_bundle(reached=True, reached_at=timestamp(), stop_outcome=stop_outcome, publication_eligible=publication_eligible, ineligibility_reasons=ineligibility_reasons)
+
+
 def limits_from(scenario, path):
     policy = dict(scenario.get("resource_policy") or {})
     if path:
@@ -343,7 +1024,15 @@ def fork_candidates(response):
     return sorted(normalized, key=lambda item: item["entity_key"])
 
 
-def adapter_result(adapter, request, cwd, mode, shark):
+def adapter_result(adapter, request, cwd, mode, shark, timing):
+    """`timing` is the caller's per-dispatch accumulator (see
+    `reconcile_time_ledger()`): a mutable dict this function appends real
+    `time.monotonic_ns()` observations into (T-E40-F12-003, REQ-F-005). It is
+    mutated in place, not returned, so every observation this function makes
+    -- including a heartbeat retry backoff window recorded right before a
+    `LeaseLoss` this function itself raises -- survives whichever exception
+    path the caller takes (never lost the way a return-value-only tuple
+    would be on a raise)."""
     if mode in {"contract", "dry-run"}:
         return ({"worker_id": "offline-worker", "session_id": request["session_id"], "kind": "final", "recommended_outcome": "pass", "evidence": {"mode": mode}}, [])
     try:
@@ -352,6 +1041,7 @@ def adapter_result(adapter, request, cwd, mode, shark):
         process.stdin.close()
     except OSError as exc:
         raise RuntimeError(f"unable to execute lifecycle adapter: {exc}") from exc
+    adapter_start_ns = time.monotonic_ns()
     explicit_interval = os.environ.get("LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS")
     if explicit_interval:
         try:
@@ -368,17 +1058,31 @@ def adapter_result(adapter, request, cwd, mode, shark):
         heartbeat_interval = max(1.0, min(60.0, ttl / 3.0))
     last_heartbeat = time.monotonic()
     heartbeat_events = []
+    heartbeat_args_base = ["heartbeat", request["entity_key"], "--session", request["session_id"], "--progress", "0.5", "--note", str(request.get("runner_id", "lifecycle"))]
     try:
         while process.poll() is None:
             now = time.monotonic()
             if now - last_heartbeat >= heartbeat_interval:
                 try:
-                    heartbeat = run_command(shark, ["heartbeat", request["entity_key"], "--session", request["session_id"], "--progress", "0.5", "--note", str(request.get("runner_id", "lifecycle"))], cwd)
-                    heartbeat_events.append({"session_id": request["session_id"], "at": timestamp(), "response": bounded(heartbeat)})
-                except RuntimeError as exc:
-                    process.terminate()
-                    process.wait(timeout=2)
-                    raise LeaseLoss(f"heartbeat failed for {request['entity_key']}: {exc}") from exc
+                    heartbeat = run_command(shark, heartbeat_args_base, cwd)
+                except RuntimeError:
+                    # T-E40-F12-003 (REQ-F-005/§2.5): one bounded retry,
+                    # after a fixed backoff, before declaring LeaseLoss.
+                    # The backoff+retry window is `retry_or_backoff`,
+                    # recorded on BOTH the eventual-success and the
+                    # eventual-failure branch below, so a real observation
+                    # is never dropped on the exception path.
+                    retry_start_ns = time.monotonic_ns()
+                    time.sleep(HEARTBEAT_RETRY_BACKOFF_SECONDS)
+                    try:
+                        heartbeat = run_command(shark, heartbeat_args_base, cwd)
+                    except RuntimeError as exc:
+                        timing["claimed"].append(("retry_or_backoff", retry_start_ns, time.monotonic_ns()))
+                        process.terminate()
+                        process.wait(timeout=2)
+                        raise LeaseLoss(f"heartbeat failed for {request['entity_key']}: {exc}") from exc
+                    timing["claimed"].append(("retry_or_backoff", retry_start_ns, time.monotonic_ns()))
+                heartbeat_events.append({"session_id": request["session_id"], "at": timestamp(), "response": bounded(heartbeat)})
                 last_heartbeat = now
             time.sleep(min(0.05, heartbeat_interval / 4.0))
         stdout = process.stdout.read()
@@ -388,9 +1092,14 @@ def adapter_result(adapter, request, cwd, mode, shark):
         if process.poll() is None:
             process.terminate()
         raise RuntimeError(f"lifecycle adapter process failed: {exc}") from exc
+    adapter_end_ns = time.monotonic_ns()
     if process.returncode != 0:
         raise RuntimeError(f"lifecycle adapter failed ({process.returncode}): {stderr.strip()}")
-    return load_json(stdout, "lifecycle adapter"), heartbeat_events
+    envelope = load_json(stdout, "lifecycle adapter")
+    if isinstance(envelope, dict):
+        claims = provider_active_claims(envelope, adapter_start_ns, adapter_end_ns, timing["claimed"])
+        timing["claimed"].extend(("provider_active", start, end) for start, end in claims)
+    return envelope, heartbeat_events
 
 
 def route_worker_question(worker_result, entity, session, runner_id, cwd, shark):
@@ -730,7 +1439,7 @@ def main(argv):
     if not resolved_shark:
         raise RuntimeError(f"shark executable not found on PATH: {shark}")
 
-    identity = scenario_identity(scenario_path, scenario)
+    identity = scenario_identity(scenario_path, scenario, scratch)
     identity["run_id"] = args["run_id"]
     identity["roots"]["scratch_shark_project"] = str(scratch)
     identity["shark_binary_digest"] = sha256_file(Path(resolved_shark))
@@ -738,6 +1447,9 @@ def main(argv):
     record = make_record(identity, args["root"], scratch, limits)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
+    i05_writer = None
+    if args["i05_bundle_dir"]:
+        i05_writer = I05BundleWriter(args["i05_bundle_dir"], scenario_path, scenario, identity, args["run_id"], record)
     ordinal = 0
     generated = 0
     started = time.monotonic()
@@ -753,6 +1465,21 @@ def main(argv):
                 run_command(shark, ["release", active_lease["entity"], "--session", active_lease["session"], "--outcome", "cancellation"], scratch)
             except RuntimeError:
                 pass
+        # T-E40-F12-004 (REQ-F-009, AC-014's own implementation-contract
+        # note): SystemExit below is not caught by main()'s
+        # except (RuntimeError, OSError, ValueError, TypeError) block, so a
+        # signal-terminated run would otherwise skip the normal end-of-run
+        # i05_writer.finalize() call entirely and leave bundle.json's triad
+        # reflecting a stale per-dispatch state. This is an ADDITION to this
+        # handler's existing lease-release behavior above, not a change to
+        # it -- a finalize() write failure here still raises (fail-loud,
+        # REQ-F-015), same as any other bundle-artifact write.
+        if i05_writer is not None:
+            try:
+                signal_name = signal.Signals(signum).name
+            except ValueError:
+                signal_name = str(signum)
+            i05_writer.finalize("cancellation", f"terminated by signal {signal_name}")
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGINT, release_on_signal)
@@ -766,6 +1493,10 @@ def main(argv):
             processed.add(requested)
             prompt_path = scratch / "prompts" / f"{ordinal + 1:04d}"
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            # REQ-F-005/§2.5: `stage_start` is captured immediately before
+            # this dispatch's `shark next` call -- used only if this queue
+            # item turns into a real spawn_agent dispatch below.
+            stage_start_ns = time.monotonic_ns()
             response = run_command(shark, ["next", requested, "--json", "--prompt-out", str(prompt_path)], scratch)
             if response.get("action") == "parallel_candidates":
                 candidates = fork_candidates(response)
@@ -791,7 +1522,9 @@ def main(argv):
                 raise RuntimeError(f"prompt digest or byte-count mismatch for {entity}")
             if prompt_path.read_bytes() != actual:
                 raise RuntimeError(f"prompt-out bytes differ from response for {entity}")
+            ci_start_ns = time.monotonic_ns()
             candidate = candidate_identity(Path.cwd())
+            timing = {"stage_start": stage_start_ns, "claimed": [("tool_and_test", ci_start_ns, time.monotonic_ns())]}
 
             response_record = bounded(response)
             response_record.pop("prompt", None)
@@ -803,7 +1536,9 @@ def main(argv):
             session = ""
             worker_result = {}
             try:
+                claim_start_ns = time.monotonic_ns()
                 claim = run_command(shark, ["claim", entity, "--by", os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"]), "--json"], scratch)
+                timing["claimed"].append(("queue_or_claim_wait", claim_start_ns, time.monotonic_ns()))
                 session = str(claim.get("session_id", ""))
                 if not session:
                     raise RuntimeError(f"claim for {entity} omitted session_id")
@@ -813,16 +1548,18 @@ def main(argv):
                 request = dict(response)
                 request["session_id"] = session
                 request["runner_id"] = os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])
-                worker_result, heartbeats = adapter_result(adapter, request, scratch, args["mode"], shark)
+                worker_result, heartbeats = adapter_result(adapter, request, scratch, args["mode"], shark, timing)
                 dispatch["heartbeats"] = heartbeats
                 if worker_result.get("session_id") not in {None, session}:
                     raise RuntimeError(f"worker session mismatch for {entity}")
                 dispatch["worker"] = {"worker_id": worker_result.get("worker_id", ""), "session_id": worker_result.get("session_id", session), "kind": worker_result.get("kind", ""), "recommended_outcome": worker_result.get("recommended_outcome"), "evidence": bounded(worker_result.get("evidence", {}))}
                 kind = worker_result.get("kind")
                 if kind == "question":
+                    question_start_ns = time.monotonic_ns()
                     question_key = route_worker_question(
                         worker_result, entity, session, request["runner_id"], scratch, shark
                     )
+                    timing["claimed"].append(("replay_or_human_gate_wait", question_start_ns, time.monotonic_ns()))
                     dispatch["worker"]["question_key"] = question_key
                     dispatch["outcome"] = "pause"
                     terminal = "pause"
@@ -849,6 +1586,7 @@ def main(argv):
                 dispatch["outcome"] = terminal
             finally:
                 if session:
+                    release_start_ns = time.monotonic_ns()
                     try:
                         dispatch["release"] = bounded(run_command(shark, ["release", entity, "--session", session, "--outcome", dispatch["outcome"], "--json"], scratch))
                     except RuntimeError as exc:
@@ -856,6 +1594,8 @@ def main(argv):
                         if terminal == "complete":
                             terminal = "error"
                             reason = str(exc)
+                    finally:
+                        timing["claimed"].append(("queue_or_claim_wait", release_start_ns, time.monotonic_ns()))
                     active_lease["entity"] = ""
                     active_lease["session"] = ""
             dispatch["ended_at"] = timestamp()
@@ -865,10 +1605,19 @@ def main(argv):
             record["limits"]["observed_cost_usd"] += cost
             record["limits"]["observed_wall_clock_seconds"] = elapsed
             record["limits"]["observed_generated_tasks"] = generated
+            rc_start_ns = time.monotonic_ns()
             refresh_candidate(candidate, scratch)
+            # REQ-F-005/§2.5: `stage_end` is captured immediately after
+            # `refresh_candidate()` completes -- the producer's own
+            # serialization/write happens after this point and is
+            # deliberately outside the stage window (spec.md §2.5).
+            timing["stage_end"] = time.monotonic_ns()
+            timing["claimed"].append(("tool_and_test", rc_start_ns, timing["stage_end"]))
             stage_candidate = dict(candidate)
             dispatch["evidence_refs"]["candidate_snapshot_digest"] = stage_candidate["snapshot_digest"]
             record["stages"].append(stage_record(dispatch, stage_candidate))
+            if i05_writer is not None:
+                i05_writer.record_stage(dispatch, stage_candidate, shark, scratch, worker_result, timing)
             ordinal += 1
             write_partial(output, record)
             if terminal != "complete" and terminal != "resource_limit":
@@ -890,6 +1639,8 @@ def main(argv):
         terminal = "error"
         reason = str(exc)
         record["outcome"] = {"terminal": terminal, "reason": reason, "partial_evidence": bool(record["dispatches"]), "publication_eligible": False}
+    if i05_writer is not None:
+        i05_writer.finalize(terminal, reason)
     output.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     output.with_suffix(output.suffix + ".partial").unlink(missing_ok=True)
     if terminal != "complete" and terminal != "resource_limit":

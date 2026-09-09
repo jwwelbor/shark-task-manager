@@ -1,0 +1,138 @@
+{
+  "levels": [
+    {
+      "level": "change",
+      "source": "default",
+      "version": "1.0",
+      "statuses": [
+        {
+          "name": "blocked",
+          "description": "Cannot proceed, awaiting external resolution",
+          "phase": "blocked",
+          "color": "red",
+          "transitions": [
+            "code_review",
+            "development",
+            "draft",
+            "qa",
+            "research"
+          ]
+        },
+        {
+          "name": "cancelled",
+          "description": "Change no longer needed",
+          "phase": "done",
+          "color": "red",
+          "transitions": []
+        },
+        {
+          "name": "code_review",
+          "description": "Ready for code review",
+          "phase": "code_review",
+          "color": "magenta",
+          "transitions": [
+            "qa",
+            "development",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "tech-lead"
+          ]
+        },
+        {
+          "name": "completed",
+          "description": "Change implemented and verified",
+          "phase": "done",
+          "color": "green",
+          "transitions": []
+        },
+        {
+          "name": "development",
+          "description": "Ready for implementation",
+          "phase": "development",
+          "color": "yellow",
+          "transitions": [
+            "code_review",
+            "draft",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "developer"
+          ]
+        },
+        {
+          "name": "draft",
+          "description": "Change card created, not yet started",
+          "phase": "planning",
+          "color": "gray",
+          "is_planning": true,
+          "transitions": [
+            "research",
+            "draft",
+            "blocked",
+            "cancelled",
+            "on_hold"
+          ]
+        },
+        {
+          "name": "on_hold",
+          "description": "Intentionally deferred",
+          "phase": "paused",
+          "color": "gray",
+          "transitions": [
+            "code_review",
+            "development",
+            "draft",
+            "qa",
+            "research"
+          ]
+        },
+        {
+          "name": "qa",
+          "description": "Ready for QA verification",
+          "phase": "qa",
+          "color": "blue",
+          "transitions": [
+            "completed",
+            "development",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "qa"
+          ]
+        },
+        {
+          "name": "research",
+          "description": "Ready for recipe-driven change analysis",
+          "phase": "research",
+          "color": "purple",
+          "is_planning": true,
+          "transitions": [
+            "development",
+            "draft",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "researcher"
+          ]
+        }
+      ],
+      "special_statuses": {
+        "_complete_": [
+          "cancelled",
+          "completed"
+        ],
+        "_start_": [
+          "draft"
+        ]
+      },
+      "status_count": 9,
+      "transition_count": 31
+    }
+  ],
+  "config_path": "/tmp/shark-scratch-e40f12scratch-8JDPhh/.sharkconfig.json"
+}

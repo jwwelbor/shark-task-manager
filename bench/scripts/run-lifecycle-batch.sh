@@ -877,6 +877,21 @@ dispatch_pair() {
 	fi
 	local lifecycle_out="$pair_work/lifecycle.jsonl"
 
+	# ADR-F12-07: this guard used to run AFTER run-lifecycle.sh dispatched
+	# (i.e. after real provider spend), only to then fail evaluation. Moved
+	# here, immediately before the run (after the scratch_root copy this
+	# function's other pre-dispatch failure modes already share), so a
+	# misconfigured pair is recorded invalid before a single dispatch is
+	# attempted.
+	if [[ -z "$i05_bundle_dir" ]]; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: i05_bundle_dir not configured; cannot evaluate, recorded failed" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "i05_bundle_not_configured"
+		overall_bad="true"
+		rm -rf "$pair_work"
+		return 0
+	fi
+
 	echo "run-lifecycle-batch: dispatching $scenario_id rep $rep" >&2
 	set +e
 	# UAT-R2-01: --limits carries the operator-acknowledged ceilings
@@ -886,7 +901,7 @@ dispatch_pair() {
 	# to the scenario package's resource_policy default.
 	"$RUN_LIFECYCLE_BIN" --scenario "$package_path" --run-id "${scenario_id}-rep${rep}" \
 		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out" \
-		--limits "$OPERATOR_LIMITS_FILE" </dev/null
+		--limits "$OPERATOR_LIMITS_FILE" --i05-bundle-dir "$i05_bundle_dir" </dev/null
 	local run_rc=$?
 	set -e
 
@@ -894,15 +909,6 @@ dispatch_pair() {
 		echo "run-lifecycle-batch: $scenario_id rep $rep FAILED (run-lifecycle.sh exit $run_rc)" >&2
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "lifecycle_run_failed"
-		overall_bad="true"
-		rm -rf "$pair_work"
-		return 0
-	fi
-
-	if [[ -z "$i05_bundle_dir" ]]; then
-		echo "run-lifecycle-batch: $scenario_id rep $rep: i05_bundle_dir not configured; cannot evaluate, recorded failed" >&2
-		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
-		record_invalid "$scenario_id" "$rep" "i05_bundle_not_configured"
 		overall_bad="true"
 		rm -rf "$pair_work"
 		return 0

@@ -25,9 +25,10 @@ This is the fastest path to a real, logged run of the **Shark CLI dispatch
 loop** (`shark next` → `claim` → workflow prompt → `status advance` →
 `release`) end to end — useful for confirming the seam still works after a
 CLI/workflow change and for pinpointing exactly which step broke. It is
-deliberately lighter than the F10 operator workflow below: no spend gate,
-no attestation ledger, no I-05 evidence bundle, just `run-lifecycle.sh`'s own
-per-dispatch JSONL record.
+deliberately lighter than the F10 operator workflow below: no spend gate, no
+attestation ledger, no comparison/retention pass -- just `run-lifecycle.sh`'s
+own per-dispatch JSONL record and (T-E40-F12-006) the I-05 evidence bundle
+`--i05-bundle-dir` now requires in `--mode live`.
 
 **Scope note:** this exercises the Shark CLI and workflow prompts only. The
 default provider command (`claude --print --output-format json`, fed only
@@ -64,6 +65,11 @@ bench/scripts/smoke-lifecycle.sh --out /tmp/e40-smoke
 #                  bench/scripts/lifecycle-worker-adapter.sh)
 # --run-id <id>    override the generated run id
 ```
+
+Each run gets its own I-05 evidence bundle directory under
+`$OUT/runs/<run-id>/i05` (T-E40-F12-006) -- `run-lifecycle.sh --mode live`
+fails before its first dispatch without one, so `--live` always passes one
+through; the dry-run gets one too so both runs write comparable evidence.
 
 **Known dry-run limitation, not a script bug:** a dry run can legitimately
 end `terminal: "worker_failure"` when the workflow's next step needs a
@@ -143,8 +149,13 @@ require a generated artifact.
      --root <root_keys.py-bug-due-date-boundary from setup-result.json> \
      --scratch-root <scratch_root from setup-result.json> \
      --output /tmp/e40-smoke/lifecycle-live.jsonl \
+     --i05-bundle-dir /tmp/e40-smoke/i05-live \
      --mode live
    ```
+
+   `--i05-bundle-dir` (T-E40-F12-006) is required in `--mode live` -- the
+   run exits before its first dispatch without it (see "Producing a
+   bundle" below).
 
    `lifecycle-live.jsonl` now carries the real per-dispatch outcome: if a
    step breaks, its `dispatch` entry's `worker`/`outcome`/`errors` fields name
@@ -1150,8 +1161,50 @@ for I-02:
 ├── bundle.json                 # identity, roots, stage index, stop outcome, eligibility
 ├── stages/
 │   └── <dispatch_ordinal>-<stage_key>.json   # one immutable snapshot per stage
-└── access.jsonl                # append-only evaluator_access events
+├── access.jsonl                # append-only evaluator_access events
+└── transcripts/
+    └── <dispatch_ordinal>-<stage_key>.txt    # one bounded worker-envelope transcript per stage
 ```
+
+`transcripts/` (T-E40-F12-003, REQ-F-007) is a real directory materialized on
+every run, including a zero-dispatch run — `bench/scripts/lib/retain_pair`
+requires it to be present (with at least one entry whenever the bundle has
+at least one dispatch) and refuses the whole pair otherwise (research-report
+Finding 6). Each entry is the same `bounded()` truncation/redaction every
+other recorded response fragment already gets (REQ-NF-003): never the
+rendered prompt itself, which is not passed to the writer at all.
+
+### Producing a bundle: `--i05-bundle-dir` (E40-F12)
+
+`bench/scripts/run-lifecycle.sh` writes the tree above when given
+`--i05-bundle-dir <dir>`:
+
+| Mode | `--i05-bundle-dir` | Producer behavior |
+|---|---|---|
+| `live` | **required** | Writes the full bundle; the run exits non-zero before the first `shark next` if omitted. |
+| `contract` | optional | Writes the full bundle when supplied; no-op when absent. |
+| `dry-run` | optional | Writes the full bundle when supplied; no-op when absent. |
+| `resolve-route` | **rejected** | Never writes; exits `2` if supplied. |
+
+`bench/scripts/run-lifecycle-batch.sh dispatch_pair` and
+`bench/scripts/run-review-comparison.sh dispatch_gate` pass the operator's
+configured `scenario_roots.<id>.i05_bundle_dir` through to this flag
+unchanged — the directory is flat, the same path both drivers then hand to
+`evaluate-lifecycle.sh --i05` and to `retain_pair`.
+`bench/scripts/smoke-lifecycle.sh` (T-E40-F12-006) is the third caller: it
+has no operator config to read the directory from, so it derives one itself
+per run, under `$OUT/runs/<run-id>/i05` (see "One command" above).
+
+`content_root` and `content_digest_scheme` are **not** `bundle.json` fields —
+they are two additive fields on the I-07 lifecycle record's own `identity`
+block (TD-132, ADR-F12-03): `content_root` is the absolute path to the
+installed Shark-data canonical content tree inside the scratch Shark
+project, and `content_digest_scheme` (closed set `{"walk_v1"}`) marks that
+`shark_content_digest` is the walk-based content hash of `content_root`
+rather than the legacy whole-repo git-tree hash. `evaluate-lifecycle.sh`
+already reads `identity.content_root` to independently recompute and
+crosscheck `shark_content_digest`; see `docs/plan/tech-debt/TD-132.md` for
+the full resolution.
 
 `bundle.json` top-level fields (every field required unless marked):
 
@@ -1167,6 +1220,9 @@ for I-02:
 | `stop_outcome` | string, optional | Absent on a clean terminal run; one of the ten values below otherwise. |
 | `publication_eligible` | bool | `false` whenever `stop_outcome` is present (REQ-F-014). |
 | `ineligibility_reasons` | array of string | Non-empty whenever `publication_eligible` is `false`. |
+| `scenario_id` | string | REQ-F-014 additive top-level join field, duplicated from `scenario.scenario_id`. Read live from the same identity object the loop already holds — never recomputed. |
+| `scenario_version` | string | REQ-F-014 additive top-level join field, duplicated from `scenario.scenario_version`. Same source as `scenario_id`. |
+| `dispatches` | array | REQ-F-014 additive top-level join field: the I-07 lifecycle record's own `dispatches` list, referenced (not copied) from the shared record object. |
 
 ### Stage-snapshot field reference
 

@@ -13,10 +13,25 @@
 # their existing, unmodified interfaces so a single command reproduces the
 # README sequence. See bench/README.md's "Operator quick start" section for
 # what each step actually does and why.
+#
+# Each run-lifecycle.sh invocation this script drives gets its own I-05
+# evidence bundle directory under $OUT/runs/<run-id>/i05 (T-E40-F12-006):
+# required for the --live invocation (run-lifecycle.sh --mode live fails
+# before the first dispatch without it), harmless to also pass for the
+# dry-run.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# T-E40-F12-006 kickback fix: resolved the same way run-lifecycle-batch.sh
+# and run-review-comparison.sh resolve their own driver binaries, so a test
+# can substitute a stub and record the real argv this script hands them --
+# an exit-code-only check would not have caught the missing
+# --i05-bundle-dir pass-through this variable now carries.
+E40_BENCHMARK_BIN="${E40_BENCHMARK_BIN:-$BENCH_DIR/scripts/e40-benchmark.sh}"
+RUN_LIFECYCLE_BIN="${RUN_LIFECYCLE_BIN:-$SCRIPT_DIR/run-lifecycle.sh}"
+VERIFY_LIFECYCLE_RUN_BIN="${VERIFY_LIFECYCLE_RUN_BIN:-$SCRIPT_DIR/verify-lifecycle-run.sh}"
 
 command -v python3 >/dev/null 2>&1 || {
 	echo "smoke-lifecycle: python3 not found on PATH" >&2
@@ -63,7 +78,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "smoke-lifecycle: preparing scratch project under $OUT" >&2
-python3 "$BENCH_DIR/scripts/lib/e40_benchmark.py" setup --out "$OUT" >"$OUT.setup-status.json.tmp" 2>&1 ||
+"$E40_BENCHMARK_BIN" setup --out "$OUT" >"$OUT.setup-status.json.tmp" 2>&1 ||
 	{
 		cat "$OUT.setup-status.json.tmp" >&2
 		rm -f "$OUT.setup-status.json.tmp"
@@ -104,17 +119,25 @@ PY
 RUN_ID="${RUN_ID:-$SCENARIO-smoke}"
 LIFECYCLE_OUT="$OUT/runs/$RUN_ID/lifecycle.jsonl"
 mkdir -p "$(dirname "$LIFECYCLE_OUT")"
+# T-E40-F12-006 kickback fix: each run gets its own I-05 bundle directory,
+# named after that run's own run-id (mirroring LIFECYCLE_OUT's own
+# per-run-id layout) -- the dry-run and live runs are separate
+# run-lifecycle.sh invocations with separate identities, and the producer's
+# reset is scoped to whatever directory it is given, so sharing one
+# directory between them would let the live run reset the dry run's bundle.
+I05_OUT="$OUT/runs/$RUN_ID/i05"
 
 export SHARK_BIN="$SHARK_PATH"
 
 echo "smoke-lifecycle: dry-run against scenario $SCENARIO, root $ROOT_KEY" >&2
 DRY_RUN_STATUS=0
-"$SCRIPT_DIR/run-lifecycle.sh" \
+"$RUN_LIFECYCLE_BIN" \
 	--scenario "$PACKAGE_PATH" \
 	--run-id "$RUN_ID" \
 	--root "$ROOT_KEY" \
 	--scratch-root "$SCRATCH_ROOT" \
 	--output "$LIFECYCLE_OUT" \
+	--i05-bundle-dir "$I05_OUT" \
 	--mode dry-run || DRY_RUN_STATUS=$?
 
 if [[ "$DRY_RUN_STATUS" -ne 0 ]]; then
@@ -128,7 +151,7 @@ fi
 
 echo "smoke-lifecycle: verifying $LIFECYCLE_OUT against the I-07 schema" >&2
 VERIFY_STATUS=0
-"$SCRIPT_DIR/verify-lifecycle-run.sh" "$LIFECYCLE_OUT" --schema "$BENCH_DIR/runs/i07-schema.yaml" || VERIFY_STATUS=$?
+"$VERIFY_LIFECYCLE_RUN_BIN" "$LIFECYCLE_OUT" --schema "$BENCH_DIR/runs/i07-schema.yaml" || VERIFY_STATUS=$?
 
 if [[ "$DRY_RUN_STATUS" -eq 0 && "$VERIFY_STATUS" -eq 0 ]]; then
 	echo "smoke-lifecycle: dry-run OK -- record at $LIFECYCLE_OUT" >&2
@@ -141,14 +164,16 @@ if [[ "$LIVE" -eq 1 ]]; then
 	LIVE_RUN_ID="$RUN_ID-live"
 	LIVE_OUT="$OUT/runs/$LIVE_RUN_ID/lifecycle.jsonl"
 	mkdir -p "$(dirname "$LIVE_OUT")"
+	LIVE_I05_OUT="$OUT/runs/$LIVE_RUN_ID/i05"
 	echo "smoke-lifecycle: live run against scenario $SCENARIO, root $ROOT_KEY (this spends provider credit)" >&2
 	export LIFECYCLE_ADAPTER="$ADAPTER"
-	"$SCRIPT_DIR/run-lifecycle.sh" \
+	"$RUN_LIFECYCLE_BIN" \
 		--scenario "$PACKAGE_PATH" \
 		--run-id "$LIVE_RUN_ID" \
 		--root "$ROOT_KEY" \
 		--scratch-root "$SCRATCH_ROOT" \
 		--output "$LIVE_OUT" \
+		--i05-bundle-dir "$LIVE_I05_OUT" \
 		--mode live
-	echo "smoke-lifecycle: live run complete -- record at $LIVE_OUT" >&2
+	echo "smoke-lifecycle: live run complete -- record at $LIVE_OUT, I-05 bundle at $LIVE_I05_OUT" >&2
 fi

@@ -478,7 +478,7 @@ cat >"$UAT_R2_01_WORKDIR/bin/shark" <<'SHARK'
 #!/usr/bin/env bash
 set -euo pipefail
 python3 - "$@" <<'PY'
-import hashlib, json, sys
+import hashlib, json, os, sys
 args = sys.argv[1:]
 if args[:2] == ["next", "ROOT-001"]:
     prompt = "work ROOT-001\n"
@@ -494,6 +494,15 @@ if args[:2] == ["next", "ROOT-001"]:
     path = args[args.index("--prompt-out") + 1]
     open(path, "wb").write(prompt.encode())
     print(json.dumps(response, separators=(",", ":")))
+elif args[:3] == ["admin", "workflow", "list"]:
+    # T-E40-F12-006: the batch/comparison drivers now pass a real
+    # --i05-bundle-dir through, so run-lifecycle.sh's mode-live default
+    # runs the real I-05 producer, which resolves stage_category from a
+    # real `admin workflow list <level> --json` call (REQ-F-004) -- same
+    # frozen-fixture convention tc115's own shark stub already uses.
+    level = args[3]
+    with open(os.path.join(os.environ["SHARK_WORKFLOW_DIR"], level + ".json")) as f:
+        print(f.read())
 elif args[0] == "claim":
     print('{"session_id":"SID-uat-r2-01"}')
 elif args[0] == "heartbeat":
@@ -616,13 +625,33 @@ assert int(rec_tasks) == tasks, label + ": I-07 recorded max_generated_tasks=" +
 		|| fail "$label: operator ceiling did not win over the scenario resource_policy default"
 }
 
+# T-E40-F12-006 (ADR-F12-07): dispatch_pair()/dispatch_gate() now pass
+# --i05-bundle-dir through AND check it before dispatch, so an unconfigured
+# i05_bundle_dir no longer reaches run-lifecycle.sh at all (see tc115
+# TC-019/TC-020 for that guard-reorder property in isolation). This section
+# instead configures a real i05_bundle_dir so the real run-lifecycle.sh
+# dispatch this UAT-R2-01 regression depends on for its --limits assertions
+# still happens for real, and forces a deterministic post-dispatch failure
+# via an always-failing EVALUATE_LIFECYCLE_BIN stub so the pair/gate still
+# ends up classified invalid without needing a full real evaluate-lifecycle.sh
+# pass over a synthetic bundle.
+UAT_R2_01_EVAL_ALWAYS_FAIL="$UAT_R2_01_WORKDIR/evaluate-lifecycle-always-fail.sh"
+cat >"$UAT_R2_01_EVAL_ALWAYS_FAIL" <<'EOF'
+#!/usr/bin/env bash
+echo "evaluate-lifecycle-always-fail: deliberate failure (T-E40-F12-006 UAT-R2-01 fixture)" >&2
+exit 1
+EOF
+chmod +x "$UAT_R2_01_EVAL_ALWAYS_FAIL"
+
 # ---------------------------------------------------------------------------
-# Batch driver (T-E40-F10-004): real run-lifecycle-batch.sh --mode pilot,
-# real spend-gate.sh sourcing, real dispatch_pair -- i05_bundle_dir is left
-# unconfigured on purpose so the pair is honestly classified `failed` AFTER
-# the real run-lifecycle.sh dispatch already completed (exit 4, mirroring
-# this file's own "fully-satisfied" convention above); the wrapper has
-# already captured the real argv/--limits/--output by then.
+# Batch driver (T-E40-F10-004 / T-E40-F12-006): real run-lifecycle-batch.sh
+# --mode pilot, real spend-gate.sh sourcing, real dispatch_pair -- a real
+# i05_bundle_dir is configured (required for a real live dispatch to be
+# reached at all now that the guard runs before it) so the wrapper captures
+# the real argv/--limits/--output from a genuine run-lifecycle.sh dispatch,
+# then the pair is honestly classified `evaluation_failed` via the
+# always-failing EVALUATE_LIFECYCLE_BIN stub above (exit 4, mirroring this
+# file's own "fully-satisfied" convention above).
 # ---------------------------------------------------------------------------
 BATCH_R2_WORKDIR="$UAT_R2_01_WORKDIR/batch"
 mkdir -p "$BATCH_R2_WORKDIR/scratch"
@@ -634,6 +663,7 @@ scenarios:
   $UAT_R2_01_SCENARIO_ID:
     root_key: "ROOT-001"
     scratch_root: "$BATCH_R2_WORKDIR/scratch"
+    i05_bundle_dir: "$BATCH_R2_WORKDIR/i05"
     reps: 1
 EOF
 
@@ -641,8 +671,10 @@ EOF
 batch_r2_rc=0
 PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	LIFECYCLE_ADAPTER="$UAT_R2_01_WORKDIR/adapter.sh" \
+	SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
 	RUN_LIFECYCLE_BIN="$UAT_R2_01_WORKDIR/run-lifecycle-wrapper.sh" \
 	REAL_RUN_LIFECYCLE_BIN="$SCRIPTS_DIR/run-lifecycle.sh" \
+	EVALUATE_LIFECYCLE_BIN="$UAT_R2_01_EVAL_ALWAYS_FAIL" \
 	SPY_ARGV_LOG="$UAT_R2_01_WORKDIR/batch-spy-argv.log" \
 	CAPTURED_LIMITS_FILE="$UAT_R2_01_WORKDIR/batch-captured-limits.yaml" \
 	CAPTURED_LIFECYCLE_OUT="$UAT_R2_01_WORKDIR/batch-captured-lifecycle.jsonl" \
@@ -651,22 +683,27 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-cost-usd "$UAT_R2_01_OPERATOR_COST" --max-wall-clock-seconds "$UAT_R2_01_OPERATOR_WALL" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	>"$UAT_R2_01_WORKDIR/batch-r2.out" 2>"$UAT_R2_01_WORKDIR/batch-r2.err" || batch_r2_rc=$?
-[[ "$batch_r2_rc" -eq 4 ]] || fail "uat-r2-01 batch: expected exit 4 (real dispatch reached, i05_bundle_dir deliberately unconfigured), got $batch_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err")"
-grep -q "i05_bundle_not_configured" "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" \
-	|| fail "uat-r2-01 batch: expected the pair to be classified i05_bundle_not_configured AFTER a real run-lifecycle.sh dispatch, got: $(cat "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" 2>/dev/null)"
+[[ "$batch_r2_rc" -eq 4 ]] || fail "uat-r2-01 batch: expected exit 4 (real dispatch reached, evaluation deliberately failed), got $batch_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-r2.err")"
+grep -q "evaluation_failed" "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" \
+	|| fail "uat-r2-01 batch: expected the pair to be classified evaluation_failed AFTER a real run-lifecycle.sh dispatch, got: $(cat "$BATCH_R2_WORKDIR/retention/invalid/index.jsonl" 2>/dev/null)"
 
 grep -q -- "--limits" "$UAT_R2_01_WORKDIR/batch-spy-argv.log" \
 	|| fail "uat-r2-01 batch: real run-lifecycle-batch.sh invocation of run-lifecycle.sh did not include --limits: $(cat "$UAT_R2_01_WORKDIR/batch-spy-argv.log")"
+grep -q -- "--i05-bundle-dir $BATCH_R2_WORKDIR/i05" "$UAT_R2_01_WORKDIR/batch-spy-argv.log" \
+	|| fail "uat-r2-01 batch (T-E40-F12-006 AC-018): real run-lifecycle-batch.sh invocation of run-lifecycle.sh did not include --i05-bundle-dir: $(cat "$UAT_R2_01_WORKDIR/batch-spy-argv.log")"
 verify_operator_limits_won "uat-r2-01 batch" \
 	"$UAT_R2_01_WORKDIR/batch-captured-limits.yaml" "$UAT_R2_01_WORKDIR/batch-captured-lifecycle.jsonl"
 
 echo "TC-080(UAT-R2-01 regression, batch driver, T-E40-F10-004): real run-lifecycle-batch.sh --mode pilot invocation of the real run-lifecycle.sh carries the operator's CLI ceilings via --limits, and the real I-07 record's limits reflect those operator values -- not the scenario's own (much larger) resource_policy default -- PASS"
 
 # ---------------------------------------------------------------------------
-# Comparison driver (T-E40-F10-005): real run-review-comparison.sh --mode
-# pilot, both gates dispatched for real (i05_bundle_dir left unconfigured on
-# both so the run ends honestly at exit 4 -- comparison never attempted --
-# only after each real run-lifecycle.sh dispatch already completed).
+# Comparison driver (T-E40-F10-005 / T-E40-F12-006): real
+# run-review-comparison.sh --mode pilot, both gates dispatched for real
+# (a real i05_bundle_dir is configured per gate so each real
+# run-lifecycle.sh dispatch is actually reached now that the guard runs
+# before it); each gate's post-dispatch evaluation is then forced to fail
+# deterministically via the always-failing EVALUATE_LIFECYCLE_BIN stub,
+# so the run still ends honestly at exit 4 -- comparison never attempted.
 # ---------------------------------------------------------------------------
 CMP_R2_WORKDIR="$UAT_R2_01_WORKDIR/cmp"
 mkdir -p "$CMP_R2_WORKDIR/scratch"
@@ -678,17 +715,21 @@ gates:
   qa:
     root_key: "ROOT-001"
     scratch_root: "$CMP_R2_WORKDIR/scratch"
+    i05_bundle_dir: "$CMP_R2_WORKDIR/i05-qa"
   deep_review:
     root_key: "ROOT-001"
     scratch_root: "$CMP_R2_WORKDIR/scratch"
+    i05_bundle_dir: "$CMP_R2_WORKDIR/i05-deep-review"
 EOF
 
 : >"$UAT_R2_01_WORKDIR/cmp-spy-argv.log"
 cmp_r2_rc=0
 PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	LIFECYCLE_ADAPTER="$UAT_R2_01_WORKDIR/adapter.sh" \
+	SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
 	RUN_LIFECYCLE_BIN="$UAT_R2_01_WORKDIR/run-lifecycle-wrapper.sh" \
 	REAL_RUN_LIFECYCLE_BIN="$SCRIPTS_DIR/run-lifecycle.sh" \
+	EVALUATE_LIFECYCLE_BIN="$UAT_R2_01_EVAL_ALWAYS_FAIL" \
 	SPY_ARGV_LOG="$UAT_R2_01_WORKDIR/cmp-spy-argv.log" \
 	CAPTURED_LIMITS_FILE="$UAT_R2_01_WORKDIR/cmp-captured-limits.yaml" \
 	CAPTURED_LIFECYCLE_OUT="$UAT_R2_01_WORKDIR/cmp-captured-lifecycle.jsonl" \
@@ -697,7 +738,7 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-cost-usd "$UAT_R2_01_OPERATOR_COST" --max-wall-clock-seconds "$UAT_R2_01_OPERATOR_WALL" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	>"$UAT_R2_01_WORKDIR/cmp-r2.out" 2>"$UAT_R2_01_WORKDIR/cmp-r2.err" || cmp_r2_rc=$?
-[[ "$cmp_r2_rc" -eq 4 ]] || fail "uat-r2-01 comparison: expected exit 4 (real gate dispatch reached, i05_bundle_dir deliberately unconfigured), got $cmp_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/cmp-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/cmp-r2.err")"
+[[ "$cmp_r2_rc" -eq 4 ]] || fail "uat-r2-01 comparison: expected exit 4 (real gate dispatch reached, evaluation deliberately failed), got $cmp_r2_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/cmp-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/cmp-r2.err")"
 grep -q "one or both gates failed to dispatch/evaluate" "$UAT_R2_01_WORKDIR/cmp-r2.out" "$UAT_R2_01_WORKDIR/cmp-r2.err" \
 	|| fail "uat-r2-01 comparison: expected the standard post-gate-dispatch failure message, got stdout: $(cat "$UAT_R2_01_WORKDIR/cmp-r2.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/cmp-r2.err")"
 
@@ -705,6 +746,9 @@ grep -q "one or both gates failed to dispatch/evaluate" "$UAT_R2_01_WORKDIR/cmp-
 # satisfied by fixing only the first dispatch call.
 [[ "$(grep -c -- "--limits" "$UAT_R2_01_WORKDIR/cmp-spy-argv.log")" -eq 2 ]] \
 	|| fail "uat-r2-01 comparison: expected both the qa and deep_review real run-lifecycle.sh invocations to include --limits, got: $(cat "$UAT_R2_01_WORKDIR/cmp-spy-argv.log")"
+# T-E40-F12-006 AC-018: both gates must also have carried --i05-bundle-dir.
+[[ "$(grep -c -- "--i05-bundle-dir" "$UAT_R2_01_WORKDIR/cmp-spy-argv.log")" -eq 2 ]] \
+	|| fail "uat-r2-01 comparison (T-E40-F12-006 AC-018): expected both the qa and deep_review real run-lifecycle.sh invocations to include --i05-bundle-dir, got: $(cat "$UAT_R2_01_WORKDIR/cmp-spy-argv.log")"
 verify_operator_limits_won "uat-r2-01 comparison" \
 	"$UAT_R2_01_WORKDIR/cmp-captured-limits.yaml" "$UAT_R2_01_WORKDIR/cmp-captured-lifecycle.jsonl"
 
@@ -734,8 +778,10 @@ UAT_R2_01_DUP_RETENTION="$UAT_R2_01_WORKDIR/batch-dup-retention"
 batch_dup_rc=0
 PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	LIFECYCLE_ADAPTER="$UAT_R2_01_WORKDIR/adapter.sh" \
+	SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
 	RUN_LIFECYCLE_BIN="$UAT_R2_01_WORKDIR/run-lifecycle-wrapper.sh" \
 	REAL_RUN_LIFECYCLE_BIN="$SCRIPTS_DIR/run-lifecycle.sh" \
+	EVALUATE_LIFECYCLE_BIN="$UAT_R2_01_EVAL_ALWAYS_FAIL" \
 	SPY_ARGV_LOG="$UAT_R2_01_WORKDIR/batch-dup-spy-argv.log" \
 	CAPTURED_LIMITS_FILE="$UAT_R2_01_WORKDIR/batch-dup-captured-limits.yaml" \
 	CAPTURED_LIFECYCLE_OUT="$UAT_R2_01_WORKDIR/batch-dup-captured-lifecycle.jsonl" \
@@ -745,7 +791,7 @@ PATH="$UAT_R2_01_WORKDIR/bin:$ORIGINAL_PATH" \
 	--max-generated-tasks "$UAT_R2_01_OPERATOR_TASKS" \
 	--max-cost-usd 777 \
 	>"$UAT_R2_01_WORKDIR/batch-dup.out" 2>"$UAT_R2_01_WORKDIR/batch-dup.err" || batch_dup_rc=$?
-[[ "$batch_dup_rc" -eq 4 ]] || fail "uat-r2-01 duplicate-flag: expected exit 4 (real dispatch reached, i05_bundle_dir deliberately unconfigured), got $batch_dup_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-dup.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-dup.err")"
+[[ "$batch_dup_rc" -eq 4 ]] || fail "uat-r2-01 duplicate-flag: expected exit 4 (real dispatch reached, evaluation deliberately failed), got $batch_dup_rc; stdout: $(cat "$UAT_R2_01_WORKDIR/batch-dup.out"); stderr: $(cat "$UAT_R2_01_WORKDIR/batch-dup.err")"
 
 # batch.json's own recorded "ceilings" block (this file's pre-existing
 # flag_value() python helper, also first-match) must record the FIRST

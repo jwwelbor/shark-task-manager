@@ -1,0 +1,249 @@
+{
+  "levels": [
+    {
+      "level": "feature",
+      "source": "default",
+      "version": "1.0",
+      "statuses": [
+        {
+          "name": "active",
+          "description": "Tasks in progress, progress aggregated from children",
+          "phase": "execution",
+          "color": "yellow",
+          "aggregates_from": "tasks",
+          "transitions": [
+            "code_review",
+            "task_review",
+            "blocked",
+            "on_hold"
+          ]
+        },
+        {
+          "name": "approval",
+          "description": "QA passed — ready for UAT red-team review",
+          "phase": "approval",
+          "color": "cyan",
+          "transitions": [
+            "completed",
+            "active",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "uat-agent"
+          ]
+        },
+        {
+          "name": "assessment",
+          "description": "Ready for scope validation and complexity triage",
+          "phase": "triage",
+          "color": "orange",
+          "is_planning": true,
+          "transitions": [
+            "research",
+            "draft",
+            "blocked",
+            "cancelled",
+            "on_hold"
+          ],
+          "agent_types": [
+            "researcher"
+          ]
+        },
+        {
+          "name": "blocked",
+          "description": "External blocker preventing progress",
+          "phase": "blocked",
+          "color": "red",
+          "transitions": [
+            "active",
+            "approval",
+            "assessment",
+            "code_review",
+            "draft",
+            "qa",
+            "research",
+            "specification",
+            "task_generation",
+            "task_review",
+            "test_planning"
+          ]
+        },
+        {
+          "name": "cancelled",
+          "description": "Feature abandoned or converted to task",
+          "phase": "done",
+          "color": "red",
+          "transitions": []
+        },
+        {
+          "name": "code_review",
+          "description": "All tasks developed — feature verification gate (merged review+QA for SIMPLE/STANDARD; review-only first gate for COMPLEX)",
+          "phase": "code_review",
+          "color": "magenta",
+          "transitions": [
+            "approval",
+            "active",
+            "blocked",
+            "on_hold",
+            "qa"
+          ],
+          "agent_types": [
+            "tech-lead"
+          ]
+        },
+        {
+          "name": "completed",
+          "description": "All tasks done, feature delivered",
+          "phase": "done",
+          "color": "green",
+          "transitions": []
+        },
+        {
+          "name": "draft",
+          "description": "Feature created from epic decomposition",
+          "phase": "planning",
+          "color": "gray",
+          "is_planning": true,
+          "transitions": [
+            "assessment",
+            "draft",
+            "blocked",
+            "active",
+            "cancelled"
+          ]
+        },
+        {
+          "name": "on_hold",
+          "description": "Intentionally paused, awaiting product decision",
+          "phase": "paused",
+          "color": "gray",
+          "transitions": [
+            "active",
+            "approval",
+            "assessment",
+            "code_review",
+            "draft",
+            "qa",
+            "research",
+            "specification",
+            "task_generation",
+            "task_review",
+            "test_planning"
+          ]
+        },
+        {
+          "name": "qa",
+          "description": "COMPLEX features only: deep second verification gate after review",
+          "phase": "qa",
+          "color": "blue",
+          "transitions": [
+            "approval",
+            "active",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "qa"
+          ]
+        },
+        {
+          "name": "research",
+          "description": "Ready for recipe-driven research before specification or task generation",
+          "phase": "research",
+          "color": "purple",
+          "is_planning": true,
+          "transitions": [
+            "specification",
+            "assessment",
+            "blocked",
+            "on_hold",
+            "task_generation"
+          ],
+          "agent_types": [
+            "researcher"
+          ]
+        },
+        {
+          "name": "specification",
+          "description": "Ready for combined requirements + architecture spec",
+          "phase": "specification",
+          "color": "cyan",
+          "is_planning": true,
+          "transitions": [
+            "test_planning",
+            "research",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "architect"
+          ]
+        },
+        {
+          "name": "task_generation",
+          "description": "Ready to generate thin task specs",
+          "phase": "decomposition",
+          "color": "blue",
+          "is_planning": true,
+          "transitions": [
+            "task_review",
+            "test_planning",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "product-manager"
+          ]
+        },
+        {
+          "name": "task_review",
+          "description": "Ready for codex review of tasks against feature spec",
+          "phase": "review",
+          "color": "magenta",
+          "is_planning": true,
+          "transitions": [
+            "active",
+            "task_generation",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "uat-agent"
+          ]
+        },
+        {
+          "name": "test_planning",
+          "description": "Ready for feature test strategy",
+          "phase": "test_planning",
+          "color": "blue",
+          "is_planning": true,
+          "transitions": [
+            "task_generation",
+            "specification",
+            "blocked",
+            "on_hold"
+          ],
+          "agent_types": [
+            "qa"
+          ]
+        }
+      ],
+      "special_statuses": {
+        "_aggregation_": [
+          "active"
+        ],
+        "_complete_": [
+          "cancelled",
+          "completed"
+        ],
+        "_start_": [
+          "draft"
+        ]
+      },
+      "status_count": 15,
+      "transition_count": 70
+    }
+  ],
+  "config_path": "/tmp/shark-scratch-e40f12scratch-8JDPhh/.sharkconfig.json"
+}

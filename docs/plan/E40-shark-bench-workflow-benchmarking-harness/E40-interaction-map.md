@@ -118,6 +118,45 @@ Shared contract evidence is the map row above (shape source
 F06's spec.md must name the shared contract-test pointer at specification
 time, the same way F05's spec.md named TC-030 for I-04.
 
+### Provisional live-production-path record (E40-F12)
+
+E40-F12 builds the live producer for this shape: nothing ever materialized a
+real `bundle.json`/`stages/*.json`/`access.jsonl` at `i05_bundle_dir` during a
+lifecycle-v2 run, so I-05's documented contract has had no production path since
+E40-F06 defined it. Shape source is unchanged:
+[Stage evidence and isolation contract](architecture.md#stage-evidence-and-isolation-contract).
+
+**Ownership of the activation obligation is unsettled — see Q009.** E40-F06
+remains this row's **producer of record** until Q009 is answered. This entry is
+a provisional record, not a transfer:
+
+- E40-F12 is **not** written in as producer.
+- E40-F08/F09/F10's activation closures are **not** recorded as discharged.
+- **No assigned value in the table above is altered by E40-F12** — `gate_mode`,
+  `activation_owner`, `closure_key`, `counterpart_status`, `review_basis`, and
+  `demonstrability_disposition` all stand as written. The Q009 options differ in
+  which feature *discharges* the obligation, never in the obligation itself.
+
+The complication Q009 must resolve: all three named activation owners
+(E40-F08, E40-F09, E40-F10) read `completed` live from Shark on 2026-09-08, yet
+none can have closed its slice with the real caller chain, production-path
+integration test, and wiring-removal counterfactual this map requires, because
+the live bundle they would have closed against did not exist.
+
+This annotation is required by this map's own boundary rule: a feature workflow
+that refines or supplies a shape must update the architecture source, this row,
+every named consumer, and the matching UAT scenario before passing feature
+review. Leaving the row untouched would breach that rule, so the record is
+unconditional even though the ownership question is open. The shared
+contract-test pointer
+(`tests/contracts/e40_i05_stage_evidence_contract_test.go#TC-042`) is keyed to
+the schema, not to the authoring feature, so it holds under every Q009 outcome.
+
+A separate, larger obstacle to any consumer closing its slice is recorded in
+E40-F12's `spec.md` §3.2 and in **Q008**: the live I-07 producer omits the
+identity and workflow-policy surface `evaluate-lifecycle.sh` requires, so a
+correct I-05 bundle alone still cannot yield a non-failed evaluated pair.
+
 ## I-06 staged edge
 
 I-06's producer (E40-F07, order 7) runs before its consumer E40-F08 (order 8)
@@ -155,6 +194,42 @@ Shared contract evidence is the map row above (shape source
 [Lifecycle run record contract](architecture.md#lifecycle-run-record-contract));
 F08's spec.md must name the shared contract-test pointer at specification
 time.
+
+### Provisional revision-owner record (E40-F12)
+
+E40-F12 revises this shape: two additive fields on the `identity` block
+(`content_root`, `content_digest_scheme`) and a changed value scheme for
+`shark_content_digest` (whole-repo git-tree hash → walk-based content hash
+of `content_root`), per REQ-F-012 and ADR-F12-03 (TD-132's resolution).
+Shape source is unchanged:
+[Lifecycle run record contract](architecture.md#lifecycle-run-record-contract).
+
+**Ownership of this revision is unsettled — see Q011.** E40-F08 remains
+this row's **producer of record** until Q011 is answered. This entry is a
+provisional revision-owner record, not a transfer:
+
+- E40-F12 is **not** written in as producer.
+- E40-F09/F10's consumer updates (re-running UAT against the new
+  `shark_content_digest` value scheme) are **not** recorded as absorbed.
+- **No assigned value in the table above is altered by E40-F12** —
+  `gate_mode`, `activation_owner`, `closure_key`, `counterpart_status`,
+  `review_basis`, and `demonstrability_disposition` all stand as written.
+  The Q011 options differ in which feature *closes* the revision, never in
+  the revision itself.
+
+This annotation is required by this map's own boundary rule: a feature
+workflow that refines a shape must update the architecture source, this
+row, every named consumer, and the matching UAT scenario before passing
+feature review. Neither `architecture.md#lifecycle-run-record-contract` nor
+this row named the revision as of E40-F12's task_review, so the record is
+unconditional even though the ownership question is open. The shared
+contract-test pointer
+(`tests/contracts/e40_i07_lifecycle_run_contract_test.go#TC-061`) is keyed
+to the schema, not to the authoring feature, so it holds under every Q011
+outcome. The two additive fields are additive-only and break no existing
+reader (`evaluate-lifecycle.sh:275` already accepts `identity.content_root`);
+the value-scheme change to `shark_content_digest` is the material change
+Q011 must adjudicate.
 
 ## I-08 staged edge
 
