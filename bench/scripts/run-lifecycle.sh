@@ -1161,7 +1161,6 @@ class I05BundleWriter:
             },
             "run_id": self.run_id,
             "roots": dict(self.identity["roots"]),
-            "prelude": self.record.get("prelude", {}),
             "stage_matrix_source": {
                 "package_path": str(self.scenario_path),
                 "package_digest": self.identity["fixture_digest"],
@@ -2261,7 +2260,6 @@ def main(argv):
     identity["scenario_path"] = str(scenario_path)
     identity["roots"]["scratch_shark_project"] = str(scratch)
     identity["shark_binary_digest"] = sha256_file(Path(resolved_shark))
-    identity["shark_content_digest"] = tree_digest(scratch / "shark-data")
     pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch)
     record = make_record(identity, args["root"], scratch, limits, repo_root)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))

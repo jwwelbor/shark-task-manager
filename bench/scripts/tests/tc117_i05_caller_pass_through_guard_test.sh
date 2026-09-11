@@ -71,12 +71,29 @@ schema_version: "1.0"
 scenario_id: "$TC19_SCENARIO_ID"
 scenario_version: "1"
 entity_family: "family-tc019"
+fixture:
+  fixture_id: "fixture-tc019-scenario"
+  base_sha: "fixture-base-tc019-scenario"
 EOF
 cat >"$WORKDIR_19/index/scenarios.yaml" <<EOF
 schema_version: "1.0"
 scenarios:
   - packages/$TC19_SCENARIO_ID
 EOF
+
+# dispatch_pair() (run-lifecycle-batch.sh) checks out the declared fixture
+# via CHECKOUT_SCENARIO_FIXTURE_BIN before ever invoking RUN_LIFECYCLE_BIN --
+# stubbed the same way tc082_retention_layout_test.sh's DRIVER_CHECKOUT_STUB
+# stubs it, so TC-019's real dispatch_pair() invocation reaches its
+# RUN_LIFECYCLE_BIN stub instead of failing during fixture checkout.
+TC19_CHECKOUT_STUB="$WORKDIR_19/checkout-scenario-fixture-stub.sh"
+cat >"$TC19_CHECKOUT_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$3"
+printf 'gitdir: fixture-only-test-double\n' >"$3/.git"
+EOF
+chmod +x "$TC19_CHECKOUT_STUB"
 
 # Records its own argv (one line per invocation) and writes a committed,
 # schema-valid I-07 fixture to --output, so a caller downstream of a
@@ -134,6 +151,7 @@ EOF
 : >"$TC19_RUN_LOG"
 tc19a_rc=0
 RUN_LIFECYCLE_BIN="$TC19_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$TC19_EVAL_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$TC19_CHECKOUT_STUB" \
 	"$BATCH" --batch "$TC19A_POLICY" --retention-root "$WORKDIR_19/retention-a" \
 	--mode pilot --acknowledge-provider-spend \
 	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
@@ -168,6 +186,7 @@ EOF
 : >"$TC19_RUN_LOG"
 tc19b_rc=0
 RUN_LIFECYCLE_BIN="$TC19_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$TC19_EVAL_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$TC19_CHECKOUT_STUB" \
 	"$BATCH" --batch "$TC19B_POLICY" --retention-root "$WORKDIR_19/retention-b" \
 	--mode pilot --acknowledge-provider-spend \
 	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
