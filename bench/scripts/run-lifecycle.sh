@@ -1477,7 +1477,14 @@ def allowed_outcomes(scratch, response):
 
 
 def configured_gate_policies(scratch, entity_family, repo_root):
-    """Retain every review-like gate reachable through any workflow outcome."""
+    """Retain every review-like gate reachable through any workflow outcome.
+
+    Returns (policies, workflow_found): workflow_found distinguishes "no
+    per-entity workflow YAML exists at all" from "a workflow YAML exists but
+    legitimately configures zero review/qa/uat/approval gates" -- both yield
+    an empty policies list, but is_configured_gate must treat them
+    differently (fall back to keyword matching only in the former case).
+    """
     family_name = str(entity_family).replace("_", "-")
     candidates = [family_name, family_name.replace("-card", "")]
     workflow_path = next(
@@ -1486,7 +1493,7 @@ def configured_gate_policies(scratch, entity_family, repo_root):
         None,
     )
     if workflow_path is None:
-        return []
+        return [], False
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
     steps = workflow.get("steps") or {}
     visited = set()
@@ -1527,7 +1534,7 @@ def configured_gate_policies(scratch, entity_family, repo_root):
                     and target not in visited and target not in pending
                 ):
                     pending.append(target)
-    return policies
+    return policies, True
 
 
 def refresh_workflow_policy(record):
@@ -1559,6 +1566,40 @@ def refresh_workflow_policy(record):
     policy["fixes_allowed_between_gates"] = any(
         bool(item.get("fixes_allowed")) for item in gate_policies
     )
+
+
+def is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
+    """Whether gate_id (the entity's current status) is a configured review/
+    qa/uat/approval/code_review gate.
+
+    Fix for the two-classifier defect (review finding F5): dispatch-time
+    gate capture used to decide this by keyword-matching the status STRING
+    (stage_category(gate_id) in {"review","qa","uat"}) -- independent of and
+    sometimes disagreeing with configured_gate_policies(), which derives the
+    same decision from the workflow YAML's own authoritative `phase:` field.
+    A custom step name whose phase was gate-like but whose text didn't match
+    a keyword (e.g. phase: qa, step name "verification") was silently
+    recorded not_reached in I-07 even though it was genuinely dispatched --
+    fabricating the exact "gate never ran" evidence I-05/I-07 exist to make
+    impossible.
+
+    configured_gate_ids/has_configured_workflow MUST be a frozen snapshot
+    taken once, right after configured_gate_policies() runs, before the
+    dispatch loop starts -- NOT a live read of
+    record["workflow_policy"]["gate_policies"]. That list is mutated during
+    dispatch by gate_policy_for()'s own fallback-append (a gate dispatched
+    but absent from the configured set gets a synthesized entry appended so
+    later lookups/backfill can find it). Reading the live list here would
+    make an earlier dispatch's fallback-append silently redefine "configured"
+    for every later dispatch in the SAME no-workflow-YAML run, one gate can
+    permanently hide every gate dispatched after it. Only when no workflow
+    YAML was found at all (has_configured_workflow is False) does this fall
+    back to the keyword match, to preserve prior behavior for callers with
+    no `steps:` schema to consult.
+    """
+    if has_configured_workflow:
+        return gate_id in configured_gate_ids
+    return stage_category(gate_id) in {"review", "qa", "uat"}
 
 
 def gate_policy_for(record, response, repo_root):
@@ -2004,6 +2045,161 @@ def resolve_route(args, scenario_path, scenario, scratch, shark):
     return 1 if resolution == "failed" else 0
 
 
+def finalize_stage_evidence(
+    record, evidence_errors, dispatch, candidate, response, entity,
+    fixture_root, fixture_input_digest, execution_adapter, adapter,
+    i05_writer, shark, scratch, worker_result, timing, rc_start_ns,
+    stage_visits, started,
+):
+    """Builds this dispatch's I-07 lifecycle_stage record (and, if an I-05
+    bundle is configured, its I-05 stage-evidence snapshot), appending both
+    to record/evidence_errors in place, and records observed wall-clock
+    elapsed time. Returns (stage_candidate, gate_category) -- both are
+    consumed by the review-gate capture step (capture_gate_if_configured)
+    that follows in the caller. gate_category is None when no I-05 bundle
+    is configured (nothing wrote a stage_category for this dispatch).
+
+    Extracted from main()'s dispatch loop (review finding F4): a
+    self-contained post-dispatch bookkeeping step that reads a handful of
+    locals and mutates record/evidence_errors/stage_visits in place, never
+    rebinding a loop-carried scalar (ordinal/terminal/reason) -- the
+    extraction changes nothing about the surrounding try/except/finally
+    control flow those scalars live in.
+    """
+    # REQ-F-005/§2.5: `stage_end` is captured immediately after
+    # `refresh_candidate()` completes -- the producer's own
+    # serialization/write happens after this point and is
+    # deliberately outside the stage window (spec.md §2.5).
+    timing["stage_end"] = time.monotonic_ns()
+    timing["claimed"].append(("tool_and_test", rc_start_ns, timing["stage_end"]))
+    elapsed = max(0.0, time.monotonic() - started)
+    record["limits"]["observed_wall_clock_seconds"] = elapsed
+    stage_candidate = dict(candidate)
+    visit_key = (entity, str(response.get("status", "development")))
+    rework_count = stage_visits.get(visit_key, 0)
+    stage_visits[visit_key] = rework_count + 1
+    lifecycle_stage = stage_record(dispatch, stage_candidate)
+    # I-05's time ledger is explicitly nanosecond-valued, while I-07's
+    # intervals reconcile against elapsed_seconds and are consumed by F10
+    # as seconds. Keep the two contracts distinct at this boundary. Only
+    # relative (end - start) spans within this stage matter here, so a
+    # fixed zero origin (rather than the I05BundleWriter's own
+    # run-scoped origin_ns) is a faithful, self-contained ledger.
+    # elapsed_seconds is derived from this SAME ledger's own
+    # stage_start/stage_end (timing's own window, which starts before
+    # the claim and ends after refresh_candidate()) so the interval
+    # sum always reconciles exactly against elapsed_seconds.
+    stage_ledger = reconcile_time_ledger(0, timing)
+    lifecycle_stage["intervals"] = [
+        {"category": category, "start": start / 1_000_000_000, "end": end / 1_000_000_000}
+        for category, ranges in stage_ledger["intervals"].items()
+        for start, end in ranges
+    ]
+    lifecycle_stage["elapsed_seconds"] = (stage_ledger["stage_end"] - stage_ledger["stage_start"]) / 1_000_000_000
+    lifecycle_stage["rework"] = rework_count > 0
+    # REQ-F-003/X-09: the same resolve_usage() call I05BundleWriter's
+    # own record_stage() makes for this dispatch's snapshot, so I-07's
+    # stage errors[] reflects the identical usage-mapping outcome
+    # rather than staying an empty placeholder.
+    _usage, usage_errors = resolve_usage(mapped_provider(response), worker_result if isinstance(worker_result, dict) else {})
+    if stage_candidate.get("test_identity_error"):
+        usage_errors.append({
+            "kind": "test_suite_unavailable",
+            "detail": str(stage_candidate["test_identity_error"]),
+        })
+    lifecycle_stage["errors"] = usage_errors
+    # Same stage_input_lineage() call I05BundleWriter's own
+    # record_stage() makes for this dispatch's snapshot, so I-07's
+    # stage input_lineage[] reflects the identical typed input
+    # identities rather than staying an empty placeholder.
+    lifecycle_stage["input_lineage"] = stage_input_lineage(
+        record, dispatch, fixture_root, fixture_input_digest,
+        execution_adapter, adapter,
+    )
+    record["stages"].append(lifecycle_stage)
+    gate_category = None
+    if i05_writer is not None:
+        stage_errors = i05_writer.record_stage(
+            dispatch, stage_candidate, shark, scratch, worker_result, timing,
+            fixture_root, fixture_input_digest, execution_adapter, adapter,
+        )
+        gate_category = i05_writer._stages_index[-1]["stage_category"]
+        # unmapped_provider means the provider is legitimately outside
+        # X-09's coverage today (e.g. openai_codex_cli, or a fixture
+        # stub in tests) -- a known, non-fatal gap. Every other kind
+        # (usage_slot_unavailable for a MAPPED provider, missing_
+        # provider, test_suite_unavailable, unknown_stage_category)
+        # means required evidence for evidence THAT SHOULD be
+        # collectible went missing -- fatal to publication eligibility.
+        evidence_errors.extend(
+            {"dispatch_ordinal": dispatch["ordinal"], **item}
+            for item in stage_errors
+            if item.get("kind") != "unmapped_provider"
+        )
+    prompt_digest = str(response.get("prompt_sha256"))
+    record["identity"]["rendered_prompt_digests"].append(prompt_digest)
+    effort = str(response.get("effort") or "default")
+    record["identity"]["provider_identity"].append({
+        "stage": str(response.get("status")), "provider": str(response.get("provider")),
+        "model": str(response.get("model")), "effort": effort,
+    })
+    return stage_candidate, gate_category
+
+
+def capture_gate_if_configured(
+    record, configured_gate_ids, has_configured_workflow, i05_writer,
+    shark, scratch, entity, response, stage_candidate,
+    review_rounds, seen_review_note_ids, repo_root, request,
+):
+    """Captures this dispatch's review/qa/uat gate evidence, if
+    is_configured_gate says this dispatch's status is a configured gate.
+    Mutates record/review_rounds in place.
+
+    Extracted from main()'s dispatch loop (review finding F4) alongside
+    finalize_stage_evidence -- the second of the two self-contained,
+    non-scalar-rebinding post-dispatch steps.
+
+    Fix for the two-classifier defect (review finding F5): gate capture
+    used to decide "is this dispatch a review-like gate" from
+    `gate_category` (derived from stage-category-map.yaml's phase->category
+    table via i05_writer/_stage_category_for) -- independent of and
+    sometimes disagreeing with configured_gate_policies()'s own read of the
+    workflow YAML's `phase:` field. Both decisions now consult the same
+    frozen, pre-loop `configured_gate_ids`/`has_configured_workflow`
+    snapshot via is_configured_gate.
+
+    Still guarded on i05_writer being configured, matching prior behavior:
+    capture_review_gate() writes its gate bundle under evidence_root via
+    tempfile.TemporaryDirectory(dir=evidence_root), which would silently
+    fall back to the system temp dir instead of raising on evidence_root
+    being None -- there is no I-05 bundle location to capture a gate
+    against when --i05-bundle-dir was never passed.
+    """
+    if i05_writer is None:
+        return
+    gate_id = str(response.get("status", "review"))
+    if not is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
+        return
+    review_rounds[gate_id] = review_rounds.get(gate_id, 0) + 1
+    gate, captured_policy = capture_review_gate(
+        shark, scratch, i05_writer.dir, entity, response, stage_candidate,
+        review_rounds[gate_id], seen_review_note_ids, repo_root,
+        gate_policy_for(record, response, repo_root),
+    )
+    record["review_gates"].append(gate)
+    captured_policy["fixes_allowed"] = (
+        captured_policy.get("fixes_allowed")
+        or "fail" in request.get("allowed_outcomes", [])
+    )
+    captured_policy["policy_digest"] = canonical_digest({
+        key: value for key, value in captured_policy.items()
+        if key != "policy_digest"
+    })
+    gate["policy_ref"]["policy_digest"] = captured_policy["policy_digest"]
+    retain_gate_policy(record, captured_policy)
+    refresh_workflow_policy(record)
+
+
 def main(argv):
     args = parse_args(argv)
     scenario_path = Path(args["scenario"]).resolve()
@@ -2070,9 +2266,15 @@ def main(argv):
     record = make_record(identity, args["root"], scratch, limits, repo_root)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
-    record["workflow_policy"]["gate_policies"] = configured_gate_policies(
+    configured_gate_policy_list, has_configured_workflow = configured_gate_policies(
         scratch, scenario.get("entity_family", "unknown"), repo_root,
     )
+    record["workflow_policy"]["gate_policies"] = configured_gate_policy_list
+    # Frozen at setup time, before any dispatch: is_configured_gate must never
+    # read the live record["workflow_policy"]["gate_policies"] list, since
+    # gate_policy_for() appends synthesized fallback entries to it during
+    # dispatch (see is_configured_gate's own docstring for why that matters).
+    configured_gate_ids = frozenset(policy["gate_id"] for policy in configured_gate_policy_list)
     refresh_workflow_policy(record)
     i05_writer = None
     if args["i05_bundle_dir"]:
@@ -2224,6 +2426,7 @@ def main(argv):
                 generated = len(generated_entities)
             session = ""
             worker_result = {}
+            request = {}
             advanced = False
             retry_after_transition_rejection = False
             fixture_input_digest = tree_digest(fixture_root)
@@ -2367,103 +2570,17 @@ def main(argv):
                     adapter_name, adapter_version, toolchain_identity,
                     test_identity_error=reason,
                 )
-            # REQ-F-005/§2.5: `stage_end` is captured immediately after
-            # `refresh_candidate()` completes -- the producer's own
-            # serialization/write happens after this point and is
-            # deliberately outside the stage window (spec.md §2.5).
-            timing["stage_end"] = time.monotonic_ns()
-            timing["claimed"].append(("tool_and_test", rc_start_ns, timing["stage_end"]))
-            elapsed = max(0.0, time.monotonic() - started)
-            record["limits"]["observed_wall_clock_seconds"] = elapsed
-            stage_candidate = dict(candidate)
-            visit_key = (entity, str(response.get("status", "development")))
-            rework_count = stage_visits.get(visit_key, 0)
-            stage_visits[visit_key] = rework_count + 1
-            lifecycle_stage = stage_record(dispatch, stage_candidate)
-            # I-05's time ledger is explicitly nanosecond-valued, while I-07's
-            # intervals reconcile against elapsed_seconds and are consumed by F10
-            # as seconds. Keep the two contracts distinct at this boundary. Only
-            # relative (end - start) spans within this stage matter here, so a
-            # fixed zero origin (rather than the I05BundleWriter's own
-            # run-scoped origin_ns) is a faithful, self-contained ledger.
-            # elapsed_seconds is derived from this SAME ledger's own
-            # stage_start/stage_end (timing's own window, which starts before
-            # the claim and ends after refresh_candidate()) so the interval
-            # sum always reconciles exactly against elapsed_seconds.
-            stage_ledger = reconcile_time_ledger(0, timing)
-            lifecycle_stage["intervals"] = [
-                {"category": category, "start": start / 1_000_000_000, "end": end / 1_000_000_000}
-                for category, ranges in stage_ledger["intervals"].items()
-                for start, end in ranges
-            ]
-            lifecycle_stage["elapsed_seconds"] = (stage_ledger["stage_end"] - stage_ledger["stage_start"]) / 1_000_000_000
-            lifecycle_stage["rework"] = rework_count > 0
-            # REQ-F-003/X-09: the same resolve_usage() call I05BundleWriter's
-            # own record_stage() makes for this dispatch's snapshot, so I-07's
-            # stage errors[] reflects the identical usage-mapping outcome
-            # rather than staying an empty placeholder.
-            _usage, usage_errors = resolve_usage(mapped_provider(response), worker_result if isinstance(worker_result, dict) else {})
-            if stage_candidate.get("test_identity_error"):
-                usage_errors.append({
-                    "kind": "test_suite_unavailable",
-                    "detail": str(stage_candidate["test_identity_error"]),
-                })
-            lifecycle_stage["errors"] = usage_errors
-            # Same stage_input_lineage() call I05BundleWriter's own
-            # record_stage() makes for this dispatch's snapshot, so I-07's
-            # stage input_lineage[] reflects the identical typed input
-            # identities rather than staying an empty placeholder.
-            lifecycle_stage["input_lineage"] = stage_input_lineage(
-                record, dispatch, fixture_root, fixture_input_digest,
-                execution_adapter, adapter,
+            stage_candidate, gate_category = finalize_stage_evidence(
+                record, evidence_errors, dispatch, candidate, response, entity,
+                fixture_root, fixture_input_digest, execution_adapter, adapter,
+                i05_writer, shark, scratch, worker_result, timing, rc_start_ns,
+                stage_visits, started,
             )
-            record["stages"].append(lifecycle_stage)
-            gate_category = None
-            if i05_writer is not None:
-                stage_errors = i05_writer.record_stage(
-                    dispatch, stage_candidate, shark, scratch, worker_result, timing,
-                    fixture_root, fixture_input_digest, execution_adapter, adapter,
-                )
-                gate_category = i05_writer._stages_index[-1]["stage_category"]
-                # unmapped_provider means the provider is legitimately outside
-                # X-09's coverage today (e.g. openai_codex_cli, or a fixture
-                # stub in tests) -- a known, non-fatal gap. Every other kind
-                # (usage_slot_unavailable for a MAPPED provider, missing_
-                # provider, test_suite_unavailable, unknown_stage_category)
-                # means required evidence for evidence THAT SHOULD be
-                # collectible went missing -- fatal to publication eligibility.
-                evidence_errors.extend(
-                    {"dispatch_ordinal": dispatch["ordinal"], **item}
-                    for item in stage_errors
-                    if item.get("kind") != "unmapped_provider"
-                )
-            prompt_digest = str(response.get("prompt_sha256"))
-            record["identity"]["rendered_prompt_digests"].append(prompt_digest)
-            effort = str(response.get("effort") or "default")
-            record["identity"]["provider_identity"].append({
-                "stage": str(response.get("status")), "provider": str(response.get("provider")),
-                "model": str(response.get("model")), "effort": effort,
-            })
-            if gate_category in {"review", "qa", "uat"}:
-                gate_id = str(response.get("status", "review"))
-                review_rounds[gate_id] = review_rounds.get(gate_id, 0) + 1
-                gate, captured_policy = capture_review_gate(
-                    shark, scratch, i05_writer.dir, entity, response, stage_candidate,
-                    review_rounds[gate_id], seen_review_note_ids, repo_root,
-                    gate_policy_for(record, response, repo_root),
-                )
-                record["review_gates"].append(gate)
-                captured_policy["fixes_allowed"] = (
-                    captured_policy.get("fixes_allowed")
-                    or "fail" in request.get("allowed_outcomes", [])
-                )
-                captured_policy["policy_digest"] = canonical_digest({
-                    key: value for key, value in captured_policy.items()
-                    if key != "policy_digest"
-                })
-                gate["policy_ref"]["policy_digest"] = captured_policy["policy_digest"]
-                retain_gate_policy(record, captured_policy)
-                refresh_workflow_policy(record)
+            capture_gate_if_configured(
+                record, configured_gate_ids, has_configured_workflow, i05_writer,
+                shark, scratch, entity, response, stage_candidate,
+                review_rounds, seen_review_note_ids, repo_root, request,
+            )
             ordinal += 1
             write_partial(output, record)
             if terminal != "complete" and terminal != "resource_limit":
@@ -2471,7 +2588,7 @@ def main(argv):
             exceeded = None
             if record["limits"]["observed_cost_usd"] >= limits["max_cost_usd"]:
                 exceeded = "max_cost_usd"
-            elif elapsed >= limits["max_wall_clock_seconds"]:
+            elif record["limits"]["observed_wall_clock_seconds"] >= limits["max_wall_clock_seconds"]:
                 exceeded = "max_wall_clock_seconds"
             elif generated >= limits["max_generated_tasks"]:
                 exceeded = "max_generated_tasks"

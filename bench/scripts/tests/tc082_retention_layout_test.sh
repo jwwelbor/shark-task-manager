@@ -279,6 +279,15 @@ while [[ \$# -gt 0 ]]; do
 	*) shift ;;
 	esac
 done
+if [[ "\${EVALUATION_CRASH:-}" == "true" ]]; then
+	# F2 regression (review finding F2): a genuine evaluator crash (malformed
+	# input, missing bundle) exits 2 via evaluate-lifecycle.sh's fail_input(),
+	# distinct from exit 1's "well-formed but ineligible" verdict below. No
+	# output file is written, mirroring a crash before fail_input's write()
+	# ever runs (e.g. the --output directory itself being unwritable).
+	echo "tc082 driver-path: simulated evaluator crash" >&2
+	exit 2
+fi
 if [[ "\${EVALUATION_INELIGIBLE:-}" == "true" ]]; then
 	jq -c --arg scenario "$DRIVER_SCENARIO_ID" '.identity.scenario_id = \$scenario | .metrics={quality:{},elapsed_time:{available:true,value:1.0},provider_cost:{available:true,value:0.01},rework:{available:true,value:0},artifact_use:{}} | .execution_oracle={observed_result:"fail",invalidity_reasons:[{code:"oracle_failure",path:"/execution_oracle",detail:"held-back oracle failed"}]} | .eligibility={structural_valid:true,judge_valid:true,oracle_valid:false,aggregate_eligible:false,publication_eligible:false,invalidity_reasons:[{code:"oracle_failure",path:"/execution_oracle",detail:"held-back oracle failed"}]}' "$I08_FIXTURE" >"\$output"
 else
@@ -368,6 +377,32 @@ jq -e --arg scenario "$DRIVER_SCENARIO_ID" '.invalid | any(.scenario_id == $scen
 	"$INELIGIBLE_AGG" >/dev/null \
 	|| fail "(a2-ineligible) aggregate did not carry the I-08 invalidity reason verbatim"
 echo "TC-082: valid-but-ineligible evaluator exit 1 is retained and aggregated with its upstream diagnosis"
+
+# F2 regression (review finding F2): a genuine evaluator crash (exit 2, no
+# I-08 record) must be classified as an execution failure ("evaluation_failed"
+# in invalid/index.jsonl, failed-attempt evidence preserved) -- never
+# conflated with the exit-1 "well-formed but ineligible" case just proven
+# above. Before the fix, evaluate-lifecycle.sh's fail_input() also exited 1,
+# making the two indistinguishable to this same dispatch_pair exit-code check.
+CRASH_ROOT="$WORKDIR/driver-crash-root"
+crash_driver_rc=0
+EVALUATION_CRASH=true RUN_LIFECYCLE_BIN="$DRIVER_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$DRIVER_EVAL_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$DRIVER_CHECKOUT_STUB" \
+	ENTITY_HISTORY_EXPORT_BIN="$DRIVER_ENTITY_HISTORY_STUB" \
+	"$BATCH" --batch "$DRIVER_WORKDIR/policy.yaml" --retention-root "$CRASH_ROOT" \
+	--mode pilot --acknowledge-provider-spend --max-cost-usd 5 \
+	--max-wall-clock-seconds 600 --max-generated-tasks 10 \
+	>"$WORKDIR/driver-crash.out" 2>"$WORKDIR/driver-crash.err" || crash_driver_rc=$?
+[[ "$crash_driver_rc" -eq 4 ]] || fail "(a2-crash) expected exit 4 (one or more pairs invalid), got $crash_driver_rc; stderr: $(cat "$WORKDIR/driver-crash.err")"
+[[ ! -f "$CRASH_ROOT/scenarios/$DRIVER_SCENARIO_ID/1/evaluation.jsonl" ]] \
+	|| fail "(a2-crash) an evaluator crash must not be retained as a valid pair"
+jq -e -s --arg sid "$DRIVER_SCENARIO_ID" \
+	'any(.[]; .scenario_id == $sid and (.invalidity_reasons | index("evaluation_failed") != null))' \
+	"$CRASH_ROOT/invalid/index.jsonl" >/dev/null \
+	|| fail "(a2-crash) expected evaluation_failed in invalid/index.jsonl, got: $(cat "$CRASH_ROOT/invalid/index.jsonl")"
+find "$CRASH_ROOT/.failed-attempts/$DRIVER_SCENARIO_ID" -maxdepth 1 -name '*-evaluation' -print -quit \
+	| grep -q . || fail "(a2-crash) expected failed-attempt evidence to be preserved under .failed-attempts"
+echo "TC-082: evaluator crash (exit 2) is classified evaluation_failed, distinct from a well-formed exit-1 ineligible verdict"
 
 # ===========================================================================
 # (a3) Symlink write-through refusal (code-review-2026-08-21T0330-E40-F10.md

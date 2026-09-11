@@ -565,7 +565,7 @@ python3 -c 'import yaml' >/dev/null 2>&1 || {
 	exit 2
 }
 
-python3 - "$bundle_dir_abs" "$I05_SCHEMA" <<'PYEOF'
+python3 - "$bundle_dir_abs" "$I05_SCHEMA" "$SCRIPT_DIR/lib" <<'PYEOF'
 import hashlib
 import json
 import os
@@ -573,7 +573,9 @@ import sys
 
 import yaml
 
-bundle_dir, i05_schema_path = sys.argv[1:3]
+bundle_dir, i05_schema_path, lib_dir = sys.argv[1:4]
+sys.path.insert(0, lib_dir)
+from i05_validation import validate_typed_consumer  # noqa: E402
 
 
 class ScriptError(RuntimeError):
@@ -897,18 +899,18 @@ def validate_artifacts(stage_key, dispatch_ordinal, snapshot, known_edge_kinds):
                     f"consumers must be a list when present"
                 )
             for consumer_index, consumer in enumerate(consumers):
-                if not isinstance(consumer, dict) or set(consumer) != {"consuming_stage", "edge_kind", "observed_at"}:
+                check = validate_typed_consumer(consumer, known_edge_kinds)
+                if check == "shape":
                     raise ScriptError(
                         f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
                         f"consumers[{consumer_index}] must contain only consuming_stage, edge_kind, and observed_at"
                     )
-                for field in ("consuming_stage", "edge_kind", "observed_at"):
-                    if not isinstance(consumer[field], str) or not consumer[field].strip():
-                        raise ScriptError(
-                            f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
-                            f"consumers[{consumer_index}].{field} must be a non-empty string"
-                        )
-                if consumer["edge_kind"] not in known_edge_kinds:
+                if check == "fields":
+                    raise ScriptError(
+                        f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
+                        f"consumers[{consumer_index}] fields must be non-empty strings"
+                    )
+                if check == "edge_kind":
                     raise ScriptError(
                         f"stage={stage_key} dispatch_ordinal={dispatch_ordinal} path={path}: "
                         f"consumers[{consumer_index}].edge_kind is not declared in i05-schema.yaml: "
