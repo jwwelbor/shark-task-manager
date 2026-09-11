@@ -19,7 +19,9 @@ schema_path="$3"
 [[ -f "$schema_path" ]] || { echo "verify-lifecycle-run: schema not found: $schema_path" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "verify-lifecycle-run: python3 not found" >&2; exit 2; }
 
-python3 - "$run_path" "$schema_path" <<'PYEOF'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+python3 - "$run_path" "$schema_path" "$SCRIPT_DIR/lib" <<'PYEOF'
 import hashlib
 import json
 import os
@@ -32,7 +34,9 @@ except ImportError as exc:
     print(f"verify-lifecycle-run: PyYAML is required: {exc}", file=sys.stderr)
     sys.exit(2)
 
-run_path, schema_path = sys.argv[1:3]
+run_path, schema_path, lib_dir = sys.argv[1:4]
+sys.path.insert(0, lib_dir)
+from i05_validation import validate_typed_consumer  # noqa: E402
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 # Must match the field set refresh_candidate() in run-lifecycle.sh hashes into
 # identity_digest. Named explicitly (not "every non-digest key present") so a
@@ -369,11 +373,12 @@ def validate_record(record, schema):
             observed_consumers = []
             for consumer_index, consumer in enumerate(consumers):
                 consumer_path = f"{artifact_path}/consumers[{consumer_index}]"
-                if not isinstance(consumer, dict) or set(consumer) != {"consuming_stage", "edge_kind", "observed_at"}:
+                check = validate_typed_consumer(consumer, EDGE_KINDS)
+                if check == "shape":
                     fail("artifact_consumption_record_missing", consumer_path, "artifact consumer must contain only consuming_stage, edge_kind, and observed_at")
-                if not all(isinstance(consumer[field], str) and consumer[field].strip() for field in consumer):
+                if check == "fields":
                     fail("artifact_consumption_record_missing", consumer_path, "artifact consumer fields must be non-empty strings")
-                if consumer["edge_kind"] not in EDGE_KINDS:
+                if check == "edge_kind":
                     fail("artifact_consumption_record_missing", f"{consumer_path}/edge_kind", "artifact consumer edge_kind is not in the I-05 vocabulary")
                 observed_consumers.append(consumer["consuming_stage"])
             if sorted(observed_consumers) != expected_consumers:

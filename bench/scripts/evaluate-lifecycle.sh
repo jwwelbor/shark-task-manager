@@ -15,6 +15,9 @@ import tempfile
 import yaml
 
 bench_dir, oracle = sys.argv[1:3]
+sys.path.insert(0, os.path.join(bench_dir, "scripts", "lib"))
+from i05_validation import validate_typed_consumer  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--i05", required=True)
 parser.add_argument("--i07", required=True)
@@ -154,7 +157,7 @@ def reason(code, path, detail):
     return {"code": code, "path": path, "detail": str(detail)[:240]}
 
 
-def write(record):
+def write(record, forced_exit_code=None):
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as stream:
         json.dump(record, stream, sort_keys=True, separators=(",", ":"))
@@ -162,11 +165,18 @@ def write(record):
     eligible = record["eligibility"]["aggregate_eligible"]
     if not eligible:
         print("evaluation_invalid evaluation_id=" + record["evaluation_id"] + " reasons=" + ",".join(item["code"] for item in record["eligibility"]["invalidity_reasons"]), file=sys.stderr)
+    if forced_exit_code is not None:
+        raise SystemExit(forced_exit_code)
     raise SystemExit(0 if eligible else 1)
 
 
 def fail_input(detail):
-    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}})
+    # Exit 2, not 1: exit 1 is reserved for a genuinely well-formed but
+    # ineligible I-08 verdict (run-lifecycle-batch.sh retains that record for
+    # F10 diagnosis). fail_input fires on malformed/missing input -- a
+    # genuine crash, not a verdict -- and must not be mistaken for one by any
+    # caller branching on exit code alone.
+    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}}, forced_exit_code=2)
 
 
 def load_inputs():
@@ -460,10 +470,7 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
             )
             consumers = artifact.get("consumers")
             typed_consumers = isinstance(consumers, list) and all(
-                isinstance(consumer, dict)
-                and set(consumer) == {"consuming_stage", "edge_kind", "observed_at"}
-                and all(isinstance(consumer[field], str) and consumer[field].strip() for field in consumer)
-                and consumer["edge_kind"] in EDGE_KINDS
+                validate_typed_consumer(consumer, EDGE_KINDS) is None
                 for consumer in consumers
             )
             observed_consumers = sorted(
