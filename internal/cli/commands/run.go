@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -450,10 +449,10 @@ func resolveHarnessForClaim(override services.HarnessIdentity) services.HarnessI
 		return os.Getenv(envKey)
 	}
 	return services.HarnessIdentity{
-		Type:    strings.ToLower(strings.TrimSpace(pick(override.Type, "SHARK_HARNESS"))),
-		Version: strings.TrimSpace(pick(override.Version, "SHARK_HARNESS_VERSION")),
-		Model:   strings.TrimSpace(pick(override.Model, "SHARK_HARNESS_MODEL")),
-	}
+		Type:    pick(override.Type, "SHARK_HARNESS"),
+		Version: pick(override.Version, "SHARK_HARNESS_VERSION"),
+		Model:   pick(override.Model, "SHARK_HARNESS_MODEL"),
+	}.Normalized()
 }
 
 func acquireRunLease(ctx context.Context, entityType, entityKey, claimedBy string, dryRun bool, harnessOverride services.HarnessIdentity) (*activeRunLease, error) {

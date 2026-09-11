@@ -224,3 +224,89 @@ func TestHarnessResolver_Resolve_NilClaimReader_ZeroIdentity(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.IsZero())
 }
+
+// TestHarnessIdentity_Normalized pins the exact normalization rule (review
+// finding F1): Type is trimmed and lowercased (a small bounded vocabulary
+// compared case-insensitively by isClaude/isCodex/isHarness), while
+// Version/Model are trimmed only — their case is opaque free text.
+func TestHarnessIdentity_Normalized(t *testing.T) {
+	got := HarnessIdentity{Type: " Claude ", Version: " 1.2.3 ", Model: " Opus "}.Normalized()
+
+	assert.Equal(t, "claude", got.Type)
+	assert.Equal(t, "1.2.3", got.Version)
+	assert.Equal(t, "Opus", got.Model, "Model case must be preserved, only trimmed")
+}
+
+// TestHarnessResolver_Resolve_OverrideNormalizesWhitespaceAndCase is the
+// regression test for review finding F1: an untrimmed/mixed-case --harness
+// override used to reach the rendered identity verbatim, silently defeating
+// the isClaude/isCodex EqualFold check downstream (EqualFold is
+// case-insensitive but not whitespace-tolerant). Resolve must normalize the
+// override before applying precedence.
+func TestHarnessResolver_Resolve_OverrideNormalizesWhitespaceAndCase(t *testing.T) {
+	t.Setenv("SHARK_HARNESS", "")
+	t.Setenv("SHARK_HARNESS_VERSION", "")
+	t.Setenv("SHARK_HARNESS_MODEL", "")
+
+	resolver := NewHarnessResolver(nil)
+
+	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{Type: " Claude "})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude", got.Type, "override must be trimmed+lowercased before precedence is applied")
+}
+
+// TestHarnessResolver_Resolve_EnvNormalizesWhitespaceAndCase is F1's env-tier
+// counterpart: SHARK_HARNESS is operator-set shell state and just as
+// susceptible to stray whitespace/case as a CLI flag.
+func TestHarnessResolver_Resolve_EnvNormalizesWhitespaceAndCase(t *testing.T) {
+	t.Setenv("SHARK_HARNESS", " Codex ")
+	t.Setenv("SHARK_HARNESS_VERSION", "")
+	t.Setenv("SHARK_HARNESS_MODEL", "")
+
+	resolver := NewHarnessResolver(nil)
+
+	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "codex", got.Type, "env value must be trimmed+lowercased before precedence is applied")
+}
+
+// TestMergeResolvedHarness_NilResolver_MergesZeroIdentity pins the "no
+// resolver" branch shared by next.go's resolveEntity and controller.go's Run
+// (review finding F2): vars must still carry all three harness keys, present
+// but empty, exactly like the zero-identity fallback each call site used to
+// duplicate inline.
+func TestMergeResolvedHarness_NilResolver_MergesZeroIdentity(t *testing.T) {
+	vars := map[string]string{"existing": "kept"}
+
+	got, err := MergeResolvedHarness(context.Background(), nil, "task", "E34-F01-001", HarnessIdentity{}, vars)
+
+	require.NoError(t, err)
+	assert.True(t, got.IsZero())
+	assert.Equal(t, "kept", vars["existing"], "unrelated vars must be untouched")
+	for _, key := range []string{"harness", "harness_version", "harness_model"} {
+		v, ok := vars[key]
+		assert.Truef(t, ok, "key %q must be present even with a nil resolver", key)
+		assert.Equal(t, "", v)
+	}
+}
+
+// TestMergeResolvedHarness_ResolverSet_MergesResolvedIdentity pins the
+// resolver-present branch: the resolved identity's Vars() are merged into
+// vars and also returned, so a caller like next.go can mirror it onto a
+// response object without resolving twice.
+func TestMergeResolvedHarness_ResolverSet_MergesResolvedIdentity(t *testing.T) {
+	t.Setenv("SHARK_HARNESS", "")
+	t.Setenv("SHARK_HARNESS_VERSION", "")
+	t.Setenv("SHARK_HARNESS_MODEL", "")
+
+	resolver := NewHarnessResolver(nil)
+	vars := map[string]string{}
+
+	got, err := MergeResolvedHarness(context.Background(), resolver, "task", "E34-F01-001", HarnessIdentity{Type: "claude"}, vars)
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude", got.Type)
+	assert.Equal(t, "claude", vars["harness"])
+}

@@ -660,27 +660,17 @@ func resolveEntity(
 	// (D-F01-07) — and resp.Harness/Version/Model mirror the resolution onto
 	// the wire response (`omitempty` keeps an unresolved run byte-identical
 	// to today's JSON, REQ-NF-001).
-	if cache.harnessResolver != nil {
-		identity, hErr := cache.harnessResolver.Resolve(ctx, entityType, normalizedKey, cache.harnessOverride)
-		if hErr != nil {
-			// HarnessResolver.Resolve is documented to always return a nil
-			// error (claim-read failures degrade internally per D-F01-05);
-			// this branch exists only to fail loudly if that contract is
-			// ever violated, rather than silently dropping the error.
-			return NextResponse{}, fmt.Errorf("failed to resolve harness identity for %s: %w", normalizedKey, hErr)
-		}
-		for k, v := range identity.Vars() {
-			vars[k] = v
-		}
-		resp.Harness = identity.Type
-		resp.HarnessVersion = identity.Version
-		resp.HarnessModel = identity.Model
-	} else {
-		zero := services.HarnessIdentity{}
-		for k, v := range zero.Vars() {
-			vars[k] = v
-		}
+	identity, hErr := services.MergeResolvedHarness(ctx, cache.harnessResolver, entityType, normalizedKey, cache.harnessOverride, vars)
+	if hErr != nil {
+		// HarnessResolver.Resolve is documented to always return a nil
+		// error (claim-read failures degrade internally per D-F01-05);
+		// this branch exists only to fail loudly if that contract is
+		// ever violated, rather than silently dropping the error.
+		return NextResponse{}, fmt.Errorf("failed to resolve harness identity for %s: %w", normalizedKey, hErr)
 	}
+	resp.Harness = identity.Type
+	resp.HarnessVersion = identity.Version
+	resp.HarnessModel = identity.Model
 
 	// Step 6: Get the populated action (template rendered + skills inlined
 	// in Shark 2.0 layouts via the orchestrator renderer's {{include:}} pass).
