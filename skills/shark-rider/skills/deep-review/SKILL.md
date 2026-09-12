@@ -98,15 +98,21 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    Submit all six dispatches at once. The host may queue work when its
    concurrency limit is lower than six.
 3. Wait for all six results. If any result is missing, malformed, timed out,
-   or reports incomplete coverage, mark the review `incomplete`. Do not
-   replace a failed dispatched review with the CLI fallback.
+   or reports incomplete coverage, mark the review `incomplete` and skip to
+   step 5 to persist it. Do not replace a failed dispatched review with the
+   CLI fallback.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
-   complete changed-file list, and all six specialist results. Require the
-   consolidator to verify coverage and return the required Markdown report.
-5. Persist the result with `scripts/adaptive_review.py write-report` using
-   `runner_mode=dispatched-six-angle`, `specialists_completed=6`, and
-   `consolidator_completed=true`. Use `incomplete` unless all six specialist
-   results and the consolidator are valid.
+   captured scope (`diff_path`, `base_commit`), the complete changed-file
+   list, and all six specialist results. Require the consolidator to verify
+   coverage and return the required Markdown report and verdict.
+5. Persist with `scripts/adaptive_review.py write-report`, passing the
+   captured `base_commit` and `diff_path` and the consolidator's verdict. If
+   all six specialist results and the consolidator are valid, use
+   `runner_mode=dispatched-six-angle`, `specialists_completed=6`,
+   `consolidator_completed=true`, `adversarial_model=none`,
+   `fallback_reason=native Workflow unavailable`. Otherwise use
+   `runner_mode=incomplete` with `specialists_completed` and
+   `consolidator_completed` reflecting what actually completed.
 
 ## Runner 3: alternate-model CLI
 
