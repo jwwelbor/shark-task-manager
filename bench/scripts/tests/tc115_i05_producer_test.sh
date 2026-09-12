@@ -764,7 +764,10 @@ with open(os.path.join(invalid_workflow_dir, "task.json"), "w") as f:
 
 for tag, status in (("tc007-fabricated-phase", "invented-status"), ("tc007-no-phase", "phaseless-status")):
     i05, result = run_case(tag, "task", status, "spawn_agent", invalid_workflow_dir)
-    assert result.returncode == 0, f"{tag}: run failed: {result.stderr}"
+    # An unknown_stage_category error downgrades the run's terminal from
+    # "complete" to "error" (5ab3a9b3's evidence-trust-gap closure) -- a
+    # retained, well-formed result, not a crash, so exit 1 (not 2).
+    assert result.returncode == 1, f"{tag}: run did not exit 1 (evidence-trust-gap error): {result.stderr}"
     with open(os.path.join(i05, "bundle.json")) as f:
         bundle = json.load(f)
     stage = bundle["stages"][0]
@@ -841,7 +844,11 @@ result = subprocess.run(
      "--output", os.path.join(recovery_dir, "lifecycle.jsonl")],
     env=env, capture_output=True, text=True,
 )
-assert result.returncode == 0, f"recovery run failed: {result.stderr}"
+# ENTITY-BAD's unknown_stage_category error still downgrades the whole
+# run's terminal to "error" even though ENTITY-GOOD dispatches cleanly
+# afterward -- "recovery" means later dispatches aren't derailed, not that
+# the run is retroactively trustworthy-complete.
+assert result.returncode == 1, f"recovery run did not exit 1 (evidence-trust-gap error): {result.stderr}"
 with open(os.path.join(i05, "bundle.json")) as f:
     bundle = json.load(f)
 assert len(bundle["stages"]) == 2, bundle["stages"]
@@ -1064,12 +1071,13 @@ rc=$?
 set -e
 # The question handoff pauses the run after dispatch 2 -- expected, not a
 # failure of this fixture. Named stop outcomes (including pause) are valid,
-# retained I-07/I-05 results, not runner execution errors (run-lifecycle.sh's
-# own "Named stop outcomes are valid, retained I-07 results" comment,
-# 5f80d23c) -- main() returns 0 and records stop_outcome/publication_eligible
-# in bundle.json instead, the same place TC-002/003 above already look, so
-# this fixture verifies the pause there rather than through the exit code.
-[[ "$rc" -eq 0 ]] || { cat "$WORKDIR_8/runner.err" >&2; fail "TC-008 fixture run exited $rc, want 0 (named stop outcome, not a runner error)"; }
+# retained I-07/I-05 results with stop_outcome/publication_eligible recorded
+# in bundle.json (the same place TC-002/003 above already look) -- but
+# main()'s exit code still distinguishes "retained, evaluable stop outcome"
+# (1) from "complete" (0) and from "no evidence at all" (2+), so
+# run-lifecycle-batch.sh's own run_rc handling knows to still hand this run
+# to F09 rather than quarantine it.
+[[ "$rc" -eq 1 ]] || { cat "$WORKDIR_8/runner.err" >&2; fail "TC-008 fixture run exited $rc, want 1 (named stop outcome, evidence retained)"; }
 [[ -f "$WORKDIR_8/heartbeat-failed-once" ]] || fail "TC-008 the induced heartbeat failure never fired"
 
 "$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR_8/i05" >"$WORKDIR_8/verify.out" 2>"$WORKDIR_8/verify.err" \
@@ -1958,20 +1966,20 @@ fi
 CHECKPOINT="$WORKDIR_15/checkpoint-1-development.json"
 cp "$SNAPSHOT_A" "$CHECKPOINT"
 
-# run-lifecycle.sh's shebang is bash, and its own body invokes the embedded
-# Python interpreter (which installs the real signal.signal() handlers) as a
-# plain foreground child, never `exec`-replaced -- so the two are separate
-# processes sharing no signal disposition. A signal delivered to $RUNNER_PID
-# hits only the bash wrapper, whose own unhandled-SIGTERM default action
-# (immediate death, never forwarded to its child) would kill the wrapper
-# without ever reaching release_on_signal() at all. The real target -- the
-# same one any supervisor delivering SIGTERM to "the python3 process running
-# this dispatch loop" would hit -- is that embedded interpreter, so signal
-# its PID directly.
-PYTHON_PID="$(pgrep -P "$RUNNER_PID" | head -1)"
-[[ -n "$PYTHON_PID" ]] || { kill -KILL "$RUNNER_PID" 2>/dev/null || true; wait "$RUNNER_PID" 2>/dev/null || true; fail "TC-015 could not find the embedded python3 child of $RUNNER_PID"; }
-
-kill -TERM "$PYTHON_PID"
+# run-lifecycle.sh's own body is `LIFECYCLE_BENCH_DIR="$BENCH_DIR" exec
+# python3 - "$@" <<'PY' ... PY` -- an explicit `exec`, not a forked child --
+# so the embedded Python interpreter (which installs the real
+# signal.signal() handlers) REPLACES the bash wrapper's own process image.
+# $RUNNER_PID already IS that interpreter's real PID; there is no separate
+# "python3 child" to hunt for. Searching `pgrep -P "$RUNNER_PID"` for one
+# instead finds whatever transient subprocess pre_dispatch_gates() happens
+# to have spawned at that instant (e.g. verify-evidence-roots.sh) and
+# signals that instead -- a race that kills an unrelated dispatch-boundary
+# check rather than the runner, and was this test's own latent bug: it
+# passed only when 5f80d23c's later exit-0 flattening papered over the
+# resulting "error" terminal by mapping it to the same exit code as a real
+# cancellation. Signal $RUNNER_PID directly.
+kill -TERM "$RUNNER_PID"
 set +e
 wait "$RUNNER_PID"
 rc=$?
@@ -1989,7 +1997,10 @@ assert bundle['stages'][0]['stage_key'] == 'development'
 assert bundle.get('stop_outcome') == 'cancellation', f\"stop_outcome={bundle.get('stop_outcome')!r}\"
 assert bundle['publication_eligible'] is False
 assert bundle['ineligibility_reasons'], 'ineligibility_reasons is empty'
-assert any('SIGTERM' in r for r in bundle['ineligibility_reasons']), bundle['ineligibility_reasons']
+# Cancellation's own message is 'received signal <N>' (the numeric signum
+# release_on_signal() was actually called with, signal.SIGTERM == 15) --
+# not the symbolic name.
+assert any('signal 15' in r for r in bundle['ineligibility_reasons']), bundle['ineligibility_reasons']
 " || fail "TC-015 bundle.json triad assertions failed"
 
 "$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR_15/i05" >"$WORKDIR_15/verify.out" 2>"$WORKDIR_15/verify.err" \
@@ -2220,28 +2231,27 @@ trap - EXIT
 echo "TC-115 TC-023: pass (verify-stage-evidence.sh accepts a real six-family live-run bundle)"
 
 # ---------------------------------------------------------------------------
-# TC-024 (AC-022): verify-stage-evidence.sh is byte-identical since the
-# pre-feature ref -- REQ-F-016's own "no parallel/relaxed validator, no
-# vocabulary of its own" requirement. Same unresolvable-base skip discipline
-# as tc020/tc038: a vacuous pass is worse than no check, so a base that
-# fails to resolve is logged and skipped, never silently treated as
-# "unchanged". Caller-Path Contract (TC-024 row): content-only,
-# `git diff <pre-feature-ref> -- bench/scripts/verify-stage-evidence.sh`.
+# TC-024 (AC-022): verify-stage-evidence.sh is byte-identical across F12's
+# OWN historical development window -- REQ-F-016's own "no parallel/relaxed
+# validator, no vocabulary of its own" requirement is a scope fence on F12's
+# diff, not a perpetual freeze (spec.md REQ-F-016/§1.4 item 1, test-plan.md's
+# own TC-004 note: "wiring a new validator check is E40-F06 scope, not
+# E40-F12's"). Fixed range, not a live merge-base: `01ce448b` (E40-F11, #213,
+# the commit immediately before F12's own work started) to `8aba4712` (F12's
+# own merge, #214) -- both historical commits, so this check's answer never
+# changes once satisfied. A later, reviewed E40-F06 change to this file
+# (e.g. 77eda8d9/0d433a8b's edge_kind vocabulary enforcement) is real
+# evolution of the file's actual owner, not a violation of this requirement.
+# Caller-Path Contract (TC-024 row): content-only,
+# `git diff 01ce448b 8aba4712 -- bench/scripts/verify-stage-evidence.sh`.
 # ---------------------------------------------------------------------------
 
-tc024_base=""
-if ! tc024_base="$(cd "$REPO_ROOT" && git merge-base HEAD origin/main 2>/dev/null)"; then
-	tc024_base=""
-fi
-
-if [[ -z "$tc024_base" ]]; then
-	echo "TC-115 TC-024 (no merge-base resolved against origin/main -- skipped, logged not silently passed) SKIP" >&2
-else
-	tc024_diff="$(cd "$REPO_ROOT" && git diff "$tc024_base" -- bench/scripts/verify-stage-evidence.sh)"
-	[[ -z "$tc024_diff" ]] || fail "verify-stage-evidence.sh differs from pre-feature ref $tc024_base (REQ-F-016, AC-022):
+TC024_PRE_FEATURE_REF="01ce448b"
+TC024_POST_FEATURE_REF="8aba4712"
+tc024_diff="$(cd "$REPO_ROOT" && git diff "$TC024_PRE_FEATURE_REF" "$TC024_POST_FEATURE_REF" -- bench/scripts/verify-stage-evidence.sh)"
+[[ -z "$tc024_diff" ]] || fail "verify-stage-evidence.sh changed between $TC024_PRE_FEATURE_REF and $TC024_POST_FEATURE_REF (REQ-F-016, AC-022):
 $tc024_diff"
-	echo "TC-115 TC-024: pass (verify-stage-evidence.sh byte-unchanged since $tc024_base)"
-fi
+echo "TC-115 TC-024: pass (verify-stage-evidence.sh byte-unchanged across F12's own $TC024_PRE_FEATURE_REF..$TC024_POST_FEATURE_REF window)"
 
 # ---------------------------------------------------------------------------
 # TC-025 (AC-023): spec.md sec 3.2 enumerates every I-07 identity and
@@ -2442,11 +2452,14 @@ bundle = json.load(open('$WORKDIR_27/i05/bundle.json'))
 roots = bundle['roots']
 print(roots['agent_fixture_checkout'])
 print(roots['scratch_shark_project'])
-# roots['evaluator_only'] is <scenario_dir>/evaluator (run-lifecycle.sh line
-# 343); verify-evidence-roots.sh's own <evaluator_root> parameter is the
-# scenario PACKAGE directory it resolves package.yaml's declared
-# evaluator/... paths against, i.e. evaluator_only's parent.
-print(os.path.dirname(roots['evaluator_only']))
+# roots['evaluator_only'] IS the scenario package directory itself
+# (run-lifecycle.sh's roots['evaluator_only'] = scenario_path.parent.resolve(),
+# the same value pre_dispatch_gates() passes as verify-evidence-roots.sh's
+# own <evaluator_root> argument) -- package.yaml's declared evaluator_only
+# paths (e.g. 'evaluator/reference.patch') are already package-relative, so
+# resolving them against evaluator_only's OWN parent would look one
+# directory too high.
+print(roots['evaluator_only'])
 " >"$WORKDIR_27/roots.txt"
 mapfile -t TC27_ROOTS <"$WORKDIR_27/roots.txt"
 ( cd "$REPO_ROOT" && "$ROOTS_GUARD_27" "$TC27_SCENARIO" "${TC27_ROOTS[0]}" "${TC27_ROOTS[1]}" "${TC27_ROOTS[2]}" ) \

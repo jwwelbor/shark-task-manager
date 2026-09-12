@@ -156,11 +156,17 @@ events_before="$(wc -l <"$WORKDIR/events.ndjson")"
 RUNNER_SCENARIO="$WORKDIR/package-feature-runner.yaml"
 sed "s#^  submodule_path: .*#  submodule_path: $WORKDIR/fixture#" \
     "$WORKDIR/package-feature.yaml" >"$RUNNER_SCENARIO"
+set +e
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   "$RUNNER" --scenario "$RUNNER_SCENARIO" --replay "$WORKDIR/replay-blocked.json" \
   --run-id tc065-runner-blocked --root ROOT-NOT-DISPATCHED --scratch-root "$WORKDIR/scratch" \
   --i05-bundle-dir "$WORKDIR/runner-i05" \
   --output "$WORKDIR/runner-blocked.jsonl" --mode contract >/dev/null
+blocked_code=$?
+set -e
+# unresolved_gate is a named stop outcome with retained evidence, not
+# "complete" -- exit 1.
+[[ "$blocked_code" -eq 1 ]] || fail "runner-blocked run exited $blocked_code, want 1 (unresolved_gate)"
 events_after="$(wc -l <"$WORKDIR/events.ndjson")"
 [[ "$events_after" == "$events_before" ]] || fail "runner dispatched Shark work after an unresolved I-06 replay"
 python3 - "$WORKDIR/runner-blocked.jsonl" <<'PY'

@@ -441,6 +441,7 @@ cp -r "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary" "$WORKDIR/ex
 EXHAUSTED_SCENARIO="$WORKDIR/exhausted-scenario/package.yaml"
 sed -i "s#^  submodule_path: .*#  submodule_path: $WORKDIR/exhausted-fixture#" "$EXHAUSTED_SCENARIO"
 : >"$WORKDIR/exhausted-events.ndjson"
+set +e
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/exhausted-events.ndjson" \
 SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/exhausted-next-count" \
 SHARK_STATUSES='["research","research","research","research"]' SHARK_REJECT_ADVANCE=always \
@@ -451,6 +452,11 @@ LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.0
     --scenario "$EXHAUSTED_SCENARIO" \
     --run-id tc061-transition-exhausted --root ROOT-001 --scratch-root "$WORKDIR/exhausted-scratch" \
     --i05-bundle-dir "$WORKDIR/exhausted-i05" --output "$WORKDIR/exhausted-lifecycle.jsonl" >/dev/null
+exhausted_code=$?
+set -e
+# worker_failure (exhausted transition rejections) is a named stop outcome
+# with retained evidence, not "complete" -- exit 1.
+[[ "$exhausted_code" -eq 1 ]] || fail "exhausted-transition run exited $exhausted_code, want 1 (worker_failure)"
 python3 - "$WORKDIR/exhausted-events.ndjson" "$WORKDIR/exhausted-lifecycle.jsonl" <<'PY'
 import json, sys
 events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
@@ -491,6 +497,7 @@ for generic_index in "${!generic_failure_messages[@]}"; do
 	generic_scenario="$generic_root/scenario/package.yaml"
 	sed -i "s#^  submodule_path: .*#  submodule_path: $generic_root/fixture#" "$generic_scenario"
 	: >"$generic_root/events.ndjson"
+	set +e
 	PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$generic_root/events.ndjson" \
 	SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$generic_root/next-count" \
 	SHARK_STATUSES='["research","research"]' SHARK_REJECT_ADVANCE=always \
@@ -504,6 +511,11 @@ for generic_index in "${!generic_failure_messages[@]}"; do
 	    --run-id "tc061-generic-$generic_name" --root ROOT-001 --scratch-root "$generic_root/scratch" \
 	    --i05-bundle-dir "$generic_root/i05" \
 	    --output "$generic_root/lifecycle.jsonl" >/dev/null
+	generic_code=$?
+	set -e
+	# worker_failure is a named stop outcome with retained evidence, not
+	# "complete" -- exit 1.
+	[[ "$generic_code" -eq 1 ]] || fail "generic-$generic_name run exited $generic_code, want 1 (worker_failure)"
 	python3 - "$generic_root/events.ndjson" "$generic_root/lifecycle.jsonl" "$generic_name" <<'PY'
 import json, sys
 events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
@@ -531,6 +543,7 @@ cp -r "$SCRIPTS_DIR/../scenarios/packages/py-bug-due-date-boundary" "$WORKDIR/pa
 PARTIAL_SCENARIO="$WORKDIR/partial-scenario/package.yaml"
 sed -i "s#^  submodule_path: .*#  submodule_path: $WORKDIR/partial-fixture#" "$PARTIAL_SCENARIO"
 : >"$WORKDIR/partial-events.ndjson"
+set +e
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/partial-events.ndjson" \
 SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" SHARK_STATE="$WORKDIR/partial-next-count" ADAPTER_REQUEST="$WORKDIR/partial-requests.ndjson" \
 	ADAPTER_MUTATION_MARKER="$WORKDIR/partial-adapter-mutated" PARTIAL_USAGE=1 \
@@ -540,6 +553,11 @@ LIFECYCLE_ADAPTER="$WORKDIR/adapter.sh" LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS=0.0
     --scenario "$PARTIAL_SCENARIO" \
 	--run-id tc061-partial --root ROOT-001 --scratch-root "$WORKDIR/partial-scratch" \
 	--i05-bundle-dir "$WORKDIR/partial-i05" --output "$WORKDIR/partial-lifecycle.jsonl" >/dev/null
+partial_code=$?
+set -e
+# "error" (incomplete provider usage) is a named stop outcome with retained
+# evidence, not "complete" -- exit 1.
+[[ "$partial_code" -eq 1 ]] || fail "partial-usage run exited $partial_code, want 1 (error)"
 python3 - "$WORKDIR/partial-lifecycle.jsonl" <<'PY'
 import json, sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -940,7 +940,12 @@ dispatch_pair() {
 	local run_rc=$?
 	set -e
 
-	if [[ "$run_rc" -ne 0 ]]; then
+	# run-lifecycle.sh now returns a tiered exit code: 0 = complete, 1 = a
+	# named stop outcome with lifecycle.jsonl/bundle.json still finalized
+	# and retained (F09 must still evaluate it), 2+ = an execution failure
+	# with no evidence at all. Mirror the eval_rc branch below: only >1 (or
+	# missing output) is a real run failure.
+	if [[ "$run_rc" -gt 1 || ! -s "$lifecycle_out" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep FAILED (run-lifecycle.sh exit $run_rc)" >&2
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "lifecycle_run_failed"

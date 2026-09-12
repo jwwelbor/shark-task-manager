@@ -209,7 +209,10 @@ set +e
 wait "$runner_pid"
 runner_status=$?
 set -e
-[[ "$runner_status" -eq 0 ]] || fail "signal stop exited $runner_status instead of retaining a named stop"
+# POSIX 128+SIGTERM (143): a real signal-cancellation, not a named stop
+# outcome reached via ordinary dispatch-loop processing (those stay 0/1;
+# see run-lifecycle.sh's own tiered exit-code contract).
+[[ "$runner_status" -eq 143 ]] || fail "signal stop exited $runner_status, want 128+SIGTERM (143)"
 if kill -0 "$signal_child_pid" 2>/dev/null; then
 	fail "adapter descendant PID $signal_child_pid survived SIGTERM handling"
 fi
@@ -252,7 +255,7 @@ set +e
 wait "$discovery_runner_pid"
 discovery_runner_status=$?
 set -e
-[[ "$discovery_runner_status" -eq 0 ]] || fail "test-discovery signal stop exited $discovery_runner_status instead of retaining a named stop"
+[[ "$discovery_runner_status" -eq 143 ]] || fail "test-discovery signal stop exited $discovery_runner_status, want 128+SIGTERM (143)"
 if kill -0 "$discovery_child_pid" 2>/dev/null; then
 	fail "test-discovery descendant PID $discovery_child_pid survived SIGTERM handling"
 fi

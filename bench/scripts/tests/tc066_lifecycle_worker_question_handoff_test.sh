@@ -60,7 +60,7 @@ PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" LIFECYCLE_ADAPTE
   --output "$WORKDIR/lifecycle.jsonl" >"$WORKDIR/runner.out" 2>"$WORKDIR/runner.err"
 code=$?
 set -e
-[[ "$code" -eq 0 ]] || { cat "$WORKDIR/runner.err" >&2; fail "retained question pause exited $code, want 0"; }
+[[ "$code" -eq 1 ]] || { cat "$WORKDIR/runner.err" >&2; fail "question pause exited $code, want 1"; }
 
 python3 - "$WORKDIR/events.ndjson" "$WORKDIR/lifecycle.jsonl" <<'PY'
 import json, sys

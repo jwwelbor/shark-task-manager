@@ -2330,7 +2330,7 @@ def main(argv):
     evidence_errors = []
     terminal = prelude_stop or "complete"
     reason = prelude_reason or "all eligible dispatches completed"
-    active_lease = {"entity": "", "session": "", "adapter_process": None}
+    active_lease = {"entity": "", "session": "", "adapter_process": None, "cancel_signum": None}
     # Guards the queue.insert(0, requested) re-dispatch below: a real `shark
     # next` response changes once its entity actually advances, so seeing the
     # identical (entity_key, status) pair right after successfully advancing
@@ -2357,6 +2357,7 @@ def main(argv):
         # never a subprocess call from inside a signal handler.
         stop_process_group(active_lease["adapter_process"])
         active_lease["adapter_process"] = None
+        active_lease["cancel_signum"] = signum
         raise Cancellation(f"received signal {signum}")
 
     signal.signal(signal.SIGINT, release_on_signal)
@@ -2658,15 +2659,33 @@ def main(argv):
         i05_writer.finalize(terminal, reason)
     output.write_text(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     output.with_suffix(output.suffix + ".partial").unlink(missing_ok=True)
-    # Named stop outcomes are valid, retained I-07 results. Their
-    # publication eligibility is false, but that is not a runner execution
-    # error; F09 must still evaluate them and F10 must retain the evidence.
-    return 0
+    cancel_signum = active_lease.get("cancel_signum")
+    if terminal == "cancellation" and cancel_signum is not None:
+        # POSIX 128+signum -- the numeric exit code any caller checking $?
+        # sees whether the process actually died by signal or (as here)
+        # exited with this value directly. This mirrors the pre-5f80d23c
+        # signal handler's own `raise SystemExit(128 + signum)`; only where
+        # that finalize/release work happens moved (out of the signal
+        # handler and into the normal flow above), not this exit value.
+        return 128 + cancel_signum
+    # Named stop outcomes are valid, retained I-07 results. resource_limit
+    # (hit a cost/time/task ceiling) is grouped with "complete" -- exit 0 --
+    # since it is an expected, planned boundary, not a problem; the other
+    # named stop outcomes (missing_outcome, worker_failure, error, pause,
+    # lease_loss, ...) exit 1 so run-lifecycle-batch.sh's own run_rc
+    # handling can still tell "ran to a retained, evaluable stop outcome"
+    # apart from "never produced evidence at all" (exit 2, below).
+    return 0 if terminal in ("complete", "resource_limit") else 1
 
 
 try:
     raise SystemExit(main(sys.argv[1:]))
 except (RuntimeError, OSError, ValueError, TypeError) as exc:
+    # Reached only for a failure before/outside main()'s own dispatch-loop
+    # try/except (line ~2365) -- i.e. no lifecycle.jsonl or bundle.json was
+    # ever finalized. Exit 2 (not 1, which main() now reserves for a
+    # completed, evidence-bearing named stop outcome) keeps that
+    # distinction visible to run-lifecycle-batch.sh's own run_rc handling.
     print(f"run-lifecycle: {exc}", file=sys.stderr)
-    raise SystemExit(1)
+    raise SystemExit(2)
 PY
