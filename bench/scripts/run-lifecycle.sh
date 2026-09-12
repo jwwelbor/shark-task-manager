@@ -2331,6 +2331,23 @@ def main(argv):
     terminal = prelude_stop or "complete"
     reason = prelude_reason or "all eligible dispatches completed"
     active_lease = {"entity": "", "session": "", "adapter_process": None}
+    # Guards the queue.insert(0, requested) re-dispatch below: a real `shark
+    # next` response changes once its entity actually advances, so seeing the
+    # identical (entity_key, status) pair right after successfully advancing
+    # it means no forward progress was made -- drop the redundant dispatch
+    # instead of claiming/advancing it again forever. Only set on a
+    # successful advance (never on retry_after_transition_rejection), so a
+    # legitimate rejected-transition retry of the same entity/status is
+    # unaffected.
+    last_advanced_signature = None
+    # Guards the fork branch's own `queue[0:0] = [*candidates, requested]`
+    # re-push: a root that offers the identical candidate-key set on a
+    # repeat resolution has nothing new to fork -- re-adding `requested`
+    # again would just re-fork the same set forever once every candidate in
+    # it has already been dispatched. Different candidate sets from the
+    # same root (a genuinely advanced frontier) get their own signature and
+    # are unaffected.
+    seen_fork_signatures = set()
 
     def release_on_signal(signum, _frame):
         # T-E40-F12-004 (REQ-F-009, AC-014): Cancellation is a RuntimeError
@@ -2362,7 +2379,11 @@ def main(argv):
                 record["entity_graph"]["selected_keys"].extend(item["entity_key"] for item in candidates)
                 record["entity_graph"]["selected_types"].extend(item["entity_type"] for item in candidates)
                 record["entity_graph"]["resolved_via"] = "fork_response"
-                queue[0:0] = [*[item["entity_key"] for item in candidates], requested]
+                candidate_keys = [item["entity_key"] for item in candidates]
+                fork_signature = (requested, tuple(candidate_keys))
+                if fork_signature not in seen_fork_signatures:
+                    seen_fork_signatures.add(fork_signature)
+                    queue[0:0] = [*candidate_keys, requested]
                 continue
             if response.get("action") == "archive":
                 continue
@@ -2373,6 +2394,8 @@ def main(argv):
             entity = str(response.get("entity_key", ""))
             if not entity:
                 raise RuntimeError("keyed response omitted entity_key")
+            if (entity, str(response.get("status", ""))) == last_advanced_signature:
+                continue
             prompt = str(response.get("prompt", ""))
             expected_digest = str(response.get("prompt_sha256", ""))
             expected_bytes = response.get("prompt_bytes")
@@ -2517,6 +2540,7 @@ def main(argv):
                     else:
                         dispatch["transition"] = {"outcome": str(outcome), "session_id": session, "from_status": response.get("status", ""), "to_status": str(advance_response.get("new_status", ""))}
                         advanced = True
+                        last_advanced_signature = (entity, str(response.get("status", "")))
             except ResourceLimit as exc:
                 terminal = "resource_limit"
                 record["limits"]["first_exceeded"] = "max_wall_clock_seconds"
