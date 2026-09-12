@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -20,6 +21,24 @@ type HarnessIdentity struct {
 // IsZero reports whether every field is unset.
 func (i HarnessIdentity) IsZero() bool {
 	return i.Type == "" && i.Version == "" && i.Model == ""
+}
+
+// Normalized returns a copy with Type trimmed and lowercased, and
+// Version/Model trimmed only (their case is opaque free text, unlike Type's
+// small bounded vocabulary). Apply this to any identity sourced from user
+// input — CLI flags, env vars — before it enters precedence resolution or
+// persistence: the isClaude/isCodex/isHarness template helpers use
+// case-insensitive but whitespace-sensitive EqualFold matching, so an
+// untrimmed value like " Claude " silently fails to match and falls through
+// to the generic template branch. `shark claim`'s runClaim, `shark run`'s
+// resolveHarnessForClaim, and Resolve's own override/env inputs all share
+// this one normalization rule rather than re-deriving it.
+func (i HarnessIdentity) Normalized() HarnessIdentity {
+	return HarnessIdentity{
+		Type:    strings.ToLower(strings.TrimSpace(i.Type)),
+		Version: strings.TrimSpace(i.Version),
+		Model:   strings.TrimSpace(i.Model),
+	}
 }
 
 // Vars returns all three harness placeholder keys — "harness",
@@ -102,6 +121,14 @@ func (r *HarnessResolver) TTL() time.Duration { return r.ttl }
 // §3.2 and to leave room for a future failure mode without a signature
 // change.
 func (r *HarnessResolver) Resolve(ctx context.Context, entityType, entityKey string, override HarnessIdentity) (HarnessIdentity, error) {
+	// Normalize the override up front: callers (e.g. `shark next`/`shark
+	// run`'s --harness* flags) pass flag values verbatim, and without this
+	// a stray whitespace or mixed-case value would silently defeat the
+	// isClaude/isCodex EqualFold checks downstream (see Normalized's doc
+	// comment). claimed is already normalized at claim time by runClaim /
+	// resolveHarnessForClaim; re-normalizing here is a harmless no-op for it.
+	override = override.Normalized()
+
 	var claimed HarnessIdentity
 	if r.claims != nil {
 		claim, err := r.claims.Get(ctx, entityType, entityKey)
@@ -124,7 +151,7 @@ func (r *HarnessResolver) Resolve(ctx context.Context, entityType, entityKey str
 		Type:    os.Getenv("SHARK_HARNESS"),
 		Version: os.Getenv("SHARK_HARNESS_VERSION"),
 		Model:   os.Getenv("SHARK_HARNESS_MODEL"),
-	}
+	}.Normalized()
 
 	return HarnessIdentity{
 		Type:    resolveHarnessField(override.Type, claimed.Type, env.Type),
@@ -143,4 +170,33 @@ func resolveHarnessField(flag, claim, env string) string {
 		return claim
 	}
 	return env
+}
+
+// MergeResolvedHarness resolves harness identity via resolver (when non-nil)
+// and merges HarnessIdentity.Vars() into vars in place. When resolver is nil,
+// the zero identity's three empty keys are merged instead — vars always
+// carries all three harness keys either way (D-F01-07). Returns the resolved
+// identity (the zero value when resolver is nil) so a caller that also needs
+// it on a response object (e.g. `shark next`'s NextResponse.Harness*) doesn't
+// have to resolve twice.
+//
+// Shared by next.go's resolveEntity and controller.go's Run, which otherwise
+// duplicated this merge-or-zero block verbatim; each keeps its own distinct
+// error-handling path around the returned error.
+func MergeResolvedHarness(ctx context.Context, resolver *HarnessResolver, entityType, entityKey string, override HarnessIdentity, vars map[string]string) (HarnessIdentity, error) {
+	if resolver == nil {
+		zero := HarnessIdentity{}
+		for k, v := range zero.Vars() {
+			vars[k] = v
+		}
+		return zero, nil
+	}
+	identity, err := resolver.Resolve(ctx, entityType, entityKey, override)
+	if err != nil {
+		return HarnessIdentity{}, err
+	}
+	for k, v := range identity.Vars() {
+		vars[k] = v
+	}
+	return identity, nil
 }

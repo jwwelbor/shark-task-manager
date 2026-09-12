@@ -145,13 +145,13 @@ func runClaim(cmd *cobra.Command, args []string) error {
 	// Harness identity (spec.md REQ-F-001): --harness is trimmed and
 	// lowercased before persisting; --harness-version/--harness-model are
 	// trimmed opaque strings only (never lowercased) per
-	// .claude/rules/go/input-sanitization.md.
-	harness, _ := cmd.Flags().GetString("harness")
-	harness = strings.ToLower(strings.TrimSpace(harness))
-	harnessVersion, _ := cmd.Flags().GetString("harness-version")
-	harnessVersion = strings.TrimSpace(harnessVersion)
-	harnessModel, _ := cmd.Flags().GetString("harness-model")
-	harnessModel = strings.TrimSpace(harnessModel)
+	// .claude/rules/go/input-sanitization.md. Normalized() is the single
+	// shared implementation of this rule (also used by `shark run`'s
+	// resolveHarnessForClaim and HarnessResolver.Resolve).
+	rawHarnessType, _ := cmd.Flags().GetString("harness")
+	rawHarnessVersion, _ := cmd.Flags().GetString("harness-version")
+	rawHarnessModel, _ := cmd.Flags().GetString("harness-model")
+	harness := services.HarnessIdentity{Type: rawHarnessType, Version: rawHarnessVersion, Model: rawHarnessModel}.Normalized()
 
 	svc := getClaimService()
 	claimed, err := svc.Claim(ctx, services.ClaimInput{
@@ -160,9 +160,9 @@ func runClaim(cmd *cobra.Command, args []string) error {
 		ClaimedBy:      by,
 		SessionID:      session,
 		Force:          force,
-		Harness:        harness,
-		HarnessVersion: harnessVersion,
-		HarnessModel:   harnessModel,
+		Harness:        harness.Type,
+		HarnessVersion: harness.Version,
+		HarnessModel:   harness.Model,
 	})
 	if err != nil {
 		cli.Error(err.Error())

@@ -564,31 +564,20 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		// values under `shark run` as under `shark next` for identical
 		// inputs. HarnessIdentity.Vars() never omits a key, even when
 		// unresolved (D-F01-07).
-		if c.harnessResolver != nil {
-			identity, hErr := c.harnessResolver.Resolve(ctx, opts.EntityType, key, opts.HarnessOverride)
-			if hErr != nil {
-				// HarnessResolver.Resolve is documented to always return a
-				// nil error (claim-read failures degrade internally per
-				// D-F01-05); this branch exists only to fail loudly if that
-				// contract is ever violated, rather than silently dropping
-				// the error.
-				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
-					EntityKey: key,
-					Status:    currentStatus,
-					Phase:     "harness_resolution",
-					Error:     fmt.Sprintf("failed to resolve harness identity for %s: %v", key, hErr),
-					RunID:     opts.RunID,
-				})
-				return result, nil
-			}
-			for k, v := range identity.Vars() {
-				vars[k] = v
-			}
-		} else {
-			zero := services.HarnessIdentity{}
-			for k, v := range zero.Vars() {
-				vars[k] = v
-			}
+		if _, hErr := services.MergeResolvedHarness(ctx, c.harnessResolver, opts.EntityType, key, opts.HarnessOverride, vars); hErr != nil {
+			// HarnessResolver.Resolve is documented to always return a
+			// nil error (claim-read failures degrade internally per
+			// D-F01-05); this branch exists only to fail loudly if that
+			// contract is ever violated, rather than silently dropping
+			// the error.
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "harness_resolution",
+				Error:     fmt.Sprintf("failed to resolve harness identity for %s: %v", key, hErr),
+				RunID:     opts.RunID,
+			})
+			return result, nil
 		}
 
 		// Step 4: Get populated orchestrator action for current status.
