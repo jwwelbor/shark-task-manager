@@ -121,6 +121,24 @@ SUBMODULE_HEAD="$(git -C "$FIXTURE_SUBMODULE" rev-parse HEAD)"
 
 echo "TC-100: fixture_id=$FIXTURE_ID admitted base_sha=$BASE_SHA live submodule HEAD=$SUBMODULE_HEAD"
 
+# A commit genuinely different from BASE_SHA, for constructing deliberately
+# mismatched checkouts below (and for TC-04's "wrong SHA" reproduction,
+# which needs the real 2026-09-04 ModuleNotFoundError state specifically).
+# SUBMODULE_HEAD -- the live submodule's own incidental checked-out
+# commit -- is NOT used here: an earlier test in a full-suite run (or an
+# operator following this suite's own pin-before-running convention) can
+# leave it pinned at exactly BASE_SHA, which would make a checkout of
+# SUBMODULE_HEAD not actually differ at all, silently defeating the
+# negative tests below, or (for TC-04) fail to reproduce the real bug.
+# checkout-scenario-fixture.sh clones fresh from the submodule's own repo
+# and checks out whatever SHA is requested, so it never depends on what's
+# live-checked-out -- use the git-registered submodule pointer (this
+# checkout's own committed bench/fixture-py entry, confirmed to reproduce
+# the TC-04 ModuleNotFoundError), which is independent of ambient state.
+DIFFERENT_FROM_BASE_SHA="$(git -C "$REPO_ROOT" rev-parse "HEAD:bench/fixture-py")"
+[[ "$DIFFERENT_FROM_BASE_SHA" != "$BASE_SHA" ]] \
+	|| fail "the registered bench/fixture-py submodule pointer equals BASE_SHA; cannot construct a genuinely different checkout"
+
 # Baseline submodule cleanliness snapshot, taken BEFORE any of this test's
 # own git operations, and re-checked at the very end (AC-F11-05).
 submodule_status_before="$(git -C "$REPO_ROOT" submodule status -- bench/fixture-py)"
@@ -179,11 +197,11 @@ echo "TC-100: admitted_fixture_checkout() reuses the existing checkout for a rep
 # simulating on-disk corruption between two calls in the same operator
 # run) must be caught on reuse, not silently accepted.
 TAMPERED_ID="tampered-py"
-"$CHECKOUT_SCRIPT" "$FIXTURE_ID" "$SUBMODULE_HEAD" "$CACHE_ROOT/$TAMPERED_ID/$BASE_SHA" >/dev/null 2>&1 || true
+"$CHECKOUT_SCRIPT" "$FIXTURE_ID" "$DIFFERENT_FROM_BASE_SHA" "$CACHE_ROOT/$TAMPERED_ID/$BASE_SHA" >/dev/null 2>&1 || true
 if [[ ! -d "$CACHE_ROOT/$TAMPERED_ID/$BASE_SHA" ]]; then
 	mkdir -p "$CACHE_ROOT/$TAMPERED_ID"
 	git clone --quiet -- "$FIXTURE_SUBMODULE" "$CACHE_ROOT/$TAMPERED_ID/$BASE_SHA" >/dev/null
-	git -C "$CACHE_ROOT/$TAMPERED_ID/$BASE_SHA" -c advice.detachedHead=false checkout --quiet "$SUBMODULE_HEAD" --
+	git -C "$CACHE_ROOT/$TAMPERED_ID/$BASE_SHA" -c advice.detachedHead=false checkout --quiet "$DIFFERENT_FROM_BASE_SHA" --
 fi
 cat >"$WORKDIR/checkout_tampered.py" <<'PY'
 import sys
@@ -201,7 +219,7 @@ tampered_out="$(run_module "$WORKDIR/checkout_tampered.py" "$TAMPERED_ID" "$BASE
 	|| fail "tampered cache entry was silently accepted on reuse"
 echo "$tampered_out" | grep -q "REJECTED" || fail "tampered cache entry rejection not observed: $tampered_out"
 echo "$tampered_out" | grep -q "$BASE_SHA" || fail "tampered-entry rejection did not name the expected base_sha: $tampered_out"
-echo "$tampered_out" | grep -q "$SUBMODULE_HEAD" || fail "tampered-entry rejection did not name the actual HEAD: $tampered_out"
+echo "$tampered_out" | grep -q "$DIFFERENT_FROM_BASE_SHA" || fail "tampered-entry rejection did not name the actual HEAD: $tampered_out"
 echo "TC-100: admitted_fixture_checkout() rejects a tampered cache entry on reuse, naming both SHAs -- PASS"
 
 # ---------------------------------------------------------------------------
@@ -249,9 +267,9 @@ chmod +x "$WORKDIR/bin/python3"
 MISMATCH_CHECKOUT="$WORKDIR/mismatch-checkout"
 cp -r "$ADMITTED_CHECKOUT" "$MISMATCH_CHECKOUT"
 chmod -R u+w "$MISMATCH_CHECKOUT"
-git -C "$MISMATCH_CHECKOUT" -c advice.detachedHead=false checkout --quiet "$SUBMODULE_HEAD" --
+git -C "$MISMATCH_CHECKOUT" -c advice.detachedHead=false checkout --quiet "$DIFFERENT_FROM_BASE_SHA" --
 mismatch_head="$(git -C "$MISMATCH_CHECKOUT" rev-parse HEAD)"
-[[ "$mismatch_head" == "$SUBMODULE_HEAD" && "$mismatch_head" != "$BASE_SHA" ]] \
+[[ "$mismatch_head" == "$DIFFERENT_FROM_BASE_SHA" && "$mismatch_head" != "$BASE_SHA" ]] \
 	|| fail "failed to construct a checkout whose HEAD genuinely differs from the admitted base_sha"
 
 rm -f "$COLLECTOR_LOG"
@@ -260,7 +278,7 @@ neg_rc=0
 PATH="$WORKDIR/bin:$PATH" "$GUARD" "$PKG_A_DIR/package.yaml" "$MISMATCH_CHECKOUT" "$SCRATCH_PROJECT" "$PKG_A_DIR" >"$neg_out" 2>&1 || neg_rc=$?
 [[ "$neg_rc" -eq 2 ]] || fail "mismatched checkout: expected exit 2 (script/precondition error), got $neg_rc: $(cat "$neg_out")"
 grep -q "$BASE_SHA" "$neg_out" || fail "mismatch abort did not name the expected base_sha: $(cat "$neg_out")"
-grep -q "$SUBMODULE_HEAD" "$neg_out" || fail "mismatch abort did not name the actual checkout HEAD: $(cat "$neg_out")"
+grep -q "$DIFFERENT_FROM_BASE_SHA" "$neg_out" || fail "mismatch abort did not name the actual checkout HEAD: $(cat "$neg_out")"
 [[ ! -s "$COLLECTOR_LOG" ]] || fail "collector was invoked $(wc -l <"$COLLECTOR_LOG") time(s) on the mismatch path, want zero (observed, not inferred): $(cat "$COLLECTOR_LOG")"
 echo "TC-100(TC-03 negative): mismatched checkout aborts naming both SHAs, zero collector invocations -- PASS"
 
@@ -282,7 +300,7 @@ echo "TC-100(TC-03 positive control): matched checkout reports CLEAN with the co
 # underlying import gap stopped existing.
 # ===========================================================================
 WRONG_CHECKOUT="$WORKDIR/wrong-sha-checkout"
-"$CHECKOUT_SCRIPT" "$FIXTURE_ID" "$SUBMODULE_HEAD" "$WRONG_CHECKOUT" >/dev/null
+"$CHECKOUT_SCRIPT" "$FIXTURE_ID" "$DIFFERENT_FROM_BASE_SHA" "$WRONG_CHECKOUT" >/dev/null
 
 check_collects_clean() {
 	local label="$1" checkout="$2" pkg_dir="$3" oracle_rel="$4"

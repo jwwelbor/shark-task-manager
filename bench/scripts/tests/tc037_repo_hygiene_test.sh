@@ -65,7 +65,13 @@ assert_hygiene() {
 	echo "TC-037: $label - make fmt/lint/test green"
 
 	local go_list_out="$WORKDIR/${label}-go-list.out"
-	(cd "$root_dir" && go list ./...) >"$go_list_out" 2>&1 || fail "$label: 'go list ./...' failed: $(cat "$go_list_out")"
+	# -buildvcs=false: this check only needs the package set, never VCS
+	# stamping, and the "unpopulated" state's copy has no .git at all --
+	# some Go toolchain versions (unlike the one CI pins) treat that as a
+	# hard VCS error ("obtaining VCS status: exit status 128") instead of
+	# silently skipping stamping. Applied to both states since neither
+	# needs VCS info for a package listing.
+	(cd "$root_dir" && go list -buildvcs=false ./...) >"$go_list_out" 2>&1 || fail "$label: 'go list ./...' failed: $(cat "$go_list_out")"
 	if grep -qE "$FORBIDDEN_GO_LIST_PATTERN" "$go_list_out"; then
 		fail "$label: 'go list ./...' lists a fixture/scenario package it must not: $(grep -E "$FORBIDDEN_GO_LIST_PATTERN" "$go_list_out")"
 	fi
@@ -81,6 +87,7 @@ echo "TC-037: state 2 - submodules unpopulated (CI-like, actions/checkout@v4 def
 UNPOPULATED_COPY="$WORKDIR/unpopulated-copy"
 mkdir -p "$UNPOPULATED_COPY"
 rsync -a \
+	--exclude='/.git' \
 	--exclude='/bench/fixture-py/' \
 	--exclude='/bench/fixture-repo/' \
 	"$REPO_ROOT/" "$UNPOPULATED_COPY/"

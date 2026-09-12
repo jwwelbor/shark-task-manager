@@ -465,6 +465,7 @@ raw_path_re = re.compile(r'^"[^"]*run-lifecycle\.sh"(?:\s|\\|$)')
 
 checked = []
 violations = []
+array_expansion_re = re.compile(r'"\$\{(\w+)\[@\]\}"')
 for path in sorted(scripts_dir.glob("*.sh")):
     if path.name == "run-lifecycle.sh":
         continue  # the definer, not a caller of itself
@@ -479,7 +480,23 @@ for path in sorted(scripts_dir.glob("*.sh")):
         checked.append(f"{path.name}: {stripped[:160]}")
         mode_match = re.search(r'--mode\s+"?([\w-]+)"?', line)
         effective_mode = mode_match.group(1) if mode_match else "live"
-        if effective_mode == "live" and "--i05-bundle-dir" not in line:
+        has_flag = "--i05-bundle-dir" in line
+        if not has_flag:
+            # The flag may be assembled into an array variable rather than
+            # written as a literal flag on the invocation line (e.g.
+            # run-lifecycle-batch.sh's lifecycle_args=(... --i05-bundle-dir
+            # ...); "$RUN_LIFECYCLE_BIN" "${lifecycle_args[@]}"). Locate that
+            # array's own bash declaration in this file and check inside it
+            # instead of trusting the invocation line alone -- the flag must
+            # still genuinely appear in the source, just not on this line.
+            for array_name in array_expansion_re.findall(line):
+                decl_match = re.search(
+                    rf'\b{re.escape(array_name)}\s*=\s*\((.*?)\)', text, re.DOTALL,
+                )
+                if decl_match and "--i05-bundle-dir" in decl_match.group(1):
+                    has_flag = True
+                    break
+        if effective_mode == "live" and not has_flag:
             violations.append(f"{path.name}: {stripped[:200]}")
 
 assert checked, "no run-lifecycle.sh invocation sites found under bench/scripts/*.sh -- guard is not exercising anything"

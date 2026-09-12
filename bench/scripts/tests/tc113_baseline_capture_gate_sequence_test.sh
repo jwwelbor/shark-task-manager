@@ -642,7 +642,7 @@ def write_json(path, obj):
 
 CANDIDATE_IDENTITY_FIELDS = (
     "base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest",
-    "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest",
+    "dirty_untracked_manifest", "test_suite_digest",
 )
 
 
@@ -660,10 +660,22 @@ def base_stage():
     candidate["identity_digest"] = module.canonical_digest(
         {field: candidate[field] for field in CANDIDATE_IDENTITY_FIELDS}
     )
+    # verify-lifecycle-run.sh's REQUIRED_LINEAGE_KINDS (AC-F09 stage input
+    # lineage completeness): one entry per required source_kind, each a
+    # non-empty {source_kind, path, digest} with digest matching the
+    # lowercase-hex-64 DIGEST pattern.
+    input_lineage = [
+        {"source_kind": kind, "path": f"fixture-lineage/{kind}", "digest": "a" * 64}
+        for kind in (
+            "scenario_package", "rendered_prompt", "fixture_checkout",
+            "shark_content", "execution_adapter", "lifecycle_adapter",
+            "agent_visible_input",
+        )
+    ]
     return {
         "dispatch_ordinal": 1, "stage": "code", "category": "code",
         "snapshot_digest": "a" * 64, "prompt_digest": "b" * 64,
-        "input_lineage": [], "replay_lineage": [], "output_paths": [], "output_digests": [],
+        "input_lineage": input_lineage, "replay_lineage": [], "output_paths": [], "output_digests": [],
         "usage": {"provider": "fixture", "model": "fixture-model"},
         "cost_usd": 0.0, "elapsed_seconds": 1.0, "errors": [], "rework": False,
         "intervals": [{"category": "provider_active", "start": 0, "end": 1}],
@@ -730,7 +742,7 @@ def build_pair(write_root, scenario_id, family, rep):
         },
         "dispatches": [dispatch], "stages": [stage],
         "workflow_policy": {
-            "enabled_gates": [], "gate_order": [],
+            "enabled_gates": [], "gate_order": [], "gate_policies": [],
             "reviewer": {"provider": "fixture", "model": "fixture", "effort": ""},
             "prompt_digest": "a" * 64, "review_bundle_digest": "a" * 64,
             "fixes_allowed_between_gates": False,

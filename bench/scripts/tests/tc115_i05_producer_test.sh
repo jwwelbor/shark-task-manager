@@ -1062,9 +1062,14 @@ PATH="$WORKDIR_8/bin:$PATH" SHARK_EVENTS="$WORKDIR_8/events.ndjson" \
 	>"$WORKDIR_8/runner.out" 2>"$WORKDIR_8/runner.err"
 rc=$?
 set -e
-# The question handoff pauses the run (exit 1) after dispatch 2 -- expected,
-# not a failure of this fixture.
-[[ "$rc" -eq 1 ]] || { cat "$WORKDIR_8/runner.err" >&2; fail "TC-008 fixture run exited $rc, want 1 (question pause)"; }
+# The question handoff pauses the run after dispatch 2 -- expected, not a
+# failure of this fixture. Named stop outcomes (including pause) are valid,
+# retained I-07/I-05 results, not runner execution errors (run-lifecycle.sh's
+# own "Named stop outcomes are valid, retained I-07 results" comment,
+# 5f80d23c) -- main() returns 0 and records stop_outcome/publication_eligible
+# in bundle.json instead, the same place TC-002/003 above already look, so
+# this fixture verifies the pause there rather than through the exit code.
+[[ "$rc" -eq 0 ]] || { cat "$WORKDIR_8/runner.err" >&2; fail "TC-008 fixture run exited $rc, want 0 (named stop outcome, not a runner error)"; }
 [[ -f "$WORKDIR_8/heartbeat-failed-once" ]] || fail "TC-008 the induced heartbeat failure never fired"
 
 "$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR_8/i05" >"$WORKDIR_8/verify.out" 2>"$WORKDIR_8/verify.err" \
@@ -1079,6 +1084,9 @@ i05_dir = sys.argv[1]
 with open(f"{i05_dir}/bundle.json") as f:
     bundle = json.load(f)
 assert len(bundle["stages"]) == 2, bundle["stages"]
+assert bundle["stop_outcome"] == "pause", bundle.get("stop_outcome")
+assert bundle["publication_eligible"] is False, bundle["publication_eligible"]
+assert bundle["ineligibility_reasons"], "ineligibility_reasons must name why publication_eligible is false"
 
 snapshots = {}
 for stage in bundle["stages"]:

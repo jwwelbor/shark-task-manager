@@ -283,7 +283,10 @@ i05_dir = os.path.join(os.path.dirname(sys.argv[3]), "i05")
 bundle = json.load(open(os.path.join(i05_dir, "bundle.json")))
 assert [stage["dispatch_ordinal"] for stage in bundle["stages"]] == [1, 2, 3, 4], bundle
 assert bundle["dispatches"] == record["dispatches"]
-assert bundle["prelude"] == record["prelude"]
+# bundle.json deliberately excludes "prelude" -- AC-002's closed field list
+# (tc115) has no slot for it; the same evidence already lives in I-07's
+# record["prelude"], asserted above.
+assert "prelude" not in bundle, bundle
 for stage_index, stage in enumerate(record["stages"]):
     candidate = stage["candidate"]
     assert candidate["base_commit"] != "0" * 40

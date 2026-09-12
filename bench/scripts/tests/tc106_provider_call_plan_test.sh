@@ -27,7 +27,7 @@
 # CLI seam.
 #
 # What only the real CLI seam can prove, and what this file drives through
-# it: the §2.3.3a worked example end to end (26/32, bound flags, 8-field
+# it: the §2.3.3a worked example end to end (26/33, bound flags, 8-field
 # evidence), a live workflow-file mutation changing the computed total
 # (proving the value is read from evidence, not a literal), the AC-F11-25a
 # fallback derivation, and the admission-time rejection when the declared
@@ -69,8 +69,8 @@ FEATURE_PACKAGE_DIR="$BENCH_DIR/scenarios/packages/py-feature-recurring-tasks"
 # Shared scaffold: a single-scenario operator root over the real,
 # unmutated py-epic-task-organization package -- spec.md §2.3.3a's own
 # worked example (root_family epic; descendants {feature max 2, task max
-# 8}; resource_policy.max_generated_tasks 30 -> 2*9 + 8*1 = 26; +6 root +
-# 0 prelude + 0 review gates = 32).
+# 8}; resource_policy.max_generated_tasks 30 -> 2*9 + 8*1 = 26; +7 root +
+# 0 prelude + 0 review gates = 33).
 # ===========================================================================
 EPIC_INDEX="$WORKDIR/epic-index.yaml"
 cat >"$EPIC_INDEX" <<EOF
@@ -119,10 +119,14 @@ if scenario["bounded_descendant_calls"] == 18:
         "AC-F11-17 forbids (must be the sum, 26)"
     )
 assert scenario["bounded_descendant_calls"] == 26, scenario
-assert scenario["fixed_root_lifecycle_calls"] == 6, scenario  # calls_per_entity("epic")
+# calls_per_entity("epic") == 7 spawn_agent steps in the real shipped
+# epic.yaml -- was 6 before E34-F06-F11 (#212, a451fe35) added the
+# integration_review step; this worked-example count tracks the real
+# workflow file, not a fixed literal, per calls_per_entity()'s own docstring.
+assert scenario["fixed_root_lifecycle_calls"] == 7, scenario
 assert scenario["fixed_prelude_calls"] == 0, scenario
 assert scenario["review_gate_calls"] == 0, scenario
-assert scenario["worst_case_total_calls"] == 32, scenario
+assert scenario["worst_case_total_calls"] == 33, scenario
 
 evidence = call_plan["evidence"]
 by_limit = {entry["limit"]: entry for entry in evidence}
@@ -148,7 +152,7 @@ for limit, entry in by_limit.items():
             raise SystemExit(f"evidence[{limit!r}] missing/blank field {field!r}: {entry!r}")
     assert entry["package_path"].endswith("py-epic-task-organization/package.yaml"), entry
     assert entry["workflow_file"].endswith("workflow/epic.yaml"), entry
-print("TC-106(AC-F11-16/17/18 worked example: 26/32, bound flags, 8-field evidence) PASS")
+print("TC-106(AC-F11-16/17/18 worked example: 26/33, bound flags, 8-field evidence) PASS")
 PY
 
 # ===========================================================================
