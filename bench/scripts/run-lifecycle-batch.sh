@@ -932,6 +932,7 @@ dispatch_pair() {
 		--scenario "$package_path" --run-id "${scenario_id}-rep${rep}"
 		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out"
 		--limits "$OPERATOR_LIMITS_FILE" --i05-bundle-dir "$i05_bundle_dir"
+		--fixture-root "$fixture_checkout"
 	)
 	if [[ -n "$replay_result" ]]; then
 		lifecycle_args+=(--replay "$replay_result")
@@ -960,6 +961,12 @@ dispatch_pair() {
 		--scenario "$package_path" --output "$evaluation_out" </dev/null
 	local eval_rc=$?
 	set -e
+	# eval_rc==1: F09's well-formed-but-ineligible verdict, distinct from a
+	# genuinely eligible run -- reused below instead of $success_label so
+	# counts/summary don't fold an ineligible pair into "pending_run"/
+	# "quarantined_and_rerun", indistinguishable from a real success.
+	local retained_label="$success_label"
+	[[ "$eval_rc" -eq 1 ]] && retained_label="ineligible"
 
 	# F09 returns 1 for a well-formed but ineligible I-08 verdict. Retain that
 	# record and its oracle so F10 can diagnose and aggregate its upstream
@@ -1003,7 +1010,7 @@ dispatch_pair() {
 		preserve_failed_pair "retention"
 		return 0
 	fi
-	append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "$success_label"
+	append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "$retained_label"
 	rm -rf "$pair_work"
 }
 

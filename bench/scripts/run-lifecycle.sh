@@ -79,6 +79,7 @@ def usage():
         "usage: run-lifecycle.sh --scenario <package.yaml> --run-id <id> "
         "--root <key> --scratch-root <dir> [--output <path>] "
         "[--limits <policy.yaml>] [--i05-bundle-dir <dir>] "
+        "[--fixture-root <dir>] "
         "[--replay <i06-result.json>] [--prelude <prelude.jsonl>] "
         "[--mode contract|dry-run|resolve-route]",
         file=sys.stderr,
@@ -87,9 +88,9 @@ def usage():
 
 
 def parse_args(argv):
-    values = {"mode": "live", "output": "", "limits": "", "i05_bundle_dir": "", "prelude": "", "replay": ""}
+    values = {"mode": "live", "output": "", "limits": "", "i05_bundle_dir": "", "prelude": "", "replay": "", "fixture_root": ""}
     required = {"--scenario": "scenario", "--run-id": "run_id", "--root": "root", "--scratch-root": "scratch_root"}
-    optional = {"--output", "--limits", "--mode", "--i05-bundle-dir", "--prelude", "--replay"}
+    optional = {"--output", "--limits", "--mode", "--i05-bundle-dir", "--prelude", "--replay", "--fixture-root"}
     index = 0
     while index < len(argv):
         option = argv[index]
@@ -2228,8 +2229,16 @@ def main(argv):
             raise RuntimeError(f"shark executable not found on PATH: {shark}")
         return resolve_route(args, scenario_path, scenario, scratch, shark)
 
-    fixture_decl = (scenario.get("fixture") or {}).get("submodule_path", scenario_path.parent)
-    fixture_root = Path(fixture_decl).resolve()
+    # A caller-supplied --fixture-root (run-lifecycle-batch.sh's dispatch_pair,
+    # which clones and base_sha-verifies an isolated checkout before dispatch)
+    # takes priority over the scenario-declared submodule_path -- the shared,
+    # unpinned checkout that path resolves to is exactly what the isolated
+    # clone exists to avoid.
+    if args["fixture_root"]:
+        fixture_root = Path(args["fixture_root"]).resolve()
+    else:
+        fixture_decl = (scenario.get("fixture") or {}).get("submodule_path", scenario_path.parent)
+        fixture_root = Path(fixture_decl).resolve()
     if not fixture_root.is_dir() or not (fixture_root / ".git").exists():
         raise RuntimeError(f"agent fixture checkout is not a git checkout: {fixture_root}")
     default_output = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "runs" / args["run_id"] / "lifecycle.jsonl"
