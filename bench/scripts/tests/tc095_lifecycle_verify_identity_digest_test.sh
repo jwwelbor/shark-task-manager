@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # TC-095 (B057): verify-lifecycle-run.sh must accept the candidate.identity_digest
 # that run-lifecycle.sh actually produces. Before the fix, run-lifecycle.sh's
-# refresh_candidate() folded scratch_content_digest into identity_digest (7
-# components) while verify-lifecycle-run.sh's expected_identity recomputed
-# over only the original six identity components, so every real run failed
-# identity_mismatch.
+# refresh_candidate() folded scratch_content_digest into identity_digest while
+# verify-lifecycle-run.sh's expected_identity recomputed over only the six
+# comparison-identity components, so every real run failed identity_mismatch.
 #
 # This builds a minimal, schema-valid lifecycle record by hand (rather than
 # driving the full dispatch loop) so the assertion is isolated to the
@@ -31,15 +30,22 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 mkdir -p "$WORKDIR/scratch"
 printf 'hello' >"$WORKDIR/scratch/file.txt"
+cat >"$WORKDIR/adapter.sh" <<'ADAPTER'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == "test" && "$2" == "--checkout" && -n "$3" ]]
+printf '%s\n' '{"entries":[{"id":"tests/test_example.py::test_example"}]}'
+ADAPTER
+chmod +x "$WORKDIR/adapter.sh"
 
 RECORD="$WORKDIR/lifecycle.jsonl"
 
-python3 - "$RUNNER" "$REPO_ROOT" "$WORKDIR/scratch" "$RECORD" <<'PY'
+python3 - "$RUNNER" "$REPO_ROOT" "$WORKDIR/scratch" "$RECORD" "$WORKDIR/adapter.sh" <<'PY'
 import json
 import re
 import sys
 
-runner_path, repo_root, scratch, record_path = sys.argv[1:5]
+runner_path, repo_root, scratch, record_path, adapter_path = sys.argv[1:6]
 
 # Extract the embedded python body (between the `python3 - "$@" <<'PY'` heredoc
 # markers) up to the trailing `try: raise SystemExit(main(...))` driver, so
@@ -51,11 +57,30 @@ assert match, "could not locate run-lifecycle.sh's embedded python body"
 namespace = {"__name__": "run_lifecycle_under_test"}
 exec(compile(match.group(1), runner_path, "exec"), namespace)
 
-candidate = namespace["candidate_identity"](repo_root)
-namespace["refresh_candidate"](candidate, scratch)
+adapter_identity = {
+    "name": "fixture-adapter",
+    "version": "1.0.0",
+    "toolchain": {"language": "python", "version": "3"},
+}
+candidate = namespace["candidate_identity"](
+    repo_root, adapter_path, adapter_identity["name"],
+    adapter_identity["version"], adapter_identity["toolchain"],
+)
+namespace["refresh_candidate"](
+    candidate, repo_root, scratch, adapter_path, adapter_identity["name"],
+    adapter_identity["version"], adapter_identity["toolchain"],
+)
 assert "scratch_content_digest" in candidate, "refresh_candidate did not add scratch_content_digest"
 
 digest64 = lambda seed: __import__("hashlib").sha256(seed.encode()).hexdigest()
+lineage = [
+    {"source_kind": kind, "path": f"/fixture/{kind}", "digest": digest64(kind)}
+    for kind in (
+        "scenario_package", "rendered_prompt", "fixture_checkout",
+        "shark_content", "execution_adapter", "lifecycle_adapter",
+        "agent_visible_input",
+    )
+]
 
 # The real stage producer must emit the object that the I-07 verifier joins to
 # candidate_snapshot_digest. A list here passes shallow required-field checks
@@ -137,7 +162,7 @@ record = {
             "category": "code",
             "snapshot_digest": digest64("stage-snapshot"),
             "prompt_digest": digest64("stage-prompt"),
-            "input_lineage": [],
+            "input_lineage": lineage,
             "replay_lineage": [],
             "output_paths": [],
             "output_digests": [],
@@ -160,6 +185,7 @@ record = {
         "prompt_digest": digest64("policy-prompt"),
         "review_bundle_digest": digest64("policy-bundle"),
         "fixes_allowed_between_gates": False,
+        "gate_policies": [],
     },
     "review_gates": [],
     "questions": [],
@@ -216,7 +242,7 @@ fi
 
 echo "TC-095: pass (verify-lifecycle-run.sh rejects a candidate whose identity_digest disagrees with its identity fields)"
 
-# Negative case: a candidate entirely missing one of the seven named identity
+# Negative case: a candidate entirely missing one of the six named identity
 # fields must be rejected with a clear diagnostic, not an unhandled crash.
 MISSING_FIELD="$WORKDIR/lifecycle-missing-field.jsonl"
 python3 - "$RECORD" "$MISSING_FIELD" <<'PY'
@@ -227,15 +253,15 @@ record_path, missing_field_path = sys.argv[1:3]
 with open(record_path, encoding="utf-8") as stream:
     record = json.loads(stream.readline())
 
-del record["stages"][0]["candidate"]["scratch_content_digest"]
+del record["stages"][0]["candidate"]["test_suite_digest"]
 
 with open(missing_field_path, "w", encoding="utf-8") as stream:
     stream.write(json.dumps(record, separators=(",", ":")) + "\n")
 PY
 
 missing_field_output="$("$VERIFIER" "$MISSING_FIELD" --schema "$SCHEMA" 2>&1)" && \
-    fail "verify-lifecycle-run.sh accepted a candidate missing scratch_content_digest"
-echo "$missing_field_output" | grep -q "scratch_content_digest" \
-    || fail "verify-lifecycle-run.sh's missing-field diagnostic did not name scratch_content_digest: $missing_field_output"
+    fail "verify-lifecycle-run.sh accepted a candidate missing test_suite_digest"
+echo "$missing_field_output" | grep -q "test_suite_digest" \
+    || fail "verify-lifecycle-run.sh's missing-field diagnostic did not name test_suite_digest: $missing_field_output"
 
 echo "TC-095: pass (verify-lifecycle-run.sh rejects a candidate missing a named identity field)"

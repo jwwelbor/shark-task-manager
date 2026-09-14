@@ -71,12 +71,29 @@ schema_version: "1.0"
 scenario_id: "$TC19_SCENARIO_ID"
 scenario_version: "1"
 entity_family: "family-tc019"
+fixture:
+  fixture_id: "fixture-tc019-scenario"
+  base_sha: "fixture-base-tc019-scenario"
 EOF
 cat >"$WORKDIR_19/index/scenarios.yaml" <<EOF
 schema_version: "1.0"
 scenarios:
   - packages/$TC19_SCENARIO_ID
 EOF
+
+# dispatch_pair() (run-lifecycle-batch.sh) checks out the declared fixture
+# via CHECKOUT_SCENARIO_FIXTURE_BIN before ever invoking RUN_LIFECYCLE_BIN --
+# stubbed the same way tc082_retention_layout_test.sh's DRIVER_CHECKOUT_STUB
+# stubs it, so TC-019's real dispatch_pair() invocation reaches its
+# RUN_LIFECYCLE_BIN stub instead of failing during fixture checkout.
+TC19_CHECKOUT_STUB="$WORKDIR_19/checkout-scenario-fixture-stub.sh"
+cat >"$TC19_CHECKOUT_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$3"
+printf 'gitdir: fixture-only-test-double\n' >"$3/.git"
+EOF
+chmod +x "$TC19_CHECKOUT_STUB"
 
 # Records its own argv (one line per invocation) and writes a committed,
 # schema-valid I-07 fixture to --output, so a caller downstream of a
@@ -134,6 +151,7 @@ EOF
 : >"$TC19_RUN_LOG"
 tc19a_rc=0
 RUN_LIFECYCLE_BIN="$TC19_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$TC19_EVAL_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$TC19_CHECKOUT_STUB" \
 	"$BATCH" --batch "$TC19A_POLICY" --retention-root "$WORKDIR_19/retention-a" \
 	--mode pilot --acknowledge-provider-spend \
 	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
@@ -168,6 +186,7 @@ EOF
 : >"$TC19_RUN_LOG"
 tc19b_rc=0
 RUN_LIFECYCLE_BIN="$TC19_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$TC19_EVAL_STUB" \
+	CHECKOUT_SCENARIO_FIXTURE_BIN="$TC19_CHECKOUT_STUB" \
 	"$BATCH" --batch "$TC19B_POLICY" --retention-root "$WORKDIR_19/retention-b" \
 	--mode pilot --acknowledge-provider-spend \
 	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
@@ -446,6 +465,7 @@ raw_path_re = re.compile(r'^"[^"]*run-lifecycle\.sh"(?:\s|\\|$)')
 
 checked = []
 violations = []
+array_expansion_re = re.compile(r'"\$\{(\w+)\[@\]\}"')
 for path in sorted(scripts_dir.glob("*.sh")):
     if path.name == "run-lifecycle.sh":
         continue  # the definer, not a caller of itself
@@ -460,7 +480,23 @@ for path in sorted(scripts_dir.glob("*.sh")):
         checked.append(f"{path.name}: {stripped[:160]}")
         mode_match = re.search(r'--mode\s+"?([\w-]+)"?', line)
         effective_mode = mode_match.group(1) if mode_match else "live"
-        if effective_mode == "live" and "--i05-bundle-dir" not in line:
+        has_flag = "--i05-bundle-dir" in line
+        if not has_flag:
+            # The flag may be assembled into an array variable rather than
+            # written as a literal flag on the invocation line (e.g.
+            # run-lifecycle-batch.sh's lifecycle_args=(... --i05-bundle-dir
+            # ...); "$RUN_LIFECYCLE_BIN" "${lifecycle_args[@]}"). Locate that
+            # array's own bash declaration in this file and check inside it
+            # instead of trusting the invocation line alone -- the flag must
+            # still genuinely appear in the source, just not on this line.
+            for array_name in array_expansion_re.findall(line):
+                decl_match = re.search(
+                    rf'\b{re.escape(array_name)}\s*=\s*\((.*?)\)', text, re.DOTALL,
+                )
+                if decl_match and "--i05-bundle-dir" in decl_match.group(1):
+                    has_flag = True
+                    break
+        if effective_mode == "live" and not has_flag:
             violations.append(f"{path.name}: {stripped[:200]}")
 
 assert checked, "no run-lifecycle.sh invocation sites found under bench/scripts/*.sh -- guard is not exercising anything"

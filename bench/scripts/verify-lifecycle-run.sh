@@ -19,9 +19,12 @@ schema_path="$3"
 [[ -f "$schema_path" ]] || { echo "verify-lifecycle-run: schema not found: $schema_path" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "verify-lifecycle-run: python3 not found" >&2; exit 2; }
 
-python3 - "$run_path" "$schema_path" <<'PYEOF'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+python3 - "$run_path" "$schema_path" "$SCRIPT_DIR/lib" <<'PYEOF'
 import hashlib
 import json
+import os
 import re
 import sys
 
@@ -31,7 +34,9 @@ except ImportError as exc:
     print(f"verify-lifecycle-run: PyYAML is required: {exc}", file=sys.stderr)
     sys.exit(2)
 
-run_path, schema_path = sys.argv[1:3]
+run_path, schema_path, lib_dir = sys.argv[1:4]
+sys.path.insert(0, lib_dir)
+from i05_validation import validate_typed_consumer  # noqa: E402
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 # Must match the field set refresh_candidate() in run-lifecycle.sh hashes into
 # identity_digest. Named explicitly (not "every non-digest key present") so a
@@ -44,7 +49,6 @@ CANDIDATE_IDENTITY_FIELDS = (
     "changed_path_digest",
     "dirty_untracked_manifest",
     "test_suite_digest",
-    "scratch_content_digest",
 )
 
 
@@ -71,6 +75,23 @@ def load_schema():
         print("verify-lifecycle-run: schema must declare schema_version", file=sys.stderr)
         sys.exit(2)
     return schema
+
+
+def load_edge_kinds():
+    i05_schema_path = os.path.abspath(os.path.join(
+        os.path.dirname(schema_path), "..", "evidence", "i05-schema.yaml",
+    ))
+    try:
+        with open(i05_schema_path, encoding="utf-8") as stream:
+            i05_schema = yaml.safe_load(stream)
+    except (OSError, yaml.YAMLError) as exc:
+        print(f"verify-lifecycle-run: cannot read I-05 schema {i05_schema_path}: {exc}", file=sys.stderr)
+        sys.exit(2)
+    edge_kinds = (i05_schema or {}).get("edge_kind")
+    if not isinstance(edge_kinds, list) or not edge_kinds:
+        print("verify-lifecycle-run: I-05 schema must declare edge_kind", file=sys.stderr)
+        sys.exit(2)
+    return set(edge_kinds)
 
 
 def load_run():
@@ -248,8 +269,22 @@ def validate_record(record, schema):
         ordinals.append(ordinal)
         response = dispatch["response"]
         validate_vocabulary(dispatch["outcome"], schema.get("dispatch_outcome", []), f"{path}/outcome")
-        if "resolved_via" in response:
-            validate_vocabulary(response["resolved_via"], schema.get("resolved_via", []), f"{path}/response/resolved_via", "malformed_field")
+        allows_unobserved_identity = dispatch["outcome"] in schema.get("stop_outcome", [])
+        for container, field in (
+            ("claim", "session_id"),
+            ("worker", "worker_id"),
+            ("worker", "session_id"),
+            ("worker", "kind"),
+        ):
+            value = dispatch[container][field]
+            identity_path = f"{path}/{container}/{field}"
+            if value is None:
+                if not allows_unobserved_identity:
+                    fail("malformed_field", identity_path, "completed dispatch identity must be a non-empty string")
+            elif not isinstance(value, str) or not value.strip():
+                fail("malformed_field", identity_path, "observed dispatch identity must be a non-empty string")
+        if "resolved_via" in response and not isinstance(response["resolved_via"], list):
+            fail("malformed_field", f"{path}/response/resolved_via", "keyed dispatch traversal must be an array when present")
         if response["entity_key"] != dispatch["requested_key"] and dispatch["requested_key"] != graph["root_key"]:
             fail("identity_mismatch", f"{path}/response/entity_key", "returned entity does not match requested key")
         if not response["model"].strip() or not response["provider"].strip():
@@ -269,6 +304,42 @@ def validate_record(record, schema):
         usage = stage["usage"]
         if not isinstance(usage.get("model"), str) or not usage["model"].strip() or not isinstance(usage.get("provider"), str) or not usage["provider"].strip():
             fail("missing_usage_or_model", f"{path}/usage", "stage usage must name provider and model")
+        lineage = stage.get("input_lineage")
+        required_lineage_kinds = {
+            "scenario_package", "rendered_prompt", "fixture_checkout",
+            "shark_content", "execution_adapter", "lifecycle_adapter",
+            "agent_visible_input",
+        }
+        if not isinstance(lineage, list) or not lineage:
+            fail("stage_evidence_incomplete", f"{path}/input_lineage", "stage input lineage is empty")
+        observed_lineage_kinds = set()
+        for lineage_index, entry in enumerate(lineage):
+            lineage_path = f"{path}/input_lineage[{lineage_index}]"
+            if not isinstance(entry, dict) or set(entry) != {"source_kind", "path", "digest"}:
+                fail("stage_evidence_incomplete", lineage_path, "lineage entry must contain only source_kind, path, and digest")
+            if not all(isinstance(entry.get(field), str) and entry[field] for field in ("source_kind", "path", "digest")):
+                fail("stage_evidence_incomplete", lineage_path, "lineage source_kind, path, and digest must be non-empty strings")
+            if not DIGEST.fullmatch(entry["digest"]):
+                fail("stage_evidence_incomplete", f"{lineage_path}/digest", "lineage digest is not a lowercase SHA-256 digest")
+            observed_lineage_kinds.add(entry["source_kind"])
+        missing_lineage = sorted(required_lineage_kinds - observed_lineage_kinds)
+        if missing_lineage:
+            fail("stage_evidence_incomplete", f"{path}/input_lineage", f"stage lineage is missing source kind(s): {', '.join(missing_lineage)}")
+        expected_prior_artifacts = sorted(
+            (str(artifact.get("path")), str(artifact.get("digest")))
+            for prior_stage in record["stages"][:index]
+            for artifact in prior_stage.get("artifacts") or []
+            if isinstance(artifact, dict)
+        )
+        observed_prior_artifacts = sorted(
+            (entry["path"], entry["digest"])
+            for entry in lineage
+            if entry["source_kind"] == "prior_stage_artifact"
+        )
+        if observed_prior_artifacts != expected_prior_artifacts:
+            fail("stage_evidence_incomplete", f"{path}/input_lineage", "prior-stage artifact lineage does not exactly match earlier stage artifacts")
+        if record["outcome"]["terminal"] == "complete" and stage.get("errors"):
+            fail("stage_evidence_incomplete", f"{path}/errors", "complete run contains unavailable or unmapped stage evidence")
         candidate = stage["candidate"]
         missing_identity_fields = [field for field in CANDIDATE_IDENTITY_FIELDS if field not in candidate]
         if missing_identity_fields:
@@ -282,14 +353,70 @@ def validate_record(record, schema):
             if "consumers" not in artifact:
                 fail("artifact_consumption_record_missing", f"{path}/artifacts[{artifact_index}]/consumers", "artifact consumption evidence is missing; consumers: [] is the explicit empty value")
 
+    for producer_index, producer_stage in enumerate(record["stages"]):
+        for artifact_index, artifact in enumerate(producer_stage.get("artifacts") or []):
+            artifact_path = f"/stages[{producer_index}]/artifacts[{artifact_index}]"
+            artifact_identity = (artifact.get("path"), artifact.get("digest"))
+            expected_consumers = sorted(
+                later_stage["stage"]
+                for later_stage in record["stages"][producer_index + 1:]
+                if any(
+                    entry.get("source_kind") == "prior_stage_artifact"
+                    and (entry.get("path"), entry.get("digest")) == artifact_identity
+                    for entry in later_stage.get("input_lineage") or []
+                    if isinstance(entry, dict)
+                )
+            )
+            consumers = artifact.get("consumers")
+            if not isinstance(consumers, list):
+                fail("artifact_consumption_record_missing", f"{artifact_path}/consumers", "artifact consumers must be an array")
+            observed_consumers = []
+            for consumer_index, consumer in enumerate(consumers):
+                consumer_path = f"{artifact_path}/consumers[{consumer_index}]"
+                check = validate_typed_consumer(consumer, EDGE_KINDS)
+                if check == "shape":
+                    fail("artifact_consumption_record_missing", consumer_path, "artifact consumer must contain only consuming_stage, edge_kind, and observed_at")
+                if check == "fields":
+                    fail("artifact_consumption_record_missing", consumer_path, "artifact consumer fields must be non-empty strings")
+                if check == "edge_kind":
+                    fail("artifact_consumption_record_missing", f"{consumer_path}/edge_kind", "artifact consumer edge_kind is not in the I-05 vocabulary")
+                observed_consumers.append(consumer["consuming_stage"])
+            if sorted(observed_consumers) != expected_consumers:
+                fail("artifact_consumption_record_missing", f"{artifact_path}/consumers", "artifact consumer graph disagrees with prior-stage input lineage")
+
     if set(stages_by_ordinal) != set(ordinals):
         fail("identity_mismatch", "/stages/dispatch_ordinal", "stage and dispatch ordinal sets disagree")
 
     policy = record["workflow_policy"]
     if not isinstance(policy["reviewer"].get("provider"), str) or not policy["reviewer"].get("provider") or not policy["reviewer"].get("model"):
         fail("missing_usage_or_model", "/workflow_policy/reviewer", "reviewer policy must name provider and model")
+    gate_policy_by_digest = {}
+    configured_gate_ids = []
+    for index, gate_policy in enumerate(policy.get("gate_policies") or []):
+        path = f"/workflow_policy/gate_policies[{index}]"
+        if not isinstance(gate_policy, dict) or not gate_policy.get("gate_id"):
+            fail("stage_evidence_incomplete", path, "gate policy must name its gate")
+        expected_policy_digest = canonical_digest({
+            key: value for key, value in gate_policy.items() if key != "policy_digest"
+        })
+        if gate_policy.get("policy_digest") != expected_policy_digest:
+            fail("identity_mismatch", f"{path}/policy_digest", "gate policy digest does not match retained content")
+        if gate_policy["policy_digest"] in gate_policy_by_digest:
+            fail("identity_mismatch", f"{path}/policy_digest", "gate policy digest is duplicated")
+        gate_policy_by_digest[gate_policy["policy_digest"]] = gate_policy
+        if gate_policy["gate_id"] not in configured_gate_ids:
+            configured_gate_ids.append(gate_policy["gate_id"])
+    if configured_gate_ids != policy["enabled_gates"] or configured_gate_ids != policy["gate_order"]:
+        fail("identity_mismatch", "/workflow_policy/gate_policies", "gate policy order disagrees with enabled_gates or gate_order")
+    observed_gate_ids = set()
     for index, gate in enumerate(record["review_gates"]):
         validate_vocabulary(gate["state"], schema.get("gate_state", []), f"/review_gates[{index}]/state", "malformed_field")
+        observed_gate_ids.add(gate["gate_id"])
+        if (gate.get("policy_ref") or {}).get("policy_digest") not in gate_policy_by_digest:
+            fail("identity_mismatch", f"/review_gates[{index}]/policy_ref", "review gate policy_ref does not resolve to retained gate policy content")
+    missing_gate_records = sorted(set(configured_gate_ids) - observed_gate_ids)
+    if missing_gate_records:
+        fail("stage_evidence_incomplete", "/review_gates", f"configured gates lack reached or not_reached records: {', '.join(missing_gate_records)}")
 
     return {
         "result": "accepted",
@@ -301,6 +428,7 @@ def validate_record(record, schema):
 
 
 schema = load_schema()
+EDGE_KINDS = load_edge_kinds()
 try:
     record = load_run()
     validate_declared_fields(record, schema)

@@ -17,6 +17,9 @@ import tempfile
 import yaml
 
 bench_dir, oracle = sys.argv[1:3]
+sys.path.insert(0, os.path.join(bench_dir, "scripts", "lib"))
+from i05_validation import validate_typed_consumer  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--i05", required=True)
 parser.add_argument("--i07", required=True)
@@ -25,6 +28,13 @@ parser.add_argument("--output", required=True)
 parser.add_argument("--judge-result")
 parser.add_argument("--review-findings")
 args = parser.parse_args(sys.argv[3:])
+
+with open(os.path.join(bench_dir, "runs", "i07-schema.yaml"), encoding="utf-8") as stream:
+    i07_schema = yaml.safe_load(stream) or {}
+STOP_OUTCOMES = set(i07_schema.get("stop_outcome") or [])
+with open(os.path.join(bench_dir, "evidence", "i05-schema.yaml"), encoding="utf-8") as stream:
+    i05_schema = yaml.safe_load(stream) or {}
+EDGE_KINDS = set(i05_schema.get("edge_kind") or [])
 
 
 def file_digest(path):
@@ -149,7 +159,7 @@ def reason(code, path, detail):
     return {"code": code, "path": path, "detail": str(detail)[:240]}
 
 
-def write(record):
+def write(record, forced_exit_code=None):
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as stream:
         json.dump(record, stream, sort_keys=True, separators=(",", ":"))
@@ -157,11 +167,18 @@ def write(record):
     eligible = record["eligibility"]["aggregate_eligible"]
     if not eligible:
         print("evaluation_invalid evaluation_id=" + record["evaluation_id"] + " reasons=" + ",".join(item["code"] for item in record["eligibility"]["invalidity_reasons"]), file=sys.stderr)
+    if forced_exit_code is not None:
+        raise SystemExit(forced_exit_code)
     raise SystemExit(0 if eligible else 1)
 
 
 def fail_input(detail):
-    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "expected_entity_graph": {"applicability": "not_applicable", "checks": [], "observed_result": "not_applicable", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "expected_entity_graph_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}})
+    # Exit 2, not 1: exit 1 is reserved for a genuinely well-formed but
+    # ineligible I-08 verdict (run-lifecycle-batch.sh retains that record for
+    # F10 diagnosis). fail_input fires on malformed/missing input -- a
+    # genuine crash, not a verdict -- and must not be mistaken for one by any
+    # caller branching on exit code alone.
+    write({"schema_version": "1.0", "evaluation_id": "invalid-input", "identity": {}, "source_artifacts": {}, "structural": {"applicability": "applicable", "checks": [], "observed_result": "fail"}, "judge": {"applicability": "applicable", "observed_result": "fail", "invalidity_reasons": []}, "execution_oracle": {"observed_result": "not_run", "invalidity_reasons": []}, "expected_entity_graph": {"applicability": "not_applicable", "checks": [], "observed_result": "not_applicable", "invalidity_reasons": []}, "metrics": {"quality": {}, "elapsed_time": {}, "provider_cost": {}, "rework": {}, "artifact_use": {}}, "eligibility": {"structural_valid": False, "judge_valid": False, "oracle_valid": False, "expected_entity_graph_valid": False, "aggregate_eligible": False, "publication_eligible": False, "invalidity_reasons": [reason("source_malformed", "/input", detail)]}}, forced_exit_code=2)
 
 
 def load_inputs():
@@ -321,7 +338,8 @@ def validate_workflow_policy_identity(workflow_policy, reasons):
     required_policy = (
         "enabled_gates", "gate_order", "reviewer", "prompt_digest",
         "rendered_prompt_digest", "deep_review_bundle_digest",
-        "fixes_allowed_between_gates", "workflow_policy_identity_digest",
+        "fixes_allowed_between_gates", "gate_policies",
+        "workflow_policy_identity_digest",
     )
     for field in required_policy:
         value = workflow_policy.get(field)
@@ -341,6 +359,47 @@ def validate_workflow_policy_identity(workflow_policy, reasons):
         reasons.append(reason("source_missing", "/workflow_policy/deep_review_bundle_digest", "repository deep-review bundle is incomplete"))
     elif workflow_policy.get("deep_review_bundle_digest") != expected_bundle_digest:
         reasons.append(reason("identity_mismatch", "/workflow_policy/deep_review_bundle_digest", "deep-review bundle digest disagrees with repository-owned files"))
+    gate_policies = workflow_policy.get("gate_policies")
+    if isinstance(gate_policies, list):
+        policy_ids = []
+        policy_digests = set()
+        for index, policy in enumerate(gate_policies):
+            if not isinstance(policy, dict) or not policy.get("gate_id"):
+                reasons.append(reason("identity_missing", f"/workflow_policy/gate_policies/{index}", "gate policy must name its gate"))
+                continue
+            if policy["gate_id"] not in policy_ids:
+                policy_ids.append(policy["gate_id"])
+            expected = canonical_digest({key: value for key, value in policy.items() if key != "policy_digest"})
+            if policy.get("policy_digest") != expected:
+                reasons.append(reason("identity_mismatch", f"/workflow_policy/gate_policies/{index}/policy_digest", "gate policy digest does not match retained policy content"))
+            elif policy["policy_digest"] in policy_digests:
+                reasons.append(reason("identity_mismatch", f"/workflow_policy/gate_policies/{index}/policy_digest", "gate policy digest is duplicated"))
+            else:
+                policy_digests.add(policy["policy_digest"])
+        if policy_ids != workflow_policy.get("enabled_gates") or policy_ids != workflow_policy.get("gate_order"):
+            reasons.append(reason("identity_mismatch", "/workflow_policy/gate_policies", "gate policy order disagrees with enabled_gates or gate_order"))
+
+
+def validate_review_gate_policy_refs(lifecycle, reasons):
+    workflow_policy = lifecycle.get("workflow_policy") or {}
+    policies = {
+        item.get("policy_digest"): item
+        for item in workflow_policy.get("gate_policies") or []
+        if isinstance(item, dict) and item.get("policy_digest")
+    }
+    gates = lifecycle.get("review_gates") or []
+    observed_gate_ids = set()
+    for index, gate in enumerate(gates):
+        if not isinstance(gate, dict):
+            reasons.append(reason("source_malformed", f"/review_gates/{index}", "review gate must be an object"))
+            continue
+        observed_gate_ids.add(gate.get("gate_id"))
+        policy_digest = (gate.get("policy_ref") or {}).get("policy_digest")
+        if policy_digest not in policies:
+            reasons.append(reason("missing_join", f"/review_gates/{index}/policy_ref", "review gate policy_ref does not resolve to retained gate policy content"))
+    for gate_id in workflow_policy.get("enabled_gates") or []:
+        if gate_id not in observed_gate_ids:
+            reasons.append(reason("missing_join", "/review_gates", f"configured gate {gate_id} has no reached or not_reached record"))
 
 
 def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
@@ -348,13 +407,94 @@ def run_structural_checks(i05, lifecycle, lifecycle_rows, reasons):
 
     A missing check remains a failure rather than an inferred pass.
     """
+    required_lineage_kinds = {
+        "scenario_package", "rendered_prompt", "fixture_checkout",
+        "shark_content", "execution_adapter", "lifecycle_adapter",
+        "agent_visible_input",
+    }
+
+    def valid_lineage(stage, stage_index):
+        lineage = stage.get("input_lineage")
+        if not isinstance(lineage, list) or not lineage:
+            return False
+        kinds = set()
+        for entry in lineage:
+            if not isinstance(entry, dict) or set(entry) != {"source_kind", "path", "digest"}:
+                return False
+            if not all(isinstance(entry[key], str) and entry[key] for key in entry):
+                return False
+            if not digest(entry["digest"]):
+                return False
+            kinds.add(entry["source_kind"])
+        if not required_lineage_kinds <= kinds:
+            return False
+        expected_prior = sorted(
+            (str(artifact.get("path")), str(artifact.get("digest")))
+            for prior_stage in stages[:stage_index]
+            for artifact in prior_stage.get("artifacts") or []
+            if isinstance(artifact, dict)
+        )
+        observed_prior = sorted(
+            (entry["path"], entry["digest"])
+            for entry in lineage
+            if entry["source_kind"] == "prior_stage_artifact"
+        )
+        return observed_prior == expected_prior
+
+    stages = [item for item in lifecycle.get("stages", []) if isinstance(item, dict)]
+    artifact_graph_valid = True
+    for index, stage in enumerate(stages):
+        if stage.get("errors"):
+            reasons.append(reason(
+                "source_malformed", f"/stages/{index}/errors",
+                "stage reports unavailable or unmapped required evidence",
+            ))
+        if not valid_lineage(stage, index):
+            reasons.append(reason(
+                "source_malformed", f"/stages/{index}/input_lineage",
+                "stage input lineage must identify every consumed source by kind, path, and digest",
+            ))
+    for producer_index, producer_stage in enumerate(stages):
+        for artifact_index, artifact in enumerate(producer_stage.get("artifacts") or []):
+            if not isinstance(artifact, dict):
+                artifact_graph_valid = False
+                continue
+            identity = (artifact.get("path"), artifact.get("digest"))
+            expected_consumers = sorted(
+                later_stage.get("stage")
+                for later_stage in stages[producer_index + 1:]
+                if any(
+                    entry.get("source_kind") == "prior_stage_artifact"
+                    and (entry.get("path"), entry.get("digest")) == identity
+                    for entry in later_stage.get("input_lineage") or []
+                    if isinstance(entry, dict)
+                )
+            )
+            consumers = artifact.get("consumers")
+            typed_consumers = isinstance(consumers, list) and all(
+                validate_typed_consumer(consumer, EDGE_KINDS) is None
+                for consumer in consumers
+            )
+            observed_consumers = sorted(
+                consumer["consuming_stage"] for consumer in consumers
+            ) if typed_consumers else []
+            if not typed_consumers or observed_consumers != expected_consumers:
+                artifact_graph_valid = False
+                reasons.append(reason(
+                    "source_malformed",
+                    f"/stages/{producer_index}/artifacts/{artifact_index}/consumers",
+                    "artifact consumer graph must exactly match later-stage input lineage",
+                ))
+
     checks = {
         "required_artifacts": bool(i05.get("stages") or i05.get("artifacts")),
         "ownership": bool(i05.get("roots")),
         "links": bool(i05.get("access_events") or i05.get("artifacts") or lifecycle.get("stages")),
         "dependencies": bool(lifecycle.get("entity_graph")),
         "status_transitions": bool(lifecycle.get("dispatches")) and all(isinstance(item, dict) and item.get("transition") is not None for item in lifecycle.get("dispatches", [])),
-        "traceability": bool(lifecycle.get("stages")) and all(isinstance(item, dict) and (item.get("input_lineage") is not None or item.get("evidence_refs") is not None) for item in lifecycle.get("stages", [])),
+        "traceability": bool(stages) and artifact_graph_valid and all(
+            valid_lineage(item, index) for index, item in enumerate(stages)
+        ),
         "executable_task": bool(lifecycle.get("stages")) and any(item.get("category") == "code" for item in lifecycle.get("stages", []) if isinstance(item, dict)),
     }
     structural_checks = [{"check_id": key, "applicability": "applicable", "stage": "lifecycle", "entity": "run", "result": "pass" if value else "fail", "evidence_refs": ["i05", "i07"] if value else [], "reason": None if value else "required evidence is absent"} for key, value in checks.items()]
@@ -545,16 +685,41 @@ def validate_expected_entity_graph(package, lifecycle, workflow_policy, reasons)
     return {"applicability": "applicable", "checks": checks, "observed_result": "pass" if not graph_reasons else "fail", "invalidity_reasons": graph_reasons}
 
 
-def run_oracle(i05, reasons):
+def run_oracle(i05, lifecycle, reasons):
     """Invoke the held-back oracle when an agent fixture checkout is available."""
+    oracle_output = args.output + ".oracle.json"
+
+    def persist_synthetic_oracle(record):
+        os.makedirs(os.path.dirname(os.path.abspath(oracle_output)), exist_ok=True)
+        with open(oracle_output, "w", encoding="utf-8") as stream:
+            json.dump(record, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+
+    terminal = (lifecycle.get("outcome") or {}).get("terminal")
+    if terminal in STOP_OUTCOMES:
+        stopped = reason(
+            "aggregate_ineligible",
+            "/outcome/terminal",
+            f"held-back oracle is not run for lifecycle terminal outcome {terminal!r}",
+        )
+        reasons.append(stopped)
+        result = {
+            "observed_result": "not_run",
+            "invalidity_reasons": [stopped],
+            "summary": stopped["detail"],
+        }
+        persist_synthetic_oracle(result)
+        return result
     checkout = (i05.get("roots") or {}).get("agent_fixture_checkout")
+    if isinstance(checkout, dict):
+        checkout = checkout.get("path")
     if checkout is not None and not isinstance(checkout, str):
-        fail_input("I-05 roots.agent_fixture_checkout must be a path string")
+        fail_input("I-05 roots.agent_fixture_checkout must be a path string or an object with path")
     if not checkout or not os.path.isdir(checkout):
         oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable")]}
         reasons.append(reason("missing_oracle", "/execution_oracle", "agent fixture checkout is unavailable"))
+        persist_synthetic_oracle(oracle_result)
     else:
-        oracle_output = args.output + ".oracle.json"
         process = subprocess.run([oracle, "--scenario", args.scenario, "--i07", args.i07, "--stage-bundle", args.i05, "--checkout", checkout, "--output", oracle_output], capture_output=True, text=True)
         try:
             with open(oracle_output, encoding="utf-8") as stream:
@@ -563,6 +728,9 @@ def run_oracle(i05, reasons):
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "oracle did not produce a result")]}
         if not isinstance(oracle_result, dict):
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("source_malformed", "/execution_oracle", "oracle result must be an object")]}
+            persist_synthetic_oracle(oracle_result)
+        elif not os.path.isfile(oracle_output):
+            persist_synthetic_oracle(oracle_result)
         if process.returncode or oracle_result.get("observed_result") != "pass":
             reasons.extend(oracle_result.get("invalidity_reasons") or [reason("oracle_failure", "/execution_oracle", "held-back oracle failed")])
     return oracle_result
@@ -626,9 +794,10 @@ try:
     candidate_snapshots, workflow_policy = validate_candidate_snapshots(i05, lifecycle, identity, reasons)
     validate_producer_identity(identity, reasons)
     validate_workflow_policy_identity(workflow_policy, reasons)
+    validate_review_gate_policy_refs(lifecycle, reasons)
     structural = run_structural_checks(i05, lifecycle, lifecycle_rows, reasons)
     judge = run_judge(package, reasons)
-    oracle_result = run_oracle(i05, reasons)
+    oracle_result = run_oracle(i05, lifecycle, reasons)
     expected_entity_graph = validate_expected_entity_graph(package, lifecycle, workflow_policy, reasons)
     sources = build_source_artifacts(i05_json, lifecycle)
     review_findings = normalize_findings(reasons)

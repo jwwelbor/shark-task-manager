@@ -2363,6 +2363,19 @@ func TestExpectedEntityGraph(t *testing.T) {
 			// block's own parsing/interpretation, so it is not a "reader"
 			// AC-F11-27 counts either.
 			"bench/scripts/tests/tc110_epic_root_scenario_test.sh": true,
+			// tc080's UAT-R2-01 fixture stubs out evaluate-lifecycle.sh
+			// itself (one of the two declared consumers) so the test can
+			// force a deterministic ineligible verdict without a full real
+			// evaluate-lifecycle.sh pass. To stay a faithful stand-in it
+			// emits the required eligibility.expected_entity_graph_valid
+			// boolean evaluate-lifecycle.sh always sets -- the one field
+			// whose name substring-matches this grep -- but never the
+			// four-field expected_entity_graph block itself, and never
+			// reads or interprets either. That is carrying a declared
+			// consumer's required output field, not a private
+			// re-implementation of the block's parsing/interpretation, so
+			// it is not a "reader" AC-F11-27 counts.
+			"bench/scripts/tests/tc080_spend_gate_refusal_test.sh": true,
 			// T-E40-F11-014 (docs task): bench/README.md's "I-04 scenario
 			// package schema" table and its "E40-F11 six-family readiness
 			// and cover additions" section document the block in prose --

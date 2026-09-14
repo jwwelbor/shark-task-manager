@@ -14,6 +14,7 @@ top_level_fields:
   - workflow_policy
   - review_gates
   - questions
+  - prelude
   - limits
   - outcome
 
@@ -117,6 +118,9 @@ required_fields:
   - /workflow_policy/prompt_digest
   - /workflow_policy/review_bundle_digest
   - /workflow_policy/fixes_allowed_between_gates
+  - /workflow_policy/gate_policies
+  - /workflow_policy/gate_policies[]/gate_id
+  - /workflow_policy/gate_policies[]/policy_digest
   - /review_gates
   - /review_gates[]/gate_id
   - /review_gates[]/state
@@ -187,8 +191,10 @@ properties:
   /workflow_policy/prompt_digest: digest
   /workflow_policy/review_bundle_digest: digest
   /workflow_policy/fixes_allowed_between_gates: boolean
+  /workflow_policy/gate_policies: array
   /review_gates: array
   /questions: array
+  /prelude: object
   /limits/max_cost_usd: number
   /limits/max_wall_clock_seconds: number
   /limits/max_generated_tasks: integer
@@ -201,6 +207,13 @@ properties:
   /outcome/partial_evidence: boolean
   /outcome/publication_eligible: boolean
   /dispatches[]/ordinal: integer
+  # A dispatch can stop after claim but before a provider returns an envelope.
+  # The keys remain required so partial evidence is explicit; null means the
+  # corresponding worker identity/result was not observed before the stop.
+  /dispatches[]/claim/session_id: nullable_string
+  /dispatches[]/worker/worker_id: nullable_string
+  /dispatches[]/worker/session_id: nullable_string
+  /dispatches[]/worker/kind: nullable_string
   /dispatches[]/response/prompt_sha256: digest
   /dispatches[]/response/prompt_bytes: integer
   /dispatches[]/evidence_refs/prompt_sha256: digest
@@ -300,4 +313,5 @@ error_kind:
   - prompt_digest_mismatch
   - candidate_snapshot_mismatch
   - artifact_consumption_record_missing
+  - stage_evidence_incomplete
   - unsupported_schema_version

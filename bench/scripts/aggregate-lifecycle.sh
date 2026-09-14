@@ -391,7 +391,7 @@ command -v python3 >/dev/null 2>&1 || {
 
 RETENTION_ROOT_CANON="$(cd "$retention_root" && pwd)"
 
-python3 - "$RETENTION_ROOT_CANON" "$LIFECYCLE_SCHEMA" "$I05_SCHEMA" "$I07_SCHEMA" <<'PYEOF'
+python3 - "$RETENTION_ROOT_CANON" "$LIFECYCLE_SCHEMA" "$I05_SCHEMA" "$I07_SCHEMA" "$SCRIPT_DIR/lib" <<'PYEOF'
 import hashlib
 import json
 import math
@@ -401,7 +401,9 @@ import sys
 
 import yaml
 
-retention_root, schema_path, i05_schema_path, i07_schema_path = sys.argv[1:5]
+retention_root, schema_path, i05_schema_path, i07_schema_path, lib_dir = sys.argv[1:6]
+sys.path.insert(0, lib_dir)
+from i05_validation import validate_typed_consumer  # noqa: E402
 
 
 def fail(msg):
@@ -1159,17 +1161,19 @@ for scenario_id, rep, rep_dir in pair_dirs:
             pair_consumed_count += 1
             distinct_consuming_stages = set()
             for c_idx, consumer in enumerate(consumers):
-                if not isinstance(consumer, dict):
-                    fail(f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}] is not an object")
-                consuming_stage = require(
-                    consumer, "consuming_stage", f"{pair_label} stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}]"
-                )
-                edge_kind = consumer.get("edge_kind")
-                if edge_kind not in EDGE_KINDS:
+                consumer_context = f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}]"
+                check = validate_typed_consumer(consumer, EDGE_KINDS)
+                if check == "shape":
+                    fail(f"{consumer_context} must contain only consuming_stage, edge_kind, and observed_at")
+                if check == "fields":
+                    fail(f"{consumer_context} fields must be non-empty strings")
+                if check == "edge_kind":
                     fail(
                         f"{pair_label}: stages[{idx}].artifacts[{a_idx}].consumers[{c_idx}].edge_kind "
-                        f"{edge_kind!r} not in closed edge_kind vocabulary"
+                        f"{consumer['edge_kind']!r} not in closed edge_kind vocabulary"
                     )
+                consuming_stage = consumer["consuming_stage"]
+                edge_kind = consumer["edge_kind"]
                 distinct_consuming_stages.add(consuming_stage)
                 artifact_edges.append(
                     {

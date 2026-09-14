@@ -27,12 +27,83 @@ if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/i07.jsonl" --scenario "$REPO_ROOT/b
 python3 - "$output" <<'PY'
 import json, sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))
-assert record["structural"]["observed_result"] == "pass"
+assert record["structural"]["observed_result"] == "fail"
 assert record["judge"]["observed_result"] == "not_applicable"
 assert record["execution_oracle"]["observed_result"] == "not_run"
 assert record["eligibility"]["aggregate_eligible"] is False
 assert any(item["code"] == "missing_oracle" for item in record["eligibility"]["invalidity_reasons"])
+assert any(item["code"] == "source_malformed" and item["path"] == "/stages/0/input_lineage" for item in record["eligibility"]["invalidity_reasons"])
 assert any(item["code"] == "identity_missing" and item["path"] == "/identity/toolchain_identity" for item in record["eligibility"]["invalidity_reasons"])
+PY
+python3 - "$output.oracle.json" <<'PY'
+import json, sys
+oracle = json.load(open(sys.argv[1], encoding="utf-8"))
+assert oracle["observed_result"] == "not_run", oracle
+assert oracle["invalidity_reasons"], oracle
+PY
+
+# A later stage's prior-artifact lineage and the producer's consumer graph
+# must describe the same observed edge.
+python3 - "$tmp/contradictory-consumer-i07.jsonl" <<'PY'
+import hashlib, json, sys
+digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
+lineage = [
+    {"source_kind": kind, "path": f"/{kind}", "digest": digest(kind)}
+    for kind in (
+        "scenario_package", "rendered_prompt", "fixture_checkout",
+        "shark_content", "execution_adapter", "lifecycle_adapter",
+        "agent_visible_input",
+    )
+]
+record = {
+    "identity": {"run_id": "tc067", "scenario_id": "py-bug-due-date-boundary"},
+    "entity_graph": {"nodes": ["T"]},
+    "dispatches": [{"transition": "development"}, {"transition": "code_review"}],
+    "stages": [
+        {"category": "code", "input_lineage": lineage, "artifacts": [
+            {"path": "artifacts/0001.patch", "digest": digest("artifact-1"), "consumers": [
+                {"consuming_stage": "review", "edge_kind": "read", "observed_at": "   "},
+            ]},
+        ]},
+        {"stage": "review", "category": "review", "input_lineage": lineage + [
+            {"source_kind": "prior_stage_artifact", "path": "artifacts/0001.patch", "digest": digest("artifact-1")},
+        ], "artifacts": []},
+    ],
+    "outcome": {"terminal": "complete"},
+}
+with open(sys.argv[1], "w", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+contradictory_consumer_output="$tmp/contradictory-consumer-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/contradictory-consumer-i07.jsonl" \
+    --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" \
+    --output "$contradictory_consumer_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: contradictory artifact-consumer graph unexpectedly eligible" >&2
+  exit 1
+fi
+python3 - "$contradictory_consumer_output" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+reasons = record["eligibility"]["invalidity_reasons"]
+assert any(
+    item["code"] == "source_malformed" and item["path"] == "/stages/0/artifacts/0/consumers"
+    for item in reasons
+), reasons
+PY
+
+sed 's/"terminal":"complete"/"terminal":"resource_limit"/' "$tmp/i07.jsonl" >"$tmp/stopped-i07.jsonl"
+stopped_output="$tmp/stopped-evaluation.jsonl"
+if "$EVALUATOR" --i05 "$tmp/i05" --i07 "$tmp/stopped-i07.jsonl" --scenario "$REPO_ROOT/bench/scenarios/packages/py-bug-due-date-boundary/package.yaml" --output "$stopped_output" >/dev/null 2>/dev/null; then
+  echo "TC-067: resource-limit lifecycle unexpectedly eligible" >&2
+  exit 1
+fi
+python3 - "$stopped_output" "$stopped_output.oracle.json" <<'PY'
+import json, sys
+evaluation = json.load(open(sys.argv[1], encoding="utf-8"))
+oracle = json.load(open(sys.argv[2], encoding="utf-8"))
+assert evaluation["execution_oracle"] == oracle, (evaluation, oracle)
+assert oracle["observed_result"] == "not_run", oracle
+assert any(item["code"] == "aggregate_ineligible" for item in oracle["invalidity_reasons"]), oracle
 PY
 
 # Producer identity is not completed from the scenario package at the join.

@@ -330,6 +330,12 @@ bundle a real run produces, with no modification to that script.
 - **Priority**: Must-Have
 - No parallel validator, no relaxed variant, no new vocabulary
   (research-report Decision 2).
+- This is a scope fence on F12's own diff, not a perpetual freeze: pre-feature
+  state is `01ce448b` (E40-F11, #213); satisfied at `8aba4712` (F12's own
+  merge, #214). Later validator changes belong to E40-F06 (§1.4 item 1 of
+  this spec, and test-plan.md's own TC-004 note: "wiring a new validator
+  check is E40-F06 scope, not E40-F12's") and are not governed by this
+  requirement.
 - **Acceptance**: AC-021, AC-022.
 
 #### REQ-F-017 — The adjacent I-07 identity gap is disclosed, not silently left
@@ -378,7 +384,7 @@ I-05 bundle alone does **not** make a real pair evaluate non-failed.
 | AC-019 | `evaluate-lifecycle.sh` against a real produced pair emits **no** `missing_join` or `contradictory_join` reason at `/join/run_id`, `/join/scenario_id`, `/join/scenario_version`, or `/join/dispatches`. Reasons at `/join/dispatch_id` and `/join/dispatch_ordinal` are expected and are Q008's subject, not a defect of this feature. |
 | AC-020 | Making the bundle directory unwritable mid-run terminates the run with `outcome.terminal: "error"` naming the write failure; no I-07 record claims `publication_eligible: true` while its bundle is incomplete. |
 | AC-021 | `bench/scripts/verify-stage-evidence.sh <i05_bundle_dir>` exits `0` on the bundle from a real `--mode live` run of at least one of the six lifecycle-v2 families, printing its fixed-order JSON summary. |
-| AC-022 | `bench/scripts/verify-stage-evidence.sh` is byte-identical to its pre-feature state (`git diff --exit-code` on that path). |
+| AC-022 | `bench/scripts/verify-stage-evidence.sh` is byte-identical between its pre-feature state (`01ce448b`) and F12's own merge (`8aba4712`) (`git diff --exit-code` on that path across that fixed historical range). |
 | AC-023 | This spec's §3.2 enumerates every I-07 identity and workflow-policy field the evaluator requires and the live producer omits, and Q008 exists in Shark carrying that enumeration. |
 
 ### 1.4 Out of scope

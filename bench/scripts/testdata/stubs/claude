@@ -42,13 +42,13 @@ with open(log_path, "a") as f:
 PYEOF
 fi
 
-# Provisional field names per test-plan.md's "Sequencing constraint:
-# REQ-F-021/Q003": modelUsage/num_turns/duration_api_ms, pending
-# T-E40-F02-006's real-transcript capture. Not consumed by any
-# T-E40-F02-003 test.
+# The explicit pass outcome matches the current parent-controlled runner
+# contract. The remaining usage field names are the captured Claude envelope
+# shape consumed by the benchmark tests.
 cat <<'JSON'
 {
   "result": "stub claude: no-op dispatch, zero code changes",
+  "outcome": "pass",
   "modelUsage": {
     "claude-stub-model": {
       "inputTokens": 100,

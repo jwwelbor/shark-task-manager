@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lifecycle-worker-adapter.sh --request <json> [--provider-command <path>]
+# lifecycle-worker-adapter.sh [--request <json>] [--provider-command <path>]
 #
 # Provider-neutral boundary for the F08 controller. The controller supplies a
 # complete shark next response plus its claim session. The selected provider
@@ -12,7 +12,22 @@
 # Provider-specific flags belong to that command, not to this adapter.
 set -euo pipefail
 
-exec python3 - "$@" <<'PYEOF'
+REQUEST_ON_STDIN=1
+for argument in "$@"; do
+	if [[ "$argument" == "--request" || "$argument" == --request=* ]]; then
+		REQUEST_ON_STDIN=0
+		break
+	fi
+done
+
+if [[ "$REQUEST_ON_STDIN" -eq 1 ]]; then
+	STDIN_REQUEST="$(mktemp)"
+	trap 'rm -f "$STDIN_REQUEST"' EXIT
+	cat >"$STDIN_REQUEST"
+	set -- --request "$STDIN_REQUEST" "$@"
+fi
+
+python3 - "$@" <<'PYEOF'
 import argparse
 import hashlib
 import json
@@ -32,6 +47,23 @@ SENSITIVE = re.compile(
     r"password|secret)"
 )
 SAFE_EVIDENCE_KEYS = {"type", "path", "digest", "size_bytes", "description"}
+CONTROL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "kind": {"type": "string", "enum": sorted(CONTROL_KINDS)},
+        "recommended_outcome": {"type": "string"},
+        "worker_id": {"type": "string"},
+        "evidence": {"type": "array"},
+        "entity_key": {"type": "string"},
+        "category": {"type": "string"},
+        "question": {"type": "string"},
+        "why_blocking": {"type": "string"},
+        "recommendation": {"type": "string"},
+        "options": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["kind", "evidence"],
+    "additionalProperties": True,
+}
 
 
 class AdapterError(ValueError):
@@ -54,7 +86,10 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Await one provider worker and return a bounded control envelope."
     )
-    parser.add_argument("--request", required=True, help="JSON file containing the complete next response")
+    parser.add_argument(
+        "--request",
+        help="JSON file containing the complete next response; defaults to stdin",
+    )
     parser.add_argument("--provider-command", help="foreground executable that reads the prompt from stdin")
     parser.add_argument("--result-out", help="optional path for the bounded result JSON")
     return parser.parse_args()
@@ -71,7 +106,13 @@ def load_json(path, label):
 
 
 def load_request(path):
-    request = load_json(path, "request")
+    if path:
+        request = load_json(path, "request")
+    else:
+        try:
+            request = json.load(sys.stdin)
+        except json.JSONDecodeError as exc:
+            raise AdapterError(f"cannot read request from stdin: {exc}") from exc
     if not isinstance(request, dict):
         raise AdapterError("request must be a JSON object")
 
@@ -114,7 +155,23 @@ def command_for(args, request):
             if not isinstance(command, list) or not command or not all(isinstance(item, str) and item for item in command):
                 raise AdapterError("LIFECYCLE_PROVIDER_COMMAND must be a non-empty JSON string array")
         elif request["provider"] in {"anthropic", "claude", "claude-code"}:
-            command = ["claude", "--print", "--output-format", "json"]
+            control_schema = json.loads(json.dumps(CONTROL_SCHEMA))
+            outcomes = request.get("allowed_outcomes")
+            if isinstance(outcomes, list) and outcomes and all(isinstance(item, str) and item for item in outcomes):
+                control_schema["properties"]["recommended_outcome"]["enum"] = sorted(set(outcomes))
+            command = [
+                "claude",
+                "--print",
+                "--output-format",
+                "json",
+                "--model",
+                request["model"],
+                "--json-schema",
+                json.dumps(control_schema, sort_keys=True, separators=(",", ":")),
+            ]
+            effort = request.get("effort")
+            if isinstance(effort, str) and effort and effort != "unavailable":
+                command.extend(["--effort", effort])
         elif request["provider"] in {"openai", "codex"}:
             command = ["codex", "exec", "--json"]
         else:
@@ -168,13 +225,61 @@ def decode_envelope(raw):
     if isinstance(decoded, dict) and isinstance(decoded.get("kind"), str):
         return decoded
     if isinstance(decoded, dict):
-        for wrapper_key in ("result", "output", "message", "text"):
+        for wrapper_key in ("structured_output", "result", "output", "message", "text"):
             wrapped = decoded.get(wrapper_key)
             if isinstance(wrapped, dict):
                 return wrapped
             if isinstance(wrapped, str):
                 return decode_envelope(wrapped)
     raise AdapterError("provider output does not contain a control envelope")
+
+
+def provider_measurements(raw):
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(document, dict):
+        return {}
+
+    usage = document.get("usage")
+    bounded_usage = {}
+    if isinstance(usage, dict):
+        for key in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        ):
+            value = usage.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                bounded_usage[key] = value
+    model_usage = document.get("modelUsage")
+    if isinstance(model_usage, dict):
+        bounded_usage["model_ids"] = sorted(
+            key for key in model_usage if isinstance(key, str) and key
+        )
+    for source, target in (
+        ("duration_api_ms", "api_active_duration_ms"),
+        ("num_turns", "turn_count"),
+    ):
+        value = document.get(source)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            bounded_usage[target] = value
+    provider_session = document.get("session_id")
+    if isinstance(provider_session, str) and provider_session:
+        # Provider metadata is evidence only. The parent claim session remains
+        # the sole authority used for heartbeat, transition, and release.
+        bounded_usage["provider_session_id"] = provider_session
+
+    measurements = {}
+    cost = document.get("total_cost_usd")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
+        measurements["cost_usd"] = float(cost)
+        bounded_usage["cost_usd"] = float(cost)
+    if bounded_usage:
+        measurements["usage"] = bounded_usage
+    return measurements
 
 
 def redact_text(value, prompt):
@@ -233,12 +338,14 @@ def project_result(envelope, request, session_id, prompt_digest, prompt_bytes):
         raise AdapterError(f"unsupported control-envelope kind: {kind!r}")
 
     worker_id = safe_identity(
-        envelope.get("worker_id", os.environ.get("LIFECYCLE_WORKER_ID", "")), "worker_id"
+        envelope.get("worker_id")
+        or os.environ.get("LIFECYCLE_WORKER_ID")
+        or f"{request['provider']}-{request['model']}",
+        "worker_id",
     )
-    returned_session = envelope.get("session_id", session_id)
-    if returned_session != session_id:
-        raise AdapterError("provider session_id does not match the parent claim session")
-
+    # Session identity is parent-owned authority. Provider prose or structured
+    # output may echo or hallucinate a session token, but it can neither set
+    # nor invalidate the claim session attached by this adapter.
     result = {
         "worker_id": worker_id,
         "session_id": session_id,
@@ -248,6 +355,15 @@ def project_result(envelope, request, session_id, prompt_digest, prompt_bytes):
         outcome = envelope.get("recommended_outcome")
         if not isinstance(outcome, str) or not outcome:
             raise AdapterError("final control envelope requires recommended_outcome")
+        outcome = {
+            "advance": "pass", "complete": "pass", "completed": "pass", "success": "pass",
+            "reject": "fail", "rejected": "fail",
+        }.get(outcome.lower(), outcome)
+        allowed = request.get("allowed_outcomes")
+        if isinstance(allowed, list) and allowed and outcome not in allowed:
+            raise AdapterError(
+                f"recommended_outcome {outcome!r} is not valid for this workflow step; allowed: {sorted(allowed)!r}"
+            )
         result["recommended_outcome"] = redact_text(outcome, request["prompt"])
     result["evidence"] = bounded_evidence(envelope.get("evidence"), request["prompt"])
 
@@ -310,6 +426,7 @@ def main():
         result = project_result(
             decode_envelope(provider_output), request, session_id, prompt_digest, prompt_bytes
         )
+        result.update(provider_measurements(provider_output))
         write_result(args.result_out, result)
         json.dump(result, sys.stdout, sort_keys=True, separators=(",", ":"))
         sys.stdout.write("\n")

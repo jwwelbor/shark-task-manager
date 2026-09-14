@@ -290,7 +290,7 @@ echo "TC-110(held-back oracle authorized post-terminal): with the real reference
 # TC-34 (AC-F11-34): 8 named stages, in order, against the real shipped
 # epic workflow (see this file's header scope note).
 # ===========================================================================
-echo "TC-110: TC-34 -- 8 named epic stages, in pass-outcome order, against the real shipped epic.yaml"
+echo "TC-110: TC-34 -- 9 named epic stages, in pass-outcome order, against the real shipped epic.yaml"
 
 python3 - "$EPIC_WORKFLOW" <<'PY'
 import sys
@@ -302,14 +302,17 @@ with open(path, encoding="utf-8") as f:
     workflow = yaml.safe_load(f)
 
 steps = workflow["steps"]
-required_order = ["assessment", "refinement", "research", "design", "decomposition", "feature_review", "active", "completed"]
+# integration_review was added between active and completed by E34-F06-F11
+# (#212, a451fe35), after this worked-example list was written; it is a
+# real spawn_agent stage in the pass chain, not a terminal alias of active.
+required_order = ["assessment", "refinement", "research", "design", "decomposition", "feature_review", "active", "integration_review", "completed"]
 
 missing = [name for name in required_order if name not in steps]
 if missing:
     raise SystemExit(f"epic.yaml is missing required AC-F11-34 stage(s): {missing}")
 
 # Walk the pass-outcome chain starting from draft's own pass target and
-# confirm it visits exactly the 8 required stages in the declared order --
+# confirm it visits exactly the 9 required stages in the declared order --
 # an omitted or reordered stage is a distinct failure from a merely-absent
 # one (spec.md §7.3.7's "each omission a distinct failure").
 current = steps["draft"]["outcomes"]["pass"]
@@ -329,7 +332,7 @@ for _ in range(len(required_order)):
 if visited != required_order:
     raise SystemExit(f"pass-outcome chain from draft visited {visited}, want exactly {required_order} in that order")
 
-print(f"TC-110(TC-34): draft's pass-outcome chain visits exactly the 8 required stages in order: {visited}")
+print(f"TC-110(TC-34): draft's pass-outcome chain visits exactly the 9 required stages in order: {visited}")
 PY
 echo "TC-110: TC-34 -- PASS"
 

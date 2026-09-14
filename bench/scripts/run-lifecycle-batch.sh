@@ -61,20 +61,17 @@
 #                                             # never share mutable DB state
 #                                             # and a preview never leaves a
 #                                             # side effect on the template.
-#       i05_bundle_dir: "<dir>"              # optional; the I-05
-#                                             # stage-evidence bundle
-#                                             # directory evaluate-lifecycle.sh
-#                                             # reads via --i05. F10 reuses
-#                                             # I-05 read-only (ADR-F10-04)
-#                                             # and does not produce it; a
-#                                             # scenario without this
-#                                             # configured is dispatched
-#                                             # (run-lifecycle.sh still
-#                                             # runs) but its pair cannot be
-#                                             # evaluated and is classified
-#                                             # `failed`, named as such.
+#       i05_bundle_dir: "<dir>"              # optional compatibility input
+#                                             # for fixture/stub runners. The
+#                                             # production runner writes a
+#                                             # run-matched I-05 bundle and
+#                                             # that generated bundle always
+#                                             # takes precedence.
+#       replay_result: "<i06-result.json>"    # required for feature scenarios
+#                                             # with applicable D01-D05 stages;
+#                                             # passed unchanged to F08.
 #
-# root_key/scratch_root/i05_bundle_dir are operator-prepared inputs, not
+# root_key/scratch_root are operator-prepared inputs, not
 # something this driver bootstraps: creating a scratch Shark project and its
 # seed entity is out of F10's scope (component-changes table: F10 invokes
 # run-lifecycle.sh/evaluate-lifecycle.sh with their EXISTING signatures; it
@@ -95,6 +92,7 @@ BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # resolution for anything else this script calls.
 RUN_LIFECYCLE_BIN="${RUN_LIFECYCLE_BIN:-$SCRIPT_DIR/run-lifecycle.sh}"
 EVALUATE_LIFECYCLE_BIN="${EVALUATE_LIFECYCLE_BIN:-$SCRIPT_DIR/evaluate-lifecycle.sh}"
+CHECKOUT_SCENARIO_FIXTURE_BIN="${CHECKOUT_SCENARIO_FIXTURE_BIN:-$SCRIPT_DIR/checkout-scenario-fixture.sh}"
 # UAT-R3-01 fix (T-E40-F10-004): the real producer for retain_pair's
 # entity-history.json artifact -- see export-entity-history.sh's own header.
 ENTITY_HISTORY_EXPORT_BIN="${ENTITY_HISTORY_EXPORT_BIN:-$SCRIPT_DIR/export-entity-history.sh}"
@@ -503,6 +501,9 @@ for scenario_id, pkg_path, pkg in selected:
     i05_bundle_dir = str(entry.get("i05_bundle_dir") or "")
     if i05_bundle_dir and not os.path.isabs(i05_bundle_dir):
         i05_bundle_dir = os.path.join(bench_dir, i05_bundle_dir)
+    replay_result = str(entry.get("replay_result") or "")
+    if replay_result and not os.path.isabs(replay_result):
+        replay_result = os.path.join(bench_dir, replay_result)
     stage_matrix = pkg.get("stage_matrix") or {}
     prelude = stage_matrix.get("prelude") or {}
     lifecycle_mode = (stage_matrix.get("lifecycle") or {}).get("mode", "unknown")
@@ -514,6 +515,7 @@ for scenario_id, pkg_path, pkg in selected:
         "root_key": root_key,
         "scratch_root": scratch_root,
         "i05_bundle_dir": i05_bundle_dir,
+        "replay_result": replay_result,
         "package_path": os.path.abspath(pkg_path),
         "prelude": prelude,
         "lifecycle_mode": lifecycle_mode,
@@ -820,10 +822,10 @@ retain_pair() {
 }
 
 dispatch_pair() {
-	# dispatch_pair <scenario_id> <scenario_version> <family> <rep> <package_path> <root_key> <scratch_root> <i05_bundle_dir> <success_label>
+	# dispatch_pair <scenario_id> <scenario_version> <family> <rep> <package_path> <root_key> <scratch_root> <i05_bundle_dir> <replay_result> <success_label>
 	assert_retention_root_identity
 	local scenario_id="$1" scenario_version="$2" family="$3" rep="$4" package_path="$5"
-	local root_key="$6" scratch_root="$7" i05_bundle_dir="$8" success_label="$9"
+	local root_key="$6" scratch_root="$7" i05_bundle_dir="$8" replay_result="$9" success_label="${10}"
 
 	if [[ -z "$root_key" || -z "$scratch_root" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep: root_key/scratch_root not configured; recorded failed, batch proceeds" >&2
@@ -842,6 +844,22 @@ dispatch_pair() {
 	local pair_work
 	pair_work="$(mktemp -d)"
 	local ephemeral="$pair_work/scratch"
+	local fixture_checkout="$pair_work/fixture"
+	preserve_failed_pair() {
+		local reason="$1"
+		local failed_root="$out_root_canon/.failed-attempts/$scenario_id"
+		local failed_dest="$failed_root/rep${rep}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$reason"
+		if ! assert_no_symlink_in_chain "$out_root_canon" "$failed_dest"; then
+			echo "run-lifecycle-batch: WARNING: refusing failed-attempt move through a symlink; evidence remains at $pair_work" >&2
+			return 1
+		fi
+		mkdir -p "$failed_root"
+		if mv "$pair_work" "$failed_dest"; then
+			echo "run-lifecycle-batch: retained failed pair evidence at $failed_dest" >&2
+		else
+			echo "run-lifecycle-batch: WARNING: could not retain failed pair evidence from $pair_work" >&2
+		fi
+	}
 	# Source-side symlink policy, invariant 2 (path-safety.sh scope-freeze
 	# paragraph): a symlinked scratch_root -- top-level (code-review-2026-08-
 	# 21T1335-E40-F10.md round-5 finding 2) or NESTED anywhere inside a real
@@ -872,7 +890,18 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "scratch_root_copy_failed"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "scratch-copy"
+		return 0
+	fi
+	local fixture_id fixture_base_sha
+	fixture_id="$(python3 -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["fixture"]["fixture_id"])' "$package_path")"
+	fixture_base_sha="$(python3 -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["fixture"]["base_sha"])' "$package_path")"
+	if ! "$CHECKOUT_SCENARIO_FIXTURE_BIN" "$fixture_id" "$fixture_base_sha" "$fixture_checkout"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep FAILED (fixture checkout failed)" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "fixture_checkout_failed"
+		overall_bad="true"
+		preserve_failed_pair "fixture-checkout"
 		return 0
 	fi
 	local lifecycle_out="$pair_work/lifecycle.jsonl"
@@ -899,18 +928,30 @@ dispatch_pair() {
 	# spend_gate_check_all already validated) through to run-lifecycle.sh's
 	# own execution-time enforcement/recording -- never left to fall through
 	# to the scenario package's resource_policy default.
-	"$RUN_LIFECYCLE_BIN" --scenario "$package_path" --run-id "${scenario_id}-rep${rep}" \
-		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out" \
-		--limits "$OPERATOR_LIMITS_FILE" --i05-bundle-dir "$i05_bundle_dir" </dev/null
+	local -a lifecycle_args=(
+		--scenario "$package_path" --run-id "${scenario_id}-rep${rep}"
+		--root "$root_key" --scratch-root "$ephemeral" --output "$lifecycle_out"
+		--limits "$OPERATOR_LIMITS_FILE" --i05-bundle-dir "$i05_bundle_dir"
+		--fixture-root "$fixture_checkout"
+	)
+	if [[ -n "$replay_result" ]]; then
+		lifecycle_args+=(--replay "$replay_result")
+	fi
+	"$RUN_LIFECYCLE_BIN" "${lifecycle_args[@]}" </dev/null
 	local run_rc=$?
 	set -e
 
-	if [[ "$run_rc" -ne 0 ]]; then
+	# run-lifecycle.sh now returns a tiered exit code: 0 = complete, 1 = a
+	# named stop outcome with lifecycle.jsonl/bundle.json still finalized
+	# and retained (F09 must still evaluate it), 2+ = an execution failure
+	# with no evidence at all. Mirror the eval_rc branch below: only >1 (or
+	# missing output) is a real run failure.
+	if [[ "$run_rc" -gt 1 || ! -s "$lifecycle_out" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep FAILED (run-lifecycle.sh exit $run_rc)" >&2
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "lifecycle_run_failed"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "lifecycle-run"
 		return 0
 	fi
 
@@ -920,13 +961,22 @@ dispatch_pair() {
 		--scenario "$package_path" --output "$evaluation_out" </dev/null
 	local eval_rc=$?
 	set -e
+	# eval_rc==1: F09's well-formed-but-ineligible verdict, distinct from a
+	# genuinely eligible run -- reused below instead of $success_label so
+	# counts/summary don't fold an ineligible pair into "pending_run"/
+	# "quarantined_and_rerun", indistinguishable from a real success.
+	local retained_label="$success_label"
+	[[ "$eval_rc" -eq 1 ]] && retained_label="ineligible"
 
-	if [[ "$eval_rc" -ne 0 ]]; then
+	# F09 returns 1 for a well-formed but ineligible I-08 verdict. Retain that
+	# record and its oracle so F10 can diagnose and aggregate its upstream
+	# invalidity reasons. Exit 2+ or a missing record is an execution failure.
+	if [[ "$eval_rc" -gt 1 || ! -s "$evaluation_out" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep FAILED (evaluate-lifecycle.sh exit $eval_rc)" >&2
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "evaluation_failed"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "evaluation"
 		return 0
 	fi
 
@@ -948,7 +998,7 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "required_artifact_source_unavailable"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "entity-history"
 		return 0
 	fi
 
@@ -957,10 +1007,10 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "required_artifact_source_unavailable"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "retention"
 		return 0
 	fi
-	append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "$success_label"
+	append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "$retained_label"
 	rm -rf "$pair_work"
 }
 
@@ -1132,6 +1182,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 	root_key="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["root_key"])' "$row_json")"
 	scratch_root="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["scratch_root"])' "$row_json")"
 	i05_bundle_dir="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["i05_bundle_dir"])' "$row_json")"
+	replay_result="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["replay_result"])' "$row_json")"
 	package_path="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["package_path"])' "$row_json")"
 
 	for ((rep = 1; rep <= reps; rep++)); do
@@ -1199,7 +1250,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 					overall_bad="true"
 				else
 					dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-						"$root_key" "$scratch_root" "$i05_bundle_dir" "quarantined_and_rerun"
+						"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "quarantined_and_rerun"
 				fi
 			else
 				echo "run-lifecycle-batch: $scenario_id rep $rep is an incomplete prior attempt (directory present, evaluation.jsonl absent); skipping (pass --reclaim-incomplete to quarantine and re-run)" >&2
@@ -1209,7 +1260,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 			;;
 		pending)
 			dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-				"$root_key" "$scratch_root" "$i05_bundle_dir" "pending_run"
+				"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "pending_run"
 			;;
 		esac
 	done

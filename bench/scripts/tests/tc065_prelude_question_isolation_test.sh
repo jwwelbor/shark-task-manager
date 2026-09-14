@@ -5,15 +5,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PRELUDE="$SCRIPTS_DIR/lifecycle-prelude.sh"
+RUNNER="$SCRIPTS_DIR/run-lifecycle.sh"
 fail() { echo "TC-065 FAIL: $1" >&2; exit 1; }
 [[ -x "$PRELUDE" ]] || fail "lifecycle-prelude.sh missing or not executable"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
-mkdir -p "$WORKDIR/bin" "$WORKDIR/fixture" "$WORKDIR/scratch" "$WORKDIR/evaluator"
+mkdir -p "$WORKDIR/bin" "$WORKDIR/scratch" "$WORKDIR/evaluator"
+# verify-evidence-roots requires a real git checkout at package-feature.yaml's
+# own frozen fixture.base_sha below -- a plain mkdir'd directory fails its
+# fixture_checkout HEAD check.
+git clone -q "$SCRIPTS_DIR/../fixture-py" "$WORKDIR/fixture"
+git -C "$WORKDIR/fixture" checkout -q 964fa68e4c9e0c4e0f3756d9efd78b888c558fd9
 mkdir -p "$WORKDIR/evaluator/evaluator"
 printf 'fixture reference\n' >"$WORKDIR/evaluator/evaluator/reference.patch"
+printf 'fixture reference\n' >"$WORKDIR/evaluator/reference.patch"
 mkdir -p "$WORKDIR/evaluator/replay"
 cat >"$WORKDIR/evaluator/replay/bundle.json" <<'JSON'
 {"bundle_version":"1.0.0","scenario_binding":{"scenario_id":"tc065-feature","scenario_version":1},"entries":[]}
@@ -59,6 +66,13 @@ evaluator_only:
   reference_solution: evaluator/reference.patch
   oracle_tests: []
   answer_keys: []
+fixture:
+  fixture_id: py
+  submodule_path: bench/fixture-py
+  base_sha: "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9"
+adapter: {name: python, version: "1.0.0"}
+toolchain_identity: [{key: python_version, value: "3.12.3"}]
+resource_policy: {max_cost_usd: 1, max_wall_clock_seconds: 60, max_generated_tasks: 10}
 YAML
 
 cat >"$WORKDIR/package-bug.yaml" <<'YAML'
@@ -134,6 +148,36 @@ if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
 fi
 grep -q "missing scenario.scenario_id" "$WORKDIR/missing-scenario.err" || fail "missing replay scenario_id was not named"
 
+events_before="$(wc -l <"$WORKDIR/events.ndjson")"
+# run-lifecycle.sh (unlike lifecycle-prelude.sh above) has no --fixture-root
+# override -- it resolves fixture_root from the scenario package's own
+# fixture.submodule_path, so a private copy of the package pointed at this
+# same clone is needed for isolation.
+RUNNER_SCENARIO="$WORKDIR/package-feature-runner.yaml"
+sed "s#^  submodule_path: .*#  submodule_path: $WORKDIR/fixture#" \
+    "$WORKDIR/package-feature.yaml" >"$RUNNER_SCENARIO"
+set +e
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
+  "$RUNNER" --scenario "$RUNNER_SCENARIO" --replay "$WORKDIR/replay-blocked.json" \
+  --run-id tc065-runner-blocked --root ROOT-NOT-DISPATCHED --scratch-root "$WORKDIR/scratch" \
+  --i05-bundle-dir "$WORKDIR/runner-i05" \
+  --output "$WORKDIR/runner-blocked.jsonl" --mode contract >/dev/null
+blocked_code=$?
+set -e
+# unresolved_gate is a named stop outcome with retained evidence, not
+# "complete" -- exit 1.
+[[ "$blocked_code" -eq 1 ]] || fail "runner-blocked run exited $blocked_code, want 1 (unresolved_gate)"
+events_after="$(wc -l <"$WORKDIR/events.ndjson")"
+[[ "$events_after" == "$events_before" ]] || fail "runner dispatched Shark work after an unresolved I-06 replay"
+python3 - "$WORKDIR/runner-blocked.jsonl" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+assert record["outcome"]["terminal"] == "unresolved_gate", record["outcome"]
+assert record["outcome"]["publication_eligible"] is False, record["outcome"]
+assert record["dispatches"] == [], record["dispatches"]
+assert record["prelude"]["terminal_outcome"] == "unresolved_gate", record["prelude"]
+PY
+
 if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   "$PRELUDE" --scenario "$WORKDIR/package-feature.yaml" --replay "$WORKDIR/replay-missing-question-block.json" \
   --run-id tc065-missing-question --output "$WORKDIR/missing-question.jsonl" --fixture-root "$WORKDIR/fixture" \
@@ -150,6 +194,10 @@ blocked = json.loads(open(sys.argv[3], encoding="utf-8").readline())
 events = [json.loads(line) for line in open(sys.argv[4], encoding="utf-8")]
 assert feature["terminal_outcome"] == "complete"
 assert [stage["stage"] for stage in feature["prelude"]] == ["D01", "D02", "D03", "D04", "D05"]
+assert len(feature["replay"]["digest"]) == 64, feature["replay"]
+assert feature["replay"]["stage_count"] == 5, feature["replay"]
+assert [stage["stage"] for stage in feature["replay"]["stages"]] == ["D01", "D02", "D03", "D04", "D05"]
+assert feature["replay"]["replay_bundle"]["bundle_version"] == "1.0.0", feature["replay"]
 assert feature["questions"][0]["terminal_result"] == "accepted"
 assert bug["terminal_outcome"] == "not_applicable"
 assert all(stage["outcome"] == "not_applicable" for stage in bug["prelude"])
