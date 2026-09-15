@@ -99,31 +99,6 @@ func ReadIdentity(dir string) (*RunIdentity, bool, error) {
 	return &rec, true, nil
 }
 
-// VerifyRunIdentityOwner fails closed when rec's bound entity does not
-// exactly match the caller's requested entityKey/entityType. This is the
-// OWNER-ONLY subset of the replay-identity contract (entity binding alone,
-// not the full SourceStatus/Gate/OperationDigest replay context) — see
-// VerifyRunIdentity for the complete check required before deriving replay
-// context from an uninitialized run.
-//
-// This narrower check is kept only for a caller that has not yet been
-// wired to supply the full expectation (internal/cli/commands/run_resume.go
-// resumeGateIngestForUninitializedState, T-E34-F05-004's scope per the
-// coordinated fix for note #2926); every NEW caller must use
-// VerifyRunIdentity instead.
-func VerifyRunIdentityOwner(rec *RunIdentity, entityKey, entityType string) error {
-	if rec == nil {
-		return fmt.Errorf("gaterun: cannot verify run identity against a nil record")
-	}
-	if rec.EntityKey != entityKey {
-		return fmt.Errorf("gaterun: run identity entity_key mismatch: recorded %q, requested %q", rec.EntityKey, entityKey)
-	}
-	if rec.EntityType != entityType {
-		return fmt.Errorf("gaterun: run identity entity_type mismatch: recorded %q, requested %q", rec.EntityType, entityType)
-	}
-	return nil
-}
-
 // VerifyRunIdentity fails closed when rec does not exactly match want on
 // every field of the replay-identity contract — RunID is intentionally
 // excluded from the comparison (rec and want are always looked up BY the
@@ -139,13 +114,10 @@ func VerifyRunIdentityOwner(rec *RunIdentity, entityKey, entityType string) erro
 // originally created under. Callers MUST call this — with the caller's
 // CURRENT SourceStatus/Gate and a freshly computed OperationDigest — before
 // deriving any replay context (e.g. a live-status lookup) from an
-// uninitialized run's durable result. Used both by gatepersist.Coordinator
-// (defense in depth alongside CreateIdentity's own content-conflict check)
-// and by any resume path that reads a durable artifact before a full
-// OperationState exists to check identity against (see
-// internal/cli/commands.resumeGateIngestForUninitializedState, once wired
-// by T-E34-F05-004 — see VerifyRunIdentityOwner's doc comment for the
-// interim narrower check that caller uses today).
+// uninitialized run's durable result. It is used by resume paths that read a
+// durable artifact before a full OperationState exists to check identity
+// against, including
+// internal/cli/commands.resumeGateIngestForUninitializedState.
 func VerifyRunIdentity(rec *RunIdentity, want RunIdentity) error {
 	if rec == nil {
 		return fmt.Errorf("gaterun: cannot verify run identity against a nil record")

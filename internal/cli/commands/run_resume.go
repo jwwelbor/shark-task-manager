@@ -243,8 +243,8 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 // kickback validation, etc.) runs.
 //
 // UAT round 4 finding (note #2926, T-E34-F05-004 rework round 13): the
-// interim version of this function only checked EntityKey/EntityType
-// (VerifyRunIdentityOwner) and then unconditionally derived a fresh replay
+// interim version of this function only checked EntityKey/EntityType and then
+// unconditionally derived a fresh replay
 // context (SourceStatus/Gate/OperationDigest) from the entity's CURRENT live
 // status via transitioner.GetNextStatus — so a same-entity resume whose
 // original run was bound to a DIFFERENT source status/gate (or whose
@@ -275,7 +275,7 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 // function is the ONLY caller that reads identity.json and derives replay
 // context itself before ever reaching Persist, which is exactly why it
 // needed its own full-contract check — grep confirms
-// gaterun.VerifyRunIdentityOwner has no other production callers left after
+// the prior entity-only verifier has no remaining production callers after
 // this fix.
 func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, entityType, entityKey string, decision *gaterun.ResumeDecision, out *resumeRunOutput) error {
 	// UAT-3-1: read the durable identity.json binding (written before

@@ -262,15 +262,9 @@ introduced, only a mock at the correct interface.
 
 ### AC-1: state-space-coverage.md exists, renders cleanly, all required sections present
 
-Note: spec.md AC-1 says "all five sections named in REQ-F-001–004/007"; that
-range names five requirement numbers, but REQ-F-006 (I-04 propagation) is
-separately required by spec.md's own body text ("Add an 'I-04 propagation'
-section to the state-space-coverage.md workflow") and is not optional — so
-this test plan checks **six** sections (closed-table, technique-selection,
-dependency-discovery, shipped-consumer, I-04 propagation, design-divergence),
-treating spec.md AC-1's "five" as a minor undercount rather than omitting the
-I-04 section from test coverage. Recommend spec.md AC-1 be corrected to name
-six sections in a follow-up edit.
+spec.md AC-1 requires **six** sections (closed-table, technique-selection,
+dependency-discovery, shipped-consumer, I-04 propagation, and
+design-divergence). This matrix covers each of them.
 
 | TC | Description | Input/Setup | Expected outcome | Edge cases |
 |----|---|---|---|---|
@@ -424,7 +418,7 @@ fixtures inline only.
 
 **Issues deferred:** 1, logged here rather than resolved now:
 
-7. **AC-1/TC-001 header-presence vs. clause-level content (Enumeration concern)** — partially addressed: TC-001 was rewritten to assert each section's required *clauses* individually (not just headings), and the earlier internal "five sections" miscount (spec.md AC-1 undercounts against its own six-requirement body text) is now flagged with a recommendation to correct spec.md. Not fully resolved: this test plan does not enumerate the exact clause-matching regex/assertions codex asked for (e.g. the precise required substring set per section) — that level of implementation detail is deferred to the developer writing the actual `TestIncludeResolver_*` entry, consistent with this test plan's role of specifying *what* must be asserted, not the literal Go assertion code. Owner: developer implementing TC-001; Timeframe: T-E34-F07 task implementing the workflow file and its render test.
+7. **AC-1/TC-001 header-presence vs. clause-level content (Enumeration concern)** — partially addressed: TC-001 was rewritten to assert each section's required *clauses* individually (not just headings). Not fully resolved: this test plan does not enumerate the exact clause-matching regex/assertions codex asked for (e.g. the precise required substring set per section) — that level of implementation detail is deferred to the developer writing the actual `TestIncludeResolver_*` entry, consistent with this test plan's role of specifying *what* must be asserted, not the literal Go assertion code. Owner: developer implementing TC-001; Timeframe: T-E34-F07 task implementing the workflow file and its render test.
 
 Additionally, codex's observability-gap finding ("no runtime evidence that exactly one note exists after the command; only a mock assertion") was addressed: the Observability Design section and TC-007/TC-010 now require at least one test run against a real (non-mocked) repository pair to confirm the note is genuinely persisted and queryable, not merely mock-recorded.
 
@@ -456,7 +450,7 @@ Fix: specify an explicit internal test provider/factory seam, invoke the registe
 
 ## Enumeration and traceability concerns
 
-- AC-1 / REQ-F-001–007: TC-001 checks headings, not the required clause-level content: lifecycle heuristic, all table columns, invalid/recovery behavior, ordered dependency sources, per-axis rationale, handoff rules, I-04 artifact closure, and divergence reference. It also inconsistently says "five" sections while testing six.
+- AC-1 / REQ-F-001–007: TC-001 checks headings, not the required clause-level content: lifecycle heuristic, all table columns, invalid/recovery behavior, ordered dependency sources, per-axis rationale, handoff rules, I-04 artifact closure, and divergence reference.
 
   Fix: enumerate those required clauses in a rendered golden/structural test, including failures for prose-only progression, "other state," omitted recovery, and duplicated divergence procedure.
 
@@ -519,8 +513,7 @@ control" sections.
 - [ ] Needs BA refinement
 - [ ] Needs tech refinement
 
-**Outstanding, non-blocking:** spec.md's AC-1 ("five sections") and
-"Cross-feature interactions → Produces" pointer string
+**Outstanding, non-blocking:** the "Cross-feature interactions → Produces" pointer string
 (`TC-I-04-CHANGE-IMPACT-CLOSURE`) should be reconciled with
 `E34-interaction-map.md`'s six-section body text and
 `TC-I-04-DECISION-PROPAGATION` naming respectively, in a follow-up spec edit
