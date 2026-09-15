@@ -262,7 +262,7 @@ echo "TC-031: part 3 - REQ-F-007 leak-surface grep (AC-012 / AC-T4)"
 # Keep this literal vocabulary aligned with test-plan.md's AC-012 pattern:
 # extensions are just as language-specific as executable names in a generic
 # script, so an inline `foo.py` or `bar.go` leak must fail this check too.
-FORBIDDEN_TOKENS='\<python\>|\<pytest\>|\<pip\>|\.py"|\.go"|\<go[[:space:]]+test\>|\<golangci-lint\>|\<go[[:space:]]+build\>'
+FORBIDDEN_TOKENS='\<python\>|\<pytest\>|\<pip\>|\.py\b|\.go\b|\<go[[:space:]]+test\>|\<golangci-lint\>|\<go[[:space:]]+build\>'
 GREP_TARGETS=(
 	"$SCRIPTS_DIR/admit-scenario.sh"
 	"$SCRIPTS_DIR/eval-predicate.sh"

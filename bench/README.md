@@ -567,7 +567,7 @@ the tools yet still produce a different identity, so its admission result is
 not reproducible evidence for this corpus. For example:
 
 ```bash
-uv venv --python 3.12 .venv-bench
+uv venv --python 3.12.3 .venv-bench
 source .venv-bench/bin/activate
 uv pip install pytest==9.1.1 ruff==0.16.2 black==26.5.1 PyYAML
 python --version  # Python 3.12.3

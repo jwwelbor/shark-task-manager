@@ -328,8 +328,8 @@ def validate_family_invariant(package):
 
     The six-value vocabulary (epic, feature, task, bug, change_card,
     tech_debt) is REQ-F-007/ADR-F11-02's single authoritative set, defined
-    in tests/contracts/e40_i04_scenario_contract_test.go's
-    e40I04ValidEntityFamilies. This function is a consumer that must agree
+    in the I-04 scenario contract's e40I04ValidEntityFamilies. This function
+    is a consumer that must agree
     with it, never a second source of truth. "sprint" and "question" stay
     excluded -- they are orchestration workflows, not delivery-scenario
     roots (feature.md REQ-F-007).

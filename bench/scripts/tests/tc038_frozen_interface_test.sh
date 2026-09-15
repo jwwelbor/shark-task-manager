@@ -107,37 +107,46 @@ check_fixture_checkout() {
 	echo "TC-038: $fixture_id fixture resolved via scenarios.yaml and checked out at $sha"
 }
 
-while IFS=$'\t' read -r fixture_id base_sha submodule; do
-	[[ -n "$fixture_id" && -n "$base_sha" && -n "$submodule" ]] || fail "scenarios.yaml yielded an incomplete fixture registration"
-	[[ -e "$submodule/.git" ]] || fail "$fixture_id fixture submodule not initialized: $submodule (run 'git submodule update --init')"
-	check_fixture_checkout "$fixture_id" "$base_sha" "$submodule"
-done < <(python3 - "$SCENARIOS_YAML" "$CORPUS_YAML" "$BENCH_DIR" <<'PYEOF'
+registry_output="$WORKDIR/fixture-registry.tsv"
+if ! python3 - "$SCENARIOS_YAML" "$CORPUS_YAML" "$REPO_ROOT" >"$registry_output" <<'PYEOF'
 import os
+import subprocess
 import sys
 import yaml
 
-scenarios_path, corpus_path, bench_dir = sys.argv[1:]
+scenarios_path, corpus_path, repo_root = sys.argv[1:]
 with open(scenarios_path) as f:
     scenarios = yaml.safe_load(f) or {}
 with open(corpus_path) as f:
     corpus = yaml.safe_load(f) or {}
 
+repo_root = os.path.realpath(repo_root)
 for fixture_id, entry in sorted((scenarios.get("fixtures") or {}).items()):
     rel = (entry or {}).get("submodule_path")
     if not rel:
         raise SystemExit(f"fixture {fixture_id!r} has no submodule_path")
+    submodule = os.path.realpath(os.path.join(repo_root, rel))
+    if os.path.commonpath((repo_root, submodule)) != repo_root:
+        raise SystemExit(f"fixture {fixture_id!r} has an invalid submodule_path: {rel!r}")
     # I-01's Go fixture keeps its immutable base SHA in corpus.yaml; other
     # registered fixtures are pinned by their checked-out submodule HEAD.
     if fixture_id == "go":
         base_sha = ((corpus.get("fixture") or {}).get("base_sha"))
     else:
-        import subprocess
-        base_sha = subprocess.check_output(["git", "-C", os.path.join(bench_dir, os.path.basename(rel)), "rev-parse", "HEAD"], text=True).strip()
+        base_sha = subprocess.check_output(["git", "-C", submodule, "rev-parse", "HEAD"], text=True).strip()
     if not base_sha:
         raise SystemExit(f"fixture {fixture_id!r} has no resolvable base SHA")
-    print(f"{fixture_id}\t{base_sha}\t{os.path.join(bench_dir, os.path.basename(rel))}")
+    print(f"{fixture_id}\t{base_sha}\t{submodule}")
 PYEOF
-)
+then
+	fail "could not read complete fixture registry from scenarios.yaml"
+fi
+
+while IFS=$'\t' read -r fixture_id base_sha submodule; do
+	[[ -n "$fixture_id" && -n "$base_sha" && -n "$submodule" ]] || fail "scenarios.yaml yielded an incomplete fixture registration"
+	[[ -e "$submodule/.git" ]] || fail "$fixture_id fixture submodule not initialized: $submodule (run 'git submodule update --init')"
+	check_fixture_checkout "$fixture_id" "$base_sha" "$submodule"
+done < "$registry_output"
 
 expect_rejected() {
 	# expect_rejected <label> <stderr-token> <command...>
