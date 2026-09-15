@@ -138,6 +138,9 @@ func ValidateEpicRunID(epicRunID string) error {
 // "creates ... one epic reference note" requirement while still honoring
 // run.go's own no-internal_services-dependency rule.
 func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, base string, events []IntegrationEvent, dryRun bool, createdBy string) (*IntegrationCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: backfill: %w", err)
+	}
 	if recorder == nil {
 		return nil, fmt.Errorf("integration: Backfill requires a non-nil NoteRecorder")
 	}
@@ -171,7 +174,7 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	// block is read-only: git rev-parse/cat-file, in-memory slice/map
 	// inspection, and reads of already-existing files. None of them writes
 	// or creates anything.
-	if err := verifyCommitReachable(projectRoot, base); err != nil {
+	if err := verifyCommitReachable(ctx, projectRoot, base); err != nil {
 		return nil, err
 	}
 	if err := validateBackfillEvents(epicRunID, events); err != nil {
@@ -194,6 +197,9 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	if dryRun {
 		return simulateBackfillCandidate(epicRunID, base, events)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: backfill before first write: %w", err)
+	}
 
 	run, err := backfillRun(projectRoot, epicKey, epicRunID, base)
 	if err != nil {
@@ -205,12 +211,15 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		lastEvent *IntegrationEvent
 	)
 	for i := range events {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("integration: backfill before event %d: %w", i, err)
+		}
 		input := events[i]
 		recorded, err := RecordEvent(epicRunID, input.FeatureKey, input.FeatureCommit, input.TrackedPaths, input.UntrackedPaths)
 		if err != nil {
 			return nil, fmt.Errorf("integration: backfill record event %d (%s): %w", i, input.FeatureKey, err)
 		}
-		candidate, err = UpdateCandidate(epicRunID, recorded)
+		candidate, err = UpdateCandidate(ctx, epicRunID, recorded)
 		if err != nil {
 			return nil, fmt.Errorf("integration: backfill update candidate for event %d (%s): %w", i, input.FeatureKey, err)
 		}
@@ -234,8 +243,8 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 // with steady-state capture" scope, applying spec.md's "Key technical
 // decisions" #2 principle to base-reachability rather than the write
 // path that decision was originally written about).
-func verifyCommitReachable(projectRoot, base string) error {
-	if err := VerifyBaseReachable(projectRoot, base, ""); err != nil {
+func verifyCommitReachable(ctx context.Context, projectRoot, base string) error {
+	if err := VerifyBaseReachable(ctx, projectRoot, base, ""); err != nil {
 		return &BackfillValidationError{Reason: fmt.Sprintf("--base %q is not a reachable commit: %v", base, err)}
 	}
 	return nil

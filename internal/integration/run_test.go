@@ -79,7 +79,7 @@ func chdirProjectRoot(t *testing.T) (dir, headCommit string) {
 func TestCaptureBase_SequentialIdempotent(t *testing.T) {
 	dir, headCommit := chdirProjectRoot(t)
 
-	first, err := CaptureBase("E99")
+	first, err := CaptureBase(context.Background(), "E99")
 	if err != nil {
 		t.Fatalf("first CaptureBase: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestCaptureBase_SequentialIdempotent(t *testing.T) {
 		t.Fatal("EpicRunID is empty")
 	}
 
-	second, err := CaptureBase("E99")
+	second, err := CaptureBase(context.Background(), "E99")
 	if err != nil {
 		t.Fatalf("second CaptureBase: %v", err)
 	}
@@ -102,6 +102,33 @@ func TestCaptureBase_SequentialIdempotent(t *testing.T) {
 	}
 
 	assertExactlyOneRunFile(t, dir, "E99")
+}
+
+func TestCaptureBase_CanceledContextDoesNotPublishRun(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := CaptureBase(ctx, "E99")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CaptureBase() error = %v, want context cancellation", err)
+	}
+	if _, err := os.Stat(runRecordPath(dir, "E99")); !os.IsNotExist(err) {
+		t.Fatalf("CaptureBase published a run after cancellation: %v", err)
+	}
+}
+
+func TestCaptureBase_CanceledContextDoesNotReturnExistingRun(t *testing.T) {
+	chdirProjectRoot(t)
+	if _, err := CaptureBase(context.Background(), "E99"); err != nil {
+		t.Fatalf("initial CaptureBase: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := CaptureBase(ctx, "E99")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CaptureBase() error = %v, want context cancellation", err)
+	}
 }
 
 // TestCaptureBase_ConcurrentRace covers TC-006 subtest (b) / AC-T2: several
@@ -129,7 +156,7 @@ func TestCaptureBase_ConcurrentRace(t *testing.T) {
 		go func() {
 			defer done.Done()
 			start.Wait() // barrier: release all goroutines together
-			run, err := CaptureBase("E99")
+			run, err := CaptureBase(context.Background(), "E99")
 			mu.Lock()
 			runs[i] = run
 			errs[i] = err
@@ -175,7 +202,7 @@ func TestCaptureBase_CorruptExistingRunReturnsTypedError(t *testing.T) {
 		t.Fatalf("write corrupt run file: %v", err)
 	}
 
-	_, err := CaptureBase("E99")
+	_, err := CaptureBase(context.Background(), "E99")
 	if err == nil {
 		t.Fatal("expected an error for a corrupt run file, got nil")
 	}
@@ -195,12 +222,12 @@ func TestCaptureBase_CorruptExistingRunReturnsTypedError(t *testing.T) {
 func TestGetRun_NoRunYetReturnsNil(t *testing.T) {
 	chdirProjectRoot(t)
 
-	run, err := GetRun("E99")
+	run, err := GetRun(context.Background(), "E99")
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
 	if run != nil {
-		t.Fatalf("GetRun() = %+v, want nil before any CaptureBase call", run)
+		t.Fatalf("GetRun(context.Background(), ) = %+v, want nil before any CaptureBase call", run)
 	}
 }
 
@@ -210,20 +237,20 @@ func TestGetRun_NoRunYetReturnsNil(t *testing.T) {
 func TestGetRun_ReturnsCapturedRunWithoutCreatingOne(t *testing.T) {
 	dir, headCommit := chdirProjectRoot(t)
 
-	captured, err := CaptureBase("E99")
+	captured, err := CaptureBase(context.Background(), "E99")
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}
 
-	got, err := GetRun("E99")
+	got, err := GetRun(context.Background(), "E99")
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
 	if got == nil {
-		t.Fatal("GetRun() = nil, want the captured run")
+		t.Fatal("GetRun(context.Background(), ) = nil, want the captured run")
 	}
 	if got.EpicRunID != captured.EpicRunID || got.BaseCommit != headCommit {
-		t.Fatalf("GetRun() = %+v, want EpicRunID=%q BaseCommit=%q", got, captured.EpicRunID, headCommit)
+		t.Fatalf("GetRun(context.Background(), ) = %+v, want EpicRunID=%q BaseCommit=%q", got, captured.EpicRunID, headCommit)
 	}
 
 	assertExactlyOneRunFile(t, dir, "E99")
@@ -243,7 +270,7 @@ func TestGetRun_CorruptExistingRunReturnsTypedError(t *testing.T) {
 		t.Fatalf("write corrupt run file: %v", err)
 	}
 
-	_, err := GetRun("E99")
+	_, err := GetRun(context.Background(), "E99")
 	if err == nil {
 		t.Fatal("expected an error for a corrupt run file, got nil")
 	}
@@ -259,12 +286,34 @@ func TestGetRun_CorruptExistingRunReturnsTypedError(t *testing.T) {
 func TestCurrentCommit_ResolvesRealHeadCommit(t *testing.T) {
 	_, headCommit := chdirProjectRoot(t)
 
-	commit, err := CurrentCommit()
+	commit, err := CurrentCommit(context.Background())
 	if err != nil {
 		t.Fatalf("CurrentCommit: %v", err)
 	}
 	if commit != headCommit {
-		t.Fatalf("CurrentCommit() = %q, want %q", commit, headCommit)
+		t.Fatalf("CurrentCommit(context.Background()) = %q, want %q", commit, headCommit)
+	}
+}
+
+func TestCurrentCommit_CanceledContext(t *testing.T) {
+	chdirProjectRoot(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := CurrentCommit(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CurrentCommit() error = %v, want context cancellation", err)
+	}
+}
+
+func TestGetRun_CanceledContext(t *testing.T) {
+	chdirProjectRoot(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := GetRun(ctx, "E99")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetRun() error = %v, want context cancellation", err)
 	}
 }
 
@@ -402,7 +451,7 @@ func (f *fakeNoteRecorder) ListNotes(_ context.Context, entityType models.Entity
 func setUpRegisteredRun(t *testing.T, epicKey, featureKey, featureCommit string) (*IntegrationRun, *IntegrationEvent, *IntegrationCandidate) {
 	t.Helper()
 
-	run, err := CaptureBase(epicKey)
+	run, err := CaptureBase(context.Background(), epicKey)
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}
@@ -410,7 +459,7 @@ func setUpRegisteredRun(t *testing.T, epicKey, featureKey, featureCommit string)
 	if err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
-	head, err := UpdateCandidate(run.EpicRunID, event)
+	head, err := UpdateCandidate(context.Background(), run.EpicRunID, event)
 	if err != nil {
 		t.Fatalf("UpdateCandidate: %v", err)
 	}
@@ -721,7 +770,7 @@ func TestRegisterRun_SecondEpicRunIDWhileNonterminal_Rejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordEvent for second run: %v", err)
 	}
-	head2, err := UpdateCandidate(run2.EpicRunID, event2)
+	head2, err := UpdateCandidate(context.Background(), run2.EpicRunID, event2)
 	if err != nil {
 		t.Fatalf("UpdateCandidate for second run: %v", err)
 	}
@@ -765,7 +814,7 @@ func TestRegisterRun_ArchivedHeadRecomputableThenTamperTruncationReorderingFailC
 	if err != nil {
 		t.Fatalf("RecordEvent 1: %v", err)
 	}
-	head1, err := UpdateCandidate(epicRunID, event1)
+	head1, err := UpdateCandidate(context.Background(), epicRunID, event1)
 	if err != nil {
 		t.Fatalf("UpdateCandidate 1: %v", err)
 	}
@@ -774,7 +823,7 @@ func TestRegisterRun_ArchivedHeadRecomputableThenTamperTruncationReorderingFailC
 	if err != nil {
 		t.Fatalf("RecordEvent 2: %v", err)
 	}
-	head2, err := UpdateCandidate(epicRunID, event2)
+	head2, err := UpdateCandidate(context.Background(), epicRunID, event2)
 	if err != nil {
 		t.Fatalf("UpdateCandidate 2: %v", err)
 	}
@@ -783,7 +832,7 @@ func TestRegisterRun_ArchivedHeadRecomputableThenTamperTruncationReorderingFailC
 	if err != nil {
 		t.Fatalf("RecordEvent 3: %v", err)
 	}
-	if _, err := UpdateCandidate(epicRunID, event3); err != nil {
+	if _, err := UpdateCandidate(context.Background(), epicRunID, event3); err != nil {
 		t.Fatalf("UpdateCandidate 3: %v", err)
 	}
 

@@ -541,13 +541,13 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 	if err != nil || epic == nil {
 		return
 	}
-	run, err := integration.GetRun(epic.Key)
+	run, err := integration.GetRun(ctx, epic.Key)
 	if err != nil || run == nil {
 		// No active IntegrationRun for this epic (or the run record could
 		// not be read) — nothing to record against.
 		return
 	}
-	commit, err := integration.CurrentCommit()
+	commit, err := integration.CurrentCommit(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "integration event recording skipped: could not resolve feature commit",
 			"feature_key", featureKey, "epic_key", epic.Key, "error", err)
@@ -563,7 +563,7 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 		return
 	}
 
-	candidate, err := s.foldIntegrationEventIfMissing(run.EpicRunID, event)
+	candidate, err := s.foldIntegrationEventIfMissing(ctx, run.EpicRunID, event)
 	if err != nil {
 		slog.WarnContext(ctx, "integration candidate update failed",
 			"feature_key", featureKey, "epic_key", epic.Key, "epic_run_id", run.EpicRunID, "error", err)
@@ -638,8 +638,8 @@ func (s *FeatureService) recordIntegrationEventForTerminalTransition(ctx context
 // highest-recorded event rather than "whichever event was folded most
 // recently") is follow-up work against candidate.go, not this call site's
 // scope.
-func (s *FeatureService) foldIntegrationEventIfMissing(epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
-	current, err := integration.GetCandidate(epicRunID)
+func (s *FeatureService) foldIntegrationEventIfMissing(ctx context.Context, epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
+	current, err := integration.GetCandidate(ctx, epicRunID)
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +650,7 @@ func (s *FeatureService) foldIntegrationEventIfMissing(epicRunID string, event *
 			}
 		}
 	}
-	return s.updateIntegrationCandidateWithRetry(epicRunID, event)
+	return s.updateIntegrationCandidateWithRetry(ctx, epicRunID, event)
 }
 
 // updateIntegrationCandidateWithRetry calls integration.UpdateCandidate,
@@ -659,10 +659,10 @@ func (s *FeatureService) foldIntegrationEventIfMissing(epicRunID string, event *
 // maxTerminalCandidateFoldAttempts's doc comment for why this bound is
 // separate from candidate.go's own internal retry). Any non-conflict error
 // is returned immediately.
-func (s *FeatureService) updateIntegrationCandidateWithRetry(epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
+func (s *FeatureService) updateIntegrationCandidateWithRetry(ctx context.Context, epicRunID string, event *integration.IntegrationEvent) (*integration.IntegrationCandidate, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxTerminalCandidateFoldAttempts; attempt++ {
-		candidate, err := integration.UpdateCandidate(epicRunID, event)
+		candidate, err := integration.UpdateCandidate(ctx, epicRunID, event)
 		if err == nil {
 			return candidate, nil
 		}
@@ -671,7 +671,13 @@ func (s *FeatureService) updateIntegrationCandidateWithRetry(epicRunID string, e
 			return nil, err
 		}
 		lastErr = err
-		time.Sleep(terminalCandidateFoldRetryDelay)
+		timer := time.NewTimer(terminalCandidateFoldRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	return nil, lastErr
 }

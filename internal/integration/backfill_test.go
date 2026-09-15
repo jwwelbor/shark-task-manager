@@ -141,6 +141,25 @@ func TestBackfill_DryRun_WritesNothing(t *testing.T) {
 	}
 }
 
+func TestBackfill_CanceledContextWritesNothing(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	before := countFilesUnder(t, filepath.Join(dir, ".shark"))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	recorder := &fakeNoteRecorder{}
+
+	_, err := Backfill(ctx, recorder, "E90", "run-cancelled", headCommit, validBackfillEvents("run-cancelled"), false, "test-agent")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Backfill() error = %v, want context cancellation", err)
+	}
+	if after := countFilesUnder(t, filepath.Join(dir, ".shark")); after != before {
+		t.Fatalf("canceled Backfill wrote files: before=%d after=%d", before, after)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("canceled Backfill created %d notes", recorder.calls)
+	}
+}
+
 // TestBackfill_NonDryRun_CreatesExactlyOneOfEach covers TC-009 subtest (b) /
 // AC-T1: a non-dry-run call with the same valid input creates exactly one
 // IntegrationRun file, one IntegrationEvent file per input entry, one

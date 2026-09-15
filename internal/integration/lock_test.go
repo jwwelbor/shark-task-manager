@@ -1,7 +1,9 @@
 package integration
 
 import (
+	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -41,7 +43,7 @@ func TestAcquireRegistrationLock_SerializesConcurrentGoroutines(t *testing.T) {
 			defer done.Done()
 			start.Wait() // barrier: release all goroutines together
 
-			lock, err := AcquireRegistrationLock(dir, epicRunID)
+			lock, err := AcquireRegistrationLock(context.Background(), dir, epicRunID)
 			if err != nil {
 				errs[i] = err
 				return
@@ -84,7 +86,7 @@ func TestAcquireRegistrationLock_ReleaseUnblocksWaiter(t *testing.T) {
 	dir := t.TempDir()
 	const epicRunID = "run-lock-unblock"
 
-	first, err := AcquireRegistrationLock(dir, epicRunID)
+	first, err := AcquireRegistrationLock(context.Background(), dir, epicRunID)
 	if err != nil {
 		t.Fatalf("first AcquireRegistrationLock: %v", err)
 	}
@@ -92,7 +94,7 @@ func TestAcquireRegistrationLock_ReleaseUnblocksWaiter(t *testing.T) {
 	acquired := make(chan struct{})
 	waiterErr := make(chan error, 1)
 	go func() {
-		second, err := AcquireRegistrationLock(dir, epicRunID)
+		second, err := AcquireRegistrationLock(context.Background(), dir, epicRunID)
 		if err != nil {
 			waiterErr <- err
 			return
@@ -142,18 +144,74 @@ func TestAcquireRegistrationLock_TimesOutOnWedgedLock(t *testing.T) {
 	dir := t.TempDir()
 	const epicRunID = "run-lock-wedged"
 
-	held, err := AcquireRegistrationLock(dir, epicRunID)
+	held, err := AcquireRegistrationLock(context.Background(), dir, epicRunID)
 	if err != nil {
 		t.Fatalf("acquire the lock to simulate a wedged holder: %v", err)
 	}
 	t.Cleanup(func() { _ = held.Release() })
 
-	_, err = AcquireRegistrationLock(dir, epicRunID)
+	_, err = AcquireRegistrationLock(context.Background(), dir, epicRunID)
 	if err == nil {
 		t.Fatal("expected a timeout error acquiring an already-held lock, got nil")
 	}
 	var timeoutErr *RegistrationLockTimeoutError
 	if !errors.As(err, &timeoutErr) {
 		t.Fatalf("expected *RegistrationLockTimeoutError, got %T: %v", err, err)
+	}
+}
+
+func TestAcquireRegistrationLock_CanceledContext(t *testing.T) {
+	dir := t.TempDir()
+	held, err := AcquireRegistrationLock(context.Background(), dir, "run-cancelled")
+	if err != nil {
+		t.Fatalf("acquire held lock: %v", err)
+	}
+	defer func() { _ = held.Release() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = AcquireRegistrationLock(ctx, dir, "run-cancelled")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("AcquireRegistrationLock() error = %v, want context cancellation", err)
+	}
+}
+
+func TestAcquireRegistrationLock_CanceledContextDoesNotCreateLock(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := AcquireRegistrationLock(ctx, dir, "run-cancelled-free")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("AcquireRegistrationLock() error = %v, want context cancellation", err)
+	}
+	if _, err := os.Stat(registrationLockPath(dir, "run-cancelled-free")); !os.IsNotExist(err) {
+		t.Fatalf("registration lock exists after canceled acquisition: %v", err)
+	}
+}
+
+func TestAcquireRegistrationLock_CancelWhileWaiting(t *testing.T) {
+	dir := t.TempDir()
+	held, err := AcquireRegistrationLock(context.Background(), dir, "run-cancel-wait")
+	if err != nil {
+		t.Fatalf("acquire held lock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := held.Release(); err != nil {
+			t.Errorf("release held lock: %v", err)
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { _, err := AcquireRegistrationLock(ctx, dir, "run-cancel-wait"); result <- err }()
+	time.Sleep(2 * registrationLockPollInterval)
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("AcquireRegistrationLock() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiting lock acquisition did not honor cancellation")
 	}
 }

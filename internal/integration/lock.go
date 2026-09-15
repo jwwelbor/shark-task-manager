@@ -2,6 +2,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,7 +74,10 @@ type RegistrationLock struct {
 // racing within one process and for independent processes, since it never
 // relies on an in-process mutex (spec.md "Key technical decisions" #3: the
 // parent-loop processes this guards are not threads in one process).
-func AcquireRegistrationLock(projectRoot, epicRunID string) (*RegistrationLock, error) {
+func AcquireRegistrationLock(ctx context.Context, projectRoot, epicRunID string) (*RegistrationLock, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: acquire registration lock: %w", err)
+	}
 	path := registrationLockPath(projectRoot, epicRunID)
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, runDirMode); err != nil {
@@ -82,6 +86,9 @@ func AcquireRegistrationLock(projectRoot, epicRunID string) (*RegistrationLock, 
 
 	deadline := time.Now().Add(registrationLockTimeout)
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("integration: acquire registration lock at %s: %w", path, err)
+		}
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, runFileMode)
 		if err == nil {
 			_ = f.Close()
@@ -93,7 +100,11 @@ func AcquireRegistrationLock(projectRoot, epicRunID string) (*RegistrationLock, 
 		if time.Now().After(deadline) {
 			return nil, &RegistrationLockTimeoutError{Path: path}
 		}
-		time.Sleep(registrationLockPollInterval)
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("integration: acquire registration lock at %s: %w", path, ctx.Err())
+		case <-time.After(registrationLockPollInterval):
+		}
 	}
 }
 

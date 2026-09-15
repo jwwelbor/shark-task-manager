@@ -270,7 +270,7 @@ func TestResolveCascadeCapturesEpicIntegrationBaseOnFirstFeatureDispatchOnly_TC0
 	}
 
 	// Before any dispatch: no run captured yet.
-	preRun, err := integration.GetRun("E99")
+	preRun, err := integration.GetRun(context.Background(), "E99")
 	require.NoError(t, err)
 	require.Nil(t, preRun, "no IntegrationRun should exist before the epic's cascade ever dispatches a feature")
 
@@ -279,7 +279,7 @@ func TestResolveCascadeCapturesEpicIntegrationBaseOnFirstFeatureDispatchOnly_TC0
 	require.Equal(t, "E99-F01", resp1.EntityKey)
 	require.Equal(t, "spawn_agent", resp1.Action)
 
-	run1, err := integration.GetRun("E99")
+	run1, err := integration.GetRun(context.Background(), "E99")
 	require.NoError(t, err)
 	require.NotNil(t, run1, "the first feature dispatch must have captured the epic's IntegrationRun")
 	require.Equal(t, headCommit, run1.BaseCommit)
@@ -290,7 +290,7 @@ func TestResolveCascadeCapturesEpicIntegrationBaseOnFirstFeatureDispatchOnly_TC0
 	require.Equal(t, "E99-F02", resp2.EntityKey)
 	require.Equal(t, "spawn_agent", resp2.Action)
 
-	run2, err := integration.GetRun("E99")
+	run2, err := integration.GetRun(context.Background(), "E99")
 	require.NoError(t, err)
 	require.NotNil(t, run2)
 	require.Equal(t, run1.EpicRunID, run2.EpicRunID, "a second feature's dispatch must not create a second run")

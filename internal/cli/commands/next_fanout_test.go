@@ -80,7 +80,7 @@ func stubNoEpicIntegrationCapture(t *testing.T) {
 	t.Helper()
 	original := nextCaptureEpicIntegrationBase
 	t.Cleanup(func() { nextCaptureEpicIntegrationBase = original })
-	nextCaptureEpicIntegrationBase = func(string) (*integration.IntegrationRun, error) { return nil, nil }
+	nextCaptureEpicIntegrationBase = func(context.Context, string) (*integration.IntegrationRun, error) { return nil, nil }
 }
 
 // stubMaxParallelItems pins the configured fan-out cap for one test.
