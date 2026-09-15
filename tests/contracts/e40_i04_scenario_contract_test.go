@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -410,9 +411,7 @@ func TestTC030_I04ScenarioPackageContract(t *testing.T) {
 		// behind otherwise-valid committed fixtures.
 		t.Run("admission_validation", func(t *testing.T) {
 			baseData, err := os.ReadFile(filepath.Join(testdataDir, "valid", "package.yaml"))
-			if err != nil {
-				t.Fatalf("read valid baseline: %v", err)
-			}
+			require.NoError(t, err, "read valid baseline")
 			validAdmission := func() map[string]interface{} {
 				return map[string]interface{}{
 					"status":            "admitted",
