@@ -294,6 +294,41 @@ snapshot = json.loads((i05_dir / bundle["stages"][0]["snapshot_path"]).read_text
 assert snapshot["replay_lineage"] == [], snapshot
 PY
 
+# The runner rejects malformed externally supplied prelude JSON before it can
+# dereference the new replay-lineage projection. Exercise each guarded shape
+# through the production --prelude entrypoint.
+python3 - "$WORKDIR/feature.jsonl" "$WORKDIR/malformed-prelude.jsonl" "$WORKDIR/malformed-replay.jsonl" "$WORKDIR/malformed-bundle.jsonl" <<'PY'
+import json
+import sys
+
+prelude = json.loads(open(sys.argv[1], encoding="utf-8").readline())
+open(sys.argv[2], "w", encoding="utf-8").write("[]\n")
+for path, key, value in ((sys.argv[3], "replay", ["invalid"]), (sys.argv[4], "replay_bundle", ["invalid"])):
+    candidate = json.loads(json.dumps(prelude))
+    if key == "replay_bundle":
+        candidate["replay"][key] = value
+    else:
+        candidate[key] = value
+    with open(path, "w", encoding="utf-8") as stream:
+        json.dump(candidate, stream, separators=(",", ":"))
+        stream.write("\n")
+PY
+
+for malformed_case in prelude replay bundle; do
+  case "$malformed_case" in
+    prelude) malformed_path="$WORKDIR/malformed-prelude.jsonl"; expected="lifecycle prelude must be a JSON object" ;;
+    replay) malformed_path="$WORKDIR/malformed-replay.jsonl"; expected="lifecycle prelude replay must be a JSON object" ;;
+    bundle) malformed_path="$WORKDIR/malformed-bundle.jsonl"; expected="lifecycle prelude replay_bundle must be a JSON object" ;;
+  esac
+  if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+    "$RUNNER" --scenario "$RUNNER_SCENARIO" --prelude "$malformed_path" --run-id "tc065-malformed-$malformed_case" \
+    --root ROOT-LINEAGE --scratch-root "$WORKDIR/scratch" --i05-bundle-dir "$WORKDIR/malformed-$malformed_case-i05" \
+    --output "$WORKDIR/malformed-$malformed_case.out" --mode dry-run >/dev/null 2>"$WORKDIR/malformed-$malformed_case.err"; then
+    fail "malformed $malformed_case prelude unexpectedly passed"
+  fi
+  grep -q "$expected" "$WORKDIR/malformed-$malformed_case.err" || fail "malformed $malformed_case prelude did not name its shape error"
+done
+
 if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   "$PRELUDE" --scenario "$WORKDIR/package-feature.yaml" --replay "$WORKDIR/replay-missing-question-block.json" \
   --run-id tc065-missing-question --output "$WORKDIR/missing-question.jsonl" --fixture-root "$WORKDIR/fixture" \
