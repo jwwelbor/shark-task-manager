@@ -118,6 +118,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 
 import yaml
 
@@ -257,15 +258,22 @@ def named_ids_for(kind, predicate):
 
 
 def merge_entries(*docs):
-    entries = []
-    seen = set()
+    entries_by_id = {}
     for doc in docs:
         for entry in doc.get("entries", []):
-            if entry["id"] in seen:
+            entry_id = entry.get("id")
+            if not isinstance(entry_id, str) or not entry_id:
+                raise ScriptError(f"adapter test result has an invalid entry id: {entry!r}")
+            prior = entries_by_id.get(entry_id)
+            if prior is not None:
+                if prior.get("outcome") != entry.get("outcome"):
+                    raise ScriptError(
+                        f"adapter test results disagree for duplicate id {entry_id!r}: "
+                        f"{prior.get('outcome')!r} versus {entry.get('outcome')!r}"
+                    )
                 continue
-            seen.add(entry["id"])
-            entries.append(entry)
-    return {"entries": entries}
+            entries_by_id[entry_id] = entry
+    return {"entries": list(entries_by_id.values())}
 
 
 def capture_predicate_state(adapter_script, checkout_dir, predicate, named_ids):
@@ -288,8 +296,13 @@ def capture_predicate_state(adapter_script, checkout_dir, predicate, named_ids):
     # malicious/malformed package cannot direct the adapter's `test`
     # capability outside the ephemeral checkout via a traversal or
     # symlink-escaping include entry (REQ-NF-005).
-    for i, rel in enumerate(include):
-        resolve_scoped(checkout_dir, rel, subtree=None, label=f"final_predicate.p2p_selection.include[{i}]")
+    include = [
+        os.path.relpath(
+            resolve_scoped(checkout_dir, rel, subtree=None, label=f"final_predicate.p2p_selection.include[{i}]"),
+            checkout_dir,
+        )
+        for i, rel in enumerate(include)
+    ]
 
     test_args = ["--include"] + include
     if exclude_ids:
@@ -390,7 +403,7 @@ def format_admission_block(status, base_outcome, reference_outcome, toolchain_id
     lines.append("  toolchain_identity:\n")
     for entry in toolchain_identity:
         lines.append(f"    - key: {entry['key']}\n")
-        lines.append(f"      value: \"{entry['value']}\"\n")
+        lines.append(f"      value: {json.dumps(str(entry['value']))}\n")
     return "".join(lines)
 
 
@@ -607,6 +620,7 @@ if __name__ == "__main__":
         print(f"admit-scenario: {exc}", file=sys.stderr)
         sys.exit(2)
     except Exception as exc:  # top-level CLI error boundary
+        traceback.print_exc(file=sys.stderr)
         print(f"admit-scenario: unexpected error: {exc}", file=sys.stderr)
         sys.exit(2)
 PYEOF

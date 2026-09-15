@@ -106,6 +106,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/lib/go-toolchain-identity.sh"
 
 usage() {
 	echo "usage: build-ledgers.sh <checkout_dir> <output_dir>" >&2
@@ -166,16 +167,12 @@ testenum_bin="$testenum_build_dir/testenum"
 }
 
 # --- Toolchain block (recorded, never compared here) ------------------
-go_version="$(go env GOVERSION)"
-goos="$(go env GOOS)"
-goarch="$(go env GOARCH)"
-golangci_lint_raw="$(golangci-lint version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
-[[ -n "$golangci_lint_raw" ]] || {
-	echo "build-ledgers: could not parse golangci-lint version from 'golangci-lint version'" >&2
-	exit 1
-}
-golangci_lint_version="v${golangci_lint_raw}"
-golangci_config_sha256="$(sha256sum "$golangci_config" | awk '{print $1}')"
+go_toolchain_identity "$golangci_config" || exit 1
+go_version="$GO_TOOLCHAIN_GO_VERSION"
+goos="$GO_TOOLCHAIN_GOOS"
+goarch="$GO_TOOLCHAIN_GOARCH"
+golangci_lint_version="$GO_TOOLCHAIN_GOLANGCI_LINT_VERSION"
+golangci_config_sha256="$GO_TOOLCHAIN_GOLANGCI_CONFIG_SHA256"
 
 # --- Test ledger: real `go test -json ./...` ---------------------------
 test_raw="$(mktemp)"

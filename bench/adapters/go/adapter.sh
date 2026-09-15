@@ -53,6 +53,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_LEDGERS="$BENCH_DIR/scripts/build-ledgers.sh"
+. "$BENCH_DIR/scripts/lib/go-toolchain-identity.sh"
 
 usage() {
 	echo "usage: adapter.sh <identity|inject-tests|test|lint|build|format-check> --checkout <dir> [...]" >&2
@@ -80,13 +81,30 @@ write_lines() {
 	done
 }
 
+resolve_checkout_path() {
+	# Adapter callers can invoke this script directly, so --include must not
+	# rely on admit-scenario.sh having already performed containment checks.
+	python3 - "$CHECKOUT" "$1" <<'PYEOF'
+import os
+import sys
+
+checkout, supplied = sys.argv[1:3]
+root = os.path.realpath(checkout)
+candidate = os.path.realpath(os.path.join(root, supplied))
+if os.path.commonpath([root, candidate]) != root:
+    sys.exit(1)
+print(os.path.relpath(candidate, root))
+PYEOF
+}
+
 resolve_import_paths() {
 	# Translates one fixture-relative p2p_selection.include path into the
 	# Go import path(s) it names -- a directory resolves to itself and
 	# everything under it (`./<path>/...`); a file resolves to its
 	# containing package. Returns non-zero (no message; the caller names
 	# the offending path) if the path does not exist under the checkout.
-	local rel="$1"
+	local rel
+	rel="$(resolve_checkout_path "$1")" || return 1
 	rel="${rel#./}"
 	local abs="$CHECKOUT/$rel"
 	[[ -e "$abs" ]] || return 1
@@ -108,14 +126,23 @@ find_package_dir() {
 	# express (a Go test must be colocated with the package it tests;
 	# there is no single fixed directory the way pytest's rootdir allows).
 	local pkg="$1"
-	local f
+	local f dirs=()
 	while IFS= read -r -d '' f; do
 		if grep -m1 -qE "^package[[:space:]]+${pkg}([[:space:]]|\$)" "$f"; then
-			dirname "$f"
-			return 0
+			dirs+=("$(dirname "$f")")
 		fi
 	done < <(find "$CHECKOUT" -name '*.go' ! -name '*_test.go' -print0 | sort -z)
-	return 1
+	[[ ${#dirs[@]} -gt 0 ]] || return 1
+	local unique_dirs=()
+	local dir
+	for dir in "${dirs[@]}"; do
+		[[ " ${unique_dirs[*]} " == *" $dir "* ]] || unique_dirs+=("$dir")
+	done
+	if [[ ${#unique_dirs[@]} -ne 1 ]]; then
+		printf 'inject-tests: package %q is ambiguous; matching directories: %s\n' "$pkg" "${unique_dirs[*]}" >&2
+		return 2
+	fi
+	printf '%s\n' "${unique_dirs[0]}"
 }
 
 run_build_ledgers() {
@@ -208,18 +235,10 @@ cmd_identity() {
 	local golangci_config="$CHECKOUT/.golangci.yml"
 	[[ -f "$golangci_config" ]] || fail "fixture .golangci.yml not found: $golangci_config"
 
-	local go_version goos goarch
-	go_version="$(go env GOVERSION)"
-	goos="$(go env GOOS)"
-	goarch="$(go env GOARCH)"
-
-	local golangci_lint_raw golangci_lint_version
-	golangci_lint_raw="$(golangci-lint version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
-	[[ -n "$golangci_lint_raw" ]] || fail "could not parse golangci-lint version from 'golangci-lint version'"
-	golangci_lint_version="v${golangci_lint_raw}"
-
-	local golangci_config_sha256
-	golangci_config_sha256="$(sha256sum "$golangci_config" | awk '{print $1}')"
+	go_toolchain_identity "$golangci_config" || fail "could not collect Go toolchain identity"
+	local go_version="$GO_TOOLCHAIN_GO_VERSION" goos="$GO_TOOLCHAIN_GOOS" goarch="$GO_TOOLCHAIN_GOARCH"
+	local golangci_lint_version="$GO_TOOLCHAIN_GOLANGCI_LINT_VERSION"
+	local golangci_config_sha256="$GO_TOOLCHAIN_GOLANGCI_CONFIG_SHA256"
 
 	local adapter_name adapter_version
 	adapter_name="$(grep -E '^name:' "$SCRIPT_DIR/adapter.yaml" | sed -E 's/^name:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/')"
@@ -256,6 +275,7 @@ cmd_inject_tests() {
 		dest_dir="$(find_package_dir "$pkg_name")" || fail "inject-tests: no existing package '$pkg_name' found under checkout for $src"
 		base="$(basename "$src")"
 		dest="$dest_dir/$base"
+		[[ ! -e "$dest" ]] || fail "inject-tests: destination already exists: $dest"
 		cp "$src" "$dest"
 		rel_dest="${dest#"$CHECKOUT"/}"
 		pair_args+=("$src" "$rel_dest")

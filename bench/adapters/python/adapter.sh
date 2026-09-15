@@ -93,6 +93,22 @@ PYEOF
 	cat "$out"
 }
 
+resolve_checkout_path() {
+	# Adapter callers can invoke this script directly, so --include must not
+	# rely on admit-scenario.sh having already performed containment checks.
+	python3 - "$CHECKOUT" "$1" <<'PYEOF'
+import os
+import sys
+
+checkout, supplied = sys.argv[1:3]
+root = os.path.realpath(checkout)
+candidate = os.path.realpath(os.path.join(root, supplied))
+if os.path.commonpath([root, candidate]) != root:
+    sys.exit(1)
+print(os.path.relpath(candidate, root))
+PYEOF
+}
+
 [[ $# -ge 1 ]] || {
 	usage
 	exit 1
@@ -227,6 +243,7 @@ cmd_inject_tests() {
 		[[ -f "$src" ]] || fail "inject-tests source file not found: $src"
 		base="$(basename "$src")"
 		dest="$dest_dir/$base"
+		[[ ! -e "$dest" ]] || fail "inject-tests: destination already exists: $dest"
 		cp "$src" "$dest"
 		pair_args+=("$src" "tests/$base")
 	done
@@ -261,7 +278,11 @@ cmd_test() {
 		return 0
 	else
 		if [[ ${#INCLUDE[@]} -gt 0 ]]; then
-			pos_args=("${INCLUDE[@]}")
+			local include resolved_include
+			for include in "${INCLUDE[@]}"; do
+				resolved_include="$(resolve_checkout_path "$include")" || fail "--include path escapes checkout: $include"
+				pos_args+=("$resolved_include")
+			done
 		fi
 		if [[ ${#EXCLUDE_IDS[@]} -gt 0 ]]; then
 			# NOTE: unlike --only-id above, an --exclude-id that resolves to

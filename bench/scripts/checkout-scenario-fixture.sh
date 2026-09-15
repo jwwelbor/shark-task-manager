@@ -44,6 +44,11 @@ fixture_id="$1"
 base_sha="$2"
 dest_dir="$3"
 
+[[ "$base_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
+	echo "checkout-scenario-fixture: base_sha must be a full 40-hex commit SHA, got: $base_sha" >&2
+	exit 1
+}
+
 scenarios_yaml="$BENCH_DIR/scenarios/scenarios.yaml"
 
 [[ -f "$scenarios_yaml" ]] || {
@@ -92,6 +97,18 @@ fixture_submodule="$REPO_ROOT/$submodule_rel"
 }
 mkdir -p "$(dirname "$dest_dir")"
 
+# A failed clone or checkout must not leave a partial destination that a
+# later invocation mistakes for a valid, bound fixture checkout.
+checkout_succeeded=0
+cleanup_failed_checkout() {
+	local rc=$?
+	if [[ "$checkout_succeeded" -ne 1 ]]; then
+		rm -rf -- "$dest_dir"
+	fi
+	return "$rc"
+}
+trap cleanup_failed_checkout EXIT
+
 git -c advice.detachedHead=false clone --quiet -- "$fixture_submodule" "$dest_dir"
 git -C "$dest_dir" -c advice.detachedHead=false checkout --quiet "$base_sha" --
 
@@ -111,3 +128,4 @@ if [[ "$checked_out_head" != "$requested_head" ]]; then
 	echo "checkout-scenario-fixture: checked-out HEAD ($checked_out_head) does not match requested base_sha ($requested_head, from $base_sha)" >&2
 	exit 1
 fi
+checkout_succeeded=1

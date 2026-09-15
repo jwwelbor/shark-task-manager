@@ -145,6 +145,8 @@ outcome_by_id = {}
 for i, entry in enumerate(entries):
     if not isinstance(entry, dict) or "id" not in entry or "outcome" not in entry:
         fail(f"{test_output_path} entries[{i}] is not a {{id, outcome}} object")
+    if entry["id"] in outcome_by_id:
+        fail(f"{test_output_path} contains duplicate test id {entry['id']!r}")
     outcome_by_id[entry["id"]] = entry["outcome"]
 
 with open(lint_output_path) as f:

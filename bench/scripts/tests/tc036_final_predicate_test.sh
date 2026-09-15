@@ -682,4 +682,19 @@ if not broken:
 print(f"TC-036: p2p_plus_rule_drop P2P-regression: {broken} broken (false result is from the shared p2p_selection clause, lint clause alone is satisfied)")
 PYEOF
 
+# A duplicate normalized ID is ambiguous evidence. eval-predicate.sh must not
+# silently choose either entry (in particular, a later failure must not erase
+# an earlier pass or vice versa).
+dup_test_json="$WORKDIR/duplicate-id-test.json"
+dup_lint_json="$WORKDIR/duplicate-id-lint.json"
+printf '%s\n' '{"entries":[{"id":"duplicate::case","outcome":"pass"},{"id":"duplicate::case","outcome":"fail"}]}' >"$dup_test_json"
+printf '%s\n' '{"issues":[]}' >"$dup_lint_json"
+set +e
+"$EVAL_PREDICATE_SCRIPT" "$BUG_PACKAGE_YAML" "$dup_test_json" "$dup_lint_json" >"$WORKDIR/duplicate-id.out" 2>"$WORKDIR/duplicate-id.err"
+dup_rc=$?
+set -e
+[[ "$dup_rc" -ne 0 ]] || fail "duplicate-id evidence was accepted"
+grep -q 'duplicate test id' "$WORKDIR/duplicate-id.err" || fail "duplicate-id rejection did not name the duplicate id: $(cat "$WORKDIR/duplicate-id.err")"
+echo "TC-036: duplicate normalized test id is rejected rather than overwritten"
+
 echo "TC-036: PASS"

@@ -48,6 +48,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/lib/go-toolchain-identity.sh"
 BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_GOLANGCI_CONFIG="$BENCH_DIR/fixture-repo/.golangci.yml"
 GOLANGCI_CONFIG="${DIFF_LEDGERS_GOLANGCI_CONFIG:-$DEFAULT_GOLANGCI_CONFIG}"
@@ -105,16 +106,12 @@ if [[ "$toolchain_guard" -eq 1 ]]; then
 		exit 1
 	}
 
-	go_version="$(go env GOVERSION)"
-	goos="$(go env GOOS)"
-	goarch="$(go env GOARCH)"
-	golangci_lint_raw="$(golangci-lint version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
-	[[ -n "$golangci_lint_raw" ]] || {
-		echo "diff-ledgers: could not parse golangci-lint version from 'golangci-lint version'" >&2
-		exit 1
-	}
-	golangci_lint_version="v${golangci_lint_raw}"
-	golangci_config_sha256="$(sha256sum "$GOLANGCI_CONFIG" | awk '{print $1}')"
+	go_toolchain_identity "$GOLANGCI_CONFIG" || exit 1
+	go_version="$GO_TOOLCHAIN_GO_VERSION"
+	goos="$GO_TOOLCHAIN_GOOS"
+	goarch="$GO_TOOLCHAIN_GOARCH"
+	golangci_lint_version="$GO_TOOLCHAIN_GOLANGCI_LINT_VERSION"
+	golangci_config_sha256="$GO_TOOLCHAIN_GOLANGCI_CONFIG_SHA256"
 
 	python3 - "$base" "$go_version" "$golangci_lint_version" "$goos" "$goarch" "$golangci_config_sha256" <<'PYEOF'
 import json
