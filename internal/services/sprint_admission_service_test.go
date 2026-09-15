@@ -336,3 +336,86 @@ func newTestPortfolioSprintAdmissionEvidenceReader(
 	planner := NewPortfolioPlanningService()
 	return NewPortfolioSprintAdmissionEvidenceReader(source, advisor, planner, workflows)
 }
+
+func TestFilterSprintPlanAdmission_AppliesPersistedOverride(t *testing.T) {
+	backlog := []sprint.BacklogItem{{EntityType: "task", EntityID: 44, Key: "task-overridden"}}
+	svc := NewSprintService(&MockSprintRepository{ListActiveAdmissionOverridesFunc: func(_ context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error) {
+		return map[string]*models.SprintAdmissionOverride{sprint.AdmissionOverrideKey("task", 44): {SprintID: sprintID, EntityType: "task", EntityID: 44, Reason: "authorized exception"}}, nil
+	}}, workflow.NewService(""), nil, nil, nil)
+	svc.SetAdmissionService(NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: &SprintAdmissionEvidence{PortfolioEpicKey: "E01", Candidates: map[string]SprintAdmissionCandidate{"task-overridden": {Key: "task-overridden", EpicKey: "E02"}}, UnmetAncestors: map[string][]string{"E02": {"E01"}}}}))
+
+	_, excluded, err := svc.filterSprintPlanAdmission(context.Background(), 7, &backlog)
+	require.NoError(t, err)
+	assert.Len(t, backlog, 1)
+	assert.Empty(t, excluded)
+}
+
+func TestBulkAddToSprint_SkipsBlockedCandidateWithoutOverrideReason(t *testing.T) {
+	bulkCalled := false
+	svc := NewSprintService(&MockSprintRepository{GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+		return &models.Sprint{ID: 7, Key: "S007", Status: "planning"}, nil
+	}}, workflow.NewService(""), &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(context.Context, []string, ...string) ([]sprint.BacklogItem, error) {
+			return []sprint.BacklogItem{{EntityType: "task", EntityID: 44, Key: "task-blocked", Status: "todo"}}, nil
+		},
+		BulkAssignFunc: func(context.Context, int64, []models.SprintAssignment) (int, error) { bulkCalled = true; return 0, nil },
+	}, nil, nil)
+	svc.SetAdmissionService(NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: &SprintAdmissionEvidence{PortfolioEpicKey: "E01", Candidates: map[string]SprintAdmissionCandidate{"task-blocked": {Key: "task-blocked", EpicKey: "E02"}}, UnmetAncestors: map[string][]string{"E02": {"E01"}}}}))
+
+	result, err := svc.BulkAddToSprint(context.Background(), BulkAddInput{SprintKey: "S007", EntityTypes: []string{"task"}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.SkippedByType["task"])
+	assert.False(t, bulkCalled)
+}
+
+func TestBulkAddToSprint_DelegatesBlockedCandidateWithOverrideReason(t *testing.T) {
+	assignmentTxCalled, overrideTxCalled, bulkCalled := false, false, false
+	repo := &MockSprintRepository{
+		GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+			return &models.Sprint{ID: 7, Key: "S007", Status: "planning"}, nil
+		},
+		GetTaskIDByKeyFunc:      func(context.Context, string) (int64, error) { return 44, nil },
+		GetActiveAssignmentFunc: func(context.Context, string, int64) (*models.SprintAssignment, error) { return nil, nil },
+		MaxSprintOrderFunc:      func(context.Context, int64) (int, error) { return 0, nil },
+		AddAssignmentTxFunc:     func(context.Context, *sql.Tx, *models.SprintAssignment) error { assignmentTxCalled = true; return nil },
+		CreateAdmissionOverrideTxFunc: func(context.Context, *sql.Tx, *models.SprintAdmissionOverride) error {
+			overrideTxCalled = true
+			return nil
+		},
+	}
+	svc := NewSprintService(repo, workflow.NewService(""), &MockSprintAssignmentQueryRepository{
+		ListUnassignedBacklogFunc: func(context.Context, []string, ...string) ([]sprint.BacklogItem, error) {
+			return []sprint.BacklogItem{{EntityType: "task", EntityID: 44, Key: "T-E02-F01-001", Status: "todo"}}, nil
+		},
+		BulkAssignFunc: func(context.Context, int64, []models.SprintAssignment) (int, error) { bulkCalled = true; return 0, nil },
+	}, nil, nil, newTestDB(t))
+	svc.SetAdmissionService(NewSprintAdmissionService(stubSprintAdmissionEvidenceReader{evidence: &SprintAdmissionEvidence{PortfolioEpicKey: "E01", Candidates: map[string]SprintAdmissionCandidate{"T-E02-F01-001": {Key: "T-E02-F01-001", EpicKey: "E02"}}, UnmetAncestors: map[string][]string{"E02": {"E01"}}}}))
+
+	result, err := svc.BulkAddToSprint(context.Background(), BulkAddInput{SprintKey: "S007", EntityTypes: []string{"task"}, OverrideReason: strings.Repeat("x", 20)})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AddedByType["task"])
+	assert.True(t, assignmentTxCalled)
+	assert.True(t, overrideTxCalled)
+	assert.False(t, bulkCalled)
+}
+
+func TestSubmitSprintGoalReview_RejectsMissingFieldsAndInvalidOutcome(t *testing.T) {
+	created := false
+	svc := NewSprintService(&MockSprintRepository{
+		GetByKeyFunc:           func(context.Context, string) (*models.Sprint, error) { return &models.Sprint{ID: 7, Key: "S007"}, nil },
+		CreateGoalReviewTxFunc: func(context.Context, *sql.Tx, *models.SprintGoalReview) error { created = true; return nil },
+	}, workflow.NewService(""), nil, nil, nil)
+	for _, tt := range []struct {
+		name  string
+		input SubmitSprintGoalReviewInput
+	}{
+		{name: "missing required fields", input: SubmitSprintGoalReviewInput{SprintKey: "S007", Outcome: models.SprintGoalReviewAccepted}},
+		{name: "invalid outcome", input: SubmitSprintGoalReviewInput{SprintKey: "S007", Goal: "goal", BeforeResult: "before", AfterResult: "after", Reviewer: "qa", Outcome: "invalid"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.SubmitSprintGoalReview(context.Background(), tt.input)
+			require.Error(t, err)
+		})
+	}
+	assert.False(t, created)
+}

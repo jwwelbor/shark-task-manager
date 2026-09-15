@@ -51,6 +51,7 @@ type SprintRepository interface {
 
 	// --- Assignment CRUD (F03) ---
 	AddAssignment(ctx context.Context, assignment *models.SprintAssignment) error
+	AddAssignmentTx(ctx context.Context, tx *sql.Tx, assignment *models.SprintAssignment) error
 	RemoveAssignment(ctx context.Context, sprintID int64, entityType string, entityID int64) error
 	GetActiveAssignment(ctx context.Context, entityType string, entityID int64) (*models.SprintAssignment, error)
 	ListAssignments(ctx context.Context, sprintID int64, entityType *string) ([]*models.SprintAssignment, error)
@@ -99,6 +100,9 @@ type SprintRepository interface {
 	// SprintAdmissionOverridden instead of being re-evaluated as Blocked on
 	// every subsequent plan/selection/readiness read.
 	ListActiveAdmissionOverrides(ctx context.Context, sprintID int64) (map[string]*models.SprintAdmissionOverride, error)
+	CreateAdmissionOverrideTx(ctx context.Context, tx *sql.Tx, override *models.SprintAdmissionOverride) error
+	CreateGoalReviewTx(ctx context.Context, tx *sql.Tx, review *models.SprintGoalReview) error
+	GetLatestGoalReviewTx(ctx context.Context, tx *sql.Tx, sprintID int64) (*models.SprintGoalReview, error)
 }
 
 // SprintAssignmentQueryRepository handles assignment queries needed for sprint planning.
@@ -718,11 +722,6 @@ type AddEntityInput struct {
 	OverrideReason string
 }
 
-type sprintAdmissionMutationRepository interface {
-	AddAssignmentTx(context.Context, *sql.Tx, *models.SprintAssignment) error
-	CreateAdmissionOverrideTx(context.Context, *sql.Tx, *models.SprintAdmissionOverride) error
-}
-
 // CapacityWarning is returned alongside the assignment when assigning an entity
 // would push an agent type over its configured capacity. It is advisory only —
 // the assignment still succeeds. Enforcement is deferred to E19-F05.
@@ -985,8 +984,7 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 		SprintOrder: insertOrder,
 	}
 	if admissionDecision.State == SprintAdmissionBlocked {
-		mutationRepo, ok := s.repo.(sprintAdmissionMutationRepository)
-		if !ok || s.db == nil {
+		if s.db == nil {
 			return nil, nil, fmt.Errorf("roadmap override persistence is not configured")
 		}
 		tx, txErr := s.db.BeginTxContext(ctx)
@@ -994,7 +992,7 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 			return nil, nil, fmt.Errorf("begin roadmap override transaction: %w", txErr)
 		}
 		defer tx.Rollback() //nolint:errcheck
-		if txErr = mutationRepo.AddAssignmentTx(ctx, tx, assignment); txErr != nil {
+		if txErr = s.repo.AddAssignmentTx(ctx, tx, assignment); txErr != nil {
 			return nil, nil, fmt.Errorf("failed to add overridden assignment for %q to sprint %s: %w", input.EntityKey, input.SprintKey, txErr)
 		}
 		override := &models.SprintAdmissionOverride{
@@ -1002,7 +1000,7 @@ func (s *SprintService) AddEntityToSprint(ctx context.Context, input AddEntityIn
 			Reason: strings.TrimSpace(input.OverrideReason), RequestedBy: "cli",
 			ReasonCode: string(admissionDecision.ReasonCode),
 		}
-		if txErr = mutationRepo.CreateAdmissionOverrideTx(ctx, tx, override); txErr != nil {
+		if txErr = s.repo.CreateAdmissionOverrideTx(ctx, tx, override); txErr != nil {
 			return nil, nil, fmt.Errorf("persist roadmap override for %q: %w", input.EntityKey, txErr)
 		}
 		if txErr = tx.Commit(); txErr != nil {
@@ -1939,23 +1937,19 @@ func (s *SprintService) filterSprintSelectionAdmission(ctx context.Context, spri
 	if s.admissionSvc == nil {
 		return "", nil, nil
 	}
-	keys := make([]string, 0, len(*candidates))
+	admissionCandidates := make([]sprintAdmissionCandidate, 0, len(*candidates))
 	for _, candidate := range *candidates {
-		keys = append(keys, candidate.Key)
+		admissionCandidates = append(admissionCandidates, sprintAdmissionCandidate{Key: candidate.Key, EntityType: candidate.EntityType, EntityID: candidate.EntityID})
 	}
-	decisions, err := s.admissionSvc.EvaluateCandidates(ctx, keys)
+	decisions, err := s.evaluateAndOverride(ctx, sprintID, admissionCandidates)
 	if err != nil {
 		return "", nil, fmt.Errorf("evaluate roadmap admission: %w", err)
-	}
-	overrides, err := s.repo.ListActiveAdmissionOverrides(ctx, sprintID)
-	if err != nil {
-		return "", nil, fmt.Errorf("list roadmap admission overrides: %w", err)
 	}
 	eligible := make([]*BacklogItemView, 0, len(*candidates))
 	excluded := make(map[string]int)
 	portfolioEpicKey := ""
 	for index, candidate := range *candidates {
-		decision := decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(candidate.EntityType, candidate.EntityID)])
+		decision := decisions[index]
 		portfolioEpicKey = decision.PortfolioEpicKey
 		if decision.State != SprintAdmissionBlocked {
 			eligible = append(eligible, candidate)
@@ -1965,6 +1959,41 @@ func (s *SprintService) filterSprintSelectionAdmission(ctx context.Context, spri
 	}
 	*candidates = eligible
 	return portfolioEpicKey, excluded, nil
+}
+
+type sprintAdmissionCandidate struct {
+	Key        string
+	EntityType string
+	EntityID   int64
+}
+
+// evaluateAndOverride evaluates one immutable admission snapshot and applies
+// any persisted exception for the same sprint/entity identity. Keeping both
+// reads together prevents selection, planning, readiness, and bulk addition
+// from drifting in override treatment.
+func (s *SprintService) evaluateAndOverride(ctx context.Context, sprintID int64, candidates []sprintAdmissionCandidate) ([]SprintAdmissionDecision, error) {
+	if s.admissionSvc == nil || len(candidates) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		keys = append(keys, candidate.Key)
+	}
+	decisions, err := s.admissionSvc.EvaluateCandidates(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("evaluate candidates: %w", err)
+	}
+	if len(decisions) != len(candidates) {
+		return nil, fmt.Errorf("evaluate candidates: returned %d decisions for %d candidates", len(decisions), len(candidates))
+	}
+	overrides, err := s.repo.ListActiveAdmissionOverrides(ctx, sprintID)
+	if err != nil {
+		return nil, fmt.Errorf("list admission overrides: %w", err)
+	}
+	for index, candidate := range candidates {
+		decisions[index] = decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(candidate.EntityType, candidate.EntityID)])
+	}
+	return decisions, nil
 }
 
 func sortSprintSelection(candidates []*BacklogItemView) {
@@ -2425,21 +2454,17 @@ func (s *SprintService) BulkAddToSprint(ctx context.Context, input BulkAddInput)
 	// batching filterSprintSelectionAdmission/filterSprintPlanAdmission
 	// already use.
 	if s.admissionSvc != nil && len(filtered) > 0 {
-		candidateKeys := make([]string, 0, len(filtered))
+		admissionCandidates := make([]sprintAdmissionCandidate, 0, len(filtered))
 		for _, candidate := range filtered {
-			candidateKeys = append(candidateKeys, candidate.Key)
+			admissionCandidates = append(admissionCandidates, sprintAdmissionCandidate{Key: candidate.Key, EntityType: candidate.EntityType, EntityID: candidate.EntityID})
 		}
-		decisions, decisionErr := s.admissionSvc.EvaluateCandidates(ctx, candidateKeys)
+		decisions, decisionErr := s.evaluateAndOverride(ctx, sprintEntity.ID, admissionCandidates)
 		if decisionErr != nil {
 			return nil, fmt.Errorf("failed to evaluate roadmap admission for bulk add to sprint %s: %w", input.SprintKey, decisionErr)
 		}
-		overrides, overrideErr := s.repo.ListActiveAdmissionOverrides(ctx, sprintEntity.ID)
-		if overrideErr != nil {
-			return nil, fmt.Errorf("failed to list roadmap admission overrides for bulk add to sprint %s: %w", input.SprintKey, overrideErr)
-		}
 		bulkEligible := make([]sprint.BacklogItem, 0, len(filtered))
 		for index, candidate := range filtered {
-			decision := decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(candidate.EntityType, candidate.EntityID)])
+			decision := decisions[index]
 			if decision.State != SprintAdmissionBlocked {
 				bulkEligible = append(bulkEligible, candidate)
 				continue
@@ -2624,11 +2649,6 @@ type SprintCloseResult struct {
 	CarryoverPreserved bool
 }
 
-type sprintGoalReviewRepository interface {
-	CreateGoalReviewTx(context.Context, *sql.Tx, *models.SprintGoalReview) error
-	GetLatestGoalReviewTx(context.Context, *sql.Tx, int64) (*models.SprintGoalReview, error)
-}
-
 type SubmitSprintGoalReviewInput struct {
 	SprintKey    string
 	Goal         string
@@ -2651,8 +2671,7 @@ func (s *SprintService) SubmitSprintGoalReview(ctx context.Context, input Submit
 	if input.Outcome != models.SprintGoalReviewAccepted && input.Outcome != models.SprintGoalReviewRejected {
 		return nil, errors.New("sprint goal review outcome must be accepted or rejected")
 	}
-	goalReviewRepo, ok := s.repo.(sprintGoalReviewRepository)
-	if !ok || s.db == nil {
+	if s.db == nil {
 		return nil, errors.New("sprint goal review persistence is not configured")
 	}
 	tx, err := s.db.BeginTxContext(ctx)
@@ -2661,7 +2680,7 @@ func (s *SprintService) SubmitSprintGoalReview(ctx context.Context, input Submit
 	}
 	defer tx.Rollback() //nolint:errcheck
 	review := &models.SprintGoalReview{SprintID: sprintEntity.ID, Goal: strings.TrimSpace(input.Goal), BeforeResult: strings.TrimSpace(input.BeforeResult), AfterResult: strings.TrimSpace(input.AfterResult), Reviewer: strings.TrimSpace(input.Reviewer), Outcome: input.Outcome}
-	if err := goalReviewRepo.CreateGoalReviewTx(ctx, tx, review); err != nil {
+	if err := s.repo.CreateGoalReviewTx(ctx, tx, review); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -2757,11 +2776,7 @@ func (s *SprintService) CloseSprintWithCarryover(ctx context.Context, sprintKey 
 		return nil, fmt.Errorf("failed to begin transaction for sprint close %s: %w", sprintKey, err)
 	}
 	defer tx.Rollback() //nolint:errcheck // intentional: no-op after Commit; rolls back on any error path
-	goalReviewRepo, ok := s.repo.(sprintGoalReviewRepository)
-	if !ok {
-		return nil, fmt.Errorf("cannot close sprint %s: sprint goal review repository is not configured", sprintKey)
-	}
-	review, reviewErr := goalReviewRepo.GetLatestGoalReviewTx(ctx, tx, sprintEntity.ID)
+	review, reviewErr := s.repo.GetLatestGoalReviewTx(ctx, tx, sprintEntity.ID)
 	if reviewErr != nil {
 		return nil, fmt.Errorf("cannot close sprint %s: accepted sprint goal review is required: %w", sprintKey, reviewErr)
 	}
@@ -3167,20 +3182,13 @@ func (s *SprintService) applyReadinessAdmission(ctx context.Context, sprintID in
 	if s.admissionSvc == nil {
 		return nil
 	}
-	keys := make([]string, 0, len(assignments))
+	candidates := make([]sprintAdmissionCandidate, 0, len(assignments))
 	for _, assignment := range assignments {
-		keys = append(keys, assignment.Key)
+		candidates = append(candidates, sprintAdmissionCandidate{Key: assignment.Key, EntityType: assignment.EntityType, EntityID: assignment.EntityID})
 	}
-	decisions, err := s.admissionSvc.EvaluateCandidates(ctx, keys)
+	decisions, err := s.evaluateAndOverride(ctx, sprintID, candidates)
 	if err != nil {
 		return fmt.Errorf("evaluate roadmap admission for readiness: %w", err)
-	}
-	overrides, err := s.repo.ListActiveAdmissionOverrides(ctx, sprintID)
-	if err != nil {
-		return fmt.Errorf("list roadmap admission overrides for readiness: %w", err)
-	}
-	for index, assignment := range assignments {
-		decisions[index] = decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(assignment.EntityType, assignment.EntityID)])
 	}
 	readiness.Admission = decisions
 	blocked := make([]SprintAdmissionDecision, 0)
@@ -3658,23 +3666,19 @@ func (s *SprintService) filterSprintPlanAdmission(ctx context.Context, sprintID 
 	if s.admissionSvc == nil || len(*backlog) == 0 {
 		return "", nil, nil
 	}
-	keys := make([]string, 0, len(*backlog))
+	candidates := make([]sprintAdmissionCandidate, 0, len(*backlog))
 	for _, item := range *backlog {
-		keys = append(keys, item.Key)
+		candidates = append(candidates, sprintAdmissionCandidate{Key: item.Key, EntityType: item.EntityType, EntityID: item.EntityID})
 	}
-	decisions, err := s.admissionSvc.EvaluateCandidates(ctx, keys)
+	decisions, err := s.evaluateAndOverride(ctx, sprintID, candidates)
 	if err != nil {
 		return "", nil, err
-	}
-	overrides, err := s.repo.ListActiveAdmissionOverrides(ctx, sprintID)
-	if err != nil {
-		return "", nil, fmt.Errorf("list roadmap admission overrides: %w", err)
 	}
 	allowed := make([]sprint.BacklogItem, 0, len(*backlog))
 	excluded := make(map[string]int)
 	portfolioEpicKey := ""
 	for index, item := range *backlog {
-		decision := decisions[index].WithOverride(overrides[sprint.AdmissionOverrideKey(item.EntityType, item.EntityID)])
+		decision := decisions[index]
 		portfolioEpicKey = decision.PortfolioEpicKey
 		if decision.State == SprintAdmissionBlocked {
 			excluded[string(decision.ReasonCode)]++
