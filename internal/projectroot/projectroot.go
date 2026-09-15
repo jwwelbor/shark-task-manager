@@ -71,9 +71,9 @@ func FindProjectRootFrom(startDir, ceiling string) (string, error) {
 					// A .git directory is only a valid marker if it looks like
 					// a real git repo (has a HEAD file or an objects/ dir).
 					// This rejects stray/empty .git directories (B054).
-					_, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
-					_, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
-					if headErr == nil || objectsErr == nil {
+					headInfo, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
+					objectsInfo, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
+					if (headErr == nil && !headInfo.IsDir()) || (objectsErr == nil && objectsInfo.IsDir()) {
 						foundGit = currentDir
 					}
 				} else {

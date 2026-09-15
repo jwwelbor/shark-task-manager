@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
 // findProjectRoot walks up the directory tree from startDir to find the project root.
@@ -16,9 +17,8 @@ import (
 //  3. .git/ directory (WEAK - used if no stronger markers found)
 //
 // Returns the project root directory, or startDir if no markers found.
-// This logic mirrors internal/cli.findProjectRootFrom (including the .git
-// content validation added for B054) but is duplicated here to avoid a
-// circular import chain: cmd/server → internal/dbinit → internal/cli → cobra.
+// It delegates to internal/projectroot so database initialization shares the
+// same marker-validation contract as the CLI and integration packages.
 func findProjectRoot(startDir string) (string, error) {
 	return findProjectRootFrom(startDir, "")
 }
@@ -36,79 +36,10 @@ func findProjectRootFrom(startDir, ceiling string) (string, error) {
 		}
 	}
 
-	// Make startDir absolute.
 	startDir, err := filepath.Abs(startDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
 
-	// Track the best marker found during the upward search.
-	var foundConfig string // .sharkconfig.json (highest priority)
-	var foundDB string     // shark-tasks.db (medium priority)
-	var foundGit string    // .git directory (lowest priority)
-
-	currentDir := startDir
-
-	for {
-		if foundConfig == "" {
-			if _, err := os.Stat(filepath.Join(currentDir, ".sharkconfig.json")); err == nil {
-				foundConfig = currentDir
-			}
-		}
-
-		if foundDB == "" {
-			if _, err := os.Stat(filepath.Join(currentDir, "shark-tasks.db")); err == nil {
-				foundDB = currentDir
-			}
-		}
-
-		if foundGit == "" {
-			gitDir := filepath.Join(currentDir, ".git")
-			if info, err := os.Stat(gitDir); err == nil {
-				if info.IsDir() {
-					// A .git directory is only a valid marker if it looks like
-					// a real git repo (has a HEAD file or an objects/ dir).
-					// This rejects stray/empty .git directories (B054).
-					_, headErr := os.Stat(filepath.Join(gitDir, "HEAD"))
-					_, objectsErr := os.Stat(filepath.Join(gitDir, "objects"))
-					if headErr == nil || objectsErr == nil {
-						foundGit = currentDir
-					}
-				} else {
-					// A .git file is a worktree pointer and must contain a
-					// "gitdir: <path>" line to be accepted. This rejects
-					// stray/empty/garbage .git files (B054).
-					if data, readErr := os.ReadFile(gitDir); readErr == nil {
-						if strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:") {
-							foundGit = currentDir
-						}
-					}
-				}
-			}
-		}
-
-		if ceiling != "" && currentDir == ceiling {
-			break
-		}
-
-		parentDir := filepath.Dir(currentDir)
-		if parentDir == currentDir {
-			break
-		}
-
-		currentDir = parentDir
-	}
-
-	if foundConfig != "" {
-		return foundConfig, nil
-	}
-	if foundDB != "" {
-		return foundDB, nil
-	}
-	if foundGit != "" {
-		return foundGit, nil
-	}
-
-	// No markers found — fall back to the start directory.
-	return startDir, nil
+	return projectroot.FindProjectRootFrom(startDir, ceiling)
 }
