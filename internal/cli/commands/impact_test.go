@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -87,16 +88,16 @@ func TestRunImpactRecord_ValidatesAndPersists(t *testing.T) {
 	if call.entityKey != "E01-F01-001" {
 		t.Errorf("expected entity_key=E01-F01-001, got %q", call.entityKey)
 	}
-	if call.noteType != noteTypeReferenceImpact {
-		t.Errorf("expected note_type=%q, got %q", noteTypeReferenceImpact, call.noteType)
+	if call.noteType != "reference" {
+		t.Errorf("expected note_type=%q, got %q", "reference", call.noteType)
 	}
 
 	var meta map[string]interface{}
 	if err := json.Unmarshal([]byte(call.metadata), &meta); err != nil {
 		t.Fatalf("failed to parse persisted metadata: %v", err)
 	}
-	if meta["record_kind"] != recordKindChangeImpact {
-		t.Errorf("expected record_kind=%q, got %v", recordKindChangeImpact, meta["record_kind"])
+	if meta["record_kind"] != "change_impact" {
+		t.Errorf("expected record_kind=%q, got %v", "change_impact", meta["record_kind"])
 	}
 	if meta["source_kind"] != "adr" || meta["source_key"] != "ADR-0007" {
 		t.Errorf("unexpected source identity in metadata: %v", meta)
@@ -153,9 +154,11 @@ func TestRunImpactRecord_RejectsConflictingIdentity(t *testing.T) {
 
 func TestRunImpactRecord_RejectsInvalidChangeImpactSet(t *testing.T) {
 	defer resetImpactFlags()
-	mock := &mockImpactNoteWriter{}
-	impactNoteWriterOverride = mock
-	defer func() { impactNoteWriterOverride = nil }()
+	impactNoteWriterResolver = func(context.Context) (gatepersist.NoteWriter, error) {
+		t.Fatal("invalid impact input resolved a note writer")
+		return nil, nil
+	}
+	defer func() { impactNoteWriterResolver = impactNoteWriter }()
 
 	impactSourceKind = "adr"
 	impactSourceKey = "ADR-0007"
@@ -167,9 +170,6 @@ func TestRunImpactRecord_RejectsInvalidChangeImpactSet(t *testing.T) {
 	err := runImpactRecord(cmd, []string{"E01-F01-001"})
 	if err == nil {
 		t.Fatal("expected a validation error for an incomplete ChangeImpactSet")
-	}
-	if len(mock.calls) != 0 {
-		t.Fatalf("expected no note write on a validation failure, got %d", len(mock.calls))
 	}
 }
 

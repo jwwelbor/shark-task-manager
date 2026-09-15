@@ -233,41 +233,13 @@ func (e *Envelope) Validate() error {
 		return newValidationError("kind", ErrorClassShape, "must be one of final, question, needs_council, blocked_external, failed")
 	}
 
-	if e.Kind == KindFinal {
-		if strings.TrimSpace(e.RecommendedOutcome) == "" {
-			return newValidationError("recommended_outcome", ErrorClassShape, "is required when kind is final")
-		}
-		if err := boundedText("recommended_outcome", e.RecommendedOutcome, 1, IdentityMaxBytes); err != nil {
-			return err
-		}
-	} else if e.RecommendedOutcome != "" {
-		return newValidationError("recommended_outcome", ErrorClassShape, "must be absent unless kind is final")
+	if err := e.validateFinalFields(); err != nil {
+		return err
 	}
-
-	if e.Kind != KindFinal && len(e.GateResult) > 0 {
-		return newValidationError("gate_result", ErrorClassShape, "must be absent unless kind is final")
+	if err := e.validateQuestionVariant(); err != nil {
+		return err
 	}
-
-	if e.Kind == KindQuestion {
-		if strings.TrimSpace(e.EntityKey) == "" || strings.TrimSpace(e.Category) == "" ||
-			strings.TrimSpace(e.Question) == "" || strings.TrimSpace(e.WhyBlocking) == "" {
-			return newValidationError("", ErrorClassShape, "entity_key, category, question, and why_blocking are required when kind is question")
-		}
-	} else if e.EntityKey != "" || e.Category != "" || e.Question != "" || e.WhyBlocking != "" ||
-		len(e.Options) > 0 || e.Recommendation != "" {
-		return newValidationError("", ErrorClassShape, "question fields must be absent unless kind is question")
-	}
-
-	if len(e.Evidence) > MaxEvidenceItems {
-		return newValidationError("evidence", ErrorClassBounds, "must not exceed the maximum evidence collection size")
-	}
-	for i, ev := range e.Evidence {
-		if err := ev.validate(i); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return e.validateEvidence()
 }
 
 // rejectDuplicateKeys walks the raw JSON token stream and rejects a document

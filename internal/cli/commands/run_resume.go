@@ -22,6 +22,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -433,7 +434,11 @@ func resolveResumeStatusAndDecision(projectRoot, runID, entityType, entityKey st
 	if err != nil {
 		return nil, nil, fmt.Errorf("acquire run lock for run_id %q: %w", runID, err)
 	}
-	defer func() { _ = lock.Release() }()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			slog.Warn("release resume-run lock", "run_id", runID, "error", releaseErr)
+		}
+	}()
 
 	decision, err := gaterun.DecideResume(dir)
 	if err != nil {

@@ -27,18 +27,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
-
-// recordKindChangeImpact mirrors gatepersist's unexported
-// recordKindImpact constant (internal/gatepersist/operations.go). It is
-// duplicated here rather than exported cross-package because gatepersist's
-// record_kind constants are an internal implementation detail of its own
-// operation-building; this command only needs the one bounded metadata
-// value, not gatepersist's run/replay machinery.
-const recordKindChangeImpact = "change_impact"
-
-const noteTypeReferenceImpact = "reference"
 
 var (
 	impactSourceKind    string
@@ -52,6 +43,8 @@ var (
 // database (project golden rule). Production callers leave this nil so
 // impactNoteWriter falls back to cli.GetNoteService.
 var impactNoteWriterOverride gatepersist.NoteWriter
+
+var impactNoteWriterResolver = impactNoteWriter
 
 // impactNoteWriter resolves the NoteWriter this command persists through.
 // *services.NoteService (returned by cli.GetNoteService) already satisfies
@@ -138,87 +131,39 @@ func runImpactRecord(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal(raw, &impact); err != nil {
 		return fmt.Errorf("parse --impact-file %q as an I-04 ChangeImpactSet: %w", impactFile, err)
 	}
-
-	// The flags are the parent-asserted identity. A file that claims a
-	// DIFFERENT identity for any of the three parent-owned fields is a
-	// conflict this command must reject closed, not silently overwrite —
-	// this is precisely the failure mode ("recording ADR-1 for a file
-	// claiming ADR-9") REQ-NF-001's fail-closed posture exists to prevent.
-	// An empty field in the file is filled from the flag.
-	if err := reconcileImpactIdentity(&impact); err != nil {
+	if err := services.ReconcileAndValidateImpact(&impact, impactSourceKind, impactSourceKey, impactSourcePointer); err != nil {
 		return err
 	}
 
-	if err := gateresult.ValidateChangeImpactSet(impact); err != nil {
-		return fmt.Errorf("invalid I-04 ChangeImpactSet: %w", err)
-	}
-
-	writer, err := impactNoteWriter(cmd.Context())
+	writer, err := impactNoteWriterResolver(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("get note service: %w", err)
 	}
 
-	content := fmt.Sprintf("[%s/%s] %s (%s)", impact.SourceKind, impact.SourceKey, impact.ChangeSummary, impact.Status)
-	metadata := map[string]interface{}{
-		"record_kind":    recordKindChangeImpact,
-		"source_kind":    impact.SourceKind,
-		"source_key":     impact.SourceKey,
-		"source_pointer": impact.SourcePointer,
-		"status":         impact.Status,
-	}
-	encodedMeta, err := json.Marshal(metadata)
+	service, err := services.NewImpactService(writer)
 	if err != nil {
-		return fmt.Errorf("encode note metadata: %w", err)
+		return err
 	}
-
-	note, err := writer.AddNoteWithMetadata(
-		cmd.Context(), models.EntityType(entityType), entityKey,
-		noteTypeReferenceImpact, content, "", string(encodedMeta),
-	)
+	record, err := service.Record(cmd.Context(), services.RecordImpactInput{
+		EntityType: models.EntityType(entityType), EntityKey: entityKey,
+		SourceKind: impactSourceKind, SourceKey: impactSourceKey, SourcePointer: impactSourcePointer, Impact: impact,
+	})
 	if err != nil {
-		return fmt.Errorf("persist change-impact note on %s %s: %w", entityType, entityKey, err)
+		return err
 	}
 
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
 			"entity_key":     entityKey,
 			"entity_type":    entityType,
-			"source_kind":    impact.SourceKind,
-			"source_key":     impact.SourceKey,
-			"source_pointer": impact.SourcePointer,
-			"status":         impact.Status,
-			"note_id":        note.ID,
+			"source_kind":    record.SourceKind,
+			"source_key":     record.SourceKey,
+			"source_pointer": record.SourcePointer,
+			"status":         record.Status,
+			"note_id":        record.NoteID,
 		})
 	}
 
-	fmt.Printf("Recorded change-impact (%s/%s) on %s %s\n", impact.SourceKind, impact.SourceKey, entityType, entityKey)
-	return nil
-}
-
-// reconcileImpactIdentity applies the flags-are-authoritative,
-// reject-on-conflict rule for the three parent-owned identity fields: an
-// empty field in the parsed file is filled from the corresponding flag: a
-// non-empty field that disagrees with the flag is a hard error.
-func reconcileImpactIdentity(impact *gateresult.ChangeImpactSet) error {
-	if err := reconcileImpactField("source_kind", impactSourceKind, &impact.SourceKind); err != nil {
-		return err
-	}
-	if err := reconcileImpactField("source_key", impactSourceKey, &impact.SourceKey); err != nil {
-		return err
-	}
-	if err := reconcileImpactField("source_pointer", impactSourcePointer, &impact.SourcePointer); err != nil {
-		return err
-	}
-	return nil
-}
-
-func reconcileImpactField(field, flagValue string, fileValue *string) error {
-	if strings.TrimSpace(*fileValue) == "" {
-		*fileValue = flagValue
-		return nil
-	}
-	if *fileValue != flagValue {
-		return fmt.Errorf("--%s=%q conflicts with %s=%q in --impact-file; the flag is the parent-asserted identity and must match", strings.ReplaceAll(field, "_", "-"), flagValue, field, *fileValue)
-	}
+	fmt.Printf("Recorded change-impact (%s/%s) on %s %s\n", record.SourceKind, record.SourceKey, entityType, entityKey)
 	return nil
 }
