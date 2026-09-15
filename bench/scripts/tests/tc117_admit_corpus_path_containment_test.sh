@@ -15,20 +15,32 @@ fail() { echo "TC-117 FAIL: $1" >&2; exit 1; }
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-for field in reference_patch_path f2p_path; do
-	variant="$WORKDIR/$field.yaml"
-	python3 - "$CORPUS" "$variant" "$field" <<'PYEOF'
+printf 'outside patch\n' >"$WORKDIR-external.patch"
+printf 'outside test\n' >"$WORKDIR-external.go"
+ln -s "$WORKDIR-external.patch" "$WORKDIR/escaped.patch"
+ln -s "$WORKDIR-external.go" "$WORKDIR/escaped.go"
+
+for mode in traversal absolute symlink; do
+	for field in reference_patch_path f2p_path; do
+		variant="$WORKDIR/$mode-$field.yaml"
+		python3 - "$CORPUS" "$variant" "$field" "$mode" "$WORKDIR" <<'PYEOF'
 import sys
 import yaml
 
-source, target, field = sys.argv[1:]
+source, target, field, mode, workdir = sys.argv[1:]
 with open(source, encoding="utf-8") as stream:
     corpus = yaml.safe_load(stream)
 item = corpus["items"][0]
-if field == "reference_patch_path":
-    item["reference_patch_path"] = "../outside.patch"
+if mode == "traversal":
+    value = "../outside.patch" if field == "reference_patch_path" else "../outside_test.go"
+elif mode == "absolute":
+    value = workdir + ("-external.patch" if field == "reference_patch_path" else "-external.go")
 else:
-    item["f2p"]["paths"][0] = "../outside_test.go"
+    value = "escaped.patch" if field == "reference_patch_path" else "escaped.go"
+if field == "reference_patch_path":
+    item["reference_patch_path"] = value
+else:
+    item["f2p"]["paths"][0] = value
 with open(target, "w", encoding="utf-8") as stream:
     yaml.safe_dump(corpus, stream, sort_keys=False)
 PYEOF
@@ -42,9 +54,10 @@ PYEOF
 )" >"$WORKDIR/$field.out" 2>"$WORKDIR/$field.err"
 	rc=$?
 	set -e
-	[[ $rc -eq 2 ]] || fail "$field escape exit=$rc, want 2: $(cat "$WORKDIR/$field.err")"
-	[[ ! -s "$WORKDIR/$field.out" ]] || fail "$field escape emitted a verdict"
-	grep -q 'corpus path escapes root' "$WORKDIR/$field.err" || fail "$field escape was not diagnosed as containment failure"
+		[[ $rc -eq 2 ]] || fail "$mode $field escape exit=$rc, want 2: $(cat "$WORKDIR/$field.err")"
+		[[ ! -s "$WORKDIR/$field.out" ]] || fail "$mode $field escape emitted a verdict"
+		[[ -s "$WORKDIR/$field.err" ]] || fail "$mode $field escape produced no diagnostic"
+	done
 done
 
 echo "TC-117: corpus path containment PASS"

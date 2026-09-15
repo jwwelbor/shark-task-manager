@@ -51,7 +51,7 @@ READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases
 (3) Code review report: docs/review/E07/E07-F01/code-review-*-E07-F01.md
-(4) QA report: docs/review/E07/E07-F01/qa-*-E07-F01.md
+
 (5) All task specs: `shark list E07-F01 --json` → read each task's file_path
 (6) Full implementation: `git diff $(git merge-base HEAD main)..HEAD` — read the actual changed files
 

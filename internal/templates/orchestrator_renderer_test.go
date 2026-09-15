@@ -549,6 +549,11 @@ func TestRender_ApprovalPromptReadsQAReportOnlyForComplexFeatures(t *testing.T) 
 	require.NoError(t, err)
 	assert.NotContains(t, standard, "QA report:", "STANDARD uses code review as its same-model gate")
 
+	base["complexity_tier"] = "SIMPLE"
+	simple, err := renderer.Render("feature/approval.md", base)
+	require.NoError(t, err)
+	assert.NotContains(t, simple, "QA report:", "SIMPLE uses code review as its same-model gate")
+
 	base["complexity_tier"] = "COMPLEX"
 	complex, err := renderer.Render("feature/approval.md", base)
 	require.NoError(t, err)
