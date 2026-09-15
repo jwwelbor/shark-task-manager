@@ -148,8 +148,8 @@ operations:
 |---|---|---|
 | CLI | `shark question configure-workflow <key>` | Requires `--resolution-owner` and ordered `--responder` values; returns metadata-only Question projection. |
 | CLI | `shark question respond <key>` | Requires `--session`, `--responder`, `--summary`, and `--evidence-pointer`; returns metadata-only Question projection. |
-| CLI | `shark question resolve <key>` | Requires `--owner` and `--resolution-kind`; requires `--resolution-pointer` except for `no_lasting_consequence`; returns metadata-only projection. |
-| CLI | `shark question withdraw <key>` and `supersede <key>` | Requires `--owner` and `--reason`; supersede also requires `--superseded-by`; returns metadata-only projection. |
+| CLI | `shark question resolve <key>` | Requires `--resolution-owner` and `--resolution-kind`; requires `--resolution-pointer` except for `no_lasting_consequence`; `--owner` remains a deprecated compatibility alias; returns metadata-only projection. |
+| CLI | `shark question withdraw <key>` and `supersede <key>` | Requires `--resolution-owner` and `--reason`; `--owner` remains a deprecated compatibility alias; supersede also requires `--superseded-by`; returns metadata-only projection. |
 | HTTP | `POST /api/v1/questions/{key}/workflow` | Accepts the workflow-configuration fields and returns `200` with metadata-only projection. |
 | HTTP | `POST /api/v1/questions/{key}/response` | Accepts the response operation fields and returns `200` with metadata-only projection. |
 | HTTP | `POST /api/v1/questions/{key}/resolve`, `/withdraw`, and `/supersede` | Accept the corresponding operation fields and return `200` with metadata-only projection. |

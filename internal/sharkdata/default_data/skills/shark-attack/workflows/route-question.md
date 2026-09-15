@@ -95,7 +95,7 @@ needed to notice that everyone has answered.
 
 ## Resolve
 
-`question resolve Q### --owner <resolution-owner> --resolution-kind <kind>
+`question resolve Q### --resolution-owner <resolution-owner> --resolution-kind <kind>
 --resolution-pointer <pointer>` closes the Question (REQ-F-006) once every
 responder has completed. The owner must match the identity
 `configure-workflow` set; classification and destination validation happen

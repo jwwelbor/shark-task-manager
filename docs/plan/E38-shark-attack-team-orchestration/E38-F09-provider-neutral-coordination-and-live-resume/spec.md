@@ -220,7 +220,7 @@ parent, not by the worker.
 | Route | `shark next Q### --json` | Returns `spawn_agent` naming only the current pending responder |
 | Claim | `shark claim Q### --by <responder>` | Parent holds the Q### lease |
 | Record | `shark question respond Q### --session <sid> --responder <id> --summary … --evidence-pointer …` | Requires exact `SessionID` + `ClaimedBy` match; exact replays are idempotent |
-| Close | `shark question resolve Q### --owner <id> --resolution-kind <kind> --resolution-pointer <ptr>` | Requires `ready_for_resolution` and all responders completed |
+| Close | `shark question resolve Q### --resolution-owner <id> --resolution-kind <kind> --resolution-pointer <ptr>` | Requires `ready_for_resolution` and all responders completed |
 | Read | `question blocking-for <key>` / `open-by-responder <id>` / `full Q### --actor <id>` | `full` is authorized only for the current responder or the resolution owner |
 
 **Transcription seam (REQ-F-005).** `RecordResponse` requires

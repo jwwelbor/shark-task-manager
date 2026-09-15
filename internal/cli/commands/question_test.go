@@ -515,11 +515,11 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 		},
 		{
 			name: "resolve",
-			args: []string{"resolve", "q001", "--owner", "owner", "--resolution-kind", "feature_change", "--resolution-pointer", "E39-F03"},
+			args: []string{"resolve", "q001", "--resolution-owner", "owner", "--resolution-kind", "feature_change", "--resolution-pointer", "E39-F03"},
 			missingArgs: [][]string{
 				{"resolve", "q001", "--resolution-kind", "feature_change", "--resolution-pointer", "E39-F03"},
-				{"resolve", "q001", "--owner", "owner", "--resolution-pointer", "E39-F03"},
-				{"resolve", "q001", "--owner", "owner", "--resolution-kind", "feature_change"},
+				{"resolve", "q001", "--resolution-owner", "owner", "--resolution-pointer", "E39-F03"},
+				{"resolve", "q001", "--resolution-owner", "owner", "--resolution-kind", "feature_change"},
 			},
 			assertInput: func(t *testing.T, stub *questionListServiceStub) {
 				t.Helper()
@@ -530,10 +530,10 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 		},
 		{
 			name: "withdraw",
-			args: []string{"withdraw", "q001", "--owner", "owner", "--reason", "obsolete"},
+			args: []string{"withdraw", "q001", "--resolution-owner", "owner", "--reason", "obsolete"},
 			missingArgs: [][]string{
 				{"withdraw", "q001", "--reason", "obsolete"},
-				{"withdraw", "q001", "--owner", "owner"},
+				{"withdraw", "q001", "--resolution-owner", "owner"},
 			},
 			assertInput: func(t *testing.T, stub *questionListServiceStub) {
 				t.Helper()
@@ -544,11 +544,11 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 		},
 		{
 			name: "supersede",
-			args: []string{"supersede", "q001", "--owner", "owner", "--reason", "obsolete", "--superseded-by", "q002"},
+			args: []string{"supersede", "q001", "--resolution-owner", "owner", "--reason", "obsolete", "--superseded-by", "q002"},
 			missingArgs: [][]string{
 				{"supersede", "q001", "--reason", "obsolete", "--superseded-by", "q002"},
-				{"supersede", "q001", "--owner", "owner", "--superseded-by", "q002"},
-				{"supersede", "q001", "--owner", "owner", "--reason", "obsolete"},
+				{"supersede", "q001", "--resolution-owner", "owner", "--superseded-by", "q002"},
+				{"supersede", "q001", "--resolution-owner", "owner", "--reason", "obsolete"},
 			},
 			assertInput: func(t *testing.T, stub *questionListServiceStub) {
 				t.Helper()
@@ -587,6 +587,95 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 				t.Fatalf("question %s unsupported input Execute() error = %v", tc.name, err)
 			}
 			assertQuestionWorkflowNotCalled(t, stub)
+		})
+	}
+}
+
+func TestQuestionResolveHelpDocumentsWorkflowAndResolutionKinds(t *testing.T) {
+	output, err := executeQuestionCommand(t, "resolve", "--help")
+	if err != nil {
+		t.Fatalf("question resolve --help error = %v", err)
+	}
+	for _, want := range []string{
+		"Claim the Question", "Record each response", "Resolve after all responders are complete",
+		"local_clarification", "feature_change", "product_decision", "architecture_decision", "follow_up_work", "no_lasting_consequence",
+		"note:<id>", "repository-relative document paths, separated by semicolons", "docs/product/progress.md#<anchor>",
+		"an ADR and affected reference", "existing follow-up work key", "no --resolution-pointer",
+		"--resolution-owner", "Deprecated alias for --resolution-owner",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("question resolve --help missing %q", want)
+		}
+	}
+}
+
+func TestQuestionWorkflowRejectsConflictingOwnerFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"resolve", "q001", "--resolution-owner", "owner-a", "--owner", "owner-b", "--resolution-kind", "no_lasting_consequence"},
+		{"withdraw", "q001", "--resolution-owner", "owner-a", "--owner", "owner-b", "--reason", "obsolete"},
+		{"supersede", "q001", "--resolution-owner", "owner-a", "--owner", "owner-b", "--reason", "obsolete", "--superseded-by", "q002"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			stub := &questionListServiceStub{}
+			withQuestionSvcOverride(t, stub)
+			if _, err := executeQuestionCommand(t, args...); err == nil || !strings.Contains(err.Error(), "must match") {
+				t.Fatalf("question %s conflicting owner flags error = %v", args[0], err)
+			}
+			assertQuestionWorkflowNotCalled(t, stub)
+		})
+	}
+}
+
+func TestQuestionResolveOwnerAliasRemainsCompatible(t *testing.T) {
+	for name, args := range map[string][]string{
+		"legacy alias":   {"resolve", "q001", "--owner", "owner", "--resolution-kind", "no_lasting_consequence"},
+		"matching flags": {"resolve", "q001", "--resolution-owner", "owner", "--owner", "owner", "--resolution-kind", "no_lasting_consequence"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := &questionListServiceStub{question: &models.Question{BaseEntity: models.BaseEntity{Key: "Q001", Title: "Question"}}}
+			withQuestionSvcOverride(t, stub)
+			if _, err := executeQuestionCommand(t, args...); err != nil {
+				t.Fatalf("question resolve with compatible owner flags error = %v", err)
+			}
+			if !stub.resolved || stub.resolveIn == nil || stub.resolveIn.Owner != "owner" {
+				t.Fatalf("Resolve input = %#v, called=%v", stub.resolveIn, stub.resolved)
+			}
+		})
+	}
+}
+
+func TestQuestionWithdrawOwnerAliasRemainsCompatible(t *testing.T) {
+	for name, args := range map[string][]string{
+		"legacy alias":   {"withdraw", "q001", "--owner", "owner", "--reason", "obsolete"},
+		"matching flags": {"withdraw", "q001", "--resolution-owner", "owner", "--owner", "owner", "--reason", "obsolete"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := &questionListServiceStub{question: &models.Question{BaseEntity: models.BaseEntity{Key: "Q001", Title: "Question"}}}
+			withQuestionSvcOverride(t, stub)
+			if _, err := executeQuestionCommand(t, args...); err != nil {
+				t.Fatalf("question withdraw with compatible owner flags error = %v", err)
+			}
+			if !stub.withdrawn || stub.withdrawIn == nil || stub.withdrawIn.Owner != "owner" {
+				t.Fatalf("Withdraw input = %#v, called=%v", stub.withdrawIn, stub.withdrawn)
+			}
+		})
+	}
+}
+
+func TestQuestionSupersedeOwnerAliasRemainsCompatible(t *testing.T) {
+	for name, args := range map[string][]string{
+		"legacy alias":   {"supersede", "q001", "--owner", "owner", "--reason", "obsolete", "--superseded-by", "q002"},
+		"matching flags": {"supersede", "q001", "--resolution-owner", "owner", "--owner", "owner", "--reason", "obsolete", "--superseded-by", "q002"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := &questionListServiceStub{question: &models.Question{BaseEntity: models.BaseEntity{Key: "Q001", Title: "Question"}}}
+			withQuestionSvcOverride(t, stub)
+			if _, err := executeQuestionCommand(t, args...); err != nil {
+				t.Fatalf("question supersede with compatible owner flags error = %v", err)
+			}
+			if !stub.superseded || stub.supersedeIn == nil || stub.supersedeIn.Owner != "owner" {
+				t.Fatalf("Supersede input = %#v, called=%v", stub.supersedeIn, stub.superseded)
+			}
 		})
 	}
 }

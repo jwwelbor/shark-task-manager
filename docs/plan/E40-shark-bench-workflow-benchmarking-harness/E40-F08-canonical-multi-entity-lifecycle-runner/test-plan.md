@@ -185,7 +185,7 @@ map value is observed. It records the live read and all four digests in
 | TC-010 | `bench/scripts/run-lifecycle.sh --mode contract --scenario bench/scripts/testdata/lifecycle/scenario-complete.json --run-id tc010 --root E40-F08-ROOT --scratch-root /tmp/e40-f08-tc010` and the same argv with `--mode dry-run`, each run twice; denial executable is `bench/scripts/testdata/lifecycle/bin/provider-deny` | real denial executable records argv and exits 97; no success stub | Do not mock canonical projection, filesystem ordering, locale, shell, or map ordering | Any adapter/provider start or non-identical canonical verdict fails |
 | TC-011 | `bench/scripts/tests/run-all.sh`; `make fmt`; `make lint`; `make test`; structural `git diff --name-only -- internal cmd migrations`; adapter-family matrix command | none | Do not replace full commands with package subsets or infer forbidden-change safety from a branch label | Unregistered tests, forbidden paths, or language-specific branching fails |
 | TC-012 | Retained real run uses public `shark next`, `claim`, `heartbeat`, `status advance`, `release`; resume cases use the adapter capability fixtures below | Stub only provider output; real Shark binary and scratch project for retained run | Do not mock the Shark command sequence, I-07 persistence, resume decision, or wire event parser | A terminal status/exit code without semantic outcome, release, or exact wire evidence fails |
-| TC-013 | Exact argv: `shark next Q-E40-F08-001 --json`; `shark claim Q-E40-F08-001 --by bench-tc013 --json`; `shark question respond Q-E40-F08-001 --session SID-Q --responder responder-a --summary approved --evidence-pointer runs/tc013/answer.json`; `shark question resolve Q-E40-F08-001 --owner owner-a --resolution-kind accepted --resolution-pointer runs/tc013/resolution.json` | Stub only external replay/provider response source; real Question CLI path and scratch state | Do not inject an answer into I-07 or bypass `question respond`/`resolve` | Transcript-only, unauthorized owner/responder, duplicate, or unused-entry response fails |
+| TC-013 | Exact argv: `shark next Q-E40-F08-001 --json`; `shark claim Q-E40-F08-001 --by bench-tc013 --json`; `shark question respond Q-E40-F08-001 --session SID-Q --responder responder-a --summary approved --evidence-pointer runs/tc013/answer.json`; `shark question resolve Q-E40-F08-001 --resolution-owner owner-a --resolution-kind accepted --resolution-pointer runs/tc013/resolution.json` | Stub only external replay/provider response source; real Question CLI path and scratch state | Do not inject an answer into I-07 or bypass `question respond`/`resolve` | Transcript-only, unauthorized owner/responder, duplicate, or unused-entry response fails |
 
 ## Acceptance Test Cases
 
@@ -710,7 +710,7 @@ The exact command path is `shark next <question-key> --json`,
 `shark claim <question-key> --by <runner> --json`,
 `shark question respond <question-key> --session <sid> --responder <id>
 --summary <summary> --evidence-pointer <pointer>`, then
-`shark question resolve <question-key> --owner <owner> --resolution-kind
+`shark question resolve <question-key> --resolution-owner <owner> --resolution-kind
 <kind> [--resolution-pointer <pointer>]`.
 
 **Negative case:** Transcript-only text or a worker recommendation cannot close
