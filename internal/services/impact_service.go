@@ -63,6 +63,9 @@ func NewImpactService(notes ImpactNoteWriter) (*ImpactService, error) {
 // callers use it before resolving a database-backed writer, so malformed
 // worker input fails closed before any persistence dependency is initialized.
 func ReconcileAndValidateImpact(impact *gateresult.ChangeImpactSet, sourceKind, sourceKey, sourcePointer string) error {
+	if impact == nil {
+		return fmt.Errorf("invalid I-04 ChangeImpactSet: must not be nil")
+	}
 	if err := reconcileImpactIdentity(impact, sourceKind, sourceKey, sourcePointer); err != nil {
 		return err
 	}

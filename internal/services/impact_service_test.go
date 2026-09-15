@@ -37,6 +37,12 @@ func TestImpactServiceRecord_PropagatesWriterFailure(t *testing.T) {
 	}
 }
 
+func TestReconcileAndValidateImpact_RejectsNil(t *testing.T) {
+	if err := ReconcileAndValidateImpact(nil, "adr", "ADR-0007", "docs/adr/0007.md"); err == nil {
+		t.Fatal("ReconcileAndValidateImpact accepted nil impact")
+	}
+}
+
 func validImpactInput() RecordImpactInput {
 	return RecordImpactInput{
 		EntityType: models.EntityTypeTask, EntityKey: "E01-F01-001",
