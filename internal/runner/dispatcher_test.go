@@ -26,25 +26,41 @@ func TestReadBoundedStream_DrainsAndReportsExcess(t *testing.T) {
 	}
 }
 
-func TestExecAndCapture_RejectsOversizedOutput(t *testing.T) {
-	for _, stream := range []string{"stdout", "stderr"} {
-		t.Run(stream, func(t *testing.T) {
-			action := "repeat_" + stream
+func TestExecAndCapture_EnforcesOutputLimit(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		stream  string
+		length  int
+		wantErr bool
+	}{
+		{name: "stdout at limit", stream: "stdout", length: workercontrol.MaxEnvelopeBytes},
+		{name: "stderr at limit", stream: "stderr", length: workercontrol.MaxEnvelopeBytes},
+		{name: "stdout over limit", stream: "stdout", length: workercontrol.MaxEnvelopeBytes + 1, wantErr: true},
+		{name: "stderr over limit", stream: "stderr", length: workercontrol.MaxEnvelopeBytes + 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			action := "repeat_" + test.stream
 			cmd := exec.Command(
 				os.Args[0],
 				"-test.run=TestHelperProcess",
 				"--",
 				action,
-				fmt.Sprint(workercontrol.MaxEnvelopeBytes+1),
+				fmt.Sprint(test.length),
 			)
 			cmd.Env = append(os.Environ(), "GO_TEST_HELPER_PROCESS=1")
 
-			_, err := execAndCapture(cmd, "helper")
-			if err == nil {
-				t.Fatal("expected oversized output to be rejected")
+			result, err := execAndCapture(cmd, "helper")
+			if test.wantErr {
+				if !errors.Is(err, ErrAgentOutputTooLarge) {
+					t.Fatalf("expected ErrAgentOutputTooLarge, got %v", err)
+				}
+				return
 			}
-			if !strings.Contains(err.Error(), "maximum capture") {
-				t.Fatalf("expected capture limit error, got %v", err)
+			if err != nil {
+				t.Fatalf("capture at limit: %v", err)
+			}
+			if got := len(result.Stdout) + len(result.Stderr); got != test.length {
+				t.Fatalf("captured %d bytes, want %d", got, test.length)
 			}
 		})
 	}

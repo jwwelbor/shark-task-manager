@@ -514,7 +514,10 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(0)
 	case "repeat_stdout", "repeat_stderr":
 		if len(args) > 1 {
-			n, _ := strconv.Atoi(args[1])
+			n, err := strconv.Atoi(args[1])
+			if err != nil {
+				t.Fatalf("parse repeat length: %v", err)
+			}
 			if args[0] == "repeat_stdout" {
 				fmt.Print(strings.Repeat("x", n))
 			} else {

@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -27,6 +28,10 @@ var DefaultDisallowedTools = []string{
 	"Bash(shark feature next-status*)",
 	"Bash(shark epic next-status*)",
 }
+
+// ErrAgentOutputTooLarge indicates that an agent emitted more output than the
+// dispatcher can safely retain in its result envelope.
+var ErrAgentOutputTooLarge = errors.New("agent output exceeds maximum capture size")
 
 // AgentDispatcher is the interface that all agent dispatch implementations must satisfy.
 // It allows the run controller to invoke external AI agents without coupling to any
@@ -245,7 +250,7 @@ func validateCapturedStreams(stdout, stderr capturedStream) error {
 		return fmt.Errorf("capture agent stderr: %w", stderr.err)
 	}
 	if stdout.exceeded || stderr.exceeded {
-		return fmt.Errorf("agent output exceeds the maximum capture size of %d bytes", workercontrol.MaxEnvelopeBytes)
+		return fmt.Errorf("%w of %d bytes", ErrAgentOutputTooLarge, workercontrol.MaxEnvelopeBytes)
 	}
 	return nil
 }
