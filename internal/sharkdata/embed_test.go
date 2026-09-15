@@ -866,7 +866,7 @@ func TestE34F04QuestionManagementBundle_TC001_TC005(t *testing.T) {
 			"--summary=\"<bounded response>\"",
 			"--evidence-pointer=<durable-record-path>",
 			"shark release Q### --session=<session-id>",
-			"shark question resolve Q### --owner=<resolution-owner>",
+			"shark question resolve Q### --resolution-owner=<resolution-owner>",
 			"--resolution-kind=<resolution-kind>",
 			"--resolution-pointer=<durable-record-path>",
 			"--resolution-kind=no_lasting_consequence",
@@ -881,6 +881,7 @@ func TestE34F04QuestionManagementBundle_TC001_TC005(t *testing.T) {
 
 	assert.Contains(t, files["skill"], "| `no_lasting_consequence` | No pointer")
 	assert.Contains(t, files["skill"], "For `no_lasting_consequence`, omit `--resolution-pointer`")
+	assert.NotContains(t, files["skill"], "shark question resolve Q### --owner=<resolution-owner>")
 	assert.NotContains(t, files["skill"], "--resolution-kind=no_lasting_consequence \\\n+     --resolution-pointer=")
 }
 

@@ -120,7 +120,7 @@ the rationale in the working document instead of creating a Question.
    pointer:
 
    ```sh
-   shark question resolve Q### --owner=<resolution-owner> \
+   shark question resolve Q### --resolution-owner=<resolution-owner> \
      --resolution-kind=<resolution-kind> \
      --resolution-pointer=<durable-record-path>
    ```
@@ -128,7 +128,7 @@ the rationale in the working document instead of creating a Question.
    For `no_lasting_consequence`, omit `--resolution-pointer`:
 
    ```sh
-   shark question resolve Q### --owner=<resolution-owner> \
+   shark question resolve Q### --resolution-owner=<resolution-owner> \
      --resolution-kind=no_lasting_consequence
    ```
 

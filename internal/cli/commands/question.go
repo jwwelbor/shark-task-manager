@@ -370,8 +370,14 @@ func requiredQuestionString(cmd *cobra.Command, name string) (string, error) {
 // configure-workflow while retaining --owner for existing scripts. Supplying
 // both names with different values is ambiguous and rejected before transport.
 func requiredQuestionResolutionOwner(cmd *cobra.Command) (string, error) {
-	resolutionOwner, _ := cmd.Flags().GetString("resolution-owner")
-	owner, _ := cmd.Flags().GetString("owner")
+	resolutionOwner, err := cmd.Flags().GetString("resolution-owner")
+	if err != nil {
+		return "", fmt.Errorf("read --resolution-owner: %w", err)
+	}
+	owner, err := cmd.Flags().GetString("owner")
+	if err != nil {
+		return "", fmt.Errorf("read --owner: %w", err)
+	}
 	if strings.TrimSpace(resolutionOwner) != "" && strings.TrimSpace(owner) != "" && resolutionOwner != owner {
 		return "", fmt.Errorf("--owner and --resolution-owner must match when both are provided")
 	}
