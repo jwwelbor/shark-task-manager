@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import yaml
 
@@ -143,8 +144,7 @@ def resolve_oracle_sources(evaluator, package_root, evaluator_root):
         source = os.path.realpath(os.path.join(package_root, relative))
         if not source.startswith(evaluator_root + os.sep) or not os.path.isfile(source):
             finish(invalid("isolation_violation", relative, "oracle path is outside evaluator root or missing"), 1)
-        with open(source, "rb") as stream:
-            hasher.update(stream.read())
+        hasher.update(Path(source).read_bytes())
         sources.append(source)
     if not sources:
         finish(invalid("source_missing", "/evaluator_only/oracle_tests", "no held-back tests declared"), 1)
