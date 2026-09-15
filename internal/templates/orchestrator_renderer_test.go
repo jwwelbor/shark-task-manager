@@ -534,6 +534,27 @@ func TestRender_ComplexityTier_Empty(t *testing.T) {
 	assert.Equal(t, "Comprehensive instructions", result)
 }
 
+func TestRender_ApprovalPromptReadsQAReportOnlyForComplexFeatures(t *testing.T) {
+	renderer, err := NewOrchestratorRenderer(t.TempDir())
+	require.NoError(t, err)
+
+	base := map[string]string{
+		"review_base":     "docs/review/E01/",
+		"id":              "E01-F01",
+		"file_path":       "docs/plan/E01/F01/feature.md",
+		"title":           "Test feature",
+		"complexity_tier": "STANDARD",
+	}
+	standard, err := renderer.Render("feature/approval.md", base)
+	require.NoError(t, err)
+	assert.NotContains(t, standard, "QA report:", "STANDARD uses code review as its same-model gate")
+
+	base["complexity_tier"] = "COMPLEX"
+	complex, err := renderer.Render("feature/approval.md", base)
+	require.NoError(t, err)
+	assert.Contains(t, complex, "QA report: docs/review/E01/qa-*-E01-F01.md")
+}
+
 // ============================================================================
 // Partial Template Tests (AC-3.2)
 // ============================================================================

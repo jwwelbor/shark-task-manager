@@ -245,6 +245,7 @@ item_id = item_id or None
 patch_override = patch_override or None
 
 corpus_dir = os.path.dirname(corpus_yaml_path)
+corpus_root = os.path.realpath(corpus_dir)
 
 with open(corpus_yaml_path) as f:
     data = yaml.safe_load(f)
@@ -265,6 +266,16 @@ def find_item(candidate_id):
             if it["id"] == candidate_id:
                 return it
     return None
+
+
+def resolve_corpus_file(relative_path, label):
+    """Resolve one corpus-declared file without permitting an escape."""
+    if not isinstance(relative_path, str) or os.path.isabs(relative_path):
+        raise RuntimeError(f"{label}: corpus path must be relative")
+    resolved = os.path.realpath(os.path.join(corpus_root, relative_path))
+    if not resolved.startswith(corpus_root + os.sep) or not os.path.isfile(resolved):
+        raise RuntimeError(f"{label}: corpus path escapes root or is missing: {relative_path!r}")
+    return resolved
 
 
 def check_golangci_lint_present():
@@ -642,7 +653,7 @@ def copy_f2p_files(item, checkout_dir):
                 f"{pkg_import!r} is not under module {module_path!r}"
             )
         rel_pkg_dir = pkg_import[len(prefix):]
-        src = os.path.join(corpus_dir, path)
+        src = resolve_corpus_file(path, f"item {item['id']}: f2p path")
         dst_dir = os.path.join(checkout_dir, rel_pkg_dir)
         os.makedirs(dst_dir, exist_ok=True)
         shutil.copy2(src, os.path.join(dst_dir, os.path.basename(path)))
@@ -829,7 +840,7 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(2)
-        patch_path = patch_override or os.path.join(corpus_dir, item["reference_patch_path"])
+        patch_path = patch_override or resolve_corpus_file(item["reference_patch_path"], f"item {item['id']}: reference_patch_path")
         verdict = evaluate(item, patch_path)
         print(json.dumps(verdict, sort_keys=True))
         sys.exit(0 if verdict["status"] == "admitted" else 1)
@@ -841,7 +852,7 @@ def main():
 
     verdicts = []
     for item in candidates:
-        patch_path = os.path.join(corpus_dir, item["reference_patch_path"])
+        patch_path = resolve_corpus_file(item["reference_patch_path"], f"item {item['id']}: reference_patch_path")
         verdict = evaluate(item, patch_path)
         print(json.dumps(verdict, sort_keys=True))
         sys.stdout.flush()

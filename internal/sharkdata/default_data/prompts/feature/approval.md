@@ -10,7 +10,8 @@ READ:
 (1) Feature spec at {{.file_path}} for all acceptance criteria and architectural intent
 (2) Feature test-plan.md for expected behavior and edge cases
 (3) Code review report: {{.review_base}}code-review-*-{{.id}}.md
-(4) QA report: {{.review_base}}qa-*-{{.id}}.md
+{{if eq .complexity_tier "COMPLEX"}}(4) QA report: {{.review_base}}qa-*-{{.id}}.md
+{{end}}
 (5) All task specs: `{{template "list_json" .}}` → read each task's file_path
 (6) Full implementation: `git diff $(git merge-base HEAD main)..HEAD` — read the actual changed files
 
