@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -102,7 +103,11 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = lock.Release() }()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			slog.Warn("release gate persistence lock", "run_id", req.RunID, "error", releaseErr)
+		}
+	}()
 
 	// UAT round-2 Finding 1: re-verify the claim/lease session INSIDE the
 	// per-run lock's critical section, immediately before any write below
