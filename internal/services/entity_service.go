@@ -269,7 +269,6 @@ func (s *EntityService) transitionStatus(
 	currentStatus := entity.GetStatus()
 	resolvedCurrentStatus := s.workflowSvc.NormalizeStatus(currentStatus)
 	resolvedTargetStatus := s.workflowSvc.NormalizeStatus(targetStatus)
-
 	// Step 2: Idempotency check — if already at target status, return early without writing
 	if strings.EqualFold(resolvedCurrentStatus, resolvedTargetStatus) {
 		return &TransitionResult{
@@ -440,7 +439,7 @@ func (s *EntityService) enforceAdvanceGuard(ctx context.Context, tx *sql.Tx, ent
 	if strings.TrimSpace(opts.FromStatus) == "" {
 		return ErrAdvanceGuardFromStatusRequired
 	}
-	if !strings.EqualFold(strings.TrimSpace(opts.FromStatus), currentStatus) {
+	if !strings.EqualFold(s.workflowSvc.NormalizeStatus(strings.TrimSpace(opts.FromStatus)), s.workflowSvc.NormalizeStatus(currentStatus)) {
 		return ErrAdvanceGuardStaleFromStatus
 	}
 	if opts.ForceRepeat {

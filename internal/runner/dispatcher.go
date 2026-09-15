@@ -4,10 +4,13 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
 // DefaultDisallowedTools is the set of shark status-advancement commands that are
@@ -25,6 +28,10 @@ var DefaultDisallowedTools = []string{
 	"Bash(shark feature next-status*)",
 	"Bash(shark epic next-status*)",
 }
+
+// ErrAgentOutputTooLarge indicates that an agent emitted more output than the
+// dispatcher can safely retain in its result envelope.
+var ErrAgentOutputTooLarge = errors.New("agent output exceeds maximum capture size")
 
 // AgentDispatcher is the interface that all agent dispatch implementations must satisfy.
 // It allows the run controller to invoke external AI agents without coupling to any
@@ -54,6 +61,12 @@ type AgentDispatcher interface {
 	// phase="shell_quote" and skip Dispatch — os/exec would reject the
 	// argv with EINVAL anyway, so the dispatch cannot proceed.
 	BuildCommand(input DispatchInput) (string, error)
+}
+
+type capturedStream struct {
+	data     []byte
+	exceeded bool
+	err      error
 }
 
 // DispatchInput contains all information needed to invoke an agent for a single
@@ -178,26 +191,27 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 	}
 
 	// Read stdout and stderr concurrently to prevent pipe deadlocks.
-	stdoutCh := make(chan []byte, 1)
-	stderrCh := make(chan []byte, 1)
+	stdoutCh := make(chan capturedStream, 1)
+	stderrCh := make(chan capturedStream, 1)
 
 	go func() {
-		data, _ := io.ReadAll(stdoutPipe)
-		stdoutCh <- data
+		stdoutCh <- readBoundedStream(stdoutPipe, workercontrol.MaxEnvelopeBytes)
 	}()
 	go func() {
-		data, _ := io.ReadAll(stderrPipe)
-		stderrCh <- data
+		stderrCh <- readBoundedStream(stderrPipe, workercontrol.MaxEnvelopeBytes)
 	}()
 
-	stdoutData := <-stdoutCh
-	stderrData := <-stderrCh
+	stdoutCapture := <-stdoutCh
+	stderrCapture := <-stderrCh
 
 	waitErr := cmd.Wait()
 	duration := time.Since(start)
+	if err := validateCapturedStreams(stdoutCapture, stderrCapture); err != nil {
+		return nil, err
+	}
 
-	stdout := string(stdoutData)
-	stderr := string(stderrData)
+	stdout := string(stdoutCapture.data)
+	stderr := string(stderrCapture.data)
 
 	exitCode := 0
 	if waitErr != nil {
@@ -226,4 +240,40 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 	}
 
 	return result, nil
+}
+
+func validateCapturedStreams(stdout, stderr capturedStream) error {
+	if stdout.err != nil {
+		return fmt.Errorf("capture agent stdout: %w", stdout.err)
+	}
+	if stderr.err != nil {
+		return fmt.Errorf("capture agent stderr: %w", stderr.err)
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return fmt.Errorf("%w of %d bytes", ErrAgentOutputTooLarge, workercontrol.MaxEnvelopeBytes)
+	}
+	return nil
+}
+
+// readBoundedStream retains at most max bytes while continuing to drain the
+// reader after the cap. Draining avoids blocking the child process on a full
+// pipe when a misbehaving worker emits excessive output.
+func readBoundedStream(r io.Reader, max int) capturedStream {
+	result := capturedStream{}
+	limited := io.LimitReader(r, int64(max)+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		result.err = err
+		return result
+	}
+	if len(data) > max {
+		result.exceeded = true
+		data = data[:max]
+	}
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		result.err = err
+		return result
+	}
+	result.data = data
+	return result
 }

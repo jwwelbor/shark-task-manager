@@ -3,9 +3,68 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
+
+func TestReadBoundedStream_DrainsAndReportsExcess(t *testing.T) {
+	input := strings.Repeat("x", workercontrol.MaxEnvelopeBytes+1)
+	captured := readBoundedStream(strings.NewReader(input), workercontrol.MaxEnvelopeBytes)
+	if captured.err != nil {
+		t.Fatalf("readBoundedStream: %v", captured.err)
+	}
+	if !captured.exceeded {
+		t.Fatal("expected excess output to be reported")
+	}
+	if len(captured.data) != workercontrol.MaxEnvelopeBytes {
+		t.Fatalf("retained %d bytes, want %d", len(captured.data), workercontrol.MaxEnvelopeBytes)
+	}
+}
+
+func TestExecAndCapture_EnforcesOutputLimit(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		stream  string
+		length  int
+		wantErr bool
+	}{
+		{name: "stdout at limit", stream: "stdout", length: workercontrol.MaxEnvelopeBytes},
+		{name: "stderr at limit", stream: "stderr", length: workercontrol.MaxEnvelopeBytes},
+		{name: "stdout over limit", stream: "stdout", length: workercontrol.MaxEnvelopeBytes + 1, wantErr: true},
+		{name: "stderr over limit", stream: "stderr", length: workercontrol.MaxEnvelopeBytes + 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			action := "repeat_" + test.stream
+			cmd := exec.Command(
+				os.Args[0],
+				"-test.run=TestHelperProcess",
+				"--",
+				action,
+				fmt.Sprint(test.length),
+			)
+			cmd.Env = append(os.Environ(), "GO_TEST_HELPER_PROCESS=1")
+
+			result, err := execAndCapture(cmd, "helper")
+			if test.wantErr {
+				if !errors.Is(err, ErrAgentOutputTooLarge) {
+					t.Fatalf("expected ErrAgentOutputTooLarge, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("capture at limit: %v", err)
+			}
+			if got := len(result.Stdout) + len(result.Stderr); got != test.length {
+				t.Fatalf("captured %d bytes, want %d", got, test.length)
+			}
+		})
+	}
+}
 
 // Compile-time interface satisfiability check (INT-F01-1)
 // This causes a compile error if ClaudeDispatcher does not satisfy AgentDispatcher.

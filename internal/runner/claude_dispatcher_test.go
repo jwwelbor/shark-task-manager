@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -509,6 +510,19 @@ func TestHelperProcess(t *testing.T) {
 	case "stderr":
 		if len(args) > 1 {
 			fmt.Fprint(os.Stderr, args[1])
+		}
+		os.Exit(0)
+	case "repeat_stdout", "repeat_stderr":
+		if len(args) > 1 {
+			n, err := strconv.Atoi(args[1])
+			if err != nil {
+				t.Fatalf("parse repeat length: %v", err)
+			}
+			if args[0] == "repeat_stdout" {
+				fmt.Print(strings.Repeat("x", n))
+			} else {
+				fmt.Fprint(os.Stderr, strings.Repeat("x", n))
+			}
 		}
 		os.Exit(0)
 	case "both":

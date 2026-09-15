@@ -1204,6 +1204,36 @@ func guardedOpts() TransitionOptions {
 	}
 }
 
+func TestEntityService_TransitionStatus_GuardedIdempotentTargetRemainsSuccessful(t *testing.T) {
+	guard := &mockAdvanceGuardRecorder{
+		wasConsumedFn: func(context.Context, string, int64, string, string, string) (bool, error) {
+			t.Fatal("idempotent replay must return before consulting the advance guard")
+			return false, nil
+		},
+	}
+	repo := &mockEntityRepo{
+		getByKeyFn: func(context.Context, string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+		updateStatusIfCurrentFn: func(context.Context, int64, string, string) (bool, error) {
+			t.Fatal("idempotent replay must not write status")
+			return false, nil
+		},
+	}
+
+	svc := newGuardedTestEntityService(t, guard)
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		guardedOpts(), SimpleTransitionFeatures(), nil,
+	)
+	if err != nil {
+		t.Fatalf("idempotent guarded transition: %v", err)
+	}
+	if result.Transitioned {
+		t.Fatal("expected idempotent guarded transition to report Transitioned=false")
+	}
+}
+
 func TestEntityService_TransitionStatus_GuardedAdvance_RecordsBeforeCAS(t *testing.T) {
 	var recordedBeforeCAS bool
 	guard := &mockAdvanceGuardRecorder{
