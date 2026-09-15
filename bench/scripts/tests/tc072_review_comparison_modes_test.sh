@@ -20,9 +20,9 @@ identity = {key: value for key, value in {
     "reference_digest": digest, "reference_digests": [digest], "resource_policy_digest": digest,
 }.items()}
 candidate = {"base_commit":"b"*40, "tree_digest":digest, "binary_diff_digest":digest,
-             "changed_path_digest":digest, "dirty_untracked_manifest":digest,
-             "test_suite_digest":digest, "snapshot_digest":digest}
-candidate["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    "changed_path_digest":digest, "dirty_untracked_manifest":digest,
+             "test_suite_digest":digest, "scratch_content_digest":digest, "snapshot_digest":digest}
+candidate["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 policy = {"enabled_gates":["qa","deep_review"], "gate_order":["qa","deep_review"],
           "reviewer":{"provider":"fixture","model":"m","effort":"low"},
           "prompt_digest":digest, "rendered_prompt_digest":digest,
@@ -36,7 +36,7 @@ base = {"identity":identity, "workflow_policy":policy, "eligibility":{"aggregate
 independent = copy.deepcopy(base); independent.update({"evaluation_id":"independent", "candidate_snapshots":[{"stage":"qa","candidate":candidate}]})
 independent["review_findings"]["normalized_findings"].append(finding("f09-1","deep_review",True))
 sequential = copy.deepcopy(base); changed_candidate = dict(candidate, tree_digest="c"*64)
-changed_candidate["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: changed_candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+changed_candidate["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: changed_candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 sequential.update({"evaluation_id":"sequential", "candidate_snapshots":[
     {"stage":"qa","candidate":candidate}, {"stage":"deep_review","candidate":changed_candidate}]})
 sequential["review_findings"]["normalized_findings"].append(finding("f09-2","deep_review",True))
@@ -74,7 +74,7 @@ assert result["accepted"] is False and any(d["reason"] == "identity_mismatch" fo
 # the same sequential lineage merely because the first snapshot matches.
 divergent = copy.deepcopy(sequential)
 divergent["candidate_snapshots"][1]["candidate"] = dict(changed_candidate, tree_digest="e" * 64)
-divergent["candidate_snapshots"][1]["candidate"]["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: divergent["candidate_snapshots"][1]["candidate"][key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+divergent["candidate_snapshots"][1]["candidate"]["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: divergent["candidate_snapshots"][1]["candidate"][key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 result = run(sequential, divergent, "sequential_delivery", expect_accepted=False, expected_reason="lineage_mismatch")
 assert result["accepted"] is False and any(d["reason"] == "lineage_mismatch" for d in result["divergences"]), result
 print("TC-072 PASS")

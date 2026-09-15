@@ -50,6 +50,23 @@ fail() {
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
+# TD-140: mirror TC-082's dangling-link regression in the comparison-driver
+# suite. The driver uses this primitive for each scratch-root copy, so a
+# dangling nested source must fail loudly rather than be preserved into an
+# ephemeral checkout.
+# shellcheck source=../lib/path-safety.sh
+source "$SCRIPTS_DIR/lib/path-safety.sh"
+DANGLING_SOURCE="$WORKDIR/dangling-source"
+mkdir -p "$DANGLING_SOURCE"
+ln -s "$WORKDIR/missing-dangling-target" "$DANGLING_SOURCE/dangling"
+set +e
+copy_tree_dereferenced "$DANGLING_SOURCE" "$WORKDIR/dangling-copy" >"$WORKDIR/dangling.out" 2>"$WORKDIR/dangling.err"
+dangling_copy_rc=$?
+set -e
+[[ "$dangling_copy_rc" -ne 0 ]] || fail "dangling scratch source: copy_tree_dereferenced unexpectedly preserved or accepted a dangling link"
+[[ -L "$DANGLING_SOURCE/dangling" ]] || fail "dangling scratch source: source link was modified"
+echo "TC-087(TD-140): comparison scratch-copy primitive refuses a dangling nested symlink"
+
 # ---------------------------------------------------------------------------
 # Real, non-evaluation retention sources (UAT round-6 fix,
 # uat-2026-08-21T233606Z-E40-F10.md, defect class: "treating a present
@@ -98,7 +115,7 @@ root = pathlib.Path(sys.argv[1])
 digest = "a" * 64
 
 def candidate_digest_fields(candidate):
-    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}
+    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")}
 
 def with_identity_digest(candidate):
     candidate = dict(candidate)
@@ -118,7 +135,7 @@ identity = {key: value for key, value in {
 base_candidate = with_identity_digest({
     "base_commit": "b" * 40, "tree_digest": digest, "binary_diff_digest": digest,
     "changed_path_digest": digest, "dirty_untracked_manifest": digest,
-    "test_suite_digest": digest, "snapshot_digest": digest,
+    "test_suite_digest": digest, "scratch_content_digest": digest, "snapshot_digest": digest,
 })
 
 def make_policy(**overrides):

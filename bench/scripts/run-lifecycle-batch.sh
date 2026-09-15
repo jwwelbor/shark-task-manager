@@ -268,50 +268,10 @@ if [[ "$mode" == "pilot" || "$mode" == "baseline" ]]; then
 	if [[ "$gate_rc" -ne 0 ]]; then
 		exit "$gate_rc"
 	fi
-	# UAT-R2-01 fix (uat-2026-08-21T185059Z-E40-F10.md): spend_gate_check_all
-	# just proved the operator's ceilings are present, numeric, and strictly
-	# positive -- the ONLY thing missing before this fix was carrying those
-	# same, already-validated values forward to run-lifecycle.sh's own
-	# --limits policy (the sole execution-time enforcer/recorder,
-	# run-lifecycle.sh's limits_from()/lines ~299-314). Without this, every
-	# dispatch below fell through to the scenario package's resource_policy
-	# default instead, making the acknowledgement gate above pure theater.
-	#
-	# Re-reads ORIGINAL_ARGV via spend-gate.sh's OWN _spend_gate_flag_value
-	# accessor -- the exact function spend_gate_check_ceiling just used to
-	# validate these three flags -- rather than a second, independent argv
-	# parser in this file's own arg-parsing loop above. A second parser with
-	# different first-vs-last-duplicate-flag semantics would silently
-	# reintroduce this same defect class (validated value != materialized
-	# value) the moment an operator's argv repeats a ceiling flag; calling
-	# the identical function against the identical array is closed by
-	# construction instead. One file, materialized once per batch invocation
-	# (the ceilings are constant across every (scenario, rep) pair in this
-	# run) and reused by every dispatch_pair() call -- never a second,
-	# divergent per-pair policy.
-	# `|| ...=""` on each: _spend_gate_flag_value returns 1 with no output
-	# when a flag is absent, and under this script's `set -e` a bare
-	# `var="$(possibly-failing-cmd)"` would abort the whole script right
-	# here with no diagnostic -- before the named-diagnostic check below
-	# ever ran. Capturing empty-on-failure instead lets that check do its
-	# job.
-	uat_r2_01_cost="$(_spend_gate_flag_value "--max-cost-usd" "${ORIGINAL_ARGV[@]}")" || uat_r2_01_cost=""
-	uat_r2_01_wall="$(_spend_gate_flag_value "--max-wall-clock-seconds" "${ORIGINAL_ARGV[@]}")" || uat_r2_01_wall=""
-	uat_r2_01_tasks="$(_spend_gate_flag_value "--max-generated-tasks" "${ORIGINAL_ARGV[@]}")" || uat_r2_01_tasks=""
-	# Structural, not merely positional: spend_gate_check_all above already
-	# guarantees all three resolve non-empty (it would have refused/exited
-	# otherwise), but re-asserting it here means a future reordering of this
-	# block fails loudly with a named diagnostic instead of silently writing
-	# an empty --limits field that run-lifecycle.sh's own limits_from() would
-	# then reject far downstream with a much less specific error.
-	if [[ -z "$uat_r2_01_cost" || -z "$uat_r2_01_wall" || -z "$uat_r2_01_tasks" ]]; then
-		echo "run-lifecycle-batch: internal error: spend gate passed but a ceiling did not resolve from ORIGINAL_ARGV" >&2
-		exit 2
-	fi
+	# Keep materialization with the single owner of spend-gate flag semantics.
 	OPERATOR_LIMITS_FILE="$(mktemp)"
-	printf 'max_cost_usd: %s\nmax_wall_clock_seconds: %s\nmax_generated_tasks: %s\n' \
-		"$uat_r2_01_cost" "$uat_r2_01_wall" "$uat_r2_01_tasks" \
-		>"$OPERATOR_LIMITS_FILE"
+	trap 'rm -f "$OPERATOR_LIMITS_FILE"' EXIT
+	spend_gate_materialize_limits_file "$OPERATOR_LIMITS_FILE" "${ORIGINAL_ARGV[@]}"
 fi
 
 out_root_canon="$(realpath -m -- "$retention_root")"
@@ -922,6 +882,14 @@ dispatch_pair() {
 	fi
 
 	echo "run-lifecycle-batch: dispatching $scenario_id rep $rep" >&2
+	if [[ -z "$OPERATOR_LIMITS_FILE" ]]; then
+		echo "run-lifecycle-batch: internal error: refusing dispatch without materialized operator limits" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "operator_limits_unavailable"
+		overall_bad="true"
+		rm -rf "$pair_work"
+		return 0
+	fi
 	set +e
 	# UAT-R2-01: --limits carries the operator-acknowledged ceilings
 	# (OPERATOR_LIMITS_FILE, materialized above from the same values
@@ -1165,7 +1133,7 @@ quarantine_pair() {
 	fi
 	mkdir -p "$incomplete_root"
 	local seq=1
-	while [[ -e "$incomplete_root/rep-$rep-$seq" ]]; do
+	while [[ -e "$incomplete_root/rep-$rep-$seq" || -L "$incomplete_root/rep-$rep-$seq" ]]; do
 		seq=$((seq + 1))
 	done
 	local dest="$incomplete_root/rep-$rep-$seq"

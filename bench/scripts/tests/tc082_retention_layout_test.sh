@@ -1932,25 +1932,33 @@ chokepoint_violations="$(python3 -c '
 import re
 import sys
 
-forbidden = [
-    (re.compile(r"(?<![\w./-])cp\s+(-\S*[arR]\S*|--archive|--recursive)\b"), "cp -a/-r/-R/--archive/--recursive"),
-    (re.compile(r"\brsync\b"), "rsync"),
-    (re.compile(r"shutil\.copytree\([^)]*symlinks\s*=\s*True"), "shutil.copytree(..., symlinks=True)"),
-]
+def line_of(text, offset):
+    return text.count("\n", 0, offset) + 1
 
-violations = []
 for path in sys.argv[1:]:
-    with open(path, encoding="utf-8") as f:
-        for lineno, line in enumerate(f, start=1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
-            for pattern, label in forbidden:
-                if pattern.search(line):
-                    violations.append(f"{path}:{lineno}: forbidden pattern ({label}): {line.strip()}")
+    text = open(path, encoding="utf-8").read()
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    forbidden = [
+        (re.compile(r"(?<![\w./-])cp\s+(-\S*[arR]\S*|--archive|--recursive)\b"), "cp -a/-r/-R/--archive/--recursive"),
+        (re.compile(r"\brsync\b"), "rsync"),
+    ]
+    for pattern, label in forbidden:
+        for match in pattern.finditer(code):
+            print(f"{path}:{line_of(code, match.start())}: forbidden pattern ({label})")
 
-for v in violations:
-    print(v)
+    aliases = {"shutil"}
+    aliases.update(match.group(1) for match in re.finditer(r"\bimport\s+shutil\s+as\s+([A-Za-z_]\w*)", code))
+    for alias in aliases:
+        call = re.compile(rf"\b{re.escape(alias)}\s*\.\s*copytree\s*\((?P<args>.*?)\)", re.S)
+        for match in call.finditer(code):
+            if re.search(r"\bsymlinks\s*=\s*True\b", match.group("args")):
+                print(f"{path}:{line_of(code, match.start())}: forbidden pattern (copytree(..., symlinks=True))")
+    for match in re.finditer(r"\bfrom\s+shutil\s+import\s+copytree(?:\s+as\s+([A-Za-z_]\w*))?", code):
+        name = match.group(1) or "copytree"
+        call = re.compile(rf"\b{re.escape(name)}\s*\((?P<args>.*?)\)", re.S)
+        for invocation in call.finditer(code):
+            if re.search(r"\bsymlinks\s*=\s*True\b", invocation.group("args")):
+                print(f"{path}:{line_of(code, invocation.start())}: forbidden pattern (copytree(..., symlinks=True))")
 ' "${CHOKEPOINT_FILES[@]}")"
 [[ -z "$chokepoint_violations" ]] || fail "chokepoint enforcement (fable-advisor policy): a symlink-preserving copy primitive was reintroduced in a file this task owns -- use copy_tree_dereferenced (lib/path-safety.sh) instead:
 $chokepoint_violations"

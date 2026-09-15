@@ -863,7 +863,7 @@ with open(lc_path, "w", encoding="utf-8") as f:
 
 
 def candidate_digest_fields(candidate):
-    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}
+    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")}
 
 
 def with_identity_digest(candidate):
@@ -875,7 +875,7 @@ def with_identity_digest(candidate):
 base_candidate = with_identity_digest({
     "base_commit": "b" * 40, "tree_digest": digest, "binary_diff_digest": digest,
     "changed_path_digest": digest, "dirty_untracked_manifest": digest,
-    "test_suite_digest": digest, "snapshot_digest": digest,
+    "test_suite_digest": digest, "scratch_content_digest": digest, "snapshot_digest": digest,
 })
 
 identity = {

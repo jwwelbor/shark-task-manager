@@ -247,6 +247,12 @@ def validate_identity_join(package, i05, lifecycle_rows, lifecycle, reasons):
     return identity
 
 
+CANDIDATE_IDENTITY_FIELDS = (
+    "base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest",
+    "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest",
+)
+
+
 def validate_candidate_snapshots(lifecycle, reasons):
     """Validate and retain each I-07 stage candidate identity."""
     candidate_snapshots = []
@@ -257,16 +263,15 @@ def validate_candidate_snapshots(lifecycle, reasons):
             reasons.append(reason("identity_missing", f"/stages/{stage_index}/candidate", "upstream I-07 candidate identity is required"))
             continue
         candidate = dict(stage["candidate"])
-        candidate_fields = ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")
-        for field in candidate_fields:
+        for field in CANDIDATE_IDENTITY_FIELDS:
             if field not in candidate or candidate[field] in (None, ""):
                 reasons.append(reason("identity_missing", f"/stages/{stage_index}/candidate/{field}", "complete upstream candidate identity is required"))
         if "identity_digest" not in candidate or "snapshot_digest" not in candidate:
             reasons.append(reason("identity_missing", f"/stages/{stage_index}/candidate", "F09 must not synthesize candidate identity digests"))
         else:
-            expected_identity = canonical_digest({key: candidate[key] for key in candidate_fields if key in candidate})
+            expected_identity = canonical_digest({key: candidate[key] for key in CANDIDATE_IDENTITY_FIELDS if key in candidate})
             if candidate.get("identity_digest") != expected_identity:
-                reasons.append(reason("identity_mismatch", f"/stages/{stage_index}/candidate/identity_digest", "upstream candidate identity digest disagrees with its six fields"))
+                reasons.append(reason("identity_mismatch", f"/stages/{stage_index}/candidate/identity_digest", "upstream candidate identity digest disagrees with its declared fields"))
         candidate_snapshots.append({"stage": stage.get("stage"), "candidate": candidate})
     return candidate_snapshots
 

@@ -305,6 +305,15 @@ func TestChangeCardService_CreateChangeCard(t *testing.T) {
 	}
 }
 
+func TestChangeCardService_GenerateMarkdown_ExcludesDatabaseStatus(t *testing.T) {
+	svc := newChangeCardService(&mockChangeCardRepo{}, nil, nil)
+	markdown := svc.generateMarkdown(&models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "Status drift"}, Status: models.ChangeCardStatus("proposed")})
+
+	if strings.Contains(markdown, "status:") {
+		t.Fatalf("change-card markdown must not snapshot database-owned status: %s", markdown)
+	}
+}
+
 func TestChangeCardService_CreateChangeCard_EmptyTitle(t *testing.T) {
 	ctx := context.Background()
 	svc := newChangeCardService(&mockChangeCardRepo{}, nil, nil)

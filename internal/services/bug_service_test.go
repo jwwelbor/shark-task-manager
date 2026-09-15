@@ -383,6 +383,15 @@ func TestBugService_CreateBug_BodyHonored(t *testing.T) {
 	}
 }
 
+func TestBugService_GenerateMarkdown_ExcludesDatabaseStatus(t *testing.T) {
+	svc := newBugService(&mockBugRepo{}, nil, nil, nil)
+	markdown := svc.generateMarkdown(&models.Bug{BaseEntity: models.BaseEntity{Key: "B042", Title: "Status drift"}, Status: models.BugStatus("open"), Severity: models.BugSeverityLow})
+
+	if strings.Contains(markdown, "status:") {
+		t.Fatalf("bug markdown must not snapshot database-owned status: %s", markdown)
+	}
+}
+
 func TestBugService_CreateBug_EmptyTitle(t *testing.T) {
 	ctx := context.Background()
 	svc := newBugService(&mockBugRepo{}, nil, nil, nil)

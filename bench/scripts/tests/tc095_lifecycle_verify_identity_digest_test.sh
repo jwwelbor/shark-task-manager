@@ -42,10 +42,12 @@ RECORD="$WORKDIR/lifecycle.jsonl"
 
 python3 - "$RUNNER" "$REPO_ROOT" "$WORKDIR/scratch" "$RECORD" "$WORKDIR/adapter.sh" <<'PY'
 import json
+import os
 import re
 import sys
 
 runner_path, repo_root, scratch, record_path, adapter_path = sys.argv[1:6]
+os.environ["LIFECYCLE_BENCH_DIR"] = os.path.join(repo_root, "bench")
 
 # Extract the embedded python body (between the `python3 - "$@" <<'PY'` heredoc
 # markers) up to the trailing `try: raise SystemExit(main(...))` driver, so

@@ -38,7 +38,7 @@ candidate = {
     "scratch_content_digest": "0" * 64,
 }
 candidate["snapshot_digest"] = "9" * 64
-candidate["identity_digest"] = digest({key: candidate[key] for key in ["base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest"]})
+candidate["identity_digest"] = digest({key: candidate[key] for key in ["base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest"]})
 policy = {
     "enabled_gates": ["qa", "deep_review"], "gate_order": ["qa", "deep_review"],
     "reviewer": {"provider": "fixture", "model": "judge-1", "effort": "low"},
@@ -111,7 +111,7 @@ IDENTITY_MUTATION_FIELDS = [
     "rendered_prompt_digests", "provider", "model", "effort", "provider_identity", "judge_digest",
     "judge_identity", "reference_digest", "reference_digests", "resource_policy_digest",
 ]
-CANDIDATE_MUTATION_FIELDS = ["base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest"]
+CANDIDATE_MUTATION_FIELDS = ["base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest"]
 POLICY_MUTATION_FIELDS = ["enabled_gates", "gate_order", "reviewer", "prompt_digest", "rendered_prompt_digest", "review_bundle_digest", "deep_review_bundle_digest", "fixes_allowed_between_gates", "fix_policy"]
 
 run(left, right, True)
