@@ -18,6 +18,10 @@ var (
 	// ErrForceReasonRequired indicates --force requires --reason.
 	ErrForceReasonRequired = errors.New("--force requires --reason to document why validation was bypassed")
 
+	// ErrForceTerminalReopenSourceNotTerminal indicates the internal terminal
+	// reopen capability was requested from a non-terminal workflow status.
+	ErrForceTerminalReopenSourceNotTerminal = errors.New("terminal reopen requires a terminal source status")
+
 	// ErrAdvanceGuardSessionRequired indicates guarded advances need a session id.
 	ErrAdvanceGuardSessionRequired = errors.New("advance guard requires --session for guarded advances")
 
@@ -54,15 +58,19 @@ func (e *BackwardReasonError) Is(target error) bool {
 // TransitionOptions controls behavior of status transitions.
 // Used by EpicService.TransitionStatus() and FeatureService.TransitionStatus().
 type TransitionOptions struct {
-	Force        bool   `json:"force,omitempty"`
-	Reason       string `json:"reason,omitempty"`
-	DocumentPath string `json:"document_path,omitempty"`
-	Agent        string `json:"agent,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
-	FromStatus   string `json:"from_status,omitempty"`
-	Outcome      string `json:"outcome,omitempty"`
-	ForceRepeat  bool   `json:"force_repeat,omitempty"`
-	GuardAdvance bool   `json:"guard_advance,omitempty"`
+	Force bool `json:"force,omitempty"`
+	// ForceTerminalReopen permits Force only for a coordinator-authorized
+	// transition whose observed source remains terminal. It also requires a
+	// conditional source-status update, independently of advance_guard config.
+	ForceTerminalReopen bool   `json:"-"`
+	Reason              string `json:"reason,omitempty"`
+	DocumentPath        string `json:"document_path,omitempty"`
+	Agent               string `json:"agent,omitempty"`
+	SessionID           string `json:"session_id,omitempty"`
+	FromStatus          string `json:"from_status,omitempty"`
+	Outcome             string `json:"outcome,omitempty"`
+	ForceRepeat         bool   `json:"force_repeat,omitempty"`
+	GuardAdvance        bool   `json:"guard_advance,omitempty"`
 }
 
 // TransitionResult represents the outcome of a status transition.

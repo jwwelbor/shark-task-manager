@@ -128,20 +128,29 @@ func (t *EntityServiceTransitioner) ResolveEntityID(ctx context.Context, entityT
 // transitions. EntityService ANDs GuardAdvance with the configured
 // advance_guard.enabled flag itself (shouldUseAdvanceGuard), so passing it
 // unconditionally is safe for legacy/unguarded deployments.
+//
+// A gate-result kickback is the coordinator-owned exception that can reopen a
+// completed target. Force only when the caller explicitly authorizes that
+// exception and the pre-transition status is terminal in that entity level's
+// configured workflow; non-terminal kickbacks retain ordinary route
+// validation.
 func (t *EntityServiceTransitioner) Transition(ctx context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string, guard TransitionGuard) (string, bool, error) {
 	repo, err := t.registry.GetRepository(entityType)
 	if err != nil {
 		return "", false, fmt.Errorf("gatepersist: resolve repository for %s: %w", entityType, err)
 	}
 	scoped := t.entitySvc.ForLevel(string(entityType))
+	forceTerminalReopen := guard.ForceTerminalReopen && t.workflowSvc.ForLevel(string(entityType)).IsTerminalStatus(guard.FromStatus)
 	result, err := scoped.TransitionStatus(ctx, repo, entityType, entityKey, targetStatus,
 		services.TransitionOptions{
-			Reason:       reason,
-			Agent:        agent,
-			SessionID:    guard.SessionID,
-			FromStatus:   guard.FromStatus,
-			Outcome:      guard.Outcome,
-			GuardAdvance: true,
+			Force:               forceTerminalReopen,
+			ForceTerminalReopen: forceTerminalReopen,
+			Reason:              reason,
+			Agent:               agent,
+			SessionID:           guard.SessionID,
+			FromStatus:          guard.FromStatus,
+			Outcome:             guard.Outcome,
+			GuardAdvance:        true,
 		},
 		services.SimpleTransitionFeatures(),
 		nil,

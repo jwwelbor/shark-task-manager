@@ -12,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/stretchr/testify/require"
 )
 
 const mainEntityKey = "T-E34-F05-999"
@@ -210,6 +211,23 @@ func TestPersist_OrderingAndContent(t *testing.T) {
 	if len(world.releaseCalls) != 1 {
 		t.Fatalf("expected exactly 1 release call, got %d", len(world.releaseCalls))
 	}
+}
+
+func TestPersist_KickbackAuthorizesTerminalReopen(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	world.setStatus(models.EntityTypeTask, "T-E34-F05-100", "completed")
+	coord := newTestCoordinator(world, defaultValidator())
+
+	_, err := coord.Persist(context.Background(), baseRequest(t, runDir))
+	require.NoError(t, err)
+	require.NotEmpty(t, world.transitionCalls)
+	kickback := world.transitionCalls[0]
+	require.True(t, kickback.guard.ForceTerminalReopen)
+	require.Equal(t, "completed", kickback.guard.FromStatus)
+	require.Equal(t, "sess-1", kickback.guard.SessionID)
+	require.Equal(t, "kickback_rework", kickback.guard.Outcome)
 }
 
 func TestPersist_EvidenceFoldedIntoGateSummaryNote(t *testing.T) {
