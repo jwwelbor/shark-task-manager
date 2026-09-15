@@ -167,10 +167,15 @@ func OverrideStatusAt(dataRoot string) (*OverrideStatusReport, error) {
 		if d.IsDir() {
 			return nil
 		}
-
 		relOS, relErr := filepath.Rel(overridesDir, p)
 		if relErr != nil {
 			return relErr
+		}
+		// Only overrides/.gitkeep is the installer-created directory marker,
+		// not override content. A nested .gitkeep remains ordinary user content
+		// and is classified normally.
+		if relOS == ".gitkeep" && d.Type().IsRegular() {
+			return nil
 		}
 
 		// Path-safety normalization must run before this path is joined

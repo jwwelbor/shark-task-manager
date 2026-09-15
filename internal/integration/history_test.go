@@ -62,6 +62,17 @@ func TestAnalyzeHistory_MissingBaseFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAnalyzeHistory_RejectsUnsafeEpicRunIDBeforeFilesystemOrGitAccess(t *testing.T) {
+	_, err := AnalyzeHistory(t.TempDir(), "../escape", "base", "head", nil)
+	if err == nil {
+		t.Fatal("expected invalid epic run ID to fail")
+	}
+	var validation *BackfillValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("expected *BackfillValidationError, got %T: %v", err, err)
+	}
+}
+
 // TestAnalyzeHistory_UnreachableBaseFailsClosed covers the "exists but not
 // an ancestor of head" half of AC-T1: a real commit that is not on head's
 // ancestry (a discarded branch) still fails closed rather than being

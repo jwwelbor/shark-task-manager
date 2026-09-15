@@ -176,6 +176,9 @@ type HistoryInventory struct {
 // closure check is where a disposition for either list is required, not
 // this function.
 func AnalyzeHistory(projectRoot, epicRunID, base, head string, events []IntegrationEvent) (*HistoryInventory, error) {
+	if err := ValidateEpicRunID(epicRunID); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(head) == "" {
 		return nil, fmt.Errorf("integration: AnalyzeHistory requires a non-empty head — an empty upper bound would let `git rev-list` silently resolve scope from the current HEAD instead of the recorded candidate head")
 	}
