@@ -99,18 +99,24 @@ func filterFeaturesByCompletedStatus(features []FeatureWithTaskCount, showAll bo
 func sortFeatures(features []FeatureWithTaskCount, sortBy string, statusBreakdownBatch map[int64]map[models.TaskStatus]int, cfg *config.WorkflowConfig) {
 	switch sortBy {
 	case "progress":
-		progressPct := func(f FeatureWithTaskCount) float64 {
+		progressPcts := make(map[string]float64, len(features))
+		for _, feature := range features {
 			if cfg == nil {
-				return f.ProgressPct
+				progressPcts[feature.Key] = feature.ProgressPct
+				continue
 			}
-			statusCounts := make(map[string]int)
-			for taskStatus, count := range statusBreakdownBatch[f.ID] {
+			statusCounts := make(map[string]int, len(statusBreakdownBatch[feature.ID]))
+			for taskStatus, count := range statusBreakdownBatch[feature.ID] {
 				statusCounts[string(taskStatus)] = count
 			}
-			return status.CalculateProgress(statusCounts, cfg).WeightedPct
+			progressPcts[feature.Key] = status.CalculateProgress(statusCounts, cfg).WeightedPct
 		}
-		sort.Slice(features, func(i, j int) bool {
-			return progressPct(features[i]) < progressPct(features[j])
+		sort.SliceStable(features, func(i, j int) bool {
+			left, right := progressPcts[features[i].Key], progressPcts[features[j].Key]
+			if left == right {
+				return features[i].Key < features[j].Key
+			}
+			return left < right
 		})
 	case "status":
 		statusOrder := map[models.FeatureStatus]int{
