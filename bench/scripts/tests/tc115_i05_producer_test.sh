@@ -1373,7 +1373,7 @@ run_tc009_case() {
 	cat >"$workdir/adapter.sh" <<ADAPTER
 #!/usr/bin/env bash
 set -euo pipefail
-python3 -c 'import json,sys; request=json.load(sys.stdin); print(json.dumps({"worker_id":"w","session_id":request["session_id"],"kind":"final","recommended_outcome":"pass","cost_usd":0.0,"evidence":{"summary":"tc009"}$extra}))'
+python3 -c 'import json,sys,time; request=json.load(sys.stdin); time.sleep(0.01); print(json.dumps({"worker_id":"w","session_id":request["session_id"],"kind":"final","recommended_outcome":"pass","cost_usd":0.0,"evidence":{"summary":"tc009"}$extra}))'
 ADAPTER
 	chmod +x "$workdir/adapter.sh"
 	PATH="$workdir/bin:$PATH" SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" \
