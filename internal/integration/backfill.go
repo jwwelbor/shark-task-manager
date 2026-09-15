@@ -193,6 +193,10 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 			Reason:  "epic already has a registered integration run; backfill only applies to an epic with no existing registration",
 		}
 	}
+	recoveredPrefix, err := backfillRecoveryPrefix(projectRoot, epicRunID, base, events)
+	if err != nil {
+		return nil, err
+	}
 
 	if dryRun {
 		return simulateBackfillCandidate(epicRunID, base, events)
@@ -210,6 +214,12 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		candidate *IntegrationCandidate
 		lastEvent *IntegrationEvent
 	)
+	if recoveredPrefix > 0 {
+		candidate, err = GetCandidate(ctx, epicRunID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	for i := range events {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("integration: backfill before event %d: %w", i, err)
@@ -219,9 +229,14 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		if err != nil {
 			return nil, fmt.Errorf("integration: backfill record event %d (%s): %w", i, input.FeatureKey, err)
 		}
-		candidate, err = UpdateCandidate(ctx, epicRunID, recorded)
-		if err != nil {
-			return nil, fmt.Errorf("integration: backfill update candidate for event %d (%s): %w", i, input.FeatureKey, err)
+		if err := validateBackfillEvent(recorded, epicRunID, input); err != nil {
+			return nil, err
+		}
+		if i >= recoveredPrefix {
+			candidate, err = UpdateCandidate(ctx, epicRunID, recorded)
+			if err != nil {
+				return nil, fmt.Errorf("integration: backfill update candidate for event %d (%s): %w", i, input.FeatureKey, err)
+			}
 		}
 		lastEvent = recorded
 	}
@@ -231,6 +246,58 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	}
 
 	return candidate, nil
+}
+
+// backfillRecoveryPrefix validates a retained candidate as an exact ordered
+// prefix of this retry input. Only that state is safe to resume: a candidate
+// containing a different base, an invalid digest, or a non-prefix event set
+// may belong to another operation and must not be merged by guesswork.
+func backfillRecoveryPrefix(projectRoot, epicRunID, base string, events []IntegrationEvent) (int, error) {
+	candidate, _, err := readCandidate(candidatePath(projectRoot, epicRunID))
+	if err != nil || candidate == nil {
+		return 0, err
+	}
+	if candidate.EpicRunID != epicRunID || candidate.BaseCommit != base {
+		return 0, &RegistrationConflictError{Reason: "retained candidate does not match this retry's run identity or base"}
+	}
+	digest, err := computeDigest(*candidate)
+	if err != nil || digest != candidate.Digest {
+		return 0, &RegistrationConflictError{Reason: "retained candidate digest is invalid"}
+	}
+	for prefix := 1; prefix <= len(events); prefix++ {
+		ids := make([]string, prefix)
+		for i := range ids {
+			ids[i] = events[i].EventID
+		}
+		sort.Strings(ids)
+		if !sameBackfillStrings(candidate.EventIDs, ids) {
+			continue
+		}
+		if candidate.HeadCommit != events[prefix-1].FeatureCommit {
+			return 0, &RegistrationConflictError{Reason: "retained candidate head does not match its retry prefix"}
+		}
+		return prefix, nil
+	}
+	return 0, &RegistrationConflictError{Reason: "retained candidate event set is not a retry-input prefix"}
+}
+
+func sameBackfillStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func validateBackfillEvent(recorded *IntegrationEvent, epicRunID string, input IntegrationEvent) error {
+	if recorded.EpicRunID != epicRunID || recorded.EventID != input.EventID || recorded.FeatureKey != input.FeatureKey || recorded.FeatureCommit != input.FeatureCommit || !sameBackfillStrings(recorded.TrackedPaths, input.TrackedPaths) || !sameBackfillStrings(recorded.UntrackedPaths, input.UntrackedPaths) {
+		return &RegistrationConflictError{Reason: fmt.Sprintf("retained event %s does not match retry input", input.EventID)}
+	}
+	return nil
 }
 
 // verifyCommitReachable rejects base as a *BackfillValidationError unless it
@@ -292,18 +359,10 @@ func validateBackfillEvents(epicRunID string, events []IntegrationEvent) error {
 // below resolves that part of an exact retry idempotently, the same way
 // CaptureBase resolves a repeated call for the same epic.
 //
-// Named gap: this only covers the run-record itself. A retry of a backfill
-// that crashed *after* writing one or more events/candidate updates but
-// *before* RegisterRun ever ran is not handled — UpdateCandidate's
-// per-transition claim files (candidate.go) are retained forever, so
-// re-folding an already-applied event reproduces a digest transition whose
-// claim file already exists and returns a spurious *CandidateConflictError
-// rather than resuming. T-E34-F08-014's crash-restart repair is scoped to
-// RegisterRun's own fsync-then-note-insert step (run.go), not this
-// earlier, multi-event backfill loop — fixing this would mean skipping
-// already-applied events on retry, which is beyond this task's ACs. A
-// crashed backfill must currently be retried against a clean epic (the
-// run/event/candidate files removed by hand) rather than resumed in place.
+// Candidate and event recovery is validated separately by
+// backfillRecoveryPrefix before this function is called. That validation
+// permits only a digest-valid candidate that is an exact prefix of the
+// retry input; other retained state remains a RegistrationConflictError.
 func checkExistingRun(projectRoot, epicKey, epicRunID, base string) error {
 	existing, err := readRun(runRecordPath(projectRoot, epicKey))
 	if err != nil {
