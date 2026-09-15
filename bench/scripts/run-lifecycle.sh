@@ -604,7 +604,7 @@ WORKFLOW_LEVEL_NORMALIZE = {"tech-debt": "tech_debt"}
 
 
 def prelude_lineage(prelude):
-    """Project replay join keys before the diagnostic prelude is bounded."""
+    """Project resolver-owned replay join keys before bounding the prelude."""
     replay = prelude.get("replay") or {}
     replay_bundle = replay.get("replay_bundle") or {}
     reference = replay_bundle.get("bundle_path")
@@ -612,15 +612,15 @@ def prelude_lineage(prelude):
     for stage in replay.get("stages") or []:
         if not isinstance(stage, dict):
             continue
-        for artifact in stage.get("artifacts") or []:
-            if not isinstance(artifact, dict):
-                continue
-            for entry in artifact.get("consumed_entries") or []:
-                if isinstance(entry, dict) and entry.get("entry_digest"):
-                    lineage.append({
-                        "replay_reference": reference,
-                        "entry_digest": entry["entry_digest"],
-                    })
+        # I-06 REQ-F-009 assigns the resolver-owned stage ledger as the
+        # authoritative source. Artifact claims are optional and must not
+        # create I-05 replay lineage.
+        for entry in stage.get("consumed_entries") or []:
+            if isinstance(entry, dict) and entry.get("entry_digest"):
+                lineage.append({
+                    "replay_reference": reference,
+                    "entry_digest": entry["entry_digest"],
+                })
     return sorted(lineage, key=lambda item: (str(item["replay_reference"]), str(item["entry_digest"])))
 
 

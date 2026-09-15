@@ -131,7 +131,7 @@ json.dump({
         "bundle_version": "1.0.0",
     },
     "stages": [
-        {"stage": "D01", "artifacts": [{"consumed_entries": consumed_entries}]},
+        {"stage": "D01", "consumed_entries": consumed_entries, "artifacts": []},
         {"stage": "D02"}, {"stage": "D03"}, {"stage": "D04"}, {"stage": "D05"},
     ],
     "questions": [{
@@ -255,8 +255,43 @@ assert snapshot["replay_lineage"] == [
 # copy retains only 32 nested consumed entries, so this proves the snapshot
 # did not take its semantic lineage from that diagnostic copy.
 record = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-diagnostic_entries = record["prelude"]["replay"]["stages"][0]["artifacts"][0]["consumed_entries"]
+diagnostic_entries = record["prelude"]["replay"]["stages"][0]["consumed_entries"]
 assert len(diagnostic_entries) == 32, diagnostic_entries
+PY
+
+# Artifact-scoped claims are optional and non-authoritative. They must never
+# manufacture I-05 replay lineage when the resolver-owned stage ledger is
+# empty. Keep all 40 claims here so this is also a counterfactual against a
+# future bounded diagnostic source.
+python3 - "$WORKDIR/feature.jsonl" "$WORKDIR/artifact-only.jsonl" <<'PY'
+import json
+import sys
+
+prelude = json.loads(open(sys.argv[1], encoding="utf-8").readline())
+stage = prelude["replay"]["stages"][0]
+claims = stage.pop("consumed_entries")
+stage["artifacts"] = [{"consumed_entries": claims}]
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    json.dump(prelude, stream, separators=(",", ":"))
+    stream.write("\n")
+PY
+
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
+  SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+  "$RUNNER" --scenario "$RUNNER_SCENARIO" --prelude "$WORKDIR/artifact-only.jsonl" \
+  --run-id tc065-artifact-only --root ROOT-LINEAGE --scratch-root "$WORKDIR/scratch" \
+  --i05-bundle-dir "$WORKDIR/artifact-only-i05" --output "$WORKDIR/artifact-only.jsonl.out" --mode dry-run \
+  || fail "artifact-only replay-lineage fixture run failed"
+
+python3 - "$WORKDIR/artifact-only-i05" <<'PY'
+import json
+import pathlib
+import sys
+
+i05_dir = pathlib.Path(sys.argv[1])
+bundle = json.loads((i05_dir / "bundle.json").read_text(encoding="utf-8"))
+snapshot = json.loads((i05_dir / bundle["stages"][0]["snapshot_path"]).read_text(encoding="utf-8"))
+assert snapshot["replay_lineage"] == [], snapshot
 PY
 
 if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
