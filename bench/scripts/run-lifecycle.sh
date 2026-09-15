@@ -605,8 +605,14 @@ WORKFLOW_LEVEL_NORMALIZE = {"tech-debt": "tech_debt"}
 
 def prelude_lineage(prelude):
     """Project resolver-owned replay join keys before bounding the prelude."""
+    if not isinstance(prelude, dict):
+        raise RuntimeError("lifecycle prelude must be a JSON object")
     replay = prelude.get("replay") or {}
+    if not isinstance(replay, dict):
+        raise RuntimeError("lifecycle prelude replay must be a JSON object")
     replay_bundle = replay.get("replay_bundle") or {}
+    if not isinstance(replay_bundle, dict):
+        raise RuntimeError("lifecycle prelude replay_bundle must be a JSON object")
     reference = replay_bundle.get("bundle_path")
     lineage = []
     for stage in replay.get("stages") or []:
@@ -2314,6 +2320,8 @@ def main(argv):
             raise RuntimeError(f"lifecycle prelude failed without retained evidence ({process.returncode}): {detail}")
     if prelude_path is not None:
         prelude = load_json(prelude_path.read_text(encoding="utf-8"), "lifecycle prelude")
+        if not isinstance(prelude, dict):
+            raise RuntimeError("lifecycle prelude must be a JSON object")
         if prelude.get("scenario_id") != identity["scenario_id"]:
             raise RuntimeError("lifecycle prelude scenario_id does not match the scenario package")
         # Derive the semantic I-06 join projection while the parsed prelude

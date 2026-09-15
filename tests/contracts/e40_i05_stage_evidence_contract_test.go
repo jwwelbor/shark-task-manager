@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -173,9 +174,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 			}},
 		}}
 		errs := e40I05ValidateArtifacts(artifacts, schema, "typed-edge")
-		if !e40ContainsErrorMatching(errs, "unexpected_field", "unexpected") {
-			t.Fatalf("consumer unexpected field was not rejected: %v", errs)
-		}
+		require.True(t, e40ContainsErrorMatching(errs, "unexpected_field", "unexpected"), "consumer unexpected field was not rejected: %v", errs)
 	})
 
 	// AC-T1 (task spec): usage-mapping.yaml's own required shape --
