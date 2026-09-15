@@ -3,9 +3,26 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
+
+func TestReadBoundedStream_DrainsAndReportsExcess(t *testing.T) {
+	input := strings.Repeat("x", workercontrol.MaxEnvelopeBytes+1)
+	captured := readBoundedStream(strings.NewReader(input), workercontrol.MaxEnvelopeBytes)
+	if captured.err != nil {
+		t.Fatalf("readBoundedStream: %v", captured.err)
+	}
+	if !captured.exceeded {
+		t.Fatal("expected excess output to be reported")
+	}
+	if len(captured.data) != workercontrol.MaxEnvelopeBytes {
+		t.Fatalf("retained %d bytes, want %d", len(captured.data), workercontrol.MaxEnvelopeBytes)
+	}
+}
 
 // Compile-time interface satisfiability check (INT-F01-1)
 // This causes a compile error if ClaudeDispatcher does not satisfy AgentDispatcher.

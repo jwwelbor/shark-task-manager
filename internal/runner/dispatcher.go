@@ -8,6 +8,8 @@ import (
 	"io"
 	"os/exec"
 	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
 // DefaultDisallowedTools is the set of shark status-advancement commands that are
@@ -178,26 +180,35 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 	}
 
 	// Read stdout and stderr concurrently to prevent pipe deadlocks.
-	stdoutCh := make(chan []byte, 1)
-	stderrCh := make(chan []byte, 1)
+	type capturedStream struct {
+		data     []byte
+		exceeded bool
+		err      error
+	}
+	stdoutCh := make(chan capturedStream, 1)
+	stderrCh := make(chan capturedStream, 1)
 
 	go func() {
-		data, _ := io.ReadAll(stdoutPipe)
-		stdoutCh <- data
+		stdoutCh <- readBoundedStream(stdoutPipe, workercontrol.MaxEnvelopeBytes)
 	}()
 	go func() {
-		data, _ := io.ReadAll(stderrPipe)
-		stderrCh <- data
+		stderrCh <- readBoundedStream(stderrPipe, workercontrol.MaxEnvelopeBytes)
 	}()
 
-	stdoutData := <-stdoutCh
-	stderrData := <-stderrCh
+	stdoutCapture := <-stdoutCh
+	stderrCapture := <-stderrCh
 
 	waitErr := cmd.Wait()
 	duration := time.Since(start)
+	if stdoutCapture.err != nil || stderrCapture.err != nil {
+		return nil, fmt.Errorf("capture agent output: stdout=%v stderr=%v", stdoutCapture.err, stderrCapture.err)
+	}
+	if stdoutCapture.exceeded || stderrCapture.exceeded {
+		return nil, fmt.Errorf("agent output exceeds the maximum capture size of %d bytes", workercontrol.MaxEnvelopeBytes)
+	}
 
-	stdout := string(stdoutData)
-	stderr := string(stderrData)
+	stdout := string(stdoutCapture.data)
+	stderr := string(stderrCapture.data)
 
 	exitCode := 0
 	if waitErr != nil {
@@ -226,4 +237,30 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 	}
 
 	return result, nil
+}
+
+// readBoundedStream retains at most max bytes while continuing to drain the
+// reader after the cap. Draining avoids blocking the child process on a full
+// pipe when a misbehaving worker emits excessive output.
+func readBoundedStream(r io.Reader, max int) (result struct {
+	data     []byte
+	exceeded bool
+	err      error
+}) {
+	limited := io.LimitReader(r, int64(max)+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		result.err = err
+		return result
+	}
+	if len(data) > max {
+		result.exceeded = true
+		data = data[:max]
+	}
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		result.err = err
+		return result
+	}
+	result.data = data
+	return result
 }
