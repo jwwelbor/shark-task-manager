@@ -15,8 +15,9 @@
 #      tc020 documents).
 #   2. AC-T1 -- `checkout-scenario-fixture.sh <fixture_id> <base_sha>
 #      <dest_dir>` resolves `submodule_path` from `bench/scenarios/scenarios.yaml`
-#      and clones/checks out both registered fixtures (`py`, `go`) at the
-#      requested SHA.
+#      and clones/checks out every registered fixture at the requested SHA.
+#      It also exercises each explicit guard: wrong arity, unregistered id,
+#      and a destination that already exists.
 #   3. AC-T3 -- F01's own TC-004, TC-006, TC-007 still pass UNMODIFIED,
 #      proving `admit.sh`/`build-ledgers.sh` were not silently repointed at
 #      the new script (a repointed caller would only surface here, not in a
@@ -38,8 +39,6 @@ CHECKOUT_FIXTURE_SCRIPT="$SCRIPTS_DIR/checkout-fixture.sh"
 CHECKOUT_SCENARIO_FIXTURE_SCRIPT="$SCRIPTS_DIR/checkout-scenario-fixture.sh"
 CORPUS_YAML="$BENCH_DIR/corpus/corpus.yaml"
 SCENARIOS_YAML="$BENCH_DIR/scenarios/scenarios.yaml"
-GO_FIXTURE_SUBMODULE="$BENCH_DIR/fixture-repo"
-PY_FIXTURE_SUBMODULE="$BENCH_DIR/fixture-py"
 
 fail() {
 	echo "TC-038 FAIL: $1" >&2
@@ -50,8 +49,6 @@ fail() {
 [[ -x "$CHECKOUT_SCENARIO_FIXTURE_SCRIPT" ]] || fail "checkout-scenario-fixture.sh missing or not executable: $CHECKOUT_SCENARIO_FIXTURE_SCRIPT"
 [[ -f "$CORPUS_YAML" ]] || fail "corpus.yaml missing: $CORPUS_YAML"
 [[ -f "$SCENARIOS_YAML" ]] || fail "scenarios.yaml missing: $SCENARIOS_YAML"
-[[ -e "$GO_FIXTURE_SUBMODULE/.git" ]] || fail "bench/fixture-repo submodule not initialized; run 'git submodule update --init'"
-[[ -e "$PY_FIXTURE_SUBMODULE/.git" ]] || fail "bench/fixture-py submodule not initialized; run 'git submodule update --init'"
 command -v git >/dev/null 2>&1 || fail "git not found on PATH"
 
 WORKDIR="$(mktemp -d)"
@@ -82,23 +79,12 @@ fi
 
 # ---------------------------------------------------------------------------
 # Part 2 -- AC-T1: checkout-scenario-fixture.sh resolves submodule_path
-# from scenarios.yaml and clones/checks out both registered fixtures.
+# from scenarios.yaml and clones/checks out every registered fixture. Parse
+# the live registry here instead of duplicating fixture ids/paths in test
+# constants: a hardcoded lookup table could pass if the script stopped
+# consulting scenarios.yaml.
 # ---------------------------------------------------------------------------
 echo "TC-038: part 2 - checkout-scenario-fixture.sh resolves both registered fixtures (AC-T1)"
-
-GO_BASE_SHA="$(python3 - "$CORPUS_YAML" <<'PYEOF'
-import sys
-import yaml
-
-with open(sys.argv[1]) as f:
-    data = yaml.safe_load(f)
-print(data["fixture"]["base_sha"])
-PYEOF
-)"
-[[ -n "$GO_BASE_SHA" ]] || fail "could not derive base_sha from $CORPUS_YAML"
-
-PY_BASE_SHA="$(git -C "$PY_FIXTURE_SUBMODULE" rev-parse HEAD)"
-[[ -n "$PY_BASE_SHA" ]] || fail "could not derive HEAD sha from $PY_FIXTURE_SUBMODULE"
 
 check_fixture_checkout() {
 	# check_fixture_checkout <fixture_id> <base_sha> <expected_submodule_dir>
@@ -121,10 +107,55 @@ check_fixture_checkout() {
 	echo "TC-038: $fixture_id fixture resolved via scenarios.yaml and checked out at $sha"
 }
 
-check_fixture_checkout py "$PY_BASE_SHA" "$PY_FIXTURE_SUBMODULE"
-check_fixture_checkout go "$GO_BASE_SHA" "$GO_FIXTURE_SUBMODULE"
+while IFS=$'\t' read -r fixture_id base_sha submodule; do
+	[[ -n "$fixture_id" && -n "$base_sha" && -n "$submodule" ]] || fail "scenarios.yaml yielded an incomplete fixture registration"
+	[[ -e "$submodule/.git" ]] || fail "$fixture_id fixture submodule not initialized: $submodule (run 'git submodule update --init')"
+	check_fixture_checkout "$fixture_id" "$base_sha" "$submodule"
+done < <(python3 - "$SCENARIOS_YAML" "$CORPUS_YAML" "$BENCH_DIR" <<'PYEOF'
+import os
+import sys
+import yaml
 
-echo "TC-038(part 2: both registered fixtures resolve via scenarios.yaml and clone/checkout at the requested SHA) PASS"
+scenarios_path, corpus_path, bench_dir = sys.argv[1:]
+with open(scenarios_path) as f:
+    scenarios = yaml.safe_load(f) or {}
+with open(corpus_path) as f:
+    corpus = yaml.safe_load(f) or {}
+
+for fixture_id, entry in sorted((scenarios.get("fixtures") or {}).items()):
+    rel = (entry or {}).get("submodule_path")
+    if not rel:
+        raise SystemExit(f"fixture {fixture_id!r} has no submodule_path")
+    # I-01's Go fixture keeps its immutable base SHA in corpus.yaml; other
+    # registered fixtures are pinned by their checked-out submodule HEAD.
+    if fixture_id == "go":
+        base_sha = ((corpus.get("fixture") or {}).get("base_sha"))
+    else:
+        import subprocess
+        base_sha = subprocess.check_output(["git", "-C", os.path.join(bench_dir, os.path.basename(rel)), "rev-parse", "HEAD"], text=True).strip()
+    if not base_sha:
+        raise SystemExit(f"fixture {fixture_id!r} has no resolvable base SHA")
+    print(f"{fixture_id}\t{base_sha}\t{os.path.join(bench_dir, os.path.basename(rel))}")
+PYEOF
+)
+
+expect_rejected() {
+	# expect_rejected <label> <stderr-token> <command...>
+	local label="$1" token="$2"
+	shift 2
+	if "$@" >"$WORKDIR/$label.out" 2>"$WORKDIR/$label.err"; then
+		fail "$label: expected checkout-scenario-fixture.sh to reject the invocation"
+	fi
+	grep -qi -- "$token" "$WORKDIR/$label.err" || fail "$label: rejection did not name $token: $(cat "$WORKDIR/$label.err")"
+	echo "TC-038: $label guard rejected as expected"
+}
+
+expect_rejected wrong-arg-count usage "$CHECKOUT_SCENARIO_FIXTURE_SCRIPT" py
+expect_rejected unregistered-fixture fixture_id "$CHECKOUT_SCENARIO_FIXTURE_SCRIPT" does-not-exist 0000000000000000000000000000000000000000 "$WORKDIR/unregistered"
+mkdir "$WORKDIR/existing-destination"
+expect_rejected pre-existing-destination dest_dir "$CHECKOUT_SCENARIO_FIXTURE_SCRIPT" py 0000000000000000000000000000000000000000 "$WORKDIR/existing-destination"
+
+echo "TC-038(part 2: registered fixtures resolve via scenarios.yaml, clone/checkout at requested SHAs, and all guards reject) PASS"
 
 # ---------------------------------------------------------------------------
 # Part 3 -- AC-T3: F01's own TC-004, TC-006, TC-007 still pass UNMODIFIED.

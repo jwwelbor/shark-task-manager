@@ -560,6 +560,22 @@ A curator re-runs this exact sequence whenever a scenario package,
 REQ-NF-004's "byte-identical verdicts... at an unchanged fixture SHA and
 toolchain identity" still holds:
 
+Before running it, use the committed Python toolchain that each package's
+`toolchain_identity` records: Python **3.12.3**, pytest **9.1.1**, ruff
+**0.16.2**, and black **26.5.1**. An unpinned environment can correctly run
+the tools yet still produce a different identity, so its admission result is
+not reproducible evidence for this corpus. For example:
+
+```bash
+uv venv --python 3.12 .venv-bench
+source .venv-bench/bin/activate
+uv pip install pytest==9.1.1 ruff==0.16.2 black==26.5.1 PyYAML
+python --version  # Python 3.12.3
+```
+
+The `pyproject_sha256` entry in every package is a fixture-content pin, not a
+package to install; let `adapter.sh identity` report it from the checkout.
+
 ```bash
 # 1. Initialize both fixture submodules (once per clone/checkout).
 git submodule update --init

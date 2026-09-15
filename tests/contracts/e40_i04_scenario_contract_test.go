@@ -404,6 +404,117 @@ func TestTC030_I04ScenarioPackageContract(t *testing.T) {
 			}
 		})
 
+		// AC-019's production packages all carry matching admission and
+		// top-level toolchain identities. Exercise every admission-specific
+		// rejection path directly so the cross-encoding guard cannot disappear
+		// behind otherwise-valid committed fixtures.
+		t.Run("admission_validation", func(t *testing.T) {
+			baseData, err := os.ReadFile(filepath.Join(testdataDir, "valid", "package.yaml"))
+			if err != nil {
+				t.Fatalf("read valid baseline: %v", err)
+			}
+			validAdmission := func() map[string]interface{} {
+				return map[string]interface{}{
+					"status":            "admitted",
+					"base_outcome":      false,
+					"reference_outcome": true,
+					"toolchain_identity": []interface{}{
+						map[string]interface{}{"key": "python_version", "value": "3.12.0"},
+						map[string]interface{}{"key": "pytest_version", "value": "8.0.0"},
+					},
+				}
+			}
+			cases := []struct {
+				name string
+				edit func(map[string]interface{})
+				want string
+			}{
+				{"empty_status", func(admission map[string]interface{}) { admission["status"] = "" }, "admission.status"},
+				{"base_outcome_not_boolean", func(admission map[string]interface{}) { admission["base_outcome"] = "false" }, "admission.base_outcome"},
+				{"reference_outcome_not_boolean", func(admission map[string]interface{}) { admission["reference_outcome"] = nil }, "admission.reference_outcome"},
+				{"unknown_key", func(admission map[string]interface{}) { admission["unexpected"] = true }, "admission.unexpected"},
+				{"toolchain_identity_differs_from_top_level", func(admission map[string]interface{}) {
+					admission["toolchain_identity"] = []interface{}{
+						map[string]interface{}{"key": "python_version", "value": "3.12.0"},
+						map[string]interface{}{"key": "pytest_version", "value": "8.0.1"},
+					}
+				}, "admission.toolchain_identity != top-level toolchain_identity"},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					pkg := e40I04ParseYAMLMap(t, baseData)
+					admission := validAdmission()
+					tc.edit(admission)
+					pkg["admission"] = admission
+					errs := e40I04ValidateScenarioPackage(pkg, index, testdataDir, filepath.Join(testdataDir, "valid", "evaluator"))
+					if !e40ContainsErrorMatching(errs, tc.want) {
+						t.Errorf("expected an error naming %q, got:\n%s", tc.want, strings.Join(errs, "\n"))
+					}
+				})
+			}
+		})
+
+		// Each predicate branch has a dedicated empty-operand regression. The
+		// packages in the corpus provide positive coverage; these compact maps
+		// isolate each required operand so an unrelated package field cannot
+		// mask a deleted branch in e40I04ValidateFinalPredicate.
+		t.Run("final_predicate_empty_operands", func(t *testing.T) {
+			predicate := func(kind string) map[string]interface{} {
+				return map[string]interface{}{
+					"kind": kind,
+					"p2p_selection": map[string]interface{}{
+						"include":          []interface{}{"tests::p2p"},
+						"exclude_test_ids": []interface{}{},
+					},
+				}
+			}
+			type predicateCase struct {
+				name   string
+				family string
+				value  map[string]interface{}
+				want   string
+			}
+			makeCase := func(name, family, kind, want string, mutate func(map[string]interface{})) predicateCase {
+				p := predicate(kind)
+				mutate(p)
+				return predicateCase{name: name, family: family, value: p, want: want}
+			}
+			cases := []predicateCase{
+				makeCase("f2p_test_ids", "bug", "f2p_p2p", "final_predicate.f2p_test_ids", func(p map[string]interface{}) { p["f2p_test_ids"] = []interface{}{} }),
+				makeCase("acceptance_test_ids", "change_card", "acceptance_tests", "final_predicate.acceptance_test_ids", func(p map[string]interface{}) { p["acceptance_test_ids"] = []interface{}{} }),
+				makeCase("rule", "tech_debt", "p2p_plus_rule_drop", "final_predicate.rule", func(p map[string]interface{}) { p["rule"] = ""; p["max_remaining"] = 0 }),
+				makeCase("max_remaining", "tech_debt", "p2p_plus_rule_drop", "final_predicate.max_remaining", func(p map[string]interface{}) { p["rule"] = "F811" }),
+				makeCase("integration_test_ids", "feature", "child_oracles_union", "final_predicate.integration_test_ids", func(p map[string]interface{}) {
+					p["integration_test_ids"] = []interface{}{}
+					p["child_oracles"] = []interface{}{"tests::child"}
+				}),
+				makeCase("child_oracles", "feature", "child_oracles_union", "final_predicate.child_oracles", func(p map[string]interface{}) {
+					p["integration_test_ids"] = []interface{}{"tests::integration"}
+					p["child_oracles"] = []interface{}{}
+				}),
+				makeCase("descendant_integration_test_ids", "epic", "descendant_oracles_union", "final_predicate.integration_test_ids", func(p map[string]interface{}) {
+					p["integration_test_ids"] = []interface{}{}
+					p["child_oracles"] = []interface{}{"tests::child"}
+				}),
+				makeCase("descendant_child_oracles", "epic", "descendant_oracles_union", "final_predicate.child_oracles", func(p map[string]interface{}) {
+					p["integration_test_ids"] = []interface{}{"tests::integration"}
+					p["child_oracles"] = []interface{}{}
+				}),
+				makeCase("p2p_selection_include", "bug", "f2p_p2p", "final_predicate.p2p_selection.include", func(p map[string]interface{}) {
+					p["f2p_test_ids"] = []interface{}{"tests::f2p"}
+					p["p2p_selection"] = map[string]interface{}{"include": []interface{}{}, "exclude_test_ids": []interface{}{}}
+				}),
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					errs := e40I04ValidateFinalPredicate(tc.value, tc.family)
+					if !e40ContainsErrorMatching(errs, tc.want) {
+						t.Errorf("expected an error naming %q, got:\n%s", tc.want, strings.Join(errs, "\n"))
+					}
+				})
+			}
+		})
+
 		// TC-19/21 (AC-F11-19, AC-F11-21, REQ-F-007): the widened six-value
 		// entity_family vocabulary accepts exactly epic|feature|task|bug|
 		// change_card|tech_debt and rejects every other value, with the
