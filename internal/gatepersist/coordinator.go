@@ -482,9 +482,10 @@ func (c *Coordinator) applyKickback(ctx context.Context, op operation, subID str
 	}
 	reason := buildKickbackReason(k.Reason, subID, op.contentDigest(), req.RunID)
 	guard := TransitionGuard{
-		SessionID:  req.Session.ID,
-		FromStatus: fromStatus,
-		Outcome:    req.OutcomeKey,
+		SessionID:           req.Session.ID,
+		FromStatus:          fromStatus,
+		Outcome:             req.OutcomeKey,
+		ForceTerminalReopen: true,
 	}
 	if _, _, err := c.Transition.Transition(ctx, entityType, k.EntityKey, k.TargetStatus, reason, req.Session.Agent, guard); err != nil {
 		return fmt.Errorf("gatepersist: apply kickback to %s: %w", k.EntityKey, err)

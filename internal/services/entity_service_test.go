@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/require"
 )
 
 // Compile-time assertion: *repository.EntityHistoryRepository satisfies EntityHistoryRecorder.
@@ -236,6 +237,20 @@ func TestEntityService_TransitionStatus_ForcedWithReason(t *testing.T) {
 	if result.Reason != "emergency rollback" {
 		t.Errorf("expected reason 'emergency rollback', got %q", result.Reason)
 	}
+}
+
+func TestEntityService_TransitionStatus_TerminalReopenRejectsNonTerminalSource(t *testing.T) {
+	svc := newTestEntityService(t)
+	repo := &mockEntityRepo{
+		getByKeyFn: func(context.Context, string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+	}
+
+	_, err := svc.TransitionStatus(context.Background(), repo, models.EntityTypeEpic, "E01", "completed",
+		TransitionOptions{Force: true, ForceTerminalReopen: true, FromStatus: "draft", Reason: "gate rework"},
+		DefaultTransitionFeatures(), nil)
+	require.ErrorIs(t, err, ErrForceTerminalReopenSourceNotTerminal)
 }
 
 func TestEntityService_TransitionStatus_ForcedWithoutReason(t *testing.T) {

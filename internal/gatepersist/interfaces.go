@@ -51,9 +51,10 @@ type StatusValidator interface {
 // (shouldUseAdvanceGuard), so a legacy/unguarded deployment is unaffected
 // and this package never needs its own copy of that config decision.
 type TransitionGuard struct {
-	SessionID  string
-	FromStatus string
-	Outcome    string
+	SessionID           string
+	FromStatus          string
+	Outcome             string
+	ForceTerminalReopen bool
 }
 
 // Transitioner applies a workflow status transition to one entity, recording

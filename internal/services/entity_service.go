@@ -397,6 +397,20 @@ func (s *EntityService) updateTransitionStatus(
 	opts TransitionOptions,
 ) error {
 	if !s.shouldUseAdvanceGuard(opts) {
+		// A terminal reopen is authorized from an observed source status. Even
+		// when the optional replay ledger is disabled, preserve that narrow
+		// authorization boundary with a conditional update so a concurrent
+		// non-terminal transition cannot inherit its forced route bypass.
+		if opts.ForceTerminalReopen {
+			updated, err := repo.UpdateStatusIfCurrent(ctx, entityID, currentStatus, targetStatus)
+			if err != nil {
+				return fmt.Errorf("failed to update %s status: %w", entityType, err)
+			}
+			if !updated {
+				return ErrAdvanceGuardStaleFromStatus
+			}
+			return nil
+		}
 		if err := repo.UpdateStatus(ctx, entityID, targetStatus); err != nil {
 			return fmt.Errorf("failed to update %s status: %w", entityType, err)
 		}
@@ -430,6 +444,18 @@ func (s *EntityService) shouldUseAdvanceGuard(opts TransitionOptions) bool {
 }
 
 func (s *EntityService) enforceAdvanceGuard(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityID int64, currentStatus string, opts TransitionOptions) error {
+	if opts.ForceTerminalReopen {
+		if strings.TrimSpace(opts.FromStatus) == "" {
+			return ErrAdvanceGuardFromStatusRequired
+		}
+		fromStatus := s.workflowSvc.NormalizeStatus(strings.TrimSpace(opts.FromStatus))
+		if !s.workflowSvc.IsTerminalStatus(fromStatus) {
+			return ErrForceTerminalReopenSourceNotTerminal
+		}
+		if !strings.EqualFold(fromStatus, s.workflowSvc.NormalizeStatus(currentStatus)) {
+			return ErrAdvanceGuardStaleFromStatus
+		}
+	}
 	if !s.shouldUseAdvanceGuard(opts) {
 		return nil
 	}
