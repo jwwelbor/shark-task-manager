@@ -239,6 +239,9 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		}
 		lastEvent = recorded
 	}
+	if err := validateCompletedBackfillCandidate(candidate, events); err != nil {
+		return nil, err
+	}
 
 	if _, err := RegisterRun(ctx, recorder, run, candidate, lastEvent, createdBy); err != nil {
 		return nil, err
@@ -255,12 +258,12 @@ type backfillManifest struct {
 	Digest     string             `json:"digest"`
 }
 
-func backfillManifestPath(projectRoot, epicRunID string) string {
-	return filepath.Join(projectRoot, ".shark", "runs", epicRunID, "backfill-manifest.json")
+func backfillManifestPath(projectRoot, epicKey string) string {
+	return filepath.Join(projectRoot, ".shark", "integration", epicKey, "backfill-manifest.json")
 }
 
 func ensureBackfillManifest(projectRoot, epicKey, epicRunID, base string, events []IntegrationEvent) error {
-	path := backfillManifestPath(projectRoot, epicRunID)
+	path := backfillManifestPath(projectRoot, epicKey)
 	want := backfillManifest{EpicKey: epicKey, EpicRunID: epicRunID, BaseCommit: base, Events: events}
 	digest, err := digestBackfillManifest(want)
 	if err != nil {
@@ -302,7 +305,7 @@ func publishBackfillManifest(path string, data []byte, projectRoot, epicKey, epi
 	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
 		return fmt.Errorf("integration: create backfill manifest directory: %w", err)
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
+	tmp := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(tmp, data, runFileMode); err != nil {
 		return fmt.Errorf("integration: write backfill manifest: %w", err)
 	}
@@ -353,10 +356,34 @@ func validateRetainedBackfillCandidate(projectRoot, epicRunID, base string, even
 	for _, event := range events {
 		allowed[event.EventID] = true
 	}
+	seen := make(map[string]bool, len(candidate.EventIDs))
 	for _, id := range candidate.EventIDs {
+		if seen[id] {
+			return &RegistrationConflictError{Reason: "retained candidate contains duplicate event IDs"}
+		}
+		seen[id] = true
 		if !allowed[id] {
 			return &RegistrationConflictError{Reason: "retained candidate contains an event outside the authorized manifest"}
 		}
+	}
+	return nil
+}
+
+func validateCompletedBackfillCandidate(candidate *IntegrationCandidate, events []IntegrationEvent) error {
+	if candidate == nil || len(candidate.EventIDs) != len(events) {
+		return &RegistrationConflictError{Reason: "backfill candidate does not contain the complete authorized event set"}
+	}
+	want := make(map[string]bool, len(events))
+	for _, event := range events {
+		want[event.EventID] = true
+	}
+	for _, id := range candidate.EventIDs {
+		if !want[id] {
+			return &RegistrationConflictError{Reason: "backfill candidate contains an unauthorized event"}
+		}
+	}
+	if candidate.HeadCommit != events[len(events)-1].FeatureCommit {
+		return &RegistrationConflictError{Reason: "backfill candidate head does not match the authorized final event"}
 	}
 	return nil
 }

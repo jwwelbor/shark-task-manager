@@ -352,7 +352,7 @@ func TestBackfill_CorruptManifestFailsBeforeMutation(t *testing.T) {
 	if err := ensureBackfillManifest(dir, epicKey, epicRunID, headCommit, events); err != nil {
 		t.Fatalf("seed manifest: %v", err)
 	}
-	path := backfillManifestPath(dir, epicRunID)
+	path := backfillManifestPath(dir, epicKey)
 	if err := os.WriteFile(path, []byte("not-json"), runFileMode); err != nil {
 		t.Fatalf("corrupt manifest: %v", err)
 	}
