@@ -13,12 +13,13 @@ fail() { echo "TC-117 FAIL: $1" >&2; exit 1; }
 [[ -x "$ADMIT_SCRIPT" ]] || fail "admit.sh missing"
 
 WORKDIR="$(mktemp -d)"
-trap 'rm -rf "$WORKDIR"' EXIT
+EXTERNAL_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$EXTERNAL_DIR"' EXIT
 
-printf 'outside patch\n' >"$WORKDIR-external.patch"
-printf 'outside test\n' >"$WORKDIR-external.go"
-ln -s "$WORKDIR-external.patch" "$WORKDIR/escaped.patch"
-ln -s "$WORKDIR-external.go" "$WORKDIR/escaped.go"
+printf 'outside patch\n' >"$EXTERNAL_DIR/external.patch"
+printf 'outside test\n' >"$EXTERNAL_DIR/external.go"
+ln -s "$EXTERNAL_DIR/external.patch" "$WORKDIR/escaped.patch"
+ln -s "$EXTERNAL_DIR/external.go" "$WORKDIR/escaped.go"
 
 for mode in traversal absolute symlink; do
 	for field in reference_patch_path f2p_path; do
@@ -34,7 +35,7 @@ item = corpus["items"][0]
 if mode == "traversal":
     value = "../outside.patch" if field == "reference_patch_path" else "../outside_test.go"
 elif mode == "absolute":
-    value = workdir + ("-external.patch" if field == "reference_patch_path" else "-external.go")
+    value = "/absolute/external.patch" if field == "reference_patch_path" else "/absolute/external.go"
 else:
     value = "escaped.patch" if field == "reference_patch_path" else "escaped.go"
 if field == "reference_patch_path":
