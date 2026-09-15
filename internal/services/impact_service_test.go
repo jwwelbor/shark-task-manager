@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
@@ -27,10 +26,14 @@ func (s *impactNoteWriterStub) AddNoteWithMetadata(_ context.Context, _ models.E
 }
 
 func TestImpactServiceRecord_PropagatesWriterFailure(t *testing.T) {
-	service, _ := NewImpactService(&impactNoteWriterStub{err: errors.New("database unavailable")})
+	writerErr := errors.New("database unavailable")
+	service, err := NewImpactService(&impactNoteWriterStub{err: writerErr})
+	if err != nil {
+		t.Fatalf("NewImpactService: %v", err)
+	}
 	record, err := service.Record(context.Background(), validImpactInput())
-	if err == nil || !strings.Contains(err.Error(), "persist change-impact note") {
-		t.Fatalf("Record error = %v, want contextual writer failure", err)
+	if !errors.Is(err, writerErr) {
+		t.Fatalf("Record error = %v, want wrapped writer failure", err)
 	}
 	if record != nil {
 		t.Fatalf("Record returned a successful record after writer failure: %+v", record)
@@ -75,7 +78,10 @@ func TestImpactServiceRecord_ReconcilesValidatesAndPersists(t *testing.T) {
 
 func TestImpactServiceRecord_RejectsParentIdentityConflict(t *testing.T) {
 	writer := &impactNoteWriterStub{}
-	service, _ := NewImpactService(writer)
+	service, err := NewImpactService(writer)
+	if err != nil {
+		t.Fatalf("NewImpactService: %v", err)
+	}
 	input := validImpactInput()
 	input.Impact.SourceKey = "ADR-9999"
 	if _, err := service.Record(context.Background(), input); err == nil {
