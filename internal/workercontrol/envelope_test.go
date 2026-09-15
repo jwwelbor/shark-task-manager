@@ -145,6 +145,25 @@ func TestDecode_QuestionMissingRequiredFieldsRejected(t *testing.T) {
 	}
 }
 
+func TestDecode_QuestionFieldsAreBoundedAndSafe(t *testing.T) {
+	valid := `{"kind":"question","entity_key":"E01-F01-001","category":"decision","question":"Choose a path","why_blocking":"Owner input required","options":["option one"],"recommendation":"Prefer option one","evidence":[]}`
+	if _, err := Decode([]byte(valid)); err != nil {
+		t.Fatalf("valid question envelope rejected: %v", err)
+	}
+
+	for name, body := range map[string]string{
+		"option forbidden content":   `{"kind":"question","entity_key":"E01-F01-001","category":"decision","question":"Choose","why_blocking":"blocked","options":["api_key=secret"],"evidence":[]}`,
+		"recommendation over bounds": `{"kind":"question","entity_key":"E01-F01-001","category":"decision","question":"Choose","why_blocking":"blocked","recommendation":"` + strings.Repeat("a", SummaryMaxBytes+1) + `","evidence":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Decode([]byte(body))
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestDecode_QuestionFieldsPresentForNonQuestionRejected(t *testing.T) {
 	_, err := Decode([]byte(`{"kind": "failed", "evidence": [], "entity_key": "E01-F01-001"}`))
 	if err == nil {

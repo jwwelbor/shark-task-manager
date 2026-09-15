@@ -253,6 +253,22 @@ func (e *Envelope) Validate() error {
 			strings.TrimSpace(e.Question) == "" || strings.TrimSpace(e.WhyBlocking) == "" {
 			return newValidationError("", ErrorClassShape, "entity_key, category, question, and why_blocking are required when kind is question")
 		}
+		for field, value := range map[string]string{
+			"entity_key": e.EntityKey, "category": e.Category, "question": e.Question,
+			"why_blocking": e.WhyBlocking, "recommendation": e.Recommendation,
+		} {
+			if value == "" && field == "recommendation" {
+				continue
+			}
+			if err := boundedText(field, value, 1, SummaryMaxBytes); err != nil {
+				return err
+			}
+		}
+		for i, option := range e.Options {
+			if err := boundedText("options["+strconv.Itoa(i)+"]", option, 1, SummaryMaxBytes); err != nil {
+				return err
+			}
+		}
 	} else if e.EntityKey != "" || e.Category != "" || e.Question != "" || e.WhyBlocking != "" ||
 		len(e.Options) > 0 || e.Recommendation != "" {
 		return newValidationError("", ErrorClassShape, "question fields must be absent unless kind is question")
