@@ -1,9 +1,9 @@
 # Overall Code Review
 
-**Generated:** 2026-09-15T18:23:26.207596+00:00 · **Tool:** `/deep-review` (dispatched-six-angle) · **Branch:** `tech-debt/integration-capture`
+**Generated:** 2026-09-15T18:54:00+00:00 · **Tool:** `/deep-review` (dispatched-six-angle) · **Branch:** `tech-debt/integration-capture`
 **Runner metadata:** `runner_mode=dispatched-six-angle` `specialists_completed=6` `consolidator_completed=True`
 **Adversarial model:** `none` · **Fallback reason:** native Workflow unavailable
-**Base commit:** `be4a792822a5c350a07b5043ec6c949009e0dcff` · **Diff:** `/tmp/integration-capture-final12.diff`
+**Base commit:** `be4a792822a5c350a07b5043ec6c949009e0dcff` · **Diff:** `/tmp/integration-capture-ci-fix.diff`
 **Verdict:** PASS-with-triage
 
 ---
@@ -11,8 +11,8 @@
 ### A. Executive Summary
 
 - Evidence mode: `dispatched-six-angle` — six specialists and a consolidator completed.
-- This 21-file diff hardens the exported `AnalyzeHistory` boundary, corrects fresh-init override classification, updates integration evidence guidance, and deliberately separates TD-212 retry recovery into its own planned branch.
-- Scope: 21/21 changed files reviewed; low risk; no unrelated changes.
+- This 23-file diff hardens the exported `AnalyzeHistory` boundary, corrects fresh-init override classification, updates integration evidence guidance, deliberately separates TD-212 retry recovery into its own planned branch, and refreshes the rendered integration-review golden fixture to match the canonical prompt.
+- Scope: 23/23 changed files reviewed; low risk; no unrelated changes.
 - Architectural decision: TD-212 requires a complete recovery protocol and is deferred instead of shipping a partial contract.
 - Verdict: **PASS-with-triage**
 - Counts: 0 blockers / 0 non-blockers / 3 nits.
@@ -53,4 +53,4 @@ All modified files score at least 4/5 in readability, maintainability, performan
 
 **PASS-with-triage**
 
-The dispatched six-angle review covered the full frozen scope and found no merge-blocking issue.
+The dispatched six-angle review covered the full merge-candidate scope, including the CI-required golden fixture, and found no merge-blocking issue.
