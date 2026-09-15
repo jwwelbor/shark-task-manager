@@ -24,18 +24,18 @@ ln -s "$EXTERNAL_DIR/external.go" "$WORKDIR/escaped.go"
 for mode in traversal absolute symlink; do
 	for field in reference_patch_path f2p_path; do
 		variant="$WORKDIR/$mode-$field.yaml"
-		python3 - "$CORPUS" "$variant" "$field" "$mode" "$WORKDIR" <<'PYEOF'
+		python3 - "$CORPUS" "$variant" "$field" "$mode" "$WORKDIR" "$EXTERNAL_DIR" <<'PYEOF'
 import sys
 import yaml
 
-source, target, field, mode, workdir = sys.argv[1:]
+source, target, field, mode, workdir, external_dir = sys.argv[1:]
 with open(source, encoding="utf-8") as stream:
     corpus = yaml.safe_load(stream)
 item = corpus["items"][0]
 if mode == "traversal":
-    value = "../outside.patch" if field == "reference_patch_path" else "../outside_test.go"
+    value = "../" + external_dir.rsplit("/", 1)[-1] + ("/external.patch" if field == "reference_patch_path" else "/external.go")
 elif mode == "absolute":
-    value = "/absolute/external.patch" if field == "reference_patch_path" else "/absolute/external.go"
+    value = external_dir + ("/external.patch" if field == "reference_patch_path" else "/external.go")
 else:
     value = "escaped.patch" if field == "reference_patch_path" else "escaped.go"
 if field == "reference_patch_path":
