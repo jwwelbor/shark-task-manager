@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // canonicalFixturePath is a real embedded canonical file used across
@@ -91,6 +93,41 @@ func TestOverrideStatusAt_EmptyOrAbsent(t *testing.T) {
 			t.Errorf("Rows = %v, want empty", report.Rows)
 		}
 	})
+}
+
+func TestOverrideStatusAt_InstallerGitkeepIsNotAnOrphanedOverride(t *testing.T) {
+	dataRoot := t.TempDir()
+	writeOverrideFile(t, dataRoot, ".gitkeep", nil)
+
+	report, err := OverrideStatusAt(dataRoot)
+	require.NoError(t, err)
+	require.Empty(t, report.Rows, "want no row for installer scaffold")
+	require.Zero(t, report.Summary[ClassificationOrphaned])
+}
+
+func TestOverrideStatusAt_NestedGitkeepRemainsClassified(t *testing.T) {
+	dataRoot := t.TempDir()
+	writeOverrideFile(t, dataRoot, "custom/.gitkeep", []byte("user content"))
+
+	report, err := OverrideStatusAt(dataRoot)
+	require.NoError(t, err)
+	require.Len(t, report.Rows, 1)
+	require.Equal(t, "custom/.gitkeep", report.Rows[0].Path)
+	require.Equal(t, ClassificationOrphaned, report.Rows[0].Classification)
+}
+
+func TestOverrideStatusAt_RootGitkeepSymlinkRemainsClassified(t *testing.T) {
+	dataRoot := t.TempDir()
+	target := filepath.Join(dataRoot, "target")
+	require.NoError(t, os.WriteFile(target, []byte("target"), 0o644))
+	overridesDir := filepath.Join(dataRoot, "overrides")
+	require.NoError(t, os.MkdirAll(overridesDir, 0o755))
+	require.NoError(t, os.Symlink(target, filepath.Join(overridesDir, ".gitkeep")))
+
+	report, err := OverrideStatusAt(dataRoot)
+	require.NoError(t, err)
+	require.Len(t, report.Rows, 1)
+	require.Equal(t, ClassificationBaselineUnknown, report.Rows[0].Classification)
 }
 
 // TC-002: upstream_changed when baseline SHA differs from current canonical SHA.

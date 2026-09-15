@@ -337,11 +337,9 @@ func setupUpgradeFixtureRoot(t *testing.T) (projectRoot, dataRoot string) {
 	_, err := sharkdata.InitAt(dataRoot)
 	require.NoError(t, err)
 
-	// InitAt materializes the embedded overrides/.gitkeep scaffold file,
-	// which OverrideStatusAt classifies as "orphaned" (no canonical
-	// counterpart at that relative path) -- pre-existing behavior of
-	// overrides_status.go, unrelated to this task. Remove it so these
-	// fixtures start from a genuinely empty overrides/ directory.
+	// Remove the installer-created scaffold so these fixtures start from a
+	// genuinely empty overrides directory. Fresh-init scaffold behavior is
+	// covered separately by TestRunSharkUpgrade_FreshInit_IgnoresGitkeepScaffold.
 	require.NoError(t, os.Remove(filepath.Join(dataRoot, "overrides", ".gitkeep")))
 
 	originalDir, err := os.Getwd()
@@ -585,19 +583,10 @@ func TestRunSharkUpgrade_Human_OverridesSummaryLine(t *testing.T) {
 	assert.Less(t, skippedIdx, overridesLineIdx, "overrides summary line must come after the four pre-existing summary lines")
 }
 
-// TestRunSharkUpgrade_FreshInit_ReportsGitkeepScaffoldAsOrphaned documents a
-// real, user-visible consequence of wiring OverrideStatusAt into upgrade:
-// InitAt materializes the embedded overrides/.gitkeep scaffold file (so a
-// fresh overrides/ directory exists on disk), and OverrideStatusAt has no
-// canonical counterpart at that relative path, so it classifies .gitkeep as
-// "orphaned" (existing overrides_status.go behavior, unrelated to this
-// task). This means EVERY freshly-initialized project reports
-// orphaned=1 out of the box -- a feature-level finding worth flagging to
-// QA/UAT (the suggested_action text -- "consider removing this override" --
-// is misleading for a scaffold file shark placed deliberately). This test
-// pins that reality so a future change to either InitAt's scaffold or
-// OverrideStatusAt's classification is a deliberate, visible decision.
-func TestRunSharkUpgrade_FreshInit_ReportsGitkeepScaffoldAsOrphaned(t *testing.T) {
+// TestRunSharkUpgrade_FreshInit_IgnoresGitkeepScaffold verifies that the
+// installer-created directory marker is not presented as user override
+// content or a misleading orphan-removal suggestion.
+func TestRunSharkUpgrade_FreshInit_IgnoresGitkeepScaffold(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".sharkconfig.json"), []byte(`{}`), 0644))
 	dataRoot := filepath.Join(dir, "shark-data")
@@ -623,14 +612,12 @@ func TestRunSharkUpgrade_FreshInit_ReportsGitkeepScaffoldAsOrphaned(t *testing.T
 
 	overridesRaw, ok := payload["overrides"].(map[string]interface{})
 	require.True(t, ok, `payload must contain an "overrides" object`)
-	assert.Equal(t, float64(1), overridesRaw[sharkdata.ClassificationOrphaned],
-		"a freshly-initialized project's bundled overrides/.gitkeep scaffold classifies as orphaned")
+	assert.Equal(t, float64(0), overridesRaw[sharkdata.ClassificationOrphaned],
+		"a freshly-initialized project's bundled overrides/.gitkeep scaffold is not user override content")
 
 	statusReport, err := sharkdata.OverrideStatusAt(dataRoot)
 	require.NoError(t, err)
-	require.Len(t, statusReport.Rows, 1)
-	assert.Equal(t, ".gitkeep", statusReport.Rows[0].Path)
-	assert.Equal(t, sharkdata.ClassificationOrphaned, statusReport.Rows[0].Classification)
+	require.Empty(t, statusReport.Rows)
 }
 
 // TestRunSharkUpgrade_ChmoddedOverrideSubdir_DegradesToBaselineUnknownRow pins

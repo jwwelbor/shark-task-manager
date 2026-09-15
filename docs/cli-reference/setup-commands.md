@@ -120,10 +120,9 @@ shark admin upgrade
 ```
 
 Human output includes a summary line for override drift, in addition to the
-existing added/updated/unchanged/skipped-overrides counts. Note that a
-freshly-initialized `shark-data/` ships an `overrides/.gitkeep` scaffold file
-with no canonical counterpart, so `orphaned` is `1` out of the box until it's
-removed or acknowledged:
+existing added/updated/unchanged/skipped-overrides counts. A freshly
+initialized `shark-data/` may contain an `overrides/.gitkeep` directory
+scaffold; it is not override content and is excluded from drift status:
 
 ```
 Upgrade summary:
@@ -131,7 +130,7 @@ Upgrade summary:
   updated:   1
   unchanged: 314
   overrides skipped: 2
-  overrides: current=2 upstream_changed=1 identical_redundant=0 orphaned=1 baseline_unknown=3 (run 'shark admin overrides status' for detail)
+  overrides: current=2 upstream_changed=1 identical_redundant=0 orphaned=0 baseline_unknown=3 (run 'shark admin overrides status' for detail)
 ```
 
 JSON output (`--json`, including `--dry-run --json`) adds an `overrides`
@@ -153,7 +152,7 @@ aborting an upgrade that may have already written files:
     "current": 2,
     "upstream_changed": 1,
     "identical_redundant": 0,
-    "orphaned": 1,
+    "orphaned": 0,
     "baseline_unknown": 3
   }
 }

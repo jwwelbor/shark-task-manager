@@ -470,30 +470,15 @@ func TestProductCriticalPathGuardPartial_RendersStandalone(t *testing.T) {
 	// AC-T3 / REQ-F-034: the five disqualified evidence classes, reusing
 	// E34-F02's evidence-authenticity vocabulary verbatim (research-report.md
 	// finding 5).
-	for _, term := range []string{
-		"fixture data",
-		"a captured/recorded run",
-		"a hand-authored test actor",
-		"a contract-only test",
-		"a component-level test suite",
-	} {
+	for _, term := range productCriticalPathGuardEvidenceClassTerms {
 		assert.Contains(t, out, term, "guard must name disqualified evidence class %q", term)
 	}
 
 	// AC-T3 / REQ-NF-002/003: no bare workflow status name (from any entity
 	// workflow YAML's steps: keys) or shark CLI verb anywhere in the guard.
-	forbiddenStatusNames := []string{
-		"blocked", "cancelled", "code_review", "completed", "development",
-		"draft", "on_hold", "qa", "research", "active", "assessment",
-		"decomposition", "design", "feature_review", "integration_review",
-		"refinement", "approval", "task_generation", "task_review",
-		"test_planning", "open", "answering", "ready_for_resolution",
-		"resolved", "withdrawn", "superseded", "archived", "planning",
-		"closing", "identified", "in_progress", "triaged", "wont_fix",
-	}
 	wordBoundary := regexp.MustCompile(`\bshark\b`)
 	assert.False(t, wordBoundary.MatchString(out), "guard must not name the `shark` CLI")
-	for _, status := range forbiddenStatusNames {
+	for _, status := range workflowStepKeysUnion(t, canonicalWorkflowDir) {
 		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(status) + `\b`)
 		assert.False(t, re.MatchString(out), "guard must not contain bare workflow status name %q", status)
 	}
@@ -880,6 +865,10 @@ func extractProductCriticalPathGuardBlock(t *testing.T, renderer *OrchestratorRe
 
 	rendered, err := renderer.Render(templateName, map[string]string{})
 	require.NoError(t, err, "render %s through the production renderer", templateName)
+	require.Equal(t, 1, strings.Count(rendered, productCriticalPathGuardBlockStartMarker),
+		"%s: rendered output must contain exactly one guard block start marker", templateName)
+	require.Equal(t, 1, strings.Count(rendered, productCriticalPathGuardBlockEndMarker),
+		"%s: rendered output must contain exactly one guard block end marker", templateName)
 
 	startIdx := strings.Index(rendered, productCriticalPathGuardBlockStartMarker)
 	require.NotEqual(t, -1, startIdx,
@@ -944,6 +933,13 @@ var productCriticalPathGuardEvidenceClassTerms = []string{
 	"a component-level test suite",
 }
 
+func newCanonicalOrchestratorRenderer(t *testing.T) *OrchestratorRenderer {
+	t.Helper()
+	renderer, err := NewOrchestratorRenderer(canonicalPromptsDir)
+	require.NoError(t, err, "shipped prompts must parse with includes + partials resolved")
+	return renderer
+}
+
 // TestSpecificationTestPlanningApprovalRendersNameEvidenceClassesInGuardBlock
 // is test-plan.md TC-004 (spec.md AC-4 / task AC-T1): rendering
 // feature/specification.md, feature/test_planning.md, and feature/approval.md
@@ -951,8 +947,7 @@ var productCriticalPathGuardEvidenceClassTerms = []string{
 // block must find all five REQ-F-034 evidence-class terms verbatim in every
 // one of the three guard blocks (15 assertions: 5 terms x 3 files).
 func TestSpecificationTestPlanningApprovalRendersNameEvidenceClassesInGuardBlock(t *testing.T) {
-	renderer, err := NewOrchestratorRenderer(canonicalPromptsDir)
-	require.NoError(t, err, "shipped prompts must parse with includes + partials resolved")
+	renderer := newCanonicalOrchestratorRenderer(t)
 
 	targetPrompts := []string{
 		"feature/specification.md",
@@ -992,8 +987,7 @@ var productCriticalPathGuardCLIVerbPatterns = []string{
 // — scoped to the guard block only, since the surrounding prompt content
 // legitimately contains status names and shark commands outside the guard.
 func TestTwelvePromptRendersGuardBlockContainsNoStatusOrCLIVerb(t *testing.T) {
-	renderer, err := NewOrchestratorRenderer(canonicalPromptsDir)
-	require.NoError(t, err, "shipped prompts must parse with includes + partials resolved")
+	renderer := newCanonicalOrchestratorRenderer(t)
 
 	statusTokens := workflowStepKeysUnion(t, canonicalWorkflowDir)
 	require.NotEmpty(t, statusTokens, "expected at least one status token enumerated from workflow YAML files")

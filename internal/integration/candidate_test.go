@@ -560,6 +560,12 @@ func TestUpdateCandidate_DirtyPathDigests(t *testing.T) {
 
 	wantDirtyDigest := sha256Hex(dirtyContent)
 	wantUntrackedDigest := sha256Hex(untrackedContent)
+	if len(candidate.TrackedPathDigests) != 1 {
+		t.Fatalf("TrackedPathDigests = %v, want exactly seed.txt (runtime .shark files must be excluded)", candidate.TrackedPathDigests)
+	}
+	if len(candidate.UntrackedPathDigests) != 1 {
+		t.Fatalf("UntrackedPathDigests = %v, want exactly untracked.txt (runtime .shark files must be excluded)", candidate.UntrackedPathDigests)
+	}
 
 	t.Run("dirty tracked file", func(t *testing.T) {
 		got, ok := candidate.TrackedPathDigests["seed.txt"]
@@ -580,6 +586,50 @@ func TestUpdateCandidate_DirtyPathDigests(t *testing.T) {
 			t.Fatalf("UntrackedPathDigests[untracked.txt] = %q, want %q", got, wantUntrackedDigest)
 		}
 	})
+}
+
+func TestComputeDirtyPathDigests_RenameDeleteAndCleanTree(t *testing.T) {
+	t.Run("clean tree", func(t *testing.T) {
+		dir, _ := chdirProjectRoot(t)
+		requireDirtyPathDigests(t, dir, nil, nil)
+	})
+
+	t.Run("rename records only the current path", func(t *testing.T) {
+		dir, _ := chdirProjectRoot(t)
+		runGit(t, dir, "mv", "seed.txt", "renamed.txt")
+		requireDirtyPathDigests(t, dir, map[string]string{"renamed.txt": sha256Hex([]byte("seed"))}, nil)
+	})
+
+	t.Run("deleted tracked file is omitted", func(t *testing.T) {
+		dir, _ := chdirProjectRoot(t)
+		if err := os.Remove(filepath.Join(dir, "seed.txt")); err != nil {
+			t.Fatalf("remove seed.txt: %v", err)
+		}
+		requireDirtyPathDigests(t, dir, nil, nil)
+	})
+}
+
+func requireDirtyPathDigests(t *testing.T, dir string, wantTracked, wantUntracked map[string]string) {
+	t.Helper()
+	tracked, untracked, err := computeDirtyPathDigests(dir)
+	if err != nil {
+		t.Fatalf("computeDirtyPathDigests: %v", err)
+	}
+	if !equalPathDigests(tracked, wantTracked) || !equalPathDigests(untracked, wantUntracked) {
+		t.Fatalf("dirty path digests = tracked %v, untracked %v; want tracked %v, untracked %v", tracked, untracked, wantTracked, wantUntracked)
+	}
+}
+
+func equalPathDigests(got, want map[string]string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for path, digest := range want {
+		if got[path] != digest {
+			return false
+		}
+	}
+	return true
 }
 
 // sha256Hex computes data's sha256 hex digest — the same convention

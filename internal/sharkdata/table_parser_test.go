@@ -225,23 +225,51 @@ func TestParseTierMatrixTable_RealTierContractTable(t *testing.T) {
 }
 
 func TestParseTierMatrixTable_BlankGateColumnIsTypedError(t *testing.T) {
-	fixture := []byte(`| Tier | Planning source | Test source | Same-model gate | Separate QA | Final UAT |
+	for _, tc := range []struct {
+		name    string
+		fixture []byte
+	}{
+		{"same-model", []byte(`| Tier | Planning source | Test source | Same-model gate | Separate QA | Final UAT |
+|---|---|---|---|---|---|
+| SIMPLE | ` + "`feature.md`" + ` | Inline ACs |  | No | Yes |
+`)},
+		{"separate-qa", []byte(`| Tier | Planning source | Test source | Same-model gate | Separate QA | Final UAT |
 |---|---|---|---|---|---|
 | SIMPLE | ` + "`feature.md`" + ` | Inline ACs | Combined code review and QA |  | Yes |
-`)
-	_, err := ParseTierMatrixTable(fixture)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrTierGateBlank), "a blank gate column must be a typed error, not an empty RequiredGates")
+`)},
+		{"final-uat", []byte(`| Tier | Planning source | Test source | Same-model gate | Separate QA | Final UAT |
+|---|---|---|---|---|---|
+| SIMPLE | ` + "`feature.md`" + ` | Inline ACs | Combined code review and QA | No |  |
+`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseTierMatrixTable(tc.fixture)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, ErrTierGateBlank), "a blank gate column must be a typed error, not an empty RequiredGates")
+		})
+	}
 }
 
 func TestParseTierMatrixTable_UnrecognizedGateValueIsTypedError(t *testing.T) {
-	fixture := []byte(`| Tier | Planning source | Test source | Same-model gate | Separate QA | Final UAT |
+	for _, tc := range []struct {
+		name    string
+		fixture []byte
+	}{
+		{"separate-qa", []byte(`| Tier | Planning source | Test source | Same-model gate | Separate QA | Final UAT |
 |---|---|---|---|---|---|
 | SIMPLE | ` + "`feature.md`" + ` | Inline ACs | Combined code review and QA | Maybe | Yes |
-`)
-	_, err := ParseTierMatrixTable(fixture)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrTableRowMalformed))
+`)},
+		{"final-uat", []byte(`| Tier | Planning source | Test source | Same-model gate | Separate QA | Final UAT |
+|---|---|---|---|---|---|
+| SIMPLE | ` + "`feature.md`" + ` | Inline ACs | Combined code review and QA | No | Maybe |
+`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseTierMatrixTable(tc.fixture)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, ErrTableRowMalformed))
+		})
+	}
 }
 
 func TestParseTierMatrixTable_TableNotFound(t *testing.T) {

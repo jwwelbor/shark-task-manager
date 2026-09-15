@@ -27,11 +27,14 @@ independent review and rollback boundaries are intentional.
 | 13 | `tech-debt/gate-ingestion-concurrency` | TD-182–TD-193 | Gate lifecycle ownership, transition guards, lock safety, and bounded dispatcher output. |
 | 14 | `tech-debt/task-dependency-persistence` | TD-200 | Delivered by PR #234 (`tech-debt/custom-key-dependencies`): persist `--depends-on` task creation in the canonical relationship graph, with CLI-level regression coverage. |
 | 15 | `tech-debt/custom-key-integrity` | TD-194–TD-196 | Delivered by PR #235: custom-key duplicate-check error handling, focused abstractions, and negative-path regression coverage. |
-| 16 | `tech-debt/impact-schema-contracts` | TD-197–TD-202, TD-204, TD-205 | Impact schema fidelity, test coverage, and E34 artifact-pointer corrections. |
-| 17 | `tech-debt/integration-capture` | TD-207, TD-209–TD-215, TD-217–TD-220 | Integration run validation, fresh-init classification, retry semantics, cancellation, atomic publishing, review prompt, and coverage. |
-| 18 | `tech-debt/gate-kickback-reopen` | TD-221, TD-222 | First deduplicate the two identical records, then implement and test terminal-task kickback reopening exactly once. |
-| 19 | `tech-debt/i05-time-ledger` | TD-223–TD-225 | Provider-active interval accounting and I-05 writer/test-plan conformance. |
-| 20 | `tech-debt/f06-evidence-research` | TD-123 | Research-state, high-severity F06 evidence-root scan: confirm the current design before implementation; archive it if already superseded. |
+| 16 | `tech-debt/impact-schema-contracts` | TD-197–TD-202, TD-204, TD-205 | Delivered by PR #236: impact schema fidelity, test coverage, and E34 artifact-pointer corrections. |
+| 17 | `tech-debt/integration-capture` | TD-207, TD-209, TD-210, TD-217–TD-220 | Validation, fresh-init classification, review-prompt accuracy, and integration/test coverage. Kept separate from retry recovery and the cross-package refactor below. |
+| 18 | `tech-debt/i02-schema-parity` | TD-211 | Cross-feature GateResult schema-parity contract test, isolated from integration capture and runtime refactoring. |
+| 19 | `tech-debt/integration-retry-recovery` | TD-212 | Design and implement fail-closed recovery for all partial Backfill write windows, including candidate/event ownership and complete event durability before registration. |
+| 20 | `tech-debt/integration-runtime-refactor` | TD-213–TD-215 | Thread cancellation through integration subprocesses and consolidate its crash-safe publish/temp-file helpers before simplifying candidate complexity. |
+| 21 | `tech-debt/gate-kickback-reopen` | TD-221, TD-222 | First deduplicate the two identical records, then implement and test terminal-task kickback reopening exactly once. |
+| 22 | `tech-debt/i05-time-ledger` | TD-223–TD-225 | Provider-active interval accounting and I-05 writer/test-plan conformance. |
+| 23 | `tech-debt/f06-evidence-research` | TD-123 | Research-state, high-severity F06 evidence-root scan: confirm the current design before implementation; archive it if already superseded. |
 
 ## Execution rules
 

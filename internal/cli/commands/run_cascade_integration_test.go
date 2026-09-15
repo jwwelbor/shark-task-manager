@@ -48,6 +48,22 @@ type stubbingAgentDispatcher struct {
 	t *testing.T
 }
 
+func TestCascadeIntegrationGuard_NonEpicDoesNotCaptureBase(t *testing.T) {
+	// A non-git directory makes any accidental capture attempt fail. A nil
+	// result therefore proves the guard's entity-type no-op executes before
+	// it can call the shared epic capture function with a feature key.
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	err := (cascadeIntegrationGuard{commandLabel: "run"}).EnsureBaseCaptured(
+		context.Background(), string(models.EntityTypeFeature), "E99-F01",
+	)
+	require.NoError(t, err, "feature cascades must not attempt epic integration-base capture")
+	if _, statErr := os.Stat(filepath.Join(dir, ".shark", "integration", "E99-F01", "run.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("feature cascade unexpectedly created an integration run record: %v", statErr)
+	}
+}
+
 func (s stubbingAgentDispatcher) Dispatch(context.Context, runner.DispatchInput) (*runner.DispatchResult, error) {
 	s.t.Fatal("stubbingAgentDispatcher.Dispatch should never be called by an epic-level cascade stage")
 	return nil, nil

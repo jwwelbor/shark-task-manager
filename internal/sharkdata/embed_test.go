@@ -1244,6 +1244,14 @@ func TestIntegrationReviewNonSupersessionSentencePresent(t *testing.T) {
 		"epic/integration_review.md must contain REQ-F-006's non-supersession sentence verbatim")
 }
 
+func TestIntegrationReviewUsesCandidateLevelPathDigests(t *testing.T) {
+	content := readEmbeddedString(t, "prompts/epic/integration_review.md")
+	assert.Contains(t, content, "candidate's `tracked_path_digests` and `untracked_path_digests`",
+		"integration review must inspect the candidate-level path digests populated by steady-state capture")
+	assert.Contains(t, content, "event-level tracked/untracked paths present in a backfill-seeded run",
+		"integration review must retain backfill event-path evidence alongside candidate-level digests")
+}
+
 // TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture is
 // TC-I-05-ADOPTION-MANIFEST (AC-T4): epic/integration_review.md's own
 // `adoption_manifest` field table must list exactly architecture.md's 8 I-05
