@@ -147,9 +147,8 @@ func (m *MockSprintRepository) AddAssignment(ctx context.Context, assignment *mo
 	return nil
 }
 
-// AddAssignmentTx and CreateAdmissionOverrideTx satisfy the unexported
-// sprintAdmissionMutationRepository optional-capability interface that
-// AddEntityToSprint type-asserts s.repo against on the roadmap-override path.
+// AddAssignmentTx and CreateAdmissionOverrideTx satisfy the SprintRepository
+// contract used by AddEntityToSprint on the roadmap-override path.
 func (m *MockSprintRepository) AddAssignmentTx(ctx context.Context, tx *sql.Tx, assignment *models.SprintAssignment) error {
 	if m.AddAssignmentTxFunc != nil {
 		return m.AddAssignmentTxFunc(ctx, tx, assignment)

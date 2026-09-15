@@ -341,6 +341,9 @@ func (r *SprintRepository) AddAssignment(ctx context.Context, assignment *models
 	if err := assignment.Validate(); err != nil {
 		return fmt.Errorf("invalid assignment: %w", err)
 	}
+	if assignment.AssignedAt.IsZero() {
+		assignment.AssignedAt = time.Now().UTC()
+	}
 
 	query := `
 		INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order)
@@ -350,7 +353,7 @@ func (r *SprintRepository) AddAssignment(ctx context.Context, assignment *models
 		assignment.SprintID,
 		assignment.EntityType,
 		assignment.EntityID,
-		time.Now().UTC(),
+		assignment.AssignedAt,
 		assignment.SprintOrder, // nil → SQL NULL
 	)
 	if err != nil {
@@ -369,6 +372,9 @@ func (r *SprintRepository) AddAssignment(ctx context.Context, assignment *models
 func (r *SprintRepository) AddAssignmentTx(ctx context.Context, tx *sql.Tx, assignment *models.SprintAssignment) error {
 	if err := assignment.Validate(); err != nil {
 		return fmt.Errorf("invalid assignment: %w", err)
+	}
+	if assignment.AssignedAt.IsZero() {
+		assignment.AssignedAt = time.Now().UTC()
 	}
 	result, err := tx.ExecContext(ctx,
 		"INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at, sprint_order) VALUES (?, ?, ?, ?, ?)",
@@ -1535,20 +1541,21 @@ func (r *SprintRepository) CreateCompletionTx(ctx context.Context, tx *sql.Tx, c
 }
 
 func (r *SprintRepository) CreateAdmissionOverrideTx(ctx context.Context, tx *sql.Tx, override *models.SprintAdmissionOverride) error {
-	result, err := tx.ExecContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		INSERT INTO sprint_admission_overrides
 			(sprint_id, entity_type, entity_id, reason, requested_by, reason_code)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(sprint_id, entity_type, entity_id) DO UPDATE SET
+			reason = excluded.reason,
+			requested_by = excluded.requested_by,
+			reason_code = excluded.reason_code,
+			created_at = CURRENT_TIMESTAMP
+		RETURNING id`,
 		override.SprintID, override.EntityType, override.EntityID, override.Reason,
-		override.RequestedBy, override.ReasonCode)
+		override.RequestedBy, override.ReasonCode).Scan(&override.ID)
 	if err != nil {
 		return fmt.Errorf("failed to create sprint admission override: %w", err)
 	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get sprint admission override insert id: %w", err)
-	}
-	override.ID = id
 	return nil
 }
 

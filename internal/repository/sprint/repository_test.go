@@ -1648,7 +1648,7 @@ func TestSprintRepository_CreateCompletionTx_NilOptionalFields(t *testing.T) {
 	assert.False(t, gotCompletedSize.Valid, "completed_size_sum should be NULL for unsized")
 }
 
-func TestSprintRepository_CreateAdmissionOverrideTx_PersistsExactlyOneActiveRecord(t *testing.T) {
+func TestSprintRepository_CreateAdmissionOverrideTx_UpsertsReAdmissionOverride(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	repo := NewSprintRepository(dbconn.NewDB(database))
@@ -1666,12 +1666,25 @@ func TestSprintRepository_CreateAdmissionOverrideTx_PersistsExactlyOneActiveReco
 	require.NoError(t, repo.CreateAdmissionOverrideTx(ctx, tx, override))
 	require.NoError(t, tx.Commit())
 	assert.NotZero(t, override.ID)
+	originalID := override.ID
 
+	override.Reason = "Renewed exception after removal"
+	override.RequestedBy = "release-manager"
+	override.ReasonCode = "outside_portfolio_gate"
 	tx, err = database.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	err = repo.CreateAdmissionOverrideTx(ctx, tx, override)
-	assert.Error(t, err)
-	require.NoError(t, tx.Rollback())
+	require.NoError(t, repo.CreateAdmissionOverrideTx(ctx, tx, override))
+	require.NoError(t, tx.Commit())
+	assert.Equal(t, originalID, override.ID)
+
+	overrides, err := repo.ListActiveAdmissionOverrides(ctx, sprintID)
+	require.NoError(t, err)
+	require.Len(t, overrides, 1)
+	got := overrides[AdmissionOverrideKey("task", 9201)]
+	assert.Equal(t, "Renewed exception after removal", got.Reason)
+	assert.Equal(t, "release-manager", got.RequestedBy)
+	assert.Equal(t, "outside_portfolio_gate", got.ReasonCode)
+	assert.Equal(t, originalID, got.ID)
 }
 
 func TestSprintRepository_OverrideTransactionCommitsAssignmentAndEvidence(t *testing.T) {
@@ -1697,6 +1710,34 @@ func TestSprintRepository_OverrideTransactionCommitsAssignmentAndEvidence(t *tes
 	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sprint_admission_overrides WHERE sprint_id = ? AND entity_type = ? AND entity_id = ?", sprintID, "task", 9221).Scan(&overrideCount))
 	assert.Equal(t, 1, assignmentCount)
 	assert.Equal(t, 1, overrideCount)
+}
+
+func TestSprintRepository_AssignmentInsertPathsPreserveCallerTimestamp(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	repo := NewSprintRepository(dbconn.NewDB(database))
+	_, err := database.ExecContext(ctx, "DELETE FROM sprints WHERE key = 'S925'")
+	require.NoError(t, err)
+	sprintID := createTestSprintForTx(t, database, repo, "S925", "planning")
+	t.Cleanup(func() {
+		_, cleanupErr := database.ExecContext(ctx, "DELETE FROM sprints WHERE id = ?", sprintID)
+		require.NoError(t, cleanupErr)
+	})
+
+	assignedAt := time.Date(2026, time.September, 15, 9, 0, 0, 0, time.UTC)
+	direct := &models.SprintAssignment{SprintID: sprintID, EntityType: "task", EntityID: 9251, AssignedAt: assignedAt}
+	require.NoError(t, repo.AddAssignment(ctx, direct))
+	transaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	transactional := &models.SprintAssignment{SprintID: sprintID, EntityType: "task", EntityID: 9252, AssignedAt: assignedAt}
+	require.NoError(t, repo.AddAssignmentTx(ctx, transaction, transactional))
+	require.NoError(t, transaction.Commit())
+
+	for _, assignment := range []*models.SprintAssignment{direct, transactional} {
+		var got time.Time
+		require.NoError(t, database.QueryRowContext(ctx, "SELECT assigned_at FROM sprint_assignments WHERE id = ?", assignment.ID).Scan(&got))
+		assert.Equal(t, assignedAt, got.UTC())
+	}
 }
 
 // TestSprintRepository_ListActiveAdmissionOverrides covers finding #2: the
