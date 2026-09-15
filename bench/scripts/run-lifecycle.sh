@@ -727,21 +727,26 @@ def stage_category(status):
 _STAGE_CATEGORY_MAP_CACHE = {}
 
 
+def _load_yaml_table(cache, cache_key, filename, table_key, label):
+    """Load and cache one required mapping table from bench/evidence."""
+    if cache_key not in cache:
+        path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / filename
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise RuntimeError(f"cannot read {label} {path}: {exc}") from exc
+        table = data.get(table_key)
+        if not isinstance(table, dict):
+            raise RuntimeError(f"{label} {path} is missing a {table_key} table")
+        cache[cache_key] = table
+    return cache[cache_key]
+
+
 def stage_category_map():
     """REQ-F-004/ADR-F12-04: the closed phase -> stage_category table lives
     in bench/evidence/stage-category-map.yaml, never embedded here. Loaded
     once per run and cached."""
-    if "phases" not in _STAGE_CATEGORY_MAP_CACHE:
-        map_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "stage-category-map.yaml"
-        try:
-            data = yaml.safe_load(map_path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError) as exc:
-            raise RuntimeError(f"cannot read stage-category map {map_path}: {exc}") from exc
-        phases = data.get("phases")
-        if not isinstance(phases, dict):
-            raise RuntimeError(f"stage-category map {map_path} is missing a phases table")
-        _STAGE_CATEGORY_MAP_CACHE["phases"] = phases
-    return _STAGE_CATEGORY_MAP_CACHE["phases"]
+    return _load_yaml_table(_STAGE_CATEGORY_MAP_CACHE, "phases", "stage-category-map.yaml", "phases", "stage-category map")
 
 
 _USAGE_MAPPING_CACHE = {}
@@ -761,17 +766,7 @@ def usage_mapping_providers():
     """X-09/ADR-F06-04: usage-mapping.yaml is the single owner of the
     semantic-slot -> envelope-path bindings. Loaded once per run and
     cached; never a hard-coded envelope path in this producer."""
-    if "providers" not in _USAGE_MAPPING_CACHE:
-        map_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "usage-mapping.yaml"
-        try:
-            data = yaml.safe_load(map_path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError) as exc:
-            raise RuntimeError(f"cannot read usage mapping {map_path}: {exc}") from exc
-        providers = data.get("providers")
-        if not isinstance(providers, dict):
-            raise RuntimeError(f"usage mapping {map_path} is missing a providers table")
-        _USAGE_MAPPING_CACHE["providers"] = providers
-    return _USAGE_MAPPING_CACHE["providers"]
+    return _load_yaml_table(_USAGE_MAPPING_CACHE, "providers", "usage-mapping.yaml", "providers", "usage mapping")
 
 
 def _envelope_lookup(envelope, path):
