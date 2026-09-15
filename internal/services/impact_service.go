@@ -57,12 +57,23 @@ func NewImpactService(notes ImpactNoteWriter) (*ImpactService, error) {
 	return &ImpactService{notes: notes}, nil
 }
 
-func (s *ImpactService) Record(ctx context.Context, input RecordImpactInput) (*ImpactRecord, error) {
-	if err := reconcileImpactIdentity(&input.Impact, input.SourceKind, input.SourceKey, input.SourcePointer); err != nil {
-		return nil, err
+// ReconcileAndValidateImpact applies the parent-owned identity contract and
+// validates the resulting I-04 payload without touching persistence. Command
+// callers use it before resolving a database-backed writer, so malformed
+// worker input fails closed before any persistence dependency is initialized.
+func ReconcileAndValidateImpact(impact *gateresult.ChangeImpactSet, sourceKind, sourceKey, sourcePointer string) error {
+	if err := reconcileImpactIdentity(impact, sourceKind, sourceKey, sourcePointer); err != nil {
+		return err
 	}
-	if err := gateresult.ValidateChangeImpactSet(input.Impact); err != nil {
-		return nil, fmt.Errorf("invalid I-04 ChangeImpactSet: %w", err)
+	if err := gateresult.ValidateChangeImpactSet(*impact); err != nil {
+		return fmt.Errorf("invalid I-04 ChangeImpactSet: %w", err)
+	}
+	return nil
+}
+
+func (s *ImpactService) Record(ctx context.Context, input RecordImpactInput) (*ImpactRecord, error) {
+	if err := ReconcileAndValidateImpact(&input.Impact, input.SourceKind, input.SourceKey, input.SourcePointer); err != nil {
+		return nil, err
 	}
 
 	content := fmt.Sprintf("[%s/%s] %s (%s)", input.Impact.SourceKind, input.Impact.SourceKey, input.Impact.ChangeSummary, input.Impact.Status)

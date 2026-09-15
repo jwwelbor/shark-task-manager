@@ -259,6 +259,9 @@ func (e *Envelope) Validate() error {
 		if err := boundedText("category", e.Category, 1, IdentityMaxBytes); err != nil {
 			return err
 		}
+		if !validQuestionCategory(e.Category) {
+			return newValidationError("category", ErrorClassShape, "must be product, requirements, architecture, quality, or process")
+		}
 		for field, value := range map[string]string{
 			"question": e.Question, "why_blocking": e.WhyBlocking, "recommendation": e.Recommendation,
 		} {
@@ -288,6 +291,15 @@ func (e *Envelope) Validate() error {
 	}
 
 	return nil
+}
+
+func validQuestionCategory(category string) bool {
+	switch category {
+	case "product", "requirements", "architecture", "quality", "process":
+		return true
+	default:
+		return false
+	}
 }
 
 // rejectDuplicateKeys walks the raw JSON token stream and rejects a document

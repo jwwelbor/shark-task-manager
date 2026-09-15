@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -153,9 +154,11 @@ func TestRunImpactRecord_RejectsConflictingIdentity(t *testing.T) {
 
 func TestRunImpactRecord_RejectsInvalidChangeImpactSet(t *testing.T) {
 	defer resetImpactFlags()
-	mock := &mockImpactNoteWriter{}
-	impactNoteWriterOverride = mock
-	defer func() { impactNoteWriterOverride = nil }()
+	impactNoteWriterResolver = func(context.Context) (gatepersist.NoteWriter, error) {
+		t.Fatal("invalid impact input resolved a note writer")
+		return nil, nil
+	}
+	defer func() { impactNoteWriterResolver = impactNoteWriter }()
 
 	impactSourceKind = "adr"
 	impactSourceKey = "ADR-0007"
@@ -167,9 +170,6 @@ func TestRunImpactRecord_RejectsInvalidChangeImpactSet(t *testing.T) {
 	err := runImpactRecord(cmd, []string{"E01-F01-001"})
 	if err == nil {
 		t.Fatal("expected a validation error for an incomplete ChangeImpactSet")
-	}
-	if len(mock.calls) != 0 {
-		t.Fatalf("expected no note write on a validation failure, got %d", len(mock.calls))
 	}
 }
 

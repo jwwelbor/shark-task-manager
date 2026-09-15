@@ -44,6 +44,8 @@ var (
 // impactNoteWriter falls back to cli.GetNoteService.
 var impactNoteWriterOverride gatepersist.NoteWriter
 
+var impactNoteWriterResolver = impactNoteWriter
+
 // impactNoteWriter resolves the NoteWriter this command persists through.
 // *services.NoteService (returned by cli.GetNoteService) already satisfies
 // gatepersist.NoteWriter — the same interface gatepersist.Coordinator uses
@@ -129,8 +131,11 @@ func runImpactRecord(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal(raw, &impact); err != nil {
 		return fmt.Errorf("parse --impact-file %q as an I-04 ChangeImpactSet: %w", impactFile, err)
 	}
+	if err := services.ReconcileAndValidateImpact(&impact, impactSourceKind, impactSourceKey, impactSourcePointer); err != nil {
+		return err
+	}
 
-	writer, err := impactNoteWriter(cmd.Context())
+	writer, err := impactNoteWriterResolver(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("get note service: %w", err)
 	}
