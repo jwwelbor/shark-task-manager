@@ -599,11 +599,30 @@ func TestQuestionResolveHelpDocumentsWorkflowAndResolutionKinds(t *testing.T) {
 	for _, want := range []string{
 		"Claim the Question", "Record each response", "Resolve after all responders are complete",
 		"local_clarification", "feature_change", "product_decision", "architecture_decision", "follow_up_work", "no_lasting_consequence",
+		"note:<id>", "repository-relative document paths, separated by semicolons", "docs/product/progress.md#<anchor>",
+		"an ADR and affected reference", "existing follow-up work key", "no --resolution-pointer",
 		"--resolution-owner", "Deprecated alias for --resolution-owner",
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("question resolve --help missing %q", want)
 		}
+	}
+}
+
+func TestQuestionWorkflowRejectsConflictingOwnerFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"resolve", "q001", "--resolution-owner", "owner-a", "--owner", "owner-b", "--resolution-kind", "no_lasting_consequence"},
+		{"withdraw", "q001", "--resolution-owner", "owner-a", "--owner", "owner-b", "--reason", "obsolete"},
+		{"supersede", "q001", "--resolution-owner", "owner-a", "--owner", "owner-b", "--reason", "obsolete", "--superseded-by", "q002"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			stub := &questionListServiceStub{}
+			withQuestionSvcOverride(t, stub)
+			if _, err := executeQuestionCommand(t, args...); err == nil || !strings.Contains(err.Error(), "must match") {
+				t.Fatalf("question %s conflicting owner flags error = %v", args[0], err)
+			}
+			assertQuestionWorkflowNotCalled(t, stub)
+		})
 	}
 }
 
