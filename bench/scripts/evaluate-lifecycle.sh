@@ -18,6 +18,7 @@ import yaml
 
 bench_dir, oracle = sys.argv[1:3]
 sys.path.insert(0, os.path.join(bench_dir, "scripts", "lib"))
+from e40_evidence import canonical_digest, load_jsonl, sha256_file  # noqa: E402
 from i05_validation import validate_typed_consumer  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -37,16 +38,6 @@ with open(os.path.join(bench_dir, "evidence", "i05-schema.yaml"), encoding="utf-
 EDGE_KINDS = set(i05_schema.get("edge_kind") or [])
 
 
-def file_digest(path):
-    with open(path, "rb") as stream:
-        return hashlib.sha256(stream.read()).hexdigest()
-
-
-def jsonl(path):
-    with open(path, encoding="utf-8") as stream:
-        return [json.loads(line) for line in stream if line.strip()]
-
-
 def digest(value):
     if not isinstance(value, str) or len(value) != 64 or value != value.lower():
         return False
@@ -55,10 +46,6 @@ def digest(value):
     except ValueError:
         return False
     return True
-
-
-def canonical_digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def metric(value, available, detail=None):
@@ -196,7 +183,7 @@ def load_inputs():
         fail_input("I-05 roots must be an object")
     if package.get("stage_matrix") is not None and not isinstance(package.get("stage_matrix"), dict):
         fail_input("scenario stage_matrix must be an object")
-    lifecycle_rows = jsonl(args.i07)
+    lifecycle_rows = load_jsonl(args.i07)
     if any(not isinstance(row, dict) for row in lifecycle_rows):
         fail_input("every I-07 JSONL record must be an object")
     lifecycle = lifecycle_rows[0] if lifecycle_rows else {}
@@ -260,15 +247,8 @@ def validate_identity_join(package, i05, lifecycle_rows, lifecycle, reasons):
     return identity
 
 
-def validate_candidate_snapshots(i05, lifecycle, identity, reasons):
-    """Validate I-07 workflow_policy shape and per-stage candidate identity.
-
-    Preserve the complete comparison surface from I-07.  These are copied
-    as evidence, never reduced to branch/HEAD labels or terminal status.
-    """
-    raw_workflow_policy = lifecycle.get("workflow_policy")
-    if raw_workflow_policy is not None and not isinstance(raw_workflow_policy, dict):
-        fail_input("I-07 workflow_policy must be an object")
+def validate_candidate_snapshots(lifecycle, reasons):
+    """Validate and retain each I-07 stage candidate identity."""
     candidate_snapshots = []
     for stage_index, stage in enumerate(lifecycle.get("stages", []) if isinstance(lifecycle.get("stages"), list) else []):
         if not isinstance(stage, dict) or (stage.get("candidate") is not None and not isinstance(stage.get("candidate"), dict)):
@@ -288,13 +268,21 @@ def validate_candidate_snapshots(i05, lifecycle, identity, reasons):
             if candidate.get("identity_digest") != expected_identity:
                 reasons.append(reason("identity_mismatch", f"/stages/{stage_index}/candidate/identity_digest", "upstream candidate identity digest disagrees with its six fields"))
         candidate_snapshots.append({"stage": stage.get("stage"), "candidate": candidate})
+    return candidate_snapshots
+
+
+def validate_content_identity(i05, lifecycle, identity, reasons):
+    """Validate the separate workflow-policy and declared content identity."""
+    raw_workflow_policy = lifecycle.get("workflow_policy")
+    if raw_workflow_policy is not None and not isinstance(raw_workflow_policy, dict):
+        fail_input("I-07 workflow_policy must be an object")
     workflow_policy = dict(raw_workflow_policy or {})
     declared_content_root = (i05.get("content_root") or i05.get("shark_data_root") or identity.get("content_root")) if isinstance(i05, dict) else None
     if declared_content_root:
         derived_content_digest = content_digest(declared_content_root)
         if derived_content_digest and identity.get("shark_content_digest") != derived_content_digest:
             reasons.append(reason("identity_mismatch", "/identity/shark_content_digest", "declared content digest disagrees with independently computed content"))
-    return candidate_snapshots, workflow_policy
+    return workflow_policy
 
 
 def validate_producer_identity(identity, reasons):
@@ -739,7 +727,7 @@ def run_oracle(i05, lifecycle, reasons):
 
 def build_source_artifacts(i05_json, lifecycle):
     """Record the exact source artifact paths, digests, and replay lineage used."""
-    return {"i05_path": args.i05, "i05_digest": file_digest(i05_json), "i07_path": args.i07, "i07_digest": file_digest(args.i07), "replay_lineage": [item.get("snapshot_digest") for item in lifecycle.get("stages", []) if isinstance(item, dict) and item.get("snapshot_digest")]}
+    return {"i05_path": args.i05, "i05_digest": sha256_file(i05_json), "i07_path": args.i07, "i07_digest": sha256_file(args.i07), "replay_lineage": [item.get("snapshot_digest") for item in lifecycle.get("stages", []) if isinstance(item, dict) and item.get("snapshot_digest")]}
 
 
 def normalize_findings(reasons):
@@ -764,7 +752,7 @@ def normalize_findings(reasons):
                     normalized = json.load(stream)
                 if not isinstance(normalized, dict) or not isinstance(normalized.get("normalized_findings"), list):
                     raise ValueError("normalizer output has no normalized_findings list")
-                normalized["raw_source_ref"] = {"i07_path": args.i07, "i07_digest": file_digest(args.i07)}
+                normalized["raw_source_ref"] = {"i07_path": args.i07, "i07_digest": sha256_file(args.i07)}
                 review_findings = normalized
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 reasons.append(reason("review_findings_malformed", "/review_findings", str(exc)))
@@ -789,10 +777,11 @@ def build_record(evaluation_id, identity, sources, structural, judge, oracle_res
 try:
     package, i05, i05_json, lifecycle_rows, lifecycle = load_inputs()
     run_id = ((lifecycle.get("identity") or {}).get("run_id")) or "unknown-run"
-    evaluation_id = run_id + "-" + file_digest(args.i07)[:12]
+    evaluation_id = run_id + "-" + sha256_file(args.i07)[:12]
     reasons = []
     identity = validate_identity_join(package, i05, lifecycle_rows, lifecycle, reasons)
-    candidate_snapshots, workflow_policy = validate_candidate_snapshots(i05, lifecycle, identity, reasons)
+    candidate_snapshots = validate_candidate_snapshots(lifecycle, reasons)
+    workflow_policy = validate_content_identity(i05, lifecycle, identity, reasons)
     validate_producer_identity(identity, reasons)
     validate_workflow_policy_identity(workflow_policy, reasons)
     validate_review_gate_policy_refs(lifecycle, reasons)

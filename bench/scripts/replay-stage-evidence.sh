@@ -150,7 +150,7 @@ if [[ -n "$ADAPTER" ]]; then
 	adapter_abs="$(cd "$(dirname "$ADAPTER")" && pwd)/$(basename "$ADAPTER")"
 fi
 
-python3 - "$bundle_dir_abs" "$checkout_abs" "$adapter_abs" <<'PYEOF'
+E40_BENCH_LIB="$SCRIPT_DIR/lib" python3 - "$bundle_dir_abs" "$checkout_abs" "$adapter_abs" <<'PYEOF'
 import hashlib
 import json
 import os
@@ -158,6 +158,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+sys.path.insert(0, os.environ["E40_BENCH_LIB"])
+from e40_evidence import sha256_bytes, sha256_file  # noqa: E402
 
 bundle_dir, checkout, adapter = sys.argv[1:4]
 
@@ -167,15 +170,6 @@ class ScriptError(RuntimeError):
     from a named drift/mutation verdict. Caught once at the bottom and
     reported with exit 2, mirroring verify-evidence-roots.sh's own
     ScriptError-vs-verdict split."""
-
-
-def sha256_bytes(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-def sha256_file(path):
-    with open(path, "rb") as f:
-        return sha256_bytes(f.read())
 
 
 def load_json(path):

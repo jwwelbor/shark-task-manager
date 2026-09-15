@@ -337,13 +337,16 @@ if [[ -n "$grant_mode" ]]; then
 	evaluator_root_abs=""
 	[[ -z "$evaluator_root" ]] || evaluator_root_abs="$(cd "$evaluator_root" && pwd)"
 
-	python3 - "$bundle_dir_abs" "$grant_mode" "$accessor" "$adapter_abs" "$checkout_abs" "$evaluator_root_abs" "$artifact_rel" "${files[@]}" <<'PYEOF'
+	E40_BENCH_LIB="$SCRIPT_DIR/lib" python3 - "$bundle_dir_abs" "$grant_mode" "$accessor" "$adapter_abs" "$checkout_abs" "$evaluator_root_abs" "$artifact_rel" "${files[@]}" <<'PYEOF'
 import datetime
 import hashlib
 import json
 import os
 import subprocess
 import sys
+
+sys.path.insert(0, os.environ["E40_BENCH_LIB"])
+from e40_evidence import sha256_file  # noqa: E402
 
 (
     bundle_dir,
@@ -381,11 +384,6 @@ def parse_rfc3339(value):
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
     return datetime.datetime.fromisoformat(value)
-
-
-def sha256_file(path):
-    with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
 
 
 def load_terminal_status(bundle_dir):
@@ -576,6 +574,7 @@ import yaml
 bundle_dir, i05_schema_path, lib_dir = sys.argv[1:4]
 sys.path.insert(0, lib_dir)
 from i05_validation import validate_typed_consumer  # noqa: E402
+from e40_evidence import sha256_file  # noqa: E402
 
 
 class ScriptError(RuntimeError):

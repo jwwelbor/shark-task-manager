@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # TC-070/TC-075: fail-closed comparison of retained I-08 evaluations.
 set -euo pipefail
-exec python3 - "$@" <<'PY'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+E40_BENCH_LIB="$SCRIPT_DIR/lib" exec python3 - "$@" <<'PY'
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, os.environ["E40_BENCH_LIB"])
+from e40_evidence import canonical_digest  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--left", required=True)
@@ -37,9 +42,6 @@ def value(record, path):
             return None
         current = current[part]
     return current
-
-def canonical_digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 def validate_record(record, side, divergences):
     snapshots = record.get("candidate_snapshots")
