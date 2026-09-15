@@ -124,6 +124,13 @@ type SprintClaimReader interface {
 	IsClaimable(ctx context.Context, entityType, entityKey string) (bool, error)
 }
 
+// SprintActiveClaimReader is the optional batch capability implemented by
+// ClaimService. Keeping it separate preserves compatibility with narrow test
+// and integration readers that only implement per-candidate IsClaimable.
+type SprintActiveClaimReader interface {
+	ListActiveReadOnly(ctx context.Context, evaluatedAt time.Time) ([]*models.EntityClaim, error)
+}
+
 // SprintQuestionBlocker supplies the read-only Question gate for sprint
 // selection. It intentionally exposes only Check so selection cannot mutate
 // Question or workflow state.
@@ -1869,6 +1876,27 @@ func (s *SprintService) executionSprints(ctx context.Context) ([]*models.Sprint,
 
 func (s *SprintService) filterSprintSelectionClaims(ctx context.Context, candidates *[]*BacklogItemView) error {
 	if s.claimReader == nil {
+		return nil
+	}
+	if reader, ok := s.claimReader.(SprintActiveClaimReader); ok {
+		activeClaims, err := reader.ListActiveReadOnly(ctx, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("list active claims for sprint selection: %w", err)
+		}
+		active := make(map[string]struct{}, len(activeClaims))
+		for _, claim := range activeClaims {
+			if claim != nil {
+				active[claim.EntityType+"\x00"+claim.EntityKey] = struct{}{}
+			}
+		}
+		unclaimed := make([]*BacklogItemView, 0, len(*candidates))
+		for _, candidate := range *candidates {
+			key := entitytype.WorkflowLevelOrSelf(candidate.EntityType) + "\x00" + candidate.Key
+			if _, claimed := active[key]; !claimed {
+				unclaimed = append(unclaimed, candidate)
+			}
+		}
+		*candidates = unclaimed
 		return nil
 	}
 	unclaimed := make([]*BacklogItemView, 0, len(*candidates))
