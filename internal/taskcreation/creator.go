@@ -23,19 +23,20 @@ import (
 
 // Creator orchestrates the complete task creation workflow
 type Creator struct {
-	db              *repository.DB
-	keygen          *KeyGenerator
-	validator       *Validator
-	renderer        *templates.Renderer
-	taskRepo        *repository.TaskRepository
-	historyRepo     *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
-	epicRepo        *repository.EpicRepository
-	featureRepo     *repository.FeatureRepository
-	pathResolver    *pathresolver.PathResolver
-	projectRoot     string
-	workflowService *workflow.Service
-	verbose         bool
-	afterCreateHook func(context.Context, *sql.Tx, *models.Task) error
+	db               *repository.DB
+	keygen           *KeyGenerator
+	validator        *Validator
+	renderer         *templates.Renderer
+	taskRepo         *repository.TaskRepository
+	historyRepo      *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
+	epicRepo         *repository.EpicRepository
+	featureRepo      *repository.FeatureRepository
+	relationshipRepo *repository.EntityRelationshipRepository
+	pathResolver     *pathresolver.PathResolver
+	projectRoot      string
+	workflowService  *workflow.Service
+	verbose          bool
+	afterCreateHook  func(context.Context, *sql.Tx, *models.Task) error
 }
 
 // SetAfterCreateHook installs optional work that must complete in the task
@@ -65,18 +66,19 @@ func NewCreator(
 	}
 
 	return &Creator{
-		db:              db,
-		keygen:          keygen,
-		validator:       validator,
-		renderer:        renderer,
-		taskRepo:        taskRepo,
-		historyRepo:     historyRepo,
-		epicRepo:        epicRepo,
-		featureRepo:     featureRepo,
-		pathResolver:    pathresolver.NewPathResolver(epicRepo, featureRepo, nil, projectRoot),
-		projectRoot:     projectRoot,
-		workflowService: workflowService,
-		verbose:         false,
+		db:               db,
+		keygen:           keygen,
+		validator:        validator,
+		renderer:         renderer,
+		taskRepo:         taskRepo,
+		historyRepo:      historyRepo,
+		epicRepo:         epicRepo,
+		featureRepo:      featureRepo,
+		relationshipRepo: repository.NewEntityRelationshipRepository(db),
+		pathResolver:     pathresolver.NewPathResolver(epicRepo, featureRepo, nil, projectRoot),
+		projectRoot:      projectRoot,
+		workflowService:  workflowService,
+		verbose:          false,
 	}
 }
 
@@ -292,6 +294,24 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	err = c.taskRepo.CreateWithTx(ctx, tx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task in database: %w", err)
+	}
+
+	// Persist dependencies in the canonical relationship graph as part of the
+	// same transaction. The legacy DependsOn JSON remains for compatibility.
+	for _, dependencyKey := range validated.ValidatedDependencies {
+		dependency, err := c.taskRepo.GetByKey(ctx, dependencyKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve dependency task %s: %w", dependencyKey, err)
+		}
+		if err := c.relationshipRepo.CreateWithTx(ctx, tx, &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeTask,
+			FromEntityID:     task.ID,
+			ToEntityType:     models.EntityTypeTask,
+			ToEntityID:       dependency.ID,
+			RelationshipType: models.EntityRelDependsOn,
+		}); err != nil {
+			return nil, fmt.Errorf("failed to persist task dependency %s: %w", dependencyKey, err)
+		}
 	}
 
 	// 6. Create task history record

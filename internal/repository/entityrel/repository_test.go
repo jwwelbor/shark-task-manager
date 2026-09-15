@@ -2,6 +2,8 @@ package entityrel
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -145,6 +147,32 @@ func TestEntityRelationshipRepository_Create(t *testing.T) {
 			t.Errorf("expected 'invalid relationship_type' error, got: %v", err)
 		}
 	})
+}
+
+func TestEntityRelationshipRepository_CreateWithTx_RejectsNilInputs(t *testing.T) {
+	repo := NewEntityRelationshipRepository(dbconn.NewDB(test.GetTestDB()))
+	valid := &models.EntityRelationship{
+		FromEntityType: models.EntityTypeTask, FromEntityID: 1,
+		ToEntityType: models.EntityTypeTask, ToEntityID: 2,
+		RelationshipType: models.RelDependsOn,
+	}
+	if err := repo.CreateWithTx(context.Background(), nil, valid); err == nil {
+		t.Fatal("expected nil transaction to be rejected")
+	}
+
+	database := test.GetTestDB()
+	tx, err := database.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin transaction: %v", err)
+	}
+	t.Cleanup(func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			t.Errorf("rollback transaction: %v", rollbackErr)
+		}
+	})
+	if err := repo.CreateWithTx(context.Background(), tx, nil); err == nil {
+		t.Fatal("expected nil relationship to be rejected")
+	}
 }
 
 func TestEntityRelationshipRepository_Delete(t *testing.T) {
