@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 # Shared Go toolchain identity capture for ledger producers and adapters.
 
+# resolve_checkout_path canonicalizes a caller-supplied path and returns a
+# checkout-relative path only when it remains inside the checkout.
+resolve_checkout_path() {
+	python3 - "$1" "$2" <<'PYEOF'
+import os
+import sys
+
+checkout, supplied = sys.argv[1:3]
+root = os.path.realpath(checkout)
+candidate = os.path.realpath(os.path.join(root, supplied))
+if os.path.commonpath([root, candidate]) != root:
+    sys.exit(1)
+print(os.path.relpath(candidate, root))
+PYEOF
+}
+
 go_toolchain_identity() {
 	local golangci_config="$1"
 	[[ -f "$golangci_config" ]] || {

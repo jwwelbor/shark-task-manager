@@ -97,20 +97,16 @@ fixture_submodule="$REPO_ROOT/$submodule_rel"
 }
 mkdir -p "$(dirname "$dest_dir")"
 
-# A failed clone or checkout must not leave a partial destination that a
-# later invocation mistakes for a valid, bound fixture checkout.
-checkout_succeeded=0
-cleanup_failed_checkout() {
-	local rc=$?
-	if [[ "$checkout_succeeded" -ne 1 ]]; then
-		rm -rf -- "$dest_dir"
-	fi
-	return "$rc"
-}
-trap cleanup_failed_checkout EXIT
+# Stage the clone beside its destination and publish it only after checkout
+# binding succeeds. A failing invocation therefore cleans only a directory it
+# created, never a destination another process may have created concurrently.
+staging_parent="$(mktemp -d "$(dirname "$dest_dir")/.$(basename "$dest_dir").tmp.XXXXXX")"
+staging_checkout="$staging_parent/checkout"
+cleanup_staging() { rm -rf -- "$staging_parent"; }
+trap cleanup_staging EXIT
 
-git -c advice.detachedHead=false clone --quiet -- "$fixture_submodule" "$dest_dir"
-git -C "$dest_dir" -c advice.detachedHead=false checkout --quiet "$base_sha" --
+git -c advice.detachedHead=false clone --quiet -- "$fixture_submodule" "$staging_checkout"
+git -C "$staging_checkout" -c advice.detachedHead=false checkout --quiet "$base_sha" --
 
 # REQ-F-002/AC-F11-03: assert the clone actually landed where requested
 # before any caller treats $dest_dir as bound to base_sha. Resolves
@@ -122,10 +118,10 @@ git -C "$dest_dir" -c advice.detachedHead=false checkout --quiet "$base_sha" --
 # unreachable in practice (git checkout <ref> cannot silently land
 # elsewhere), but the checkout binding this script exists to provide is
 # never allowed to rest on that assumption unverified.
-requested_head="$(git -C "$dest_dir" rev-parse "$base_sha^{commit}")"
-checked_out_head="$(git -C "$dest_dir" rev-parse HEAD)"
+requested_head="$(git -C "$staging_checkout" rev-parse "$base_sha^{commit}")"
+checked_out_head="$(git -C "$staging_checkout" rev-parse HEAD)"
 if [[ "$checked_out_head" != "$requested_head" ]]; then
 	echo "checkout-scenario-fixture: checked-out HEAD ($checked_out_head) does not match requested base_sha ($requested_head, from $base_sha)" >&2
 	exit 1
 fi
-checkout_succeeded=1
+mv -- "$staging_checkout" "$dest_dir"

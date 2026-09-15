@@ -81,22 +81,6 @@ write_lines() {
 	done
 }
 
-resolve_checkout_path() {
-	# Adapter callers can invoke this script directly, so --include must not
-	# rely on admit-scenario.sh having already performed containment checks.
-	python3 - "$CHECKOUT" "$1" <<'PYEOF'
-import os
-import sys
-
-checkout, supplied = sys.argv[1:3]
-root = os.path.realpath(checkout)
-candidate = os.path.realpath(os.path.join(root, supplied))
-if os.path.commonpath([root, candidate]) != root:
-    sys.exit(1)
-print(os.path.relpath(candidate, root))
-PYEOF
-}
-
 resolve_import_paths() {
 	# Translates one fixture-relative p2p_selection.include path into the
 	# Go import path(s) it names -- a directory resolves to itself and
@@ -104,7 +88,7 @@ resolve_import_paths() {
 	# containing package. Returns non-zero (no message; the caller names
 	# the offending path) if the path does not exist under the checkout.
 	local rel
-	rel="$(resolve_checkout_path "$1")" || return 1
+	rel="$(resolve_checkout_path "$CHECKOUT" "$1")" || return 1
 	rel="${rel#./}"
 	local abs="$CHECKOUT/$rel"
 	[[ -e "$abs" ]] || return 1

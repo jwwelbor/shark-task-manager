@@ -35,6 +35,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BENCH_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+. "$BENCH_DIR/scripts/lib/go-toolchain-identity.sh"
 
 usage() {
 	echo "usage: adapter.sh <identity|inject-tests|test|lint|build|format-check> --checkout <dir> [...]" >&2
@@ -91,22 +93,6 @@ PYEOF
 		return 1
 	fi
 	cat "$out"
-}
-
-resolve_checkout_path() {
-	# Adapter callers can invoke this script directly, so --include must not
-	# rely on admit-scenario.sh having already performed containment checks.
-	python3 - "$CHECKOUT" "$1" <<'PYEOF'
-import os
-import sys
-
-checkout, supplied = sys.argv[1:3]
-root = os.path.realpath(checkout)
-candidate = os.path.realpath(os.path.join(root, supplied))
-if os.path.commonpath([root, candidate]) != root:
-    sys.exit(1)
-print(os.path.relpath(candidate, root))
-PYEOF
 }
 
 [[ $# -ge 1 ]] || {
@@ -280,7 +266,7 @@ cmd_test() {
 		if [[ ${#INCLUDE[@]} -gt 0 ]]; then
 			local include resolved_include
 			for include in "${INCLUDE[@]}"; do
-				resolved_include="$(resolve_checkout_path "$include")" || fail "--include path escapes checkout: $include"
+				resolved_include="$(resolve_checkout_path "$CHECKOUT" "$include")" || fail "--include path escapes checkout: $include"
 				pos_args+=("$resolved_include")
 			done
 		fi
