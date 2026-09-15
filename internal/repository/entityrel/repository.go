@@ -63,6 +63,12 @@ func (r *EntityRelationshipRepository) CreateWithTx(
 	tx *sql.Tx,
 	rel *models.EntityRelationship,
 ) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	if rel == nil {
+		return fmt.Errorf("entity relationship is required")
+	}
 	if err := rel.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
