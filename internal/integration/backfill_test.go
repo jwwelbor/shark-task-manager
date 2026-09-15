@@ -320,6 +320,53 @@ func TestBackfill_LegacyPartialStateWithoutManifestFailsClosed(t *testing.T) {
 	}
 }
 
+func TestBackfill_ManifestMismatchFailsBeforeMutation(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E99"
+	const epicRunID = "run-manifest-mismatch"
+	events := validBackfillEvents(epicRunID)
+	if err := ensureBackfillManifest(dir, epicKey, epicRunID, headCommit, events); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+	changed := append([]IntegrationEvent(nil), events...)
+	changed[0].TrackedPaths = []string{"different.go"}
+	recorder := &fakeNoteRecorder{}
+	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, changed, false, "test-agent")
+	var conflict *RegistrationConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("Backfill error = %T %v, want RegistrationConflictError", err, err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("mismatched retry recorded %d notes, want none", recorder.calls)
+	}
+	if _, err := os.Stat(runRecordPath(dir, epicKey)); !os.IsNotExist(err) {
+		t.Fatalf("mismatched retry wrote a run record: %v", err)
+	}
+}
+
+func TestBackfill_CorruptManifestFailsBeforeMutation(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E99"
+	const epicRunID = "run-corrupt-manifest"
+	events := validBackfillEvents(epicRunID)
+	if err := ensureBackfillManifest(dir, epicKey, epicRunID, headCommit, events); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+	path := backfillManifestPath(dir, epicRunID)
+	if err := os.WriteFile(path, []byte("not-json"), runFileMode); err != nil {
+		t.Fatalf("corrupt manifest: %v", err)
+	}
+	recorder := &fakeNoteRecorder{}
+	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	var conflict *RegistrationConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("Backfill error = %T %v, want RegistrationConflictError", err, err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("corrupt manifest recorded %d notes, want none", recorder.calls)
+	}
+}
+
 // TestBackfill_MalformedInput_ZeroMutation covers TC-009 subtest (d): four
 // malformed-input variants, each rejected before any write (AC-T4). Each
 // subtest runs against its own fresh temp directory/epic so a before/after
