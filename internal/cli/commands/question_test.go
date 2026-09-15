@@ -515,11 +515,11 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 		},
 		{
 			name: "resolve",
-			args: []string{"resolve", "q001", "--owner", "owner", "--resolution-kind", "feature_change", "--resolution-pointer", "E39-F03"},
+			args: []string{"resolve", "q001", "--resolution-owner", "owner", "--resolution-kind", "feature_change", "--resolution-pointer", "E39-F03"},
 			missingArgs: [][]string{
 				{"resolve", "q001", "--resolution-kind", "feature_change", "--resolution-pointer", "E39-F03"},
-				{"resolve", "q001", "--owner", "owner", "--resolution-pointer", "E39-F03"},
-				{"resolve", "q001", "--owner", "owner", "--resolution-kind", "feature_change"},
+				{"resolve", "q001", "--resolution-owner", "owner", "--resolution-pointer", "E39-F03"},
+				{"resolve", "q001", "--resolution-owner", "owner", "--resolution-kind", "feature_change"},
 			},
 			assertInput: func(t *testing.T, stub *questionListServiceStub) {
 				t.Helper()
@@ -530,10 +530,10 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 		},
 		{
 			name: "withdraw",
-			args: []string{"withdraw", "q001", "--owner", "owner", "--reason", "obsolete"},
+			args: []string{"withdraw", "q001", "--resolution-owner", "owner", "--reason", "obsolete"},
 			missingArgs: [][]string{
 				{"withdraw", "q001", "--reason", "obsolete"},
-				{"withdraw", "q001", "--owner", "owner"},
+				{"withdraw", "q001", "--resolution-owner", "owner"},
 			},
 			assertInput: func(t *testing.T, stub *questionListServiceStub) {
 				t.Helper()
@@ -544,11 +544,11 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 		},
 		{
 			name: "supersede",
-			args: []string{"supersede", "q001", "--owner", "owner", "--reason", "obsolete", "--superseded-by", "q002"},
+			args: []string{"supersede", "q001", "--resolution-owner", "owner", "--reason", "obsolete", "--superseded-by", "q002"},
 			missingArgs: [][]string{
 				{"supersede", "q001", "--reason", "obsolete", "--superseded-by", "q002"},
-				{"supersede", "q001", "--owner", "owner", "--superseded-by", "q002"},
-				{"supersede", "q001", "--owner", "owner", "--reason", "obsolete"},
+				{"supersede", "q001", "--resolution-owner", "owner", "--superseded-by", "q002"},
+				{"supersede", "q001", "--resolution-owner", "owner", "--reason", "obsolete"},
 			},
 			assertInput: func(t *testing.T, stub *questionListServiceStub) {
 				t.Helper()
@@ -587,6 +587,52 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 				t.Fatalf("question %s unsupported input Execute() error = %v", tc.name, err)
 			}
 			assertQuestionWorkflowNotCalled(t, stub)
+		})
+	}
+}
+
+func TestQuestionResolveHelpDocumentsWorkflowAndResolutionKinds(t *testing.T) {
+	output, err := executeQuestionCommand(t, "resolve", "--help")
+	if err != nil {
+		t.Fatalf("question resolve --help error = %v", err)
+	}
+	for _, want := range []string{
+		"Claim the Question", "Record each response", "Resolve after all responders are complete",
+		"local_clarification", "feature_change", "product_decision", "architecture_decision", "follow_up_work", "no_lasting_consequence",
+		"--resolution-owner", "Deprecated alias for --resolution-owner",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("question resolve --help missing %q", want)
+		}
+	}
+}
+
+func TestQuestionWorkflowOwnerAliasRemainsCompatible(t *testing.T) {
+	for _, args := range [][]string{
+		{"resolve", "q001", "--owner", "owner", "--resolution-kind", "no_lasting_consequence"},
+		{"withdraw", "q001", "--owner", "owner", "--reason", "obsolete"},
+		{"supersede", "q001", "--owner", "owner", "--reason", "obsolete", "--superseded-by", "q002"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			stub := &questionListServiceStub{question: &models.Question{BaseEntity: models.BaseEntity{Key: "Q001", Title: "Question"}}}
+			withQuestionSvcOverride(t, stub)
+			if _, err := executeQuestionCommand(t, args...); err != nil {
+				t.Fatalf("question %s with --owner error = %v", args[0], err)
+			}
+			switch args[0] {
+			case "resolve":
+				if !stub.resolved || stub.resolveIn == nil || stub.resolveIn.Owner != "owner" {
+					t.Fatalf("Resolve input = %#v, called=%v", stub.resolveIn, stub.resolved)
+				}
+			case "withdraw":
+				if !stub.withdrawn || stub.withdrawIn == nil || stub.withdrawIn.Owner != "owner" {
+					t.Fatalf("Withdraw input = %#v, called=%v", stub.withdrawIn, stub.withdrawn)
+				}
+			case "supersede":
+				if !stub.superseded || stub.supersedeIn == nil || stub.supersedeIn.Owner != "owner" {
+					t.Fatalf("Supersede input = %#v, called=%v", stub.supersedeIn, stub.superseded)
+				}
+			}
 		})
 	}
 }

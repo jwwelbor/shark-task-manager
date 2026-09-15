@@ -59,6 +59,24 @@ func resolveQuestionID(ctx context.Context, key string) (int64, error) {
 }
 
 var questionCmd = &cobra.Command{Use: "question", Short: "Manage Questions", GroupID: "advanced", RunE: runQuestionRoot}
+
+const questionResolutionHelp = `Resolve a Question after every configured responder has recorded a response.
+
+Required workflow:
+  1. Claim the Question: shark claim <key> --by=<responder>
+  2. Record each response: shark question respond <key> --session=<claim-session> --responder=<responder> --summary=<summary> --evidence-pointer=<pointer>
+  3. Resolve after all responders are complete: shark question resolve <key> --resolution-owner=<owner> --resolution-kind=<kind> --resolution-pointer=<pointer>
+
+Resolution kinds and pointer formats:
+  local_clarification     note:<id> for an existing typed note
+  feature_change          one or more existing repository-relative document paths, separated by semicolons
+  product_decision        docs/product/progress.md#<anchor>
+  architecture_decision   an ADR and affected reference as two or more existing repository-relative document paths, separated by semicolons
+  follow_up_work          an existing follow-up work key
+  no_lasting_consequence  no --resolution-pointer
+
+Use --resolution-owner consistently with configure-workflow. --owner remains a deprecated compatibility alias.`
+
 var questionCreateCmd = &cobra.Command{Use: "create <title>", Args: cobra.ExactArgs(1), RunE: runQuestionCreate}
 var questionGetCmd = &cobra.Command{Use: "get <key>", Args: cobra.ExactArgs(1), RunE: runQuestionGet}
 var questionListCmd = &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: runQuestionList}
@@ -67,7 +85,12 @@ var questionDeleteCmd = &cobra.Command{Use: "delete <key>", Args: cobra.ExactArg
 var questionStatusCmd = &cobra.Command{Use: "status <key>", Args: cobra.ExactArgs(1), RunE: runQuestionStatus}
 var questionConfigureWorkflowCmd = &cobra.Command{Use: "configure-workflow <key>", Args: cobra.ExactArgs(1), RunE: runQuestionConfigureWorkflow}
 var questionRespondCmd = &cobra.Command{Use: "respond <key>", Args: cobra.ExactArgs(1), RunE: runQuestionRespond}
-var questionResolveCmd = &cobra.Command{Use: "resolve <key>", Args: cobra.ExactArgs(1), RunE: runQuestionResolve}
+var questionResolveCmd = &cobra.Command{
+	Use:  "resolve <key>",
+	Long: questionResolutionHelp,
+	Args: cobra.ExactArgs(1),
+	RunE: runQuestionResolve,
+}
 var questionWithdrawCmd = &cobra.Command{Use: "withdraw <key>", Args: cobra.ExactArgs(1), RunE: runQuestionWithdraw}
 var questionSupersedeCmd = &cobra.Command{Use: "supersede <key>", Args: cobra.ExactArgs(1), RunE: runQuestionSupersede}
 var questionOpenByResponderCmd = newQuestionOpenByResponderCommand()
@@ -343,6 +366,24 @@ func requiredQuestionString(cmd *cobra.Command, name string) (string, error) {
 	return value, nil
 }
 
+// requiredQuestionResolutionOwner accepts the explicit name used by
+// configure-workflow while retaining --owner for existing scripts. Supplying
+// both names with different values is ambiguous and rejected before transport.
+func requiredQuestionResolutionOwner(cmd *cobra.Command) (string, error) {
+	resolutionOwner, _ := cmd.Flags().GetString("resolution-owner")
+	owner, _ := cmd.Flags().GetString("owner")
+	if strings.TrimSpace(resolutionOwner) != "" && strings.TrimSpace(owner) != "" && resolutionOwner != owner {
+		return "", fmt.Errorf("--owner and --resolution-owner must match when both are provided")
+	}
+	if strings.TrimSpace(resolutionOwner) != "" {
+		return resolutionOwner, nil
+	}
+	if strings.TrimSpace(owner) != "" {
+		return owner, nil
+	}
+	return "", fmt.Errorf("--resolution-owner is required")
+}
+
 func runQuestionConfigureWorkflow(cmd *cobra.Command, args []string) error {
 	owner, err := requiredQuestionString(cmd, "resolution-owner")
 	if err != nil {
@@ -384,7 +425,7 @@ func runQuestionRespond(cmd *cobra.Command, args []string) error {
 }
 
 func runQuestionResolve(cmd *cobra.Command, args []string) error {
-	owner, err := requiredQuestionString(cmd, "owner")
+	owner, err := requiredQuestionResolutionOwner(cmd)
 	if err != nil {
 		return err
 	}
@@ -404,7 +445,7 @@ func runQuestionResolve(cmd *cobra.Command, args []string) error {
 }
 
 func runQuestionWithdraw(cmd *cobra.Command, args []string) error {
-	owner, err := requiredQuestionString(cmd, "owner")
+	owner, err := requiredQuestionResolutionOwner(cmd)
 	if err != nil {
 		return err
 	}
@@ -420,7 +461,7 @@ func runQuestionWithdraw(cmd *cobra.Command, args []string) error {
 }
 
 func runQuestionSupersede(cmd *cobra.Command, args []string) error {
-	owner, err := requiredQuestionString(cmd, "owner")
+	owner, err := requiredQuestionResolutionOwner(cmd)
 	if err != nil {
 		return err
 	}
@@ -473,12 +514,15 @@ func init() {
 	questionRespondCmd.Flags().String("responder", "", "Current responder identity")
 	questionRespondCmd.Flags().String("summary", "", "Bounded response summary")
 	questionRespondCmd.Flags().String("evidence-pointer", "", "Local evidence pointer")
-	questionResolveCmd.Flags().String("owner", "", "Configured resolution owner")
-	questionResolveCmd.Flags().String("resolution-kind", "", "Resolution classification")
-	questionResolveCmd.Flags().String("resolution-pointer", "", "Validated resolution destination")
-	questionWithdrawCmd.Flags().String("owner", "", "Configured resolution owner")
+	questionResolveCmd.Flags().String("resolution-owner", "", "Configured resolution owner")
+	questionResolveCmd.Flags().String("owner", "", "Deprecated alias for --resolution-owner")
+	questionResolveCmd.Flags().String("resolution-kind", "", "Resolution classification; see the command help for valid values")
+	questionResolveCmd.Flags().String("resolution-pointer", "", "Resolution destination; see the command help for the required format")
+	questionWithdrawCmd.Flags().String("resolution-owner", "", "Configured resolution owner")
+	questionWithdrawCmd.Flags().String("owner", "", "Deprecated alias for --resolution-owner")
 	questionWithdrawCmd.Flags().String("reason", "", "Bounded withdrawal reason")
-	questionSupersedeCmd.Flags().String("owner", "", "Configured resolution owner")
+	questionSupersedeCmd.Flags().String("resolution-owner", "", "Configured resolution owner")
+	questionSupersedeCmd.Flags().String("owner", "", "Deprecated alias for --resolution-owner")
 	questionSupersedeCmd.Flags().String("reason", "", "Bounded supersession reason")
 	questionSupersedeCmd.Flags().String("superseded-by", "", "Existing superseding Question key")
 }
