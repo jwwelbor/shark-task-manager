@@ -25,6 +25,18 @@ import (
 // time.
 const maxUpdateCandidateAttempts = 2
 
+// candidateClaimPollInterval / candidateClaimTimeout bound the wait for a
+// competing writer that has claimed, but not yet published, the transition
+// away from a candidate digest. That state is not a stale-write conflict: the
+// current candidate still has the expected digest, so consuming the caller's
+// one retry would make two legitimate concurrent completions flaky. A claim
+// that remains in-flight until the timeout is still reported as the typed
+// conflict rather than being retried forever.
+var (
+	candidateClaimPollInterval = 5 * time.Millisecond
+	candidateClaimTimeout      = 10 * time.Second
+)
+
 // IntegrationCandidate holds the single, atomic accumulated view of an
 // epic's integration run: every IntegrationEvent recorded so far, folded
 // into one file at .shark/runs/<epic-run-id>/integration-candidate.json.
@@ -80,6 +92,14 @@ func (e *CandidateConflictError) Error() string {
 // logic, and tests must not bypass it by hand-constructing a stale digest
 // against a lower-level function).
 var updateCandidateTestHook func()
+
+// candidateClaimAcquiredTestHook and candidateClaimContendedTestHook let the
+// concurrency regression deterministically hold a winning claim while a
+// second real UpdateCandidate call observes it. Both are nil in production.
+var (
+	candidateClaimAcquiredTestHook  func()
+	candidateClaimContendedTestHook func()
+)
 
 // UpdateCandidate folds newEvent into epicRunID's IntegrationCandidate,
 // creating the candidate file if it does not exist yet. The update is
@@ -188,6 +208,12 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 	expectedDigest := ""
 	if current != nil {
 		expectedDigest = current.Digest
+		// EventIDs is the durable set-union identity for a fold. Retrying an
+		// event that is already present must not rebuild it with that event as
+		// HeadCommit: a newer event may have advanced the head meanwhile.
+		if candidateHasEvent(current, newEvent.EventID) {
+			return current, nil
+		}
 	}
 
 	next, err := buildNextCandidate(ctx, projectRoot, current, epicRunID, newEvent)
@@ -200,6 +226,13 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 		return nil, err
 	}
 	next.Digest = digest
+	// Folding an event already present in the candidate is idempotent. Do
+	// not claim or publish an unchanged transition: a claim keyed by the
+	// unchanged digest would permanently occupy the slot needed by the next
+	// distinct event.
+	if current != nil && next.Digest == current.Digest {
+		return current, nil
+	}
 
 	data, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
@@ -233,12 +266,11 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 	// stale writer once it has actually been spent (see the rollback
 	// deferred immediately below for the unpublished case).
 	claimPath := filepath.Join(claimsDir, claimFileName(expectedDigest))
-	if err := os.Link(tmpPath, claimPath); err != nil {
+	if err := claimCandidateTransition(ctx, path, claimPath, tmpPath, expectedDigest); err != nil {
+		// A temp file is private to this attempt. Failure to remove it cannot
+		// change candidate or claim state, so the causal claim error wins.
 		_ = os.Remove(tmpPath)
-		if os.IsExist(err) {
-			return nil, &CandidateConflictError{Path: path}
-		}
-		return nil, fmt.Errorf("integration: claim candidate transition at %s: %w", claimPath, err)
+		return nil, err
 	}
 
 	// Claim-rollback safety net (code-review kickback on T-E34-F08-006:
@@ -294,6 +326,116 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 	published = true
 
 	return next, nil
+}
+
+// claimCandidateTransition atomically claims the expected prior digest, or
+// waits for the existing claimant to either publish or release its claim.
+func claimCandidateTransition(ctx context.Context, path, claimPath, tmpPath, expectedDigest string) error {
+	for {
+		if err := os.Link(tmpPath, claimPath); err == nil {
+			if candidateClaimAcquiredTestHook != nil {
+				candidateClaimAcquiredTestHook()
+			}
+			return nil
+		} else if !os.IsExist(err) {
+			return fmt.Errorf("integration: claim candidate transition at %s: %w", claimPath, err)
+		}
+		if candidateClaimContendedTestHook != nil {
+			candidateClaimContendedTestHook()
+		}
+		advanced, err := waitForCandidateClaim(ctx, path, claimPath, expectedDigest)
+		if err != nil {
+			return err
+		}
+		if advanced {
+			return &CandidateConflictError{Path: path}
+		}
+	}
+}
+
+type candidateClaimState uint8
+
+const (
+	candidateClaimPending candidateClaimState = iota
+	candidateClaimReleased
+	candidateClaimAdvanced
+)
+
+// waitForCandidateClaim distinguishes a live claimant from a completed
+// transition. It returns advanced when the current candidate has moved away
+// from expectedDigest; released means an unpublished claimant removed its
+// claim and the caller may try to claim the unchanged transition itself.
+func waitForCandidateClaim(ctx context.Context, path, claimPath, expectedDigest string) (advanced bool, err error) {
+	deadline := time.Now().Add(candidateClaimTimeout)
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, fmt.Errorf("integration: wait for candidate claim at %s: %w", claimPath, err)
+		}
+
+		state, err := inspectCandidateClaim(path, claimPath, expectedDigest)
+		if err != nil {
+			return false, err
+		}
+		if state == candidateClaimReleased {
+			return false, nil
+		}
+		if state == candidateClaimAdvanced {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, &CandidateConflictError{Path: path}
+		}
+
+		select {
+		case <-ctx.Done():
+			return false, fmt.Errorf("integration: wait for candidate claim at %s: %w", claimPath, ctx.Err())
+		case <-time.After(candidateClaimPollInterval):
+		}
+	}
+}
+
+// inspectCandidateClaim classifies one observation without making state
+// changes. A same-file claim is a completed legacy no-op and stays
+// fail-closed for TD-212's crash-safe recovery work.
+func inspectCandidateClaim(path, claimPath, expectedDigest string) (candidateClaimState, error) {
+	current, _, err := readCandidate(path)
+	if err != nil {
+		return candidateClaimPending, err
+	}
+	if candidateDigest(current) != expectedDigest {
+		return candidateClaimAdvanced, nil
+	}
+	claimInfo, err := os.Stat(claimPath)
+	if os.IsNotExist(err) {
+		return candidateClaimReleased, nil
+	}
+	if err != nil {
+		return candidateClaimPending, fmt.Errorf("integration: stat candidate claim at %s: %w", claimPath, err)
+	}
+	candidateInfo, err := os.Stat(path)
+	if err == nil && os.SameFile(candidateInfo, claimInfo) {
+		return candidateClaimAdvanced, nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return candidateClaimPending, fmt.Errorf("integration: stat candidate at %s: %w", path, err)
+	}
+	return candidateClaimPending, nil
+}
+
+func candidateDigest(candidate *IntegrationCandidate) string {
+	if candidate == nil {
+		return ""
+	}
+	return candidate.Digest
+}
+
+func candidateHasEvent(candidate *IntegrationCandidate, eventID string) bool {
+	for _, id := range candidate.EventIDs {
+		if id == eventID {
+			return true
+		}
+	}
+	return false
 }
 
 // archiveTestHook, when non-nil, is invoked exactly once per

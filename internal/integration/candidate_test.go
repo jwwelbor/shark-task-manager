@@ -111,6 +111,150 @@ func TestUpdateCandidate_ConcurrentDifferentFeatures(t *testing.T) {
 	}
 }
 
+// TestUpdateCandidate_WaitsForInFlightClaim proves that an observed claim is
+// not immediately charged against the caller's one stale-digest retry. The
+// first writer holds its real claim after acquiring it; the second writer
+// observes that claim, waits for the first publish, then folds its own event
+// onto the new candidate. This is deterministic rather than relying on the
+// scheduler to make TC-007 collide at the narrow claim-to-rename window.
+func TestUpdateCandidate_WaitsForInFlightClaim(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-inflight-claim"
+	firstEvent, err := RecordEvent(epicRunID, "E34-F22", "commit-first", nil, nil)
+	if err != nil {
+		t.Fatalf("first RecordEvent: %v", err)
+	}
+	secondEvent, err := RecordEvent(epicRunID, "E34-F23", "commit-second", nil, nil)
+	if err != nil {
+		t.Fatalf("second RecordEvent: %v", err)
+	}
+
+	claimed, contended, release := installCandidateClaimPause(t)
+
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := UpdateCandidate(context.Background(), epicRunID, firstEvent)
+		firstResult <- err
+	}()
+	<-claimed
+
+	secondResult := make(chan error, 1)
+	go func() {
+		_, err := UpdateCandidate(context.Background(), epicRunID, secondEvent)
+		secondResult <- err
+	}()
+	<-contended
+	release()
+
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first UpdateCandidate: %v", err)
+	}
+	if err := <-secondResult; err != nil {
+		t.Fatalf("second UpdateCandidate waited for the in-flight claim instead of exhausting retries: %v", err)
+	}
+
+	final, _, err := readCandidate(candidatePath(dir, epicRunID))
+	if err != nil {
+		t.Fatalf("read final candidate: %v", err)
+	}
+	want := []string{firstEvent.EventID, secondEvent.EventID}
+	sort.Strings(want)
+	got := append([]string(nil), final.EventIDs...)
+	sort.Strings(got)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("final EventIDs = %v, want %v", got, want)
+	}
+}
+
+func installCandidateClaimPause(t *testing.T) (<-chan struct{}, <-chan struct{}, func()) {
+	t.Helper()
+	claimed := make(chan struct{})
+	contended := make(chan struct{})
+	release := make(chan struct{})
+	var claimOnce, contentionOnce sync.Once
+	candidateClaimAcquiredTestHook = func() {
+		claimOnce.Do(func() {
+			close(claimed)
+			<-release
+		})
+	}
+	candidateClaimContendedTestHook = func() {
+		contentionOnce.Do(func() { close(contended) })
+	}
+	t.Cleanup(func() {
+		candidateClaimAcquiredTestHook = nil
+		candidateClaimContendedTestHook = nil
+	})
+	return claimed, contended, func() { close(release) }
+}
+
+// TestUpdateCandidate_DuplicateEventIsIdempotent covers the no-op sibling of
+// the in-flight-claim path. A duplicate EventID returns the existing
+// candidate without consuming a claim slot, leaving a distinct next event
+// free to advance the candidate. Pre-idempotency no-op claims remain
+// fail-closed for TD-212's crash-safe recovery work.
+func TestUpdateCandidate_DuplicateEventIsIdempotent(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	const epicRunID = "run-candidate-duplicate-claim"
+	event, err := RecordEvent(epicRunID, "E34-F24", "commit-duplicate", nil, nil)
+	if err != nil {
+		t.Fatalf("RecordEvent: %v", err)
+	}
+	if _, err := UpdateCandidate(context.Background(), epicRunID, event); err != nil {
+		t.Fatalf("seed UpdateCandidate: %v", err)
+	}
+
+	seed, _, err := readCandidate(candidatePath(dir, epicRunID))
+	if err != nil {
+		t.Fatalf("read seed candidate: %v", err)
+	}
+	duplicate, err := UpdateCandidate(context.Background(), epicRunID, event)
+	if err != nil {
+		t.Fatalf("duplicate UpdateCandidate must be idempotent: %v", err)
+	}
+	if duplicate.Digest != seed.Digest {
+		t.Fatalf("duplicate candidate digest = %s, want unchanged %s", duplicate.Digest, seed.Digest)
+	}
+
+	path := candidatePath(dir, epicRunID)
+	claimPath := filepath.Join(candidateClaimsDir(path), claimFileName(seed.Digest))
+	if _, err := os.Stat(claimPath); !os.IsNotExist(err) {
+		t.Fatalf("duplicate UpdateCandidate consumed a claim slot at %s: %v", claimPath, err)
+	}
+
+	distinctEvent, err := RecordEvent(epicRunID, "E34-F25", "commit-distinct", nil, nil)
+	if err != nil {
+		t.Fatalf("distinct RecordEvent: %v", err)
+	}
+	advanced, err := UpdateCandidate(context.Background(), epicRunID, distinctEvent)
+	if err != nil {
+		t.Fatalf("distinct UpdateCandidate after duplicate no-op: %v", err)
+	}
+
+	want := []string{event.EventID, distinctEvent.EventID}
+	sort.Strings(want)
+	got := append([]string(nil), advanced.EventIDs...)
+	sort.Strings(got)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("advanced EventIDs = %v, want %v", got, want)
+	}
+
+	// Retries need the same guarantee after another event has advanced the
+	// head: retrying the older event must not republish it as HeadCommit.
+	retried, err := UpdateCandidate(context.Background(), epicRunID, event)
+	if err != nil {
+		t.Fatalf("older duplicate UpdateCandidate: %v", err)
+	}
+	if retried.Digest != advanced.Digest {
+		t.Fatalf("older duplicate digest = %s, want unchanged %s", retried.Digest, advanced.Digest)
+	}
+	if retried.HeadCommit != distinctEvent.FeatureCommit {
+		t.Fatalf("older duplicate HeadCommit = %s, want %s", retried.HeadCommit, distinctEvent.FeatureCommit)
+	}
+}
+
 func TestUpdateCandidate_CanceledContextDoesNotPublishCandidate(t *testing.T) {
 	dir, _ := chdirProjectRoot(t)
 	const epicRunID = "run-cancelled-candidate"
