@@ -2,6 +2,8 @@ package entityrel
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -163,7 +165,11 @@ func TestEntityRelationshipRepository_CreateWithTx_RejectsNilInputs(t *testing.T
 	if err != nil {
 		t.Fatalf("begin transaction: %v", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	t.Cleanup(func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			t.Errorf("rollback transaction: %v", rollbackErr)
+		}
+	})
 	if err := repo.CreateWithTx(context.Background(), tx, nil); err == nil {
 		t.Fatal("expected nil relationship to be rejected")
 	}

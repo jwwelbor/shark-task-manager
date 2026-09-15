@@ -301,6 +301,27 @@ func TestTaskCreate_SizeFlag_RegisteredAndIsString(t *testing.T) {
 	}
 }
 
+func TestTaskCreate_DependsOnFlag_ReachesCreateService(t *testing.T) {
+	var got services.CreateTaskInput
+	withTaskCreateSvcOverride(t, &mockTaskCreateService{
+		createFn: func(_ context.Context, input services.CreateTaskInput) (*models.Task, bool, error) {
+			got = input
+			return &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F01-002", Title: input.Title}}, false, nil
+		},
+	})
+
+	cmd := buildTaskCreateCmdWithSize(t)
+	cmd.SetArgs([]string{"E07", "F01", "Dependent task", "--depends-on=T-E07-F01-001"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("task create: %v", err)
+	}
+	if len(got.DependsOn) != 1 || got.DependsOn[0] != "T-E07-F01-001" {
+		t.Fatalf("DependsOn = %q, want [T-E07-F01-001]", got.DependsOn)
+	}
+}
+
 func TestTaskCreate_SizeFlag_LabelL(t *testing.T) {
 	var capturedInput services.CreateTaskInput
 	stub := &mockTaskCreateService{
