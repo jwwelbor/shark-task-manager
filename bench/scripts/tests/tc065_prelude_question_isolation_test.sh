@@ -303,7 +303,7 @@ import sys
 
 prelude = json.loads(open(sys.argv[1], encoding="utf-8").readline())
 open(sys.argv[2], "w", encoding="utf-8").write("[]\n")
-for path, key, value in ((sys.argv[3], "replay", ["invalid"]), (sys.argv[4], "replay_bundle", ["invalid"])):
+for path, key, value in ((sys.argv[3], "replay", []), (sys.argv[4], "replay_bundle", [])):
     candidate = json.loads(json.dumps(prelude))
     if key == "replay_bundle":
         candidate["replay"][key] = value

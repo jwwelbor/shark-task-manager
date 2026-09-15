@@ -607,10 +607,14 @@ def prelude_lineage(prelude):
     """Project resolver-owned replay join keys before bounding the prelude."""
     if not isinstance(prelude, dict):
         raise RuntimeError("lifecycle prelude must be a JSON object")
-    replay = prelude.get("replay") or {}
+    replay = prelude.get("replay")
+    if replay is None:
+        replay = {}
     if not isinstance(replay, dict):
         raise RuntimeError("lifecycle prelude replay must be a JSON object")
-    replay_bundle = replay.get("replay_bundle") or {}
+    replay_bundle = replay.get("replay_bundle")
+    if replay_bundle is None:
+        replay_bundle = {}
     if not isinstance(replay_bundle, dict):
         raise RuntimeError("lifecycle prelude replay_bundle must be a JSON object")
     reference = replay_bundle.get("bundle_path")
