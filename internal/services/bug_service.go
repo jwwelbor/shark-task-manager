@@ -252,7 +252,6 @@ func (s *BugService) generateMarkdown(bug *models.Bug) string {
 	sb.WriteString("---\n")
 	sb.WriteString(fmt.Sprintf("bug_key: %s\n", bug.Key))
 	sb.WriteString(fmt.Sprintf("title: %s\n", bug.Title))
-	sb.WriteString(fmt.Sprintf("status: %s\n", bug.Status))
 	sb.WriteString(fmt.Sprintf("severity: %s\n", bug.Severity))
 	if bug.Slug != nil {
 		sb.WriteString(fmt.Sprintf("slug: %s\n", *bug.Slug))

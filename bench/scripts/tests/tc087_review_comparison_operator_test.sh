@@ -50,6 +50,23 @@ fail() {
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
+# TD-140: mirror TC-082's dangling-link regression in the comparison-driver
+# suite. The driver uses this primitive for each scratch-root copy, so a
+# dangling nested source must fail loudly rather than be preserved into an
+# ephemeral checkout.
+# shellcheck source=../lib/path-safety.sh
+source "$SCRIPTS_DIR/lib/path-safety.sh"
+DANGLING_SOURCE="$WORKDIR/dangling-source"
+mkdir -p "$DANGLING_SOURCE"
+ln -s "$WORKDIR/missing-dangling-target" "$DANGLING_SOURCE/dangling"
+set +e
+copy_tree_dereferenced "$DANGLING_SOURCE" "$WORKDIR/dangling-copy" >"$WORKDIR/dangling.out" 2>"$WORKDIR/dangling.err"
+dangling_copy_rc=$?
+set -e
+[[ "$dangling_copy_rc" -ne 0 ]] || fail "dangling scratch source: copy_tree_dereferenced unexpectedly preserved or accepted a dangling link"
+[[ -L "$DANGLING_SOURCE/dangling" ]] || fail "dangling scratch source: source link was modified"
+echo "TC-087(TD-140): comparison scratch-copy primitive refuses a dangling nested symlink"
+
 # ---------------------------------------------------------------------------
 # Real, non-evaluation retention sources (UAT round-6 fix,
 # uat-2026-08-21T233606Z-E40-F10.md, defect class: "treating a present
@@ -98,7 +115,7 @@ root = pathlib.Path(sys.argv[1])
 digest = "a" * 64
 
 def candidate_digest_fields(candidate):
-    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")}
+    return {key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")}
 
 def with_identity_digest(candidate):
     candidate = dict(candidate)
@@ -117,8 +134,8 @@ identity = {key: value for key, value in {
 
 base_candidate = with_identity_digest({
     "base_commit": "b" * 40, "tree_digest": digest, "binary_diff_digest": digest,
-    "changed_path_digest": digest, "dirty_untracked_manifest": digest,
-    "test_suite_digest": digest, "snapshot_digest": digest,
+    "changed_path_digest": digest, "dirty_untracked_manifest": [{"path": "tracked/file.txt", "digest": "sha256:" + digest, "tracked": True}],
+    "test_suite_digest": digest, "scratch_content_digest": digest, "snapshot_digest": digest,
 })
 
 def make_policy(**overrides):
@@ -783,15 +800,16 @@ RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB_L" EVALUATE_LIFECYCLE_BIN="$EVAL_ALWAYS_
 	"$COMPARISON" --candidate "$CANDIDATE_L_YAML" --retention-root "$ROOT_L" \
 	--mode pilot --comparison-mode independent_frozen_candidate "${ACK_FLAGS[@]}" \
 	>"$ROOT_L.out" 2>&1 || rc_l=$?
-[[ "$rc_l" -eq 4 ]] || fail "case L (round-6 finding 1): expected exit 4 (deep_review gate dispatches for real then fails at evaluation via the always-fail stub; comparison never attempted), got $rc_l: $(cat "$ROOT_L.out")"
-[[ -f "$STUB_INVOKED_SENTINEL_L" ]] || fail "case L (round-6 finding 1): the stub lifecycle worker was never invoked -- a real (non-symlink) scratch_root with a nested symlink must NOT be refused before dispatch (unlike case K's top-level symlink)"
+[[ "$rc_l" -eq 4 ]] || fail "case L (B6 out-of-root source link): expected exit 4 (deep_review pair rejected before dispatch), got $rc_l: $(cat "$ROOT_L.out")"
+[[ ! -f "$STUB_INVOKED_SENTINEL_L" ]] || fail "case L (B6 out-of-root source link): lifecycle worker ran after the source copy should have rejected the external nested symlink"
+grep -qi "scratch_root_copy_failed\|outside canonical scratch root" "$ROOT_L.out" || fail "case L (B6 out-of-root source link): copy rejection was not diagnosed"
 SCRATCH_NESTED_EXTERNAL_L_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL_L/marker.txt" | awk '{print $1}')"
 [[ "$SCRATCH_NESTED_EXTERNAL_L_AFTER" == "$SCRATCH_NESTED_EXTERNAL_L_BEFORE" ]] \
 	|| fail "case L (round-6 finding 1): the external target of the nested symlink was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_NESTED_EXTERNAL_L/marker.txt")"
 [[ -L "$SCRATCH_NESTED_ROOT_L/prompts" ]] || fail "case L (round-6 finding 1): the original scratch_root's own nested symlink was unexpectedly removed/replaced"
 [[ ! -f "$ROOT_L/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case L (round-6 finding 1): a comparison must never be published when the deep_review gate's evaluation failed"
 
-echo "TC-087(case L, round-6 finding 1): dispatch_gate dispatches (does not refuse) a real scratch_root containing a nested symlink -- the stub lifecycle worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched"
+echo "TC-087(case L, B6): dispatch_gate rejects an out-of-root nested scratch symlink before lifecycle dispatch; external target and original source remain untouched"
 
 # ===========================================================================
 # Case M / N (UAT round-6 fix, uat-2026-08-21T233606Z-E40-F10.md, HIGH

@@ -18,7 +18,7 @@ import yaml
 
 bench_dir, oracle = sys.argv[1:3]
 sys.path.insert(0, os.path.join(bench_dir, "scripts", "lib"))
-from e40_evidence import canonical_digest, load_jsonl, sha256_file  # noqa: E402
+from e40_evidence import CANDIDATE_IDENTITY_FIELDS, canonical_digest, load_jsonl, sha256_file  # noqa: E402
 from i05_validation import validate_typed_consumer  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -257,16 +257,15 @@ def validate_candidate_snapshots(lifecycle, reasons):
             reasons.append(reason("identity_missing", f"/stages/{stage_index}/candidate", "upstream I-07 candidate identity is required"))
             continue
         candidate = dict(stage["candidate"])
-        candidate_fields = ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest")
-        for field in candidate_fields:
+        for field in CANDIDATE_IDENTITY_FIELDS:
             if field not in candidate or candidate[field] in (None, ""):
                 reasons.append(reason("identity_missing", f"/stages/{stage_index}/candidate/{field}", "complete upstream candidate identity is required"))
         if "identity_digest" not in candidate or "snapshot_digest" not in candidate:
             reasons.append(reason("identity_missing", f"/stages/{stage_index}/candidate", "F09 must not synthesize candidate identity digests"))
         else:
-            expected_identity = canonical_digest({key: candidate[key] for key in candidate_fields if key in candidate})
+            expected_identity = canonical_digest({key: candidate[key] for key in CANDIDATE_IDENTITY_FIELDS if key in candidate})
             if candidate.get("identity_digest") != expected_identity:
-                reasons.append(reason("identity_mismatch", f"/stages/{stage_index}/candidate/identity_digest", "upstream candidate identity digest disagrees with its six fields"))
+                reasons.append(reason("identity_mismatch", f"/stages/{stage_index}/candidate/identity_digest", "upstream candidate identity digest disagrees with its declared fields"))
         candidate_snapshots.append({"stage": stage.get("stage"), "candidate": candidate})
     return candidate_snapshots
 

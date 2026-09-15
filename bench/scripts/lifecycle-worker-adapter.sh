@@ -242,9 +242,16 @@ def provider_measurements(raw):
     if not isinstance(document, dict):
         return {}
 
+    # Keep a bounded copy in the provider's documented envelope vocabulary.
+    # The lifecycle runner resolves usage-mapping.yaml against those paths;
+    # `usage` below is its separate, normalized worker-facing projection.
+    # Do not retain raw provider output here: only the slots the mapping can
+    # consume are carried across this trust boundary.
+    provider_envelope = {}
     usage = document.get("usage")
     bounded_usage = {}
     if isinstance(usage, dict):
+        provider_usage = {}
         for key in (
             "input_tokens",
             "output_tokens",
@@ -254,11 +261,17 @@ def provider_measurements(raw):
             value = usage.get(key)
             if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                 bounded_usage[key] = value
+                provider_usage[key] = value
+        if provider_usage:
+            provider_envelope["usage"] = provider_usage
     model_usage = document.get("modelUsage")
     if isinstance(model_usage, dict):
-        bounded_usage["model_ids"] = sorted(
+        model_ids = sorted(
             key for key in model_usage if isinstance(key, str) and key
         )
+        bounded_usage["model_ids"] = model_ids
+        if model_ids:
+            provider_envelope["modelUsage"] = {model_id: {} for model_id in model_ids}
     for source, target in (
         ("duration_api_ms", "api_active_duration_ms"),
         ("num_turns", "turn_count"),
@@ -266,19 +279,24 @@ def provider_measurements(raw):
         value = document.get(source)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             bounded_usage[target] = value
+            provider_envelope[source] = value
     provider_session = document.get("session_id")
     if isinstance(provider_session, str) and provider_session:
         # Provider metadata is evidence only. The parent claim session remains
         # the sole authority used for heartbeat, transition, and release.
         bounded_usage["provider_session_id"] = provider_session
+        provider_envelope["session_id"] = provider_session
 
     measurements = {}
     cost = document.get("total_cost_usd")
     if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
         measurements["cost_usd"] = float(cost)
         bounded_usage["cost_usd"] = float(cost)
+        provider_envelope["total_cost_usd"] = float(cost)
     if bounded_usage:
         measurements["usage"] = bounded_usage
+    if provider_envelope:
+        measurements["provider_usage_envelope"] = provider_envelope
     return measurements
 
 

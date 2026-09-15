@@ -94,6 +94,7 @@ required_fields:
   - /stages[]/candidate/changed_path_digest
   - /stages[]/candidate/dirty_untracked_manifest
   - /stages[]/candidate/test_suite_digest
+  - /stages[]/candidate/scratch_content_digest
   - /stages[]/candidate/identity_digest
   - /stages[]/candidate/snapshot_digest
   - /stages[]/artifacts
@@ -229,6 +230,7 @@ properties:
   /stages[]/candidate/binary_diff_digest: digest
   /stages[]/candidate/changed_path_digest: digest
   /stages[]/candidate/test_suite_digest: digest
+  /stages[]/candidate/scratch_content_digest: digest
   /stages[]/candidate/identity_digest: digest
   /stages[]/candidate/snapshot_digest: digest
   /stages[]/artifacts[]/digest: digest

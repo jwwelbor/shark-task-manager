@@ -454,7 +454,6 @@ func (s *ChangeCardService) generateMarkdown(card *models.ChangeCard) string {
 	sb.WriteString("---\n")
 	sb.WriteString(fmt.Sprintf("change_card_key: %s\n", card.Key))
 	sb.WriteString(fmt.Sprintf("title: %s\n", card.Title))
-	sb.WriteString(fmt.Sprintf("status: %s\n", card.Status))
 	sb.WriteString(fmt.Sprintf("priority: %d\n", card.Priority))
 	if card.Slug != nil {
 		sb.WriteString(fmt.Sprintf("slug: %s\n", *card.Slug))

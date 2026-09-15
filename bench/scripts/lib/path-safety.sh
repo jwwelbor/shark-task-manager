@@ -60,46 +60,13 @@ assert_within_out_root() {
 	return 1
 }
 
-# symlink_dest <path> -- true (exit 0) iff <path> itself exists as a
-# symlink (any target: in-root, out-of-root, dangling, file, or
-# directory). assert_within_out_root above only ever validates where a
-# path's FINAL resolved target lands relative to --out (via `realpath -m`,
-# which resolves an existing symlink's final component) -- it does not, and
-# is not meant to, answer "is the directory entry AT this exact path itself
-# a symlink" (a distinct question: a symlink can resolve to a location
-# fully inside --out and still be a "confused deputy" redirect to another
-# retained artifact, which containment-by-resolved-path alone cannot
-# distinguish from a legitimate real directory/file at that name).
-#
-# code-review-2026-08-21T0459-E40-F10.md (round 4) finding 7 / non-blocker:
-# this exact `[[ -L "$path" ]]` test used to be duplicated independently in
-# run-lifecycle-batch.sh's retain_pair() and run-review-comparison.sh's
-# retain_gate(), and each of this round's fixes to the "already retained,
-# skip" fast paths and the comparison.json publish path would otherwise
-# have added a THIRD and FOURTH independent copy. One shared predicate here
-# means the two drivers structurally cannot drift apart on what "already a
-# symlink" means, the same rationale that established assert_within_out_root
-# itself (NEW-1 above). Callers keep ownership of their own contextual
-# diagnostic message and of whether a hit is a hard refusal or a soft
-# "reclassify, don't dispatch" outcome -- this helper only answers the
-# yes/no filesystem question.
-symlink_dest() {
-	if [[ -L "$1" && "${SHARK_BENCH_ALLOW_SYMLINKS:-}" == "1" ]]; then
-		echo "$(basename "$0"): WARNING (SHARK_BENCH_ALLOW_SYMLINKS=1): '$1' is a symlink in the trusted chain -- this operation may read/write a location outside the retention layout you think you're using. Proceeding because you overrode the guard." >&2
-		return 1
-	fi
-	[[ -L "$1" ]]
-}
-
 # assert_no_symlink_in_chain <root> <leaf> -- STRUCTURAL FIX,
 # code-review-2026-08-21T1335-E40-F10.md (round 5) finding 1. Refuses
 # (nonzero, loud diagnostic on stderr; never a silent skip) if ANY path
 # component from <root>'s immediate child down to <leaf>, INCLUSIVE of
 # <leaf> itself, is a pre-existing symlink.
 #
-# Why symlink_dest() above was not enough: every symlink guard in this
-# codebase before this fix -- including symlink_dest() itself -- tested
-# only the LEAF path's own -L status. round 5 found the identical defect
+# Earlier leaf-only guards tested only the LEAF path's own -L status. Round 5 found the identical defect
 # class one directory level higher than round 4 closed it: a symlink at an
 # ANCESTOR component (e.g. `scenarios/<scenario_id>` itself, one level
 # above the rep directory `scenarios/<scenario_id>/<rep>`) redirects to
@@ -216,8 +183,52 @@ copy_tree_dereferenced() {
 	python3 -c '
 import shutil
 import sys
+from pathlib import Path
 
-src, dst = sys.argv[1], sys.argv[2]
-shutil.copytree(src, dst, symlinks=False)
+src, dst = (Path(value) for value in sys.argv[1:3])
+root = src.resolve(strict=True)
+if not root.is_dir():
+    raise RuntimeError(f"scratch source is not a directory: {root}")
+
+def contained(path):
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise RuntimeError(f"refusing source symlink outside canonical scratch root: {path}")
+
+active = set()
+
+def copy_entry(entry, target):
+    try:
+        canonical = entry.resolve(strict=True)
+    except RuntimeError as exc:
+        raise RuntimeError(f"refusing cyclic source symlink: {entry}") from exc
+    if entry.is_symlink():
+        contained(canonical)
+        if canonical in active:
+            raise RuntimeError(f"refusing cyclic source symlink: {entry}")
+        return copy_entry(canonical, target)
+    if canonical in active:
+        raise RuntimeError(f"refusing cyclic source symlink: {entry}")
+    active.add(canonical)
+    try:
+        copy_entry_resolved(canonical, target)
+    finally:
+        active.remove(canonical)
+
+def copy_entry_resolved(canonical, target):
+    if canonical.is_dir():
+        target.mkdir()
+        for child in sorted(canonical.iterdir(), key=lambda item: item.name):
+            copy_entry(child, target / child.name)
+        shutil.copystat(canonical, target, follow_symlinks=False)
+    elif canonical.is_file():
+        shutil.copy2(canonical, target, follow_symlinks=False)
+    else:
+        raise RuntimeError(f"unsupported scratch source entry: {canonical}")
+
+if dst.exists() or dst.is_symlink():
+    raise RuntimeError(f"scratch destination already exists: {dst}")
+copy_entry(root, dst)
 ' "$src" "$dst"
 }

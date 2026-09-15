@@ -62,6 +62,7 @@ assert result == {
     "prompt_sha256": hashlib.sha256(expected_prompt).hexdigest(),
     "prompt_bytes": len(expected_prompt),
     "usage": {"provider_session_id": "SID-002"},
+    "provider_usage_envelope": {"session_id": "SID-002"},
 }, result
 
 assert "credential-sentinel" not in result_path.read_text()
@@ -156,6 +157,19 @@ assert result["usage"] == {
     "output_tokens": 20,
     "provider_session_id": "provider-session-evidence-only",
     "turn_count": 2,
+}, result
+assert result["provider_usage_envelope"] == {
+    "total_cost_usd": 0.125,
+    "duration_api_ms": 1234,
+    "num_turns": 2,
+    "usage": {
+        "input_tokens": 10,
+        "output_tokens": 20,
+        "cache_read_input_tokens": 30,
+        "cache_creation_input_tokens": 40,
+    },
+    "modelUsage": {"claude-haiku-fixture": {}},
+    "session_id": "provider-session-evidence-only",
 }, result
 PYEOF
 echo "TC-060(TC-002: structured output and real usage envelope projection) PASS"

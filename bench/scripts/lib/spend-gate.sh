@@ -121,6 +121,24 @@ _spend_gate_is_positive() {
 	return 0
 }
 
+# spend_gate_materialize_limits_file <output-path> <argv...>
+# Serializes the three ceilings using the same first-occurrence accessor the
+# spend gate validated. Callers create and own cleanup of <output-path>.
+spend_gate_materialize_limits_file() {
+	local output_path="$1"
+	shift
+	local cost wall tasks
+	cost="$(_spend_gate_flag_value "--max-cost-usd" "$@")" || cost=""
+	wall="$(_spend_gate_flag_value "--max-wall-clock-seconds" "$@")" || wall=""
+	tasks="$(_spend_gate_flag_value "--max-generated-tasks" "$@")" || tasks=""
+	if [[ -z "$cost" || -z "$wall" || -z "$tasks" ]]; then
+		echo "spend-gate: internal error: validated ceiling did not resolve from argv" >&2
+		return 2
+	fi
+	printf 'max_cost_usd: %s\nmax_wall_clock_seconds: %s\nmax_generated_tasks: %s\n' \
+		"$cost" "$wall" "$tasks" >"$output_path"
+}
+
 spend_gate_refuse() {
 	local reason="$1" message="$2"
 	SPEND_GATE_REFUSAL_REASON="$reason"

@@ -64,6 +64,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$BENCH_DIR/.." && pwd)"
+# shellcheck source=lib/path-safety.sh
+source "$SCRIPT_DIR/lib/path-safety.sh"
 
 SHARK_BIN="${SHARK_BIN:-shark}"
 CANARY_BIN="${CANARY_BIN:-$SCRIPT_DIR/canary-runsurface.sh}"
@@ -428,7 +430,10 @@ fi
 # This is harness context, not fixture code or oracle input; F2P files remain
 # absent until the existing post-run injection step.
 mkdir -p "$checkout_dir/docs"
-cp -a "$scratch_dir/docs/plan" "$checkout_dir/docs/"
+copy_tree_dereferenced "$scratch_dir/docs/plan" "$checkout_dir/docs/plan" || {
+	echo "run-one: failed to copy generated planning documents into the fixture checkout" >&2
+	exit 1
+}
 
 # --- phase=invoke: process-group-capped `shark run` -------------------------
 echo "run-one: phase=invoke" >&2
