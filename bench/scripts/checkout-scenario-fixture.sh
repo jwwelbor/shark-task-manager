@@ -124,4 +124,6 @@ if [[ "$checked_out_head" != "$requested_head" ]]; then
 	echo "checkout-scenario-fixture: checked-out HEAD ($checked_out_head) does not match requested base_sha ($requested_head, from $base_sha)" >&2
 	exit 1
 fi
-mv -- "$staging_checkout" "$dest_dir"
+# -T prevents a concurrent destination directory from turning this into an
+# unintended nested move (`<dest_dir>/checkout`).
+mv -T -- "$staging_checkout" "$dest_dir"

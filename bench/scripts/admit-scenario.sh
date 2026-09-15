@@ -620,7 +620,8 @@ if __name__ == "__main__":
         print(f"admit-scenario: {exc}", file=sys.stderr)
         sys.exit(2)
     except Exception as exc:  # top-level CLI error boundary
-        traceback.print_exc(file=sys.stderr)
+        if os.environ.get("ADMIT_SCENARIO_DEBUG") == "1":
+            traceback.print_exc(file=sys.stderr)
         print(f"admit-scenario: unexpected error: {exc}", file=sys.stderr)
         sys.exit(2)
 PYEOF

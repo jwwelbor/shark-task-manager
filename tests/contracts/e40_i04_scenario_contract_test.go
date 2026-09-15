@@ -806,6 +806,24 @@ func e40I04ValidateStringSlice(v interface{}, label string) []string {
 	return errs
 }
 
+func TestE40I04ValidateStringSliceRejectsMalformedElements(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value interface{}
+		want  string
+	}{
+		{name: "scalar", value: "not-an-array", want: "final_predicate.p2p_selection.include: must be an array of strings"},
+		{name: "mixed", value: []interface{}{"valid", 7}, want: "final_predicate.p2p_selection.include[1]: must be a string"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := e40I04ValidateStringSlice(tc.value, "final_predicate.p2p_selection.include")
+			if len(errs) != 1 || errs[0] != tc.want {
+				t.Fatalf("e40I04ValidateStringSlice() = %v, want [%q]", errs, tc.want)
+			}
+		})
+	}
+}
+
 // e40I04AsNumber reads a YAML scalar as a float64 regardless of whether the
 // decoder produced an int or a float, returning ok=false if the key is
 // absent or not numeric -- so callers can distinguish "missing" from
