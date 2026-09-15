@@ -14,9 +14,12 @@ package commands
 // injectable nextNewAdapterCache seam).
 
 import (
+	"errors"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,6 +58,23 @@ func TestRunCmd_HarnessFlagsParseIntoOverrideIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, services.HarnessIdentity{Type: "claude", Version: "2.1.0", Model: "opus"}, got,
 		"harnessOverrideFromFlags must read back exactly what was parsed onto runCmd's real flag set")
+}
+
+func TestRunCmd_HarnessFlagsNormalizeAndEnforceLengthCap(t *testing.T) {
+	t.Cleanup(func() {
+		for _, name := range []string{"harness", "harness-version", "harness-model"} {
+			require.NoError(t, runCmd.Flags().Set(name, ""))
+		}
+	})
+	require.NoError(t, runCmd.Flags().Set("harness", " Claude "))
+	got, err := harnessOverrideFromFlags(runCmd)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", got.Type)
+
+	require.NoError(t, runCmd.Flags().Set("harness", strings.Repeat("x", 101)))
+	_, err = harnessOverrideFromFlags(runCmd)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, models.ErrClaimHarnessFieldTooLong))
 }
 
 // TestRunRun_WiresHarnessOverrideAndResolver pins the production wiring

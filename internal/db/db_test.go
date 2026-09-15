@@ -1309,6 +1309,23 @@ type migrationSnapshot struct {
 	taskTitle string
 }
 
+func TestRunPreQuestionMigrations_RepairsTasksFilePathIndex(t *testing.T) {
+	database, err := InitDB(":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+
+	_, err = database.Exec(`DROP INDEX idx_tasks_file_path`)
+	require.NoError(t, err)
+	require.NoError(t, ensurePreQuestionIndexes(database))
+
+	var count int
+	require.NoError(t, database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_tasks_file_path' AND tbl_name = 'tasks'
+	`).Scan(&count))
+	assert.Equal(t, 1, count)
+}
+
 var questionMigrationPredecessorTables = []string{
 	"tasks",
 	"entity_notes",

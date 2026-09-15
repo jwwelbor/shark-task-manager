@@ -528,8 +528,8 @@ func init() {
 
 // harnessOverrideFromFlags reads the --harness/--harness-version/
 // --harness-model flags into a HarnessIdentity override (spec.md §3.3). Flag
-// values are read verbatim (no trimming/normalization here) — HarnessResolver
-// treats non-empty as "set" per-field precedence (D-F01-04).
+// values are normalized and validated against the shared claim-field contract
+// before precedence resolution (D-F01-04 / REQ-NF-004).
 func harnessOverrideFromFlags(cmd *cobra.Command) (services.HarnessIdentity, error) {
 	harnessType, err := cmd.Flags().GetString("harness")
 	if err != nil {
@@ -543,7 +543,11 @@ func harnessOverrideFromFlags(cmd *cobra.Command) (services.HarnessIdentity, err
 	if err != nil {
 		return services.HarnessIdentity{}, fmt.Errorf("read --harness-model flag: %w", err)
 	}
-	return services.HarnessIdentity{Type: harnessType, Version: harnessVersion, Model: harnessModel}, nil
+	override := services.HarnessIdentity{Type: harnessType, Version: harnessVersion, Model: harnessModel}.Normalized()
+	if err := override.Validate(); err != nil {
+		return services.HarnessIdentity{}, fmt.Errorf("validate harness override: %w", err)
+	}
+	return override, nil
 }
 
 func runNext(cmd *cobra.Command, args []string) error {

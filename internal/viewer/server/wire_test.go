@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/api"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -64,6 +65,39 @@ func TestWireServices_QuestionResponseRouteUsesClaimReader_TC109(t *testing.T) {
 	}
 }
 
+// An explicit zero claim TTL means that leases do not expire. Exercise the
+// wired QuestionService (rather than loadClaimTTL alone) so this catches a
+// composition root that drops the configured value.
+func TestWireServices_QuestionClaimTTLConfigurationIsApplied(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("SHARK_CLAIM_TTL_SECONDS", "60")
+	projectRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(projectRoot, ".sharkconfig.json"), []byte(`{"claim_ttl_seconds": 0}`), 0o600))
+	repoDB := newTestRepoDB(t)
+	container := WireServices(repoDB, projectRoot)
+
+	question, err := container.QuestionService.CreateQuestion(ctx, services.CreateQuestionInput{
+		Title: "Release decision", Summary: "Choose a rollout", Requester: "owner",
+	})
+	require.NoError(t, err)
+	question, err = container.QuestionService.ConfigureWorkflow(ctx, services.ConfigureWorkflowInput{
+		Key: question.Key, ResolutionOwner: "owner", Responders: []string{"alice"},
+	})
+	require.NoError(t, err)
+	_, err = claimrepo.NewRepository(repoDB).Claim(ctx, &models.EntityClaim{
+		EntityType: string(models.EntityTypeQuestion), EntityKey: question.Key,
+		ClaimedBy: "alice", SessionID: "session-a",
+	})
+	require.NoError(t, err)
+	_, err = repoDB.ExecContext(ctx, `UPDATE entity_claims SET last_heartbeat = ? WHERE entity_type = ? AND entity_key = ?`,
+		time.Now().UTC().Add(-24*time.Hour), string(models.EntityTypeQuestion), question.Key)
+	require.NoError(t, err)
+
+	next, err := container.QuestionService.GetNextStatus(ctx, question.Key)
+	require.NoError(t, err)
+	assert.True(t, next.IsClaimed, "an explicit zero TTL must keep even an old lease active")
+}
+
 // TC-036: viewer configuration is loaded during server wiring and supplied to
 // the non-blocking navigation-folder metadata service, not on each request.
 func TestWireServices_LoadsBrowsableFoldersConfig_TC036(t *testing.T) {
@@ -79,6 +113,33 @@ func TestWireServices_LoadsBrowsableFoldersConfig_TC036(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, response.Folders, services.NavFolder{
 		ID: "docs/runbooks", Label: "Runbooks", Path: "docs/runbooks", Source: "config", Exists: false,
+	})
+}
+
+func TestLoadClaimTTL_UsesProjectConfiguration(t *testing.T) {
+	t.Run("configured value", func(t *testing.T) {
+		projectRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(projectRoot, ".sharkconfig.json"), []byte(`{"claim_ttl_seconds": 120}`), 0o600))
+
+		got := loadClaimTTL(projectRoot)
+		require.NotNil(t, got)
+		assert.Equal(t, 120*time.Second, *got)
+	})
+	t.Run("explicit zero disables expiry", func(t *testing.T) {
+		projectRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(projectRoot, ".sharkconfig.json"), []byte(`{"claim_ttl_seconds": 0}`), 0o600))
+
+		got := loadClaimTTL(projectRoot)
+		require.NotNil(t, got)
+		assert.Zero(t, *got)
+	})
+	t.Run("missing configuration preserves service fallback", func(t *testing.T) {
+		assert.Nil(t, loadClaimTTL(t.TempDir()))
+	})
+	t.Run("malformed configuration preserves service fallback", func(t *testing.T) {
+		projectRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(projectRoot, ".sharkconfig.json"), []byte(`{not-json}`), 0o600))
+		assert.Nil(t, loadClaimTTL(projectRoot))
 	})
 }
 

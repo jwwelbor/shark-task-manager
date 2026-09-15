@@ -387,12 +387,10 @@ func TestCascadeChildLease_InheritsParentHarnessOverride(t *testing.T) {
 		return &config.OrchestratorAction{Action: config.ActionSpawnAgent}, nil
 	}}
 
-	// childOpts.HarnessOverride, as it would be copied from the parent's
-	// RunOptions via `childOpts := opts` in controller.go's handleCascade.
-	childHarnessOverride := services.HarnessIdentity{Type: "codex"}
+	childOpts := runner.RunOptions{HarnessOverride: services.HarnessIdentity{Type: "codex"}}
 
-	lease, block, _, err := acquireRunLeaseForRunnableAction(
-		context.Background(), transitioner, actions, nil, "feature", "E01-F02", false, childHarnessOverride,
+	lease, block, _, err := acquireCascadeChildLease(
+		context.Background(), transitioner, actions, nil, "feature", "E01-F02", childOpts,
 	)
 	if err != nil {
 		t.Fatalf("acquireRunLeaseForRunnableAction: %v", err)

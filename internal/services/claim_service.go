@@ -128,9 +128,9 @@ func (s *ClaimService) Claim(ctx context.Context, in ClaimInput) (*models.Entity
 		HarnessVersion: in.HarnessVersion,
 		HarnessModel:   in.HarnessModel,
 	}
-	// Validate before touching the repository (REQ-NF-004, AC-10 / TC-013):
-	// an oversized harness field must reject the claim with no partial row
-	// ever written, so the repository's Claim must not be reached at all.
+	// Validate before the claim insert (REQ-NF-004, AC-10 / TC-013): an
+	// oversized harness field must reject the claim with no partial row ever
+	// written. The expired-lease reclaim above is an independent TTL sweep.
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}

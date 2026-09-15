@@ -53,16 +53,19 @@ func (c *EntityClaim) Validate() error {
 	if strings.TrimSpace(c.SessionID) == "" {
 		return ErrClaimMissingSession
 	}
-	if err := validateHarnessFieldLength("harness", c.Harness); err != nil {
+	return ValidateHarnessIdentity(c.Harness, c.HarnessVersion, c.HarnessModel)
+}
+
+// ValidateHarnessIdentity applies REQ-NF-004's field limits independently of
+// a claim row, so prompt-only harness overrides use the same input contract.
+func ValidateHarnessIdentity(harness, version, model string) error {
+	if err := validateHarnessFieldLength("harness", harness); err != nil {
 		return err
 	}
-	if err := validateHarnessFieldLength("harness_version", c.HarnessVersion); err != nil {
+	if err := validateHarnessFieldLength("harness_version", version); err != nil {
 		return err
 	}
-	if err := validateHarnessFieldLength("harness_model", c.HarnessModel); err != nil {
-		return err
-	}
-	return nil
+	return validateHarnessFieldLength("harness_model", model)
 }
 
 // validateHarnessFieldLength enforces REQ-NF-004's 100-character cap on a
