@@ -171,6 +171,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 
@@ -479,12 +480,50 @@ def build_targets(package_yaml_path, evaluator_root, fixture_checkout, scenarios
 
 
 def walk_files(root):
-    """Deterministic, sorted, .git-excluding file walk (REQ-NF-004: byte-
-    identical verdicts across repeated runs over an unchanged root)."""
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d != ".git")
-        for name in sorted(filenames):
-            yield os.path.join(dirpath, name)
+    """Deterministically walk every reachable regular file beneath ``root``.
+
+    The evidence-root guard treats all reachable content as agent-visible:
+    ``.git`` is not a trust boundary, and directory symlinks must be followed
+    so they cannot hide an evaluator-only copy.  An inode guard keeps that
+    traversal finite for cycles.  Filesystem access failures are ScriptErrors,
+    not clean verdicts, because an unreadable path cannot establish absence of
+    disclosure.
+    """
+    visited = set()
+
+    def directory_key(path):
+        directory_stat = os.stat(path)
+        return (directory_stat.st_dev, directory_stat.st_ino)
+
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        try:
+            key = directory_key(directory)
+        except OSError as exc:
+            raise ScriptError(f"cannot stat scan directory {directory}: {exc}") from exc
+        if key in visited:
+            continue
+        visited.add(key)
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError as exc:
+            raise ScriptError(f"cannot list scan directory {directory}: {exc}") from exc
+
+        subdirectories = []
+        for name in entries:
+            path = os.path.join(directory, name)
+            try:
+                path_stat = os.stat(path)
+            except OSError as exc:
+                raise ScriptError(f"cannot inspect scan path {path}: {exc}") from exc
+            if stat.S_ISDIR(path_stat.st_mode):
+                subdirectories.append(path)
+            elif stat.S_ISREG(path_stat.st_mode):
+                yield path
+
+        # LIFO traversal needs reverse insertion to retain sorted visit order.
+        stack.extend(reversed(subdirectories))
 
 
 def check_root(root_name, root_path, targets):
@@ -500,8 +539,8 @@ def check_root(root_name, root_path, targets):
         try:
             with open(path, "rb") as f:
                 file_bytes = f.read()
-        except OSError:
-            continue
+        except OSError as exc:
+            raise ScriptError(f"cannot read scan file {path}: {exc}") from exc
         file_basename = os.path.basename(path)
         file_digest = hashlib.sha256(file_bytes).hexdigest()
         for target in targets:
