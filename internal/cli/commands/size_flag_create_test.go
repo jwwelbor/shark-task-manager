@@ -58,6 +58,26 @@ func TestSizeFlag_RegisteredOnAllCreateCommands(t *testing.T) {
 	}
 }
 
+func TestCustomKeyFlag_NotRegisteredOnUnrelatedCreateCommands(t *testing.T) {
+	cmds := []struct {
+		name string
+		cmd  *cobra.Command
+	}{
+		{"bug create", bugCreateCmd},
+		{"change create", changeCreateCmd},
+		{"tech-debt create", tdCreateCmd},
+		{"idea create", ideaCreateCmd},
+	}
+
+	for _, tc := range cmds {
+		t.Run(tc.name, func(t *testing.T) {
+			if flag := tc.cmd.Flags().Lookup("key"); flag != nil {
+				t.Errorf("--key must not be registered on %s", tc.name)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TC-F004-B + TC-F004-C + TC-F004-D + TC-F004-E: bug create
 // (bug uses an injectable service so we can capture the DTO)

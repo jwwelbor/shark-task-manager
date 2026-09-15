@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,6 +29,7 @@ type Creator struct {
 	validator        *Validator
 	renderer         *templates.Renderer
 	taskRepo         *repository.TaskRepository
+	taskKeyLookup    func(context.Context, string) (*models.Task, error)
 	historyRepo      *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	epicRepo         *repository.EpicRepository
 	featureRepo      *repository.FeatureRepository
@@ -38,6 +40,8 @@ type Creator struct {
 	verbose          bool
 	afterCreateHook  func(context.Context, *sql.Tx, *models.Task) error
 }
+
+var ErrInvalidTaskCustomKey = errors.New("invalid task custom key")
 
 // SetAfterCreateHook installs optional work that must complete in the task
 // creation transaction after the task and its history row exist. It is used by
@@ -71,6 +75,7 @@ func NewCreator(
 		validator:        validator,
 		renderer:         renderer,
 		taskRepo:         taskRepo,
+		taskKeyLookup:    taskRepo.GetByKey,
 		historyRepo:      historyRepo,
 		epicRepo:         epicRepo,
 		featureRepo:      featureRepo,
@@ -141,29 +146,16 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	// 3. Generate or use custom task key within the transaction boundary.
 	var key string
 	if input.CustomKey != "" {
-		// B063: normalize (uppercase, accept the documented short form
-		// E##-F##-### by adding the T- prefix) and confirm the key's embedded
-		// epic/feature match the feature this task is actually being created
-		// under, before persisting a row whose key contradicts its feature_id.
-		normalizedKey, normErr := keys.NormalizeTaskKey(input.CustomKey)
-		if normErr != nil {
-			return nil, fmt.Errorf("invalid task key %q: expected format T-%s-### or %s-### (e.g. T-%s-001)",
-				input.CustomKey, validated.NormalizedFeatureKey, validated.NormalizedFeatureKey, validated.NormalizedFeatureKey)
-		}
-		expectedPrefix := "T-" + validated.NormalizedFeatureKey + "-"
-		if !strings.HasPrefix(normalizedKey, expectedPrefix) {
-			return nil, fmt.Errorf("task key %q does not belong to feature %q", normalizedKey, validated.NormalizedFeatureKey)
+		normalizedKey, resolveErr := resolveTaskCustomKey(input.CustomKey, validated.NormalizedFeatureKey)
+		if resolveErr != nil {
+			return nil, resolveErr
 		}
 
 		// Validate custom key doesn't already exist
-		existing, err := c.taskRepo.GetByKey(ctx, normalizedKey)
-		if err == nil && existing != nil {
-			// B063: suggest the next available key. Best-effort — a failure to
-			// compute the suggestion must not mask the original duplicate-key error.
-			if next, suggestErr := c.keygen.GenerateTaskKeyWithTx(ctx, tx, input.EpicKey, validated.NormalizedFeatureKey); suggestErr == nil && next != "" {
-				return nil, fmt.Errorf("task with key %q already exists (next available: %s)", normalizedKey, next)
-			}
-			return nil, fmt.Errorf("task with key %q already exists", normalizedKey)
+		if err := validateTaskCustomKeyAvailability(ctx, normalizedKey, c.taskKeyLookup, func() (string, error) {
+			return c.keygen.GenerateTaskKeyWithTx(ctx, tx, input.EpicKey, validated.NormalizedFeatureKey)
+		}); err != nil {
+			return nil, err
 		}
 		key = normalizedKey
 	} else {
@@ -410,6 +402,40 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		FilePath:      filePath,
 		FileWasLinked: fileWasLinked,
 	}, nil
+}
+
+// resolveTaskCustomKey normalizes a caller-supplied task key and ensures it
+// belongs to the feature receiving the new task.
+func resolveTaskCustomKey(customKey, featureKey string) (string, error) {
+	normalizedKey, err := keys.NormalizeTaskKey(customKey)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q; expected format T-%s-### or %s-### (e.g. T-%s-001)",
+			ErrInvalidTaskCustomKey, customKey, featureKey, featureKey, featureKey)
+	}
+	if !strings.HasPrefix(normalizedKey, "T-"+featureKey+"-") {
+		return "", fmt.Errorf("task key %q does not belong to feature %q", normalizedKey, featureKey)
+	}
+	return normalizedKey, nil
+}
+
+func validateTaskCustomKeyAvailability(
+	ctx context.Context,
+	key string,
+	lookup func(context.Context, string) (*models.Task, error),
+	suggest func() (string, error),
+) error {
+	existing, err := lookup(ctx, key)
+	if err == nil && existing != nil {
+		// Suggestion failures must not mask a duplicate-key error.
+		if next, suggestErr := suggest(); suggestErr == nil && next != "" {
+			return keys.DuplicateKeyError("task", key, next)
+		}
+		return keys.DuplicateKeyError("task", key, "")
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to check existing task key %s: %w", key, err)
+	}
+	return nil
 }
 
 // ValidateCustomFilename validates custom file paths for tasks, epics, and features.

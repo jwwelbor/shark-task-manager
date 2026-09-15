@@ -3,11 +3,13 @@ package services
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -44,6 +46,8 @@ type EpicRepository interface {
 	BeginTx(ctx context.Context) (*sql.Tx, error)
 	GetEpicDisplayDataRaw(ctx context.Context, epicID int64) (*repository.EpicDisplayDataRaw, error)
 }
+
+var ErrInvalidEpicCustomKey = errors.New("invalid epic custom key")
 
 // EpicTaskLister defines the task repository interface needed by EpicService
 // for querying blocked tasks across an epic and completing all tasks in an epic.
@@ -512,16 +516,18 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 	}
 
 	// Determine epic key
-	epicKey := input.CustomKey
+	epicKey := resolveEpicCustomKey(input.CustomKey)
+	if input.CustomKey != "" && epicKey == "" {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidEpicCustomKey, input.CustomKey)
+	}
 	if epicKey != "" {
-		epicKey = strings.ToUpper(epicKey)
 		// Validate key doesn't already exist
 		existing, err := s.repo.GetByKey(ctx, epicKey)
 		if err == nil && existing != nil {
-			if next := s.suggestNextEpicKey(ctx); next != "" {
-				return nil, fmt.Errorf("epic with key %q already exists (next available: %s)", epicKey, next)
-			}
-			return nil, fmt.Errorf("epic with key %q already exists", epicKey)
+			return nil, keys.DuplicateKeyError("epic", epicKey, s.suggestNextEpicKey(ctx))
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to check existing epic key %s: %w", epicKey, err)
 		}
 	} else {
 		// Auto-generate next epic key
@@ -594,6 +600,12 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 	}
 
 	return epic, nil
+}
+
+// resolveEpicCustomKey normalizes a caller-supplied epic key before it is
+// checked for collisions or persisted.
+func resolveEpicCustomKey(customKey string) string {
+	return strings.ToUpper(strings.TrimSpace(customKey))
 }
 
 // UpdateEpic updates fields on an existing epic.

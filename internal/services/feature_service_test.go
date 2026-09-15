@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1917,6 +1918,13 @@ func TestFeatureService_CreateFeature_CustomKey_RejectsForeignEpicPrefix(t *test
 	}
 	if !strings.Contains(err.Error(), "E42-F07") || !strings.Contains(err.Error(), "E01") {
 		t.Errorf("error must name both the bad key and the parent epic, got: %v", err)
+	}
+}
+
+func TestResolveFeatureCustomKey_RejectsMalformedKey(t *testing.T) {
+	_, err := resolveFeatureCustomKey("not-a-feature-key", "E01")
+	if !errors.Is(err, ErrInvalidFeatureCustomKey) {
+		t.Errorf("expected invalid-feature sentinel, got: %v", err)
 	}
 }
 
