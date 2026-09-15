@@ -52,6 +52,8 @@ except ImportError as exc:
     print(f"run-lifecycle: PyYAML is required: {exc}", file=sys.stderr)
     raise SystemExit(2)
 
+sys.path.insert(0, os.path.join(os.environ["LIFECYCLE_BENCH_DIR"], "scripts", "lib"))
+from e40_evidence import canonical_digest, sha256_bytes, sha256_file  # noqa: E402
 
 STOP_OUTCOMES = {
     "resource_limit", "lease_loss", "missing_outcome", "unresolved_gate",
@@ -120,19 +122,6 @@ def parse_args(argv):
         print("run-lifecycle: --i05-bundle-dir is not supported with --mode resolve-route", file=sys.stderr)
         raise SystemExit(2)
     return values
-
-
-def sha256_bytes(value):
-    return hashlib.sha256(value).hexdigest()
-
-
-def sha256_file(path):
-    return sha256_bytes(path.read_bytes())
-
-
-def canonical_digest(value):
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return sha256_bytes(encoded)
 
 
 def stage_snapshot_digest(snapshot):

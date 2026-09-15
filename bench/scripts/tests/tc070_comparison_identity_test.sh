@@ -16,6 +16,17 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 comparator = pathlib.Path(sys.argv[2])
+lib_dir = comparator.parent / "lib"
+sys.path.insert(0, str(lib_dir))
+from e40_evidence import canonical_digest, load_jsonl, sha256_bytes, sha256_file
+
+sample = root / "evidence.bin"
+sample.write_bytes(b"evidence\x00bytes")
+rows = root / "records.jsonl"
+rows.write_text('\n{"record":"one"}\n\n{"record":"two"}\n', encoding="utf-8")
+assert sha256_bytes(sample.read_bytes()) == sha256_file(sample)
+assert canonical_digest({"accent": "é", "a": 1}) == hashlib.sha256(b'{"a":1,"accent":"\xc3\xa9"}').hexdigest()
+assert load_jsonl(rows) == [{"record": "one"}, {"record": "two"}]
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

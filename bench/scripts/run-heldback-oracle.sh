@@ -25,16 +25,8 @@ parser.add_argument("--checkout", required=True)
 parser.add_argument("--output", required=True)
 args = parser.parse_args(sys.argv[4:])
 
-
-def digest_file(path):
-    with open(path, "rb") as stream:
-        return hashlib.sha256(stream.read()).hexdigest()
-
-
-def load_rows(path):
-    with open(path, encoding="utf-8") as stream:
-        return [json.loads(line) for line in stream if line.strip()]
-
+sys.path.insert(0, os.path.join(os.path.dirname(guard), "lib"))
+from e40_evidence import load_jsonl, sha256_file  # noqa: E402
 
 def snapshot_root(root):
     """Bounded, symlink-aware snapshot of an agent-visible root."""
@@ -50,7 +42,7 @@ def snapshot_root(root):
             if os.path.islink(path):
                 value = "symlink:" + os.readlink(path)
             elif os.path.isfile(path):
-                value = "file:" + digest_file(path)
+                value = "file:" + sha256_file(path)
             else:
                 value = "other"
             snapshot[relative] = value
@@ -113,7 +105,7 @@ def validate_scenario_and_lifecycle():
         package = yaml.safe_load(stream)
     if not isinstance(package, dict):
         finish(invalid("source_malformed", "/scenario", "scenario package is not an object"), 2)
-    lifecycle = load_rows(args.i07)
+    lifecycle = load_jsonl(args.i07)
     if len(lifecycle) != 1:
         finish(invalid("missing_join" if not lifecycle else "duplicate_join", "/i07", "expected exactly one lifecycle record"), 1)
     terminal = (lifecycle[0].get("outcome") or {}).get("terminal")
@@ -176,7 +168,7 @@ def resolve_reference_path(evaluator, package_root, evaluator_root):
     resolved = os.path.realpath(os.path.join(package_root, reference))
     if not resolved.startswith(evaluator_root + os.sep) or not os.path.isfile(resolved):
         finish(invalid("isolation_violation", "/evaluator_only/reference_solution", "reference_solution path is outside evaluator root or missing"), 1)
-    return resolved, digest_file(resolved)
+    return resolved, sha256_file(resolved)
 
 
 def resolve_predicate(package):
@@ -226,7 +218,7 @@ def grant_and_validate_access(adapter, sources):
         finish(invalid(code, "/execution_oracle/access_event", grant.stderr.strip() or "I-05 broker refused access"), 1)
 
     access_path = os.path.join(args.stage_bundle, "access.jsonl")
-    events = load_rows(access_path) if os.path.isfile(access_path) else []
+    events = load_jsonl(access_path) if os.path.isfile(access_path) else []
     requested_sources = set(sources)
     source_events = {}
     unrelated = []
@@ -266,8 +258,7 @@ def grant_and_validate_access(adapter, sources):
     return validated_events, injected
 
 
-def run_predicate_rule_drop(adapter):
-    command = [adapter, "test", "--checkout", args.checkout, "--include", "tests"]
+def _run_and_parse(command):
     execution = subprocess.run(command, capture_output=True, text=True)
     try:
         test_result = json.loads(execution.stdout)
@@ -275,7 +266,12 @@ def run_predicate_rule_drop(adapter):
         test_result = {}
     entries = test_result.get("entries") if isinstance(test_result, dict) else None
     passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
-    return passed, 1
+    return passed
+
+
+def run_predicate_rule_drop(adapter):
+    command = [adapter, "test", "--checkout", args.checkout, "--include", "tests"]
+    return _run_and_parse(command), 1
 
 
 def run_predicate_f2p_p2p(adapter, predicate, test_ids):
@@ -317,14 +313,7 @@ def run_predicate_f2p_p2p(adapter, predicate, test_ids):
 
 def run_predicate_named(adapter, test_ids):
     command = [adapter, "test", "--checkout", args.checkout, "--only-id", *test_ids]
-    execution = subprocess.run(command, capture_output=True, text=True)
-    try:
-        test_result = json.loads(execution.stdout)
-    except json.JSONDecodeError:
-        test_result = {}
-    entries = test_result.get("entries") if isinstance(test_result, dict) else None
-    passed = isinstance(entries, list) and bool(entries) and all(isinstance(item, dict) and item.get("outcome") == "pass" for item in entries)
-    return passed, 1
+    return _run_and_parse(command), 1
 
 
 def run_predicate(kind, adapter, predicate, test_ids):
