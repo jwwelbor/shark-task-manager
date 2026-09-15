@@ -23,6 +23,7 @@ args = parser.parse_args()
 
 MODES = {"independent_frozen_candidate", "sequential_delivery"}
 POLICY_DIGEST_FIELDS = ("prompt_digest", "rendered_prompt_digest", "review_bundle_digest", "deep_review_bundle_digest", "workflow_policy_identity_digest")
+MANIFEST_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -42,6 +43,28 @@ def value(record, path):
         current = current[part]
     return current
 
+def validate_dirty_untracked_manifest(manifest, prefix, divergences):
+    """Validate run-lifecycle.sh's sorted [{path, digest, tracked}] manifest."""
+    if not isinstance(manifest, list):
+        divergences.append({"field": prefix, "left": manifest, "right": "sorted list of {path,digest,tracked}", "reason": "malformed_manifest"})
+        return
+    previous_path = None
+    for entry_index, entry in enumerate(manifest):
+        entry_prefix = f"{prefix}[{entry_index}]"
+        if not isinstance(entry, dict) or set(entry) != {"path", "digest", "tracked"}:
+            divergences.append({"field": entry_prefix, "left": entry, "right": "{path,digest,tracked}", "reason": "malformed_manifest"})
+            continue
+        path = entry["path"]
+        if not isinstance(path, str) or not path:
+            divergences.append({"field": f"{entry_prefix}/path", "left": path, "right": "non-empty string", "reason": "malformed_manifest"})
+        elif previous_path is not None and path <= previous_path:
+            divergences.append({"field": f"{entry_prefix}/path", "left": path, "right": f"strictly after {previous_path}", "reason": "malformed_manifest"})
+        previous_path = path if isinstance(path, str) else previous_path
+        if not isinstance(entry["digest"], str) or not MANIFEST_DIGEST_RE.fullmatch(entry["digest"]):
+            divergences.append({"field": f"{entry_prefix}/digest", "left": entry["digest"], "right": "sha256:64 lowercase hex", "reason": "malformed_manifest"})
+        if not isinstance(entry["tracked"], bool):
+            divergences.append({"field": f"{entry_prefix}/tracked", "left": entry["tracked"], "right": "boolean", "reason": "malformed_manifest"})
+
 def validate_record(record, side, divergences):
     snapshots = record.get("candidate_snapshots")
     if not isinstance(snapshots, list) or not snapshots:
@@ -58,9 +81,11 @@ def validate_record(record, side, divergences):
                 divergences.append({"field": f"{prefix}/{field}", "left": None, "right": "required", "reason": "identity_missing"})
             if not isinstance(candidate.get("base_commit"), str) or not COMMIT_RE.fullmatch(candidate.get("base_commit", "")):
                 divergences.append({"field": f"{prefix}/base_commit", "left": candidate.get("base_commit"), "right": "40 lowercase hex", "reason": "malformed_digest"})
-            for field in CANDIDATE_IDENTITY_FIELDS[1:]:
+            for field in ("tree_digest", "binary_diff_digest", "changed_path_digest", "test_suite_digest", "scratch_content_digest"):
                 if field in candidate and (not isinstance(candidate[field], str) or not DIGEST_RE.fullmatch(candidate[field])):
                     divergences.append({"field": f"{prefix}/{field}", "left": candidate.get(field), "right": "64 lowercase hex", "reason": "malformed_digest"})
+            if "dirty_untracked_manifest" in candidate:
+                validate_dirty_untracked_manifest(candidate["dirty_untracked_manifest"], f"{prefix}/dirty_untracked_manifest", divergences)
             supplied = candidate.get("identity_digest")
             expected = canonical_digest({field: candidate[field] for field in CANDIDATE_IDENTITY_FIELDS if field in candidate}) if not missing else None
             if not isinstance(supplied, str) or not DIGEST_RE.fullmatch(supplied):

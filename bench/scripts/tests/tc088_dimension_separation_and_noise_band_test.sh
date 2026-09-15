@@ -874,7 +874,7 @@ def with_identity_digest(candidate):
 
 base_candidate = with_identity_digest({
     "base_commit": "b" * 40, "tree_digest": digest, "binary_diff_digest": digest,
-    "changed_path_digest": digest, "dirty_untracked_manifest": digest,
+    "changed_path_digest": digest, "dirty_untracked_manifest": [{"path": "tracked/file.txt", "digest": "sha256:" + digest, "tracked": True}],
     "test_suite_digest": digest, "scratch_content_digest": digest, "snapshot_digest": digest,
 })
 

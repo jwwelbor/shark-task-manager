@@ -34,7 +34,7 @@ def digest(value):
 candidate = {
     "base_commit": "a" * 40, "tree_digest": "b" * 64,
     "binary_diff_digest": "c" * 64, "changed_path_digest": "d" * 64,
-    "dirty_untracked_manifest": "e" * 64, "test_suite_digest": "f" * 64,
+    "dirty_untracked_manifest": [{"path": "tracked/file.txt", "digest": "sha256:" + "e" * 64, "tracked": True}], "test_suite_digest": "f" * 64,
     "scratch_content_digest": "0" * 64,
 }
 candidate["snapshot_digest"] = "9" * 64
@@ -114,7 +114,24 @@ IDENTITY_MUTATION_FIELDS = [
 CANDIDATE_MUTATION_FIELDS = ["base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest"]
 POLICY_MUTATION_FIELDS = ["enabled_gates", "gate_order", "reviewer", "prompt_digest", "rendered_prompt_digest", "review_bundle_digest", "deep_review_bundle_digest", "fixes_allowed_between_gates", "fix_policy"]
 
+# Regression: run-lifecycle.sh emits a structured, non-empty manifest rather
+# than a digest string; comparison must accept its canonical seven-field form.
 run(left, right, True)
+
+# A legacy digest-string manifest is not producer-shaped evidence. Recompute
+# its surrounding identity so rejection proves manifest validation, not just
+# a stale identity digest.
+legacy_manifest = copy.deepcopy(left)
+legacy_candidate = legacy_manifest["candidate_snapshots"][0]["candidate"]
+legacy_candidate["dirty_untracked_manifest"] = "e" * 64
+legacy_candidate["identity_digest"] = digest({key: legacy_candidate[key] for key in CANDIDATE_MUTATION_FIELDS})
+legacy_path = write("legacy-manifest", legacy_manifest)
+out = root / "legacy-manifest.json"
+proc = subprocess.run([str(comparator), "--left", str(legacy_path), "--right", str(legacy_path), "--mode", "independent_frozen_candidate", "--output", str(out)], text=True, capture_output=True)
+result = json.loads(out.read_text())
+assert proc.returncode != 0 and result["accepted"] is False, result
+assert any(item["reason"] == "malformed_manifest" for item in result["divergences"]), result
+
 for field in [f"identity/{f}" for f in IDENTITY_MUTATION_FIELDS] + [f"candidate/{f}" for f in CANDIDATE_MUTATION_FIELDS] + [f"workflow_policy/{f}" for f in POLICY_MUTATION_FIELDS]:
     mutated = copy.deepcopy(right)
     target = mutated
@@ -122,7 +139,7 @@ for field in [f"identity/{f}" for f in IDENTITY_MUTATION_FIELDS] + [f"candidate/
     if field.startswith("identity/"):
         target["identity"][key] = mutate(target["identity"][key])
     elif field.startswith("candidate/"):
-        target["candidate_snapshots"][0]["candidate"][key] = "z" * (40 if key == "base_commit" else 64)
+        target["candidate_snapshots"][0]["candidate"][key] = mutate(target["candidate_snapshots"][0]["candidate"][key])
     else:
         target["workflow_policy"][key] = mutate(target["workflow_policy"][key])
     run(left, mutated, False, field)

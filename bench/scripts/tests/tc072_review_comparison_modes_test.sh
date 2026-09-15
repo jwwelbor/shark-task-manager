@@ -20,7 +20,7 @@ identity = {key: value for key, value in {
     "reference_digest": digest, "reference_digests": [digest], "resource_policy_digest": digest,
 }.items()}
 candidate = {"base_commit":"b"*40, "tree_digest":digest, "binary_diff_digest":digest,
-    "changed_path_digest":digest, "dirty_untracked_manifest":digest,
+    "changed_path_digest":digest, "dirty_untracked_manifest":[{"path":"tracked/file.txt","digest":"sha256:" + digest,"tracked":True}],
              "test_suite_digest":digest, "scratch_content_digest":digest, "snapshot_digest":digest}
 candidate["identity_digest"] = __import__("hashlib").sha256(json.dumps({key: candidate[key] for key in ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 policy = {"enabled_gates":["qa","deep_review"], "gate_order":["qa","deep_review"],
