@@ -179,6 +179,11 @@ if unexpected:
     print(unexpected[0])
     sys.exit(1)
 
+entity_key = stage.get("entity_key")
+if not isinstance(entity_key, str) or not entity_key.strip():
+    sys.stderr.write("canary-runsurface: spawn_agent stage has an empty entity_key\n")
+    sys.exit(2)
+
 if stage.get("exit_code") != 0:
     sys.stderr.write("canary-runsurface: spawn_agent stage exit_code=%r, want 0\n" % stage.get("exit_code"))
     sys.exit(2)

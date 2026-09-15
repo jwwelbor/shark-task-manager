@@ -73,6 +73,7 @@ test_a() {
 	# string).
 	grep -q "stages_completed" "$err" || fail "a: confirmed field set does not mention stages_completed: $(cat "$err")"
 	grep -q "output_summary" "$err" || fail "a: confirmed field set does not mention output_summary: $(cat "$err")"
+	grep -q "entity_key" "$err" || fail "a: confirmed field set does not mention entity_key: $(cat "$err")"
 
 	# Provisioning marker must have appeared (a real scratch project was
 	# used) and the scratch dir named in it must be gone after exit (AC-13:

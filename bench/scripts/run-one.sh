@@ -555,15 +555,15 @@ if [[ -n "$run_id" && -d "$scratch_dir/.shark/runs/$run_id" ]]; then
 	# (entity_key, idx) to avoid two same-named sibling transcripts
 	# colliding at a flat destination. That is not done here -- destination
 	# stays flat, matching the (idx)-only keying reconcile_transcripts
-	# already has. This is safe today and unreachable-by-construction, not
-	# an oversight: docs/plan/bugs/B052.md's own scope note says
-	# meta.json.item_type is restricted to task/bug in Phase 1, so no
-	# cascade action ever fires and at most one entity directory exists per
-	# run -- the same reachability argument the review's own F5 makes for
-	# collect-run.sh's sibling `iteration`-keying gap. The nested-
-	# destination + (entity_key, idx) rework is deferred to Phase 2
-	# cascade benching, alongside F5, since both need the same keying
-	# change made once rather than twice.
+	# already has. Phase 1's task/bug restriction currently permits one
+	# entity directory only; the guard below makes a future cascade expansion
+	# fail loudly before a same-named transcript can be overwritten. The
+	# nested-destination + (entity_key, idx) rework remains a Phase 2 change.
+	readarray -d '' -t transcript_entity_dirs < <(find "$src" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+	if [[ "${#transcript_entity_dirs[@]}" -gt 1 ]]; then
+		echo "run-one: refusing to flatten transcripts from multiple entity directories under $src" >&2
+		exit 2
+	fi
 	readarray -d '' -t transcripts < <(find "$src" -mindepth 2 -type f -name '*.log' -print0 2>/dev/null)
 	if [[ "${#transcripts[@]}" -gt 0 ]]; then
 		mkdir -p "$run_dir/run/transcripts"
