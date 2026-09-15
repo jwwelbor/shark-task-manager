@@ -1200,10 +1200,10 @@ class I05BundleWriter:
         carrying every bench/README.md "Stage-snapshot field reference"
         field this task owns (REQ-F-003/004/006/007), a real `time_ledger`
         (REQ-F-005, via `reconcile_time_ledger()`), and a materialized
-        transcript artifact (REQ-F-007); rewrites `bundle.json`'s triad
-        (REQ-F-002/003 index). `replay_lineage`'s interior and `artifacts`'s
-        interior remain E40-F07's own scope -- this task writes their
-        shape-valid, honestly-empty placeholders.
+        transcript artifact (REQ-F-007); materializes E40-F07's replay
+        consumption join; and rewrites `bundle.json`'s triad (REQ-F-002/003
+        index). `artifacts`'s interior remains E40-F07's own scope -- this
+        task writes its shape-valid, honestly-empty placeholder.
 
         `worker_envelope` is the FULL control envelope `adapter_result()`
         returned for this dispatch (never the bounded `dispatch["worker"]
@@ -1264,7 +1264,7 @@ class I05BundleWriter:
         if category is not None:
             snapshot["stage_category"] = category
         if str(self.scenario.get("entity_family", "")) == "feature":
-            snapshot["replay_lineage"] = []
+            snapshot["replay_lineage"] = prelude_lineage(self.record)
         if category in {"code", "review"}:
             test_suite_ids, test_suite_dir = test_suite_reference(Path.cwd())
             candidate = dict(stage_candidate)
