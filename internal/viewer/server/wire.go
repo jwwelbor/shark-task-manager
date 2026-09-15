@@ -62,6 +62,22 @@ func loadTagEnforcementConfig(projectRoot string) services.TagEnforcementConfig 
 	return cfg
 }
 
+// loadClaimTTLSeconds returns the project's configured lease TTL, or nil to
+// preserve ClaimService's environment/default fallback when configuration is
+// unavailable.
+func loadClaimTTL(projectRoot string) *time.Duration {
+	mgr := config.NewManager(filepath.Join(projectRoot, ".sharkconfig.json"))
+	cfg, err := mgr.Load()
+	if err != nil || cfg == nil {
+		return nil
+	}
+	if cfg.ClaimTTLSeconds == nil {
+		return nil
+	}
+	ttl := time.Duration(*cfg.ClaimTTLSeconds) * time.Second
+	return &ttl
+}
+
 // loadMaintainerGate builds a maintainer.Gate from the project's
 // .sharkconfig.json. When no config is present, NewFileGate receives nil
 // and returns a gate that always denies — safe default for HTTP wiring
@@ -415,7 +431,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	}
 	questionService.SetHistoryRepo(entityHistoryRepo)
 	questionService.SetSearchIndexer(searchRepo)
-	questionService.SetClaimReader(services.NewClaimService(claimrepo.NewRepository(db), nil))
+	questionService.SetClaimReader(services.NewClaimService(claimrepo.NewRepository(db), loadClaimTTL(projectRoot)))
 	questionService.SetFocusedReadDependencies(entityrel.NewEntityRelationshipRepository(db), registry)
 	questionService.SetEntityTransitioner(entitySvc, registry.MustGetRepository(models.EntityTypeQuestion))
 	questionService.SetProjectRoot(projectRoot)

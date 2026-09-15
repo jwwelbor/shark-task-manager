@@ -346,7 +346,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		} else if cascadeBlock != nil {
 			return &runner.RunResult{EntityKey: key, FinalStatus: cascadeStatus, Outcome: "paused", QuestionBlock: cascadeBlock}, nil
 		}
-		childLease, childBlock, childStatus, err := acquireRunLeaseForRunnableAction(ctx, childTransitioner, childActionSvc, questionBlocker, childType, key, childOpts.DryRun, childOpts.HarnessOverride)
+		childLease, childBlock, childStatus, err := acquireCascadeChildLease(ctx, childTransitioner, childActionSvc, questionBlocker, childType, key, childOpts)
 		if err != nil {
 			if errors.Is(err, claimrepo.ErrAlreadyClaimed) {
 				return &runner.RunResult{
@@ -605,6 +605,14 @@ func acquireRunLeaseForRunnableAction(ctx context.Context, transitioner runner.E
 	}
 	lease, err := acquireRunLease(ctx, entityType, entityKey, claimedBy, dryRun, harnessOverride)
 	return lease, nil, nextInfo.CurrentStatus, err
+}
+
+// acquireCascadeChildLease forwards the child run options used by the real
+// cascade closure into the shared runnable-action lease preflight. Keeping the
+// forwarding at this boundary makes the child harness identity testable without
+// introducing a duplicate, test-only cascade implementation.
+func acquireCascadeChildLease(ctx context.Context, transitioner runner.EntityTransitioner, actionSvc config.ActionService, blocker questionBlockChecker, entityType, entityKey string, opts runner.RunOptions) (*activeRunLease, *services.QuestionBlock, string, error) {
+	return acquireRunLeaseForRunnableAction(ctx, transitioner, actionSvc, blocker, entityType, entityKey, opts.DryRun, opts.HarnessOverride)
 }
 
 // preflightCascadeQuestionBlock walks only the configured workflow hierarchy

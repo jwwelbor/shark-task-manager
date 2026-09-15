@@ -348,16 +348,10 @@ shark run <key> --harness=claude --harness-version=2.1.0 --harness-model=opus
 | `--harness-version` | Harness version string. |
 | `--harness-model` | Harness model string. |
 
-**Normalization differs by command.** `shark claim` trims and lowercases
-`--harness` before persisting it (`--harness-version`/`--harness-model` are
-trimmed only). `shark next` and `shark run` pass their three override flags
-through **verbatim** — no trimming or case-folding — because they feed the
-resolver's per-field precedence (below) rather than a persisted row; a value
-sourced from an active claim is already normalized by the time it reaches the
-resolver, but a raw `--harness` flag on `next`/`run` is not. Branching via
-`isClaude`/`isCodex`/`isHarness` is case-insensitive regardless, so this only
-affects the literal value echoed back on the wire (`resp.Harness` below), not
-whether a template branch matches.
+`shark claim`, `shark next`, and `shark run` normalize harness identity before
+using it: `--harness` is trimmed and lowercased, while version and model are
+trimmed. Whitespace therefore cannot change template-branch matching or the
+identity echoed on the wire.
 
 `shark claim` persists the three values on the entity's claim row so they
 outlive the claiming process. `shark next` and `shark run` resolve harness

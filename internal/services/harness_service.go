@@ -41,6 +41,12 @@ func (i HarnessIdentity) Normalized() HarnessIdentity {
 	}
 }
 
+// Validate applies the same field-length contract used when an identity is
+// persisted on a claim, including for prompt-only CLI overrides.
+func (i HarnessIdentity) Validate() error {
+	return models.ValidateHarnessIdentity(i.Type, i.Version, i.Model)
+}
+
 // Vars returns all three harness placeholder keys — "harness",
 // "harness_version", "harness_model" — unconditionally, mapping any unset
 // field to the empty string. Keys are never omitted.
@@ -128,6 +134,13 @@ func (r *HarnessResolver) Resolve(ctx context.Context, entityType, entityKey str
 	// comment). claimed is already normalized at claim time by runClaim /
 	// resolveHarnessForClaim; re-normalizing here is a harmless no-op for it.
 	override = override.Normalized()
+	// A complete explicit identity determines every precedence field, so a
+	// claim-store read cannot affect the result. Avoid that unnecessary I/O on
+	// the hot next/run path while retaining per-field fallback for partial
+	// overrides.
+	if override.Type != "" && override.Version != "" && override.Model != "" {
+		return override, nil
+	}
 
 	var claimed HarnessIdentity
 	if r.claims != nil {

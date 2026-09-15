@@ -837,21 +837,8 @@ func runPreQuestionMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate slug columns: %w", err)
 	}
 
-	// Create indexes on new columns that might not have existed before
-	// These are created here after migrations ensure the columns exist
-	// NOTE: custom_folder_path indexes removed in E07-F19
-	newIndexes := []string{
-		`CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);`,
-		`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`,
-		`CREATE INDEX IF NOT EXISTS idx_epics_slug ON epics(slug);`,
-		`CREATE INDEX IF NOT EXISTS idx_features_slug ON features(slug);`,
-		`CREATE INDEX IF NOT EXISTS idx_tasks_slug ON tasks(slug);`,
-	}
-
-	for _, idx := range newIndexes {
-		if _, err := db.Exec(idx); err != nil {
-			return fmt.Errorf("failed to create index: %w", err)
-		}
+	if err := ensurePreQuestionIndexes(db); err != nil {
+		return err
 	}
 
 	// Run document tables migration
@@ -1159,6 +1146,27 @@ func runPreQuestionMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate advance guard consumptions: %w", err)
 	}
 
+	return nil
+}
+
+func ensurePreQuestionIndexes(db *sql.DB) error {
+	// Create indexes on new columns that might not have existed before.
+	// These are created after migrations ensure the columns exist.
+	// NOTE: custom_folder_path indexes removed in E07-F19.
+	newIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_file_path ON tasks(file_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_epics_slug ON epics(slug);`,
+		`CREATE INDEX IF NOT EXISTS idx_features_slug ON features(slug);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_slug ON tasks(slug);`,
+	}
+
+	for _, idx := range newIndexes {
+		if _, err := db.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
 	return nil
 }
 

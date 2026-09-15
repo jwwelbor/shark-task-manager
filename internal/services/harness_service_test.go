@@ -18,9 +18,11 @@ import (
 type fakeClaimReader struct {
 	claim *models.EntityClaim
 	err   error
+	calls int
 }
 
 func (f *fakeClaimReader) Get(_ context.Context, _, _ string) (*models.EntityClaim, error) {
+	f.calls++
 	return f.claim, f.err
 }
 
@@ -254,6 +256,17 @@ func TestHarnessResolver_Resolve_OverrideNormalizesWhitespaceAndCase(t *testing.
 
 	require.NoError(t, err)
 	assert.Equal(t, "claude", got.Type, "override must be trimmed+lowercased before precedence is applied")
+}
+
+func TestHarnessResolver_Resolve_CompleteOverrideSkipsClaimRead(t *testing.T) {
+	reader := &fakeClaimReader{claim: &models.EntityClaim{Harness: "other"}}
+	resolver := NewHarnessResolver(reader)
+
+	got, err := resolver.Resolve(context.Background(), "task", "E34-F01-001", HarnessIdentity{Type: " Claude ", Version: " 1.2.3 ", Model: " Opus "})
+
+	require.NoError(t, err)
+	assert.Equal(t, HarnessIdentity{Type: "claude", Version: "1.2.3", Model: "Opus"}, got)
+	assert.Zero(t, reader.calls, "a complete explicit override must not read the claim store")
 }
 
 // TestHarnessResolver_Resolve_EnvNormalizesWhitespaceAndCase is F1's env-tier
