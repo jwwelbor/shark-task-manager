@@ -116,10 +116,9 @@ shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --ep
 shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --feature=<feature-key>
 # For a sprint target (sprints have no related-document parent option):
 shark create note <sprint-key> "Demo script: docs/demos/<sprint-key>/demo-script.md" --type=reference
-shark create note <key> "Demo script: docs/demos/<entity-key>/demo-script.md" --type=reference
 ```
 
-For epic and feature targets, run the related-document and note commands only
+For epic and feature targets, run the related-document commands only
 after the script is successfully created. For sprint targets, run only the
 sprint reference-note command after successful creation. These are discovery
 links, not acceptance evidence or lifecycle changes.

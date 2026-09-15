@@ -75,7 +75,7 @@ or a rendered-template golden.
 **Entrypoint:** Direct file `internal/sharkdata/default_data/skills/demo-script/context/demo-script-template.md`, checked by the focused bundle/reference test; scope-grouping check in `TestE34F02DemoScriptScenarioGrouping` (`internal/sharkdata/embed_test.go`) against `internal/sharkdata/default_data/skills/demo-script/SKILL.md`.  
 **Content-only justification:** The template specifies required prose fields and allowed evidence categories; it does not execute or classify data.
 
-**Check:** Verify scenario fields: stakeholder value, source, prerequisites/demo data, presenter actions, observable result, evidence type/path, environment/date, readiness classification, reset/recovery, and limitations. Verify UI, CLI, API, SDK, pipeline, infrastructure, and background-process evidence without a framework, package manager, browser, deployment provider, credential, endpoint, or capture tool. Verify the skill instructs epic scope to be grouped into user journeys (not a raw feature inventory) and feature scope into outcomes and relevant integrations (not a raw task list).
+**Check:** Verify scenario fields: stakeholder value, source, prerequisites/demo data, presenter actions, observable result, evidence type/path, environment/date, readiness classification, reset/recovery, and limitations. Verify UI, CLI, API, SDK, pipeline, infrastructure, and background-process evidence without a framework, package manager, browser, deployment provider, credential, endpoint, or capture tool. Verify the skill instructs epic scope to be grouped into user journeys (not a raw feature inventory), feature scope into outcomes and relevant integrations (not a raw task list), and sprint scope by the underlying epic/feature journeys or outcomes of assigned backlog items (not sprint backlog order).
 
 **Expected result:** The reusable template is complete and surface-neutral.
 
@@ -108,7 +108,7 @@ or a rendered-template golden.
 **Entrypoint:** Direct files `skills/shark-rider/verbs/demo.md` and `internal/sharkdata/default_data/skills/demo-script/SKILL.md`, checked by the focused bundle/reference test.  
 **Content-only justification:** This checks procedure use of existing Shark data-plane commands without creating artifacts or mutating Shark state.
 
-**Check:** Verify `docs/demos/<entity-key>/demo-script.md`, its `evidence/` directory, `shark related-docs add`, `shark create note --type=reference`, successful-creation ordering, and triage candidates requiring normal deduplication and user confirmation.
+**Check:** Verify `docs/demos/<entity-key>/demo-script.md`, its `evidence/` directory, `shark related-docs add` for epic and feature targets, and `shark create note <sprint-key> --type=reference` for sprint targets, plus successful-creation ordering and triage candidates requiring normal deduplication and user confirmation.
 
 **Expected result:** Discoverability reuses existing contracts; discrepancies cannot create backlog work automatically.
 

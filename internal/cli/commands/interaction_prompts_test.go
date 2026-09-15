@@ -530,7 +530,7 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 			"--epic=<epic-key>",
 			"--feature=<feature-key>",
 			"sprint reference-note command",
-			"shark create note <key>",
+			"shark create note <sprint-key>",
 			"--type=reference",
 			"script is successfully created",
 			"normal deduplication and user confirmation",
@@ -548,6 +548,8 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 	// executable examples. This guards the Mode-3 boundary without turning the
 	// content test into a runtime policy engine.
 	demoProcedure := contents["demo procedure"]
+	require.NotContains(t, demoProcedure, "shark create note <key>",
+		"epic and feature registration must not regain the generic reference-note command")
 	commandBlocks := regexp.MustCompile("(?s)```bash\\n(.*?)```").FindAllStringSubmatch(demoProcedure, -1)
 	require.NotEmpty(t, commandBlocks)
 	commands := make([]string, 0)
@@ -581,7 +583,7 @@ func TestE34F02DemoRiderProcedure_TC001_TC005_TC007_TC008(t *testing.T) {
 // mirrored into spec.md/feature.md fails too.
 //
 // Round-3 rework: feature.md's own Solution paragraph documents the demo
-// usage line (`/shark-rider demo <epic|feature|sprint> [--draft]`), so
+// usage line (`/shark-rider demo <epic-key|feature-key|sprint-key> [--draft]`), so
 // feature.md is registered in the paths map below like every other shipped
 // usage-line location, instead of being checked only by narrow prose
 // substrings. feature.md also carries five additional two-target prose
