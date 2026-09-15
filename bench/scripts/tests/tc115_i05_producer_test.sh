@@ -1468,6 +1468,7 @@ rc=$?
 set -e
 [[ "$rc" -ne 0 ]] || fail "TC-011 negative: retain_pair accepted a bundle with no transcripts/"
 [[ ! -f "$RETAIN_DEST_NEG/manifest.json" ]] || fail "TC-011 negative: manifest.json was written despite the missing transcripts/ source"
+[[ -z "$(find "$RETAIN_DEST_NEG" -mindepth 1 -print -quit)" ]] || fail "TC-011 negative: retain_pair left artifacts in the destination despite the missing transcripts/ source"
 
 rm -rf "$WORKDIR_11"
 trap - EXIT

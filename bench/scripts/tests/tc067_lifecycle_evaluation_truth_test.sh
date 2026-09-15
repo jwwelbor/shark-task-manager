@@ -197,4 +197,49 @@ assert record["eligibility"]["aggregate_eligible"] is False
 PY
 echo "TC-067: caller-supplied --review-findings is rejected as review_findings_bypass"
 
+# A held-back oracle can create its output file and still fail JSON decoding.
+# Execute evaluate-lifecycle.sh's own run_oracle() implementation directly
+# with that controlled dependency, then prove it replaces corrupt bytes with
+# the exact synthetic result returned to the I-08 builder.
+python3 - "$EVALUATOR" "$tmp" <<'PY'
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+
+evaluator, temp_dir = sys.argv[1:]
+source = open(evaluator, encoding="utf-8").read()
+match = re.search(r"def run_oracle\(.*?\n\ndef build_source_artifacts", source, re.DOTALL)
+assert match, "run_oracle() source not found"
+implementation = match.group(0).rsplit("\n\ndef build_source_artifacts", 1)[0]
+output = os.path.join(temp_dir, "decode-error-evaluation.jsonl")
+oracle = os.path.join(temp_dir, "malformed-oracle.sh")
+with open(oracle, "w", encoding="utf-8") as stream:
+    stream.write("#!/usr/bin/env bash\nprintf '{malformed oracle output\\n' > \"${10}\"\nexit 1\n")
+os.chmod(oracle, 0o755)
+
+namespace = {
+    "args": argparse.Namespace(output=output, scenario="scenario", i07="lifecycle.jsonl", i05="bundle"),
+    "oracle": oracle,
+    "STOP_OUTCOMES": set(),
+    "json": json,
+    "os": os,
+    "subprocess": subprocess,
+    "reason": lambda code, path, detail: {"code": code, "path": path, "detail": detail},
+}
+exec(compile(implementation, "evaluate-lifecycle.sh::run_oracle", "exec"), namespace)
+result = namespace["run_oracle"](
+    {"roots": {"agent_fixture_checkout": temp_dir}},
+    {"outcome": {"terminal": "complete"}},
+    [],
+)
+sidecar = json.load(open(output + ".oracle.json", encoding="utf-8"))
+assert result == sidecar, (result, sidecar)
+assert result["observed_result"] == "not_run", result
+assert any(item["code"] == "missing_oracle" for item in result["invalidity_reasons"]), result
+PY
+echo "TC-067: malformed oracle sidecar is replaced with the recorded synthetic result"
+
 echo "TC-067: truth blocks remain independent and missing oracle evidence is retained"

@@ -726,6 +726,7 @@ def run_oracle(i05, lifecycle, reasons):
                 oracle_result = json.load(stream)
         except (OSError, json.JSONDecodeError):
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("missing_oracle", "/execution_oracle", "oracle did not produce a result")]}
+            persist_synthetic_oracle(oracle_result)
         if not isinstance(oracle_result, dict):
             oracle_result = {"observed_result": "not_run", "invalidity_reasons": [reason("source_malformed", "/execution_oracle", "oracle result must be an object")]}
             persist_synthetic_oracle(oracle_result)

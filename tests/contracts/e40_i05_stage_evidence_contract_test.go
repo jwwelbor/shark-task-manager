@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -156,6 +157,24 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		if !e40ContainsErrorMatching(errs, "observed_at") {
 			t.Fatalf("consumer missing observed_at was not rejected: %v", errs)
 		}
+	})
+
+	t.Run("artifact_consumer_edge_fields_are_closed", func(t *testing.T) {
+		artifacts := []interface{}{map[string]interface{}{
+			"artifact_type":  "code_diff",
+			"path":           "artifacts/change.patch",
+			"digest":         "sha256:fixture",
+			"size_bytes":     float64(1),
+			"producer_stage": "development",
+			"consumers": []interface{}{map[string]interface{}{
+				"consuming_stage":  "code_review",
+				"edge_kind":        "read",
+				"observed_at":      "2026-09-14T00:00:00Z",
+				"unexpected_field": "must_be_rejected",
+			}},
+		}}
+		errs := e40I05ValidateArtifacts(artifacts, schema, "typed-edge")
+		require.True(t, e40ContainsErrorMatching(errs, "unexpected_field", "unexpected"), "consumer unexpected field was not rejected: %v", errs)
 	})
 
 	// AC-T1 (task spec): usage-mapping.yaml's own required shape --

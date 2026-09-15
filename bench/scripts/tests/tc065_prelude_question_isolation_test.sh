@@ -38,10 +38,31 @@ if args[:2] == ["next", "Q-E40-F08-001"]:
     print(json.dumps({"question_block": {"question_key": "Q-E40-F08-001", "current_responder": "responder-a"}}))
 elif args[:2] == ["next", "Q-E40-F08-002"]:
     print(json.dumps({"question_block": None}))
+elif args[:2] == ["next", "ROOT-LINEAGE"]:
+    prompt = "capture replay lineage\n"
+    path = args[args.index("--prompt-out") + 1]
+    open(path, "w", encoding="utf-8").write(prompt)
+    import hashlib
+    print(json.dumps({"entity_key": "FEATURE-001", "entity_type": "feature", "status": "research",
+                      "action": "spawn_agent", "agent_type": "researcher", "provider": "fixture",
+                      "model": "fixture-model", "effort": "low", "prompt": prompt,
+                      "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(), "prompt_bytes": len(prompt),
+                      "resolved_via": ["ROOT-LINEAGE"], "unresolved_placeholders": [], "error": ""}))
+elif args[:2] == ["next", "FEATURE-001"]:
+    print(json.dumps({"action": "archive", "entity_key": "FEATURE-001", "entity_type": "feature"}))
 elif args[:2] == ["claim", "Q-E40-F08-001"]:
     print('{"session_id":"SID-Q"}')
+elif args[:2] == ["claim", "FEATURE-001"]:
+    print('{"session_id":"SID-LINEAGE"}')
 elif args[:2] == ["question", "respond"] or args[:2] == ["question", "resolve"]:
     print('{"ok":true}')
+elif args and args[0] in ("heartbeat", "release"):
+    print('{"ok":true}')
+elif args[:2] == ["status", "advance"]:
+    print('{"advanced":true}')
+elif args[:3] == ["admin", "workflow", "list"]:
+    with open(os.path.join(os.environ["SHARK_WORKFLOW_DIR"], args[3] + ".json"), encoding="utf-8") as stream:
+        print(stream.read())
 else:
     raise SystemExit("unexpected shark argv: " + repr(args))
 PY
@@ -94,9 +115,33 @@ evaluator_only:
   answer_keys: []
 YAML
 
-cat >"$WORKDIR/replay-complete.json" <<'JSON'
-{"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"run_id":"tc065","terminal_outcome":"complete","replay_bundle":{"bundle_path":"$WORKDIR/evaluator/replay/bundle.json","bundle_digest":"REPLACE","bundle_version":"1.0.0"},"stages":[{"stage":"D01"},{"stage":"D02"},{"stage":"D03"},{"stage":"D04"},{"stage":"D05"}],"questions":[{"question_key":"Q-E40-F08-001","current_responder":"responder-a","owner":"owner-a","summary":"approved","evidence_pointer":"runs/tc065/answer.json","resolution_kind":"accepted","resolution_pointer":"runs/tc065/resolution.json"}]}
-JSON
+python3 - "$WORKDIR/replay-complete.json" <<'PY'
+import json
+import sys
+
+consumed_entries = [{"entry_digest": f"digest-{index:02d}"} for index in range(40)]
+json.dump({
+    "schema_version": "1.0",
+    "scenario": {"scenario_id": "tc065-feature", "scenario_version": 1},
+    "run_id": "tc065",
+    "terminal_outcome": "complete",
+    "replay_bundle": {
+        "bundle_path": "$WORKDIR/evaluator/replay/bundle.json",
+        "bundle_digest": "REPLACE",
+        "bundle_version": "1.0.0",
+    },
+    "stages": [
+        {"stage": "D01", "consumed_entries": consumed_entries, "artifacts": []},
+        {"stage": "D02"}, {"stage": "D03"}, {"stage": "D04"}, {"stage": "D05"},
+    ],
+    "questions": [{
+        "question_key": "Q-E40-F08-001", "current_responder": "responder-a",
+        "owner": "owner-a", "summary": "approved",
+        "evidence_pointer": "runs/tc065/answer.json", "resolution_kind": "accepted",
+        "resolution_pointer": "runs/tc065/resolution.json",
+    }],
+}, open(sys.argv[1], "w", encoding="utf-8"))
+PY
 
 cat >"$WORKDIR/replay-blocked.json" <<'JSON'
 {"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"terminal_outcome":"unresolved_gate","stages":[]}
@@ -156,6 +201,9 @@ events_before="$(wc -l <"$WORKDIR/events.ndjson")"
 RUNNER_SCENARIO="$WORKDIR/package-feature-runner.yaml"
 sed "s#^  submodule_path: .*#  submodule_path: $WORKDIR/fixture#" \
     "$WORKDIR/package-feature.yaml" >"$RUNNER_SCENARIO"
+mkdir -p "$WORKDIR/input"
+printf 'feature input\n' >"$WORKDIR/input/prompt.md"
+printf '\ninput:\n  agent_visible: input/prompt.md\n' >>"$RUNNER_SCENARIO"
 set +e
 PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   "$RUNNER" --scenario "$RUNNER_SCENARIO" --replay "$WORKDIR/replay-blocked.json" \
@@ -177,6 +225,109 @@ assert record["outcome"]["publication_eligible"] is False, record["outcome"]
 assert record["dispatches"] == [], record["dispatches"]
 assert record["prelude"]["terminal_outcome"] == "unresolved_gate", record["prelude"]
 PY
+
+# TD-227: I-05 snapshots must materialize the authoritative I-06 consumption
+# ledger retained in the real feature prelude. This uses the production runner
+# entrypoint and its normal --prelude caller signature; it would fail if
+# record_stage() restored the empty replay_lineage placeholder.
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
+  SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+  "$RUNNER" --scenario "$RUNNER_SCENARIO" --prelude "$WORKDIR/feature.jsonl" \
+  --run-id tc065-lineage --root ROOT-LINEAGE --scratch-root "$WORKDIR/scratch" \
+  --i05-bundle-dir "$WORKDIR/lineage-i05" --output "$WORKDIR/lineage.jsonl" --mode dry-run \
+  || fail "feature replay-lineage fixture run failed"
+
+python3 - "$WORKDIR/lineage-i05" "$WORKDIR/evaluator/replay/bundle.json" "$WORKDIR/lineage.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+i05_dir = pathlib.Path(sys.argv[1])
+reference = str(pathlib.Path(sys.argv[2]).resolve())
+bundle = json.loads((i05_dir / "bundle.json").read_text(encoding="utf-8"))
+assert len(bundle["stages"]) == 1, bundle
+snapshot = json.loads((i05_dir / bundle["stages"][0]["snapshot_path"]).read_text(encoding="utf-8"))
+assert snapshot["replay_lineage"] == [
+    {"replay_reference": reference, "entry_digest": f"digest-{index:02d}"}
+    for index in range(40)
+], snapshot
+# The persisted lifecycle record remains diagnostic and bounded. Its replay
+# copy retains only 32 nested consumed entries, so this proves the snapshot
+# did not take its semantic lineage from that diagnostic copy.
+record = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+diagnostic_entries = record["prelude"]["replay"]["stages"][0]["consumed_entries"]
+assert len(diagnostic_entries) == 32, diagnostic_entries
+PY
+
+# Artifact-scoped claims are optional and non-authoritative. They must never
+# manufacture I-05 replay lineage when the resolver-owned stage ledger is
+# empty. Keep all 40 claims here so this is also a counterfactual against a
+# future bounded diagnostic source.
+python3 - "$WORKDIR/feature.jsonl" "$WORKDIR/artifact-only.jsonl" <<'PY'
+import json
+import sys
+
+prelude = json.loads(open(sys.argv[1], encoding="utf-8").readline())
+stage = prelude["replay"]["stages"][0]
+claims = stage.pop("consumed_entries")
+stage["artifacts"] = [{"consumed_entries": claims}]
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    json.dump(prelude, stream, separators=(",", ":"))
+    stream.write("\n")
+PY
+
+PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
+  SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+  "$RUNNER" --scenario "$RUNNER_SCENARIO" --prelude "$WORKDIR/artifact-only.jsonl" \
+  --run-id tc065-artifact-only --root ROOT-LINEAGE --scratch-root "$WORKDIR/scratch" \
+  --i05-bundle-dir "$WORKDIR/artifact-only-i05" --output "$WORKDIR/artifact-only.jsonl.out" --mode dry-run \
+  || fail "artifact-only replay-lineage fixture run failed"
+
+python3 - "$WORKDIR/artifact-only-i05" <<'PY'
+import json
+import pathlib
+import sys
+
+i05_dir = pathlib.Path(sys.argv[1])
+bundle = json.loads((i05_dir / "bundle.json").read_text(encoding="utf-8"))
+snapshot = json.loads((i05_dir / bundle["stages"][0]["snapshot_path"]).read_text(encoding="utf-8"))
+assert snapshot["replay_lineage"] == [], snapshot
+PY
+
+# The runner rejects malformed externally supplied prelude JSON before it can
+# dereference the new replay-lineage projection. Exercise each guarded shape
+# through the production --prelude entrypoint.
+python3 - "$WORKDIR/feature.jsonl" "$WORKDIR/malformed-prelude.jsonl" "$WORKDIR/malformed-replay.jsonl" "$WORKDIR/malformed-bundle.jsonl" <<'PY'
+import json
+import sys
+
+prelude = json.loads(open(sys.argv[1], encoding="utf-8").readline())
+open(sys.argv[2], "w", encoding="utf-8").write("[]\n")
+for path, key, value in ((sys.argv[3], "replay", []), (sys.argv[4], "replay_bundle", [])):
+    candidate = json.loads(json.dumps(prelude))
+    if key == "replay_bundle":
+        candidate["replay"][key] = value
+    else:
+        candidate[key] = value
+    with open(path, "w", encoding="utf-8") as stream:
+        json.dump(candidate, stream, separators=(",", ":"))
+        stream.write("\n")
+PY
+
+for malformed_case in prelude replay bundle; do
+  case "$malformed_case" in
+    prelude) malformed_path="$WORKDIR/malformed-prelude.jsonl"; expected="lifecycle prelude must be a JSON object" ;;
+    replay) malformed_path="$WORKDIR/malformed-replay.jsonl"; expected="lifecycle prelude replay must be a JSON object" ;;
+    bundle) malformed_path="$WORKDIR/malformed-bundle.jsonl"; expected="lifecycle prelude replay_bundle must be a JSON object" ;;
+  esac
+  if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" SHARK_WORKFLOW_DIR="$SCRIPTS_DIR/testdata/lifecycle/workflow" \
+    "$RUNNER" --scenario "$RUNNER_SCENARIO" --prelude "$malformed_path" --run-id "tc065-malformed-$malformed_case" \
+    --root ROOT-LINEAGE --scratch-root "$WORKDIR/scratch" --i05-bundle-dir "$WORKDIR/malformed-$malformed_case-i05" \
+    --output "$WORKDIR/malformed-$malformed_case.out" --mode dry-run >/dev/null 2>"$WORKDIR/malformed-$malformed_case.err"; then
+    fail "malformed $malformed_case prelude unexpectedly passed"
+  fi
+  grep -q "$expected" "$WORKDIR/malformed-$malformed_case.err" || fail "malformed $malformed_case prelude did not name its shape error"
+done
 
 if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   "$PRELUDE" --scenario "$WORKDIR/package-feature.yaml" --replay "$WORKDIR/replay-missing-question-block.json" \
@@ -211,4 +362,4 @@ assert question == [
 assert not any(event["argv"] and event["argv"][0] == "question" for event in events if event["argv"] and event["argv"][0] == "question" and "blocked" in str(event))
 PY
 
-echo "TC-065: pass (prelude ordering, explicit non-applicable records, Question routing, blocked replay, and isolation gate)"
+echo "TC-065: pass (prelude ordering, explicit non-applicable records, Question routing, blocked replay, I-05 replay lineage, and isolation gate)"

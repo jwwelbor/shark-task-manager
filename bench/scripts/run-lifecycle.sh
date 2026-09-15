@@ -603,23 +603,34 @@ I05_OWNED_ENTRIES = ("bundle.json", "stages", "access.jsonl", "transcripts")
 WORKFLOW_LEVEL_NORMALIZE = {"tech-debt": "tech_debt"}
 
 
-def prelude_lineage(record):
-    replay = (record.get("prelude") or {}).get("replay") or {}
-    replay_bundle = replay.get("replay_bundle") or {}
+def prelude_lineage(prelude):
+    """Project resolver-owned replay join keys before bounding the prelude."""
+    if not isinstance(prelude, dict):
+        raise RuntimeError("lifecycle prelude must be a JSON object")
+    replay = prelude.get("replay")
+    if replay is None:
+        replay = {}
+    if not isinstance(replay, dict):
+        raise RuntimeError("lifecycle prelude replay must be a JSON object")
+    replay_bundle = replay.get("replay_bundle")
+    if replay_bundle is None:
+        replay_bundle = {}
+    if not isinstance(replay_bundle, dict):
+        raise RuntimeError("lifecycle prelude replay_bundle must be a JSON object")
     reference = replay_bundle.get("bundle_path")
     lineage = []
     for stage in replay.get("stages") or []:
         if not isinstance(stage, dict):
             continue
-        for artifact in stage.get("artifacts") or []:
-            if not isinstance(artifact, dict):
-                continue
-            for entry in artifact.get("consumed_entries") or []:
-                if isinstance(entry, dict) and entry.get("entry_digest"):
-                    lineage.append({
-                        "replay_reference": reference,
-                        "entry_digest": entry["entry_digest"],
-                    })
+        # I-06 REQ-F-009 assigns the resolver-owned stage ledger as the
+        # authoritative source. Artifact claims are optional and must not
+        # create I-05 replay lineage.
+        for entry in stage.get("consumed_entries") or []:
+            if isinstance(entry, dict) and entry.get("entry_digest"):
+                lineage.append({
+                    "replay_reference": reference,
+                    "entry_digest": entry["entry_digest"],
+                })
     return sorted(lineage, key=lambda item: (str(item["replay_reference"]), str(item["entry_digest"])))
 
 
@@ -1064,6 +1075,7 @@ class I05BundleWriter:
         self._stages_index = []
         self._phase_cache = {}
         self._stage_visit_counts = {}
+        self._prelude_lineage = []
         self.dir.mkdir(parents=True, exist_ok=True)
         self._refuse_symlinks()
         self._reset_owned_entries()
@@ -1075,6 +1087,10 @@ class I05BundleWriter:
         self.transcripts_dir.mkdir(parents=True, exist_ok=True)
         self._create_access_log()
         self._write_bundle(reached=False, reached_at=None, stop_outcome=None, publication_eligible=True, ineligibility_reasons=())
+
+    def set_prelude_lineage(self, lineage):
+        """Retain the typed replay projection, never the unbounded prelude."""
+        self._prelude_lineage = list(lineage)
 
     def _refuse_symlinks(self):
         for name in I05_OWNED_ENTRIES:
@@ -1200,10 +1216,10 @@ class I05BundleWriter:
         carrying every bench/README.md "Stage-snapshot field reference"
         field this task owns (REQ-F-003/004/006/007), a real `time_ledger`
         (REQ-F-005, via `reconcile_time_ledger()`), and a materialized
-        transcript artifact (REQ-F-007); rewrites `bundle.json`'s triad
-        (REQ-F-002/003 index). `replay_lineage`'s interior and `artifacts`'s
-        interior remain E40-F07's own scope -- this task writes their
-        shape-valid, honestly-empty placeholders.
+        transcript artifact (REQ-F-007); materializes E40-F07's replay
+        consumption join; and rewrites `bundle.json`'s triad (REQ-F-002/003
+        index). `artifacts`'s interior remains E40-F07's own scope -- this
+        task writes its shape-valid, honestly-empty placeholder.
 
         `worker_envelope` is the FULL control envelope `adapter_result()`
         returned for this dispatch (never the bounded `dispatch["worker"]
@@ -1264,7 +1280,7 @@ class I05BundleWriter:
         if category is not None:
             snapshot["stage_category"] = category
         if str(self.scenario.get("entity_family", "")) == "feature":
-            snapshot["replay_lineage"] = []
+            snapshot["replay_lineage"] = self._prelude_lineage
         if category in {"code", "review"}:
             test_suite_ids, test_suite_dir = test_suite_reference(Path.cwd())
             candidate = dict(stage_candidate)
@@ -2308,8 +2324,15 @@ def main(argv):
             raise RuntimeError(f"lifecycle prelude failed without retained evidence ({process.returncode}): {detail}")
     if prelude_path is not None:
         prelude = load_json(prelude_path.read_text(encoding="utf-8"), "lifecycle prelude")
+        if not isinstance(prelude, dict):
+            raise RuntimeError("lifecycle prelude must be a JSON object")
         if prelude.get("scenario_id") != identity["scenario_id"]:
             raise RuntimeError("lifecycle prelude scenario_id does not match the scenario package")
+        # Derive the semantic I-06 join projection while the parsed prelude
+        # is still complete. The lifecycle record below remains diagnostic
+        # and bounded, so it must never become this semantic source.
+        if i05_writer is not None:
+            i05_writer.set_prelude_lineage(prelude_lineage(prelude))
         try:
             retained_prelude_path = prelude_path.relative_to(prelude_evidence_dir).as_posix()
         except ValueError:
