@@ -1412,6 +1412,15 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 	return rendered + "\n\n---\n\n" + prompt, nil
 }
 
+// workerOwnershipPreamble is a Go constant rather than a prompt/template file
+// on purpose: it is Shark's own governance layer, not workflow content, so it
+// must stay outside the project-editable shark-data/ prompt, agent, and
+// override resolution path — nothing a workflow author writes can shadow,
+// override, or template-render it away. assembleDispatchPrompt prepends it
+// ahead of the agent persona and rendered prompt for the same reason: it must
+// win over both, unconditionally. See PR #126 (b78be99a), which paired this
+// runtime-enforced half of the worker/parent-loop contract with the
+// configurable outcome-resolution half in skills/shark/verbs/run.md.
 const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
 - You are a spawned worker inside a Shark parent-run loop.
 - Do NOT run Shark workflow-state commands against the entity this prompt dispatched you for.

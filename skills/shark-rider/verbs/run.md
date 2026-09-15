@@ -125,6 +125,24 @@ request/result field set an adapter exchanges with the parent.
 
 ### `spawn_agent`
 
+**Exclusivity pre-flight.** Before claiming, confirm no host worker from a
+prior dispatch against this same `entity_key` is still alive (`ListAgents`
+for an in-process/teammate adapter; the provider's own process/session list
+otherwise). A worker that reported a terminal result or went idle is not
+necessarily terminated — an idle notification only means it has nothing
+queued this turn, not that its process has ended, and it can resume acting
+(on this entity or an adjacent one it noticed) without a new dispatch from
+you. If one is found, stop it (`TaskStop` or the provider's equivalent)
+before spawning a new worker for this key — two live workers editing the
+same entity/worktree race each other and can silently duplicate or
+contradict work.
+
+> Recorded failure (2026-09-15): three prior resumptions' workers for the
+> same task stayed alive well after their idle notifications, and one
+> continued unprompted into a later resumption's assigned scope — caught
+> only because a subsequent worker happened to run `ps -ef` and noticed.
+> No corruption resulted that time, but it was luck, not a guarantee.
+
 Claim the concrete entity returned by Shark:
 
 ```bash
@@ -156,6 +174,14 @@ Spawn the host worker using a host-safe adapter:
   how the parent establishes terminal completion for that worker. Neither
   installed provider reference currently documents a native retirement
   operation, so do not use background dispatch for this loop.
+- Worker termination: once you have ingested the worker's terminal result
+  (Step 2's "Establish terminal completion" below) and released the lease,
+  actively terminate the worker's host session (`TaskStop` for an
+  in-process/teammate adapter, or the provider's documented equivalent) —
+  do not leave it addressable. Do this even for an awaited foreground call
+  that already returned; a resumable agent identity left alive after its
+  assigned dispatch is exactly what let a prior resumption's worker keep
+  acting, unprompted, well past its scope (see the recorded failure above).
 
 Do not set the host `subagent_type` to Shark names such as `business-analyst`,
 `product-manager`, or `tech-director`; those personas are already inside
@@ -166,6 +192,28 @@ For long steps, periodically renew the parent lease:
 ```bash
 shark heartbeat {response.entity_key} --session "$SID" --progress <0..1> --note "<step>"
 ```
+
+**Progress check-ins and staleness.** The dispatched prompt (Shark's own
+`PARENT LOOP OWNERSHIP CONTRACT` preamble) tells the worker to check in with
+you at intervals for any dispatch likely to run longer than ~15 minutes,
+rather than going silent until a single final report. Expect those
+check-ins for long-running work, and treat their absence as a signal, not
+just a curiosity:
+
+- If a worker you expect to be long-running has produced no check-in and no
+  terminal result for well beyond your last-known progress point (roughly
+  2x the interval it should be checking in at, or ~30 minutes with no
+  signal at all for a dispatch with no stated interval), check its actual
+  status (`ListAgents`, or the provider's task/process listing) before
+  assuming it is simply "still working." Do not silently keep waiting on a
+  worker you cannot account for.
+- If it is confirmed dead, hung, or unreachable: record what evidence
+  exists (partial commits, evidence files, notes it left), release the
+  Shark lease if still held, and re-dispatch a fresh worker with a handoff
+  built from that evidence — do not resume the same identity blind.
+- If it is alive but has simply gone quiet without checking in: nudge it
+  once for a status update before deciding it is lost. Two silent nudges
+  with no response is lost, not busy.
 
 ### Long-running Codex CLI adapter
 
@@ -319,10 +367,16 @@ the workflow prompts emit, apply them in this order, then advance:
    ```bash
    shark release {response.entity_key} --session "$SID" --outcome <key>
    ```
-7. Return to Step 1 with the original `{KEY}`.
+7. **Terminate the worker's host session** (`TaskStop` or the provider's
+   equivalent) now that its terminal result is ingested — see "Worker
+   termination" above. Releasing the Shark lease retires the entity's
+   workflow state; it does not stop the host process. Skipping this is how
+   a worker outlives its assigned dispatch and keeps acting unsupervised.
+8. Return to Step 1 with the original `{KEY}`.
 
-If the worker fails or throws, still release the lease, record a blocker note if
-possible, and surface the failure before deciding whether to retry.
+If the worker fails or throws, still release the lease, terminate its host
+session, record a blocker note if possible, and surface the failure before
+deciding whether to retry.
 
 ### `parallel_candidates` (fork)
 
