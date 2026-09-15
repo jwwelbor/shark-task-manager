@@ -238,8 +238,11 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 }
 
 func validateCapturedStreams(stdout, stderr capturedStream) error {
-	if stdout.err != nil || stderr.err != nil {
-		return fmt.Errorf("capture agent output: stdout=%v stderr=%v", stdout.err, stderr.err)
+	if stdout.err != nil {
+		return fmt.Errorf("capture agent stdout: %w", stdout.err)
+	}
+	if stderr.err != nil {
+		return fmt.Errorf("capture agent stderr: %w", stderr.err)
 	}
 	if stdout.exceeded || stderr.exceeded {
 		return fmt.Errorf("agent output exceeds the maximum capture size of %d bytes", workercontrol.MaxEnvelopeBytes)
@@ -250,11 +253,8 @@ func validateCapturedStreams(stdout, stderr capturedStream) error {
 // readBoundedStream retains at most max bytes while continuing to drain the
 // reader after the cap. Draining avoids blocking the child process on a full
 // pipe when a misbehaving worker emits excessive output.
-func readBoundedStream(r io.Reader, max int) (result struct {
-	data     []byte
-	exceeded bool
-	err      error
-}) {
+func readBoundedStream(r io.Reader, max int) capturedStream {
+	result := capturedStream{}
 	limited := io.LimitReader(r, int64(max)+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {

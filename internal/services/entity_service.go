@@ -269,13 +269,6 @@ func (s *EntityService) transitionStatus(
 	currentStatus := entity.GetStatus()
 	resolvedCurrentStatus := s.workflowSvc.NormalizeStatus(currentStatus)
 	resolvedTargetStatus := s.workflowSvc.NormalizeStatus(targetStatus)
-	// Enforce the replay/CAS guard before the idempotency return. A concurrent
-	// transition from the observed source to this target must fail closed rather
-	// than be accepted as an idempotent no-op.
-	if err := s.enforceAdvanceGuard(ctx, tx, entityType, entity.GetID(), currentStatus, opts); err != nil {
-		return nil, err
-	}
-
 	// Step 2: Idempotency check — if already at target status, return early without writing
 	if strings.EqualFold(resolvedCurrentStatus, resolvedTargetStatus) {
 		return &TransitionResult{
@@ -317,6 +310,10 @@ func (s *EntityService) transitionStatus(
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if err := s.enforceAdvanceGuard(ctx, tx, entityType, entity.GetID(), currentStatus, opts); err != nil {
+		return nil, err
 	}
 
 	if err := s.updateTransitionStatus(ctx, tx, repo, entityType, entity.GetID(), currentStatus, targetStatus, opts); err != nil {
