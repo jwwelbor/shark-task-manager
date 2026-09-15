@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
@@ -12,12 +14,27 @@ import (
 type impactNoteWriterStub struct {
 	calls int
 	meta  string
+	err   error
 }
 
 func (s *impactNoteWriterStub) AddNoteWithMetadata(_ context.Context, _ models.EntityType, _ string, _ string, _ string, _ string, metadata string) (*models.EntityNote, error) {
 	s.calls++
 	s.meta = metadata
+	if s.err != nil {
+		return nil, s.err
+	}
 	return &models.EntityNote{ID: 42}, nil
+}
+
+func TestImpactServiceRecord_PropagatesWriterFailure(t *testing.T) {
+	service, _ := NewImpactService(&impactNoteWriterStub{err: errors.New("database unavailable")})
+	record, err := service.Record(context.Background(), validImpactInput())
+	if err == nil || !strings.Contains(err.Error(), "persist change-impact note") {
+		t.Fatalf("Record error = %v, want contextual writer failure", err)
+	}
+	if record != nil {
+		t.Fatalf("Record returned a successful record after writer failure: %+v", record)
+	}
 }
 
 func validImpactInput() RecordImpactInput {

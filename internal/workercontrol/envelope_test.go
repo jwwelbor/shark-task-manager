@@ -152,9 +152,11 @@ func TestDecode_QuestionFieldsAreBoundedAndSafe(t *testing.T) {
 	}
 
 	for name, body := range map[string]string{
-		"option forbidden content":   `{"kind":"question","entity_key":"E01-F01-001","category":"architecture","question":"Choose","why_blocking":"blocked","options":["api_key=secret"],"evidence":[]}`,
-		"recommendation over bounds": `{"kind":"question","entity_key":"E01-F01-001","category":"architecture","question":"Choose","why_blocking":"blocked","recommendation":"` + strings.Repeat("a", SummaryMaxBytes+1) + `","evidence":[]}`,
-		"unknown category":           `{"kind":"question","entity_key":"E01-F01-001","category":"decision","question":"Choose","why_blocking":"blocked","evidence":[]}`,
+		"option forbidden content":         `{"kind":"question","entity_key":"E01-F01-001","category":"architecture","question":"Choose","why_blocking":"blocked","options":["api_key=secret"],"evidence":[]}`,
+		"option over bounds":               `{"kind":"question","entity_key":"E01-F01-001","category":"architecture","question":"Choose","why_blocking":"blocked","options":["` + strings.Repeat("a", SummaryMaxBytes+1) + `"],"evidence":[]}`,
+		"recommendation over bounds":       `{"kind":"question","entity_key":"E01-F01-001","category":"architecture","question":"Choose","why_blocking":"blocked","recommendation":"` + strings.Repeat("a", SummaryMaxBytes+1) + `","evidence":[]}`,
+		"recommendation forbidden content": `{"kind":"question","entity_key":"E01-F01-001","category":"architecture","question":"Choose","why_blocking":"blocked","recommendation":"api_key=secret","evidence":[]}`,
+		"unknown category":                 `{"kind":"question","entity_key":"E01-F01-001","category":"decision","question":"Choose","why_blocking":"blocked","evidence":[]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Decode([]byte(body))

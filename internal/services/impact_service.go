@@ -50,6 +50,7 @@ type ImpactService struct {
 	notes ImpactNoteWriter
 }
 
+// NewImpactService creates an ImpactService with the supplied note writer.
 func NewImpactService(notes ImpactNoteWriter) (*ImpactService, error) {
 	if notes == nil {
 		return nil, fmt.Errorf("ImpactService: note writer must not be nil")
@@ -71,6 +72,7 @@ func ReconcileAndValidateImpact(impact *gateresult.ChangeImpactSet, sourceKind, 
 	return nil
 }
 
+// Record reconciles, validates, and persists an I-04 change impact.
 func (s *ImpactService) Record(ctx context.Context, input RecordImpactInput) (*ImpactRecord, error) {
 	if err := ReconcileAndValidateImpact(&input.Impact, input.SourceKind, input.SourceKey, input.SourcePointer); err != nil {
 		return nil, err
