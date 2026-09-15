@@ -115,9 +115,33 @@ evaluator_only:
   answer_keys: []
 YAML
 
-cat >"$WORKDIR/replay-complete.json" <<'JSON'
-{"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"run_id":"tc065","terminal_outcome":"complete","replay_bundle":{"bundle_path":"$WORKDIR/evaluator/replay/bundle.json","bundle_digest":"REPLACE","bundle_version":"1.0.0"},"stages":[{"stage":"D01","artifacts":[{"consumed_entries":[{"entry_digest":"digest-z"}]}]},{"stage":"D02","artifacts":[{"consumed_entries":[{"entry_digest":"digest-a"}]}]},{"stage":"D03"},{"stage":"D04"},{"stage":"D05"}],"questions":[{"question_key":"Q-E40-F08-001","current_responder":"responder-a","owner":"owner-a","summary":"approved","evidence_pointer":"runs/tc065/answer.json","resolution_kind":"accepted","resolution_pointer":"runs/tc065/resolution.json"}]}
-JSON
+python3 - "$WORKDIR/replay-complete.json" <<'PY'
+import json
+import sys
+
+consumed_entries = [{"entry_digest": f"digest-{index:02d}"} for index in range(40)]
+json.dump({
+    "schema_version": "1.0",
+    "scenario": {"scenario_id": "tc065-feature", "scenario_version": 1},
+    "run_id": "tc065",
+    "terminal_outcome": "complete",
+    "replay_bundle": {
+        "bundle_path": "$WORKDIR/evaluator/replay/bundle.json",
+        "bundle_digest": "REPLACE",
+        "bundle_version": "1.0.0",
+    },
+    "stages": [
+        {"stage": "D01", "artifacts": [{"consumed_entries": consumed_entries}]},
+        {"stage": "D02"}, {"stage": "D03"}, {"stage": "D04"}, {"stage": "D05"},
+    ],
+    "questions": [{
+        "question_key": "Q-E40-F08-001", "current_responder": "responder-a",
+        "owner": "owner-a", "summary": "approved",
+        "evidence_pointer": "runs/tc065/answer.json", "resolution_kind": "accepted",
+        "resolution_pointer": "runs/tc065/resolution.json",
+    }],
+}, open(sys.argv[1], "w", encoding="utf-8"))
+PY
 
 cat >"$WORKDIR/replay-blocked.json" <<'JSON'
 {"schema_version":"1.0","scenario":{"scenario_id":"tc065-feature","scenario_version":1},"terminal_outcome":"unresolved_gate","stages":[]}
@@ -213,7 +237,7 @@ PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \
   --i05-bundle-dir "$WORKDIR/lineage-i05" --output "$WORKDIR/lineage.jsonl" --mode dry-run \
   || fail "feature replay-lineage fixture run failed"
 
-python3 - "$WORKDIR/lineage-i05" "$WORKDIR/evaluator/replay/bundle.json" <<'PY'
+python3 - "$WORKDIR/lineage-i05" "$WORKDIR/evaluator/replay/bundle.json" "$WORKDIR/lineage.jsonl" <<'PY'
 import json
 import pathlib
 import sys
@@ -224,9 +248,15 @@ bundle = json.loads((i05_dir / "bundle.json").read_text(encoding="utf-8"))
 assert len(bundle["stages"]) == 1, bundle
 snapshot = json.loads((i05_dir / bundle["stages"][0]["snapshot_path"]).read_text(encoding="utf-8"))
 assert snapshot["replay_lineage"] == [
-    {"replay_reference": reference, "entry_digest": "digest-a"},
-    {"replay_reference": reference, "entry_digest": "digest-z"},
+    {"replay_reference": reference, "entry_digest": f"digest-{index:02d}"}
+    for index in range(40)
 ], snapshot
+# The persisted lifecycle record remains diagnostic and bounded. Its replay
+# copy retains only 32 nested consumed entries, so this proves the snapshot
+# did not take its semantic lineage from that diagnostic copy.
+record = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+diagnostic_entries = record["prelude"]["replay"]["stages"][0]["artifacts"][0]["consumed_entries"]
+assert len(diagnostic_entries) == 32, diagnostic_entries
 PY
 
 if PATH="$WORKDIR/bin:$PATH" SHARK_EVENTS="$WORKDIR/events.ndjson" \

@@ -603,8 +603,9 @@ I05_OWNED_ENTRIES = ("bundle.json", "stages", "access.jsonl", "transcripts")
 WORKFLOW_LEVEL_NORMALIZE = {"tech-debt": "tech_debt"}
 
 
-def prelude_lineage(record):
-    replay = (record.get("prelude") or {}).get("replay") or {}
+def prelude_lineage(prelude):
+    """Project replay join keys before the diagnostic prelude is bounded."""
+    replay = prelude.get("replay") or {}
     replay_bundle = replay.get("replay_bundle") or {}
     reference = replay_bundle.get("bundle_path")
     lineage = []
@@ -1064,6 +1065,7 @@ class I05BundleWriter:
         self._stages_index = []
         self._phase_cache = {}
         self._stage_visit_counts = {}
+        self._prelude_lineage = []
         self.dir.mkdir(parents=True, exist_ok=True)
         self._refuse_symlinks()
         self._reset_owned_entries()
@@ -1075,6 +1077,10 @@ class I05BundleWriter:
         self.transcripts_dir.mkdir(parents=True, exist_ok=True)
         self._create_access_log()
         self._write_bundle(reached=False, reached_at=None, stop_outcome=None, publication_eligible=True, ineligibility_reasons=())
+
+    def set_prelude_lineage(self, lineage):
+        """Retain the typed replay projection, never the unbounded prelude."""
+        self._prelude_lineage = list(lineage)
 
     def _refuse_symlinks(self):
         for name in I05_OWNED_ENTRIES:
@@ -1264,7 +1270,7 @@ class I05BundleWriter:
         if category is not None:
             snapshot["stage_category"] = category
         if str(self.scenario.get("entity_family", "")) == "feature":
-            snapshot["replay_lineage"] = prelude_lineage(self.record)
+            snapshot["replay_lineage"] = self._prelude_lineage
         if category in {"code", "review"}:
             test_suite_ids, test_suite_dir = test_suite_reference(Path.cwd())
             candidate = dict(stage_candidate)
@@ -2310,6 +2316,11 @@ def main(argv):
         prelude = load_json(prelude_path.read_text(encoding="utf-8"), "lifecycle prelude")
         if prelude.get("scenario_id") != identity["scenario_id"]:
             raise RuntimeError("lifecycle prelude scenario_id does not match the scenario package")
+        # Derive the semantic I-06 join projection while the parsed prelude
+        # is still complete. The lifecycle record below remains diagnostic
+        # and bounded, so it must never become this semantic source.
+        if i05_writer is not None:
+            i05_writer.set_prelude_lineage(prelude_lineage(prelude))
         try:
             retained_prelude_path = prelude_path.relative_to(prelude_evidence_dir).as_posix()
         except ValueError:
