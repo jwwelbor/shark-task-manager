@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	impactRecordKind = "change_impact"
-	impactNoteType   = "reference"
+	impactRecordKind string = "change_impact"
+	impactNoteType   string = "reference"
 )
 
 // ImpactNoteWriter is the narrow persistence dependency required to record a

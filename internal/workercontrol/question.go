@@ -5,6 +5,16 @@ import (
 	"strings"
 )
 
+type questionCategory string
+
+const (
+	questionCategoryProduct      questionCategory = "product"
+	questionCategoryRequirements questionCategory = "requirements"
+	questionCategoryArchitecture questionCategory = "architecture"
+	questionCategoryQuality      questionCategory = "quality"
+	questionCategoryProcess      questionCategory = "process"
+)
+
 // validateQuestionFields validates the fields unique to a question envelope.
 func (e *Envelope) validateQuestionFields() error {
 	if !e.hasRequiredQuestionFields() {
@@ -85,8 +95,8 @@ func (e *Envelope) validateEvidence() error {
 }
 
 func validQuestionCategory(category string) bool {
-	switch category {
-	case "product", "requirements", "architecture", "quality", "process":
+	switch questionCategory(category) {
+	case questionCategoryProduct, questionCategoryRequirements, questionCategoryArchitecture, questionCategoryQuality, questionCategoryProcess:
 		return true
 	default:
 		return false
