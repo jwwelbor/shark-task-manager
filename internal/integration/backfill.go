@@ -271,17 +271,34 @@ func ensureBackfillManifest(projectRoot, epicKey, epicRunID, base string, events
 	if err != nil {
 		return fmt.Errorf("integration: marshal backfill manifest: %w", err)
 	}
-	if existing, err := os.ReadFile(path); err == nil {
-		if string(existing) != string(data) {
-			return &RegistrationConflictError{EpicKey: epicKey, Reason: "backfill manifest does not match retry input"}
-		}
+	present, err := matchingBackfillManifest(path, data, epicKey)
+	if err != nil {
+		return err
+	}
+	if present {
 		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("integration: read backfill manifest: %w", err)
 	}
 	if stateExists(projectRoot, epicKey, epicRunID) {
 		return &RegistrationConflictError{EpicKey: epicKey, Reason: "legacy partial backfill state has no manifest"}
 	}
+	return publishBackfillManifest(path, data, projectRoot, epicKey, epicRunID, base, events)
+}
+
+func matchingBackfillManifest(path string, want []byte, epicKey string) (bool, error) {
+	existing, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("integration: read backfill manifest: %w", err)
+	}
+	if string(existing) != string(want) {
+		return false, &RegistrationConflictError{EpicKey: epicKey, Reason: "backfill manifest does not match retry input"}
+	}
+	return true, nil
+}
+
+func publishBackfillManifest(path string, data []byte, projectRoot, epicKey, epicRunID, base string, events []IntegrationEvent) error {
 	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
 		return fmt.Errorf("integration: create backfill manifest directory: %w", err)
 	}
