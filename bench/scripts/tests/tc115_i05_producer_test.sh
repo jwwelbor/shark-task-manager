@@ -544,28 +544,31 @@ echo "TC-115 TC-002 (zero-dispatch edge case): pass"
 # unrelated operator-placed file and directory survive untouched.
 WORKDIR_R="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR_R"' EXIT
-mkdir -p "$WORKDIR_R/bin" "$WORKDIR_R/scratch" "$WORKDIR_R/i05/stages" "$WORKDIR_R/i05/custom"
-echo '{"stale":true}' >"$WORKDIR_R/i05/bundle.json"
-echo '{"stale":true}' >"$WORKDIR_R/i05/stages/99-stale.json"
-echo '{"stale":true}' >"$WORKDIR_R/i05/access.jsonl"
-echo "operator notes" >"$WORKDIR_R/i05/operator-notes.txt"
-echo "operator file" >"$WORKDIR_R/i05/custom/keep.txt"
-write_single_dispatch_shark "$WORKDIR_R/bin"
-PATH="$WORKDIR_R/bin:$PATH" SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" \
-	SHARK_WORKFLOW_DIR="$WORKFLOW_FIXTURE_DIR" \
-	"$RUNNER" --scenario "$SCENARIO" --run-id tc115r --root ROOT-001 --scratch-root "$WORKDIR_R/scratch" \
-	--mode contract --i05-bundle-dir "$WORKDIR_R/i05" --output "$WORKDIR_R/lifecycle.jsonl" \
-	|| fail "(a) reset-repetition run failed"
-[[ -f "$WORKDIR_R/i05/stages/99-stale.json" ]] && fail "(a) repetition-1 stage snapshot survived the reset"
+for mode in contract dry-run; do
+	RUN_DIR="$WORKDIR_R/$mode"
+	mkdir -p "$RUN_DIR/bin" "$RUN_DIR/scratch" "$RUN_DIR/i05/stages" "$RUN_DIR/i05/custom"
+	echo '{"stale":true}' >"$RUN_DIR/i05/bundle.json"
+	echo '{"stale":true}' >"$RUN_DIR/i05/stages/99-stale.json"
+	echo '{"stale":true}' >"$RUN_DIR/i05/access.jsonl"
+	echo "operator notes" >"$RUN_DIR/i05/operator-notes.txt"
+	echo "operator file" >"$RUN_DIR/i05/custom/keep.txt"
+	write_single_dispatch_shark "$RUN_DIR/bin"
+	PATH="$RUN_DIR/bin:$PATH" SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" \
+		SHARK_WORKFLOW_DIR="$WORKFLOW_FIXTURE_DIR" \
+		"$RUNNER" --scenario "$SCENARIO" --run-id "tc115r-$mode" --root ROOT-001 --scratch-root "$RUN_DIR/scratch" \
+		--mode "$mode" --i05-bundle-dir "$RUN_DIR/i05" --output "$RUN_DIR/lifecycle.jsonl" \
+		|| fail "(a) $mode reset-repetition run failed"
+	[[ -f "$RUN_DIR/i05/stages/99-stale.json" ]] && fail "(a) $mode repetition-1 stage snapshot survived the reset"
 # REQ-F-006 (T-E40-F12-002): access.jsonl now legitimately EXISTS after
 # every run (created at run start) -- the reset property under test is that
 # its STALE CONTENT is gone, not that the file itself is absent.
-[[ -f "$WORKDIR_R/i05/access.jsonl" ]] || fail "(a) access.jsonl was not (re)created after the reset"
-[[ -s "$WORKDIR_R/i05/access.jsonl" ]] && fail "(a) stale access.jsonl content survived the reset"
-[[ -f "$WORKDIR_R/i05/operator-notes.txt" ]] || fail "(a) unrelated operator file was removed by the reset"
-[[ "$(cat "$WORKDIR_R/i05/operator-notes.txt")" == "operator notes" ]] || fail "(a) unrelated operator file content changed"
-[[ -f "$WORKDIR_R/i05/custom/keep.txt" ]] || fail "(a) unrelated operator directory was removed by the reset"
-python3 -c "import json; b = json.load(open('$WORKDIR_R/i05/bundle.json')); assert b['stages'], 'bundle.json was not rewritten with real content'"
+	[[ -f "$RUN_DIR/i05/access.jsonl" ]] || fail "(a) $mode access.jsonl was not (re)created after the reset"
+	[[ -s "$RUN_DIR/i05/access.jsonl" ]] && fail "(a) $mode stale access.jsonl content survived the reset"
+	[[ -f "$RUN_DIR/i05/operator-notes.txt" ]] || fail "(a) $mode unrelated operator file was removed by the reset"
+	[[ "$(cat "$RUN_DIR/i05/operator-notes.txt")" == "operator notes" ]] || fail "(a) $mode unrelated operator file content changed"
+	[[ -f "$RUN_DIR/i05/custom/keep.txt" ]] || fail "(a) $mode unrelated operator directory was removed by the reset"
+	python3 -c "import json; b = json.load(open('$RUN_DIR/i05/bundle.json')); assert b['stages'], 'bundle.json was not rewritten with real content'"
+done
 rm -rf "$WORKDIR_R"
 trap - EXIT
 
@@ -949,6 +952,50 @@ rm -rf "$WORKDIR_10"
 trap - EXIT
 
 echo "TC-115 TC-010: pass (access.jsonl existence + append-only via real --grant-access)"
+
+# TC-010 partition 3: the producer's own dormant non-empty branch writes a
+# snapshot-provided evaluator_access list verbatim before bundle finalization.
+# run-lifecycle.sh embeds Python rather than exposing an importable module, so
+# execute its definitions without its main() epilogue -- the same source seam
+# used by other lifecycle contract tests.
+WORKDIR_10P="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR_10P"' EXIT
+LIFECYCLE_BENCH_DIR="$BENCH_DIR" python3 - "$RUNNER" "$WORKDIR_10P" <<'PY' || fail "TC-010 producer evaluator_access round-trip failed"
+import json
+import sys
+from pathlib import Path
+
+runner, directory = map(Path, sys.argv[1:])
+source = runner.read_text(encoding="utf-8").split("<<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
+definitions = source.rsplit("\ntry:\n    raise SystemExit(main", 1)[0]
+namespace = {"__name__": "tc115_i05_source"}
+exec(compile(definitions, str(runner), "exec"), namespace)
+
+writer = object.__new__(namespace["I05BundleWriter"])
+writer.dir = directory
+writer.scenario_path = Path("fixture.yaml")
+writer.scenario = {"entity_family": "task"}
+writer.identity = {
+    "scenario_id": "fixture", "scenario_version": "1", "roots": {},
+    "fixture_digest": "sha256:fixture",
+}
+writer.run_id = "tc115-010-producer"
+writer.record = {"dispatches": []}
+writer._stages_index = []
+events = [
+    {"accessor": "fixture", "kind": "read", "path": "oracle/test.py"},
+    {"accessor": "fixture", "kind": "read", "path": "oracle/expected.json"},
+]
+writer._append_access_events(events)
+writer.finalize("complete", "fixture completion")
+
+lines = (directory / "access.jsonl").read_text(encoding="utf-8").splitlines()
+assert [json.loads(line) for line in lines] == events, "producer did not retain evaluator_access entries verbatim"
+PY
+rm -rf "$WORKDIR_10P"
+trap - EXIT
+
+echo "TC-115 TC-010: pass (producer evaluator_access non-empty round-trip)"
 
 # ---------------------------------------------------------------------------
 # TC-008: time-ledger interval-category closed-table coverage + reconciliation

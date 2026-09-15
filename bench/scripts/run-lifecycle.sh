@@ -727,18 +727,18 @@ def stage_category(status):
 _STAGE_CATEGORY_MAP_CACHE = {}
 
 
-def _load_yaml_table(cache, cache_key, filename, table_key, label):
-    """Load and cache one required mapping table from bench/evidence."""
+def _load_yaml_table(cache, cache_key, filename, table_key, label, value_type=dict):
+    """Load and cache one required typed value from bench/evidence."""
     if cache_key not in cache:
         path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / filename
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError) as exc:
             raise RuntimeError(f"cannot read {label} {path}: {exc}") from exc
-        table = data.get(table_key)
-        if not isinstance(table, dict):
-            raise RuntimeError(f"{label} {path} is missing a {table_key} table")
-        cache[cache_key] = table
+        value = data.get(table_key)
+        if not isinstance(value, value_type) or (value_type is str and not value):
+            raise RuntimeError(f"{label} {path} is missing {table_key}")
+        cache[cache_key] = value
     return cache[cache_key]
 
 
@@ -852,19 +852,17 @@ def test_suite_reference(repo_root):
     return test_paths, (common or ".")
 
 
+_I05_SCHEMA_CACHE = {}
+
+
 def i05_schema_version():
     """REQ-F-002: `schema_version` is read from bench/evidence/i05-schema.yaml
     at run time, never hard-coded, so the producer cannot silently drift from
     a schema bump."""
-    schema_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "i05-schema.yaml"
-    try:
-        schema = yaml.safe_load(schema_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        raise RuntimeError(f"cannot read I-05 schema {schema_path}: {exc}") from exc
-    version = schema.get("schema_version")
-    if not isinstance(version, str) or not version:
-        raise RuntimeError(f"I-05 schema {schema_path} is missing schema_version")
-    return version
+    return _load_yaml_table(
+        _I05_SCHEMA_CACHE, "schema_version", "i05-schema.yaml",
+        "schema_version", "I-05 schema", str,
+    )
 
 
 # T-E40-F12-003 (REQ-F-005/§2.5): one additive, bounded heartbeat retry
@@ -1221,6 +1219,30 @@ class I05BundleWriter:
         except OSError as exc:
             raise RuntimeError(f"failed to write I-05 bundle.json {path}: {exc}") from exc
 
+    def _write_stage_snapshot(self, ordinal, stage_key, snapshot):
+        """Materialize one immutable stage snapshot and return its path."""
+        snapshot_path = self.stages_dir / f"{ordinal}-{stage_key}.json"
+        try:
+            snapshot_path.write_text(
+                json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            raise RuntimeError(f"failed to write I-05 stage snapshot {snapshot_path}: {exc}") from exc
+        return snapshot_path
+
+    def _write_transcript(self, ordinal, stage_key, worker_envelope):
+        """Materialize the bounded worker-envelope transcript for a stage."""
+        transcript_path = self.transcripts_dir / f"{ordinal}-{stage_key}.txt"
+        transcript_body = json.dumps(
+            bounded(worker_envelope if isinstance(worker_envelope, dict) else {}),
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        )
+        try:
+            transcript_path.write_text(transcript_body, encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"failed to write I-05 transcript {transcript_path}: {exc}") from exc
+
     def record_stage(
         self, dispatch, stage_candidate, shark, cwd, worker_envelope, timing,
         fixture_root, fixture_input_digest, execution_adapter, lifecycle_adapter,
@@ -1315,11 +1337,7 @@ class I05BundleWriter:
 
         snapshot_digest = stage_snapshot_digest(snapshot)
         snapshot["snapshot_digest"] = snapshot_digest
-        snapshot_path = self.stages_dir / f"{ordinal}-{stage_key}.json"
-        try:
-            snapshot_path.write_text(json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
-        except OSError as exc:
-            raise RuntimeError(f"failed to write I-05 stage snapshot {snapshot_path}: {exc}") from exc
+        snapshot_path = self._write_stage_snapshot(ordinal, stage_key, snapshot)
 
         # REQ-F-007: one bounded transcript artifact per dispatch, into the
         # real transcripts/ directory __init__ already materialized.
@@ -1327,15 +1345,7 @@ class I05BundleWriter:
         # response fragment (REQ-NF-003) -- the full envelope, never the
         # rendered prompt (never passed to this function at all), so no
         # prompt bytes or provider credentials can land here.
-        transcript_path = self.transcripts_dir / f"{ordinal}-{stage_key}.txt"
-        transcript_body = json.dumps(
-            bounded(worker_envelope if isinstance(worker_envelope, dict) else {}),
-            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        )
-        try:
-            transcript_path.write_text(transcript_body, encoding="utf-8")
-        except OSError as exc:
-            raise RuntimeError(f"failed to write I-05 transcript {transcript_path}: {exc}") from exc
+        self._write_transcript(ordinal, stage_key, worker_envelope)
 
         self._append_access_events(snapshot["evaluator_access"])
         self._stages_index.append({
