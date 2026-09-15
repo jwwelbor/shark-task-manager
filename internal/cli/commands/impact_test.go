@@ -87,16 +87,16 @@ func TestRunImpactRecord_ValidatesAndPersists(t *testing.T) {
 	if call.entityKey != "E01-F01-001" {
 		t.Errorf("expected entity_key=E01-F01-001, got %q", call.entityKey)
 	}
-	if call.noteType != noteTypeReferenceImpact {
-		t.Errorf("expected note_type=%q, got %q", noteTypeReferenceImpact, call.noteType)
+	if call.noteType != "reference" {
+		t.Errorf("expected note_type=%q, got %q", "reference", call.noteType)
 	}
 
 	var meta map[string]interface{}
 	if err := json.Unmarshal([]byte(call.metadata), &meta); err != nil {
 		t.Fatalf("failed to parse persisted metadata: %v", err)
 	}
-	if meta["record_kind"] != recordKindChangeImpact {
-		t.Errorf("expected record_kind=%q, got %v", recordKindChangeImpact, meta["record_kind"])
+	if meta["record_kind"] != "change_impact" {
+		t.Errorf("expected record_kind=%q, got %v", "change_impact", meta["record_kind"])
 	}
 	if meta["source_kind"] != "adr" || meta["source_key"] != "ADR-0007" {
 		t.Errorf("unexpected source identity in metadata: %v", meta)

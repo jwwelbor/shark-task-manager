@@ -253,15 +253,19 @@ func (e *Envelope) Validate() error {
 			strings.TrimSpace(e.Question) == "" || strings.TrimSpace(e.WhyBlocking) == "" {
 			return newValidationError("", ErrorClassShape, "entity_key, category, question, and why_blocking are required when kind is question")
 		}
+		if err := boundedText("entity_key", e.EntityKey, 1, IdentityMaxBytes); err != nil {
+			return err
+		}
+		if err := boundedText("category", e.Category, 1, IdentityMaxBytes); err != nil {
+			return err
+		}
 		for field, value := range map[string]string{
-			"entity_key": e.EntityKey, "category": e.Category, "question": e.Question,
-			"why_blocking": e.WhyBlocking, "recommendation": e.Recommendation,
+			"question": e.Question, "why_blocking": e.WhyBlocking, "recommendation": e.Recommendation,
 		} {
-			if value == "" && field == "recommendation" {
-				continue
-			}
-			if err := boundedText(field, value, 1, SummaryMaxBytes); err != nil {
-				return err
+			if value != "" {
+				if err := boundedText(field, value, 1, SummaryMaxBytes); err != nil {
+					return err
+				}
 			}
 		}
 		for i, option := range e.Options {
