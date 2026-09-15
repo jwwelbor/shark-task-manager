@@ -81,10 +81,9 @@ observable scenario shall return an evidence/decomposition gap and a
 The procedure shall write `docs/demos/<entity-key>/demo-script.md` and retain
 supporting evidence below `docs/demos/<entity-key>/evidence/`. After creation,
 it shall use the existing `shark related-docs add` contract to attach the
-script to the selected epic or feature, and the existing `shark create note
---type=reference` contract to record the artifact reference; for a sprint
-target, which has no related-document parent option, the reference note alone
-records the artifact. Discovered discrepancies remain explicit triage
+script to the selected epic or feature. For a sprint target, which has no
+related-document parent option, it shall use the existing `shark create note
+--type=reference` contract to record the artifact reference. Discovered discrepancies remain explicit triage
 candidates requiring normal deduplication and user confirmation.
 
 **Traceability:** Feature REQ-F-003; research Capability map, related-document
@@ -195,10 +194,10 @@ shark sprint backlog <sprint-key> --all --json
 shark skill get demo-script
 shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --epic=<epic-key>
 shark related-docs add "Demo Script" docs/demos/<entity-key>/demo-script.md --feature=<feature-key>
-shark create note <key> "Demo script: docs/demos/<entity-key>/demo-script.md" --type=reference
+shark create note <sprint-key> "Demo script: docs/demos/<sprint-key>/demo-script.md" --type=reference
 ```
 
-The final two operations occur only after a script is successfully created;
+The preceding registrations occur only after a script is successfully created;
 they are artifact-linking operations, not lifecycle transitions. The procedure
 does not call claim, status-transition, approval, provisioning, or automatic
 triage commands.

@@ -817,7 +817,9 @@ func TestE34F02DemoScriptScenarioGrouping(t *testing.T) {
 		"groups epic work into user journeys",
 		"rather than a raw feature inventory",
 		"groups feature work into its outcomes and relevant integrations",
+		"rather than a raw task list",
 		"groups scenarios by the underlying epic/feature journeys or outcomes of the assigned backlog items",
+		"rather than sprint backlog order",
 	} {
 		assert.Contains(t, normalized, want)
 	}
