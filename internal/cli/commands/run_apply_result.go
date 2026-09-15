@@ -285,9 +285,8 @@ type applyResultOutput struct {
 // buildGateCoordinator wires a real gatepersist.Coordinator from the CLI's
 // global service accessors, via the same adapters (gatepersist.adapters.go)
 // used everywhere else a coordinator is constructed. It is the CLI-side
-// mirror of whatever construction the core runner's own entry point
-// (run.go's runRun) will use once T-E34-F05-005 lands and gate_result_v1
-// steps become reachable through real dispatch.
+// mirror of the construction run.go's runRun already uses for reachable
+// gate_result_v1 dispatch steps.
 func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error) {
 	noteSvc, err := cli.GetNoteService(ctx)
 	if err != nil {
