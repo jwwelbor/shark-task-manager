@@ -154,23 +154,6 @@ func TestReadIdentity_NotExists(t *testing.T) {
 	}
 }
 
-func TestVerifyRunIdentityOwner(t *testing.T) {
-	rec := &RunIdentity{RunID: "run-1", EntityKey: "T-E01-F01-001", EntityType: "task"}
-
-	if err := VerifyRunIdentityOwner(rec, "T-E01-F01-001", "task"); err != nil {
-		t.Errorf("matching identity: unexpected error: %v", err)
-	}
-	if err := VerifyRunIdentityOwner(rec, "T-E02-F02-002", "task"); err == nil {
-		t.Error("mismatched entity_key: want error, got nil")
-	}
-	if err := VerifyRunIdentityOwner(rec, "T-E01-F01-001", "feature"); err == nil {
-		t.Error("mismatched entity_type: want error, got nil")
-	}
-	if err := VerifyRunIdentityOwner(nil, "T-E01-F01-001", "task"); err == nil {
-		t.Error("nil record: want error, got nil")
-	}
-}
-
 // TestVerifyRunIdentity_FailsClosedOnReplayContextMismatch is the exact UAT
 // round 3+4 (note #2926) defect reproduction: a result.json recovered under
 // a DIFFERENT source_status/gate/digest than originally recorded, for the

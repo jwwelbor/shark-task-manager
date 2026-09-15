@@ -615,7 +615,7 @@ func TestRunResumeRun_UninitializedStateRejectsForeignEntityResume(t *testing.T)
 // TestRunResumeRun_UninitializedStateRejectsDivergedReplayContext is the UAT
 // round 4 regression (note #2926, T-E34-F05-004 rework round 13): the SAME
 // entity supplies the run_id, so the interim EntityKey/EntityType-only check
-// (VerifyRunIdentityOwner) would have passed — but the run's original
+// would have passed — but the run's original
 // identity.json was bound to a DIFFERENT source status/gate/digest than
 // what this resume attempt's live status now resolves to (the entity has
 // since drifted off the step the run was originally created under). This
@@ -686,8 +686,8 @@ func TestRunResumeRun_UninitializedStateRejectsDivergedReplayContext(t *testing.
 	// Persist's deeper gaterun.CreateIdentity conflict check — the whole
 	// point of the fix is failing closed BEFORE the coordinator is ever
 	// built or called, matching the "before coordinator writes" wording of
-	// the kickback. Against the pre-fix caller (VerifyRunIdentityOwner, an
-	// entity-only check that passes for this same-entity scenario), the
+	// the kickback. Against the pre-fix entity-only check that passes for this
+	// same-entity scenario, the
 	// coordinator IS reached and only gatepersist's own defense-in-depth
 	// check rejects it — producing a "gatepersist: bind run identity: ..."
 	// error instead of this one, so this assertion fails against the

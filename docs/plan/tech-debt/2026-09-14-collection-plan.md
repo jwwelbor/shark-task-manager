@@ -26,7 +26,7 @@ independent review and rollback boundaries are intentional.
 | 12 | `tech-debt/gate-ingestion-reliability` | TD-176–TD-181 | Gate persistence error handling, bounded input, conflict semantics, command/service separation, and envelope validation. |
 | 13 | `tech-debt/gate-ingestion-concurrency` | TD-182–TD-193 | Gate lifecycle ownership, transition guards, lock safety, and bounded dispatcher output. |
 | 14 | `tech-debt/task-dependency-persistence` | TD-200 | Delivered by PR #234 (`tech-debt/custom-key-dependencies`): persist `--depends-on` task creation in the canonical relationship graph, with CLI-level regression coverage. |
-| 15 | `tech-debt/custom-key-integrity` | TD-194–TD-196 | Custom-key duplicate-check error handling, focused abstractions, and negative-path regression coverage. |
+| 15 | `tech-debt/custom-key-integrity` | TD-194–TD-196 | Delivered by PR #235: custom-key duplicate-check error handling, focused abstractions, and negative-path regression coverage. |
 | 16 | `tech-debt/impact-schema-contracts` | TD-197–TD-202, TD-204, TD-205 | Impact schema fidelity, test coverage, and E34 artifact-pointer corrections. |
 | 17 | `tech-debt/integration-capture` | TD-207, TD-209–TD-215, TD-217–TD-220 | Integration run validation, fresh-init classification, retry semantics, cancellation, atomic publishing, review prompt, and coverage. |
 | 18 | `tech-debt/gate-kickback-reopen` | TD-221, TD-222 | First deduplicate the two identical records, then implement and test terminal-task kickback reopening exactly once. |
