@@ -15,6 +15,10 @@ type EntityRelationshipRepository struct {
 	db *dbconn.DB
 }
 
+type relationshipExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 // NewEntityRelationshipRepository creates a new EntityRelationshipRepository.
 func NewEntityRelationshipRepository(db *dbconn.DB) *EntityRelationshipRepository {
 	return &EntityRelationshipRepository{db: db}
@@ -25,6 +29,13 @@ func (r *EntityRelationshipRepository) Create(
 	ctx context.Context,
 	rel *models.EntityRelationship,
 ) error {
+	return createRelationship(ctx, r.db, rel)
+}
+
+func createRelationship(ctx context.Context, executor relationshipExecutor, rel *models.EntityRelationship) error {
+	if rel == nil {
+		return fmt.Errorf("entity relationship is required")
+	}
 	if err := rel.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -34,7 +45,7 @@ func (r *EntityRelationshipRepository) Create(
 			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
 		VALUES (?, ?, ?, ?, ?)
 	`
-	result, err := r.db.ExecContext(ctx, query,
+	result, err := executor.ExecContext(ctx, query,
 		rel.FromEntityType, rel.FromEntityID,
 		rel.ToEntityType, rel.ToEntityID,
 		rel.RelationshipType,
@@ -66,37 +77,7 @@ func (r *EntityRelationshipRepository) CreateWithTx(
 	if tx == nil {
 		return fmt.Errorf("transaction is required")
 	}
-	if rel == nil {
-		return fmt.Errorf("entity relationship is required")
-	}
-	if err := rel.Validate(); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
-	}
-
-	result, err := tx.ExecContext(ctx, `
-		INSERT INTO entity_relationships
-			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
-		VALUES (?, ?, ?, ?, ?)`,
-		rel.FromEntityType, rel.FromEntityID,
-		rel.ToEntityType, rel.ToEntityID,
-		rel.RelationshipType,
-	)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return fmt.Errorf("relationship already exists: %s(%d) -[%s]-> %s(%d)",
-				rel.FromEntityType, rel.FromEntityID,
-				rel.RelationshipType,
-				rel.ToEntityType, rel.ToEntityID)
-		}
-		return fmt.Errorf("failed to create entity relationship: %w", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert id: %w", err)
-	}
-	rel.ID = id
-	return nil
+	return createRelationship(ctx, tx, rel)
 }
 
 // Delete removes a relationship by primary key.

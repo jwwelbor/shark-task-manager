@@ -83,6 +83,19 @@ func TestCreator_CreateTask_PersistsDependencyRelationship(t *testing.T) {
 	require.NoError(t, err)
 	_, err = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		for _, query := range []string{
+			`DELETE FROM entity_relationships WHERE from_entity_type = 'task' AND from_entity_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E96-F01-%')`,
+			"DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E96-F01-%')",
+			"DELETE FROM tasks WHERE key LIKE 'T-E96-F01-%'",
+			"DELETE FROM features WHERE key = 'E96-F01'",
+			"DELETE FROM epics WHERE key = 'E96'",
+		} {
+			if _, err := database.ExecContext(context.Background(), query); err != nil {
+				t.Errorf("cleanup dependency fixture: %v", err)
+			}
+		}
+	})
 
 	db := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(db)
