@@ -187,18 +187,8 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 		return nil
 	}
 
-	coordinator := runResumeCoordinatorOverride
-	if coordinator == nil {
-		var err error
-		coordinator, err = buildGateCoordinator(ctx)
-		if err != nil {
-			return fmt.Errorf("build GateResult persistence coordinator: %w", err)
-		}
-	}
-
-	result, err := runner.IngestGateResult(ctx, runner.GateIngestRequest{
+	return finishGateIngest(ctx, out, runner.GateIngestRequest{
 		EnvelopeBytes:       decision.Result,
-		Coordinator:         coordinator,
 		ProjectRoot:         projectRoot,
 		RunID:               runResumeID,
 		EntityKey:           entityKey,
@@ -217,15 +207,6 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 		// RetirementConfirmed AND RunConcluded, not RetirementConfirmed alone.
 		RunConcluded: true,
 	})
-	if err != nil {
-		return err
-	}
-
-	out.Ingested = true
-	out.ToStatus = result.ToStatus
-	out.Transitioned = result.Transitioned
-	out.LeaseReleased = result.LeaseReleased
-	return nil
 }
 
 // resumeGateIngestForUninitializedState handles the sibling of F-2's crash
@@ -352,18 +333,8 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 		return fmt.Errorf("resume identity mismatch for run_id %q: %w", runResumeID, err)
 	}
 
-	coordinator := runResumeCoordinatorOverride
-	if coordinator == nil {
-		var err error
-		coordinator, err = buildGateCoordinator(ctx)
-		if err != nil {
-			return fmt.Errorf("build GateResult persistence coordinator: %w", err)
-		}
-	}
-
-	result, err := runner.IngestGateResult(ctx, runner.GateIngestRequest{
+	return finishGateIngest(ctx, out, runner.GateIngestRequest{
 		EnvelopeBytes:       decision.Result,
-		Coordinator:         coordinator,
 		ProjectRoot:         projectRoot,
 		RunID:               runResumeID,
 		EntityKey:           entityKey,
@@ -382,6 +353,21 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 		// RetirementConfirmed AND RunConcluded, not RetirementConfirmed alone.
 		RunConcluded: true,
 	})
+}
+
+// finishGateIngest supplies the shared coordinator and projects the common
+// ingest result for both durable-resume paths.
+func finishGateIngest(ctx context.Context, out *resumeRunOutput, req runner.GateIngestRequest) error {
+	coordinator := runResumeCoordinatorOverride
+	if coordinator == nil {
+		var err error
+		coordinator, err = buildGateCoordinator(ctx)
+		if err != nil {
+			return fmt.Errorf("build GateResult persistence coordinator: %w", err)
+		}
+	}
+	req.Coordinator = coordinator
+	result, err := runner.IngestGateResult(ctx, req)
 	if err != nil {
 		return err
 	}
