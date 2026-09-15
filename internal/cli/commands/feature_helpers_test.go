@@ -836,6 +836,18 @@ func TestSortFeatures_ProgressUsesLiveComputedValue(t *testing.T) {
 	}
 }
 
+func TestSortFeatures_ProgressUsesKeyForEqualProgress(t *testing.T) {
+	features := []FeatureWithTaskCount{
+		{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02"}, ProgressPct: 50}},
+		{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01"}, ProgressPct: 50}},
+	}
+
+	sortFeatures(features, "progress", nil, nil)
+	if features[0].Key != "E07-F01" || features[1].Key != "E07-F02" {
+		t.Fatalf("equal-progress features = %s, %s; want deterministic key order", features[0].Key, features[1].Key)
+	}
+}
+
 // TestRenderFeatureAggregation_ReadinessMessage covers B047 AC5: "feature get
 // readiness messaging uses computed progress rather than a stale cached
 // field." feature.ProgressPct is the persisted cache; data.ProgressInfo is

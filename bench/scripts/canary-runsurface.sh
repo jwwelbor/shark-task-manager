@@ -156,6 +156,10 @@ known = set(required) | set(optional)
 with open(json_path) as f:
     obj = json.load(f)
 
+if not isinstance(obj, dict):
+    sys.stderr.write("canary-runsurface: RunResult JSON must be an object\n")
+    sys.exit(2)
+
 stages = obj.get("stages")
 if not isinstance(stages, list):
     sys.stderr.write("canary-runsurface: no stages[] array in RunResult\n")
@@ -178,6 +182,11 @@ unexpected = sorted(observed - known)
 if unexpected:
     print(unexpected[0])
     sys.exit(1)
+
+entity_key = stage.get("entity_key")
+if not isinstance(entity_key, str) or not entity_key.strip():
+    sys.stderr.write("canary-runsurface: spawn_agent stage has an empty entity_key\n")
+    sys.exit(2)
 
 if stage.get("exit_code") != 0:
     sys.stderr.write("canary-runsurface: spawn_agent stage exit_code=%r, want 0\n" % stage.get("exit_code"))

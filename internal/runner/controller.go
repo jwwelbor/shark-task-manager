@@ -1295,11 +1295,10 @@ func guardedTransitionOptions(runOpts RunOptions, fromStatus, targetStatus strin
 // phrase cannot alter the workflow route.
 //
 // It also accepts the shark-rider worker-return contract's JSON alternative,
-// `{"outcome": "<key>"}` — but only when the ENTIRE trimmed stdout is that
-// JSON object. This preserves the same safety property as the text-line
-// format: outcome-shaped JSON merely mentioned within a longer message (e.g.
-// prose describing what the worker considered returning) must not alter the
-// workflow route.
+// `{"outcome": "<key>"}` — but only when the last non-empty stdout line is
+// that JSON object. This lets workers put a human-readable summary before the
+// machine-readable final line while ensuring an outcome-shaped example earlier
+// in prose or a fenced block does not alter the workflow route.
 //
 // A non-nil error means the worker's stdout was recognized as an attempted
 // JSON outcome object (it starts with `{`) but failed to parse, or the
@@ -1316,12 +1315,17 @@ func recommendedOutcome(stdout string) (string, bool, error) {
 		}
 	}
 
-	trimmed := strings.TrimSpace(stdout)
-	if strings.HasPrefix(trimmed, "{") {
+	var lastNonEmpty string
+	for _, line := range strings.Split(stdout, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lastNonEmpty = line
+		}
+	}
+	if strings.HasPrefix(lastNonEmpty, "{") {
 		var body struct {
 			Outcome string `json:"outcome"`
 		}
-		if err := json.Unmarshal([]byte(trimmed), &body); err != nil {
+		if err := json.Unmarshal([]byte(lastNonEmpty), &body); err != nil {
 			return "", false, fmt.Errorf("invalid JSON outcome in worker stdout: %w", err)
 		}
 		// Report as specified even when empty, matching the text-line

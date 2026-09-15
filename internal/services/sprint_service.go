@@ -124,6 +124,13 @@ type SprintClaimReader interface {
 	IsClaimable(ctx context.Context, entityType, entityKey string) (bool, error)
 }
 
+// SprintActiveClaimReader is the optional batch capability implemented by
+// ClaimService. Keeping it separate preserves compatibility with narrow test
+// and integration readers that only implement per-candidate IsClaimable.
+type SprintActiveClaimReader interface {
+	ListActiveReadOnly(ctx context.Context, evaluatedAt time.Time) ([]*models.EntityClaim, error)
+}
+
 // SprintQuestionBlocker supplies the read-only Question gate for sprint
 // selection. It intentionally exposes only Check so selection cannot mutate
 // Question or workflow state.
@@ -737,21 +744,6 @@ type CapacityWarning struct {
 // the two representations. Tech-debt keys (TD-###) are not handled by
 // keys.KeyService.Parse — IsTechDebtKey is used as a fallback.
 // ---------------------------------------------------------------------------
-
-// claimEntityTypeForBacklogType translates a sprint backlog entity_type
-// string (as emitted by the sprint_assignments UNION: "task", "bug",
-// "change_card", "tech_debt") into the entity_type spelling used by the
-// claims table / models.EntityType (e.g. "change", not "change_card" — see
-// models.EntityTypeChange and DetectEntityType in cli/commands/helpers.go).
-// Without this translation, IsClaimable would look up change-card claims
-// under a type string no claim was ever recorded with, silently treating
-// every actively-claimed change-card as claimable (B044).
-func claimEntityTypeForBacklogType(backlogEntityType string) string {
-	if backlogEntityType == "change_card" {
-		return "change"
-	}
-	return backlogEntityType
-}
 
 func resolveEntityTypeAndID(ctx context.Context, repo SprintRepository, entityKey string) (entityType string, entityID int64, err error) {
 	keySvc := keys.NewKeyService()
@@ -1886,9 +1878,30 @@ func (s *SprintService) filterSprintSelectionClaims(ctx context.Context, candida
 	if s.claimReader == nil {
 		return nil
 	}
+	if reader, ok := s.claimReader.(SprintActiveClaimReader); ok {
+		activeClaims, err := reader.ListActiveReadOnly(ctx, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("list active claims for sprint selection: %w", err)
+		}
+		active := make(map[string]struct{}, len(activeClaims))
+		for _, claim := range activeClaims {
+			if claim != nil {
+				active[claim.EntityType+"\x00"+claim.EntityKey] = struct{}{}
+			}
+		}
+		unclaimed := make([]*BacklogItemView, 0, len(*candidates))
+		for _, candidate := range *candidates {
+			key := entitytype.WorkflowLevelOrSelf(candidate.EntityType) + "\x00" + candidate.Key
+			if _, claimed := active[key]; !claimed {
+				unclaimed = append(unclaimed, candidate)
+			}
+		}
+		*candidates = unclaimed
+		return nil
+	}
 	unclaimed := make([]*BacklogItemView, 0, len(*candidates))
 	for _, candidate := range *candidates {
-		claimable, err := s.claimReader.IsClaimable(ctx, claimEntityTypeForBacklogType(candidate.EntityType), candidate.Key)
+		claimable, err := s.claimReader.IsClaimable(ctx, entitytype.WorkflowLevelOrSelf(candidate.EntityType), candidate.Key)
 		if err != nil {
 			return fmt.Errorf("check claim for %s %s: %w", candidate.EntityType, candidate.Key, err)
 		}
@@ -1906,7 +1919,7 @@ func (s *SprintService) filterSprintSelectionQuestions(ctx context.Context, cand
 	}
 	ready := make([]*BacklogItemView, 0, len(*candidates))
 	for _, candidate := range *candidates {
-		block, err := s.questionBlocker.Check(ctx, models.EntityType(claimEntityTypeForBacklogType(candidate.EntityType)), candidate.Key)
+		block, err := s.questionBlocker.Check(ctx, models.EntityType(entitytype.WorkflowLevelOrSelf(candidate.EntityType)), candidate.Key)
 		if err != nil {
 			return fmt.Errorf("check Question gate for %s %s: %w", candidate.EntityType, candidate.Key, err)
 		}

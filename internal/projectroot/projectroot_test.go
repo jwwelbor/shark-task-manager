@@ -89,6 +89,53 @@ func TestFindProjectRootFrom_GitDirWithObjectsAccepted(t *testing.T) {
 	}
 }
 
+func TestFindProjectRootFrom_GitMarkerEntriesMustHaveExpectedType(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		create func(t *testing.T, gitDir string)
+	}{
+		{
+			name: "HEAD directory",
+			create: func(t *testing.T, gitDir string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(gitDir, "HEAD"), 0o755); err != nil {
+					t.Fatalf("create HEAD directory: %v", err)
+				}
+			},
+		},
+		{
+			name: "objects file",
+			create: func(t *testing.T, gitDir string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(gitDir, "objects"), []byte("not a directory"), 0o644); err != nil {
+					t.Fatalf("create objects file: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			gitDir := filepath.Join(tmpDir, ".git")
+			if err := os.Mkdir(gitDir, 0o755); err != nil {
+				t.Fatalf("create .git: %v", err)
+			}
+			tc.create(t, gitDir)
+
+			startDir := filepath.Join(tmpDir, "subdir")
+			if err := os.Mkdir(startDir, 0o755); err != nil {
+				t.Fatalf("create subdir: %v", err)
+			}
+			root, err := FindProjectRootFrom(startDir, tmpDir)
+			if err != nil {
+				t.Fatalf("FindProjectRootFrom() error = %v", err)
+			}
+			if root != startDir {
+				t.Errorf("FindProjectRootFrom() = %q, want %q: malformed marker must not be accepted", root, startDir)
+			}
+		})
+	}
+}
+
 func TestFindProjectRootFrom_GitFileWorktreeAccepted(t *testing.T) {
 	// Critical regression guard: in a git worktree, ".git" is a FILE (not a
 	// directory) containing a "gitdir: <path>" pointer to the real repo's

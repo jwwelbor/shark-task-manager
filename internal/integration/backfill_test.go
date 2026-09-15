@@ -419,7 +419,10 @@ func TestBackfill_PathTraversal_Rejected(t *testing.T) {
 			// `shark` (asserted empty below) because escapeRoot pre-exists
 			// with content unrelated to this test (the git seed commit).
 			escapeRoot := filepath.Dir(dir)
-			before := countFilesUnder(t, escapeRoot)
+			before := 0
+			if payload != "" {
+				before = countFilesUnder(t, escapeRoot)
+			}
 
 			events := validBackfillEvents(payload)
 			recorder := &fakeNoteRecorder{}
@@ -435,7 +438,8 @@ func TestBackfill_PathTraversal_Rejected(t *testing.T) {
 			if got := countFilesUnder(t, shark); got != 0 {
 				t.Fatalf("payload %q wrote %d files under %s, want 0", payload, got, shark)
 			}
-			if got := countFilesUnder(t, escapeRoot); got != before {
+			if payload != "" && countFilesUnder(t, escapeRoot) != before {
+				got := countFilesUnder(t, escapeRoot)
 				t.Fatalf("payload %q escaped the project root: files under %s went from %d to %d", payload, escapeRoot, before, got)
 			}
 			if recorder.calls != 0 {

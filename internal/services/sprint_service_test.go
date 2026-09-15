@@ -7406,6 +7406,18 @@ type sprintClaimReaderStub struct {
 	claimed map[string]bool // keyed by "entityType|entityKey"
 }
 
+type sprintActiveClaimReaderStub struct {
+	sprintClaimReaderStub
+	activeClaims []*models.EntityClaim
+	listCalls    int
+	listErr      error
+}
+
+func (s *sprintActiveClaimReaderStub) ListActiveReadOnly(context.Context, time.Time) ([]*models.EntityClaim, error) {
+	s.listCalls++
+	return s.activeClaims, s.listErr
+}
+
 type sprintQuestionBlockerStub struct{ blocked map[string]bool }
 
 type persistedQuestionReader struct {
@@ -7449,6 +7461,38 @@ func TestSelectSprint_E19F09_ReturnsOrderedUnclaimedCandidates(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, selection.Items, 1)
 	assert.Equal(t, "B001", selection.Items[0].Key, "TC-001: shared selection omits a claimed top candidate")
+}
+
+func TestSelectSprint_B044_BatchesActiveClaimLookup(t *testing.T) {
+	order1, order2 := 1, 2
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		{EntityType: "task", Key: "task-A", Title: "A", Status: "todo", SprintOrder: &order1, AssignedAt: time.Now()},
+		{EntityType: "change_card", Key: "CC-001", Title: "C", Status: "todo", SprintOrder: &order2, AssignedAt: time.Now()},
+	})
+	claims := &sprintActiveClaimReaderStub{activeClaims: []*models.EntityClaim{
+		{EntityType: "task", EntityKey: "task-A"},
+		{EntityType: "change", EntityKey: "CC-001"},
+	}}
+	svc.SetClaimReader(claims)
+
+	selection, err := svc.SelectSprint(context.Background(), SprintSelectionInput{SprintKey: "S001", Limit: 5})
+	require.NoError(t, err)
+	require.Empty(t, selection.Items, "all candidates have active claims")
+	assert.Equal(t, 1, claims.listCalls, "selection must use one active-claim snapshot, not one lookup per candidate")
+}
+
+func TestSelectSprint_B044_BatchClaimLookupErrorFailsLoud(t *testing.T) {
+	order := 1
+	svc := newGetNextTaskTestService(t, []*sprint.BacklogItem{
+		{EntityType: "task", Key: "task-A", Title: "A", Status: "todo", SprintOrder: &order, AssignedAt: time.Now()},
+	})
+	claims := &sprintActiveClaimReaderStub{listErr: errors.New("claim store unavailable")}
+	svc.SetClaimReader(claims)
+
+	_, err := svc.SelectSprint(context.Background(), SprintSelectionInput{SprintKey: "S001", Limit: 5})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "list active claims")
+	assert.Equal(t, 1, claims.listCalls)
 }
 
 // TC-006: sprint next is a compatibility projection of the active shared
