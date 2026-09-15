@@ -3,7 +3,12 @@ package integration
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -197,6 +202,12 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	if dryRun {
 		return simulateBackfillCandidate(epicRunID, base, events)
 	}
+	if err := ensureBackfillManifest(projectRoot, epicKey, epicRunID, base, events); err != nil {
+		return nil, err
+	}
+	if err := validateRetainedBackfillCandidate(projectRoot, epicRunID, base, events); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("integration: backfill before first write: %w", err)
 	}
@@ -219,6 +230,9 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		if err != nil {
 			return nil, fmt.Errorf("integration: backfill record event %d (%s): %w", i, input.FeatureKey, err)
 		}
+		if !sameBackfillEvent(recorded, input, epicRunID) {
+			return nil, &RegistrationConflictError{EpicKey: epicKey, Reason: fmt.Sprintf("retained event %s does not match the authorized backfill manifest", input.EventID)}
+		}
 		candidate, err = UpdateCandidate(ctx, epicRunID, recorded)
 		if err != nil {
 			return nil, fmt.Errorf("integration: backfill update candidate for event %d (%s): %w", i, input.FeatureKey, err)
@@ -231,6 +245,118 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	}
 
 	return candidate, nil
+}
+
+type backfillManifest struct {
+	EpicKey    string             `json:"epic_key"`
+	EpicRunID  string             `json:"epic_run_id"`
+	BaseCommit string             `json:"base_commit"`
+	Events     []IntegrationEvent `json:"events"`
+	Digest     string             `json:"digest"`
+}
+
+func backfillManifestPath(projectRoot, epicRunID string) string {
+	return filepath.Join(projectRoot, ".shark", "runs", epicRunID, "backfill-manifest.json")
+}
+
+func ensureBackfillManifest(projectRoot, epicKey, epicRunID, base string, events []IntegrationEvent) error {
+	path := backfillManifestPath(projectRoot, epicRunID)
+	want := backfillManifest{EpicKey: epicKey, EpicRunID: epicRunID, BaseCommit: base, Events: events}
+	digest, err := digestBackfillManifest(want)
+	if err != nil {
+		return err
+	}
+	want.Digest = digest
+	data, err := json.MarshalIndent(want, "", "  ")
+	if err != nil {
+		return fmt.Errorf("integration: marshal backfill manifest: %w", err)
+	}
+	if existing, err := os.ReadFile(path); err == nil {
+		if string(existing) != string(data) {
+			return &RegistrationConflictError{EpicKey: epicKey, Reason: "backfill manifest does not match retry input"}
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("integration: read backfill manifest: %w", err)
+	}
+	if stateExists(projectRoot, epicKey, epicRunID) {
+		return &RegistrationConflictError{EpicKey: epicKey, Reason: "legacy partial backfill state has no manifest"}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		return fmt.Errorf("integration: create backfill manifest directory: %w", err)
+	}
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
+	if err := os.WriteFile(tmp, data, runFileMode); err != nil {
+		return fmt.Errorf("integration: write backfill manifest: %w", err)
+	}
+	defer os.Remove(tmp)
+	won, err := atomicLinkPublish(tmp, path)
+	if err != nil {
+		return fmt.Errorf("integration: publish backfill manifest: %w", err)
+	}
+	if !won {
+		return ensureBackfillManifest(projectRoot, epicKey, epicRunID, base, events)
+	}
+	return nil
+}
+
+func digestBackfillManifest(manifest backfillManifest) (string, error) {
+	manifest.Digest = ""
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return "", fmt.Errorf("integration: marshal backfill manifest digest: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func stateExists(projectRoot, epicKey, epicRunID string) bool {
+	for _, path := range []string{runRecordPath(projectRoot, epicKey), candidatePath(projectRoot, epicRunID), eventRecordPath(projectRoot, epicRunID, "probe")} {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	entries, err := os.ReadDir(filepath.Dir(eventRecordPath(projectRoot, epicRunID, "probe")))
+	return err == nil && len(entries) > 0
+}
+
+func validateRetainedBackfillCandidate(projectRoot, epicRunID, base string, events []IntegrationEvent) error {
+	candidate, _, err := readCandidate(candidatePath(projectRoot, epicRunID))
+	if err != nil || candidate == nil {
+		return err
+	}
+	if candidate.EpicRunID != epicRunID || candidate.BaseCommit != base {
+		return &RegistrationConflictError{Reason: "retained candidate does not match authorized backfill manifest"}
+	}
+	digest, err := computeDigest(*candidate)
+	if err != nil || digest != candidate.Digest {
+		return &RegistrationConflictError{Reason: "retained candidate digest is invalid"}
+	}
+	allowed := make(map[string]bool, len(events))
+	for _, event := range events {
+		allowed[event.EventID] = true
+	}
+	for _, id := range candidate.EventIDs {
+		if !allowed[id] {
+			return &RegistrationConflictError{Reason: "retained candidate contains an event outside the authorized manifest"}
+		}
+	}
+	return nil
+}
+
+func sameBackfillEvent(recorded *IntegrationEvent, input IntegrationEvent, epicRunID string) bool {
+	return recorded.EpicRunID == epicRunID && recorded.EventID == input.EventID && recorded.FeatureKey == input.FeatureKey && recorded.FeatureCommit == input.FeatureCommit && sameBackfillStrings(recorded.TrackedPaths, input.TrackedPaths) && sameBackfillStrings(recorded.UntrackedPaths, input.UntrackedPaths)
+}
+
+func sameBackfillStrings(left, right []string) bool {
+	return len(left) == len(right) && func() bool {
+		for i := range left {
+			if left[i] != right[i] {
+				return false
+			}
+		}
+		return true
+	}()
 }
 
 // verifyCommitReachable rejects base as a *BackfillValidationError unless it

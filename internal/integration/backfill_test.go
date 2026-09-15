@@ -273,6 +273,53 @@ func TestBackfill_SecondAttemptAgainstRegisteredEpic_Rejected(t *testing.T) {
 	})
 }
 
+func TestBackfill_ManifestAuthorizesPartialRetry(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E98"
+	const epicRunID = "run-manifest-retry"
+	events := validBackfillEvents(epicRunID)
+	if err := ensureBackfillManifest(dir, epicKey, epicRunID, headCommit, events); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+	if _, err := backfillRun(dir, epicKey, epicRunID, headCommit); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	first, err := RecordEvent(epicRunID, events[0].FeatureKey, events[0].FeatureCommit, events[0].TrackedPaths, events[0].UntrackedPaths)
+	if err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+	if _, err := UpdateCandidate(context.Background(), epicRunID, first); err != nil {
+		t.Fatalf("seed candidate: %v", err)
+	}
+
+	candidate, err := Backfill(context.Background(), &fakeNoteRecorder{}, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	if err != nil {
+		t.Fatalf("resume Backfill: %v", err)
+	}
+	if len(candidate.EventIDs) != len(events) {
+		t.Fatalf("resumed candidate event IDs = %v, want %d", candidate.EventIDs, len(events))
+	}
+}
+
+func TestBackfill_LegacyPartialStateWithoutManifestFailsClosed(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E99"
+	const epicRunID = "run-legacy-partial"
+	events := validBackfillEvents(epicRunID)
+	if _, err := backfillRun(dir, epicKey, epicRunID, headCommit); err != nil {
+		t.Fatalf("seed legacy run: %v", err)
+	}
+	recorder := &fakeNoteRecorder{}
+	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	var conflict *RegistrationConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("Backfill error = %T %v, want RegistrationConflictError", err, err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("legacy recovery recorded %d notes, want none", recorder.calls)
+	}
+}
+
 // TestBackfill_MalformedInput_ZeroMutation covers TC-009 subtest (d): four
 // malformed-input variants, each rejected before any write (AC-T4). Each
 // subtest runs against its own fresh temp directory/epic so a before/after
