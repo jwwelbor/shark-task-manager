@@ -544,28 +544,31 @@ echo "TC-115 TC-002 (zero-dispatch edge case): pass"
 # unrelated operator-placed file and directory survive untouched.
 WORKDIR_R="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR_R"' EXIT
-mkdir -p "$WORKDIR_R/bin" "$WORKDIR_R/scratch" "$WORKDIR_R/i05/stages" "$WORKDIR_R/i05/custom"
-echo '{"stale":true}' >"$WORKDIR_R/i05/bundle.json"
-echo '{"stale":true}' >"$WORKDIR_R/i05/stages/99-stale.json"
-echo '{"stale":true}' >"$WORKDIR_R/i05/access.jsonl"
-echo "operator notes" >"$WORKDIR_R/i05/operator-notes.txt"
-echo "operator file" >"$WORKDIR_R/i05/custom/keep.txt"
-write_single_dispatch_shark "$WORKDIR_R/bin"
-PATH="$WORKDIR_R/bin:$PATH" SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" \
-	SHARK_WORKFLOW_DIR="$WORKFLOW_FIXTURE_DIR" \
-	"$RUNNER" --scenario "$SCENARIO" --run-id tc115r --root ROOT-001 --scratch-root "$WORKDIR_R/scratch" \
-	--mode contract --i05-bundle-dir "$WORKDIR_R/i05" --output "$WORKDIR_R/lifecycle.jsonl" \
-	|| fail "(a) reset-repetition run failed"
-[[ -f "$WORKDIR_R/i05/stages/99-stale.json" ]] && fail "(a) repetition-1 stage snapshot survived the reset"
+for mode in contract dry-run; do
+	RUN_DIR="$WORKDIR_R/$mode"
+	mkdir -p "$RUN_DIR/bin" "$RUN_DIR/scratch" "$RUN_DIR/i05/stages" "$RUN_DIR/i05/custom"
+	echo '{"stale":true}' >"$RUN_DIR/i05/bundle.json"
+	echo '{"stale":true}' >"$RUN_DIR/i05/stages/99-stale.json"
+	echo '{"stale":true}' >"$RUN_DIR/i05/access.jsonl"
+	echo "operator notes" >"$RUN_DIR/i05/operator-notes.txt"
+	echo "operator file" >"$RUN_DIR/i05/custom/keep.txt"
+	write_single_dispatch_shark "$RUN_DIR/bin"
+	PATH="$RUN_DIR/bin:$PATH" SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" \
+		SHARK_WORKFLOW_DIR="$WORKFLOW_FIXTURE_DIR" \
+		"$RUNNER" --scenario "$SCENARIO" --run-id "tc115r-$mode" --root ROOT-001 --scratch-root "$RUN_DIR/scratch" \
+		--mode "$mode" --i05-bundle-dir "$RUN_DIR/i05" --output "$RUN_DIR/lifecycle.jsonl" \
+		|| fail "(a) $mode reset-repetition run failed"
+	[[ -f "$RUN_DIR/i05/stages/99-stale.json" ]] && fail "(a) $mode repetition-1 stage snapshot survived the reset"
 # REQ-F-006 (T-E40-F12-002): access.jsonl now legitimately EXISTS after
 # every run (created at run start) -- the reset property under test is that
 # its STALE CONTENT is gone, not that the file itself is absent.
-[[ -f "$WORKDIR_R/i05/access.jsonl" ]] || fail "(a) access.jsonl was not (re)created after the reset"
-[[ -s "$WORKDIR_R/i05/access.jsonl" ]] && fail "(a) stale access.jsonl content survived the reset"
-[[ -f "$WORKDIR_R/i05/operator-notes.txt" ]] || fail "(a) unrelated operator file was removed by the reset"
-[[ "$(cat "$WORKDIR_R/i05/operator-notes.txt")" == "operator notes" ]] || fail "(a) unrelated operator file content changed"
-[[ -f "$WORKDIR_R/i05/custom/keep.txt" ]] || fail "(a) unrelated operator directory was removed by the reset"
-python3 -c "import json; b = json.load(open('$WORKDIR_R/i05/bundle.json')); assert b['stages'], 'bundle.json was not rewritten with real content'"
+	[[ -f "$RUN_DIR/i05/access.jsonl" ]] || fail "(a) $mode access.jsonl was not (re)created after the reset"
+	[[ -s "$RUN_DIR/i05/access.jsonl" ]] && fail "(a) $mode stale access.jsonl content survived the reset"
+	[[ -f "$RUN_DIR/i05/operator-notes.txt" ]] || fail "(a) $mode unrelated operator file was removed by the reset"
+	[[ "$(cat "$RUN_DIR/i05/operator-notes.txt")" == "operator notes" ]] || fail "(a) $mode unrelated operator file content changed"
+	[[ -f "$RUN_DIR/i05/custom/keep.txt" ]] || fail "(a) $mode unrelated operator directory was removed by the reset"
+	python3 -c "import json; b = json.load(open('$RUN_DIR/i05/bundle.json')); assert b['stages'], 'bundle.json was not rewritten with real content'"
+done
 rm -rf "$WORKDIR_R"
 trap - EXIT
 
@@ -573,23 +576,26 @@ trap - EXIT
 # before any write; the symlink target is left untouched.
 WORKDIR_S="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR_S"' EXIT
-mkdir -p "$WORKDIR_S/bin" "$WORKDIR_S/scratch" "$WORKDIR_S/i05" "$WORKDIR_S/elsewhere"
-echo "canary" >"$WORKDIR_S/elsewhere/canary.txt"
-ln -s "$WORKDIR_S/elsewhere" "$WORKDIR_S/i05/stages"
-write_single_dispatch_shark "$WORKDIR_S/bin"
-set +e
-PATH="$WORKDIR_S/bin:$PATH" SHARK_EVENTS="$WORKDIR_S/events.ndjson" \
-	SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" "$RUNNER" \
-	--scenario "$SCENARIO" --run-id tc115s --root ROOT-001 --scratch-root "$WORKDIR_S/scratch" \
-	--mode contract --i05-bundle-dir "$WORKDIR_S/i05" --output "$WORKDIR_S/lifecycle.jsonl" \
-	>/dev/null 2>"$WORKDIR_S/err"
-rc=$?
-set -e
-[[ "$rc" -ne 0 ]] || fail "(b) symlinked producer-owned entry unexpectedly succeeded"
-grep -q "symlink" "$WORKDIR_S/err" || fail "(b) symlink refusal was not named in stderr"
-[[ -f "$WORKDIR_S/i05/bundle.json" ]] && fail "(b) bundle.json was written despite the symlink refusal"
-[[ "$(cat "$WORKDIR_S/elsewhere/canary.txt")" == "canary" ]] || fail "(b) symlink target was modified despite the refusal"
-[[ -f "$WORKDIR_S/events.ndjson" ]] && fail "(b) shark was invoked despite the symlink refusal (refusal must precede any write)"
+for mode in contract dry-run; do
+	RUN_DIR="$WORKDIR_S/$mode"
+	mkdir -p "$RUN_DIR/bin" "$RUN_DIR/scratch" "$RUN_DIR/i05" "$RUN_DIR/elsewhere"
+	echo "canary" >"$RUN_DIR/elsewhere/canary.txt"
+	ln -s "$RUN_DIR/elsewhere" "$RUN_DIR/i05/stages"
+	write_single_dispatch_shark "$RUN_DIR/bin"
+	set +e
+	PATH="$RUN_DIR/bin:$PATH" SHARK_EVENTS="$RUN_DIR/events.ndjson" \
+		SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" "$RUNNER" \
+		--scenario "$SCENARIO" --run-id "tc115s-$mode" --root ROOT-001 --scratch-root "$RUN_DIR/scratch" \
+		--mode "$mode" --i05-bundle-dir "$RUN_DIR/i05" --output "$RUN_DIR/lifecycle.jsonl" \
+		>/dev/null 2>"$RUN_DIR/err"
+	rc=$?
+	set -e
+	[[ "$rc" -ne 0 ]] || fail "(b) $mode symlinked producer-owned entry unexpectedly succeeded"
+	grep -q "symlink" "$RUN_DIR/err" || fail "(b) $mode symlink refusal was not named in stderr"
+	[[ -f "$RUN_DIR/i05/bundle.json" ]] && fail "(b) $mode bundle.json was written despite the symlink refusal"
+	[[ "$(cat "$RUN_DIR/elsewhere/canary.txt")" == "canary" ]] || fail "(b) $mode symlink target was modified despite the refusal"
+	[[ -f "$RUN_DIR/events.ndjson" ]] && fail "(b) $mode shark was invoked despite the symlink refusal (refusal must precede any write)"
+done
 rm -rf "$WORKDIR_S"
 trap - EXIT
 
@@ -949,6 +955,61 @@ rm -rf "$WORKDIR_10"
 trap - EXIT
 
 echo "TC-115 TC-010: pass (access.jsonl existence + append-only via real --grant-access)"
+
+# TC-010 partition 3: an adapter-provided non-empty evaluator_access list
+# flows through record_stage into both its snapshot and access.jsonl before
+# bundle finalization.
+# run-lifecycle.sh embeds Python rather than exposing an importable module, so
+# execute its definitions without its main() epilogue -- the same source seam
+# used by other lifecycle contract tests.
+WORKDIR_10P="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR_10P"' EXIT
+LIFECYCLE_BENCH_DIR="$BENCH_DIR" python3 - "$RUNNER" "$WORKDIR_10P" <<'PY' || fail "TC-010 producer evaluator_access round-trip failed"
+import json
+import sys
+from pathlib import Path
+
+runner, directory = map(Path, sys.argv[1:])
+events = [
+    {"accessor": "fixture", "kind": "read", "path": "oracle/test.py"},
+    {"accessor": "fixture", "kind": "read", "path": "oracle/expected.json"},
+]
+source = runner.read_text(encoding="utf-8").split("<<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
+definitions = source.rsplit("\ntry:\n    raise SystemExit(main", 1)[0]
+# Production deliberately emits an empty list: real evaluator access is
+# broker-owned and occurs only after the terminal boundary. Replace just the
+# snapshot literal in this isolated source-extraction seam to exercise the
+# writer's otherwise dormant snapshot -> journal handoff without widening the
+# adapter/worker trust boundary.
+definitions = definitions.replace('"evaluator_access": [],', '"evaluator_access": _tc115_events,', 1)
+namespace = {"__name__": "tc115_i05_source", "_tc115_events": events}
+exec(compile(definitions, str(runner), "exec"), namespace)
+
+scenario = {"entity_family": "task"}
+identity = {
+    "scenario_id": "fixture", "scenario_version": "1", "roots": {},
+    "fixture_digest": "sha256:fixture",
+}
+record = {"dispatches": []}
+writer = namespace["I05BundleWriter"](directory, Path("fixture.yaml"), scenario, identity, "tc115-010-producer", record)
+writer._stage_category_for = lambda *_: ("discovery", None)
+namespace["stage_input_lineage"] = lambda *_: []
+writer.record_stage(
+    {"ordinal": 1, "response": {"entity_key": "BUG-1", "entity_type": "bug", "status": "research", "provider": "fixture"}, "evidence_refs": {"prompt_sha256": "fixture"}},
+    {}, None, Path("."), {"evaluator_access": events},
+    {"stage_start": 10, "stage_end": 20, "claimed": []}, Path("."), "fixture", {}, {},
+)
+writer.finalize("complete", "fixture completion")
+
+lines = (directory / "access.jsonl").read_text(encoding="utf-8").splitlines()
+assert [json.loads(line) for line in lines] == events, "producer did not retain evaluator_access entries verbatim"
+snapshot = json.loads(next((directory / "stages").glob("*.json")).read_text(encoding="utf-8"))
+assert snapshot["evaluator_access"] == events, "snapshot did not retain evaluator_access entries verbatim"
+PY
+rm -rf "$WORKDIR_10P"
+trap - EXIT
+
+echo "TC-115 TC-010: pass (producer evaluator_access non-empty round-trip)"
 
 # ---------------------------------------------------------------------------
 # TC-008: time-ledger interval-category closed-table coverage + reconciliation
@@ -1312,7 +1373,7 @@ run_tc009_case() {
 	cat >"$workdir/adapter.sh" <<ADAPTER
 #!/usr/bin/env bash
 set -euo pipefail
-python3 -c 'import json,sys; request=json.load(sys.stdin); print(json.dumps({"worker_id":"w","session_id":request["session_id"],"kind":"final","recommended_outcome":"pass","cost_usd":0.0,"evidence":{"summary":"tc009"}$extra}))'
+python3 -c 'import json,sys,time; request=json.load(sys.stdin); time.sleep(0.01); print(json.dumps({"worker_id":"w","session_id":request["session_id"],"kind":"final","recommended_outcome":"pass","cost_usd":0.0,"evidence":{"summary":"tc009"}$extra}))'
 ADAPTER
 	chmod +x "$workdir/adapter.sh"
 	PATH="$workdir/bin:$PATH" SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" \
@@ -1358,6 +1419,26 @@ for name, spans in ledger['intervals'].items():
     assert span not in spans, f'{span} leaked into {name}'
 "
 rm -rf "$WORKDIR_9B"
+trap - EXIT
+
+# Partition 3: two self-overlapping windows from the same worker envelope
+# must be unioned before emission. This fails against the pre-TD-223 code,
+# which only subtracted the driver-observed intervals for each raw window.
+WORKDIR_9D="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR_9D"' EXIT
+run_tc009_case "$WORKDIR_9D" ',"time_ledger":{"provider_active":[[1000000,3000000],[2000000,4000000]]}'
+python3 -c "
+import json
+b = json.load(open('$WORKDIR_9D/i05/bundle.json'))
+with open('$WORKDIR_9D/i05/' + b['stages'][0]['snapshot_path']) as f:
+    provider = json.load(f)['time_ledger']['intervals']['provider_active']
+assert sum(end - start for start, end in provider) == 3_000_000, provider
+for left, right in zip(provider, provider[1:]):
+    assert left[1] <= right[0], f'overlapping provider_active spans: {provider}'
+"
+"$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR_9D/i05" >/dev/null 2>"$WORKDIR_9D/verify.err" \
+	|| fail "TC-009 self-overlap: emitted provider_active spans were not verifier-safe: $(cat "$WORKDIR_9D/verify.err")"
+rm -rf "$WORKDIR_9D"
 trap - EXIT
 
 # Negative case: envelope reports an interval extending far past the

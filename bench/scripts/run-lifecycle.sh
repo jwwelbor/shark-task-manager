@@ -727,21 +727,28 @@ def stage_category(status):
 _STAGE_CATEGORY_MAP_CACHE = {}
 
 
+def _load_yaml_table(cache, cache_key, filename, table_key, label, value_type=dict):
+    """Load and cache one required typed value from bench/evidence."""
+    if cache_key not in cache:
+        path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / filename
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise RuntimeError(f"cannot read {label} {path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError(f"{label} {path} must contain a mapping")
+        value = data.get(table_key)
+        if not isinstance(value, value_type) or (value_type is str and not value):
+            raise RuntimeError(f"{label} {path} is missing {table_key}")
+        cache[cache_key] = value
+    return cache[cache_key]
+
+
 def stage_category_map():
     """REQ-F-004/ADR-F12-04: the closed phase -> stage_category table lives
     in bench/evidence/stage-category-map.yaml, never embedded here. Loaded
     once per run and cached."""
-    if "phases" not in _STAGE_CATEGORY_MAP_CACHE:
-        map_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "stage-category-map.yaml"
-        try:
-            data = yaml.safe_load(map_path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError) as exc:
-            raise RuntimeError(f"cannot read stage-category map {map_path}: {exc}") from exc
-        phases = data.get("phases")
-        if not isinstance(phases, dict):
-            raise RuntimeError(f"stage-category map {map_path} is missing a phases table")
-        _STAGE_CATEGORY_MAP_CACHE["phases"] = phases
-    return _STAGE_CATEGORY_MAP_CACHE["phases"]
+    return _load_yaml_table(_STAGE_CATEGORY_MAP_CACHE, "phases", "stage-category-map.yaml", "phases", "stage-category map")
 
 
 _USAGE_MAPPING_CACHE = {}
@@ -761,17 +768,7 @@ def usage_mapping_providers():
     """X-09/ADR-F06-04: usage-mapping.yaml is the single owner of the
     semantic-slot -> envelope-path bindings. Loaded once per run and
     cached; never a hard-coded envelope path in this producer."""
-    if "providers" not in _USAGE_MAPPING_CACHE:
-        map_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "usage-mapping.yaml"
-        try:
-            data = yaml.safe_load(map_path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError) as exc:
-            raise RuntimeError(f"cannot read usage mapping {map_path}: {exc}") from exc
-        providers = data.get("providers")
-        if not isinstance(providers, dict):
-            raise RuntimeError(f"usage mapping {map_path} is missing a providers table")
-        _USAGE_MAPPING_CACHE["providers"] = providers
-    return _USAGE_MAPPING_CACHE["providers"]
+    return _load_yaml_table(_USAGE_MAPPING_CACHE, "providers", "usage-mapping.yaml", "providers", "usage mapping")
 
 
 def _envelope_lookup(envelope, path):
@@ -857,19 +854,17 @@ def test_suite_reference(repo_root):
     return test_paths, (common or ".")
 
 
+_I05_SCHEMA_CACHE = {}
+
+
 def i05_schema_version():
     """REQ-F-002: `schema_version` is read from bench/evidence/i05-schema.yaml
     at run time, never hard-coded, so the producer cannot silently drift from
     a schema bump."""
-    schema_path = Path(os.environ.get("LIFECYCLE_BENCH_DIR", ".")) / "evidence" / "i05-schema.yaml"
-    try:
-        schema = yaml.safe_load(schema_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        raise RuntimeError(f"cannot read I-05 schema {schema_path}: {exc}") from exc
-    version = schema.get("schema_version")
-    if not isinstance(version, str) or not version:
-        raise RuntimeError(f"I-05 schema {schema_path} is missing schema_version")
-    return version
+    return _load_yaml_table(
+        _I05_SCHEMA_CACHE, "schema_version", "i05-schema.yaml",
+        "schema_version", "I-05 schema", str,
+    )
 
 
 # T-E40-F12-003 (REQ-F-005/§2.5): one additive, bounded heartbeat retry
@@ -913,6 +908,21 @@ def _subtract_claimed(interval, claimed_union):
     return [(start, end) for start, end in pieces if end > start]
 
 
+def _interval_union(intervals):
+    """Return sorted, merged integer-nanosecond intervals.
+
+    Adjacent spans share no claimable time and are therefore represented as
+    one span too; that keeps all consumers on the same non-overlap policy.
+    """
+    normalized = []
+    for start, end in sorted(intervals):
+        if normalized and start <= normalized[-1][1]:
+            normalized[-1] = (normalized[-1][0], max(normalized[-1][1], end))
+        else:
+            normalized.append((start, end))
+    return normalized
+
+
 def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, claimed_so_far):
     """T-E40-F12-003 (REQ-F-005, ADR-F12-05): read explicit `provider_active`
     intervals from the worker envelope's TOP LEVEL `time_ledger` block (the
@@ -936,12 +946,7 @@ def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, cl
     raw = ledger.get("provider_active") if isinstance(ledger, dict) else None
     if not isinstance(raw, list):
         return []
-    claimed_union = []
-    for _category, start, end in sorted(claimed_so_far, key=lambda item: item[1]):
-        if claimed_union and start <= claimed_union[-1][1]:
-            claimed_union[-1] = (claimed_union[-1][0], max(claimed_union[-1][1], end))
-        else:
-            claimed_union.append((start, end))
+    claimed_union = _interval_union((start, end) for _category, start, end in claimed_so_far)
     claims = []
     for pair in raw:
         if not (isinstance(pair, list) and len(pair) == 2 and all(isinstance(value, (int, float)) for value in pair)):
@@ -952,7 +957,12 @@ def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, cl
         end = min(end, adapter_end_ns)
         if end <= start:
             continue
-        claims.extend(_subtract_claimed((start, end), claimed_union))
+        accepted = _subtract_claimed((start, end), claimed_union)
+        claims.extend(accepted)
+        # Later windows from this same envelope must not re-claim a fragment
+        # already accepted above. Keep the local union normalized just as the
+        # driver-observed input union was normalized before this loop.
+        claimed_union = _interval_union([*claimed_union, *accepted])
     return claims
 
 
@@ -1212,6 +1222,30 @@ class I05BundleWriter:
         except OSError as exc:
             raise RuntimeError(f"failed to write I-05 bundle.json {path}: {exc}") from exc
 
+    def _write_stage_snapshot(self, ordinal, stage_key, snapshot):
+        """Materialize one immutable stage snapshot and return its path."""
+        snapshot_path = self.stages_dir / f"{ordinal}-{stage_key}.json"
+        try:
+            snapshot_path.write_text(
+                json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            raise RuntimeError(f"failed to write I-05 stage snapshot {snapshot_path}: {exc}") from exc
+        return snapshot_path
+
+    def _write_transcript(self, ordinal, stage_key, worker_envelope):
+        """Materialize the bounded worker-envelope transcript for a stage."""
+        transcript_path = self.transcripts_dir / f"{ordinal}-{stage_key}.txt"
+        transcript_body = json.dumps(
+            bounded(worker_envelope if isinstance(worker_envelope, dict) else {}),
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        )
+        try:
+            transcript_path.write_text(transcript_body, encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"failed to write I-05 transcript {transcript_path}: {exc}") from exc
+
     def record_stage(
         self, dispatch, stage_candidate, shark, cwd, worker_envelope, timing,
         fixture_root, fixture_input_digest, execution_adapter, lifecycle_adapter,
@@ -1306,11 +1340,7 @@ class I05BundleWriter:
 
         snapshot_digest = stage_snapshot_digest(snapshot)
         snapshot["snapshot_digest"] = snapshot_digest
-        snapshot_path = self.stages_dir / f"{ordinal}-{stage_key}.json"
-        try:
-            snapshot_path.write_text(json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
-        except OSError as exc:
-            raise RuntimeError(f"failed to write I-05 stage snapshot {snapshot_path}: {exc}") from exc
+        snapshot_path = self._write_stage_snapshot(ordinal, stage_key, snapshot)
 
         # REQ-F-007: one bounded transcript artifact per dispatch, into the
         # real transcripts/ directory __init__ already materialized.
@@ -1318,15 +1348,7 @@ class I05BundleWriter:
         # response fragment (REQ-NF-003) -- the full envelope, never the
         # rendered prompt (never passed to this function at all), so no
         # prompt bytes or provider credentials can land here.
-        transcript_path = self.transcripts_dir / f"{ordinal}-{stage_key}.txt"
-        transcript_body = json.dumps(
-            bounded(worker_envelope if isinstance(worker_envelope, dict) else {}),
-            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        )
-        try:
-            transcript_path.write_text(transcript_body, encoding="utf-8")
-        except OSError as exc:
-            raise RuntimeError(f"failed to write I-05 transcript {transcript_path}: {exc}") from exc
+        self._write_transcript(ordinal, stage_key, worker_envelope)
 
         self._append_access_events(snapshot["evaluator_access"])
         self._stages_index.append({
