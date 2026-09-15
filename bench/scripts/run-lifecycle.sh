@@ -908,6 +908,21 @@ def _subtract_claimed(interval, claimed_union):
     return [(start, end) for start, end in pieces if end > start]
 
 
+def _interval_union(intervals):
+    """Return sorted, merged integer-nanosecond intervals.
+
+    Adjacent spans share no claimable time and are therefore represented as
+    one span too; that keeps all consumers on the same non-overlap policy.
+    """
+    normalized = []
+    for start, end in sorted(intervals):
+        if normalized and start <= normalized[-1][1]:
+            normalized[-1] = (normalized[-1][0], max(normalized[-1][1], end))
+        else:
+            normalized.append((start, end))
+    return normalized
+
+
 def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, claimed_so_far):
     """T-E40-F12-003 (REQ-F-005, ADR-F12-05): read explicit `provider_active`
     intervals from the worker envelope's TOP LEVEL `time_ledger` block (the
@@ -931,12 +946,7 @@ def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, cl
     raw = ledger.get("provider_active") if isinstance(ledger, dict) else None
     if not isinstance(raw, list):
         return []
-    claimed_union = []
-    for _category, start, end in sorted(claimed_so_far, key=lambda item: item[1]):
-        if claimed_union and start <= claimed_union[-1][1]:
-            claimed_union[-1] = (claimed_union[-1][0], max(claimed_union[-1][1], end))
-        else:
-            claimed_union.append((start, end))
+    claimed_union = _interval_union((start, end) for _category, start, end in claimed_so_far)
     claims = []
     for pair in raw:
         if not (isinstance(pair, list) and len(pair) == 2 and all(isinstance(value, (int, float)) for value in pair)):
@@ -952,16 +962,7 @@ def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, cl
         # Later windows from this same envelope must not re-claim a fragment
         # already accepted above. Keep the local union normalized just as the
         # driver-observed input union was normalized before this loop.
-        for accepted_start, accepted_end in accepted:
-            claimed_union.append((accepted_start, accepted_end))
-        claimed_union.sort()
-        normalized = []
-        for claimed_start, claimed_end in claimed_union:
-            if normalized and claimed_start <= normalized[-1][1]:
-                normalized[-1] = (normalized[-1][0], max(normalized[-1][1], claimed_end))
-            else:
-                normalized.append((claimed_start, claimed_end))
-        claimed_union = normalized
+        claimed_union = _interval_union([*claimed_union, *accepted])
     return claims
 
 
