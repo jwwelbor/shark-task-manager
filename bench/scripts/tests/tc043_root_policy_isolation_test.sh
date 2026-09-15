@@ -83,7 +83,10 @@ fail() {
 command -v python3 >/dev/null 2>&1 || fail "python3 not found on PATH"
 
 WORKDIR="$(mktemp -d)"
-cleanup() { rm -rf "$WORKDIR"; }
+cleanup() {
+	chmod -R u+rwX "$WORKDIR" 2>/dev/null || true
+	rm -rf "$WORKDIR"
+}
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
@@ -132,6 +135,17 @@ mk_candidate() {
 run_guard() {
 	# run_guard <package_yaml> <fixture_checkout> <scratch_project> <evaluator_root>
 	"$GUARD" "$1" "$2" "$3" "$4"
+}
+
+# Permission failures must be exercised as an unprivileged reader when the
+# suite itself runs as root (where chmod 000 would otherwise remain readable).
+run_as_scan_user() {
+	if [[ "$(id -u)" -eq 0 ]] && command -v runuser >/dev/null 2>&1 && id nobody >/dev/null 2>&1; then
+		chmod 755 "$WORKDIR"
+		runuser -u nobody -- "$@"
+	else
+		"$@"
+	fi
 }
 
 # ---------------------------------------------------------------------------
@@ -724,5 +738,65 @@ grep -q "identity=test_add_task_accepts_recurrence_rule_custom_colon_id" "$err" 
 
 rm -f "$PLANTED_COLON_ID"
 echo "TC-043(round-4 code-review fix regression: custom parametrize id containing '::' -> clean roots verify CLEAN, renamed leak rejected naming the identity) PASS"
+
+# ---------------------------------------------------------------------------
+# TD-123 regression coverage: every reachable directory is in scope, and an
+# incomplete filesystem walk is a script error rather than a CLEAN verdict.
+# These use the committed offline package to isolate walk behavior from
+# fixture checkout/collector mechanics.
+# ---------------------------------------------------------------------------
+echo "TC-043: TD-123 - .git-hidden disclosure and unreadable scan paths fail closed"
+
+TD123_ROOT="$WORKDIR/td123-fixture-checkout"
+TD123_SCRATCH="$WORKDIR/td123-scratch-project"
+mkdir -p "$TD123_ROOT" "$TD123_SCRATCH"
+cp -r "$OFFLINE_FIXTURES/clean/fixture-checkout/." "$TD123_ROOT/"
+cp -r "$OFFLINE_FIXTURES/clean/scratch-project/." "$TD123_SCRATCH/"
+
+TD123_HIDDEN="$TD123_ROOT/.git/objects/hidden-reference.patch"
+mkdir -p "$(dirname "$TD123_HIDDEN")"
+cp "$OFFLINE_FIXTURES/package/evaluator/reference.patch" "$TD123_HIDDEN"
+out="$WORKDIR/td123-git.out"
+err="$WORKDIR/td123-git.err"
+set +e
+run_guard "$OFFLINE_FIXTURES/package/package.yaml" "$TD123_ROOT" "$TD123_SCRATCH" "$OFFLINE_FIXTURES/package" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 1 ]] || fail "TD-123 (.git): guard exited $code with an evaluator-only copy hidden below .git, want 1: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "isolation_violation" "$err" || fail "TD-123 (.git): hidden disclosure was not reported: $(cat "$err")"
+grep -qF "path=$TD123_HIDDEN" "$err" || fail "TD-123 (.git): failure did not name the hidden copy $TD123_HIDDEN: $(cat "$err")"
+rm -rf "$TD123_ROOT/.git"
+
+TD123_BLOCKED_DIR="$TD123_ROOT/blocked-directory"
+mkdir -p "$TD123_BLOCKED_DIR"
+cp "$OFFLINE_FIXTURES/package/evaluator/reference.patch" "$TD123_BLOCKED_DIR/hidden-reference.patch"
+chmod 000 "$TD123_BLOCKED_DIR"
+out="$WORKDIR/td123-unreadable-directory.out"
+err="$WORKDIR/td123-unreadable-directory.err"
+set +e
+run_as_scan_user "$GUARD" "$OFFLINE_FIXTURES/package/package.yaml" "$TD123_ROOT" "$TD123_SCRATCH" "$OFFLINE_FIXTURES/package" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 2 ]] || fail "TD-123 (unreadable directory): guard exited $code, want 2: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "cannot list scan directory" "$err" || fail "TD-123 (unreadable directory): did not report a scan error: $(cat "$err")"
+[[ "$(cat "$out")" != "CLEAN" ]] || fail "TD-123 (unreadable directory): silently reported CLEAN"
+chmod 700 "$TD123_BLOCKED_DIR"
+rm -rf "$TD123_BLOCKED_DIR"
+
+TD123_BLOCKED_FILE="$TD123_ROOT/unreadable-reference.patch"
+cp "$OFFLINE_FIXTURES/package/evaluator/reference.patch" "$TD123_BLOCKED_FILE"
+chmod 000 "$TD123_BLOCKED_FILE"
+out="$WORKDIR/td123-unreadable-file.out"
+err="$WORKDIR/td123-unreadable-file.err"
+set +e
+run_as_scan_user "$GUARD" "$OFFLINE_FIXTURES/package/package.yaml" "$TD123_ROOT" "$TD123_SCRATCH" "$OFFLINE_FIXTURES/package" >"$out" 2>"$err"
+code=$?
+set -e
+[[ "$code" -eq 2 ]] || fail "TD-123 (unreadable file): guard exited $code, want 2: stdout=$(cat "$out") stderr=$(cat "$err")"
+grep -q "cannot read scan file" "$err" || fail "TD-123 (unreadable file): did not report a scan error: $(cat "$err")"
+[[ "$(cat "$out")" != "CLEAN" ]] || fail "TD-123 (unreadable file): silently reported CLEAN"
+chmod 600 "$TD123_BLOCKED_FILE"
+
+echo "TC-043(TD-123: .git-hidden disclosure rejected; unreadable directory/file return scan error, never CLEAN) PASS"
 
 echo "TC-043: PASS"
