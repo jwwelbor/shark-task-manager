@@ -36,20 +36,11 @@ except ImportError as exc:
 
 run_path, schema_path, lib_dir = sys.argv[1:4]
 sys.path.insert(0, lib_dir)
+from e40_evidence import CANDIDATE_IDENTITY_FIELDS, canonical_digest  # noqa: E402
 from i05_validation import validate_typed_consumer  # noqa: E402
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
-# Must match the field set refresh_candidate() in run-lifecycle.sh hashes into
-# identity_digest. Named explicitly (not "every non-digest key present") so a
-# producer that silently drops or adds a candidate field is caught here
-# instead of round-tripping through a self-consistent but wrong digest.
-CANDIDATE_IDENTITY_FIELDS = (
-    "base_commit",
-    "tree_digest",
-    "binary_diff_digest",
-    "changed_path_digest",
-    "dirty_untracked_manifest",
-    "test_suite_digest",
-)
+# Imported from e40_evidence: producer, verifier, evaluator, and comparator
+# share one seven-field lifecycle candidate identity contract.
 
 
 class ContractError(Exception):

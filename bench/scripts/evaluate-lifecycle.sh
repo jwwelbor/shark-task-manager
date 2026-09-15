@@ -18,7 +18,7 @@ import yaml
 
 bench_dir, oracle = sys.argv[1:3]
 sys.path.insert(0, os.path.join(bench_dir, "scripts", "lib"))
-from e40_evidence import canonical_digest, load_jsonl, sha256_file  # noqa: E402
+from e40_evidence import CANDIDATE_IDENTITY_FIELDS, canonical_digest, load_jsonl, sha256_file  # noqa: E402
 from i05_validation import validate_typed_consumer  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -245,12 +245,6 @@ def validate_identity_join(package, i05, lifecycle_rows, lifecycle, reasons):
     elif canonical_digest(i07_dispatches) != canonical_digest(i05_dispatches):
         reasons.append(reason("contradictory_join", "/join/dispatches", "I-05 and I-07 dispatch references disagree"))
     return identity
-
-
-CANDIDATE_IDENTITY_FIELDS = (
-    "base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest",
-    "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest",
-)
 
 
 def validate_candidate_snapshots(lifecycle, reasons):

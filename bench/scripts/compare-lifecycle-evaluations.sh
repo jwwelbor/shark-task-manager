@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.environ["E40_BENCH_LIB"])
-from e40_evidence import canonical_digest  # noqa: E402
+from e40_evidence import CANDIDATE_IDENTITY_FIELDS, canonical_digest  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--left", required=True)
@@ -22,7 +22,6 @@ parser.add_argument("--output", required=True)
 args = parser.parse_args()
 
 MODES = {"independent_frozen_candidate", "sequential_delivery"}
-CANDIDATE_IDENTITY_FIELDS = ("base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest", "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest")
 POLICY_DIGEST_FIELDS = ("prompt_digest", "rendered_prompt_digest", "review_bundle_digest", "deep_review_bundle_digest", "workflow_policy_identity_digest")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")

@@ -1812,14 +1812,39 @@ RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB" EVALUATE_LIFECYCLE_BIN="$SCRATCH_NESTED
 	CHECKOUT_SCENARIO_FIXTURE_BIN="$DRIVER_CHECKOUT_STUB" \
 	"$BATCH" --batch "$WORKDIR/scratch-nested-batch-policy.yaml" --retention-root "$SCRATCH_NESTED_ROOT_OUT" \
 	--mode pilot "${GOOD_CEILINGS[@]}" >"$WORKDIR/scratch-nested.out" 2>&1 || scratch_nested_rc=$?
-[[ "$scratch_nested_rc" -eq 0 ]] || fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): expected exit 0 (a real scratch_root with a nested symlink must be dispatched, not refused), got $scratch_nested_rc: $(cat "$WORKDIR/scratch-nested.out")"
+[[ "$scratch_nested_rc" -eq 4 ]] || fail "dispatch_pair scratch_root OUT-OF-ROOT nested symlink: expected exit 4 (pair recorded invalid before dispatch), got $scratch_nested_rc: $(cat "$WORKDIR/scratch-nested.out")"
 
 SCRATCH_NESTED_EXTERNAL_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL/marker.txt" | awk '{print $1}')"
 [[ "$SCRATCH_NESTED_EXTERNAL_AFTER" == "$SCRATCH_NESTED_EXTERNAL_BEFORE" ]] \
 	|| fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): the external target of the nested symlink was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_NESTED_EXTERNAL/marker.txt")"
 [[ -L "$SCRATCH_NESTED_ROOT/prompts" ]] || fail "dispatch_pair scratch_root NESTED symlink (round-6 finding 1): the original scratch_root's own nested symlink was unexpectedly removed/replaced"
 
-echo "TC-082(dispatch_pair scratch_root NESTED symlink, round-6 finding 1): a real scratch_root containing a nested symlink is dispatched successfully (not refused), the worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched"
+grep -q "scratch_root_copy_failed" "$SCRATCH_NESTED_ROOT_OUT/invalid/index.jsonl" \
+	|| fail "dispatch_pair scratch_root OUT-OF-ROOT nested symlink: invalid index did not record scratch_root_copy_failed"
+
+echo "TC-082(dispatch_pair scratch_root OUT-OF-ROOT nested symlink): the source copy rejects an external symlink before dispatch and preserves both source tree and external target"
+
+# B6 class guard: contained source links are still healthy and are copied as
+# independent content, while cycles fail loud rather than recurse or hang.
+source "$SCRIPTS_DIR/lib/path-safety.sh"
+SCRATCH_INTERNAL_ROOT="$WORKDIR/scratch-internal-root"
+mkdir -p "$SCRATCH_INTERNAL_ROOT/real-prompts"
+echo "internal content" >"$SCRATCH_INTERNAL_ROOT/real-prompts/marker.txt"
+ln -s "real-prompts" "$SCRATCH_INTERNAL_ROOT/prompts"
+copy_tree_dereferenced "$SCRATCH_INTERNAL_ROOT" "$WORKDIR/scratch-internal-copy" \
+	|| fail "copy_tree_dereferenced rejected a symlink contained within the canonical scratch root"
+[[ ! -L "$WORKDIR/scratch-internal-copy/prompts" && -f "$WORKDIR/scratch-internal-copy/prompts/marker.txt" ]] \
+	|| fail "contained source symlink was not dereferenced into independent healthy content"
+
+SCRATCH_CYCLE_ROOT="$WORKDIR/scratch-cycle-root"
+mkdir -p "$SCRATCH_CYCLE_ROOT"
+ln -s . "$SCRATCH_CYCLE_ROOT/cycle"
+cycle_rc=0
+copy_tree_dereferenced "$SCRATCH_CYCLE_ROOT" "$WORKDIR/scratch-cycle-copy" >"$WORKDIR/scratch-cycle.out" 2>&1 || cycle_rc=$?
+[[ "$cycle_rc" -ne 0 ]] || fail "copy_tree_dereferenced accepted a cyclic source symlink"
+grep -qi "cyclic\|cycle" "$WORKDIR/scratch-cycle.out" || fail "cyclic source symlink failure lacked a cycle diagnostic"
+
+echo "TC-082(copy_tree_dereferenced B6 guard): contained links remain healthy; out-of-root and cyclic source links are refused before traversal"
 
 # ---------------------------------------------------------------------------
 # dispatch_pair scratch_root DANGLING nested symlink (advisor-caught

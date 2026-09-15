@@ -800,15 +800,16 @@ RUN_LIFECYCLE_BIN="$SCRATCH_NESTED_STUB_L" EVALUATE_LIFECYCLE_BIN="$EVAL_ALWAYS_
 	"$COMPARISON" --candidate "$CANDIDATE_L_YAML" --retention-root "$ROOT_L" \
 	--mode pilot --comparison-mode independent_frozen_candidate "${ACK_FLAGS[@]}" \
 	>"$ROOT_L.out" 2>&1 || rc_l=$?
-[[ "$rc_l" -eq 4 ]] || fail "case L (round-6 finding 1): expected exit 4 (deep_review gate dispatches for real then fails at evaluation via the always-fail stub; comparison never attempted), got $rc_l: $(cat "$ROOT_L.out")"
-[[ -f "$STUB_INVOKED_SENTINEL_L" ]] || fail "case L (round-6 finding 1): the stub lifecycle worker was never invoked -- a real (non-symlink) scratch_root with a nested symlink must NOT be refused before dispatch (unlike case K's top-level symlink)"
+[[ "$rc_l" -eq 4 ]] || fail "case L (B6 out-of-root source link): expected exit 4 (deep_review pair rejected before dispatch), got $rc_l: $(cat "$ROOT_L.out")"
+[[ ! -f "$STUB_INVOKED_SENTINEL_L" ]] || fail "case L (B6 out-of-root source link): lifecycle worker ran after the source copy should have rejected the external nested symlink"
+grep -qi "scratch_root_copy_failed\|outside canonical scratch root" "$ROOT_L.out" || fail "case L (B6 out-of-root source link): copy rejection was not diagnosed"
 SCRATCH_NESTED_EXTERNAL_L_AFTER="$(sha256sum "$SCRATCH_NESTED_EXTERNAL_L/marker.txt" | awk '{print $1}')"
 [[ "$SCRATCH_NESTED_EXTERNAL_L_AFTER" == "$SCRATCH_NESTED_EXTERNAL_L_BEFORE" ]] \
 	|| fail "case L (round-6 finding 1): the external target of the nested symlink was mutated -- isolation was NOT preserved: $(cat "$SCRATCH_NESTED_EXTERNAL_L/marker.txt")"
 [[ -L "$SCRATCH_NESTED_ROOT_L/prompts" ]] || fail "case L (round-6 finding 1): the original scratch_root's own nested symlink was unexpectedly removed/replaced"
 [[ ! -f "$ROOT_L/scenarios/$SCENARIO_ID/$DR_REP/comparison.json" ]] || fail "case L (round-6 finding 1): a comparison must never be published when the deep_review gate's evaluation failed"
 
-echo "TC-087(case L, round-6 finding 1): dispatch_gate dispatches (does not refuse) a real scratch_root containing a nested symlink -- the stub lifecycle worker's write through the nested path lands only in the dereferenced ephemeral copy, and the external target is provably untouched"
+echo "TC-087(case L, B6): dispatch_gate rejects an out-of-root nested scratch symlink before lifecycle dispatch; external target and original source remain untouched"
 
 # ===========================================================================
 # Case M / N (UAT round-6 fix, uat-2026-08-21T233606Z-E40-F10.md, HIGH

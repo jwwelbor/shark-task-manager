@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # smoke-lifecycle.sh [--out <dir>] [--scenario <scenario_id>] [--live]
-#                     [--adapter <path>] [--run-id <id>]
+#                     [--adapter <path>] [--fixture-root <dir>] [--run-id <id>]
 #
 # Operator convenience wrapper around the "Operator quick start: CLI
 # dispatch smoke test" sequence documented in bench/README.md. It resolves
@@ -43,6 +43,7 @@ SCENARIO="py-bug-due-date-boundary"
 LIVE=0
 ADAPTER="$SCRIPT_DIR/lifecycle-worker-adapter.sh"
 RUN_ID=""
+FIXTURE_ROOT=""
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -66,8 +67,12 @@ while [[ $# -gt 0 ]]; do
 		RUN_ID="$2"
 		shift 2
 		;;
+	--fixture-root)
+		FIXTURE_ROOT="$2"
+		shift 2
+		;;
 	-h | --help)
-		echo "usage: smoke-lifecycle.sh [--out <dir>] [--scenario <scenario_id>] [--live] [--adapter <path>] [--run-id <id>]"
+		echo "usage: smoke-lifecycle.sh [--out <dir>] [--scenario <scenario_id>] [--live] [--adapter <path>] [--fixture-root <dir>] [--run-id <id>]"
 		exit 0
 		;;
 	*)
@@ -126,6 +131,10 @@ mkdir -p "$(dirname "$LIFECYCLE_OUT")"
 # reset is scoped to whatever directory it is given, so sharing one
 # directory between them would let the live run reset the dry run's bundle.
 I05_OUT="$OUT/runs/$RUN_ID/i05"
+FIXTURE_ARGS=()
+if [[ -n "$FIXTURE_ROOT" ]]; then
+	FIXTURE_ARGS=(--fixture-root "$FIXTURE_ROOT")
+fi
 
 export SHARK_BIN="$SHARK_PATH"
 
@@ -138,6 +147,7 @@ DRY_RUN_STATUS=0
 	--scratch-root "$SCRATCH_ROOT" \
 	--output "$LIFECYCLE_OUT" \
 	--i05-bundle-dir "$I05_OUT" \
+	"${FIXTURE_ARGS[@]}" \
 	--mode dry-run || DRY_RUN_STATUS=$?
 
 if [[ "$DRY_RUN_STATUS" -ne 0 ]]; then
@@ -155,9 +165,11 @@ VERIFY_STATUS=0
 
 if [[ "$DRY_RUN_STATUS" -eq 0 && "$VERIFY_STATUS" -eq 0 ]]; then
 	echo "smoke-lifecycle: dry-run OK -- record at $LIFECYCLE_OUT" >&2
-else
+elif [[ "$LIVE" -eq 0 ]]; then
 	echo "smoke-lifecycle: dry-run finished with issues (run exit=$DRY_RUN_STATUS, verify exit=$VERIFY_STATUS) -- see $LIFECYCLE_OUT" >&2
 	exit 1
+else
+	echo "smoke-lifecycle: dry-run is diagnostic-only before requested live capture (run exit=$DRY_RUN_STATUS, verify exit=$VERIFY_STATUS)" >&2
 fi
 
 if [[ "$LIVE" -eq 1 ]]; then
@@ -174,6 +186,7 @@ if [[ "$LIVE" -eq 1 ]]; then
 		--scratch-root "$SCRATCH_ROOT" \
 		--output "$LIVE_OUT" \
 		--i05-bundle-dir "$LIVE_I05_OUT" \
+		"${FIXTURE_ARGS[@]}" \
 		--mode live
 	echo "smoke-lifecycle: live run complete -- record at $LIVE_OUT, I-05 bundle at $LIVE_I05_OUT" >&2
 fi

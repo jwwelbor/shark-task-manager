@@ -53,7 +53,7 @@ except ImportError as exc:
     raise SystemExit(2)
 
 sys.path.insert(0, os.path.join(os.environ["LIFECYCLE_BENCH_DIR"], "scripts", "lib"))
-from e40_evidence import canonical_digest, sha256_bytes, sha256_file  # noqa: E402
+from e40_evidence import CANDIDATE_IDENTITY_FIELDS, canonical_digest, sha256_bytes, sha256_file  # noqa: E402
 
 STOP_OUTCOMES = {
     "resource_limit", "lease_loss", "missing_outcome", "unresolved_gate",
@@ -313,8 +313,6 @@ def candidate_identity(
         candidate["test_identity_error"] = test_identity_error
     if len(top_levels) == 1:
         candidate["test_suite_dir"] = next(iter(top_levels))
-    candidate["identity_digest"] = canonical_digest(components)
-    candidate["snapshot_digest"] = canonical_digest(candidate)
     return candidate
 
 
@@ -355,6 +353,9 @@ def refresh_candidate(
     candidate.clear()
     candidate.update(current)
     candidate["scratch_content_digest"] = scratch_content_digest(scratch)
+    # scratch_content_digest is only knowable after the worker has returned.
+    # Hash the canonical seven-field identity only after it is present.
+    candidate["identity_digest"] = canonical_digest({field: candidate[field] for field in CANDIDATE_IDENTITY_FIELDS})
     candidate["snapshot_digest"] = canonical_digest(candidate)
 
 

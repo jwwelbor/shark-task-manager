@@ -183,8 +183,52 @@ copy_tree_dereferenced() {
 	python3 -c '
 import shutil
 import sys
+from pathlib import Path
 
-src, dst = sys.argv[1], sys.argv[2]
-shutil.copytree(src, dst, symlinks=False)
+src, dst = (Path(value) for value in sys.argv[1:3])
+root = src.resolve(strict=True)
+if not root.is_dir():
+    raise RuntimeError(f"scratch source is not a directory: {root}")
+
+def contained(path):
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise RuntimeError(f"refusing source symlink outside canonical scratch root: {path}")
+
+active = set()
+
+def copy_entry(entry, target):
+    try:
+        canonical = entry.resolve(strict=True)
+    except RuntimeError as exc:
+        raise RuntimeError(f"refusing cyclic source symlink: {entry}") from exc
+    if entry.is_symlink():
+        contained(canonical)
+        if canonical in active:
+            raise RuntimeError(f"refusing cyclic source symlink: {entry}")
+        return copy_entry(canonical, target)
+    if canonical in active:
+        raise RuntimeError(f"refusing cyclic source symlink: {entry}")
+    active.add(canonical)
+    try:
+        copy_entry_resolved(canonical, target)
+    finally:
+        active.remove(canonical)
+
+def copy_entry_resolved(canonical, target):
+    if canonical.is_dir():
+        target.mkdir()
+        for child in sorted(canonical.iterdir(), key=lambda item: item.name):
+            copy_entry(child, target / child.name)
+        shutil.copystat(canonical, target, follow_symlinks=False)
+    elif canonical.is_file():
+        shutil.copy2(canonical, target, follow_symlinks=False)
+    else:
+        raise RuntimeError(f"unsupported scratch source entry: {canonical}")
+
+if dst.exists() or dst.is_symlink():
+    raise RuntimeError(f"scratch destination already exists: {dst}")
+copy_entry(root, dst)
 ' "$src" "$dst"
 }

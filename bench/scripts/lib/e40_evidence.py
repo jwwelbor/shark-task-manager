@@ -9,6 +9,19 @@ import hashlib
 import json
 
 
+# CandidateIdentityFields is the single lifecycle comparison identity contract.
+# Its order is stable because every producer and verifier hashes this exact map.
+CANDIDATE_IDENTITY_FIELDS = (
+    "base_commit",
+    "tree_digest",
+    "binary_diff_digest",
+    "changed_path_digest",
+    "dirty_untracked_manifest",
+    "test_suite_digest",
+    "scratch_content_digest",
+)
+
+
 def sha256_bytes(value):
     """Return the lowercase SHA-256 digest of bytes-like evidence content."""
     return hashlib.sha256(value).hexdigest()
