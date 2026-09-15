@@ -682,4 +682,49 @@ if not broken:
 print(f"TC-036: p2p_plus_rule_drop P2P-regression: {broken} broken (false result is from the shared p2p_selection clause, lint clause alone is satisfied)")
 PYEOF
 
+# A duplicate normalized ID is ambiguous evidence. eval-predicate.sh must not
+# silently choose either entry (in particular, a later failure must not erase
+# an earlier pass or vice versa).
+dup_test_json="$WORKDIR/duplicate-id-test.json"
+dup_lint_json="$WORKDIR/duplicate-id-lint.json"
+printf '%s\n' '{"entries":[{"id":"duplicate::case","outcome":"pass"},{"id":"duplicate::case","outcome":"fail"}]}' >"$dup_test_json"
+printf '%s\n' '{"issues":[]}' >"$dup_lint_json"
+set +e
+"$EVAL_PREDICATE_SCRIPT" "$BUG_PACKAGE_YAML" "$dup_test_json" "$dup_lint_json" >"$WORKDIR/duplicate-id.out" 2>"$WORKDIR/duplicate-id.err"
+dup_rc=$?
+set -e
+[[ "$dup_rc" -ne 0 ]] || fail "duplicate-id evidence was accepted"
+grep -q 'duplicate test id' "$WORKDIR/duplicate-id.err" || fail "duplicate-id rejection did not name the duplicate id: $(cat "$WORKDIR/duplicate-id.err")"
+echo "TC-036: duplicate normalized test id is rejected rather than overwritten"
+
+# Exercise admit-scenario.sh's own two-query merge helper. The script embeds
+# Python, so extract just that helper into an isolated namespace rather than
+# duplicating its evidence policy in this test harness.
+python3 - "$SCRIPTS_DIR/admit-scenario.sh" <<'PYEOF'
+import re
+import sys
+
+source = open(sys.argv[1]).read()
+match = re.search(r"(def merge_entries\(\*docs\):.*?)(?=\n\ndef capture_predicate_state)", source, re.S)
+if not match:
+    raise SystemExit("TC-036 FAIL: could not locate admit-scenario.sh merge_entries")
+namespace = {}
+exec("class ScriptError(RuntimeError):\n    pass\n\n" + match.group(1), namespace)
+merge_entries = namespace["merge_entries"]
+ScriptError = namespace["ScriptError"]
+
+same = merge_entries({"entries": [{"id": "shared::case", "outcome": "pass"}]}, {"entries": [{"id": "shared::case", "outcome": "pass"}]})
+if same != {"entries": [{"id": "shared::case", "outcome": "pass"}]}:
+    raise SystemExit(f"TC-036 FAIL: same-outcome overlap was not safely deduplicated: {same!r}")
+try:
+    merge_entries({"entries": [{"id": "shared::case", "outcome": "pass"}]}, {"entries": [{"id": "shared::case", "outcome": "fail"}]})
+except ScriptError as exc:
+    message = str(exc)
+    if not all(token in message for token in ("shared::case", "pass", "fail")):
+        raise SystemExit(f"TC-036 FAIL: contradiction diagnostic lacks id/outcomes: {message!r}")
+else:
+    raise SystemExit("TC-036 FAIL: admit-scenario merge accepted contradictory duplicate evidence")
+print("TC-036: admit-scenario merge rejects contradictory overlap and retains same-outcome overlap")
+PYEOF
+
 echo "TC-036: PASS"

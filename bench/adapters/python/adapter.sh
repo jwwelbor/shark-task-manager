@@ -35,6 +35,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BENCH_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+. "$BENCH_DIR/scripts/lib/go-toolchain-identity.sh"
 
 usage() {
 	echo "usage: adapter.sh <identity|inject-tests|test|lint|build|format-check> --checkout <dir> [...]" >&2
@@ -227,6 +229,7 @@ cmd_inject_tests() {
 		[[ -f "$src" ]] || fail "inject-tests source file not found: $src"
 		base="$(basename "$src")"
 		dest="$dest_dir/$base"
+		[[ ! -e "$dest" ]] || fail "inject-tests: destination already exists: $dest"
 		cp "$src" "$dest"
 		pair_args+=("$src" "tests/$base")
 	done
@@ -261,7 +264,11 @@ cmd_test() {
 		return 0
 	else
 		if [[ ${#INCLUDE[@]} -gt 0 ]]; then
-			pos_args=("${INCLUDE[@]}")
+			local include resolved_include
+			for include in "${INCLUDE[@]}"; do
+				resolved_include="$(resolve_checkout_path "$CHECKOUT" "$include")" || fail "--include path escapes checkout: $include"
+				pos_args+=("$resolved_include")
+			done
 		fi
 		if [[ ${#EXCLUDE_IDS[@]} -gt 0 ]]; then
 			# NOTE: unlike --only-id above, an --exclude-id that resolves to

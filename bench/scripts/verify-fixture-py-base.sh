@@ -159,6 +159,13 @@ unexpected_skips = sorted(e["id"] for e in entries if e["outcome"] == "skip" and
 if unexpected_skips:
     sys.exit(f"{len(unexpected_skips)} unexpected skipped test(s) at base_sha (only {allowed_skip_id!r} is allowed to skip): {unexpected_skips}")
 
+recognized = {"pass", "fail", "skip"}
+unknown_outcomes = sorted(
+    f"{e['id']}={e['outcome']!r}" for e in entries if e.get("outcome") not in recognized
+)
+if unknown_outcomes:
+    sys.exit("adapter.sh test returned unrecognized outcome(s): " + ", ".join(unknown_outcomes))
+
 pass_count = sum(1 for e in entries if e["outcome"] == "pass")
 print(pass_count)
 PYEOF

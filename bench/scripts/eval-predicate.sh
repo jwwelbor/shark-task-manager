@@ -66,6 +66,8 @@
 # false at base, true after the reference) is the caller's decision.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 usage() {
 	echo "usage: eval-predicate.sh <package.yaml> <test-output.json> <lint-output.json>" >&2
 	exit 2
@@ -99,9 +101,13 @@ python3 -c 'import yaml' >/dev/null 2>&1 || {
 	exit 1
 }
 
-python3 - "$package_yaml" "$test_output_json" "$lint_output_json" <<'PYEOF'
+PREDICATE_IDS_LIB="$SCRIPT_DIR/lib" python3 - "$package_yaml" "$test_output_json" "$lint_output_json" <<'PYEOF'
 import json
+import os
 import sys
+
+sys.path.insert(0, os.environ["PREDICATE_IDS_LIB"])
+from predicate_ids import named_ids_for
 
 import yaml
 
@@ -145,6 +151,8 @@ outcome_by_id = {}
 for i, entry in enumerate(entries):
     if not isinstance(entry, dict) or "id" not in entry or "outcome" not in entry:
         fail(f"{test_output_path} entries[{i}] is not a {{id, outcome}} object")
+    if entry["id"] in outcome_by_id:
+        fail(f"{test_output_path} contains duplicate test id {entry['id']!r}")
     outcome_by_id[entry["id"]] = entry["outcome"]
 
 with open(lint_output_path) as f:
@@ -152,20 +160,6 @@ with open(lint_output_path) as f:
 issues = lint_doc.get("issues")
 if not isinstance(issues, list):
     fail(f"{lint_output_path} is missing an 'issues' array")
-
-
-def named_ids_for(kind, predicate):
-    """Returns the ordered list of operand test ids this kind must find
-    'pass' in <test-output.json>, beyond the shared p2p_selection clause
-    every kind carries -- empty for p2p_plus_rule_drop, which names no test
-    ids of its own (REQ-F-010's Final predicate vocabulary table)."""
-    if kind == "f2p_p2p":
-        return list(predicate.get("f2p_test_ids") or [])
-    if kind in ("acceptance_tests", "task_acceptance_tests"):
-        return list(predicate.get("acceptance_test_ids") or [])
-    if kind in ("child_oracles_union", "descendant_oracles_union"):
-        return list(predicate.get("integration_test_ids") or []) + list(predicate.get("child_oracles") or [])
-    return []  # p2p_plus_rule_drop
 
 
 named_ids = named_ids_for(kind, predicate)

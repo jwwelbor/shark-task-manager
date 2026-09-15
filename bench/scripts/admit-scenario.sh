@@ -118,8 +118,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 
 import yaml
+
+sys.path.insert(0, os.path.join(os.path.dirname(eval_predicate_script), "lib"))
+from predicate_ids import named_ids_for
 
 package_yaml_path, checkout_script, eval_predicate_script, scenarios_yaml_path, repo_root = sys.argv[1:6]
 package_dir = os.path.dirname(package_yaml_path)
@@ -236,36 +240,23 @@ def resolve_scoped(base_dir, rel_path, *, subtree=None, label):
     return candidate
 
 
-def named_ids_for(kind, predicate):
-    """Mirrors eval-predicate.sh's own named_ids_for -- the ids this kind
-    must independently confirm via `adapter.sh test --only-id`, beyond the
-    shared p2p_selection clause (empty for p2p_plus_rule_drop).
-
-    task_acceptance_tests (T-E40-F11-008, ADR-F11-04) reuses
-    acceptance_tests' own acceptance_test_ids operand shape, gated to
-    entity_family "task" instead of "change_card". descendant_oracles_union
-    (T-E40-F11-009, ADR-F11-04) reuses child_oracles_union's own
-    integration_test_ids/child_oracles operand shape, gated to entity_family
-    "epic" instead of "feature"."""
-    if kind == "f2p_p2p":
-        return list(predicate.get("f2p_test_ids") or [])
-    if kind in ("acceptance_tests", "task_acceptance_tests"):
-        return list(predicate.get("acceptance_test_ids") or [])
-    if kind in ("child_oracles_union", "descendant_oracles_union"):
-        return list(predicate.get("integration_test_ids") or []) + list(predicate.get("child_oracles") or [])
-    return []  # p2p_plus_rule_drop
-
-
 def merge_entries(*docs):
-    entries = []
-    seen = set()
+    entries_by_id = {}
     for doc in docs:
         for entry in doc.get("entries", []):
-            if entry["id"] in seen:
+            entry_id = entry.get("id")
+            if not isinstance(entry_id, str) or not entry_id:
+                raise ScriptError(f"adapter test result has an invalid entry id: {entry!r}")
+            prior = entries_by_id.get(entry_id)
+            if prior is not None:
+                if prior.get("outcome") != entry.get("outcome"):
+                    raise ScriptError(
+                        f"adapter test results disagree for duplicate id {entry_id!r}: "
+                        f"{prior.get('outcome')!r} versus {entry.get('outcome')!r}"
+                    )
                 continue
-            seen.add(entry["id"])
-            entries.append(entry)
-    return {"entries": entries}
+            entries_by_id[entry_id] = entry
+    return {"entries": list(entries_by_id.values())}
 
 
 def capture_predicate_state(adapter_script, checkout_dir, predicate, named_ids):
@@ -288,8 +279,13 @@ def capture_predicate_state(adapter_script, checkout_dir, predicate, named_ids):
     # malicious/malformed package cannot direct the adapter's `test`
     # capability outside the ephemeral checkout via a traversal or
     # symlink-escaping include entry (REQ-NF-005).
-    for i, rel in enumerate(include):
-        resolve_scoped(checkout_dir, rel, subtree=None, label=f"final_predicate.p2p_selection.include[{i}]")
+    include = [
+        os.path.relpath(
+            resolve_scoped(checkout_dir, rel, subtree=None, label=f"final_predicate.p2p_selection.include[{i}]"),
+            checkout_dir,
+        )
+        for i, rel in enumerate(include)
+    ]
 
     test_args = ["--include"] + include
     if exclude_ids:
@@ -390,7 +386,7 @@ def format_admission_block(status, base_outcome, reference_outcome, toolchain_id
     lines.append("  toolchain_identity:\n")
     for entry in toolchain_identity:
         lines.append(f"    - key: {entry['key']}\n")
-        lines.append(f"      value: \"{entry['value']}\"\n")
+        lines.append(f"      value: {json.dumps(str(entry['value']))}\n")
     return "".join(lines)
 
 
@@ -607,6 +603,8 @@ if __name__ == "__main__":
         print(f"admit-scenario: {exc}", file=sys.stderr)
         sys.exit(2)
     except Exception as exc:  # top-level CLI error boundary
+        if os.environ.get("ADMIT_SCENARIO_DEBUG") == "1":
+            traceback.print_exc(file=sys.stderr)
         print(f"admit-scenario: unexpected error: {exc}", file=sys.stderr)
         sys.exit(2)
 PYEOF

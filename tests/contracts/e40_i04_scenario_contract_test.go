@@ -787,6 +787,43 @@ func e40I04AsStringSlice(v interface{}) []string {
 	return out
 }
 
+// e40I04ValidateStringSlice rejects mixed-type YAML arrays rather than
+// silently dropping their non-string elements while retaining the strings.
+func e40I04ValidateStringSlice(v interface{}, label string) []string {
+	if v == nil {
+		return nil
+	}
+	list, ok := v.([]interface{})
+	if !ok {
+		return []string{fmt.Sprintf("%s: must be an array of strings", label)}
+	}
+	var errs []string
+	for i, item := range list {
+		if _, ok := item.(string); !ok {
+			errs = append(errs, fmt.Sprintf("%s[%d]: must be a string", label, i))
+		}
+	}
+	return errs
+}
+
+func TestE40I04ValidateStringSliceRejectsMalformedElements(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value interface{}
+		want  string
+	}{
+		{name: "scalar", value: "not-an-array", want: "final_predicate.p2p_selection.include: must be an array of strings"},
+		{name: "mixed", value: []interface{}{"valid", 7}, want: "final_predicate.p2p_selection.include[1]: must be a string"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := e40I04ValidateStringSlice(tc.value, "final_predicate.p2p_selection.include")
+			if len(errs) != 1 || errs[0] != tc.want {
+				t.Fatalf("e40I04ValidateStringSlice() = %v, want [%q]", errs, tc.want)
+			}
+		})
+	}
+}
+
 // e40I04AsNumber reads a YAML scalar as a float64 regardless of whether the
 // decoder produced an int or a float, returning ok=false if the key is
 // absent or not numeric -- so callers can distinguish "missing" from
@@ -933,6 +970,9 @@ func e40I04CheckPathField(fieldLabel, rawPath, packageDir, evaluatorRoot string,
 	}
 	if filepath.IsAbs(rawPath) {
 		return []string{fmt.Sprintf("%s = %q must be a package-relative path, not absolute", fieldLabel, rawPath)}
+	}
+	if filepath.Clean(rawPath) == "." {
+		return []string{fmt.Sprintf("%s = %q must name a file below its package directory", fieldLabel, rawPath)}
 	}
 	if packageDir == "" {
 		return []string{fmt.Sprintf("%s: internal error: packageDir must not be empty to validate %q (cannot verify containment)", fieldLabel, rawPath)}
@@ -1312,6 +1352,7 @@ func e40I04ValidateEvaluatorOnly(v interface{}, packageDir, evaluatorRoot string
 	}
 
 	oracleTests := e40I04AsStringSlice(m["oracle_tests"])
+	errs = append(errs, e40I04ValidateStringSlice(m["oracle_tests"], "evaluator_only.oracle_tests")...)
 	if len(oracleTests) == 0 {
 		errs = append(errs, "evaluator_only.oracle_tests: empty")
 	}
@@ -1324,6 +1365,7 @@ func e40I04ValidateEvaluatorOnly(v interface{}, packageDir, evaluatorRoot string
 	// containment and existence discipline as reference_solution/
 	// oracle_tests -- previously it had neither.
 	answerKeys := e40I04AsStringSlice(m["answer_keys"])
+	errs = append(errs, e40I04ValidateStringSlice(m["answer_keys"], "evaluator_only.answer_keys")...)
 	for i, p := range answerKeys {
 		errs = append(errs, e40I04CheckPathField(fmt.Sprintf("evaluator_only.answer_keys[%d]", i), p, packageDir, evaluatorRoot, true, false, true)...)
 	}
@@ -1355,6 +1397,8 @@ func e40I04ValidateFinalPredicate(v interface{}, family string) []string {
 		errs = append(errs, "final_predicate.p2p_selection: missing or not an object (REQ-F-017)")
 	} else {
 		e40I04CheckUnknownKeys(p2p, []string{"include", "exclude_test_ids"}, "final_predicate.p2p_selection", &errs)
+		errs = append(errs, e40I04ValidateStringSlice(p2p["include"], "final_predicate.p2p_selection.include")...)
+		errs = append(errs, e40I04ValidateStringSlice(p2p["exclude_test_ids"], "final_predicate.p2p_selection.exclude_test_ids")...)
 		if len(e40I04AsStringSlice(p2p["include"])) == 0 {
 			errs = append(errs, "final_predicate.p2p_selection.include: empty")
 		}
@@ -1362,10 +1406,12 @@ func e40I04ValidateFinalPredicate(v interface{}, family string) []string {
 
 	switch kind {
 	case "f2p_p2p":
+		errs = append(errs, e40I04ValidateStringSlice(m["f2p_test_ids"], "final_predicate.f2p_test_ids")...)
 		if len(e40I04AsStringSlice(m["f2p_test_ids"])) == 0 {
 			errs = append(errs, "final_predicate.f2p_test_ids: empty, required for kind f2p_p2p")
 		}
 	case "acceptance_tests":
+		errs = append(errs, e40I04ValidateStringSlice(m["acceptance_test_ids"], "final_predicate.acceptance_test_ids")...)
 		if len(e40I04AsStringSlice(m["acceptance_test_ids"])) == 0 {
 			errs = append(errs, "final_predicate.acceptance_test_ids: empty, required for kind acceptance_tests")
 		}
@@ -1378,6 +1424,8 @@ func e40I04ValidateFinalPredicate(v interface{}, family string) []string {
 			errs = append(errs, "final_predicate.max_remaining: missing or negative, required for kind p2p_plus_rule_drop")
 		}
 	case "child_oracles_union":
+		errs = append(errs, e40I04ValidateStringSlice(m["integration_test_ids"], "final_predicate.integration_test_ids")...)
+		errs = append(errs, e40I04ValidateStringSlice(m["child_oracles"], "final_predicate.child_oracles")...)
 		if len(e40I04AsStringSlice(m["integration_test_ids"])) == 0 {
 			errs = append(errs, "final_predicate.integration_test_ids: empty, required for kind child_oracles_union")
 		}
@@ -1385,6 +1433,8 @@ func e40I04ValidateFinalPredicate(v interface{}, family string) []string {
 			errs = append(errs, "final_predicate.child_oracles: empty, required for kind child_oracles_union")
 		}
 	case "descendant_oracles_union":
+		errs = append(errs, e40I04ValidateStringSlice(m["integration_test_ids"], "final_predicate.integration_test_ids")...)
+		errs = append(errs, e40I04ValidateStringSlice(m["child_oracles"], "final_predicate.child_oracles")...)
 		// T-E40-F11-009 (ADR-F11-04): reuses child_oracles_union's own
 		// integration_test_ids/child_oracles operand shape verbatim, gated
 		// to entity_family "epic" instead of "feature" -- the shape is
