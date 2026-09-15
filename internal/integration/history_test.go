@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -49,7 +50,7 @@ func TestAnalyzeHistory_MissingBaseFailsClosed(t *testing.T) {
 	dir, head := chdirProjectRoot(t)
 
 	const missingBase = "0000000000000000000000000000000000dead"
-	_, err := AnalyzeHistory(dir, "run-missing-base", missingBase, head, nil)
+	_, err := AnalyzeHistory(context.Background(), dir, "run-missing-base", missingBase, head, nil)
 	if err == nil {
 		t.Fatal("expected an error for a missing base commit")
 	}
@@ -62,8 +63,31 @@ func TestAnalyzeHistory_MissingBaseFailsClosed(t *testing.T) {
 	}
 }
 
+func TestVerifyBaseReachable_CanceledContext(t *testing.T) {
+	dir, head := chdirProjectRoot(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := VerifyBaseReachable(ctx, dir, head, "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("VerifyBaseReachable() error = %v, want context cancellation", err)
+	}
+}
+
+func TestAnalyzeHistory_CanceledContext(t *testing.T) {
+	dir, head := chdirProjectRoot(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := AnalyzeHistory(ctx, dir, "run-cancelled-history", head, head, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("AnalyzeHistory() error = %v, want context cancellation", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".shark", "runs", "run-cancelled-history", "integration-history")); !os.IsNotExist(err) {
+		t.Fatalf("AnalyzeHistory persisted replacement state after cancellation: %v", err)
+	}
+}
+
 func TestAnalyzeHistory_RejectsUnsafeEpicRunIDBeforeFilesystemOrGitAccess(t *testing.T) {
-	_, err := AnalyzeHistory(t.TempDir(), "../escape", "base", "head", nil)
+	_, err := AnalyzeHistory(context.Background(), t.TempDir(), "../escape", "base", "head", nil)
 	if err == nil {
 		t.Fatal("expected invalid epic run ID to fail")
 	}
@@ -85,7 +109,7 @@ func TestAnalyzeHistory_UnreachableBaseFailsClosed(t *testing.T) {
 	discarded := writeAndCommit(t, dir, "discarded.txt", "discarded work", "discarded work")
 	runGit(t, dir, "checkout", "-q", "-")
 
-	_, err := AnalyzeHistory(dir, "run-unreachable-base", discarded, head, nil)
+	_, err := AnalyzeHistory(context.Background(), dir, "run-unreachable-base", discarded, head, nil)
 	if err == nil {
 		t.Fatal("expected an error for a base that is not an ancestor of head")
 	}
@@ -109,7 +133,7 @@ func TestAnalyzeHistory_CleanHistoryAllAccounted(t *testing.T) {
 		{EpicRunID: "run-clean", FeatureKey: "E90-F00", FeatureCommit: featureCommit},
 	}
 
-	inv, err := AnalyzeHistory(dir, "run-clean", base, head, events)
+	inv, err := AnalyzeHistory(context.Background(), dir, "run-clean", base, head, events)
 	if err != nil {
 		t.Fatalf("AnalyzeHistory: %v", err)
 	}
@@ -137,7 +161,7 @@ func TestAnalyzeHistory_InterleavedCommitsRemainVisible(t *testing.T) {
 		{EpicRunID: "run-interleaved", FeatureKey: "E90-F01", FeatureCommit: featureCommit},
 	}
 
-	inv, err := AnalyzeHistory(dir, "run-interleaved", base, head, events)
+	inv, err := AnalyzeHistory(context.Background(), dir, "run-interleaved", base, head, events)
 	if err != nil {
 		t.Fatalf("AnalyzeHistory: %v", err)
 	}
@@ -173,7 +197,7 @@ func TestAnalyzeHistory_SquashMergedFeatureGetsReplacementRecord(t *testing.T) {
 		{EpicRunID: "run-squash", FeatureKey: "E90-F02", FeatureCommit: featureTip},
 	}
 
-	inv, err := AnalyzeHistory(dir, "run-squash", base, head, events)
+	inv, err := AnalyzeHistory(context.Background(), dir, "run-squash", base, head, events)
 	if err != nil {
 		t.Fatalf("AnalyzeHistory: %v", err)
 	}
@@ -242,7 +266,7 @@ func TestAnalyzeHistory_RebaseOntoUnrelatedWorkGetsReplacementRecord(t *testing.
 		{EpicRunID: "run-rebase", FeatureKey: "E90-F03", FeatureCommit: originalFeatureCommit},
 	}
 
-	inv, err := AnalyzeHistory(dir, "run-rebase", base, head, events)
+	inv, err := AnalyzeHistory(context.Background(), dir, "run-rebase", base, head, events)
 	if err != nil {
 		t.Fatalf("AnalyzeHistory: %v", err)
 	}
@@ -300,7 +324,7 @@ func assertReplacementPersisted(t *testing.T, projectRoot, epicRunID string, rec
 func TestVerifyBaseReachable_EmptyBase(t *testing.T) {
 	dir, head := chdirProjectRoot(t)
 
-	err := VerifyBaseReachable(dir, "", head)
+	err := VerifyBaseReachable(context.Background(), dir, "", head)
 	var unreachable *UnreachableBaseError
 	if !errors.As(err, &unreachable) {
 		t.Fatalf("expected *UnreachableBaseError for an empty base, got %T: %v", err, err)
@@ -314,7 +338,7 @@ func TestVerifyBaseReachable_EmptyBase(t *testing.T) {
 func TestVerifyBaseReachable_NoHeadOnlyChecksExistence(t *testing.T) {
 	dir, commit := chdirProjectRoot(t)
 
-	if err := VerifyBaseReachable(dir, commit, ""); err != nil {
+	if err := VerifyBaseReachable(context.Background(), dir, commit, ""); err != nil {
 		t.Fatalf("VerifyBaseReachable with no head: %v", err)
 	}
 }
@@ -336,7 +360,7 @@ func TestAnalyzeHistory_EmptyHeadRejected(t *testing.T) {
 	// supplied.
 	writeAndCommit(t, dir, "after.txt", "commit made after the call", "after")
 
-	_, err := AnalyzeHistory(dir, "run-empty-head", base, "", nil)
+	_, err := AnalyzeHistory(context.Background(), dir, "run-empty-head", base, "", nil)
 	if err == nil {
 		t.Fatal("expected an error for an empty head")
 	}
@@ -364,11 +388,11 @@ func TestAnalyzeHistory_ReplacementDetectionIsIdempotent(t *testing.T) {
 		{EpicRunID: "run-idempotent", FeatureKey: "E90-F09", FeatureCommit: featureTip},
 	}
 
-	first, err := AnalyzeHistory(dir, "run-idempotent", base, head, events)
+	first, err := AnalyzeHistory(context.Background(), dir, "run-idempotent", base, head, events)
 	if err != nil {
 		t.Fatalf("first AnalyzeHistory: %v", err)
 	}
-	second, err := AnalyzeHistory(dir, "run-idempotent", base, head, events)
+	second, err := AnalyzeHistory(context.Background(), dir, "run-idempotent", base, head, events)
 	if err != nil {
 		t.Fatalf("second AnalyzeHistory: %v", err)
 	}
@@ -410,7 +434,7 @@ func TestAnalyzeHistory_UnaccountedFeatureCommitSurfaces(t *testing.T) {
 		{EpicRunID: "run-unaccounted", FeatureKey: "E90-F04", FeatureCommit: neverExisted},
 	}
 
-	inv, err := AnalyzeHistory(dir, "run-unaccounted", base, head, events)
+	inv, err := AnalyzeHistory(context.Background(), dir, "run-unaccounted", base, head, events)
 	if err != nil {
 		t.Fatalf("AnalyzeHistory: %v", err)
 	}
@@ -437,7 +461,7 @@ func TestAnalyzeHistory_CommitEqualToBaseIsAccounted(t *testing.T) {
 		{EpicRunID: "run-noop-feature", FeatureKey: "E90-F05", FeatureCommit: base},
 	}
 
-	inv, err := AnalyzeHistory(dir, "run-noop-feature", base, head, events)
+	inv, err := AnalyzeHistory(context.Background(), dir, "run-noop-feature", base, head, events)
 	if err != nil {
 		t.Fatalf("AnalyzeHistory: %v", err)
 	}
@@ -476,7 +500,7 @@ func TestAnalyzeHistory_EmptyCommitInRangeDoesNotBreakReplacementDetection(t *te
 		{EpicRunID: "run-squash-empty", FeatureKey: "E90-F06", FeatureCommit: featureTip},
 	}
 
-	inv, err := AnalyzeHistory(dir, "run-squash-empty", base, head, events)
+	inv, err := AnalyzeHistory(context.Background(), dir, "run-squash-empty", base, head, events)
 	if err != nil {
 		t.Fatalf("AnalyzeHistory: %v", err)
 	}

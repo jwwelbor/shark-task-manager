@@ -92,7 +92,10 @@ func (e *CorruptRunError) Unwrap() error {
 // A run file that exists but fails to parse returns a *CorruptRunError
 // rather than being treated as "no run yet" (AC-T3): CaptureBase must never
 // paper over a broken record by creating a second one beside it.
-func CaptureBase(epicKey string) (*IntegrationRun, error) {
+func CaptureBase(ctx context.Context, epicKey string) (*IntegrationRun, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: capture base: %w", err)
+	}
 	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
@@ -108,7 +111,7 @@ func CaptureBase(epicKey string) (*IntegrationRun, error) {
 		return existing, nil
 	}
 
-	baseCommit, err := currentHeadCommit(projectRoot)
+	baseCommit, err := currentHeadCommit(ctx, projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve base commit for epic %s: %w", epicKey, err)
 	}
@@ -133,7 +136,10 @@ func CaptureBase(epicKey string) (*IntegrationRun, error) {
 // an IntegrationEvent: no run yet means the epic never entered its active
 // cascade (or this feature's own transition raced ahead of it), so there is
 // nothing to record against.
-func GetRun(epicKey string) (*IntegrationRun, error) {
+func GetRun(ctx context.Context, epicKey string) (*IntegrationRun, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: get run: %w", err)
+	}
 	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
@@ -146,12 +152,12 @@ func GetRun(epicKey string) (*IntegrationRun, error) {
 // FeatureService.TransitionStatus's terminal-transition RecordEvent call
 // site (T-E34-F08-008), which needs "the feature's commit" without
 // resolving a project root itself.
-func CurrentCommit() (string, error) {
+func CurrentCommit(ctx context.Context) (string, error) {
 	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return "", fmt.Errorf("integration: resolve project root: %w", err)
 	}
-	return currentHeadCommit(projectRoot)
+	return currentHeadCommit(ctx, projectRoot)
 }
 
 // runRecordPath is the per-epic run-record path, keyed by epicKey alone so
@@ -205,21 +211,22 @@ func publishRun(path string, candidate *IntegrationRun) (*IntegrationRun, error)
 	}
 	defer os.Remove(tmpPath)
 
-	if err := os.Link(tmpPath, path); err != nil {
-		if os.IsExist(err) {
-			// Another caller published first. Its file is guaranteed
-			// complete: a caller only ever links a fully-written temp file
-			// onto path, never writes into path directly.
-			winner, readErr := readRun(path)
-			if readErr != nil {
-				return nil, readErr
-			}
-			if winner == nil {
-				return nil, fmt.Errorf("integration: run record at %s vanished after a concurrent publish", path)
-			}
-			return winner, nil
-		}
+	won, err := atomicLinkPublish(tmpPath, path)
+	if err != nil {
 		return nil, fmt.Errorf("integration: publish run record at %s: %w", path, err)
+	}
+	if !won {
+		// Another caller published first. Its file is guaranteed
+		// complete: a caller only ever links a fully-written temp file
+		// onto path, never writes into path directly.
+		winner, readErr := readRun(path)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if winner == nil {
+			return nil, fmt.Errorf("integration: run record at %s vanished after a concurrent publish", path)
+		}
+		return winner, nil
 	}
 
 	return candidate, nil
@@ -229,8 +236,8 @@ func publishRun(path string, candidate *IntegrationRun) (*IntegrationRun, error)
 // running `git rev-parse HEAD` inside projectRoot. This becomes a new run's
 // immutable BaseCommit — never recomputed by a later CaptureBase call for
 // the same epic.
-func currentHeadCommit(projectRoot string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
+func currentHeadCommit(ctx context.Context, projectRoot string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
@@ -373,7 +380,7 @@ func RegisterRun(ctx context.Context, recorder NoteRecorder, run *IntegrationRun
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
 	}
 
-	lock, err := AcquireRegistrationLock(projectRoot, run.EpicRunID)
+	lock, err := AcquireRegistrationLock(ctx, projectRoot, run.EpicRunID)
 	if err != nil {
 		return nil, err
 	}

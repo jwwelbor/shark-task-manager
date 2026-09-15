@@ -200,7 +200,7 @@ func nextRecordCaptureFailureNote(ctx context.Context, commandLabel, epicKey str
 // failure kind gets a durable, deduped epic-level `review-finding` note via
 // nextRecordCaptureFailureNote.
 func ensureEpicIntegrationBaseCaptured(ctx context.Context, commandLabel, epicKey string) error {
-	if _, err := nextCaptureEpicIntegrationBase(epicKey); err != nil {
+	if _, err := nextCaptureEpicIntegrationBase(ctx, epicKey); err != nil {
 		var corruptErr *integration.CorruptRunError
 		if errors.As(err, &corruptErr) {
 			fmt.Fprintf(os.Stderr,

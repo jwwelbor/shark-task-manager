@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -68,7 +69,7 @@ func TestUpdateCandidate_ConcurrentDifferentFeatures(t *testing.T) {
 			eventIDs[i] = event.EventID
 			mu.Unlock()
 
-			_, err = UpdateCandidate(epicRunID, event)
+			_, err = UpdateCandidate(context.Background(), epicRunID, event)
 			mu.Lock()
 			errs[i] = err
 			mu.Unlock()
@@ -110,6 +111,34 @@ func TestUpdateCandidate_ConcurrentDifferentFeatures(t *testing.T) {
 	}
 }
 
+func TestUpdateCandidate_CanceledContextDoesNotPublishCandidate(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+	const epicRunID = "run-cancelled-candidate"
+	event, err := RecordEvent(epicRunID, "E34-F99", "commit-cancelled", nil, nil)
+	if err != nil {
+		t.Fatalf("RecordEvent: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = UpdateCandidate(ctx, epicRunID, event)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("UpdateCandidate() error = %v, want context cancellation", err)
+	}
+	if _, err := os.Stat(candidatePath(dir, epicRunID)); !os.IsNotExist(err) {
+		t.Fatalf("UpdateCandidate published a candidate after cancellation: %v", err)
+	}
+}
+
+func TestGetCandidate_CanceledContext(t *testing.T) {
+	chdirProjectRoot(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := GetCandidate(ctx, "run-cancelled-read")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetCandidate() error = %v, want context cancellation", err)
+	}
+}
+
 // TestUpdateCandidate_CreatesCandidateFile covers the base case underlying
 // TC-007: a single UpdateCandidate call for a brand-new epicRunID creates
 // the candidate file with that event's ID and a non-empty Digest.
@@ -122,7 +151,7 @@ func TestUpdateCandidate_CreatesCandidateFile(t *testing.T) {
 		t.Fatalf("RecordEvent: %v", err)
 	}
 
-	candidate, err := UpdateCandidate(epicRunID, event)
+	candidate, err := UpdateCandidate(context.Background(), epicRunID, event)
 	if err != nil {
 		t.Fatalf("UpdateCandidate: %v", err)
 	}
@@ -158,7 +187,7 @@ func TestUpdateCandidate_DigestExcludesItself(t *testing.T) {
 		t.Fatalf("RecordEvent: %v", err)
 	}
 
-	candidate, err := UpdateCandidate(epicRunID, event)
+	candidate, err := UpdateCandidate(context.Background(), epicRunID, event)
 	if err != nil {
 		t.Fatalf("UpdateCandidate: %v", err)
 	}
@@ -189,7 +218,7 @@ func TestUpdateCandidate_StaleDigestRetrySucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed RecordEvent: %v", err)
 	}
-	if _, err := UpdateCandidate(epicRunID, seedEvent); err != nil {
+	if _, err := UpdateCandidate(context.Background(), epicRunID, seedEvent); err != nil {
 		t.Fatalf("seed UpdateCandidate: %v", err)
 	}
 
@@ -217,7 +246,7 @@ func TestUpdateCandidate_StaleDigestRetrySucceeds(t *testing.T) {
 		// attempt is "paused" here, between its digest read and its
 		// rename — this is what forces the outer attempt's first try to
 		// observe a stale expected digest.
-		if _, err := UpdateCandidate(epicRunID, concurrentEvent); err != nil {
+		if _, err := UpdateCandidate(context.Background(), epicRunID, concurrentEvent); err != nil {
 			t.Errorf("concurrent UpdateCandidate during pause: %v", err)
 		}
 	}
@@ -228,7 +257,7 @@ func TestUpdateCandidate_StaleDigestRetrySucceeds(t *testing.T) {
 		t.Fatalf("target RecordEvent: %v", err)
 	}
 
-	result, err := UpdateCandidate(epicRunID, targetEvent)
+	result, err := UpdateCandidate(context.Background(), epicRunID, targetEvent)
 	if err != nil {
 		t.Fatalf("UpdateCandidate expected to succeed via its single retry: %v", err)
 	}
@@ -258,7 +287,7 @@ func TestUpdateCandidate_PersistentConflictReportsTypedError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed RecordEvent: %v", err)
 	}
-	if _, err := UpdateCandidate(epicRunID, seedEvent); err != nil {
+	if _, err := UpdateCandidate(context.Background(), epicRunID, seedEvent); err != nil {
 		t.Fatalf("seed UpdateCandidate: %v", err)
 	}
 
@@ -290,7 +319,7 @@ func TestUpdateCandidate_PersistentConflictReportsTypedError(t *testing.T) {
 			t.Errorf("conflict RecordEvent #%d: %v", concurrentID, err)
 			return
 		}
-		if _, err := UpdateCandidate(epicRunID, ev); err != nil {
+		if _, err := UpdateCandidate(context.Background(), epicRunID, ev); err != nil {
 			t.Errorf("conflict UpdateCandidate #%d: %v", concurrentID, err)
 			return
 		}
@@ -308,7 +337,7 @@ func TestUpdateCandidate_PersistentConflictReportsTypedError(t *testing.T) {
 		t.Fatalf("target RecordEvent: %v", err)
 	}
 
-	_, err = UpdateCandidate(epicRunID, targetEvent)
+	_, err = UpdateCandidate(context.Background(), epicRunID, targetEvent)
 	if err == nil {
 		t.Fatal("expected a persistent-conflict error, got nil")
 	}
@@ -365,7 +394,7 @@ func TestUpdateCandidate_FirstCandidateArchivesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
-	if _, err := UpdateCandidate(epicRunID, event); err != nil {
+	if _, err := UpdateCandidate(context.Background(), epicRunID, event); err != nil {
 		t.Fatalf("UpdateCandidate: %v", err)
 	}
 
@@ -392,7 +421,7 @@ func TestUpdateCandidate_ArchivesPriorHeadBeforeReplacing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first RecordEvent: %v", err)
 	}
-	first, err := UpdateCandidate(epicRunID, firstEvent)
+	first, err := UpdateCandidate(context.Background(), epicRunID, firstEvent)
 	if err != nil {
 		t.Fatalf("first UpdateCandidate: %v", err)
 	}
@@ -421,7 +450,7 @@ func TestUpdateCandidate_ArchivesPriorHeadBeforeReplacing(t *testing.T) {
 	}
 	t.Cleanup(func() { archiveTestHook = nil })
 
-	second, err := UpdateCandidate(epicRunID, secondEvent)
+	second, err := UpdateCandidate(context.Background(), epicRunID, secondEvent)
 	if err != nil {
 		t.Fatalf("second UpdateCandidate: %v", err)
 	}
@@ -464,7 +493,7 @@ func TestUpdateCandidate_ArchivedHeadDigestRecomputable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first RecordEvent: %v", err)
 	}
-	first, err := UpdateCandidate(epicRunID, firstEvent)
+	first, err := UpdateCandidate(context.Background(), epicRunID, firstEvent)
 	if err != nil {
 		t.Fatalf("first UpdateCandidate: %v", err)
 	}
@@ -473,7 +502,7 @@ func TestUpdateCandidate_ArchivedHeadDigestRecomputable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second RecordEvent: %v", err)
 	}
-	if _, err := UpdateCandidate(epicRunID, secondEvent); err != nil {
+	if _, err := UpdateCandidate(context.Background(), epicRunID, secondEvent); err != nil {
 		t.Fatalf("second UpdateCandidate: %v", err)
 	}
 
@@ -553,7 +582,7 @@ func TestUpdateCandidate_DirtyPathDigests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
-	candidate, err := UpdateCandidate(epicRunID, event)
+	candidate, err := UpdateCandidate(context.Background(), epicRunID, event)
 	if err != nil {
 		t.Fatalf("UpdateCandidate: %v", err)
 	}
@@ -611,7 +640,7 @@ func TestComputeDirtyPathDigests_RenameDeleteAndCleanTree(t *testing.T) {
 
 func requireDirtyPathDigests(t *testing.T, dir string, wantTracked, wantUntracked map[string]string) {
 	t.Helper()
-	tracked, untracked, err := computeDirtyPathDigests(dir)
+	tracked, untracked, err := computeDirtyPathDigests(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("computeDirtyPathDigests: %v", err)
 	}
@@ -677,7 +706,7 @@ func TestUpdateCandidate_TransientPublishFailureDoesNotPermanentlyBlock(t *testi
 	if err != nil {
 		t.Fatalf("first RecordEvent: %v", err)
 	}
-	if _, err := UpdateCandidate(epicRunID, firstEvent); err != nil {
+	if _, err := UpdateCandidate(context.Background(), epicRunID, firstEvent); err != nil {
 		t.Fatalf("first UpdateCandidate: %v", err)
 	}
 
@@ -702,7 +731,7 @@ func TestUpdateCandidate_TransientPublishFailureDoesNotPermanentlyBlock(t *testi
 		_ = os.Chmod(runDir, 0o755)
 	})
 
-	_, err = UpdateCandidate(epicRunID, secondEvent)
+	_, err = UpdateCandidate(context.Background(), epicRunID, secondEvent)
 	if err == nil {
 		t.Fatal("expected the induced rename failure to surface as an error")
 	}
@@ -726,7 +755,7 @@ func TestUpdateCandidate_TransientPublishFailureDoesNotPermanentlyBlock(t *testi
 	// (the first attempt never advanced the on-disk candidate) must now
 	// succeed: the abandoned claim from the failed attempt above must not
 	// permanently occupy that digest's transition slot.
-	result, err := UpdateCandidate(epicRunID, secondEvent)
+	result, err := UpdateCandidate(context.Background(), epicRunID, secondEvent)
 	if err != nil {
 		t.Fatalf("retry after transient failure cleared: expected success, got permanently blocked: %v", err)
 	}
@@ -763,7 +792,7 @@ func TestUpdateCandidate_TransientArchiveFailureDoesNotPermanentlyBlock(t *testi
 	if err != nil {
 		t.Fatalf("first RecordEvent: %v", err)
 	}
-	if _, err := UpdateCandidate(epicRunID, firstEvent); err != nil {
+	if _, err := UpdateCandidate(context.Background(), epicRunID, firstEvent); err != nil {
 		t.Fatalf("first UpdateCandidate: %v", err)
 	}
 
@@ -781,7 +810,7 @@ func TestUpdateCandidate_TransientArchiveFailureDoesNotPermanentlyBlock(t *testi
 	}
 	t.Cleanup(func() { _ = os.Chmod(headsDir, 0o755) })
 
-	_, err = UpdateCandidate(epicRunID, secondEvent)
+	_, err = UpdateCandidate(context.Background(), epicRunID, secondEvent)
 	if err == nil {
 		t.Fatal("expected the induced archive failure to surface as an error")
 	}
@@ -801,7 +830,7 @@ func TestUpdateCandidate_TransientArchiveFailureDoesNotPermanentlyBlock(t *testi
 	// A fresh attempt against the identical, unchanged expected digest must
 	// now succeed: the abandoned claim from the failed archive attempt above
 	// must not permanently occupy that digest's transition slot.
-	result, err := UpdateCandidate(epicRunID, secondEvent)
+	result, err := UpdateCandidate(context.Background(), epicRunID, secondEvent)
 	if err != nil {
 		t.Fatalf("retry after transient failure cleared: expected success, got permanently blocked: %v", err)
 	}

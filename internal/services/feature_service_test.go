@@ -4444,7 +4444,7 @@ func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransi
 
 	// Precondition: the epic active step's cascade action has already
 	// captured this epic's IntegrationRun before this feature completes.
-	run, err := integration.CaptureBase("E77")
+	run, err := integration.CaptureBase(context.Background(), "E77")
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}
@@ -4453,7 +4453,7 @@ func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransi
 		t.Fatalf("TransitionStatus: %v", err)
 	}
 
-	commit, err := integration.CurrentCommit()
+	commit, err := integration.CurrentCommit(context.Background())
 	if err != nil {
 		t.Fatalf("CurrentCommit: %v", err)
 	}
@@ -4466,6 +4466,15 @@ func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransi
 	}
 	if event.FeatureCommit != commit {
 		t.Errorf("event.FeatureCommit = %q, want %q", event.FeatureCommit, commit)
+	}
+}
+
+func TestFeatureService_FoldIntegrationEventIfMissing_PropagatesCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (&FeatureService{}).foldIntegrationEventIfMissing(ctx, "run-cancelled-service", &integration.IntegrationEvent{EventID: "event-cancelled"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("foldIntegrationEventIfMissing() error = %v, want context cancellation", err)
 	}
 }
 
@@ -4504,12 +4513,12 @@ func TestFeatureService_TransitionStatus_NoIntegrationRunSkipsRecording_Aggregat
 		t.Fatalf("TransitionStatus: %v", err)
 	}
 
-	run, err := integration.GetRun("E78")
+	run, err := integration.GetRun(context.Background(), "E78")
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
 	if run != nil {
-		t.Fatalf("GetRun() = %+v, want nil — TransitionStatus must never itself capture a run", run)
+		t.Fatalf("GetRun(context.Background(), ) = %+v, want nil — TransitionStatus must never itself capture a run", run)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".shark", "runs")); !os.IsNotExist(err) {
 		t.Fatalf(".shark/runs exists (err=%v), want no integration-event side effects without an active run", err)
@@ -4556,7 +4565,7 @@ func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransi
 	svc := NewFeatureService(featureRepo, entitySvc, entityRepo, nil, epicRepo)
 	svc.SetCascadeDeps(db, epicRepo, entityHistoryRepo, entityHistoryRepo)
 
-	run, err := integration.CaptureBase("E79")
+	run, err := integration.CaptureBase(context.Background(), "E79")
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}
@@ -4565,7 +4574,7 @@ func TestFeatureService_TransitionStatus_RecordsIntegrationEventOnTerminalTransi
 		t.Fatalf("TransitionStatus: %v", err)
 	}
 
-	commit, err := integration.CurrentCommit()
+	commit, err := integration.CurrentCommit(context.Background())
 	if err != nil {
 		t.Fatalf("CurrentCommit: %v", err)
 	}
@@ -4723,7 +4732,7 @@ func TestFeatureService_TransitionStatus_FoldsCandidateAndRegistersFirstHead_Agg
 		t.Fatalf("create feature: %v", err)
 	}
 
-	run, err := integration.CaptureBase("E80")
+	run, err := integration.CaptureBase(context.Background(), "E80")
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}
@@ -4798,7 +4807,7 @@ func TestFeatureService_TransitionStatus_SecondFeatureFoldsWithoutReRegistering_
 		t.Fatalf("create feature B: %v", err)
 	}
 
-	run, err := integration.CaptureBase("E81")
+	run, err := integration.CaptureBase(context.Background(), "E81")
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}
@@ -4879,7 +4888,7 @@ func TestFeatureService_TransitionStatus_CandidateUpdateFailureIsSurfacedAsDurab
 		t.Fatalf("create feature: %v", err)
 	}
 
-	run, err := integration.CaptureBase("E82")
+	run, err := integration.CaptureBase(context.Background(), "E82")
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}
@@ -5016,7 +5025,7 @@ func TestFeatureService_TransitionStatus_RetryAfterRegistrationFailureRepairsNot
 		t.Fatalf("create feature: %v", err)
 	}
 
-	run, err := integration.CaptureBase("E83")
+	run, err := integration.CaptureBase(context.Background(), "E83")
 	if err != nil {
 		t.Fatalf("CaptureBase: %v", err)
 	}

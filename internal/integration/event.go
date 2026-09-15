@@ -144,21 +144,22 @@ func publishEvent(path string, candidate *IntegrationEvent) (*IntegrationEvent, 
 	}
 	defer os.Remove(tmpPath)
 
-	if err := os.Link(tmpPath, path); err != nil {
-		if os.IsExist(err) {
-			// Another caller published first. Its file is guaranteed
-			// complete: a caller only ever links a fully-written temp file
-			// onto path, never writes into path directly.
-			winner, readErr := readEvent(path)
-			if readErr != nil {
-				return nil, readErr
-			}
-			if winner == nil {
-				return nil, fmt.Errorf("integration: event record at %s vanished after a concurrent publish", path)
-			}
-			return winner, nil
-		}
+	won, err := atomicLinkPublish(tmpPath, path)
+	if err != nil {
 		return nil, fmt.Errorf("integration: publish event record at %s: %w", path, err)
+	}
+	if !won {
+		// Another caller published first. Its file is guaranteed
+		// complete: a caller only ever links a fully-written temp file
+		// onto path, never writes into path directly.
+		winner, readErr := readEvent(path)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if winner == nil {
+			return nil, fmt.Errorf("integration: event record at %s vanished after a concurrent publish", path)
+		}
+		return winner, nil
 	}
 
 	return candidate, nil

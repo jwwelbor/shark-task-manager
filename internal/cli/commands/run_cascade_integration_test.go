@@ -102,7 +102,7 @@ func TestRunControllerCascadeCapturesEpicIntegrationBaseBeforeChildDispatch(t *t
 	childrenSvc := fakeCascadeChildrenService{
 		fn: func(_ context.Context, entityType, key string) (services.CascadeChildrenState, error) {
 			childrenLookupCalls++
-			run, err := integration.GetRun("E99")
+			run, err := integration.GetRun(context.Background(), "E99")
 			require.NoError(t, err)
 			runAtLookupTime = run
 			if _, statErr := os.Stat(filepath.Join(dir, ".shark", "integration", "E99", "run.json")); statErr == nil {
@@ -134,7 +134,7 @@ func TestRunControllerCascadeCapturesEpicIntegrationBaseBeforeChildDispatch(t *t
 	require.NoError(t, err)
 
 	// Before any dispatch: no run captured yet.
-	preRun, err := integration.GetRun("E99")
+	preRun, err := integration.GetRun(context.Background(), "E99")
 	require.NoError(t, err)
 	require.Nil(t, preRun, "no IntegrationRun should exist before the epic cascade ever runs")
 
@@ -148,7 +148,7 @@ func TestRunControllerCascadeCapturesEpicIntegrationBaseBeforeChildDispatch(t *t
 	require.True(t, runFileExistsAtLookupTime, ".shark/integration/E99/run.json must exist on disk before cascade child dispatch")
 	require.NotEqual(t, "failed", result.Outcome, "a successful capture must not fail the cascade stage")
 
-	postRun, err := integration.GetRun("E99")
+	postRun, err := integration.GetRun(context.Background(), "E99")
 	require.NoError(t, err)
 	require.NotNil(t, postRun)
 	require.Equal(t, headCommit, postRun.BaseCommit)

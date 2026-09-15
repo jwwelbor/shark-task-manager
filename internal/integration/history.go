@@ -3,6 +3,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -56,20 +57,20 @@ func (e *UnreachableBaseError) Unwrap() error {
 // counts as a reachable base (spec.md "Key technical decisions" #2),
 // applied here to base-reachability rather than the write path that
 // decision was originally written about.
-func VerifyBaseReachable(projectRoot, base, head string) error {
+func VerifyBaseReachable(ctx context.Context, projectRoot, base, head string) error {
 	if strings.TrimSpace(base) == "" {
 		return &UnreachableBaseError{Base: base, Head: head, Err: fmt.Errorf("base commit is empty")}
 	}
-	if err := verifyCommitObjectExists(projectRoot, base); err != nil {
+	if err := verifyCommitObjectExists(ctx, projectRoot, base); err != nil {
 		return &UnreachableBaseError{Base: base, Head: head, Err: err}
 	}
 	if strings.TrimSpace(head) == "" {
 		return nil
 	}
-	if err := verifyCommitObjectExists(projectRoot, head); err != nil {
+	if err := verifyCommitObjectExists(ctx, projectRoot, head); err != nil {
 		return &UnreachableBaseError{Base: base, Head: head, Err: fmt.Errorf("head commit %s: %w", head, err)}
 	}
-	ancestor, err := isAncestor(projectRoot, base, head)
+	ancestor, err := isAncestor(ctx, projectRoot, base, head)
 	if err != nil {
 		return &UnreachableBaseError{Base: base, Head: head, Err: err}
 	}
@@ -82,11 +83,11 @@ func VerifyBaseReachable(projectRoot, base, head string) error {
 // verifyCommitObjectExists checks that commit resolves to a real commit
 // object in projectRoot's repository (`git cat-file -e <commit>^{commit}`,
 // which checks object existence and type without materializing content).
-func verifyCommitObjectExists(projectRoot, commit string) error {
-	cmd := exec.Command("git", "cat-file", "-e", commit+"^{commit}")
+func verifyCommitObjectExists(ctx context.Context, projectRoot, commit string) error {
+	cmd := exec.CommandContext(ctx, "git", "cat-file", "-e", commit+"^{commit}")
 	cmd.Dir = projectRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("commit %q does not resolve to a real commit object: %v: %s", commit, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("commit %q does not resolve to a real commit object: %w: %s", commit, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -96,8 +97,8 @@ func verifyCommitObjectExists(projectRoot, commit string) error {
 // check, never `git merge-base <a> <b>` (which computes a *different*
 // thing, a nearest-common-ancestor guess, and would silently substitute
 // that guess for the exact check this package requires).
-func isAncestor(projectRoot, ancestor, descendant string) (bool, error) {
-	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestor, descendant)
+func isAncestor(ctx context.Context, projectRoot, ancestor, descendant string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", ancestor, descendant)
 	cmd.Dir = projectRoot
 	err := cmd.Run()
 	if err == nil {
@@ -175,18 +176,18 @@ type HistoryInventory struct {
 // inventory, not silently folded in or dropped; integration_review's own
 // closure check is where a disposition for either list is required, not
 // this function.
-func AnalyzeHistory(projectRoot, epicRunID, base, head string, events []IntegrationEvent) (*HistoryInventory, error) {
+func AnalyzeHistory(ctx context.Context, projectRoot, epicRunID, base, head string, events []IntegrationEvent) (*HistoryInventory, error) {
 	if err := ValidateEpicRunID(epicRunID); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(head) == "" {
 		return nil, fmt.Errorf("integration: AnalyzeHistory requires a non-empty head — an empty upper bound would let `git rev-list` silently resolve scope from the current HEAD instead of the recorded candidate head")
 	}
-	if err := VerifyBaseReachable(projectRoot, base, head); err != nil {
+	if err := VerifyBaseReachable(ctx, projectRoot, base, head); err != nil {
 		return nil, err
 	}
 
-	rangeCommits, err := commitsInRange(projectRoot, base, head)
+	rangeCommits, err := commitsInRange(ctx, projectRoot, base, head)
 	if err != nil {
 		return nil, fmt.Errorf("integration: list commits in range %s..%s: %w", base, head, err)
 	}
@@ -214,7 +215,7 @@ func AnalyzeHistory(projectRoot, epicRunID, base, head string, events []Integrat
 			continue
 		}
 
-		replacement, err := findRewrittenReplacement(projectRoot, base, commit, rangeCommits)
+		replacement, err := findRewrittenReplacement(ctx, projectRoot, base, commit, rangeCommits)
 		if err != nil {
 			return nil, err
 		}
@@ -251,8 +252,8 @@ func AnalyzeHistory(projectRoot, epicRunID, base, head string, events []Integrat
 // (`git rev-list base..head`) — the exact base-to-candidate range
 // architecture.md's full-diff inventory reviews. Returns (nil, nil) for an
 // empty range (base and head identical, or head has nothing beyond base).
-func commitsInRange(projectRoot, base, head string) ([]string, error) {
-	cmd := exec.Command("git", "rev-list", base+".."+head)
+func commitsInRange(ctx context.Context, projectRoot, base, head string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-list", base+".."+head)
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
@@ -289,11 +290,14 @@ func commitsInRange(projectRoot, base, head string) ([]string, error) {
 // after the feature branch pointer itself is gone), so the cumulative
 // diff compared is the feature's *whole* squashed change, not just its
 // final commit's own patch.
-func findRewrittenReplacement(projectRoot, base, commit string, candidates []string) (string, error) {
-	if err := verifyCommitObjectExists(projectRoot, commit); err != nil {
+func findRewrittenReplacement(ctx context.Context, projectRoot, base, commit string, candidates []string) (string, error) {
+	if err := verifyCommitObjectExists(ctx, projectRoot, commit); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("integration: verify recorded commit %s: %w", commit, ctx.Err())
+		}
 		return "", nil
 	}
-	forkPoint, ok, err := mergeBase(projectRoot, base, commit)
+	forkPoint, ok, err := mergeBase(ctx, projectRoot, base, commit)
 	if err != nil {
 		return "", fmt.Errorf("integration: resolve fork point for %s off base %s: %w", commit, base, err)
 	}
@@ -307,7 +311,7 @@ func findRewrittenReplacement(projectRoot, base, commit string, candidates []str
 		// against, so this is not a rewrite either.
 		return "", nil
 	}
-	wantPatch, wantOK, err := diffPatchID(projectRoot, forkPoint, commit)
+	wantPatch, wantOK, err := diffPatchID(ctx, projectRoot, forkPoint, commit)
 	if err != nil {
 		return "", fmt.Errorf("integration: compute patch identity for %s: %w", commit, err)
 	}
@@ -318,13 +322,16 @@ func findRewrittenReplacement(projectRoot, base, commit string, candidates []str
 	}
 
 	for _, candidate := range candidates {
-		parent, err := firstParent(projectRoot, candidate)
+		parent, err := firstParent(ctx, projectRoot, candidate)
 		if err != nil {
+			if ctx.Err() != nil {
+				return "", fmt.Errorf("integration: resolve first parent for candidate %s: %w", candidate, ctx.Err())
+			}
 			// A parentless (root) candidate commit has nothing to diff
 			// against for this comparison — not comparable, not an error.
 			continue
 		}
-		candidatePatch, candidateOK, err := diffPatchID(projectRoot, parent, candidate)
+		candidatePatch, candidateOK, err := diffPatchID(ctx, projectRoot, parent, candidate)
 		if err != nil {
 			return "", fmt.Errorf("integration: compute patch identity for candidate %s: %w", candidate, err)
 		}
@@ -347,8 +354,8 @@ func findRewrittenReplacement(projectRoot, base, commit string, candidates []str
 // used to name it. ok is false, with a nil error, specifically when git
 // reports no common ancestor exists (exit status 1) — a legitimate "these
 // two share no history" outcome, not a failure to run the check.
-func mergeBase(projectRoot, a, b string) (string, bool, error) {
-	cmd := exec.Command("git", "merge-base", a, b)
+func mergeBase(ctx context.Context, projectRoot, a, b string) (string, bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "merge-base", a, b)
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err == nil {
@@ -362,8 +369,8 @@ func mergeBase(projectRoot, a, b string) (string, bool, error) {
 }
 
 // firstParent resolves commit's first parent (`git rev-parse commit^`).
-func firstParent(projectRoot, commit string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", commit+"^")
+func firstParent(ctx context.Context, projectRoot, commit string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", commit+"^")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
@@ -380,8 +387,8 @@ func firstParent(projectRoot, commit string) (string, error) {
 // identify" outcome, not a git invocation failure. Callers must not treat
 // two ok-false results as equal to each other: an empty diff carries no
 // content identity to compare.
-func diffPatchID(projectRoot, from, to string) (patchID string, ok bool, err error) {
-	diffCmd := exec.Command("git", "diff", from, to)
+func diffPatchID(ctx context.Context, projectRoot, from, to string) (patchID string, ok bool, err error) {
+	diffCmd := exec.CommandContext(ctx, "git", "diff", from, to)
 	diffCmd.Dir = projectRoot
 	diffOut, err := diffCmd.Output()
 	if err != nil {
@@ -391,7 +398,7 @@ func diffPatchID(projectRoot, from, to string) (patchID string, ok bool, err err
 		return "", false, nil
 	}
 
-	patchIDCmd := exec.Command("git", "patch-id", "--stable")
+	patchIDCmd := exec.CommandContext(ctx, "git", "patch-id", "--stable")
 	patchIDCmd.Dir = projectRoot
 	patchIDCmd.Stdin = bytes.NewReader(diffOut)
 	patchOut, err := patchIDCmd.Output()
@@ -509,20 +516,21 @@ func persistReplacementRecord(projectRoot, epicRunID string, record *Replacement
 	}
 	defer os.Remove(tmpPath)
 
-	if err := os.Link(tmpPath, path); err != nil {
-		if os.IsExist(err) {
-			// Published concurrently by another caller — read back its
-			// record, exactly like a "not found" retry above.
-			winner, readErr := readReplacementRecord(path)
-			if readErr != nil {
-				return nil, readErr
-			}
-			if winner == nil {
-				return nil, fmt.Errorf("integration: replacement record at %s vanished after a concurrent publish", path)
-			}
-			return winner, nil
-		}
+	won, err := atomicLinkPublish(tmpPath, path)
+	if err != nil {
 		return nil, fmt.Errorf("integration: publish replacement record at %s: %w", path, err)
+	}
+	if !won {
+		// Published concurrently by another caller — read back its
+		// record, exactly like a "not found" retry above.
+		winner, readErr := readReplacementRecord(path)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if winner == nil {
+			return nil, fmt.Errorf("integration: replacement record at %s vanished after a concurrent publish", path)
+		}
+		return winner, nil
 	}
 	return record, nil
 }

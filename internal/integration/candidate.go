@@ -2,6 +2,7 @@
 package integration
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -102,7 +103,7 @@ var updateCandidateTestHook func()
 // staying entirely lock-free and local to this file — it does not touch,
 // duplicate, or anticipate the separate run-scoped registration-note lock
 // T-E34-F08-012 owns in lock.go.
-func UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
+func UpdateCandidate(ctx context.Context, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
 	if newEvent == nil {
 		return nil, fmt.Errorf("integration: UpdateCandidate requires a non-nil event")
 	}
@@ -116,7 +117,7 @@ func UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*Integration
 
 	var lastErr error
 	for attempt := 0; attempt < maxUpdateCandidateAttempts; attempt++ {
-		candidate, err := attemptUpdateCandidate(projectRoot, path, epicRunID, newEvent)
+		candidate, err := attemptUpdateCandidate(ctx, projectRoot, path, epicRunID, newEvent)
 		if err == nil {
 			return candidate, nil
 		}
@@ -142,7 +143,10 @@ func UpdateCandidate(epicRunID string, newEvent *IntegrationEvent) (*Integration
 // needs to fold its event, and whether a first-head candidate is still
 // missing its registration note. See that function's doc comment for the
 // full state-based reconciliation this enables.
-func GetCandidate(epicRunID string) (*IntegrationCandidate, error) {
+func GetCandidate(ctx context.Context, epicRunID string) (*IntegrationCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: get candidate: %w", err)
+	}
 	projectRoot, err := projectroot.FindProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("integration: resolve project root: %w", err)
@@ -175,7 +179,7 @@ func GetCandidate(epicRunID string) (*IntegrationCandidate, error) {
 // expectedDigest's transition slot: the only way any future attempt (this
 // call's own retry, or an independent later call) could ever lose the same
 // claim's os.Link is if this attempt actually finished publishing under it.
-func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
+func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
 	current, currentBytes, err := readCandidate(path)
 	if err != nil {
 		return nil, err
@@ -186,7 +190,7 @@ func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *Integ
 		expectedDigest = current.Digest
 	}
 
-	next, err := buildNextCandidate(projectRoot, current, epicRunID, newEvent)
+	next, err := buildNextCandidate(ctx, projectRoot, current, epicRunID, newEvent)
 	if err != nil {
 		return nil, err
 	}
@@ -212,23 +216,8 @@ func attemptUpdateCandidate(projectRoot, path, epicRunID string, newEvent *Integ
 	}
 
 	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
-	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, runFileMode)
-	if err != nil {
-		return nil, fmt.Errorf("integration: create temp candidate file: %w", err)
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpPath)
-		return nil, fmt.Errorf("integration: write temp candidate file: %w", err)
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpPath)
-		return nil, fmt.Errorf("integration: fsync temp candidate file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return nil, fmt.Errorf("integration: close temp candidate file: %w", err)
+	if err := writeTempFileSynced(tmpPath, data); err != nil {
+		return nil, fmt.Errorf("integration: write synced temp candidate file: %w", err)
 	}
 
 	if updateCandidateTestHook != nil {
@@ -345,27 +334,15 @@ func archiveCandidateHead(candidatePath, headDigest string, headBytes []byte) er
 	archivePath := filepath.Join(dir, headDigest+".json")
 
 	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", archivePath, os.Getpid(), time.Now().UnixNano())
-	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, runFileMode)
-	if err != nil {
-		return fmt.Errorf("integration: create temp archived-head file: %w", err)
+	if err := writeTempFileSynced(tmpPath, headBytes); err != nil {
+		return fmt.Errorf("integration: write synced temp archived-head file: %w", err)
 	}
-	if _, err := f.Write(headBytes); err != nil {
-		_ = f.Close()
+	defer func() {
+		// The publish result is authoritative; this is best-effort temp cleanup.
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("integration: write temp archived-head file: %w", err)
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("integration: fsync temp archived-head file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("integration: close temp archived-head file: %w", err)
-	}
+	}()
 
 	if err := os.Link(tmpPath, archivePath); err != nil {
-		_ = os.Remove(tmpPath)
 		if os.IsExist(err) {
 			// Already archived by an earlier attempt at this exact
 			// transition — headDigest's content is immutable, so this is
@@ -405,7 +382,7 @@ func claimFileName(expectedDigest string) string {
 // without ever calling CaptureBase for this run), since enforcing that
 // invariant is integration_review's closure-check job (spec.md REQ-F-005),
 // not this function's.
-func buildNextCandidate(projectRoot string, current *IntegrationCandidate, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
+func buildNextCandidate(ctx context.Context, projectRoot string, current *IntegrationCandidate, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
 	next := &IntegrationCandidate{EpicRunID: epicRunID, HeadCommit: newEvent.FeatureCommit}
 
 	ids := map[string]struct{}{newEvent.EventID: {}}
@@ -429,7 +406,7 @@ func buildNextCandidate(projectRoot string, current *IntegrationCandidate, epicR
 	sort.Strings(eventIDs)
 	next.EventIDs = eventIDs
 
-	tracked, untracked, err := computeDirtyPathDigests(projectRoot)
+	tracked, untracked, err := computeDirtyPathDigests(ctx, projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -461,8 +438,8 @@ const sharkRuntimeDirPrefix = ".shark/"
 // content cannot be read (e.g. deleted in the worktree so there is nothing
 // left to digest, or a directory entry from a fully-untracked directory)
 // is omitted rather than erroring.
-func computeDirtyPathDigests(projectRoot string) (tracked, untracked map[string]string, err error) {
-	cmd := exec.Command("git", "status", "--porcelain=v1", "-z")
+func computeDirtyPathDigests(ctx context.Context, projectRoot string) (tracked, untracked map[string]string, err error) {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
