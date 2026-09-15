@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -18,11 +19,23 @@ import (
 )
 
 func TestTaskRepository_GetByIDClassifiesMissingEntity(t *testing.T) {
-	repo := NewTaskRepository(dbconn.NewDB(test.GetTestDB()))
+	repo := NewTaskRepository(dbconn.NewDB(test.NewIsolatedTestDB(t)))
 
 	_, err := repo.GetByID(context.Background(), -1)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, repoerr.ErrNotFound), "error = %v", err)
+}
+
+func TestTaskRepository_GetByKey_ClassifiesMissingEntity(t *testing.T) {
+	repo := NewTaskRepository(dbconn.NewDB(test.NewIsolatedTestDB(t)))
+
+	for _, key := range []string{"not-a-task-key", "T-E00-F00-999", "T-E00-F00-999-missing"} {
+		t.Run(key, func(t *testing.T) {
+			_, err := repo.GetByKey(context.Background(), key)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, sql.ErrNoRows), "error = %v", err)
+		})
+	}
 }
 
 // TestTaskRepository_Create_GeneratesAndStoresSlug verifies slug generation during task creation

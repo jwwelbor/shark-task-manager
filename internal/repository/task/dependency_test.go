@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -134,6 +135,15 @@ func TestTaskRepository_ValidateDependencies(t *testing.T) {
 			expectedErrMsg: "task cannot depend on itself",
 		},
 		{
+			name: "invalid - missing dependency",
+			newTask: &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-014",
+				Title: "Task with missing dependency", Description: stringPtr("Task with missing dependency")},
+				FeatureID: featureID, Status: models.TaskStatus("todo"), Priority: 5,
+				DependsOn: stringPtr(`["T-E99-F01-999"]`)},
+			expectValid:    false,
+			expectedErrMsg: "dependency does not exist: T-E99-F01-999",
+		},
+		{
 			name: "valid - diamond dependency (no cycle)",
 			setupTasks: []*models.Task{
 				{
@@ -228,6 +238,12 @@ func TestTaskRepository_ValidateDependencies(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClassifyDependencyLookupError_DoesNotStringMatchNotFound(t *testing.T) {
+	err := classifyDependencyLookupError("T-E99-F01-999", errors.New("backend not found"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "existence check failed")
 }
 
 // This function has been moved to TaskRepository.ValidateTaskDependencies

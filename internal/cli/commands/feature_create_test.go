@@ -16,7 +16,11 @@ func TestParseCreateFeatureInput_CustomKey(t *testing.T) {
 	if err := featureCreateCmd.Flags().Set("key", "E01-F99"); err != nil {
 		t.Fatalf("failed to set key flag: %v", err)
 	}
-	defer func() { _ = featureCreateCmd.Flags().Set("key", "") }()
+	defer func() {
+		if err := featureCreateCmd.Flags().Set("key", ""); err != nil {
+			t.Errorf("reset key flag: %v", err)
+		}
+	}()
 
 	input, _, _, err := parseCreateFeatureInput(featureCreateCmd, []string{"E01", "Custom Key Feature"})
 	if err != nil {
@@ -24,6 +28,25 @@ func TestParseCreateFeatureInput_CustomKey(t *testing.T) {
 	}
 	if input.CustomKey != "E01-F99" {
 		t.Errorf("expected CustomKey %q, got %q", "E01-F99", input.CustomKey)
+	}
+}
+
+func TestParseCreateFeatureInput_CustomKeyRejectsSpaces(t *testing.T) {
+	origKey := featureCreateKey
+	defer func() { featureCreateKey = origKey }()
+
+	if err := featureCreateCmd.Flags().Set("key", "E01-F01 invalid"); err != nil {
+		t.Fatalf("failed to set key flag: %v", err)
+	}
+	defer func() {
+		if err := featureCreateCmd.Flags().Set("key", ""); err != nil {
+			t.Errorf("reset key flag: %v", err)
+		}
+	}()
+
+	_, _, _, err := parseCreateFeatureInput(featureCreateCmd, []string{"E01", "Feature with invalid key"})
+	if err == nil {
+		t.Fatal("expected a space-containing custom key to be rejected")
 	}
 }
 

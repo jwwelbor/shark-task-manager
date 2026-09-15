@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -99,10 +100,14 @@ func (r *TaskRepository) ValidateTaskDependencies(ctx context.Context, task *mod
 // points the caller at the supported alternative.
 func (r *TaskRepository) dependencyNotFoundError(ctx context.Context, dep string) error {
 	_, err := r.GetByKey(ctx, dep)
+	return classifyDependencyLookupError(dep, err)
+}
+
+func classifyDependencyLookupError(dep string, err error) error {
 	if err == nil {
 		return fmt.Errorf("dependency %s exists in a different feature: depends_on only supports same-feature dependencies; use 'shark task link --depends-on' to create a cross-feature dependency", dep)
 	}
-	if strings.Contains(err.Error(), "not found") {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("dependency does not exist: %s", dep)
 	}
 	// GetByKey failed for a reason other than not-found (e.g. a transient DB

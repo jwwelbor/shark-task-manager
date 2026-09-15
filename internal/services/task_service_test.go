@@ -414,7 +414,7 @@ func TestTaskService_GetTask_Found(t *testing.T) {
 func TestTaskService_GetTask_NotFound(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return nil, fmt.Errorf("not found")
+			return nil, sql.ErrNoRows
 		},
 	}
 
@@ -424,7 +424,7 @@ func TestTaskService_GetTask_NotFound(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "failed to get")
+	assert.Contains(t, err.Error(), "failed to get task")
 }
 
 // ============================================================================

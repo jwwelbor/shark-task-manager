@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1713,7 +1714,7 @@ func TestEpicService_CreateEpic_CustomKey(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			// Return nil to indicate key doesn't exist yet
-			return nil, fmt.Errorf("not found")
+			return nil, sql.ErrNoRows
 		},
 		createFn: func(ctx context.Context, epic *models.Epic) error {
 			capturedEpic = epic
@@ -1736,6 +1737,48 @@ func TestEpicService_CreateEpic_CustomKey(t *testing.T) {
 	if capturedEpic == nil {
 		t.Fatal("expected repo.Create to be called")
 	}
+}
+
+func TestEpicService_CreateEpic_CustomKey_NormalizesPaddedKey(t *testing.T) {
+	var checkedKey string
+	repo := &mockEpicRepo{
+		getByKeyFn: func(_ context.Context, key string) (*models.Epic, error) {
+			checkedKey = key
+			return nil, sql.ErrNoRows
+		},
+	}
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	epic, err := svc.CreateEpic(context.Background(), CreateEpicInput{Title: "Padded key", CustomKey: " e99 "})
+	require.NoError(t, err)
+	assert.Equal(t, "E99", checkedKey)
+	assert.Equal(t, "E99", epic.Key)
+}
+
+func TestEpicService_CreateEpic_CustomKey_PropagatesLookupError(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(context.Context, string) (*models.Epic, error) { return nil, nil },
+	}
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	lookupErr := errors.New("database unavailable")
+	repo.getByKeyFn = func(context.Context, string) (*models.Epic, error) { return nil, lookupErr }
+	repo.createFn = func(context.Context, *models.Epic) error {
+		t.Fatal("Create must not run after custom-key lookup failure")
+		return nil
+	}
+	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{Title: "Lookup error", CustomKey: "E99"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, lookupErr)
+}
+
+func TestEpicService_CreateEpic_CustomKeyRejectsWhitespace(t *testing.T) {
+	repo := &mockEpicRepo{}
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
+
+	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{Title: "Whitespace key", CustomKey: "   "})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidEpicCustomKey)
 }
 
 func TestEpicService_CreateEpic_DuplicateCustomKey(t *testing.T) {

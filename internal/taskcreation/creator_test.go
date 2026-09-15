@@ -3,6 +3,7 @@ package taskcreation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,48 @@ func TestCreator_CreateTask_PersistsDependencyRelationship(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rels, 1)
 	assert.Equal(t, dependency.ID, rels[0].ToEntityID)
+}
+
+func TestResolveTaskCustomKey_RejectsMalformedKey(t *testing.T) {
+	_, err := resolveTaskCustomKey("not-a-task-key", "E01-F01")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrInvalidTaskCustomKey), "error = %v", err)
+}
+
+func TestValidateTaskCustomKeyAvailability_PropagatesLookupError(t *testing.T) {
+	lookupErr := errors.New("database unavailable")
+	err := validateTaskCustomKeyAvailability(context.Background(), "T-E97-F01-001", func(context.Context, string) (*models.Task, error) {
+		return nil, lookupErr
+	}, func() (string, error) {
+		t.Fatal("suggestion must not run after lookup error")
+		return "", nil
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, lookupErr), "error = %v", err)
+}
+
+func TestCreator_CreateTask_CustomKeyPropagatesLookupError(t *testing.T) {
+	ctx := context.Background()
+	db := repository.NewDB(test.NewIsolatedTestDB(t))
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97", Title: "Lookup error epic"}, Status: models.EpicStatusDraft, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, epic))
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F01", Title: "Lookup error feature"}, EpicID: epic.ID, Status: models.FeatureStatusDraft}
+	require.NoError(t, featureRepo.Create(ctx, feature))
+
+	creator := NewCreator(db, NewKeyGenerator(taskRepo, featureRepo), NewValidator(epicRepo, featureRepo, taskRepo), templates.NewRenderer(templates.NewLoader("")), taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
+	lookupErr := errors.New("database unavailable")
+	creator.taskKeyLookup = func(context.Context, string) (*models.Task, error) { return nil, lookupErr }
+
+	_, err := creator.CreateTask(ctx, CreateTaskInput{EpicKey: "E97", FeatureKey: "F01", Title: "Must not create", AgentType: "general", Priority: 5, CustomKey: "T-E97-F01-001"})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, lookupErr), "error = %v", err)
+	var taskCount int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE key = ?", "T-E97-F01-001").Scan(&taskCount))
+	assert.Zero(t, taskCount)
 }
 
 // TestValidateCustomFilename_InvalidPaths tests rejection of invalid paths

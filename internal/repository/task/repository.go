@@ -384,7 +384,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Ta
 	numericKey, slug, ok := parseSluggedKey(key)
 	if !ok {
 		// Cannot parse as slugged key, return not found
-		return nil, fmt.Errorf("task not found with key %s", key)
+		return nil, fmt.Errorf("task not found with key %s: %w", key, sql.ErrNoRows)
 	}
 
 	// Try lookup by numeric key + slug match
@@ -429,7 +429,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Ta
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("task not found with key %s", key)
+		return nil, fmt.Errorf("task not found with key %s: %w", key, sql.ErrNoRows)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task: %w", err)
