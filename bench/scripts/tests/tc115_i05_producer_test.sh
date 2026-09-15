@@ -970,9 +970,19 @@ import sys
 from pathlib import Path
 
 runner, directory = map(Path, sys.argv[1:])
+events = [
+    {"accessor": "fixture", "kind": "read", "path": "oracle/test.py"},
+    {"accessor": "fixture", "kind": "read", "path": "oracle/expected.json"},
+]
 source = runner.read_text(encoding="utf-8").split("<<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
 definitions = source.rsplit("\ntry:\n    raise SystemExit(main", 1)[0]
-namespace = {"__name__": "tc115_i05_source"}
+# Production deliberately emits an empty list: real evaluator access is
+# broker-owned and occurs only after the terminal boundary. Replace just the
+# snapshot literal in this isolated source-extraction seam to exercise the
+# writer's otherwise dormant snapshot -> journal handoff without widening the
+# adapter/worker trust boundary.
+definitions = definitions.replace('"evaluator_access": [],', '"evaluator_access": _tc115_events,', 1)
+namespace = {"__name__": "tc115_i05_source", "_tc115_events": events}
 exec(compile(definitions, str(runner), "exec"), namespace)
 
 scenario = {"entity_family": "task"}
@@ -984,10 +994,6 @@ record = {"dispatches": []}
 writer = namespace["I05BundleWriter"](directory, Path("fixture.yaml"), scenario, identity, "tc115-010-producer", record)
 writer._stage_category_for = lambda *_: ("discovery", None)
 namespace["stage_input_lineage"] = lambda *_: []
-events = [
-    {"accessor": "fixture", "kind": "read", "path": "oracle/test.py"},
-    {"accessor": "fixture", "kind": "read", "path": "oracle/expected.json"},
-]
 writer.record_stage(
     {"ordinal": 1, "response": {"entity_key": "BUG-1", "entity_type": "bug", "status": "research", "provider": "fixture"}, "evidence_refs": {"prompt_sha256": "fixture"}},
     {}, None, Path("."), {"evaluator_access": events},

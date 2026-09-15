@@ -832,20 +832,6 @@ def provider_usage_envelope(worker_result):
     return envelope if isinstance(envelope, dict) else worker_result
 
 
-def evaluator_access_events(worker_envelope):
-    """Return the typed evaluator-access records carried by an adapter.
-
-    The current adapters do not report evaluator access, so real runs retain
-    the empty list. Keeping this at the producer boundary makes a future
-    adapter-provided record flow into both the immutable snapshot and the
-    append-only bundle journal without a second representation.
-    """
-    events = worker_envelope.get("evaluator_access") if isinstance(worker_envelope, dict) else None
-    if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
-        return []
-    return events
-
-
 def test_suite_reference(repo_root):
     """AC-006's two replay-guard fields beyond REQ-F-006's six candidate
     identity fields (`replay-stage-evidence.sh` reads both):
@@ -1329,7 +1315,7 @@ class I05BundleWriter:
             "usage": usage,
             "time_ledger": reconcile_time_ledger(self.origin_ns, timing),
             "rework_count": rework_count,
-            "evaluator_access": evaluator_access_events(worker_envelope),
+            "evaluator_access": [],
         }
         if category is not None:
             snapshot["stage_category"] = category
