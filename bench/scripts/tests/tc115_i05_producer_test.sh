@@ -576,23 +576,26 @@ trap - EXIT
 # before any write; the symlink target is left untouched.
 WORKDIR_S="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR_S"' EXIT
-mkdir -p "$WORKDIR_S/bin" "$WORKDIR_S/scratch" "$WORKDIR_S/i05" "$WORKDIR_S/elsewhere"
-echo "canary" >"$WORKDIR_S/elsewhere/canary.txt"
-ln -s "$WORKDIR_S/elsewhere" "$WORKDIR_S/i05/stages"
-write_single_dispatch_shark "$WORKDIR_S/bin"
-set +e
-PATH="$WORKDIR_S/bin:$PATH" SHARK_EVENTS="$WORKDIR_S/events.ndjson" \
-	SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" "$RUNNER" \
-	--scenario "$SCENARIO" --run-id tc115s --root ROOT-001 --scratch-root "$WORKDIR_S/scratch" \
-	--mode contract --i05-bundle-dir "$WORKDIR_S/i05" --output "$WORKDIR_S/lifecycle.jsonl" \
-	>/dev/null 2>"$WORKDIR_S/err"
-rc=$?
-set -e
-[[ "$rc" -ne 0 ]] || fail "(b) symlinked producer-owned entry unexpectedly succeeded"
-grep -q "symlink" "$WORKDIR_S/err" || fail "(b) symlink refusal was not named in stderr"
-[[ -f "$WORKDIR_S/i05/bundle.json" ]] && fail "(b) bundle.json was written despite the symlink refusal"
-[[ "$(cat "$WORKDIR_S/elsewhere/canary.txt")" == "canary" ]] || fail "(b) symlink target was modified despite the refusal"
-[[ -f "$WORKDIR_S/events.ndjson" ]] && fail "(b) shark was invoked despite the symlink refusal (refusal must precede any write)"
+for mode in contract dry-run; do
+	RUN_DIR="$WORKDIR_S/$mode"
+	mkdir -p "$RUN_DIR/bin" "$RUN_DIR/scratch" "$RUN_DIR/i05" "$RUN_DIR/elsewhere"
+	echo "canary" >"$RUN_DIR/elsewhere/canary.txt"
+	ln -s "$RUN_DIR/elsewhere" "$RUN_DIR/i05/stages"
+	write_single_dispatch_shark "$RUN_DIR/bin"
+	set +e
+	PATH="$RUN_DIR/bin:$PATH" SHARK_EVENTS="$RUN_DIR/events.ndjson" \
+		SHARK_RESPONSE="$SCRIPTS_DIR/testdata/lifecycle/next-response-complete.json" "$RUNNER" \
+		--scenario "$SCENARIO" --run-id "tc115s-$mode" --root ROOT-001 --scratch-root "$RUN_DIR/scratch" \
+		--mode "$mode" --i05-bundle-dir "$RUN_DIR/i05" --output "$RUN_DIR/lifecycle.jsonl" \
+		>/dev/null 2>"$RUN_DIR/err"
+	rc=$?
+	set -e
+	[[ "$rc" -ne 0 ]] || fail "(b) $mode symlinked producer-owned entry unexpectedly succeeded"
+	grep -q "symlink" "$RUN_DIR/err" || fail "(b) $mode symlink refusal was not named in stderr"
+	[[ -f "$RUN_DIR/i05/bundle.json" ]] && fail "(b) $mode bundle.json was written despite the symlink refusal"
+	[[ "$(cat "$RUN_DIR/elsewhere/canary.txt")" == "canary" ]] || fail "(b) $mode symlink target was modified despite the refusal"
+	[[ -f "$RUN_DIR/events.ndjson" ]] && fail "(b) $mode shark was invoked despite the symlink refusal (refusal must precede any write)"
+done
 rm -rf "$WORKDIR_S"
 trap - EXIT
 
@@ -953,8 +956,9 @@ trap - EXIT
 
 echo "TC-115 TC-010: pass (access.jsonl existence + append-only via real --grant-access)"
 
-# TC-010 partition 3: the producer's own dormant non-empty branch writes a
-# snapshot-provided evaluator_access list verbatim before bundle finalization.
+# TC-010 partition 3: an adapter-provided non-empty evaluator_access list
+# flows through record_stage into both its snapshot and access.jsonl before
+# bundle finalization.
 # run-lifecycle.sh embeds Python rather than exposing an importable module, so
 # execute its definitions without its main() epilogue -- the same source seam
 # used by other lifecycle contract tests.
@@ -971,26 +975,30 @@ definitions = source.rsplit("\ntry:\n    raise SystemExit(main", 1)[0]
 namespace = {"__name__": "tc115_i05_source"}
 exec(compile(definitions, str(runner), "exec"), namespace)
 
-writer = object.__new__(namespace["I05BundleWriter"])
-writer.dir = directory
-writer.scenario_path = Path("fixture.yaml")
-writer.scenario = {"entity_family": "task"}
-writer.identity = {
+scenario = {"entity_family": "task"}
+identity = {
     "scenario_id": "fixture", "scenario_version": "1", "roots": {},
     "fixture_digest": "sha256:fixture",
 }
-writer.run_id = "tc115-010-producer"
-writer.record = {"dispatches": []}
-writer._stages_index = []
+record = {"dispatches": []}
+writer = namespace["I05BundleWriter"](directory, Path("fixture.yaml"), scenario, identity, "tc115-010-producer", record)
+writer._stage_category_for = lambda *_: ("discovery", None)
+namespace["stage_input_lineage"] = lambda *_: []
 events = [
     {"accessor": "fixture", "kind": "read", "path": "oracle/test.py"},
     {"accessor": "fixture", "kind": "read", "path": "oracle/expected.json"},
 ]
-writer._append_access_events(events)
+writer.record_stage(
+    {"ordinal": 1, "response": {"entity_key": "BUG-1", "entity_type": "bug", "status": "research", "provider": "fixture"}, "evidence_refs": {"prompt_sha256": "fixture"}},
+    {}, None, Path("."), {"evaluator_access": events},
+    {"stage_start": 10, "stage_end": 20, "claimed": []}, Path("."), "fixture", {}, {},
+)
 writer.finalize("complete", "fixture completion")
 
 lines = (directory / "access.jsonl").read_text(encoding="utf-8").splitlines()
 assert [json.loads(line) for line in lines] == events, "producer did not retain evaluator_access entries verbatim"
+snapshot = json.loads(next((directory / "stages").glob("*.json")).read_text(encoding="utf-8"))
+assert snapshot["evaluator_access"] == events, "snapshot did not retain evaluator_access entries verbatim"
 PY
 rm -rf "$WORKDIR_10P"
 trap - EXIT
@@ -1405,6 +1413,26 @@ for name, spans in ledger['intervals'].items():
     assert span not in spans, f'{span} leaked into {name}'
 "
 rm -rf "$WORKDIR_9B"
+trap - EXIT
+
+# Partition 3: two self-overlapping windows from the same worker envelope
+# must be unioned before emission. This fails against the pre-TD-223 code,
+# which only subtracted the driver-observed intervals for each raw window.
+WORKDIR_9D="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR_9D"' EXIT
+run_tc009_case "$WORKDIR_9D" ',"time_ledger":{"provider_active":[[1000000,3000000],[2000000,4000000]]}'
+python3 -c "
+import json
+b = json.load(open('$WORKDIR_9D/i05/bundle.json'))
+with open('$WORKDIR_9D/i05/' + b['stages'][0]['snapshot_path']) as f:
+    provider = json.load(f)['time_ledger']['intervals']['provider_active']
+assert sum(end - start for start, end in provider) == 3_000_000, provider
+for left, right in zip(provider, provider[1:]):
+    assert left[1] <= right[0], f'overlapping provider_active spans: {provider}'
+"
+"$SCRIPTS_DIR/verify-stage-evidence.sh" "$WORKDIR_9D/i05" >/dev/null 2>"$WORKDIR_9D/verify.err" \
+	|| fail "TC-009 self-overlap: emitted provider_active spans were not verifier-safe: $(cat "$WORKDIR_9D/verify.err")"
+rm -rf "$WORKDIR_9D"
 trap - EXIT
 
 # Negative case: envelope reports an interval extending far past the

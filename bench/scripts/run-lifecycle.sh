@@ -735,6 +735,8 @@ def _load_yaml_table(cache, cache_key, filename, table_key, label, value_type=di
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError) as exc:
             raise RuntimeError(f"cannot read {label} {path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError(f"{label} {path} must contain a mapping")
         value = data.get(table_key)
         if not isinstance(value, value_type) or (value_type is str and not value):
             raise RuntimeError(f"{label} {path} is missing {table_key}")
@@ -828,6 +830,20 @@ def provider_usage_envelope(worker_result):
         return {}
     envelope = worker_result.get("provider_usage_envelope")
     return envelope if isinstance(envelope, dict) else worker_result
+
+
+def evaluator_access_events(worker_envelope):
+    """Return the typed evaluator-access records carried by an adapter.
+
+    The current adapters do not report evaluator access, so real runs retain
+    the empty list. Keeping this at the producer boundary makes a future
+    adapter-provided record flow into both the immutable snapshot and the
+    append-only bundle journal without a second representation.
+    """
+    events = worker_envelope.get("evaluator_access") if isinstance(worker_envelope, dict) else None
+    if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
+        return []
+    return events
 
 
 def test_suite_reference(repo_root):
@@ -1313,7 +1329,7 @@ class I05BundleWriter:
             "usage": usage,
             "time_ledger": reconcile_time_ledger(self.origin_ns, timing),
             "rework_count": rework_count,
-            "evaluator_access": [],
+            "evaluator_access": evaluator_access_events(worker_envelope),
         }
         if category is not None:
             snapshot["stage_category"] = category
