@@ -57,6 +57,42 @@ func (r *EntityRelationshipRepository) Create(
 	return nil
 }
 
+// CreateWithTx inserts a relationship in an existing transaction.
+func (r *EntityRelationshipRepository) CreateWithTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	rel *models.EntityRelationship,
+) error {
+	if err := rel.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO entity_relationships
+			(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+		VALUES (?, ?, ?, ?, ?)`,
+		rel.FromEntityType, rel.FromEntityID,
+		rel.ToEntityType, rel.ToEntityID,
+		rel.RelationshipType,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return fmt.Errorf("relationship already exists: %s(%d) -[%s]-> %s(%d)",
+				rel.FromEntityType, rel.FromEntityID,
+				rel.RelationshipType,
+				rel.ToEntityType, rel.ToEntityID)
+		}
+		return fmt.Errorf("failed to create entity relationship: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	rel.ID = id
+	return nil
+}
+
 // Delete removes a relationship by primary key.
 func (r *EntityRelationshipRepository) Delete(ctx context.Context, id int64) error {
 	result, err := r.db.ExecContext(ctx,

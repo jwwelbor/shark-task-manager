@@ -70,6 +70,43 @@ func TestValidateCustomFilename_ValidPaths(t *testing.T) {
 	}
 }
 
+func TestCreator_CreateTask_PersistsDependencyRelationship(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	_, err := database.ExecContext(ctx, `DELETE FROM entity_relationships WHERE from_entity_type = 'task' AND from_entity_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E96-F01-%')`)
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E96-F01-%')")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E96-F01-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E96-F01'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
+	require.NoError(t, err)
+
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96", Title: "Dependency test"}, Status: models.EpicStatusDraft, Priority: models.PriorityMedium}
+	require.NoError(t, epicRepo.Create(ctx, epic))
+	featurePath := "docs/plan/E96-dependency/E96-F01/feature.md"
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F01", Title: "Dependency feature", FilePath: &featurePath}, EpicID: epic.ID, Status: models.FeatureStatusDraft}
+	require.NoError(t, featureRepo.Create(ctx, feature))
+	dependency := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E96-F01-001", Title: "Prerequisite"}, FeatureID: feature.ID, Status: models.TaskStatus("todo"), Priority: 5}
+	require.NoError(t, taskRepo.Create(ctx, dependency))
+
+	creator := NewCreator(db, NewKeyGenerator(taskRepo, featureRepo), NewValidator(epicRepo, featureRepo, taskRepo), templates.NewRenderer(templates.NewLoader("")), taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
+	result, err := creator.CreateTask(ctx, CreateTaskInput{EpicKey: "E96", FeatureKey: "F01", Title: "Dependent", AgentType: "general", Priority: 5, DependsOn: dependency.Key})
+	require.NoError(t, err)
+
+	rels, err := repository.NewEntityRelationshipRepository(db).GetOutgoing(ctx, models.EntityTypeTask, result.Task.ID, []models.EntityRelationshipType{models.EntityRelDependsOn})
+	require.NoError(t, err)
+	require.Len(t, rels, 1)
+	assert.Equal(t, dependency.ID, rels[0].ToEntityID)
+}
+
 // TestValidateCustomFilename_InvalidPaths tests rejection of invalid paths
 func TestValidateCustomFilename_InvalidPaths(t *testing.T) {
 	tests := []struct {
