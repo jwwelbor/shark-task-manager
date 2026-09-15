@@ -820,6 +820,21 @@ def resolve_usage(provider_name, envelope):
     return usage, errors
 
 
+def provider_usage_envelope(worker_result):
+    """Select the bounded provider-envelope evidence when an adapter supplied
+    it, retaining the legacy direct-envelope route for existing adapters.
+
+    The adapter's normalized ``usage`` object intentionally has different
+    field names from usage-mapping.yaml. Mapping must therefore consume its
+    measurement-only ``provider_usage_envelope`` rather than silently treating
+    every mapped raw-envelope slot as unavailable.
+    """
+    if not isinstance(worker_result, dict):
+        return {}
+    envelope = worker_result.get("provider_usage_envelope")
+    return envelope if isinstance(envelope, dict) else worker_result
+
+
 def test_suite_reference(repo_root):
     """AC-006's two replay-guard fields beyond REQ-F-006's six candidate
     identity fields (`replay-stage-evidence.sh` reads both):
@@ -1240,7 +1255,9 @@ class I05BundleWriter:
             errors.append(category_error)
         if not provider:
             errors.append({"kind": "missing_provider"})
-        usage, usage_errors = resolve_usage(mapped_provider(response), worker_envelope if isinstance(worker_envelope, dict) else {})
+        usage, usage_errors = resolve_usage(
+            mapped_provider(response), provider_usage_envelope(worker_envelope)
+        )
         errors.extend(usage_errors)
         if stage_candidate.get("test_identity_error"):
             errors.append({
@@ -2107,7 +2124,9 @@ def finalize_stage_evidence(
     # own record_stage() makes for this dispatch's snapshot, so I-07's
     # stage errors[] reflects the identical usage-mapping outcome
     # rather than staying an empty placeholder.
-    _usage, usage_errors = resolve_usage(mapped_provider(response), worker_result if isinstance(worker_result, dict) else {})
+    _usage, usage_errors = resolve_usage(
+        mapped_provider(response), provider_usage_envelope(worker_result)
+    )
     if stage_candidate.get("test_identity_error"):
         usage_errors.append({
             "kind": "test_suite_unavailable",

@@ -179,6 +179,7 @@ if [[ "$LIVE" -eq 1 ]]; then
 	LIVE_I05_OUT="$OUT/runs/$LIVE_RUN_ID/i05"
 	echo "smoke-lifecycle: live run against scenario $SCENARIO, root $ROOT_KEY (this spends provider credit)" >&2
 	export LIFECYCLE_ADAPTER="$ADAPTER"
+	LIVE_RUN_STATUS=0
 	"$RUN_LIFECYCLE_BIN" \
 		--scenario "$PACKAGE_PATH" \
 		--run-id "$LIVE_RUN_ID" \
@@ -187,6 +188,15 @@ if [[ "$LIVE" -eq 1 ]]; then
 		--output "$LIVE_OUT" \
 		--i05-bundle-dir "$LIVE_I05_OUT" \
 		"${FIXTURE_ARGS[@]}" \
-		--mode live
+		--mode live || LIVE_RUN_STATUS=$?
+	if [[ "$LIVE_RUN_STATUS" -ne 0 ]]; then
+		echo "smoke-lifecycle: live run-lifecycle.sh exited $LIVE_RUN_STATUS -- record's own outcome.reason:" >&2
+		python3 -c "
+import json
+with open('$LIVE_OUT', encoding='utf-8') as f:
+    print(json.dumps(json.load(f)['outcome'], indent=2))
+" >&2 || echo "smoke-lifecycle: could not read $LIVE_OUT for detail" >&2
+		exit "$LIVE_RUN_STATUS"
+	fi
 	echo "smoke-lifecycle: live run complete -- record at $LIVE_OUT, I-05 bundle at $LIVE_I05_OUT" >&2
 fi

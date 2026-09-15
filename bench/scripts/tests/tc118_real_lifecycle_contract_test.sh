@@ -40,26 +40,82 @@ PROVIDER="$WORKDIR/provider.sh"
 cat >"$PROVIDER" <<'EOF'
 #!/usr/bin/env bash
 cat >/dev/null
+# The real Shark transition from bug research requires its real research
+# artifact.  This deterministic local worker produces the smallest valid V2
+# report in its scratch-project working directory before recommending pass.
+mkdir -p docs/plan/bugs
+cat >docs/plan/bugs/B001.research-report.md <<'REPORT'
+---
+research_schema: 2
+rigor: simple
+categories: [backend]
+related_work: false
+---
+# Research report
+
+## Scope
+
+Exercise the benchmark bug lifecycle through Shark's production transition.
+
+## Research checklist
+
+- [x] `scope_vocabulary` — Evidence: `docs/plan/bugs/B001.md`.
+- [x] `affected_implementation_or_contract` — Evidence: `bench/scripts/run-lifecycle.sh`.
+
+## Findings
+
+The local fixture must satisfy the same research transition contract as a provider-backed run.
+
+## Decisions
+
+Reuse the lifecycle runner and its documented local adapter route.
+
+## Sources
+
+- `docs/plan/bugs/B001.md`
+- `bench/scripts/run-lifecycle.sh`
+REPORT
 printf '%s\n' '{"kind":"final","recommended_outcome":"pass","evidence":[],"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"modelUsage":{"fixture-model":{}},"duration_api_ms":1,"num_turns":1,"session_id":"tc118-provider"}'
 EOF
 chmod +x "$PROVIDER"
 
-smoke_rc=0
-LIFECYCLE_PROVIDER_COMMAND="[\"$PROVIDER\"]" "$SMOKE" --live --adapter "$LIFECYCLE_ADAPTER" --out "$WORKDIR/smoke" --run-id tc118-real-contract --fixture-root "$FIXTURE_CHECKOUT" </dev/null || smoke_rc=$?
+if ! LIFECYCLE_PROVIDER_COMMAND="[\"$PROVIDER\"]" "$SMOKE" --live --adapter "$LIFECYCLE_ADAPTER" --out "$WORKDIR/smoke" --run-id tc118-real-contract --fixture-root "$FIXTURE_CHECKOUT" </dev/null; then
+	fail "smoke-lifecycle failed instead of producing a complete live lifecycle record"
+fi
 RECORD="$WORKDIR/smoke/runs/tc118-real-contract-live/lifecycle.jsonl"
 [[ -s "$RECORD" ]] || fail "smoke-lifecycle did not produce lifecycle.jsonl"
 "$VERIFIER" "$RECORD" --schema "$REPO_ROOT/bench/runs/i07-schema.yaml" || fail "production verifier rejected the real lifecycle record"
 
-python3 - "$RECORD" <<'PY'
+python3 - "$RECORD" "$FIXTURE_CHECKOUT" <<'PY'
 import json
 import hashlib
+import os
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as stream:
     record = json.loads(stream.readline())
+fixture_checkout = os.path.realpath(sys.argv[2])
 assert record["identity"]["shark_binary_digest"], record
+assert record["identity"]["roots"]["agent_fixture_checkout"] == fixture_checkout, record
 assert record["dispatches"], record
 assert record["stages"], record
+assert record["outcome"]["terminal"] == "complete", record
+assert record["outcome"]["publication_eligible"] is True, record
+required_usage = {
+    "cost_usd", "input_tokens", "output_tokens",
+    "cache_read_input_tokens", "cache_creation_input_tokens", "model_ids",
+    "api_active_duration_ms", "turn_count",
+}
+required_lineage = {
+    "scenario_package", "agent_visible_input", "rendered_prompt",
+    "fixture_checkout", "shark_content", "execution_adapter", "lifecycle_adapter",
+}
+for dispatch, stage in zip(record["dispatches"], record["stages"]):
+    assert dispatch["worker"]["session_id"], dispatch
+    assert dispatch["worker"]["usage"]["provider_session_id"] == "tc118-provider", dispatch
+    assert required_usage <= set(stage["usage"]), stage["usage"]
+    assert stage["usage"]["model_ids"] == ["fixture-model"], stage["usage"]
+    assert required_lineage <= {entry["source_kind"] for entry in stage["input_lineage"]}, stage["input_lineage"]
 candidate = record["stages"][0]["candidate"]
 fields = (
     "base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest",
@@ -70,4 +126,4 @@ expected = hashlib.sha256(json.dumps({field: candidate[field] for field in field
 assert candidate["identity_digest"] == expected, candidate
 PY
 
-echo "TC-118: real Shark lifecycle record at the scenario-pinned fixture SHA passes the production I-07 verifier (smoke exit=$smoke_rc)"
+echo "TC-118: complete real Shark lifecycle record at the scenario-pinned fixture SHA passes the production I-07 verifier"
