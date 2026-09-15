@@ -952,7 +952,21 @@ def provider_active_claims(worker_envelope, adapter_start_ns, adapter_end_ns, cl
         end = min(end, adapter_end_ns)
         if end <= start:
             continue
-        claims.extend(_subtract_claimed((start, end), claimed_union))
+        accepted = _subtract_claimed((start, end), claimed_union)
+        claims.extend(accepted)
+        # Later windows from this same envelope must not re-claim a fragment
+        # already accepted above. Keep the local union normalized just as the
+        # driver-observed input union was normalized before this loop.
+        for accepted_start, accepted_end in accepted:
+            claimed_union.append((accepted_start, accepted_end))
+        claimed_union.sort()
+        normalized = []
+        for claimed_start, claimed_end in claimed_union:
+            if normalized and claimed_start <= normalized[-1][1]:
+                normalized[-1] = (normalized[-1][0], max(normalized[-1][1], claimed_end))
+            else:
+                normalized.append((claimed_start, claimed_end))
+        claimed_union = normalized
     return claims
 
 
