@@ -58,6 +58,12 @@ type AgentDispatcher interface {
 	BuildCommand(input DispatchInput) (string, error)
 }
 
+type capturedStream struct {
+	data     []byte
+	exceeded bool
+	err      error
+}
+
 // DispatchInput contains all information needed to invoke an agent for a single
 // workflow stage. It is constructed by the run controller from the entity data
 // and the populated orchestrator action.
@@ -180,11 +186,6 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 	}
 
 	// Read stdout and stderr concurrently to prevent pipe deadlocks.
-	type capturedStream struct {
-		data     []byte
-		exceeded bool
-		err      error
-	}
 	stdoutCh := make(chan capturedStream, 1)
 	stderrCh := make(chan capturedStream, 1)
 
@@ -200,11 +201,8 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 
 	waitErr := cmd.Wait()
 	duration := time.Since(start)
-	if stdoutCapture.err != nil || stderrCapture.err != nil {
-		return nil, fmt.Errorf("capture agent output: stdout=%v stderr=%v", stdoutCapture.err, stderrCapture.err)
-	}
-	if stdoutCapture.exceeded || stderrCapture.exceeded {
-		return nil, fmt.Errorf("agent output exceeds the maximum capture size of %d bytes", workercontrol.MaxEnvelopeBytes)
+	if err := validateCapturedStreams(stdoutCapture, stderrCapture); err != nil {
+		return nil, err
 	}
 
 	stdout := string(stdoutCapture.data)
@@ -237,6 +235,16 @@ func execAndCapture(cmd *exec.Cmd, cmdStr string) (*DispatchResult, error) {
 	}
 
 	return result, nil
+}
+
+func validateCapturedStreams(stdout, stderr capturedStream) error {
+	if stdout.err != nil || stderr.err != nil {
+		return fmt.Errorf("capture agent output: stdout=%v stderr=%v", stdout.err, stderr.err)
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return fmt.Errorf("agent output exceeds the maximum capture size of %d bytes", workercontrol.MaxEnvelopeBytes)
+	}
+	return nil
 }
 
 // readBoundedStream retains at most max bytes while continuing to drain the

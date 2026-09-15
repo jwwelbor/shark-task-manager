@@ -442,7 +442,7 @@ func (s *EntityService) enforceAdvanceGuard(ctx context.Context, tx *sql.Tx, ent
 	if strings.TrimSpace(opts.FromStatus) == "" {
 		return ErrAdvanceGuardFromStatusRequired
 	}
-	if !strings.EqualFold(strings.TrimSpace(opts.FromStatus), s.workflowSvc.NormalizeStatus(currentStatus)) {
+	if !strings.EqualFold(s.workflowSvc.NormalizeStatus(strings.TrimSpace(opts.FromStatus)), s.workflowSvc.NormalizeStatus(currentStatus)) {
 		return ErrAdvanceGuardStaleFromStatus
 	}
 	if opts.ForceRepeat {
