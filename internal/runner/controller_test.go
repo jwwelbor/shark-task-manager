@@ -1738,6 +1738,13 @@ func TestRecommendedOutcome_MalformedJSONFailsLoud(t *testing.T) {
 	}
 }
 
+func TestRecommendedOutcome_MalformedFinalJSONAfterProseFailsLoud(t *testing.T) {
+	outcome, specified, err := recommendedOutcome("Completed the review.\n{\"outcome\": \"blocked\"")
+	if err == nil {
+		t.Fatalf("recommendedOutcome() error = nil, want malformed final JSON to fail loud; got outcome=%q specified=%v", outcome, specified)
+	}
+}
+
 // TestRecommendedOutcome_WrongTypedOutcomeFieldFailsLoud verifies a
 // wrong-typed `outcome` field (e.g. a number instead of a string) surfaces a
 // parse error rather than silently falling through to pass-first.
