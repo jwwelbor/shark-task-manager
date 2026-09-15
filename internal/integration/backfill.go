@@ -216,6 +216,12 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	if err != nil {
 		return nil, err
 	}
+	if run.EpicKey != epicKey || run.EpicRunID != epicRunID || run.BaseCommit != base {
+		return nil, &RegistrationConflictError{
+			EpicKey: epicKey,
+			Reason:  "integration run changed while backfill was acquiring ownership",
+		}
+	}
 
 	var (
 		candidate *IntegrationCandidate
