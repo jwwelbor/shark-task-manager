@@ -3,6 +3,8 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +23,30 @@ func TestReadBoundedStream_DrainsAndReportsExcess(t *testing.T) {
 	}
 	if len(captured.data) != workercontrol.MaxEnvelopeBytes {
 		t.Fatalf("retained %d bytes, want %d", len(captured.data), workercontrol.MaxEnvelopeBytes)
+	}
+}
+
+func TestExecAndCapture_RejectsOversizedOutput(t *testing.T) {
+	for _, stream := range []string{"stdout", "stderr"} {
+		t.Run(stream, func(t *testing.T) {
+			action := "repeat_" + stream
+			cmd := exec.Command(
+				os.Args[0],
+				"-test.run=TestHelperProcess",
+				"--",
+				action,
+				fmt.Sprint(workercontrol.MaxEnvelopeBytes+1),
+			)
+			cmd.Env = append(os.Environ(), "GO_TEST_HELPER_PROCESS=1")
+
+			_, err := execAndCapture(cmd, "helper")
+			if err == nil {
+				t.Fatal("expected oversized output to be rejected")
+			}
+			if !strings.Contains(err.Error(), "maximum capture") {
+				t.Fatalf("expected capture limit error, got %v", err)
+			}
+		})
 	}
 }
 
