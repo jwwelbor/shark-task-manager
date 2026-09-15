@@ -1655,9 +1655,9 @@ func TestRecommendedOutcome_JSONBody(t *testing.T) {
 	}
 }
 
-// TestRecommendedOutcome_JSONBodyWithWhitespace verifies the whole-stdout JSON
-// match tolerates surrounding whitespace/newlines, matching how real process
-// output is captured.
+// TestRecommendedOutcome_JSONBodyWithWhitespace verifies the final JSON line
+// tolerates surrounding whitespace/newlines, matching how real process output
+// is captured.
 func TestRecommendedOutcome_JSONBodyWithWhitespace(t *testing.T) {
 	outcome, specified, err := recommendedOutcome("\n  {\"outcome\": \"simple\"}  \n")
 	if err != nil {
@@ -1668,6 +1668,17 @@ func TestRecommendedOutcome_JSONBodyWithWhitespace(t *testing.T) {
 	}
 	if outcome != "simple" {
 		t.Fatalf("recommendedOutcome() outcome = %q, want %q", outcome, "simple")
+	}
+}
+
+func TestRecommendedOutcome_FinalJSONLineAfterProse(t *testing.T) {
+	stdout := "Completed the requested review.\n\n{\"outcome\": \"blocked\"}\n"
+	outcome, specified, err := recommendedOutcome(stdout)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if !specified || outcome != "blocked" {
+		t.Fatalf("recommendedOutcome() = (%q, %v), want (blocked, true)", outcome, specified)
 	}
 }
 
@@ -1700,6 +1711,17 @@ func TestRecommendedOutcome_ProseMentioningJSONIsIgnored(t *testing.T) {
 	}
 	if specified {
 		t.Fatalf("recommendedOutcome() specified = true, outcome = %q, want false (embedded JSON in prose must not trigger routing)", outcome)
+	}
+}
+
+func TestRecommendedOutcome_JSONInFencedExampleIsIgnored(t *testing.T) {
+	stdout := "Example response:\n```json\n{\"outcome\": \"blocked\"}\n```"
+	outcome, specified, err := recommendedOutcome(stdout)
+	if err != nil {
+		t.Fatalf("recommendedOutcome() error = %v, want nil", err)
+	}
+	if specified {
+		t.Fatalf("recommendedOutcome() specified = true, outcome = %q, want false for a fenced example", outcome)
 	}
 }
 
