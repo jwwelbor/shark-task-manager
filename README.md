@@ -1,697 +1,268 @@
-# Shark Task Manager
+# Shark: the open-source AI delivery lifecycle harness
 
-An AI-DLC workflow system built with Go and SQLite, featuring both an HTTP API and a powerful CLI tool for fully customizable AI-driven development workflows.
+**Make AI-assisted software delivery predictable.** Shark connects the work,
+engineering process, prompts, specialist roles, and evidence that an agent team
+needs to take a change from idea to a verified result.
 
-## Key Features
+Shark is an open-source **AI delivery lifecycle (AI-DLC) harness**. It gives
+coding agents a shared, durable operating model for large projects: what work
+exists, what stage it is in, which instructions apply, what artifact proves the
+stage is complete, and what must happen next. The result is less dependence on
+chat history and less improvisation between sessions, agents, and handoffs.
 
-- **Hierarchical Task Organization**: Organize work into Epics → Features → Tasks with auto-generated keys
-- **Dual Key Format**: Support for both numeric (`E04`, `T-E04-F01-001`) and human-readable slugged keys (`E04-user-management`, `T-E04-F01-001-implement-auth`)
-- **Flexible Command Syntax**: Positional arguments for cleaner commands (`shark feature create E07 "Title"`)
-- **Case-Insensitive Keys**: Use any case (`E07`, `e07`, `E07-F01`, `e07-f01`) - all work identically
-- **User-Friendly Error Messages**: Clear error messages with context, examples, and suggestions
-- **AI-Driven Workflows**: Built-in support for multiple agent types with dependency-aware task selection
-- **Flexible Organization**: Organize with custom file paths (`--file` flag) for complete control over project structure
-- **Auto-Detect Project Root**: Run shark commands from any subdirectory - automatically finds database and config
-- **Progress Tracking**: Automatic progress calculation from task completion to features and epics
-- **Audit Trail**: Complete history of all status changes with timestamps and agent tracking
-- **Dependency Management**: Express task dependencies and get warnings about blocking work
-- **JSON Output**: Machine-readable JSON output for all commands (with `--json` flag)
+It is not another coding agent. Shark works alongside the agent harness you use
+and supplies the workflow, context, state, and guardrails that make agent work
+repeatable.
 
-## Prerequisites
+Shark has two cooperating parts:
 
-- Go 1.23.4 or later
-- SQLite3
+- The **Shark CLI** owns work, workflow state, prompt assembly, claims, and
+  evidence.
+- The **Shark Rider skill** connects those capabilities to an interactive agent
+  host. It translates requests such as `/shark-rider run E01` into the
+  host-side orchestration loop that calls Shark and dispatches agents.
 
-## Shark CLI - AI Agent Task Management
+## Why Shark
 
-The `shark` CLI is designed for AI agents to manage epics, features, and tasks programmatically. It provides atomic operations, dependency management, and progress tracking.
+AI coding agents can write code quickly. Sustained software delivery also
+requires discovery, specification, test planning, implementation, review, QA,
+acceptance, and integration checks. Those steps often disappear when the work
+is driven by an isolated prompt or an untracked chat session.
 
-### Quick Start for AI Agents
+Shark turns that implicit process into a configurable, inspectable system:
+
+- **Persist the work, not just the conversation.** Track epics, features,
+  tasks, bugs, changes, technical debt, questions, and sprints with links,
+  history, dependencies, and durable artifacts.
+- **Route work through an engineering workflow.** Define stages and semantic
+  outcomes in YAML instead of asking every agent to remember the process.
+- **Give each stage the right context.** Assemble a rendered dispatch prompt
+  from the workflow, a specialist role, reusable skills, and entity data.
+- **Make evidence a delivery input.** Default prompts direct agents to produce
+  and check research reports, specifications, test plans, review reports, test
+  results, and acceptance evidence as they move work forward.
+- **Coordinate real agent work.** Claims, heartbeats, and session-scoped
+  releases prevent two workers from silently owning the same item.
+- **Keep the process yours.** Customize prompts, roles, skills, templates, and
+  per-entity workflows without forking the application.
+
+## How Shark fits into an AI-DLC
+
+```mermaid
+flowchart LR
+    A[Idea or change] --> B[Shark work hierarchy]
+    B --> C[Workflow stage]
+    C --> D[Rendered role and skill prompt]
+    D --> E[Agent or host harness]
+    E --> F[Durable artifacts and evidence]
+    F --> G{Outcome gate}
+    G -->|pass| C
+    G -->|rework or blocked| B
+    G -->|terminal| H[Delivered and auditable]
+```
+
+At a dispatchable stage, Shark resolves the entity's workflow and returns a
+complete prompt through `shark next <key> --json`. The host harness runs that
+prompt. Shark then records the semantic outcome and routes the entity to the
+next configured stage. The host controls execution; Shark controls the
+delivery contract.
+
+The default bundle models a full delivery path. An epic can move through
+assessment, refinement, research, design, decomposition, feature review, and
+integration review. A feature can produce a specification, test plan, and task
+set before moving through implementation, code review, QA when required, and
+acceptance. These are defaults, not a hard-coded method.
+
+## What makes Shark different
+
+| If you need... | Shark provides... |
+| --- | --- |
+| A coding agent to edit code | A durable process around the coding agent: work selection, role-specific instructions, lifecycle state, and verification gates. |
+| A spec-first artifact chain | A live workflow engine that connects artifacts to current work, routes outcomes, tracks dependencies, and records history. |
+| A task tracker | Agent-aware dispatch, atomic claims, prompt provenance, and workflow-driven completion criteria. |
+| A multi-agent experiment | Reusable roles, skills, prompts, leases, and handoffs that can be inspected and customized as project assets. |
+
+This is the practical distinction behind the AI-DLC framing: Shark does not
+only help an agent start work. It helps a team govern how work becomes
+reviewed, evidenced, integrated software.
+
+## Start using Shark
+
+### Install from source
+
+Shark is written in Go and currently requires Go 1.25 or later.
 
 ```bash
-# 1. Initialize infrastructure (first time only)
-shark init --non-interactive
-
-# 2. Query available work
-shark epic list --json
-shark task list --status=todo --agent=backend --json
-
-# 3. Advance task to next workflow status (short format, recommended)
-shark task next-status E04-F06-001
-# Case insensitive
-shark task next-status e04-f06-001
-# OR traditional format (still supported)
-shark task next-status T-E04-F06-001
-# OR using human-readable slugged key
-shark task next-status E04-F06-001-implement-user-authentication
-
-# 4. Advance again to next status
-shark task next-status E04-F06-001
-
-# 5. Continue advancing through workflow
-shark task next-status E04-F06-001
-```
-
-### Core Workflows for AI Agents
-
-#### 1. Project Initialization
-
-Set up Shark CLI infrastructure (run once per project):
-
-```bash
-# Non-interactive mode for automation
-shark init --non-interactive
-```
-
-This creates:
-- SQLite database (`shark-tasks.db`) with schema
-- Folder structure (`docs/plan/`)
-- Configuration file (`.sharkconfig.json`)
-- Embedded `shark-data` defaults for workflows, prompts, file templates, skills, and agents
-
-#### 2. Discovering Available Work
-
-**List all epics with progress:**
-```bash
-shark epic list --json
-shark epic list --status=active --json
-```
-
-**Get epic details with all features:**
-```bash
-# Using numeric key (case insensitive)
-shark epic get E04 --json
-shark epic get e04 --json
-
-# OR using human-readable slugged key
-shark epic get E04-user-management --json
-shark epic get e04-user-management --json
-```
-
-**List features in an epic:**
-```bash
-# Using positional argument (recommended, shorter syntax)
-shark feature list E04
-shark feature list e04  # Case insensitive
-shark feature list E04 --json
-shark feature list E04 --status=active --json
-
-# Using flag syntax (still supported, backward compatible)
-shark feature list --epic=E04 --json
-shark feature list --epic=E04 --status=active --json
-
-# Works with slugged epic keys too
-shark feature list E04-user-management --json
-```
-
-**Get feature details with all tasks:**
-```bash
-# Using numeric key (case insensitive)
-shark feature get E04-F06 --json
-shark feature get e04-f06 --json
-
-# OR using slugged key
-shark feature get E04-F06-authentication --json
-shark feature get e04-f06-authentication --json
-```
-
-#### 3. Querying Tasks
-
-**List all tasks:**
-```bash
-shark task list --json
-```
-
-**Filter by status:**
-```bash
-shark task list --status=todo --json
-shark task list --status=in_progress --json
-shark task list --status=ready_for_review --json
-shark task list --status=completed --json
-shark task list --status=blocked --json
-```
-
-**Filter by epic or agent:**
-```bash
-# Using positional arguments (recommended, shorter syntax)
-shark task list E04                    # Filter by epic
-shark task list e04                    # Case insensitive
-shark task list E04 F01                # Filter by epic and feature
-shark task list E04-F01                # Alternative combined format
-shark task list e04-f01                # Case insensitive combined format
-
-# Using flag syntax (still supported, backward compatible)
-shark task list --epic=E04 --json
-shark task list --epic=E04 --feature=F01 --json
-
-# Filter by agent type
-shark task list --agent=backend --json              # Standard agent type
-shark task list --agent=architect --json            # Custom agent type
-shark task list --agent=business-analyst --json     # Custom agent type
-shark task list --epic=E04 --agent=backend --status=todo --json
-```
-
-**Get task details:**
-```bash
-# Short format (recommended)
-shark task get E04-F06-001 --json
-shark task get e04-f06-001 --json  # Case insensitive
-
-# Traditional format (still supported)
-shark task get T-E04-F06-001 --json
-```
-
-Returns task metadata, dependencies, and dependency status.
-
-#### 4. Creating Tasks
-
-**Positional syntax (recommended):**
-```bash
-# 3-argument format: epic, feature, title
-shark task create E04 F06 "Implement task validation" \
-  --agent=backend \
-  --priority=3 \
-  --description="Add validation logic for task creation" \
-  --depends-on="E04-F06-001,E04-F06-002"
-
-# 2-argument format: combined epic-feature, title
-shark task create E04-F06 "Implement task validation" \
-  --agent=backend \
-  --priority=3
-
-# Case insensitive
-shark task create e04 f06 "Implement task validation" --agent=backend
-
-# With custom agent type (for multi-agent workflows)
-shark task create E04 F06 "Design system architecture" --agent=architect --priority=2
-shark task create E04 F06 "Elaborate user requirements" --agent=business-analyst --priority=4
-shark task create E04 F06 "Create test strategy" --agent=qa --priority=3
-```
-
-**Flag syntax (legacy, still supported):**
-```bash
-shark task create \
-  --epic=E04 \
-  --feature=F06 \
-  --title="Implement task validation" \
-  --agent=backend \
-  --priority=3 \
-  --description="Add validation logic for task creation" \
-  --depends-on="E04-F06-001,E04-F06-002"
-```
-
-Parameters:
-- Epic and feature keys (required, via positional args or `--epic`/`--feature` flags)
-- Title (required, via positional arg or `--title` flag)
-- `--agent`: Agent type (any non-empty string; recommended: `frontend`, `backend`, `api`, `testing`, `devops`, `general`, or custom types like `architect`, `business-analyst`, `qa`)
-- `--priority`: Priority 1-10 (default: 5, where 1 = highest)
-- `--description`: Detailed task description
-- `--depends-on`: Comma-separated list of dependency task keys (short format: `E04-F06-001`)
-
-The CLI automatically:
-- Generates unique task key (e.g., `T-E04-F06-003`)
-- Creates markdown file at `docs/plan/epic/feature/task-key.md`
-- Sets initial status to `todo`
-- Validates epic and feature exist
-
-**About Agent Types:**
-
-Shark supports flexible agent type assignment for diverse team structures and multi-agent workflows:
-
-- **Standard agent types** (`frontend`, `backend`, `api`, `testing`, `devops`, `general`) have role-specific templates
-- **Custom agent types** (`architect`, `business-analyst`, `qa`, `tech-lead`, `product-manager`, `ux-designer`, etc.) use the general template
-- Any non-empty string is supported as an agent type
-- Custom types enable multi-agent orchestration: each agent can query their work with `shark task list --agent=<type> --status=todo --json`
-
-#### 5. Task Lifecycle Management
-
-**Standard workflow:**
-
-```bash
-# 1. Advance task to next workflow status
-# Short format (recommended)
-shark status advance E04-F06-001 --json
-# Case insensitive
-shark status advance e04-f06-001 --json
-# Traditional format (still supported)
-shark status advance T-E04-F06-001 --json
-
-# 2. Continue advancing through the workflow
-shark status advance E04-F06-001 --json
-
-# 3. Advance again to reach completion
-shark status advance E04-F06-001 --json
-```
-
-**State Transitions:**
-
-| Command | Description | Notes |
-|---------|-------------|-------|
-| `shark status advance <key>` | Advance to next workflow status | Determined by workflow profile |
-| `shark task next-status <key>` | Advance to next workflow status | Equivalent to `status advance` |
-| `shark status set <key> <status>` | Set status directly | Use when skipping steps or correcting state |
-| `shark status set <key> blocked --reason="..."` | Block task | Cannot proceed, needs resolution |
-
-**Handling blocked tasks:**
-
-```bash
-# Block a task with reason
-shark status set E04-F06-001 blocked --reason="Waiting for API design approval" --json
-
-# List all blocked tasks
-shark task list --blocked --json
-
-# Unblock by advancing to next status
-shark status advance E04-F06-001 --json
-```
-
-**Handling review feedback:**
-
-```bash
-# Set back to in-progress for rework
-shark status set E04-F06-001 in_progress --reason="Need to add error handling" --json
-
-# Fix issues and advance to review status again
-shark status advance E04-F06-001 --json
-```
-
-**Important:** Status is managed exclusively in the database and is NOT from files. This ensures atomic status transitions and audit trails.
-
-#### 7. Progress Tracking
-
-**Epic progress:**
-```bash
-shark epic list --json
-shark epic get E04 --json
-```
-
-Returns calculated progress percentage based on completed tasks across all features.
-
-**Feature progress:**
-```bash
-shark feature list --epic=E04 --json
-shark feature get E04-F06 --json
-```
-
-Returns:
-- Progress percentage
-- Task count
-- Status breakdown (todo/in_progress/completed/blocked)
-
-### AI Agent Best Practices
-
-1. **Always use `--json` flag** for machine-readable output
-2. **Check dependencies** before starting tasks via `shark task list --status=todo --json`
-3. **Use atomic operations** - each command is a single transaction
-4. **Handle blocked tasks** - use `shark status set <key> blocked --reason="..."` with reasons
-5. **Track work with agent identifier** - use `--agent` flag for audit trail
-6. **Use priority effectively** - 1=highest, 10=lowest for task ordering
-7. **Check exit codes** - Non-zero indicates errors (1=not found, 2=db error, 3=invalid state)
-```
-
-### JSON Output Format
-
-All commands support `--json` for structured output:
-
-```json
-{
-  "key": "T-E04-F06-001",
-  "title": "Implement key generation",
-  "status": "todo",
-  "priority": 3,
-  "agent_type": "backend",
-  "depends_on": ["T-E04-F05-001"],
-  "dependency_status": {
-    "T-E04-F05-001": "completed"
-  },
-  "file_path": "docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation/T-E04-F06-001.md"
-}
-```
-
-### Documentation
-
-#### User Guides
-- [Initialization Guide](docs/user-guide/initialization.md) - Set up Shark CLI
-- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
-
-#### Reference
-- [Complete Documentation Index](docs/DOCUMENTATION_INDEX.md) - Find all documentation
-- [CLI Documentation](docs/CLI_REFERENCE.md) - Complete command reference
-- [Migration Guide](docs/MIGRATION_CUSTOM_PATHS.md) - Upgrading from older versions (custom_folder_path deprecation)
-- [Epic & Feature Query Guide](docs/EPIC_FEATURE_QUERIES.md) - Query epics and features with progress
-- [Quick Reference](docs/EPIC_FEATURE_QUICK_REFERENCE.md) - Fast command lookup
-- [Examples](docs/EPIC_FEATURE_EXAMPLES.md) - Real-world usage scenarios
-
-- Make
-
-## Project Structure
-
-```
-.
-├── cmd/
-│   └── server/          # Application entry point
-│       └── main.go
-├── internal/
-│   ├── db/              # Database initialization and setup
-│   ├── handlers/        # HTTP request handlers
-│   └── models/          # Data models
-├── migrations/          # Database migrations
-├── Makefile            # Development commands
-└── README.md
-```
-
-## Getting Started
-
-### Install Dependencies
-
-```bash
-make install
-```
-
-### Build the Application
-
-```bash
-make build
-```
-
-### Run the Application
-
-```bash
-make run
-```
-
-The server will start on `http://localhost:8080`
-
-### Development Mode (Hot Reload)
-
-For development with automatic reloading on file changes:
-
-```bash
-make dev
-```
-
-This will install `air` if not already installed and run the application with hot reload enabled.
-
-## Available Make Commands
-
-### CLI Tools
-- `make shark` - Build the Shark CLI tool
-- `make install-shark` - Install Shark CLI to ~/go/bin
-
-### Application
-- `make help` - Show all available commands
-- `make install` - Install project dependencies
-- `make build` - Build the application binary
-- `make run` - Build and run the application
-- `make dev` - Run in development mode with hot reload
-
-### Testing
-- `make demo` - Run interactive demo with sample data ⭐
-- `make test-db` - Run database integration tests
-- `make test` - Run all tests
-- `make test-coverage` - Run tests with coverage report
-
-### Code Quality
-- `make fmt` - Format code using gofmt
-- `make vet` - Run go vet for code analysis
-- `make lint` - Run golangci-lint (installs if needed)
-- `make clean` - Remove build artifacts and databases
-
-## Testing
-
-### Interactive Demo
-
-See the database in action with sample data:
-
-```bash
-make demo
-```
-
-This creates an epic, feature, and tasks, then demonstrates:
-- CRUD operations
-- Progress calculations
-- Query filtering
-- Status updates with history tracking
-
-### Integration Tests
-
-Run comprehensive database tests:
-
-```bash
-make test-db
-```
-
-Tests include:
-- Epic/Feature/Task CRUD operations
-- Atomic status updates
-- Progress calculations
-- Cascade deletes
-- All constraints and validations
-
-See [TESTING.md](docs/TESTING.md) for detailed testing guide.
-
-## Installation
-
-Shark CLI is available for macOS, Linux, and Windows through multiple installation methods.
-
-### Quick Install
-
-**Linux/macOS** (Manual):
-```bash
-curl -fsSL https://github.com/jwwelbor/shark-task-manager/releases/latest/download/shark_$(uname -s)_$(uname -m).tar.gz -o shark.tar.gz
-tar -xzf shark.tar.gz
-sudo mv shark /usr/local/bin/
-```
-
-**Verify Installation**:
-```bash
+git clone https://github.com/jwwelbor/shark-task-manager.git
+cd shark-task-manager
+make install-shark
 shark --version
 ```
 
-### Detailed Installation Instructions
+You can also download a release binary from the
+[Releases page](https://github.com/jwwelbor/shark-task-manager/releases).
 
-#### macOS
+### Install Shark Rider
 
-**Option 1: Homebrew (Recommended)**
+Install Shark Rider when you want to drive Shark through `/shark-rider`
+workflows or plain-language requests in your coding agent. Direct `shark`
+commands and the built-in `shark run` command do not require the skill.
 
-1. Add the Shark tap:
-   ```bash
-   brew tap jwwelbor/shark
-   ```
+The current release binary does not install Shark Rider. From a Shark source
+checkout, link the skill into your host's user-level skill directory:
 
-2. Install Shark:
-   ```bash
-   brew install shark
-   ```
+For Claude Code:
 
-3. Verify installation:
-   ```bash
-   shark --version
-   ```
-
-**Option 2: Manual Installation**
-
-1. Download the latest release for your architecture:
-   - Intel Macs: `shark_*_darwin_amd64.tar.gz`
-   - Apple Silicon (M1/M2/M3): `shark_*_darwin_arm64.tar.gz`
-
-2. Extract and install:
-   ```bash
-   tar -xzf shark_*.tar.gz
-   sudo mv shark /usr/local/bin/
-   ```
-
-3. Verify installation:
-   ```bash
-   shark --version
-   ```
-
-#### Linux
-
-**Option 1: Manual Installation (All Distributions)**
-
-1. Download the latest release for your architecture:
-   - AMD64/x86_64: `shark_*_linux_amd64.tar.gz`
-   - ARM64/aarch64: `shark_*_linux_arm64.tar.gz`
-
-2. Download and verify checksums (recommended):
-   ```bash
-   # Download binary and checksums
-   wget https://github.com/jwwelbor/shark-task-manager/releases/latest/download/shark_*_linux_amd64.tar.gz
-   wget https://github.com/jwwelbor/shark-task-manager/releases/latest/download/checksums.txt
-
-   # Verify integrity
-   sha256sum -c checksums.txt --ignore-missing
-   ```
-
-3. Extract and install:
-   ```bash
-   tar -xzf shark_*.tar.gz
-   sudo mv shark /usr/local/bin/
-   ```
-
-4. Verify installation:
-   ```bash
-   shark --version
-   ```
-
-**Option 2: From Source**
-
-1. Install Go 1.23 or later
-2. Clone and build:
-   ```bash
-   git clone https://github.com/jwwelbor/shark-task-manager.git
-   cd shark-task-manager
-   make install-shark
-   ```
-
-**Manual Installation**
-
-1. Download `shark_*_windows_amd64.zip` from the [latest release](https://github.com/jwwelbor/shark-task-manager/releases/latest)
-
-2. Download `checksums.txt` and verify (PowerShell):
-   ```powershell
-   # Calculate hash
-   $actual = (Get-FileHash shark_*_windows_amd64.zip -Algorithm SHA256).Hash.ToLower()
-
-   # Extract expected hash
-   $expected = (Get-Content checksums.txt | Select-String "windows_amd64").ToString().Split()[0]
-
-   # Verify
-   if ($actual -eq $expected) {
-       Write-Host "✅ Checksum verified successfully"
-   } else {
-       Write-Host "❌ Checksum verification FAILED"
-       exit 1
-   }
-   ```
-
-3. Extract the ZIP file
-
-4. Add the directory to your PATH or move `shark.exe` to a directory already in PATH
-
-5. Verify installation:
-   ```powershell
-   shark --version
-   ```
-
-### Security: Verifying Downloads
-
-All releases include SHA256 checksums in `checksums.txt`. Always verify downloads before installation:
-
-**Linux/macOS**:
 ```bash
-sha256sum -c checksums.txt --ignore-missing
+mkdir -p "$HOME/.claude/skills"
+ln -s "$PWD/skills/shark-rider" "$HOME/.claude/skills/shark-rider"
 ```
 
-**Windows PowerShell**:
-```powershell
-$actual = (Get-FileHash shark.zip -Algorithm SHA256).Hash.ToLower()
-$expected = (Get-Content checksums.txt | Select-String "windows").ToString().Split()[0]
-if ($actual -eq $expected) { Write-Host "✅ Verified" }
+For Codex and other hosts that read the shared Agent Skills directory:
+
+```bash
+mkdir -p "$HOME/.agents/skills"
+ln -s "$PWD/skills/shark-rider" "$HOME/.agents/skills/shark-rider"
 ```
----
 
+These links are convenient for source development because updates to the
+checkout take effect without copying the skill again. Shark Rider currently
+has validated host adapters for Claude Code and Codex. Other Agent Skills
+hosts may discover the skill, but their orchestration capabilities and
+host-specific instructions still require validation.
 
-## Development
+### Initialize a project
 
-### Database
+Run this command at the root of the project you want Shark to manage:
 
-The application uses SQLite for data persistence with a complete schema:
+```bash
+shark admin init --non-interactive
+```
 
-**Tables:**
-- `epics` - Top-level project organization units
-- `features` - Mid-level components within epics
-- `tasks` - Atomic work units within features
-- `task_history` - Audit trail of task status changes
+The command creates the local database, `docs/plan/`, and
+`.sharkconfig.json`. Shark serves its default content bundle from the binary,
+so a new project does not need to copy prompts or workflow files first.
 
-**Features:**
-- Foreign key constraints with CASCADE DELETE
-- Auto-update triggers for timestamps
-- 10+ indexes for query performance
-- WAL mode for better concurrency
-- Comprehensive validation at application layer
+Create a work item and inspect it as JSON:
 
-The database file (`shark-tasks.db`) is automatically created on first run. Turso cloud sqlite db is also supported.
+```bash
+shark create epic "Improve account recovery" --json
+shark get E01 --json
+```
 
-See [internal/db/README.md](internal/db/README.md) for detailed schema documentation.
+Use the key returned by the create command. Keys are assigned by Shark and
+should not be constructed by a harness.
 
-### Code Formatting
+### Run the delivery loop
 
-Before committing, format your code:
+For a host-managed loop, select and lease work, then request its next step:
+
+```bash
+shark plan --json
+shark claim E01 --by my-agent
+shark next E01 --json
+```
+
+The `next` response identifies the action, specialist role, provider/model
+metadata, and rendered `prompt`. Run that prompt in your agent harness,
+persist the required artifact, then report the semantic result:
+
+```bash
+shark status advance E01 --outcome pass
+shark release E01
+```
+
+If your project enables `advance_guard`, pass the claim session and expected
+source status when you advance. The route-based workflow guide shows the
+guarded form.
+
+For the built-in runner, use `shark run <key>`. It supports Claude and Codex
+harnesses and can run in an isolated Git worktree. Start with `--dry-run` when
+you are introducing Shark to a project:
+
+```bash
+shark run E01 --dry-run --harness codex
+```
+
+Read the [route-based workflow guide](docs/guides/route-based-workflow.md) and
+[dispatch prompt assembly](docs/architecture/shark-dispatch-prompt-assembly.md)
+before implementing a custom host loop.
+
+## Make the workflow fit your team
+
+The default workflow is deliberately opinionated about engineering discipline,
+but its implementation is ordinary project content:
+
+```bash
+shark admin install-shark-data
+```
+
+This extracts an editable `shark-data/` bundle with:
+
+- `workflow/`: YAML lifecycles and outcome routing for each entity type.
+- `prompts/`: stage-specific Markdown prompts and reusable partials.
+- `agents/`: specialist role definitions.
+- `skills/`: reusable engineering practices, such as research, architecture,
+  specification writing, test-driven development, quality, and UAT.
+- `file_templates/`: durable artifact templates.
+- `overrides/`: local, replace-only customizations preserved during upgrades.
+
+Validate edits before dispatching work:
+
+```bash
+shark admin validate-data
+```
+
+See [workflow configuration](docs/cli-reference/workflow-configuration.md),
+[workflow profiles](docs/guides/workflow-profiles.md), and the
+[configuration reference](docs/cli-reference/configuration.md) for the
+configuration model.
+
+## Use Shark when the work must survive the session
+
+Shark is especially useful when you have one or more of the following:
+
+- A codebase too large for a single agent conversation to remain reliable.
+- Multiple agents, models, or people contributing to the same delivery path.
+- A need to make review, QA, UAT, and integration evidence visible rather than
+  implied.
+- A team-specific engineering process that must guide agents consistently.
+- A backlog that needs to retain decisions, relationships, and completion
+  history after the agent stops running.
+
+For a one-file experiment, a direct coding-agent prompt may be enough. For a
+project that must remain understandable and deliverable across many sessions,
+Shark supplies the missing operating structure.
+
+## Architecture at a glance
+
+Shark is a Go CLI backed by SQLite, with libSQL support. Its core components
+are:
+
+- A hierarchical work model and relationship graph.
+- A configuration-driven workflow engine with semantic outcome routing.
+- A versioned content bundle for prompts, roles, skills, and artifact
+  templates.
+- JSON-first CLI surfaces for a host harness, plus built-in runners for Claude
+  and Codex.
+- Claims, heartbeats, history, and validation for coordination and auditability.
+
+Read the [architecture overview](docs/architecture/architecture-overview.md)
+and [CLI reference](docs/CLI_REFERENCE.md) for details.
+
+## Contribute
+
+Run the project quality gate before opening a pull request:
 
 ```bash
 make fmt
 make vet
-```
-
-### Testing
-
-Run the test suite:
-
-```bash
+make lint
 make test
 ```
 
-Generate coverage report:
-
-```bash
-make test-coverage
-```
-
-## CI/CD Pipeline
-
-The project uses GitHub Actions for continuous integration and automated releases.
-
-### Continuous Integration (Every Push)
-
-The CI workflow (`.github/workflows/ci.yml`) runs automatically on every push and pull request:
-
-- **Tests**: Full test suite with coverage reporting
-- **Build**: Verifies builds succeed on Linux, macOS, and Windows
-- **Lint**: Code quality checks with golangci-lint
-
-All checks must pass before merging to main.
-
-### Release Pipeline (Tagged Versions Only)
-
-Releases are triggered by pushing a version tag matching `v*` (e.g., `v1.0.0`, `v0.2.0-beta`):
-
-```bash
-# Create a signed tag
-git tag -a v1.0.0 -m "Release version 1.0.0"
-git push origin v1.0.0
-```
-
-The release workflow (`.github/workflows/release.yml`) automatically:
-
-1. Runs all tests as a quality gate
-2. Builds multi-platform binaries using GoReleaser
-3. Creates a GitHub release with all assets
-4. Publishes to Homebrew (macOS)
-5. Publishes to Scoop (Windows)
-
-**Only push v-tags to publish releases.** Don't use tags for testing.
-
-### Release Testing
-
-Post-release testing (`.github/workflows/release-test.yml`) can be triggered manually or runs automatically after a release:
-
-- Tests manual downloads
-- Validates Homebrew installation (macOS)
-- Validates Scoop installation (Windows)
-- Performance benchmarking
-
-## Environment Setup
-
-Go is installed in `~/go/bin`. Make sure your PATH includes this directory:
-
-```bash
-export PATH=$PATH:$HOME/go/bin
-```
-
-This is automatically added to your `~/.bashrc` and `~/.profile`.
+See [CLAUDE.md](CLAUDE.md) for repository navigation and development guidance.
 
 ## License
 
-See LICENSE file for details.
+Shark is released under the [MIT License](LICENSE).
