@@ -78,7 +78,7 @@ Average ≤ 3 for any dimension → non-blocker triage. Average ≤ 2 → blocke
 ## Step 6: Verdict
 
 - **PASS** — zero findings of any severity
-- **PASS-with-triage** — no blockers; non-blockers exist (host routes each through the triage skill's decision tree — fix-now gate, duplicate search, type classification; tech-debt is only one possible outcome)
+- **PASS-with-triage** — no blockers; non-blockers exist (host routes each through the triage skill's decision tree — fix-now gate, duplicate search, type classification; tech-debt is only one possible outcome; a fix-now resolution needs no entity). If a triage attempt fails or can't complete (target entity won't accept new children, run is unattended and the decision tree's confirmation step has no one to answer it), the host falls back to a feature-level note instead of leaving the finding untracked — see `review-code.md` Step 12.
 - **FAIL** — one or more blockers; task returns to development
 
 ---

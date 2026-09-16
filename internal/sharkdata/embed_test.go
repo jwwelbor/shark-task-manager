@@ -1999,9 +1999,9 @@ func TestEmbedded_AgentsDescribeRoleNotWorkflow(t *testing.T) {
 // direct severity-to-entity-type mapping, or drops the triage-skill
 // reference, `make test` fails here before the change can merge.
 func TestEmbedded_ReviewFindingsRouteThroughTriage(t *testing.T) {
-	scopedFiles := map[string]bool{
-		"skills/quality/workflows/review-code.md": true,
-		"agents/tech-lead.md":                     true,
+	scopedFiles := []string{
+		"skills/quality/workflows/review-code.md",
+		"agents/tech-lead.md",
 	}
 	const triageReference = "triage skill's decision tree"
 
@@ -2012,25 +2012,21 @@ func TestEmbedded_ReviewFindingsRouteThroughTriage(t *testing.T) {
 		"File as tech-debt only if",
 	}
 
-	visited := map[string]bool{}
-	violations := scanEmbeddedMarkdown(t, "", func(relPath, content string, violations *[]string) {
-		if !scopedFiles[relPath] {
-			return
+	var violations []string
+	for _, relPath := range scopedFiles {
+		body, err := ReadEmbedded(relPath)
+		if err != nil {
+			violations = append(violations, relPath+": scoped file was not found in the embedded bundle — the gate is passing vacuously")
+			continue
 		}
-		visited[relPath] = true
+		content := string(body)
 		for _, phrase := range directMapping {
 			if strings.Contains(content, phrase) {
-				*violations = append(*violations, relPath+`: contains direct-mapping phrase "`+phrase+`" — route non-blockers through the `+triageReference+` instead`)
+				violations = append(violations, relPath+`: contains direct-mapping phrase "`+phrase+`" — route non-blockers through the `+triageReference+` instead`)
 			}
 		}
 		if !strings.Contains(content, triageReference) {
-			*violations = append(*violations, relPath+`: does not reference the `+triageReference+` when routing non-blocking findings`)
-		}
-	}, nil)
-
-	for relPath := range scopedFiles {
-		if !visited[relPath] {
-			violations = append(violations, relPath+": scoped file was not found during the scan — the gate is passing vacuously")
+			violations = append(violations, relPath+`: does not reference the `+triageReference+` when routing non-blocking findings`)
 		}
 	}
 

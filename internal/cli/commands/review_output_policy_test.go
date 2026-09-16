@@ -204,6 +204,7 @@ func TestConsolidatorRoutesNonBlockersThroughTriage(t *testing.T) {
 		"host triages as tech-debt",
 		"host files as tech-debt",
 		"host files these as tech-debt",
+		"File as tech-debt only if",
 	}
 	for _, phrase := range directMapping {
 		require.NotContains(t, content, phrase,
