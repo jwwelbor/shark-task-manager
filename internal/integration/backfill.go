@@ -540,13 +540,7 @@ func backfillRun(projectRoot, epicKey, epicRunID, base string) (*IntegrationRun,
 		return nil, err
 	}
 	if existing != nil {
-		if existing.EpicKey != epicKey || existing.EpicRunID != epicRunID || existing.BaseCommit != base {
-			return nil, &RegistrationConflictError{
-				EpicKey: epicKey,
-				Reason:  "integration run changed while backfill was acquiring ownership",
-			}
-		}
-		return existing, nil
+		return checkBackfillRunIdentity(existing, epicKey, epicRunID, base)
 	}
 
 	candidate := &IntegrationRun{
@@ -555,7 +549,31 @@ func backfillRun(projectRoot, epicKey, epicRunID, base string) (*IntegrationRun,
 		BaseCommit: base,
 		CreatedAt:  time.Now().UTC(),
 	}
-	return publishRun(path, candidate)
+	published, err := publishRun(path, candidate)
+	if err != nil {
+		return nil, err
+	}
+	// publishRun can lose the atomic-link race and return a concurrent
+	// writer's already-published record instead of `candidate` — a record
+	// this call never validated against (epicKey, epicRunID, base). Without
+	// this check, Backfill would proceed to fold events onto a run it never
+	// authorized.
+	return checkBackfillRunIdentity(published, epicKey, epicRunID, base)
+}
+
+// checkBackfillRunIdentity rejects run as a *RegistrationConflictError
+// unless it matches (epicKey, epicRunID, base) — the identity backfillRun's
+// caller validated everything else against. Shared by both paths that can
+// hand backfillRun a run record it did not itself just construct: an
+// already-existing record, and a concurrent writer's winning publish.
+func checkBackfillRunIdentity(run *IntegrationRun, epicKey, epicRunID, base string) (*IntegrationRun, error) {
+	if run.EpicKey != epicKey || run.EpicRunID != epicRunID || run.BaseCommit != base {
+		return nil, &RegistrationConflictError{
+			EpicKey: epicKey,
+			Reason:  "integration run changed while backfill was acquiring ownership",
+		}
+	}
+	return run, nil
 }
 
 // simulateBackfillCandidate computes, without writing anything to disk, the

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -494,6 +495,61 @@ func TestBackfill_DivergentRetainedEventFailsBeforeMutation(t *testing.T) {
 	}
 	if recorder.calls != 0 {
 		t.Fatalf("divergent-event retry recorded %d notes, want none", recorder.calls)
+	}
+}
+
+// TestBackfillRun_RejectsConcurrentPublishWinnerMismatch is the
+// counter-factual for backfillRun's identity check on publishRun's return
+// value (backfill.go). publishRun can lose the atomic-link race and hand
+// back a concurrent writer's already-published record instead of the
+// caller's own candidate (run.go's publishRun doc). Two goroutines race to
+// backfillRun the same epicKey with different (epicRunID, base) identities:
+// regardless of which interleaving actually occurs (one call's readRun
+// might see the other's already-published record, or both might reach
+// publishRun and one loses that race), exactly one call must succeed with
+// its own matching identity and the other must be rejected as a conflict —
+// never silently return a run record that doesn't match what the caller
+// asked for. Deleting either identity check in backfillRun would let the
+// loser proceed with a mismatched run.
+func TestBackfillRun_RejectsConcurrentPublishWinnerMismatch(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+	const epicKey = "E76"
+	runIDs := [2]string{"run-race-a", "run-race-b"}
+	bases := [2]string{"base-a", "base-b"}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	var results [2]*IntegrationRun
+	var errs [2]error
+	for i := 0; i < 2; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results[i], errs[i] = backfillRun(dir, epicKey, runIDs[i], bases[i])
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	winners, conflicts := 0, 0
+	for i := 0; i < 2; i++ {
+		if errs[i] == nil {
+			winners++
+			if results[i] == nil || results[i].EpicRunID != runIDs[i] || results[i].BaseCommit != bases[i] {
+				t.Fatalf("call %d succeeded with a mismatched run: %+v", i, results[i])
+			}
+			continue
+		}
+		var conflict *RegistrationConflictError
+		if !errors.As(errs[i], &conflict) {
+			t.Fatalf("call %d error = %T %v, want *RegistrationConflictError", i, errs[i], errs[i])
+		}
+		conflicts++
+	}
+	if winners != 1 || conflicts != 1 {
+		t.Fatalf("expected exactly one winner and one conflict, got winners=%d conflicts=%d (errs=%v)", winners, conflicts, errs)
 	}
 }
 
