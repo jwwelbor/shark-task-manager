@@ -147,6 +147,110 @@ PY
 echo "TC-068: an authorized post-terminal evaluation records one access event, passes, and leaves no residue"
 
 # ---------------------------------------------------------------------------
+echo "TC-068: source pinning -- a held-back source changed between pinning and broker copy is refused"
+case_dir="$tmp/source-changed"
+provision_success_checkout "$case_dir/checkout"
+cp -r "$BUG_PACKAGE_DIR" "$case_dir/scenario"
+mkdir -p "$case_dir/repo/bench/scripts" "$case_dir/repo/bench/scenarios" "$case_dir/repo/bench/adapters/source-swap-python"
+cp "$ORACLE" "$case_dir/repo/bench/scripts/run-heldback-oracle.sh"
+cp "$REPO_ROOT/bench/scenarios/scenarios.yaml" "$case_dir/repo/bench/scenarios/scenarios.yaml"
+ln -s "$REPO_ROOT/bench/scripts/verify-stage-evidence.sh" "$case_dir/repo/bench/scripts/verify-stage-evidence.sh"
+ln -s "$REPO_ROOT/bench/scripts/lib" "$case_dir/repo/bench/scripts/lib"
+python3 - "$case_dir/repo/bench/scenarios/scenarios.yaml" <<'PY'
+import sys
+import yaml
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    scenarios = yaml.safe_load(stream)
+scenarios["adapters"]["python"]["path"] = "bench/adapters/source-swap-python"
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump(scenarios, stream)
+PY
+cat >"$case_dir/repo/bench/adapters/source-swap-python/adapter.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$1" >>"$F09_ADAPTER_MARKER"
+if [[ "$1" == "inject-tests" ]]; then
+	source="${@: -1}"
+	printf '\n# changed after pinning\n' >>"$source"
+fi
+exec "$F09_REAL_ADAPTER" "$@"
+SH
+chmod +x "$case_dir/repo/bench/adapters/source-swap-python/adapter.sh"
+write_terminal_bundle "$case_dir/bundle" "$case_dir/checkout"
+write_i07 "$case_dir/i07.jsonl" "tc068-source-changed"
+set +e
+F09_ADAPTER_MARKER="$case_dir/adapter-commands.log" F09_REAL_ADAPTER="$REPO_ROOT/bench/adapters/python/adapter.sh" "$case_dir/repo/bench/scripts/run-heldback-oracle.sh" --scenario "$case_dir/scenario/package.yaml" --i07 "$case_dir/i07.jsonl" --stage-bundle "$case_dir/bundle" --checkout "$case_dir/checkout" --output "$case_dir/oracle.json" >/dev/null 2>"$case_dir/stderr"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || { echo "TC-068: changed-source case unexpectedly passed" >&2; exit 1; }
+python3 - "$case_dir/oracle.json" "$case_dir/checkout/tests/test_due_date_boundary.py" "$case_dir/adapter-commands.log" <<'PY'
+import json, os, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+assert record["observed_result"] == "not_run", record
+assert any(item["code"] == "isolation_violation" and "source_changed" in item["detail"] for item in record["invalidity_reasons"]), record
+assert not os.path.exists(sys.argv[2]), "changed held-back source remained in the checkout"
+commands = open(sys.argv[3], encoding="utf-8").read().splitlines()
+assert commands == ["inject-tests"], commands
+PY
+echo "TC-068: changed source is rejected before predicate execution as an isolation_violation"
+
+# ---------------------------------------------------------------------------
+echo "TC-068: no-follow source pinning -- an intermediate evaluator directory swapped to a symlink is refused before broker access"
+case_dir="$tmp/source-parent-symlink"
+provision_success_checkout "$case_dir/checkout"
+cp -r "$BUG_PACKAGE_DIR" "$case_dir/scenario"
+mkdir -p "$case_dir/scenario/evaluator/nested" "$case_dir/outside" "$case_dir/hook"
+mv "$case_dir/scenario/evaluator/test_due_date_boundary.py" "$case_dir/scenario/evaluator/nested/test_due_date_boundary.py"
+cp "$case_dir/scenario/evaluator/nested/test_due_date_boundary.py" "$case_dir/outside/test_due_date_boundary.py"
+python3 - "$case_dir/scenario/package.yaml" <<'PY'
+import sys
+import yaml
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    package = yaml.safe_load(stream)
+package["evaluator_only"]["oracle_tests"] = ["evaluator/nested/test_due_date_boundary.py"]
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump(package, stream)
+PY
+python3 - "$case_dir/hook/sitecustomize.py" <<'PY'
+import sys
+path = sys.argv[1]
+with open(path, "w", encoding="utf-8") as stream:
+    stream.write('''import os
+_open = os.open
+_swapped = False
+def checked_open(path, flags, mode=0o777, *, dir_fd=None):
+    global _swapped
+    if path == "nested" and not _swapped:
+        _swapped = True
+        target = os.environ["F09_SWAP_TARGET"]
+        os.rename(target, target + ".original")
+        os.symlink(os.environ["F09_SWAP_OUTSIDE"], target)
+    if dir_fd is None:
+        return _open(path, flags, mode)
+    return _open(path, flags, mode, dir_fd=dir_fd)
+os.open = checked_open
+''')
+PY
+write_terminal_bundle "$case_dir/bundle" "$case_dir/checkout"
+write_i07 "$case_dir/i07.jsonl" "tc068-source-parent-symlink"
+set +e
+PYTHONPATH="$case_dir/hook" F09_SWAP_TARGET="$case_dir/scenario/evaluator/nested" F09_SWAP_OUTSIDE="$case_dir/outside" "$ORACLE" --scenario "$case_dir/scenario/package.yaml" --i07 "$case_dir/i07.jsonl" --stage-bundle "$case_dir/bundle" --checkout "$case_dir/checkout" --output "$case_dir/oracle.json" >/dev/null 2>"$case_dir/stderr"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || { echo "TC-068: intermediate-directory symlink case unexpectedly passed" >&2; exit 1; }
+python3 - "$case_dir/oracle.json" "$case_dir/bundle/access.jsonl" <<'PY'
+import json, os, sys
+record = json.load(open(sys.argv[1], encoding="utf-8"))
+assert record["adapter_calls"] == 0, record
+assert record["observed_result"] == "not_run", record
+assert any(item["code"] == "isolation_violation" for item in record["invalidity_reasons"]), record
+assert not os.path.exists(sys.argv[2]), "broker access was reached after source-path swap"
+PY
+echo "TC-068: intermediate evaluator-directory symlink is refused before broker access"
+
+# ---------------------------------------------------------------------------
 echo "TC-068: adapter-failure -- the registered I-04 adapter itself fails when invoked for the predicate"
 case_dir="$tmp/adapter-failure"
 provision_success_checkout "$case_dir/checkout"
@@ -221,7 +325,7 @@ PY
 echo "TC-068: a file introduced into the checkout after admission is named as residue and the checkout is restored"
 
 # ---------------------------------------------------------------------------
-echo "TC-068: cleanup-failure -- the adapter-resolved injection destination collides with pre-existing checkout content"
+echo "TC-068: collision refusal -- the adapter-resolved destination collides with pre-existing checkout content"
 case_dir="$tmp/cleanup-failure"
 provision_success_checkout "$case_dir/checkout"
 mkdir -p "$case_dir/checkout/tests"
@@ -237,10 +341,10 @@ python3 - "$case_dir/oracle.json" <<'PY'
 import json, sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))
 assert record["observed_result"] == "not_run", record
-assert any(item["code"] == "cleanup_failure" for item in record["invalidity_reasons"]), record
+assert any(item["code"] == "isolation_violation" for item in record["invalidity_reasons"]), record
 PY
 diff <(printf 'pre-existing content at the adapter-resolved destination\n') "$case_dir/checkout/tests/test_due_date_boundary.py" >/dev/null || { echo "TC-068: pre-existing colliding content was not restored byte-for-byte" >&2; exit 1; }
-echo "TC-068: an adapter-resolved destination collision with pre-existing content is refused and restored byte-for-byte"
+echo "TC-068: an adapter-resolved destination collision is refused before injection and preserves pre-existing content byte-for-byte"
 
 # ---------------------------------------------------------------------------
 # Symlink, traversal, broken-link, and renamed-root all attack

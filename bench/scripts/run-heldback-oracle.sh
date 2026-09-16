@@ -10,10 +10,10 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
 import yaml
 
@@ -129,6 +129,49 @@ def resolve_adapter(package):
     return adapter, adapter_name
 
 
+def read_pinned_source(source, evaluator_root, relative):
+    """Read one resolved oracle source through a no-follow file descriptor.
+
+    The preceding realpath containment check establishes the intended root;
+    opening every component from an O_NOFOLLOW evaluator-root descriptor
+    closes the remaining check-to-read symlink-swap window. Verify the opened
+    object itself is a regular file before hashing its exact bytes.
+    """
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        finish(invalid("isolation_violation", relative, "platform does not support no-follow source pinning"), 1)
+    source_relative = os.path.relpath(source, evaluator_root)
+    parts = source_relative.split(os.sep)
+    if source_relative == os.pardir or source_relative.startswith(os.pardir + os.sep) or not parts or any(part in {"", os.curdir, os.pardir} for part in parts):
+        finish(invalid("isolation_violation", relative, "resolved oracle source is outside evaluator root"), 1)
+    descriptors = []
+    try:
+        parent = os.open(evaluator_root, os.O_RDONLY | directory | nofollow)
+        descriptors.append(parent)
+        for part in parts[:-1]:
+            parent = os.open(part, os.O_RDONLY | directory | nofollow, dir_fd=parent)
+            descriptors.append(parent)
+        descriptor = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=parent)
+        descriptors.append(descriptor)
+    except OSError as exc:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+        finish(invalid("isolation_violation", relative, "oracle source could not be opened without following links: " + str(exc)), 1)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            finish(invalid("isolation_violation", relative, "oracle source is not a regular file"), 1)
+        chunks = []
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def resolve_oracle_sources(evaluator, package_root, evaluator_root):
     """Resolve declared held-back oracle test sources, enforcing evaluator-root
     isolation, and digest each source immediately after its containment check
@@ -137,6 +180,7 @@ def resolve_oracle_sources(evaluator, package_root, evaluator_root):
     resolved path -- means callers consume the pinned digest instead of
     re-opening the path later in program flow."""
     sources = []
+    source_digests = {}
     hasher = hashlib.sha256()
     for relative in evaluator.get("oracle_tests") or []:
         if not isinstance(relative, str) or os.path.isabs(relative):
@@ -144,11 +188,14 @@ def resolve_oracle_sources(evaluator, package_root, evaluator_root):
         source = os.path.realpath(os.path.join(package_root, relative))
         if not source.startswith(evaluator_root + os.sep) or not os.path.isfile(source):
             finish(invalid("isolation_violation", relative, "oracle path is outside evaluator root or missing"), 1)
-        hasher.update(Path(source).read_bytes())
+        source_bytes = read_pinned_source(source, evaluator_root, relative)
+        digest = hashlib.sha256(source_bytes).hexdigest()
+        hasher.update(source_bytes)
         sources.append(source)
+        source_digests[source] = digest
     if not sources:
         finish(invalid("source_missing", "/evaluator_only/oracle_tests", "no held-back tests declared"), 1)
-    return sources, hasher.hexdigest()
+    return sources, source_digests, hasher.hexdigest()
 
 
 def resolve_reference_path(evaluator, package_root, evaluator_root):
@@ -209,7 +256,7 @@ def snapshot_and_backup():
     shutil.copytree(args.checkout, backup_checkout, symlinks=True)
 
 
-def grant_and_validate_access(adapter, sources):
+def grant_and_validate_access(adapter, sources, source_digests):
     """Request I-05-brokered access for the held-back sources and validate the
     resulting access log and adapter-resolved injection destinations."""
     grant = subprocess.run([guard, args.stage_bundle, "--grant-access", "inject-tests", "--accessor", "f09-heldback-oracle", "--adapter", adapter, "--checkout", args.checkout, "--files", *sources], capture_output=True, text=True)
@@ -237,6 +284,11 @@ def grant_and_validate_access(adapter, sources):
     checkout_root = os.path.realpath(args.checkout)
     validated_events = [source_events[source][0] for source in sources]
     for event in validated_events:
+        source = event["artifact_path"]
+        expected_digest = source_digests[source]
+        actual_digest = event.get("digest")
+        if actual_digest != f"sha256:{expected_digest}":
+            finish(invalid("isolation_violation", "/execution_oracle/access_event/digest", f"source_changed: broker-copied bytes for {source} do not match the pinned source digest"), 1)
         destination = event["destination"]
         destination_abs = os.path.realpath(os.path.join(args.checkout, destination))
         if not destination_abs.startswith(checkout_root + os.sep):
@@ -399,13 +451,13 @@ try:
     evaluator_root = os.path.realpath(os.path.join(package_root, "evaluator"))
     roots_before = capture_roots(evaluator_root)
     evaluator = package.get("evaluator_only") or {}
-    sources, test_digest = resolve_oracle_sources(evaluator, package_root, evaluator_root)
+    sources, source_digests, test_digest = resolve_oracle_sources(evaluator, package_root, evaluator_root)
     _reference_path, reference_digest = resolve_reference_path(evaluator, package_root, evaluator_root)
 
     predicate, kind, test_ids = resolve_predicate(package)
 
     snapshot_and_backup()
-    validated_events, injected = grant_and_validate_access(adapter, sources)
+    validated_events, injected = grant_and_validate_access(adapter, sources, source_digests)
 
     passed, adapter_calls = run_predicate(kind, adapter, predicate, test_ids)
 
