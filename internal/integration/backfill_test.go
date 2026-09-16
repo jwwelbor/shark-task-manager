@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -298,6 +299,201 @@ func TestBackfill_ManifestAuthorizesPartialRetry(t *testing.T) {
 	}
 	if len(candidate.EventIDs) != len(events) {
 		t.Fatalf("resumed candidate event IDs = %v, want %d", candidate.EventIDs, len(events))
+	}
+}
+
+// seedRetainedBackfillCandidate seeds a manifest, run record, and a real,
+// valid on-disk candidate (via the genuine RecordEvent/UpdateCandidate write
+// path) for events[0] under (epicKey, epicRunID, base) — the shared starting
+// state for TestValidateRetainedBackfillCandidate_RejectsTamperedState's
+// subtests, each of which then tampers one field before asserting rejection.
+func seedRetainedBackfillCandidate(t *testing.T, dir, epicKey, epicRunID, base string, events []IntegrationEvent) {
+	t.Helper()
+	if err := ensureBackfillManifest(dir, epicKey, epicRunID, base, events); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+	if _, err := backfillRun(dir, epicKey, epicRunID, base); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	recorded, err := RecordEvent(epicRunID, events[0].FeatureKey, events[0].FeatureCommit, events[0].TrackedPaths, events[0].UntrackedPaths)
+	if err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+	if _, err := UpdateCandidate(context.Background(), epicRunID, recorded); err != nil {
+		t.Fatalf("seed candidate: %v", err)
+	}
+}
+
+// TestValidateRetainedBackfillCandidate_RejectsTamperedState is the
+// counter-factual for validateRetainedBackfillCandidate's four reject
+// branches (backfill.go): each subtest seeds a genuinely valid retained
+// candidate, tampers exactly the field that branch checks, and asserts
+// rejection — proving the check actually fires rather than being dead code
+// a deleted `if` would pass unnoticed.
+func TestValidateRetainedBackfillCandidate_RejectsTamperedState(t *testing.T) {
+	t.Run("mismatched run identity", func(t *testing.T) {
+		dir, headCommit := chdirProjectRoot(t)
+		const epicKey, epicRunID = "E71", "run-tamper-identity"
+		events := validBackfillEvents(epicRunID)
+		seedRetainedBackfillCandidate(t, dir, epicKey, epicRunID, headCommit, events)
+
+		candidate, _, err := readCandidate(candidatePath(dir, epicRunID))
+		if err != nil || candidate == nil {
+			t.Fatalf("read seeded candidate: %v", err)
+		}
+		candidate.BaseCommit = "0000000000000000000000000000000000000dead"
+		candidate.Digest, err = computeDigest(*candidate)
+		if err != nil {
+			t.Fatalf("recompute digest: %v", err)
+		}
+		data, err := json.MarshalIndent(candidate, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal tampered candidate: %v", err)
+		}
+		if err := os.WriteFile(candidatePath(dir, epicRunID), data, runFileMode); err != nil {
+			t.Fatalf("write tampered candidate: %v", err)
+		}
+
+		err = validateRetainedBackfillCandidate(dir, epicKey, epicRunID, headCommit, events)
+		var conflict *RegistrationConflictError
+		if !errors.As(err, &conflict) {
+			t.Fatalf("validateRetainedBackfillCandidate() error = %T %v, want *RegistrationConflictError", err, err)
+		}
+	})
+
+	t.Run("corrupt digest", func(t *testing.T) {
+		dir, headCommit := chdirProjectRoot(t)
+		const epicKey, epicRunID = "E72", "run-tamper-digest"
+		events := validBackfillEvents(epicRunID)
+		seedRetainedBackfillCandidate(t, dir, epicKey, epicRunID, headCommit, events)
+
+		candidate, _, err := readCandidate(candidatePath(dir, epicRunID))
+		if err != nil || candidate == nil {
+			t.Fatalf("read seeded candidate: %v", err)
+		}
+		candidate.Digest = "not-the-real-digest"
+		data, err := json.MarshalIndent(candidate, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal tampered candidate: %v", err)
+		}
+		if err := os.WriteFile(candidatePath(dir, epicRunID), data, runFileMode); err != nil {
+			t.Fatalf("write tampered candidate: %v", err)
+		}
+
+		err = validateRetainedBackfillCandidate(dir, epicKey, epicRunID, headCommit, events)
+		var conflict *RegistrationConflictError
+		if !errors.As(err, &conflict) {
+			t.Fatalf("validateRetainedBackfillCandidate() error = %T %v, want *RegistrationConflictError", err, err)
+		}
+	})
+
+	t.Run("duplicate event IDs", func(t *testing.T) {
+		dir, headCommit := chdirProjectRoot(t)
+		const epicKey, epicRunID = "E73", "run-tamper-duplicate"
+		events := validBackfillEvents(epicRunID)
+		seedRetainedBackfillCandidate(t, dir, epicKey, epicRunID, headCommit, events)
+
+		candidate, _, err := readCandidate(candidatePath(dir, epicRunID))
+		if err != nil || candidate == nil {
+			t.Fatalf("read seeded candidate: %v", err)
+		}
+		candidate.EventIDs = []string{candidate.EventIDs[0], candidate.EventIDs[0]}
+		candidate.Digest, err = computeDigest(*candidate)
+		if err != nil {
+			t.Fatalf("recompute digest: %v", err)
+		}
+		data, err := json.MarshalIndent(candidate, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal tampered candidate: %v", err)
+		}
+		if err := os.WriteFile(candidatePath(dir, epicRunID), data, runFileMode); err != nil {
+			t.Fatalf("write tampered candidate: %v", err)
+		}
+
+		err = validateRetainedBackfillCandidate(dir, epicKey, epicRunID, headCommit, events)
+		var conflict *RegistrationConflictError
+		if !errors.As(err, &conflict) {
+			t.Fatalf("validateRetainedBackfillCandidate() error = %T %v, want *RegistrationConflictError", err, err)
+		}
+	})
+
+	t.Run("event outside authorized manifest", func(t *testing.T) {
+		dir, headCommit := chdirProjectRoot(t)
+		const epicKey, epicRunID = "E74", "run-tamper-unauthorized"
+		events := validBackfillEvents(epicRunID)
+		seedRetainedBackfillCandidate(t, dir, epicKey, epicRunID, headCommit, events)
+
+		candidate, _, err := readCandidate(candidatePath(dir, epicRunID))
+		if err != nil || candidate == nil {
+			t.Fatalf("read seeded candidate: %v", err)
+		}
+		candidate.EventIDs = []string{deriveEventID(epicRunID, "E00-F00", "not-an-authorized-commit")}
+		candidate.Digest, err = computeDigest(*candidate)
+		if err != nil {
+			t.Fatalf("recompute digest: %v", err)
+		}
+		data, err := json.MarshalIndent(candidate, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal tampered candidate: %v", err)
+		}
+		if err := os.WriteFile(candidatePath(dir, epicRunID), data, runFileMode); err != nil {
+			t.Fatalf("write tampered candidate: %v", err)
+		}
+
+		err = validateRetainedBackfillCandidate(dir, epicKey, epicRunID, headCommit, events)
+		var conflict *RegistrationConflictError
+		if !errors.As(err, &conflict) {
+			t.Fatalf("validateRetainedBackfillCandidate() error = %T %v, want *RegistrationConflictError", err, err)
+		}
+	})
+}
+
+// TestBackfill_DivergentRetainedEventFailsBeforeMutation is the
+// counter-factual for sameBackfillEvent's rejection branch (backfill.go).
+// RecordEvent is idempotent by EventID (event.go): a second call for the
+// same EventID returns the already-published record unchanged, even if the
+// caller supplies different TrackedPaths/UntrackedPaths — those fields are
+// not part of deriveEventID's digest. This test pre-publishes events[0]'s
+// event with different TrackedPaths than events[0] itself carries, then
+// retries Backfill with the unmodified, manifest-matching `events` — so the
+// manifest check passes, but the loop's RecordEvent call returns the
+// pre-published record, which sameBackfillEvent must catch as diverging
+// from the authorized input. Without this test, deleting the
+// `!sameBackfillEvent(...)` check would not fail any test.
+func TestBackfill_DivergentRetainedEventFailsBeforeMutation(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey, epicRunID = "E75", "run-divergent-event"
+	events := validBackfillEvents(epicRunID)
+
+	if err := ensureBackfillManifest(dir, epicKey, epicRunID, headCommit, events); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+	if _, err := backfillRun(dir, epicKey, epicRunID, headCommit); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	// Pre-publish events[0]'s event file directly with different
+	// TrackedPaths than events[0] carries — same EventID (TrackedPaths
+	// aren't part of the digest), divergent content already on disk.
+	if _, err := RecordEvent(epicRunID, events[0].FeatureKey, events[0].FeatureCommit, []string{"a-different-path.go"}, nil); err != nil {
+		t.Fatalf("seed divergent event: %v", err)
+	}
+
+	filesBefore := countFilesUnder(t, filepath.Join(dir, ".shark"))
+	recorder := &fakeNoteRecorder{}
+
+	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	var conflict *RegistrationConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("Backfill error = %T %v, want *RegistrationConflictError", err, err)
+	}
+	if !strings.Contains(err.Error(), "does not match the authorized backfill manifest") {
+		t.Fatalf("expected the retained-event mismatch reason, got: %v", err)
+	}
+	if got := countFilesUnder(t, filepath.Join(dir, ".shark")); got != filesBefore {
+		t.Fatalf("divergent-event retry mutated files: before=%d after=%d", filesBefore, got)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("divergent-event retry recorded %d notes, want none", recorder.calls)
 	}
 }
 
