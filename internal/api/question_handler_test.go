@@ -41,11 +41,12 @@ type mockQuestionService struct {
 		targetKey     string
 		limit, offset int
 	}
-	fullInput struct{ key, actor string }
-	open      []models.QuestionProjection
-	blocks    []*services.QuestionBlock
-	full      *models.QuestionFullProjection
-	fullErr   error
+	fullInput  struct{ key, actor string }
+	open       []models.QuestionProjection
+	blocks     []*services.QuestionBlock
+	full       *models.QuestionFullProjection
+	fullErr    error
+	resolveErr error
 }
 
 func (m *mockQuestionService) CreateQuestion(_ context.Context, in services.CreateQuestionInput) (*models.Question, error) {
@@ -88,7 +89,7 @@ func (m *mockQuestionService) RecordResponse(context.Context, services.RecordQue
 }
 func (m *mockQuestionService) Resolve(context.Context, services.ResolveQuestionInput) (*models.Question, error) {
 	m.resolved = true
-	return m.question, nil
+	return m.question, m.resolveErr
 }
 func (m *mockQuestionService) Withdraw(context.Context, services.WithdrawQuestionInput) (*models.Question, error) {
 	m.withdrawn = true
@@ -418,6 +419,18 @@ func TestQuestionHandlerWorkflowRoutesReturnMetadataOnly_TC109(t *testing.T) {
 				t.Fatalf("response exposed Question context: %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestQuestionHandlerResolveOwnerMismatchReturnsConflict(t *testing.T) {
+	svc := &mockQuestionService{resolveErr: &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: fmt.Errorf(`resolution owner does not match configured owner; retry with --resolution-owner=%q`, "release-owner")}}
+	rec := httptest.NewRecorder()
+	questionMux(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/questions/Q001/resolve", strings.NewReader(`{"owner":"someone-else","resolution_kind":"no_lasting_consequence"}`)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `--resolution-owner=\"release-owner\"`) {
+		t.Fatalf("body=%s, want owner retry guidance", rec.Body.String())
 	}
 }
 

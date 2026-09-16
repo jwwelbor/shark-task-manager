@@ -703,6 +703,49 @@ func TestQuestionServiceResolveRejectsUnreadyQuestion_TC106(t *testing.T) {
 	}
 }
 
+// TestQuestionServiceResolveOwnerMismatchNamesConfiguredOwner verifies the
+// recovery path for a caller that knows a Question key but not its configured
+// resolution owner. The diagnostic must reveal only the retry identity, not
+// the protected full Question projection.
+func TestQuestionServiceResolveOwnerMismatchNamesConfiguredOwner(t *testing.T) {
+	state := models.QuestionState{
+		ResolutionOwner: "release-owner",
+		Responders:      []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderCompleted}},
+		Responses:       []models.QuestionResponse{{SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC()}},
+	}
+	encoded, err := models.EncodeQuestionState(nil, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	question := &models.Question{BaseEntity: models.BaseEntity{ID: 39, Key: "Q001", ContextData: encoded}, Status: models.QuestionStatusReadyForResolution, Summary: "Summary", Requester: "owner"}
+	resolveCalled := false
+	repo := &mockQuestionRepository{
+		getByKeyFn: func(context.Context, string) (*models.Question, error) { return question, nil },
+		resolveFn: func(context.Context, int64, models.QuestionStatus, models.QuestionStatus, *string, *string, string, string) error {
+			resolveCalled = true
+			return nil
+		},
+	}
+	svc, err := NewQuestionService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Resolve(context.Background(), ResolveQuestionInput{Key: "Q001", Owner: "someone-else", Kind: "no_lasting_consequence"})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want owner mismatch")
+	}
+	if !strings.Contains(err.Error(), `--resolution-owner="release-owner"`) {
+		t.Fatalf("Resolve() error = %q, want configured owner retry guidance", err)
+	}
+	var ruleErr *QuestionRuleError
+	if !errors.As(err, &ruleErr) || ruleErr.Class != QuestionRuleConflict {
+		t.Fatalf("Resolve() error = %T %v, want QuestionRuleConflict", err, err)
+	}
+	if resolveCalled {
+		t.Fatal("Resolve() called the repository write despite the owner mismatch")
+	}
+}
+
 // TestQuestionServiceResolveRejectsInvalidDestination_TC106 locks in
 // validateResolutionDestination/validateResolutionDocument's negative paths,
 // including the path-traversal guard (filepath.IsAbs / "../" escape) on
@@ -822,13 +865,13 @@ func TestQuestionServiceWithdrawAndSupersede_TC107(t *testing.T) {
 	}
 }
 
-// TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107 locks in
-// the two guards closeWithReason/loadClosableQuestion enforce before Withdraw
-// or Supersede may close a Question: the caller must be the configured
+// TestQuestionServiceClosersRejectGuardViolations_TC107 locks in
+// the guards closeWithReason/loadClosableQuestion enforce before a Question
+// closer may run: the caller must be the configured
 // resolution owner, and the Question must not already be terminal. Without
 // these, any caller could re-close an already-resolved Question or close one
 // they don't own.
-func TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107(t *testing.T) {
+func TestQuestionServiceClosersRejectGuardViolations_TC107(t *testing.T) {
 	openState := models.QuestionState{ResolutionOwner: "release-owner", Responders: []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderPending}}}
 	openEncoded, err := models.EncodeQuestionState(nil, openState)
 	if err != nil {
@@ -848,6 +891,10 @@ func TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107(t *testi
 		name string
 		call func(*QuestionService) error
 	}{
+		{name: "resolve", call: func(s *QuestionService) error {
+			_, err := s.Resolve(context.Background(), ResolveQuestionInput{Key: "Q001", Owner: "release-owner", Kind: "no_lasting_consequence"})
+			return err
+		}},
 		{name: "withdraw", call: func(s *QuestionService) error {
 			_, err := s.Withdraw(context.Background(), WithdrawQuestionInput{Key: "Q001", Owner: "release-owner", Reason: "no longer needed"})
 			return err
@@ -879,6 +926,8 @@ func TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107(t *testi
 			// "someone-else" does not match the configured release-owner.
 			var callErr error
 			switch action.name {
+			case "resolve":
+				_, callErr = svc.Resolve(context.Background(), ResolveQuestionInput{Key: "Q001", Owner: "someone-else", Kind: "no_lasting_consequence"})
 			case "withdraw":
 				_, callErr = svc.Withdraw(context.Background(), WithdrawQuestionInput{Key: "Q001", Owner: "someone-else", Reason: "no longer needed"})
 			case "supersede":
@@ -886,6 +935,9 @@ func TestQuestionServiceWithdrawAndSupersedeRejectGuardViolations_TC107(t *testi
 			}
 			if callErr == nil {
 				t.Fatal("error = nil, want rejection for a caller that is not the configured resolution owner")
+			}
+			if !strings.Contains(callErr.Error(), `--resolution-owner="release-owner"`) {
+				t.Fatalf("error = %q, want configured owner retry guidance", callErr)
 			}
 			if called {
 				t.Fatal("repository write called despite the owner mismatch")
