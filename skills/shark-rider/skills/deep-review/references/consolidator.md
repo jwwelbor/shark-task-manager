@@ -78,7 +78,7 @@ Average ≤ 3 for any dimension → non-blocker triage. Average ≤ 2 → blocke
 ## Step 6: Verdict
 
 - **PASS** — zero findings of any severity
-- **PASS-with-triage** — no blockers; non-blockers exist (host triages as tech-debt)
+- **PASS-with-triage** — no blockers; non-blockers exist (host routes each through the triage skill's decision tree — fix-now gate, duplicate search, type classification; tech-debt is only one possible outcome)
 - **FAIL** — one or more blockers; task returns to development
 
 ---
@@ -144,7 +144,7 @@ For each service-contract change: entrypoint → call chain → leaf with argume
 
 ### I. Triage Summary
 - **Blockers** (must fix before QA): numbered list
-- **Non-blockers to triage** (host files as tech-debt): numbered list with `file:line + summary + fix_suggestion`
+- **Non-blockers to triage** (host routes each through the triage skill's decision tree): numbered list with `file:line + summary + fix_suggestion`
 - **Nits** (no action required): bullet list
 
 ### J. Verdict
@@ -158,7 +158,7 @@ One paragraph summarizing the state of the PR, what is good, and what must chang
 
 - [ ] Every blocker cites a specific risk, standards section, or named invariant
 - [ ] Any fundamental change to an existing architecture/workflow/pattern is explicitly judged as defensible or not defensible
-- [ ] Every non-blocker has `file:line + summary + fix_suggestion` so it can be filed as tech-debt without re-reading the report
+- [ ] Every non-blocker has `file:line + summary + fix_suggestion` so it can be routed through the triage skill's decision tree without re-reading the report
 - [ ] Reuse search findings cite at least one grep result (even "no duplicates found")
 - [ ] If a structural sibling check was triggered, the sibling inventory table is in section C
 - [ ] Standards crosswalk cites real sections (no fabricated citations)

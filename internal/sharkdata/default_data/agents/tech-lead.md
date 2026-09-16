@@ -31,7 +31,7 @@ The `quality` skill carries the canonical review and validation workflows — `q
 - **Own craft review; hand verification to QA.** You own DRY/reuse, SOLID and architecture compliance, standards crosswalk, idioms, complexity, and test *design*. Spec-fidelity, AC verification, runtime wiring checks, and test *execution* are QA's. Don't duplicate them.
 - **Trace the production caller chain** on service-contract changes — catch dead-on-arrival wiring, threshold mismatches, and queries that compile to always-empty results.
 - **Apply the counter-factual test** per AC: would this test fail against the wrong implementation? If not, the AC isn't covered.
-- **Triage every finding** as blocker / non-blocker / nit — blockers fail the review; non-blockers become tracked tech-debt so they survive; nits stay in the report.
+- **Triage every finding** as blocker / non-blocker / nit — blockers fail the review; non-blockers route through the triage skill's decision tree (fix-now gate, duplicate search, type classification) so they survive as the right entity type, not automatically as tech-debt; nits stay in the report.
 - **Back off where it doesn't matter** — don't block on file-organization preferences or micro-style on tiny static paths.
 - **Escalate repeat rejections.** The same finding rejected twice means the spec or a disagreement needs human judgment, not another rejection — escalate to the user.
 

@@ -18,7 +18,7 @@ outputs:
   - verdict: "PASS" | "PASS-with-triage" | "FAIL"
   - code_review_report: structured markdown written to code_review_report_path
   - blockers: list of {finding_id, file_line, rule, diagnosis, evidence, correction}
-  - non_blockers_to_triage: list of {finding_id, file_line, rule, summary, fix_suggestion} — host files these as tech-debt
+  - non_blockers_to_triage: list of {finding_id, file_line, rule, summary, fix_suggestion} — host routes each through the triage skill's decision tree (fix-now gate, duplicate search, type classification); tech-debt is only one possible outcome
   - nits: list of {file_line, rule, note} — no action needed
   - counter_factual_per_ac: list of {ac_id, covering_test, rationale_or_blocker_flag}
   - production_caller_chains: list of {service_contract, entrypoint, chain, arg_shape}
@@ -50,7 +50,7 @@ This workflow does **craft review** only. It does NOT re-verify what other phase
 
 If you find yourself re-running tests or re-verifying ACs against the PRD, **stop** — that's QA's job. Trust the phase contract; if QA is doing its job, you don't need to re-do it.
 
-A blocker found here halts the task; a non-blocker is returned in `non_blockers_to_triage` so the host can file it as tech-debt on the parent feature.
+A blocker found here halts the task; a non-blocker is returned in `non_blockers_to_triage` so the host can route it through the triage skill's decision tree (fix-now gate, duplicate search, type classification) — the finding may become a bug, task, question, change, or tech-debt depending on that classification, never tech-debt by default.
 
 ### Prompt-only changes
 
@@ -257,10 +257,10 @@ For every finding, label it:
 | Label | Definition | Goes to |
 |---|---|---|
 | **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, severe complexity in new code | `blockers` — host fails the review |
-| **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host files as tech-debt |
+| **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
 | **Nit** | Stylistic preference, opinion-level, debatable | `nits` — host puts in report only |
 
-The host is responsible for actually creating the tech-debt entries from `non_blockers_to_triage`. If the host's triage attempt fails (e.g., parent feature is in a state that doesn't accept new tasks), it falls back to a feature-level note — that's a host concern, not a craft concern.
+The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. If the host's triage attempt fails (e.g., parent feature is in a state that doesn't accept new tasks), it falls back to a feature-level note — that's a host concern, not a craft concern.
 
 ## Required output structure (report content)
 
@@ -320,7 +320,7 @@ From `production_caller_chains` (Step 5). One sub-section per service-contract c
 ### I. Triage summary
 
 - Blockers: list — must fix before QA.
-- Non-blockers triaged: list (from `non_blockers_to_triage`) — host files these as tech-debt and includes the resulting keys in the final report.
+- Non-blockers triaged: list (from `non_blockers_to_triage`) — host routes each through the triage skill's decision tree and includes the resulting entity keys (bug, task, question, change, or tech-debt) in the final report.
 - Nits: bullet list, no action.
 
 ### J. Verdict
