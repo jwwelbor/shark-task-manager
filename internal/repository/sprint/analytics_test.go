@@ -598,6 +598,7 @@ func TestGetSprintAssignedEntities(t *testing.T) {
 	assert.Equal(t, 5, *active.Size)
 
 	require.NotNil(t, removed, "removed assignment should be returned")
+	assert.Equal(t, "TEST-E99-F01-011", removed.Key)
 	require.NotNil(t, removed.RemovedAt, "removed assignment has removed_at set")
 	assert.Nil(t, removed.Size, "removed assignment has nil size (unsized)")
 }
