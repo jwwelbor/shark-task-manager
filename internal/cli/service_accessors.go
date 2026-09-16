@@ -159,6 +159,7 @@ func (a *sprintAnalyticsAdapter) GetSprintAssignedEntities(ctx context.Context, 
 	out := make([]services.AnalyticsAssignedEntity, len(entities))
 	for i, e := range entities {
 		out[i] = services.AnalyticsAssignedEntity{
+			Key:        e.Key,
 			EntityType: e.EntityType,
 			EntityID:   e.EntityID,
 			AssignedAt: e.AssignedAt,

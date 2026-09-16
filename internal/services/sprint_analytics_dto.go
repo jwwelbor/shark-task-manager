@@ -26,6 +26,7 @@ type AnalyticsVelocityRow struct {
 // AnalyticsAssignedEntity represents one sprint-assignment row as seen by the service.
 // Mirrors sprint.AssignedEntity without creating a repository dependency.
 type AnalyticsAssignedEntity struct {
+	Key        string
 	EntityType string
 	EntityID   int64
 	AssignedAt time.Time
