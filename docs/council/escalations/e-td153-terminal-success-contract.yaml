@@ -1,0 +1,24 @@
+artifact_id: e-td153-terminal-success-contract
+type: escalation
+status: unresolved
+trigger: cross-feature workflow contract with high blast radius
+route: council-review
+roles:
+  - architect
+  - product-manager
+  - developer
+root_key: TD-153
+evidence:
+  - docs/plan/tech-debt/TD-153.research-report.md
+  - internal/config/workflow/schema.go
+  - internal/config/workflow/validator.go
+  - internal/services/sprint_service.go
+  - internal/progress/calculator.go
+  - internal/services/feature_progress_service.go
+  - internal/services/aggregate_policy.go
+  - internal/services/epic_analytics_service.go
+created_at: 2026-09-16T23:37:35Z
+updated_at: 2026-09-16T23:37:35Z
+next_action: pause/review; choose the terminal-success contract before implementation.
+question: Should custom workflows define successful terminal statuses explicitly, or should every non-success terminal status be required to set exclude_from_progress true?
+context: The current bool metadata cannot distinguish omission from explicit false. Sprint readiness credits terminal statuses not explicitly excluded; four progress consumers separately include the same metadata in their progress treatment.
