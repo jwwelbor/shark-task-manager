@@ -2009,12 +2009,15 @@ func TestEmbedded_ReviewFindingsRouteThroughTriage(t *testing.T) {
 		"host files these as tech-debt",
 		"host files as tech-debt",
 		"host triages as tech-debt",
+		"File as tech-debt only if",
 	}
 
+	visited := map[string]bool{}
 	violations := scanEmbeddedMarkdown(t, "", func(relPath, content string, violations *[]string) {
 		if !scopedFiles[relPath] {
 			return
 		}
+		visited[relPath] = true
 		for _, phrase := range directMapping {
 			if strings.Contains(content, phrase) {
 				*violations = append(*violations, relPath+`: contains direct-mapping phrase "`+phrase+`" — route non-blockers through the `+triageReference+` instead`)
@@ -2024,6 +2027,12 @@ func TestEmbedded_ReviewFindingsRouteThroughTriage(t *testing.T) {
 			*violations = append(*violations, relPath+`: does not reference the `+triageReference+` when routing non-blocking findings`)
 		}
 	}, nil)
+
+	for relPath := range scopedFiles {
+		if !visited[relPath] {
+			violations = append(violations, relPath+": scoped file was not found during the scan — the gate is passing vacuously")
+		}
+	}
 
 	assert.Empty(t, violations,
 		"review-finding producers must route non-blockers through the triage skill's decision tree, not map severity directly to tech-debt; found:\n%s",

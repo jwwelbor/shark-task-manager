@@ -355,7 +355,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - Minor optimizations that don't affect correctness.
 - Naming nits when project standards are met.
 - Missing nice-to-have test cases (triage instead).
-- **File-organization preferences** (e.g., "split this 700-line test file into smaller groups"). File as tech-debt only if there is concrete maintainability impact; otherwise drop entirely.
+- **File-organization preferences** (e.g., "split this 700-line test file into smaller groups"). Route through the triage skill's decision tree only if there is concrete maintainability impact; otherwise drop entirely.
 - **Micro-style violations on tiny static-data paths** — e.g., a single sync `Path.read_text()` for a small static prompt file inside an `async def`. Async-purity / hot-path rules apply on hot paths; on a 200-byte one-shot read at module init they are nits, not findings.
 
 ### Always prefer:
