@@ -131,6 +131,7 @@ tests=(
 	"$SCRIPT_DIR/tc117_admit_corpus_path_containment_test.sh"
 	"$SCRIPT_DIR/tc117_i05_caller_pass_through_guard_test.sh"
 	"$SCRIPT_DIR/tc118_real_lifecycle_contract_test.sh"
+	"$SCRIPT_DIR/tc119_admit_testmain_source_deletion_test.sh"
 )
 
 status=0
