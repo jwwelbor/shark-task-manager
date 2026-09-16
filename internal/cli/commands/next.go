@@ -1416,6 +1416,15 @@ func attachAgentBody(prompt, agentType string, vars map[string]string) (string, 
 	return rendered + "\n\n---\n\n" + prompt, nil
 }
 
+// workerOwnershipPreamble is a Go constant rather than a prompt/template file
+// on purpose: it is Shark's own governance layer, not workflow content, so it
+// must stay outside the project-editable shark-data/ prompt, agent, and
+// override resolution path — nothing a workflow author writes can shadow,
+// override, or template-render it away. assembleDispatchPrompt prepends it
+// ahead of the agent persona and rendered prompt for the same reason: it must
+// win over both, unconditionally. See PR #126 (b78be99a), which paired this
+// runtime-enforced half of the worker/parent-loop contract with the
+// configurable outcome-resolution half in skills/shark/verbs/run.md.
 const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
 - You are a spawned worker inside a Shark parent-run loop.
 - Do NOT run Shark workflow-state commands against the entity this prompt dispatched you for.
@@ -1424,6 +1433,8 @@ const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
 - Operate in single-worker mode by default. Do NOT spawn or delegate to additional host-native subagents, agent teams, or external AI CLIs unless the workflow prompt explicitly tells you to run a multi-agent skill or recipe.
 - If the bundled agent persona describes broader coordination behavior, treat that as background context only. This contract and the concrete workflow prompt override it for the current dispatched step.
 - Complete the requested work, write the requested artifacts, then stop and clearly report the recommended outcome and any follow-up guidance for the parent loop.
+- "Stop" means your involvement in this dispatch ends there, not just that you pause between tool calls: once you have reported your final result, take no further actions of any kind. Do not keep investigating, do not act on adjacent issues you noticed, and do not resume any work — on this entity or anything else you touched — unless the parent sends you a new, explicit instruction. Noticing something else worth doing is a reason to name it in your report, never a reason to keep going.
+- If this dispatch is likely to take more than roughly 15 minutes (a substantial implementation, a live-LLM capture/recapture, a long test or build run), send the parent a brief progress check-in at that cadence even though the work isn't done — what's finished, what's in progress, and whether you're blocked. The parent cannot tell "still working normally" from "stalled" without these; going silent until a single final report is not acceptable for a long-running dispatch.
 - The parent loop owns the dispatched entity's lease and workflow transitions.`
 
 // assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
