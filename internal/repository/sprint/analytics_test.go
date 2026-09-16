@@ -534,23 +534,51 @@ func TestGetSprintAssignedEntities(t *testing.T) {
 			{EntityType: "task", EntityID: taskID11, Size: nil, AssignedAt: start, RemovedAt: &removedAt},
 		})
 
+	// B061: every branch of the polymorphic assignment query must preserve the
+	// canonical key that downstream carryover-note lookup consumes.
+	extra := []struct {
+		entityType string
+		key        string
+	}{
+		{entityType: "bug", key: "B931"},
+		{entityType: "change_card", key: "CC-931"},
+		{entityType: "tech_debt", key: "TD-931"},
+	}
+	for _, tc := range extra {
+		entityID := seedEntityRow(t, rawDB, tc.entityType, tc.key, "B061 canonical key coverage", "active")
+		_, err := rawDB.ExecContext(ctx, `
+			INSERT INTO sprint_assignments (sprint_id, entity_type, entity_id, assigned_at)
+			VALUES (?, ?, ?, ?)`, sprintID, tc.entityType, entityID, start)
+		require.NoError(t, err)
+	}
+
 	defer func() {
 		_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprint_assignments WHERE sprint_id = ?`, sprintID)
 		_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key = 'S931'`)
 		_, _ = rawDB.ExecContext(ctx, `DELETE FROM tasks WHERE key IN ('TEST-E99-F01-010','TEST-E99-F01-011')`)
+		_, _ = rawDB.ExecContext(ctx, `DELETE FROM bugs WHERE key = 'B931'`)
+		_, _ = rawDB.ExecContext(ctx, `DELETE FROM change_cards WHERE key = 'CC-931'`)
+		_, _ = rawDB.ExecContext(ctx, `DELETE FROM tech_debts WHERE key = 'TD-931'`)
 	}()
 
 	entities, err := repo.GetSprintAssignedEntities(ctx, sprintID)
 	require.NoError(t, err)
-	require.Len(t, entities, 2, "should return both active and removed assignments")
+	require.Len(t, entities, 5, "should return every polymorphic assignment")
+	keys := make(map[string]string, len(entities))
+	for _, entity := range entities {
+		keys[entity.EntityType] = entity.Key
+	}
+	assert.Equal(t, "B931", keys["bug"])
+	assert.Equal(t, "CC-931", keys["change_card"])
+	assert.Equal(t, "TD-931", keys["tech_debt"])
 
 	// Find each entity.
 	var active, removed *AssignedEntity
 	for i := range entities {
-		if entities[i].EntityID == taskID10 {
+		if entities[i].EntityType == "task" && entities[i].EntityID == taskID10 {
 			active = &entities[i]
 		}
-		if entities[i].EntityID == taskID11 {
+		if entities[i].EntityType == "task" && entities[i].EntityID == taskID11 {
 			removed = &entities[i]
 		}
 	}
