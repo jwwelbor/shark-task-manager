@@ -496,7 +496,7 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 		for _, e := range entities {
 			if e.RemovedAt == nil && !completedSet[summaryEntityKey{e.EntityType, e.EntityID}] {
 				carryover = append(carryover, CarryoverEntity{
-					Key:        fmt.Sprintf("%s-%d", e.EntityType, e.EntityID),
+					Key:        e.Key,
 					EntityType: e.EntityType,
 					Size:       e.Size,
 				})

@@ -147,28 +147,28 @@ func (r *SprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Contex
 	// per entity type enables the query planner to use the (entity_type, entity_id)
 	// composite index on each branch independently.
 	query := `
-		SELECT sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, t.size
+		SELECT t.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, t.size
 		FROM sprint_assignments sa
 		JOIN tasks t ON t.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'task'
 
 		UNION ALL
 
-		SELECT sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, b.size
+		SELECT b.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, b.size
 		FROM sprint_assignments sa
 		JOIN bugs b ON b.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'bug'
 
 		UNION ALL
 
-		SELECT sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, cc.size
+		SELECT cc.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, cc.size
 		FROM sprint_assignments sa
 		JOIN change_cards cc ON cc.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'change_card'
 
 		UNION ALL
 
-		SELECT sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, td.size
+		SELECT td.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, td.size
 		FROM sprint_assignments sa
 		JOIN tech_debts td ON td.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'tech_debt'
@@ -184,6 +184,7 @@ func (r *SprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Contex
 	for rows.Next() {
 		var e AssignedEntity
 		if err := rows.Scan(
+			&e.Key,
 			&e.EntityType,
 			&e.EntityID,
 			flexTime{&e.AssignedAt},

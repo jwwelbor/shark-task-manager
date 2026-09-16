@@ -14,6 +14,7 @@ type VelocityRow struct {
 // AssignedEntity represents one row from the polymorphic sprint_assignments join.
 // Used for burndown reconstruction and sprint summary calculations.
 type AssignedEntity struct {
+	Key        string
 	EntityType string
 	EntityID   int64
 	AssignedAt time.Time

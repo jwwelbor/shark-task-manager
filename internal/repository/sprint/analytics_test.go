@@ -556,6 +556,9 @@ func TestGetSprintAssignedEntities(t *testing.T) {
 	}
 
 	require.NotNil(t, active, "active assignment should be returned")
+	// B061: downstream retrospective note lookup requires the canonical entity
+	// key, not the synthetic "task-<id>" identifier previously derived later.
+	assert.Equal(t, "TEST-E99-F01-010", active.Key)
 	assert.Nil(t, active.RemovedAt, "active assignment has no removed_at")
 	require.NotNil(t, active.Size, "active assignment has size")
 	assert.Equal(t, 5, *active.Size)
