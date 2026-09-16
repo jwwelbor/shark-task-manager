@@ -234,6 +234,16 @@ steps:
 		filepath.Join(promptsDir, "change", "code_review.tmpl"):    "ROUTE FIXTURE CHANGE CODE REVIEW\n",
 		filepath.Join(promptsDir, "tech_debt", "in_progress.tmpl"): "ROUTE FIXTURE TECH DEBT IN PROGRESS\n",
 		filepath.Join(promptsDir, "tech_debt", "code_review.tmpl"): "ROUTE FIXTURE TECH DEBT CODE REVIEW\n",
+		// Keep the data bundle complete: dispatch does not only render the
+		// workflow instruction, it also inlines the selected agent persona.
+		// These sentinels make callers prove that both parts came from the
+		// configured fixture bundle rather than silently falling back to an
+		// embedded or missing agent definition.
+		filepath.Join(bundleRoot, "agents", "researcher.md"):      "ROUTE FIXTURE AGENT RESEARCHER\n",
+		filepath.Join(bundleRoot, "agents", "product-manager.md"): "ROUTE FIXTURE AGENT PRODUCT MANAGER\n",
+		filepath.Join(bundleRoot, "agents", "developer.md"):       "ROUTE FIXTURE AGENT DEVELOPER\n",
+		filepath.Join(bundleRoot, "agents", "reviewer.md"):        "ROUTE FIXTURE AGENT REVIEWER\n",
+		filepath.Join(bundleRoot, "agents", "qa.md"):              "ROUTE FIXTURE AGENT QA\n",
 	}
 
 	for path, body := range files {
