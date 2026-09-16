@@ -80,8 +80,9 @@
 # invisible to this repository's own `go list ./...`, same mechanism
 # ADR-F01-01 already uses for the fixture submodule) that statically
 # parses a package's `_test.go` source with go/parser -- it never
-# compiles or runs a single line of the package under test, so nothing
-# that package's own code does at runtime can alter its output.
+# compiles or runs a single line of the package under test. P2P snapshots
+# every package's output before it runs any package, so nothing that
+# package code does at runtime can alter the expected evidence set.
 #
 # check_p2p_green() below is per package (fixing finding #2's global
 # -skip scope: exclusions apply strictly per (package, name), built and
@@ -571,22 +572,37 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
     # per-package -- see rationale above).
     total_pre_filter_candidates = 0
     total_post_filter_selected = 0
+    snapshots = []
 
+    # Capture every expected set before executing any P2P package. The
+    # checkout is writable, so a TestMain in one package could otherwise
+    # delete its own (or another package's) *_test.go sources before the
+    # later package's enumeration ran.
     for import_path, pkg_dir in go_list_packages(checkout_dir, packages):
         pkg_skip_names = {
             bare_test_name(name)
             for name in exclude_from_p2p
             if name.split("::", 1)[0] == import_path
         }
-        skip_pattern = anchored_alternation(pkg_skip_names) if pkg_skip_names else None
-
-        results, _problem_pkgs, returncode = run_go_tests(
-            checkout_dir, [import_path], run_pattern=run_selector, skip_pattern=skip_pattern
-        )
         pre_filter_expected = enumerate_tests(pkg_dir) - pkg_skip_names
         expected = filter_expected_by_run_selector(pre_filter_expected, run_selector)
         total_pre_filter_candidates += len(pre_filter_expected)
         total_post_filter_selected += len(expected)
+        snapshots.append((import_path, pkg_skip_names, expected))
+
+    if run_selector and total_pre_filter_candidates > 0 and total_post_filter_selected == 0:
+        raise RuntimeError(
+            f"p2p_set run_selector {run_selector!r} matched none of the "
+            f"{total_pre_filter_candidates} testenum-enumerated test(s) across "
+            f"{packages!r} -- refusing to treat 0 tests actually run as "
+            "P2P-green; check the selector for a typo or an overly narrow pattern"
+        )
+
+    for import_path, pkg_skip_names, expected in snapshots:
+        skip_pattern = anchored_alternation(pkg_skip_names) if pkg_skip_names else None
+        results, _problem_pkgs, returncode = run_go_tests(
+            checkout_dir, [import_path], run_pattern=run_selector, skip_pattern=skip_pattern
+        )
         observed = {
             bare_test_name(identity)
             for identity in results
@@ -624,14 +640,6 @@ def check_p2p_green(checkout_dir, packages, run_selector, exclude_from_p2p):
             if returncode != 0 and not missing and not failed:
                 detail.append(f"exit code {returncode} despite clean, complete per-test evidence")
             problem_packages.append(f"{import_path} ({'; '.join(detail)})")
-
-    if run_selector and total_pre_filter_candidates > 0 and total_post_filter_selected == 0:
-        raise RuntimeError(
-            f"p2p_set run_selector {run_selector!r} matched none of the "
-            f"{total_pre_filter_candidates} testenum-enumerated test(s) across "
-            f"{packages!r} -- refusing to treat 0 tests actually run as "
-            "P2P-green; check the selector for a typo or an overly narrow pattern"
-        )
 
     return all_clean, problem_packages
 
