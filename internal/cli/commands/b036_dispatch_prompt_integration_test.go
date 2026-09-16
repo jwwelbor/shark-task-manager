@@ -29,66 +29,10 @@ func TestNext_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *tes
 		cli.ResetDB()
 		resetB036RootState(t)
 		config.ClearWorkflowCache()
-		templates.ResetOrchestratorEngine()
+		resetB036TemplateState()
 	})
 
-	runCLI := func(args ...string) string {
-		t.Helper()
-
-		origWd, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("getwd: %v", err)
-		}
-		if err := os.Chdir(projectDir); err != nil {
-			t.Fatalf("chdir %s: %v", projectDir, err)
-		}
-		defer func() {
-			_ = os.Chdir(origWd)
-		}()
-
-		cli.ResetServices()
-		cli.ResetWorkflowService()
-		cli.ResetDB()
-		config.ClearWorkflowCache()
-		templates.ResetOrchestratorEngine()
-
-		oldStdout := os.Stdout
-		oldStderr := os.Stderr
-		rOut, wOut, err := os.Pipe()
-		if err != nil {
-			t.Fatalf("stdout pipe: %v", err)
-		}
-		rErr, wErr, err := os.Pipe()
-		if err != nil {
-			t.Fatalf("stderr pipe: %v", err)
-		}
-		os.Stdout = wOut
-		os.Stderr = wErr
-
-		cli.RootCmd.SetArgs(append([]string{"--config", filepath.Join(projectDir, ".sharkconfig.json"), "--db", dbPath}, args...))
-		execErr := cli.RootCmd.Execute()
-
-		_ = wOut.Close()
-		_ = wErr.Close()
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
-
-		outBytes, _ := io.ReadAll(rOut)
-		errBytes, _ := io.ReadAll(rErr)
-		_ = rOut.Close()
-		_ = rErr.Close()
-
-		if execErr != nil {
-			t.Fatalf("shark %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), execErr, string(outBytes), string(errBytes))
-		}
-		if strings.Contains(string(errBytes), "agent body inline skipped") {
-			t.Fatalf("shark %s unexpectedly skipped fixture agent body:\n%s", strings.Join(args, " "), string(errBytes))
-		}
-		if len(errBytes) > 0 {
-			t.Logf("shark %s stderr:\n%s", strings.Join(args, " "), string(errBytes))
-		}
-		return string(outBytes)
-	}
+	runCLI := func(args ...string) string { return runB036CLI(t, projectDir, dbPath, args...) }
 
 	runCLI("admin", "init", "--non-interactive", "--force")
 	writeB036Config(t, projectDir, fixture)
@@ -190,7 +134,7 @@ func TestRunController_RendersRepresentativeDispatchPromptsFromWorkflowIndexBund
 		cli.ResetDB()
 		resetB036RootState(t)
 		config.ClearWorkflowCache()
-		templates.ResetOrchestratorEngine()
+		resetB036TemplateState()
 	})
 
 	origWd, err := os.Getwd()
@@ -200,7 +144,11 @@ func TestRunController_RendersRepresentativeDispatchPromptsFromWorkflowIndexBund
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatalf("chdir %s: %v", projectDir, err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	t.Cleanup(func() {
+		if err := os.Chdir(origWd); err != nil {
+			t.Errorf("restore working directory %s: %v", origWd, err)
+		}
+	})
 	// Cobra closes its DB after each setup command. Rebuild the production
 	// service graph for the direct RunController entrypoint rather than
 	// retaining a setup command's service that points at that closed DB.
@@ -208,9 +156,16 @@ func TestRunController_RendersRepresentativeDispatchPromptsFromWorkflowIndexBund
 	cli.ResetWorkflowService()
 	cli.ResetDB()
 	config.ClearWorkflowCache()
-	templates.ResetOrchestratorEngine()
+	resetB036TemplateState()
 	cli.GlobalConfig.ConfigFile = filepath.Join(projectDir, ".sharkconfig.json")
 	cli.GlobalConfig.DBPath = dbPath
+	// The next test above reaches Cobra's root initialization, which applies
+	// this same resolved bundle configuration. The controller test starts at
+	// the production run-controller seam so its recording dispatcher can avoid
+	// launching an external agent; configure the renderer with that resolved
+	// project setting before constructing the real action service.
+	templates.SetConfiguredTemplateDir(fixture.ExpectedPromptsDir)
+	templates.SetConfiguredSharkDataPath(fixture.BundleRoot)
 
 	ctx := context.Background()
 	actionSvcRoot, err := cli.GetActionService(ctx)
@@ -314,7 +269,7 @@ func setupB036Project(t *testing.T, projectDir, dbPath string, fixture testutil.
 	runB036CLI(t, projectDir, dbPath, "status", "set", "TD-001", "in_progress", "--force", "--reason", "test setup")
 }
 
-func runB036CLI(t *testing.T, projectDir, dbPath string, args ...string) {
+func runB036CLI(t *testing.T, projectDir, dbPath string, args ...string) string {
 	t.Helper()
 
 	origWd, err := os.Getwd()
@@ -324,13 +279,17 @@ func runB036CLI(t *testing.T, projectDir, dbPath string, args ...string) {
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatalf("chdir %s: %v", projectDir, err)
 	}
-	defer func() { _ = os.Chdir(origWd) }()
+	defer func() {
+		if err := os.Chdir(origWd); err != nil {
+			t.Errorf("restore working directory %s: %v", origWd, err)
+		}
+	}()
 
 	cli.ResetServices()
 	cli.ResetWorkflowService()
 	cli.ResetDB()
 	config.ClearWorkflowCache()
-	templates.ResetOrchestratorEngine()
+	resetB036TemplateState()
 
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
@@ -344,25 +303,49 @@ func runB036CLI(t *testing.T, projectDir, dbPath string, args ...string) {
 	}
 	os.Stdout = wOut
 	os.Stderr = wErr
+	defer func() {
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
+	}()
 
 	cli.RootCmd.SetArgs(append([]string{"--config", filepath.Join(projectDir, ".sharkconfig.json"), "--db", dbPath}, args...))
 	execErr := cli.RootCmd.Execute()
 
-	_ = wOut.Close()
-	_ = wErr.Close()
-	os.Stdout = oldStdout
-	os.Stderr = oldStderr
-
-	outBytes, _ := io.ReadAll(rOut)
-	errBytes, _ := io.ReadAll(rErr)
-	_ = rOut.Close()
-	_ = rErr.Close()
+	if err := wOut.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	if err := wErr.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	outBytes, readOutErr := io.ReadAll(rOut)
+	errBytes, readErrErr := io.ReadAll(rErr)
+	if err := rOut.Close(); err != nil {
+		t.Errorf("close stdout reader: %v", err)
+	}
+	if err := rErr.Close(); err != nil {
+		t.Errorf("close stderr reader: %v", err)
+	}
+	if readOutErr != nil {
+		t.Fatalf("read shark stdout: %v", readOutErr)
+	}
+	if readErrErr != nil {
+		t.Fatalf("read shark stderr: %v", readErrErr)
+	}
 	if execErr != nil {
 		t.Fatalf("shark %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), execErr, string(outBytes), string(errBytes))
 	}
 	if strings.Contains(string(errBytes), "agent body inline skipped") {
 		t.Fatalf("shark %s unexpectedly skipped fixture agent body:\n%s", strings.Join(args, " "), string(errBytes))
 	}
+	return string(outBytes)
+}
+
+func resetB036TemplateState() {
+	// The renderer retains these process-global settings across engine resets.
+	// Restore canonical defaults before t.TempDir cleanup removes a fixture.
+	templates.SetConfiguredTemplateDir("")
+	templates.SetConfiguredSharkDataPath(config.DefaultSharkDataPath)
+	templates.ResetOrchestratorEngine()
 }
 
 func resetB036RootState(t *testing.T) {
