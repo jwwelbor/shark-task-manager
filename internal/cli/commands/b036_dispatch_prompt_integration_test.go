@@ -126,8 +126,6 @@ func TestRunController_RendersRepresentativeDispatchPromptsFromWorkflowIndexBund
 	dbPath := filepath.Join(projectDir, "shark-tasks.db")
 	fixture := testutil.WriteWorkflowIndexFixture(t)
 
-	writeB036Config(t, projectDir, fixture)
-	setupB036Project(t, projectDir, dbPath, fixture)
 	t.Cleanup(func() {
 		cli.ResetServices()
 		cli.ResetWorkflowService()
@@ -136,6 +134,8 @@ func TestRunController_RendersRepresentativeDispatchPromptsFromWorkflowIndexBund
 		config.ClearWorkflowCache()
 		resetB036TemplateState()
 	})
+	writeB036Config(t, projectDir, fixture)
+	setupB036Project(t, projectDir, dbPath, fixture)
 
 	origWd, err := os.Getwd()
 	if err != nil {
