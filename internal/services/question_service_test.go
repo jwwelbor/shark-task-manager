@@ -734,8 +734,12 @@ func TestQuestionServiceResolveOwnerMismatchNamesConfiguredOwner(t *testing.T) {
 	if err == nil {
 		t.Fatal("Resolve() error = nil, want owner mismatch")
 	}
-	if !strings.Contains(err.Error(), "--resolution-owner=release-owner") {
+	if !strings.Contains(err.Error(), `--resolution-owner="release-owner"`) {
 		t.Fatalf("Resolve() error = %q, want configured owner retry guidance", err)
+	}
+	var ruleErr *QuestionRuleError
+	if !errors.As(err, &ruleErr) || ruleErr.Class != QuestionRuleConflict {
+		t.Fatalf("Resolve() error = %T %v, want QuestionRuleConflict", err, err)
 	}
 	if resolveCalled {
 		t.Fatal("Resolve() called the repository write despite the owner mismatch")
@@ -932,7 +936,7 @@ func TestQuestionServiceClosersRejectGuardViolations_TC107(t *testing.T) {
 			if callErr == nil {
 				t.Fatal("error = nil, want rejection for a caller that is not the configured resolution owner")
 			}
-			if !strings.Contains(callErr.Error(), "--resolution-owner=release-owner") {
+			if !strings.Contains(callErr.Error(), `--resolution-owner="release-owner"`) {
 				t.Fatalf("error = %q, want configured owner retry guidance", callErr)
 			}
 			if called {
