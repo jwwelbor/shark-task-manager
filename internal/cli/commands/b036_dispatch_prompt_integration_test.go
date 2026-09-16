@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	testutil "github.com/jwwelbor/shark-task-manager/internal/test"
 )
@@ -19,7 +21,7 @@ func TestNext_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *tes
 	dbPath := filepath.Join(projectDir, "shark-tasks.db")
 
 	fixture := testutil.WriteWorkflowIndexFixture(t)
-	writeB036Config(t, projectDir, fixture.WorkflowIndexPath)
+	writeB036Config(t, projectDir, fixture)
 
 	t.Cleanup(func() {
 		cli.ResetServices()
@@ -79,6 +81,9 @@ func TestNext_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *tes
 		if execErr != nil {
 			t.Fatalf("shark %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), execErr, string(outBytes), string(errBytes))
 		}
+		if strings.Contains(string(errBytes), "agent body inline skipped") {
+			t.Fatalf("shark %s unexpectedly skipped fixture agent body:\n%s", strings.Join(args, " "), string(errBytes))
+		}
 		if len(errBytes) > 0 {
 			t.Logf("shark %s stderr:\n%s", strings.Join(args, " "), string(errBytes))
 		}
@@ -86,7 +91,7 @@ func TestNext_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *tes
 	}
 
 	runCLI("admin", "init", "--non-interactive", "--force")
-	writeB036Config(t, projectDir, fixture.WorkflowIndexPath)
+	writeB036Config(t, projectDir, fixture)
 
 	runCLI("epic", "create", "Epic prompt coverage")
 	runCLI("feature", "create", "E01", "Feature prompt coverage")
@@ -111,20 +116,21 @@ func TestNext_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *tes
 	runCLI("status", "set", "TD-002", "code_review", "--force", "--reason", "test setup")
 
 	cases := []struct {
-		key     string
-		want    string
-		notWant string
+		key       string
+		want      string
+		agentWant string
+		notWant   string
 	}{
-		{key: "E01", want: "ROUTE FIXTURE EPIC ASSESSMENT", notWant: "\"instruction\":\"\""},
-		{key: "E01-F01", want: "ROUTE FIXTURE FEATURE ASSESSMENT", notWant: "\"instruction\":\"\""},
-		{key: "E01-F01-001", want: "ROUTE FIXTURE TASK DEVELOPMENT", notWant: "\"instruction\":\"\""},
-		{key: "B001", want: "ROUTE FIXTURE BUG DEVELOPMENT", notWant: "\"instruction\":\"\""},
-		{key: "B002", want: "ROUTE FIXTURE BUG CODE REVIEW", notWant: "\"instruction\":\"\""},
-		{key: "B003", want: "ROUTE FIXTURE BUG QA", notWant: "\"instruction\":\"\""},
-		{key: "CC-001", want: "ROUTE FIXTURE CHANGE DEVELOPMENT", notWant: "\"instruction\":\"\""},
-		{key: "CC-002", want: "ROUTE FIXTURE CHANGE CODE REVIEW", notWant: "\"instruction\":\"\""},
-		{key: "TD-001", want: "ROUTE FIXTURE TECH DEBT IN PROGRESS", notWant: "\"instruction\":\"\""},
-		{key: "TD-002", want: "ROUTE FIXTURE TECH DEBT CODE REVIEW", notWant: "\"instruction\":\"\""},
+		{key: "E01", want: "ROUTE FIXTURE EPIC ASSESSMENT", agentWant: "ROUTE FIXTURE AGENT RESEARCHER", notWant: "\"instruction\":\"\""},
+		{key: "E01-F01", want: "ROUTE FIXTURE FEATURE ASSESSMENT", agentWant: "ROUTE FIXTURE AGENT PRODUCT MANAGER", notWant: "\"instruction\":\"\""},
+		{key: "E01-F01-001", want: "ROUTE FIXTURE TASK DEVELOPMENT", agentWant: "ROUTE FIXTURE AGENT DEVELOPER", notWant: "\"instruction\":\"\""},
+		{key: "B001", want: "ROUTE FIXTURE BUG DEVELOPMENT", agentWant: "ROUTE FIXTURE AGENT DEVELOPER", notWant: "\"instruction\":\"\""},
+		{key: "B002", want: "ROUTE FIXTURE BUG CODE REVIEW", agentWant: "ROUTE FIXTURE AGENT REVIEWER", notWant: "\"instruction\":\"\""},
+		{key: "B003", want: "ROUTE FIXTURE BUG QA", agentWant: "ROUTE FIXTURE AGENT QA", notWant: "\"instruction\":\"\""},
+		{key: "CC-001", want: "ROUTE FIXTURE CHANGE DEVELOPMENT", agentWant: "ROUTE FIXTURE AGENT DEVELOPER", notWant: "\"instruction\":\"\""},
+		{key: "CC-002", want: "ROUTE FIXTURE CHANGE CODE REVIEW", agentWant: "ROUTE FIXTURE AGENT REVIEWER", notWant: "\"instruction\":\"\""},
+		{key: "TD-001", want: "ROUTE FIXTURE TECH DEBT IN PROGRESS", agentWant: "ROUTE FIXTURE AGENT DEVELOPER", notWant: "\"instruction\":\"\""},
+		{key: "TD-002", want: "ROUTE FIXTURE TECH DEBT CODE REVIEW", agentWant: "ROUTE FIXTURE AGENT REVIEWER", notWant: "\"instruction\":\"\""},
 	}
 
 	for _, tc := range cases {
@@ -156,9 +162,206 @@ func TestNext_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *tes
 		if !strings.Contains(resp.Prompt, tc.want) {
 			t.Fatalf("prompt for %s missing %q\nprompt:\n%s", tc.key, tc.want, resp.Prompt)
 		}
+		if !strings.Contains(resp.Prompt, tc.agentWant) {
+			t.Fatalf("prompt for %s missing configured agent body %q\nprompt:\n%s", tc.key, tc.agentWant, resp.Prompt)
+		}
 		if strings.Contains(out, tc.notWant) {
 			t.Fatalf("next output for %s still contains empty instruction payload\nbody:\n%s", tc.key, out)
 		}
+	}
+}
+
+// TestRunController_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle
+// exercises the same assembled prompt boundary that shark run uses. It uses
+// the real temporary-project database, workflow index, action population, and
+// template engine; the recording dispatcher is the only seam, preventing the
+// test from launching an external agent while preserving the exact prompt that
+// would be dispatched.
+func TestRunController_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *testing.T) {
+	projectDir := t.TempDir()
+	dbPath := filepath.Join(projectDir, "shark-tasks.db")
+	fixture := testutil.WriteWorkflowIndexFixture(t)
+
+	writeB036Config(t, projectDir, fixture)
+	setupB036Project(t, projectDir, dbPath, fixture)
+	t.Cleanup(func() {
+		cli.ResetServices()
+		cli.ResetWorkflowService()
+		cli.ResetDB()
+		resetB036RootState(t)
+		config.ClearWorkflowCache()
+		templates.ResetOrchestratorEngine()
+	})
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir %s: %v", projectDir, err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	// Cobra closes its DB after each setup command. Rebuild the production
+	// service graph for the direct RunController entrypoint rather than
+	// retaining a setup command's service that points at that closed DB.
+	cli.ResetServices()
+	cli.ResetWorkflowService()
+	cli.ResetDB()
+	config.ClearWorkflowCache()
+	templates.ResetOrchestratorEngine()
+	cli.GlobalConfig.ConfigFile = filepath.Join(projectDir, ".sharkconfig.json")
+	cli.GlobalConfig.DBPath = dbPath
+
+	ctx := context.Background()
+	actionSvcRoot, err := cli.GetActionService(ctx)
+	if err != nil {
+		t.Fatalf("GetActionService: %v", err)
+	}
+	workflowSvc := cli.GetWorkflowService()
+
+	cases := []struct {
+		key         string
+		entityType  string
+		instruction string
+		agentBody   string
+	}{
+		{key: "E01", entityType: "epic", instruction: "ROUTE FIXTURE EPIC ASSESSMENT", agentBody: "ROUTE FIXTURE AGENT RESEARCHER"},
+		{key: "E01-F01", entityType: "feature", instruction: "ROUTE FIXTURE FEATURE ASSESSMENT", agentBody: "ROUTE FIXTURE AGENT PRODUCT MANAGER"},
+		{key: "T-E01-F01-001", entityType: "task", instruction: "ROUTE FIXTURE TASK DEVELOPMENT", agentBody: "ROUTE FIXTURE AGENT DEVELOPER"},
+		{key: "B001", entityType: "bug", instruction: "ROUTE FIXTURE BUG DEVELOPMENT", agentBody: "ROUTE FIXTURE AGENT DEVELOPER"},
+		{key: "CC-001", entityType: "change", instruction: "ROUTE FIXTURE CHANGE DEVELOPMENT", agentBody: "ROUTE FIXTURE AGENT DEVELOPER"},
+		{key: "TD-001", entityType: "tech_debt", instruction: "ROUTE FIXTURE TECH DEBT IN PROGRESS", agentBody: "ROUTE FIXTURE AGENT DEVELOPER"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			dispatcher := &b036RecordingDispatcher{}
+			transitioner, err := buildTransitioner(ctx, tc.entityType)
+			if err != nil {
+				t.Fatalf("buildTransitioner(%s): %v", tc.entityType, err)
+			}
+			controller, err := runner.NewRunController(runner.RunControllerDeps{
+				Transitioner: transitioner,
+				Placeholders: buildPlaceholderGenerator(ctx, tc.entityType),
+				ActionSvc:    narrowActionServiceForEntity(actionSvcRoot, tc.entityType),
+				WorkflowSvc:  workflowSvc,
+				Dispatchers:  map[string]runner.AgentDispatcher{"": dispatcher},
+				PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
+					return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+				}),
+			})
+			if err != nil {
+				t.Fatalf("NewRunController: %v", err)
+			}
+
+			if _, err := controller.Run(ctx, tc.key, runner.RunOptions{EntityType: tc.entityType, WorkingDir: projectDir}); err != nil {
+				t.Fatalf("RunController.Run(%s): %v", tc.key, err)
+			}
+			if len(dispatcher.inputs) != 1 {
+				t.Fatalf("dispatch count for %s = %d, want 1", tc.key, len(dispatcher.inputs))
+			}
+			prompt := dispatcher.inputs[0].Instruction
+			if !strings.Contains(prompt, tc.instruction) {
+				t.Fatalf("run prompt for %s missing status instruction %q\nprompt:\n%s", tc.key, tc.instruction, prompt)
+			}
+			if !strings.Contains(prompt, tc.agentBody) {
+				t.Fatalf("run prompt for %s missing configured agent body %q\nprompt:\n%s", tc.key, tc.agentBody, prompt)
+			}
+		})
+	}
+}
+
+type b036RecordingDispatcher struct {
+	inputs []runner.DispatchInput
+}
+
+func (d *b036RecordingDispatcher) Dispatch(_ context.Context, input runner.DispatchInput) (*runner.DispatchResult, error) {
+	d.inputs = append(d.inputs, input)
+	return nil, b036DispatchStop("stop after recording B036 dispatch prompt")
+}
+
+func (d *b036RecordingDispatcher) Name() string { return "b036-recording" }
+
+func (d *b036RecordingDispatcher) BuildCommand(runner.DispatchInput) (string, error) {
+	return "b036-recording-dispatch", nil
+}
+
+type b036DispatchStop string
+
+func (e b036DispatchStop) Error() string { return string(e) }
+
+var _ runner.AgentDispatcher = (*b036RecordingDispatcher)(nil)
+
+func setupB036Project(t *testing.T, projectDir, dbPath string, fixture testutil.WorkflowIndexFixture) {
+	t.Helper()
+
+	// This setup deliberately reaches the Cobra command surface so the
+	// temporary database and workflow-index bundle use the same configuration
+	// initialization as `shark next` and `shark run`.
+	runB036CLI(t, projectDir, dbPath, "admin", "init", "--non-interactive", "--force")
+	writeB036Config(t, projectDir, fixture)
+	runB036CLI(t, projectDir, dbPath, "epic", "create", "Epic prompt coverage")
+	runB036CLI(t, projectDir, dbPath, "feature", "create", "E01", "Feature prompt coverage")
+	runB036CLI(t, projectDir, dbPath, "task", "create", "E01", "F01", "Task prompt coverage")
+	runB036CLI(t, projectDir, dbPath, "bug", "create", "Bug prompt coverage")
+	runB036CLI(t, projectDir, dbPath, "change", "create", "Change prompt coverage")
+	runB036CLI(t, projectDir, dbPath, "td", "create", "Tech debt prompt coverage")
+	runB036CLI(t, projectDir, dbPath, "status", "set", "E01", "assessment", "--force", "--reason", "test setup")
+	runB036CLI(t, projectDir, dbPath, "status", "set", "E01-F01", "assessment", "--force", "--reason", "test setup")
+	runB036CLI(t, projectDir, dbPath, "status", "set", "E01-F01-001", "development", "--force", "--reason", "test setup")
+	runB036CLI(t, projectDir, dbPath, "status", "set", "B001", "development", "--force", "--reason", "test setup")
+	runB036CLI(t, projectDir, dbPath, "status", "set", "CC-001", "development", "--force", "--reason", "test setup")
+	runB036CLI(t, projectDir, dbPath, "status", "set", "TD-001", "in_progress", "--force", "--reason", "test setup")
+}
+
+func runB036CLI(t *testing.T, projectDir, dbPath string, args ...string) {
+	t.Helper()
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir %s: %v", projectDir, err)
+	}
+	defer func() { _ = os.Chdir(origWd) }()
+
+	cli.ResetServices()
+	cli.ResetWorkflowService()
+	cli.ResetDB()
+	config.ClearWorkflowCache()
+	templates.ResetOrchestratorEngine()
+
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	cli.RootCmd.SetArgs(append([]string{"--config", filepath.Join(projectDir, ".sharkconfig.json"), "--db", dbPath}, args...))
+	execErr := cli.RootCmd.Execute()
+
+	_ = wOut.Close()
+	_ = wErr.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	outBytes, _ := io.ReadAll(rOut)
+	errBytes, _ := io.ReadAll(rErr)
+	_ = rOut.Close()
+	_ = rErr.Close()
+	if execErr != nil {
+		t.Fatalf("shark %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), execErr, string(outBytes), string(errBytes))
+	}
+	if strings.Contains(string(errBytes), "agent body inline skipped") {
+		t.Fatalf("shark %s unexpectedly skipped fixture agent body:\n%s", strings.Join(args, " "), string(errBytes))
 	}
 }
 
@@ -187,14 +390,15 @@ func resetB036RootState(t *testing.T) {
 	cli.GlobalConfig.Verbose = false
 }
 
-func writeB036Config(t *testing.T, projectDir, workflowIndex string) {
+func writeB036Config(t *testing.T, projectDir string, fixture testutil.WorkflowIndexFixture) {
 	t.Helper()
 
 	body := `{
   "color_enabled": false,
   "interactive_mode": false,
   "require_rejection_reason": false,
-  "workflow_config": "` + workflowIndex + `"
+  "workflow_config": "` + fixture.WorkflowIndexPath + `",
+  "shark_data_path": "` + fixture.BundleRoot + `"
 }
 `
 	if err := os.WriteFile(filepath.Join(projectDir, ".sharkconfig.json"), []byte(body), 0o644); err != nil {
