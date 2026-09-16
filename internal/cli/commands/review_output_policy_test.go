@@ -176,3 +176,38 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 		})
 	}
 }
+
+// TestConsolidatorRoutesNonBlockersThroughTriage is a B066 regression gate.
+// The deep-review consolidator must not map a non-blocking finding's
+// severity directly to tech-debt ("host triages as tech-debt" /
+// "host files as tech-debt"); it must route the finding through the triage
+// skill's decision tree (fix-now gate, duplicate search, type
+// classification), of which tech-debt is only one possible outcome. This
+// mirrors TestEmbedded_ReviewFindingsRouteThroughTriage in
+// internal/sharkdata/embed_test.go, which covers the embedded-bundle
+// producers (review-code.md, tech-lead.md); consolidator.md lives in the
+// repo-tracked skills/shark-rider/ tree instead of the embedded bundle, so
+// it needs its own file-read assertion.
+func TestConsolidatorRoutesNonBlockersThroughTriage(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	path := filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md")
+
+	body, err := os.ReadFile(path)
+	require.NoError(t, err, "%s should exist", path)
+	content := string(body)
+
+	const triageReference = "triage skill's decision tree"
+	require.Contains(t, content, triageReference,
+		"consolidator.md must route non-blockers through the triage skill's decision tree")
+
+	directMapping := []string{
+		"host triages as tech-debt",
+		"host files as tech-debt",
+		"host files these as tech-debt",
+		"File as tech-debt only if",
+	}
+	for _, phrase := range directMapping {
+		require.NotContains(t, content, phrase,
+			"consolidator.md must not map finding severity directly to tech-debt")
+	}
+}

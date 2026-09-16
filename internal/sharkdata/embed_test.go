@@ -1979,6 +1979,62 @@ func TestEmbedded_AgentsDescribeRoleNotWorkflow(t *testing.T) {
 		strings.Join(violations, "\n"))
 }
 
+// TestEmbedded_ReviewFindingsRouteThroughTriage is the B066 regression gate.
+// It enforces that the canonical review-finding producers never map a
+// non-blocking finding's severity directly to an entity type ("host files
+// these as tech-debt"). Instead they must route the finding through the
+// triage skill's decision tree (fix-now gate, duplicate search, type
+// classification) — tech-debt is only one possible outcome of that
+// classification, not a synonym for "non-blocker".
+//
+// Scope is the exact producers named in B066's Fix Notes that live in the
+// embedded bundle: review-code.md (the craft-review workflow) and
+// tech-lead.md (the agent persona that owns triage responsibility). The
+// deep-review consolidator and finish-feature workflows are covered by a
+// sibling assertion in internal/cli/commands/review_output_policy_test.go
+// (consolidator.md) — finish-feature.md is a user-global skill outside this
+// repository and cannot be gated here.
+//
+// This is a permanent regression gate: if a future edit reintroduces the
+// direct severity-to-entity-type mapping, or drops the triage-skill
+// reference, `make test` fails here before the change can merge.
+func TestEmbedded_ReviewFindingsRouteThroughTriage(t *testing.T) {
+	scopedFiles := []string{
+		"skills/quality/workflows/review-code.md",
+		"agents/tech-lead.md",
+	}
+	const triageReference = "triage skill's decision tree"
+
+	directMapping := []string{
+		"host files these as tech-debt",
+		"host files as tech-debt",
+		"host triages as tech-debt",
+		"File as tech-debt only if",
+	}
+
+	var violations []string
+	for _, relPath := range scopedFiles {
+		body, err := ReadEmbedded(relPath)
+		if err != nil {
+			violations = append(violations, relPath+": scoped file was not found in the embedded bundle — the gate is passing vacuously")
+			continue
+		}
+		content := string(body)
+		for _, phrase := range directMapping {
+			if strings.Contains(content, phrase) {
+				violations = append(violations, relPath+`: contains direct-mapping phrase "`+phrase+`" — route non-blockers through the `+triageReference+` instead`)
+			}
+		}
+		if !strings.Contains(content, triageReference) {
+			violations = append(violations, relPath+`: does not reference the `+triageReference+` when routing non-blocking findings`)
+		}
+	}
+
+	assert.Empty(t, violations,
+		"review-finding producers must route non-blockers through the triage skill's decision tree, not map severity directly to tech-debt; found:\n%s",
+		strings.Join(violations, "\n"))
+}
+
 // TestEmbedded_SkillsHaveNoStaleAgentSlugs enforces that skill files reference
 // only current embedded agents. The specialized agents that predated
 // consolidation (api-developer, frontend-developer, devops-engineer, and the
