@@ -552,14 +552,20 @@ func TestGetSprintAssignedEntities(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	defer func() {
-		_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprint_assignments WHERE sprint_id = ?`, sprintID)
-		_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key = 'S931'`)
-		_, _ = rawDB.ExecContext(ctx, `DELETE FROM tasks WHERE key IN ('TEST-E99-F01-010','TEST-E99-F01-011')`)
-		_, _ = rawDB.ExecContext(ctx, `DELETE FROM bugs WHERE key = 'B931'`)
-		_, _ = rawDB.ExecContext(ctx, `DELETE FROM change_cards WHERE key = 'CC-931'`)
-		_, _ = rawDB.ExecContext(ctx, `DELETE FROM tech_debts WHERE key = 'TD-931'`)
-	}()
+	t.Cleanup(func() {
+		_, err := rawDB.ExecContext(ctx, `DELETE FROM sprint_assignments WHERE sprint_id = ?`, sprintID)
+		require.NoError(t, err)
+		_, err = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key = 'S931'`)
+		require.NoError(t, err)
+		_, err = rawDB.ExecContext(ctx, `DELETE FROM tasks WHERE key IN ('TEST-E99-F01-010','TEST-E99-F01-011')`)
+		require.NoError(t, err)
+		_, err = rawDB.ExecContext(ctx, `DELETE FROM bugs WHERE key = 'B931'`)
+		require.NoError(t, err)
+		_, err = rawDB.ExecContext(ctx, `DELETE FROM change_cards WHERE key = 'CC-931'`)
+		require.NoError(t, err)
+		_, err = rawDB.ExecContext(ctx, `DELETE FROM tech_debts WHERE key = 'TD-931'`)
+		require.NoError(t, err)
+	})
 
 	entities, err := repo.GetSprintAssignedEntities(ctx, sprintID)
 	require.NoError(t, err)
