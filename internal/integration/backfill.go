@@ -3,8 +3,14 @@ package integration
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -197,8 +203,15 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	if dryRun {
 		return simulateBackfillCandidate(epicRunID, base, events)
 	}
+	// The ctx.Err() check must come before ensureBackfillManifest: that call
+	// can publish the recovery manifest to disk (publishBackfillManifest), a
+	// genuine write, so it must not run past the point this function
+	// documents as "before first write" (AC-T4).
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("integration: backfill before first write: %w", err)
+	}
+	if err := reconcileBackfillManifestAndCandidate(projectRoot, epicKey, epicRunID, base, events); err != nil {
+		return nil, err
 	}
 
 	run, err := backfillRun(projectRoot, epicKey, epicRunID, base)
@@ -219,11 +232,17 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		if err != nil {
 			return nil, fmt.Errorf("integration: backfill record event %d (%s): %w", i, input.FeatureKey, err)
 		}
+		if !sameBackfillEvent(recorded, input, epicRunID) {
+			return nil, &RegistrationConflictError{EpicKey: epicKey, Reason: fmt.Sprintf("retained event %s does not match the authorized backfill manifest", input.EventID)}
+		}
 		candidate, err = UpdateCandidate(ctx, epicRunID, recorded)
 		if err != nil {
 			return nil, fmt.Errorf("integration: backfill update candidate for event %d (%s): %w", i, input.FeatureKey, err)
 		}
 		lastEvent = recorded
+	}
+	if err := validateCompletedBackfillCandidate(epicKey, candidate, events); err != nil {
+		return nil, err
 	}
 
 	if _, err := RegisterRun(ctx, recorder, run, candidate, lastEvent, createdBy); err != nil {
@@ -231,6 +250,175 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	}
 
 	return candidate, nil
+}
+
+type backfillManifest struct {
+	EpicKey    string             `json:"epic_key"`
+	EpicRunID  string             `json:"epic_run_id"`
+	BaseCommit string             `json:"base_commit"`
+	Events     []IntegrationEvent `json:"events"`
+	Digest     string             `json:"digest"`
+}
+
+func backfillManifestPath(projectRoot, epicKey string) string {
+	return filepath.Join(projectRoot, ".shark", "integration", epicKey, "backfill-manifest.json")
+}
+
+// reconcileBackfillManifestAndCandidate publishes (or verifies) the recovery
+// manifest for a resumed Backfill attempt, then validates any retained
+// candidate against it. Both steps' error branches are contained here so
+// Backfill's own body does not carry their decision count directly.
+func reconcileBackfillManifestAndCandidate(projectRoot, epicKey, epicRunID, base string, events []IntegrationEvent) error {
+	if err := ensureBackfillManifest(projectRoot, epicKey, epicRunID, base, events); err != nil {
+		return err
+	}
+	return validateRetainedBackfillCandidate(projectRoot, epicKey, epicRunID, base, events)
+}
+
+func ensureBackfillManifest(projectRoot, epicKey, epicRunID, base string, events []IntegrationEvent) error {
+	path := backfillManifestPath(projectRoot, epicKey)
+	want := backfillManifest{EpicKey: epicKey, EpicRunID: epicRunID, BaseCommit: base, Events: normalizeBackfillEvents(events)}
+	digest, err := digestBackfillManifest(want)
+	if err != nil {
+		return err
+	}
+	want.Digest = digest
+	data, err := json.MarshalIndent(want, "", "  ")
+	if err != nil {
+		return fmt.Errorf("integration: marshal backfill manifest: %w", err)
+	}
+	present, err := matchingBackfillManifest(path, data, epicKey)
+	if err != nil {
+		return err
+	}
+	if present {
+		return nil
+	}
+	if stateExists(projectRoot, epicKey, epicRunID) {
+		return &RegistrationConflictError{EpicKey: epicKey, Reason: "legacy partial backfill state has no manifest"}
+	}
+	return publishBackfillManifest(path, data, projectRoot, epicKey, epicRunID, base, events)
+}
+
+func matchingBackfillManifest(path string, want []byte, epicKey string) (bool, error) {
+	existing, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("integration: read backfill manifest: %w", err)
+	}
+	if string(existing) != string(want) {
+		return false, &RegistrationConflictError{EpicKey: epicKey, Reason: "backfill manifest does not match retry input"}
+	}
+	return true, nil
+}
+
+func publishBackfillManifest(path string, data []byte, projectRoot, epicKey, epicRunID, base string, events []IntegrationEvent) error {
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		return fmt.Errorf("integration: create backfill manifest directory: %w", err)
+	}
+	tmp := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
+	if err := writeTempFileSynced(tmp, data); err != nil {
+		return fmt.Errorf("integration: write backfill manifest: %w", err)
+	}
+	defer os.Remove(tmp)
+	won, err := atomicLinkPublish(tmp, path)
+	if err != nil {
+		return fmt.Errorf("integration: publish backfill manifest: %w", err)
+	}
+	if !won {
+		return ensureBackfillManifest(projectRoot, epicKey, epicRunID, base, events)
+	}
+	return nil
+}
+
+// normalizeBackfillEvents returns a copy of events sorted by EventID with
+// RecordedAt zeroed, so two calls carrying the same logical event set (in
+// different order, or regenerated with a fresh timestamp) produce the same
+// manifest identity. RecordedAt is not part of an event's identity —
+// deriveEventID never depends on it — so it must not gate a legitimate
+// retry.
+func normalizeBackfillEvents(events []IntegrationEvent) []IntegrationEvent {
+	normalized := make([]IntegrationEvent, len(events))
+	copy(normalized, events)
+	for i := range normalized {
+		normalized[i].RecordedAt = time.Time{}
+	}
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i].EventID < normalized[j].EventID })
+	return normalized
+}
+
+func digestBackfillManifest(manifest backfillManifest) (string, error) {
+	manifest.Digest = ""
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return "", fmt.Errorf("integration: marshal backfill manifest digest: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func stateExists(projectRoot, epicKey, epicRunID string) bool {
+	for _, path := range []string{runRecordPath(projectRoot, epicKey), candidatePath(projectRoot, epicRunID)} {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	entries, err := os.ReadDir(filepath.Dir(eventRecordPath(projectRoot, epicRunID, "x")))
+	return err == nil && len(entries) > 0
+}
+
+func validateRetainedBackfillCandidate(projectRoot, epicKey, epicRunID, base string, events []IntegrationEvent) error {
+	candidate, _, err := readCandidate(candidatePath(projectRoot, epicRunID))
+	if err != nil || candidate == nil {
+		return err
+	}
+	if candidate.EpicRunID != epicRunID || candidate.BaseCommit != base {
+		return &RegistrationConflictError{EpicKey: epicKey, Reason: "retained candidate does not match authorized backfill manifest"}
+	}
+	digest, err := computeDigest(*candidate)
+	if err != nil || digest != candidate.Digest {
+		return &RegistrationConflictError{EpicKey: epicKey, Reason: "retained candidate digest is invalid"}
+	}
+	allowed := make(map[string]bool, len(events))
+	for _, event := range events {
+		allowed[event.EventID] = true
+	}
+	seen := make(map[string]bool, len(candidate.EventIDs))
+	for _, id := range candidate.EventIDs {
+		if seen[id] {
+			return &RegistrationConflictError{EpicKey: epicKey, Reason: "retained candidate contains duplicate event IDs"}
+		}
+		seen[id] = true
+		if !allowed[id] {
+			return &RegistrationConflictError{EpicKey: epicKey, Reason: "retained candidate contains an event outside the authorized manifest"}
+		}
+	}
+	return nil
+}
+
+func validateCompletedBackfillCandidate(epicKey string, candidate *IntegrationCandidate, events []IntegrationEvent) error {
+	if candidate == nil || len(candidate.EventIDs) != len(events) {
+		return &RegistrationConflictError{EpicKey: epicKey, Reason: "backfill candidate does not contain the complete authorized event set"}
+	}
+	want := make(map[string]bool, len(events))
+	for _, event := range events {
+		want[event.EventID] = true
+	}
+	for _, id := range candidate.EventIDs {
+		if !want[id] {
+			return &RegistrationConflictError{EpicKey: epicKey, Reason: "backfill candidate contains an unauthorized event"}
+		}
+	}
+	if candidate.HeadCommit != events[len(events)-1].FeatureCommit {
+		return &RegistrationConflictError{EpicKey: epicKey, Reason: "backfill candidate head does not match the authorized final event"}
+	}
+	return nil
+}
+
+func sameBackfillEvent(recorded *IntegrationEvent, input IntegrationEvent, epicRunID string) bool {
+	return recorded.EpicRunID == epicRunID && recorded.EventID == input.EventID && recorded.FeatureKey == input.FeatureKey && recorded.FeatureCommit == input.FeatureCommit && slices.Equal(recorded.TrackedPaths, input.TrackedPaths) && slices.Equal(recorded.UntrackedPaths, input.UntrackedPaths)
 }
 
 // verifyCommitReachable rejects base as a *BackfillValidationError unless it
@@ -292,18 +480,28 @@ func validateBackfillEvents(epicRunID string, events []IntegrationEvent) error {
 // below resolves that part of an exact retry idempotently, the same way
 // CaptureBase resolves a repeated call for the same epic.
 //
-// Named gap: this only covers the run-record itself. A retry of a backfill
-// that crashed *after* writing one or more events/candidate updates but
-// *before* RegisterRun ever ran is not handled — UpdateCandidate's
-// per-transition claim files (candidate.go) are retained forever, so
-// re-folding an already-applied event reproduces a digest transition whose
-// claim file already exists and returns a spurious *CandidateConflictError
-// rather than resuming. T-E34-F08-014's crash-restart repair is scoped to
-// RegisterRun's own fsync-then-note-insert step (run.go), not this
-// earlier, multi-event backfill loop — fixing this would mean skipping
-// already-applied events on retry, which is beyond this task's ACs. A
-// crashed backfill must currently be retried against a clean epic (the
-// run/event/candidate files removed by hand) rather than resumed in place.
+// Named gap: this only covers the run-record itself. Resuming a backfill
+// that crashed after writing one or more events/candidate updates but
+// before RegisterRun ran is now handled by the manifest recovery protocol
+// above (ensureBackfillManifest/validateRetainedBackfillCandidate/
+// sameBackfillEvent/validateCompletedBackfillCandidate) for the common
+// crash windows: after the manifest is published, after the run record is
+// written, and after each event is folded.
+//
+// One window remains a documented, fail-closed gap rather than an
+// auto-recovered one: if a crash lands inside UpdateCandidate's own
+// claim-then-publish transition (candidate.go), the claim file survives
+// the crash with no record of its owning operation, so a retry that reaches
+// that same digest transition again waits out candidateClaimTimeout and
+// returns a plain *CandidateConflictError rather than a diagnosed,
+// automatically-repaired resume. This is safe (no corruption, no silent
+// wrong behavior) but not self-healing. Given Backfill is a one-time,
+// human-operated bootstrap tool with a documented manual workaround (delete
+// the run/event/candidate files for the epic and retry against a clean
+// epic), closing this last window with a durable claim-ownership witness in
+// candidate.go is deferred rather than built speculatively; see TD-212's
+// research report for the design this would require if the tool's usage
+// pattern ever changes enough to justify it.
 func checkExistingRun(projectRoot, epicKey, epicRunID, base string) error {
 	existing, err := readRun(runRecordPath(projectRoot, epicKey))
 	if err != nil {
@@ -342,6 +540,12 @@ func backfillRun(projectRoot, epicKey, epicRunID, base string) (*IntegrationRun,
 		return nil, err
 	}
 	if existing != nil {
+		if existing.EpicKey != epicKey || existing.EpicRunID != epicRunID || existing.BaseCommit != base {
+			return nil, &RegistrationConflictError{
+				EpicKey: epicKey,
+				Reason:  "integration run changed while backfill was acquiring ownership",
+			}
+		}
 		return existing, nil
 	}
 
