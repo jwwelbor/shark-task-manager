@@ -57,7 +57,12 @@ func GetWorkflowService() *workflow.Service {
 			// Fall back to current directory if project root detection fails
 			projectRoot = "."
 		}
-		c.svc = workflow.NewService(projectRoot)
+		configPath, err := GetConfigPath()
+		if err != nil {
+			c.svc = workflow.NewService(projectRoot)
+			return
+		}
+		c.svc = workflow.NewServiceFromConfigPathAtProjectRoot(configPath, projectRoot)
 	})
 	return c.svc
 }

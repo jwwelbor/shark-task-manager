@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -251,21 +251,26 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	configPath, cfgErr := cli.GetConfigPath()
-	if cfgErr != nil && cli.GlobalConfig.Verbose {
-		slog.Warn("Failed to get config path", "error", cfgErr)
-	}
-	cfg, cfgErr := config.LoadWorkflowConfig(configPath)
-	if cfgErr != nil && cli.GlobalConfig.Verbose {
-		slog.Warn("Failed to load config", "error", cfgErr)
-	}
+	// Acquire the task workflow once at the production boundary. Feature-list
+	// progress aggregates task statuses, and all three consumers must use the
+	// same configured-or-embedded workflow rather than independently falling
+	// back to cached ProgressPct when .sharkconfig.json has no inline steps.
+	cfg := featureListTaskWorkflow()
 	sortFeatures(featuresWithTaskCount, sortBy, statusBreakdownBatch, cfg)
 
 	if cli.GlobalConfig.JSON {
-		return outputFeatureListJSON(featuresWithTaskCount, statusBreakdownBatch)
+		return outputFeatureListJSON(featuresWithTaskCount, statusBreakdownBatch, cfg)
 	}
-	renderFeatureListTable(featuresWithTaskCount, statusBreakdownBatch)
+	renderFeatureListTable(featuresWithTaskCount, statusBreakdownBatch, cfg)
 	return nil
+}
+
+// featureListTaskWorkflow returns the one canonical workflow used by every
+// feature-list progress consumer. Keeping acquisition at the command boundary
+// makes the configured-or-embedded fallback explicit and injects the same
+// task-status semantics into sorting and both renderers.
+func featureListTaskWorkflow() *config.WorkflowConfig {
+	return cli.GetWorkflowService().ForLevel(workflow.LevelTask).GetWorkflow()
 }
 
 // runFeatureGet displays detailed information about a feature.

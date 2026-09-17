@@ -112,6 +112,13 @@ func TestNewService_PreservesProjectRoot(t *testing.T) {
 	assert.Equal(t, projectRoot, svc.ForLevel(LevelSprint).ProjectRoot())
 }
 
+func TestNewService_PreservesEmptyProjectRoot(t *testing.T) {
+	svc := NewService("")
+	if got := svc.ProjectRoot(); got != "" {
+		t.Fatalf("ProjectRoot() = %q, want empty root", got)
+	}
+}
+
 func TestNewService_InvalidConfig(t *testing.T) {
 	// Create config with invalid JSON
 	tempDir := t.TempDir()

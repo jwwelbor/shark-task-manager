@@ -39,6 +39,22 @@ type Service struct {
 //   - *Service: initialized service with loaded or default workflow config (task level)
 func NewService(projectRoot string) *Service {
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+	svc := NewServiceFromConfigPath(configPath)
+	svc.projectRoot = projectRoot
+	return svc
+}
+
+// NewServiceFromConfigPath creates a workflow service from a resolved workflow
+// config path. It preserves explicit CLI --config selection while retaining
+// the same configured-or-embedded-default behavior as NewService.
+func NewServiceFromConfigPath(configPath string) *Service {
+	return NewServiceFromConfigPathAtProjectRoot(configPath, filepath.Dir(configPath))
+}
+
+// NewServiceFromConfigPathAtProjectRoot creates a workflow service using a
+// resolved workflow config while retaining the owning project root for
+// consumers that locate project-scoped artifacts through ProjectRoot.
+func NewServiceFromConfigPathAtProjectRoot(configPath, projectRoot string) *Service {
 	multi := config.LoadMultiLevelWorkflowOrDefault(configPath)
 	svc := NewServiceFromMultiLevel(multi)
 	svc.projectRoot = projectRoot
