@@ -40,10 +40,11 @@
 # Env var override (mirrors TC-011's DIFF_LEDGERS_GOLANGCI_CONFIG
 # technique): when CANARY_RUNSURFACE_RUNRESULT_FIXTURE is set, this script
 # skips provisioning and dispatch entirely and treats that path as the
-# "observed" RunResult JSON -- only the RunResult-level field-set check
-# runs (StageLog/transcript checks need a real run directory, which does
-# not exist on this path). This is TC-016b's technique, and it is also how
-# TC-016a proves the "reordered JSON keys still pass" negative case.
+# "observed" RunResult JSON -- the RunResult-level field-set check and the
+# collection-wide spawn-agent entity_key validation run; transcript and full
+# StageLog field-set checks still need a real run directory. This is TC-016b's
+# technique, and it is also how TC-016a proves the "reordered JSON keys still
+# pass" negative case.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -123,6 +124,36 @@ print(",".join(sorted(observed)))
 PYEOF
 }
 
+# check_spawn_agent_entity_keys <observed-json-file> -- rejects an absent,
+# empty, or whitespace-only entity_key on every spawn_agent StageLog. This is
+# deliberately independent of transcript verification so fixture-mode tests
+# can exercise the collection-wide identity invariant without constructing a
+# scratch run directory.
+check_spawn_agent_entity_keys() {
+	local json_file="$1"
+	python3 - "$json_file" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    obj = json.load(f)
+
+if not isinstance(obj, dict) or not isinstance(obj.get("stages"), list):
+    sys.stderr.write("canary-runsurface: RunResult JSON has no stages[] array\n")
+    sys.exit(2)
+
+for index, stage in enumerate(obj["stages"], start=1):
+    if not isinstance(stage, dict) or stage.get("action") != "spawn_agent":
+        continue
+    entity_key = stage.get("entity_key")
+    if not isinstance(entity_key, str) or not entity_key.strip():
+        sys.stderr.write(
+            "canary-runsurface: spawn_agent stage %d has an empty entity_key\n" % index
+        )
+        sys.exit(2)
+PYEOF
+}
+
 # verify_spawn_agent_and_transcript <observed-json-file> <run-dir> -- finds
 # the first RunResult.stages[] entry with action=="spawn_agent", checks its
 # StageLog field set against the pinned lists, then locates and verifies the
@@ -183,11 +214,6 @@ if unexpected:
     print(unexpected[0])
     sys.exit(1)
 
-entity_key = stage.get("entity_key")
-if not isinstance(entity_key, str) or not entity_key.strip():
-    sys.stderr.write("canary-runsurface: spawn_agent stage has an empty entity_key\n")
-    sys.exit(2)
-
 if stage.get("exit_code") != 0:
     sys.stderr.write("canary-runsurface: spawn_agent stage exit_code=%r, want 0\n" % stage.get("exit_code"))
     sys.exit(2)
@@ -242,8 +268,8 @@ PYEOF
 }
 
 # --- Env var override path (TC-016b, and TC-016a's reordered-keys negative
-# case): no provisioning, no dispatch -- just the RunResult-level field-set
-# check against the given fixture file. ---
+# case): no provisioning or dispatch; validate RunResult fields and every
+# spawn-agent entity_key against the given fixture file. ---
 if [[ -n "${CANARY_RUNSURFACE_RUNRESULT_FIXTURE:-}" ]]; then
 	[[ -f "$CANARY_RUNSURFACE_RUNRESULT_FIXTURE" ]] || {
 		echo "canary-runsurface: CANARY_RUNSURFACE_RUNRESULT_FIXTURE not found: $CANARY_RUNSURFACE_RUNRESULT_FIXTURE" >&2
@@ -256,6 +282,7 @@ if [[ -n "${CANARY_RUNSURFACE_RUNRESULT_FIXTURE:-}" ]]; then
 	if [[ "$rc" -ne 0 ]]; then
 		fail_field "$fields"
 	fi
+	check_spawn_agent_entity_keys "$CANARY_RUNSURFACE_RUNRESULT_FIXTURE"
 	echo "canary-runsurface: RunResult fields: $fields" >&2
 	echo "PASS" >&2
 	exit 0
@@ -376,6 +403,7 @@ set -e
 if [[ "$rc" -ne 0 ]]; then
 	fail_field "$runresult_fields"
 fi
+check_spawn_agent_entity_keys "$observed_file"
 
 run_dirs=("$scratch_dir"/.shark/runs/*/)
 [[ "${#run_dirs[@]}" -eq 1 && -d "${run_dirs[0]}" ]] || {

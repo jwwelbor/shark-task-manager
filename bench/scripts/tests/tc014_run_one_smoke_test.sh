@@ -732,6 +732,68 @@ test_m() {
 	echo "TC-014m PASS"
 }
 
+# TC-014n (TD-156): two source entity directories would contain colliding
+# transcript basenames at the collector's flat destination. run-one.sh must
+# refuse before copying either transcript or producing a partial record.
+test_n() {
+	local out_dir="$WORKDIR/n-out" err="$WORKDIR/n.err"
+	set +e
+	PATH="$STUBBIN:$PATH" STUB_SHARK_REAL="$REAL_SHARK" STUB_SHARK_RUN_WRITE_TRANSCRIPT=1 \
+		STUB_SHARK_RUN_EXTRA_TRANSCRIPT_ENTITY_KEY="T-SECOND-ENTITY" \
+		"$RUN_ONE" --item cart-remove-item-last-match --variant default --rep 1 \
+		--timeout 60 --out "$out_dir" --corpus "$CORPUS_YAML" --skip-canary \
+		</dev/null >"$WORKDIR/n.out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -eq 2 ]] || fail "n: run-one.sh exited $code, want 2: $(cat "$err")"
+	grep -qF 'refusing to flatten transcripts from multiple entity directories' "$err" ||
+		fail "n: collision refusal missing: $(cat "$err")"
+	local run_dir="$out_dir/cart-remove-item-last-match/default/rep-1/run"
+	[[ ! -d "$run_dir/transcripts" ]] || fail "n: transcripts were copied before refusal"
+	[[ ! -f "$out_dir/cart-remove-item-last-match/default/rep-1/record.jsonl" ]] ||
+		fail "n: record.jsonl was produced despite collision refusal"
+	echo "TC-014n PASS"
+}
+
+# TC-014o (TD-156): the stub's test-only extra entity directory is still a
+# filesystem boundary; traversal input must fail before it can create files
+# outside the run directory.
+test_o() {
+	local stub_dir="$WORKDIR/o-stub" err="$WORKDIR/o.err"
+	mkdir -p "$stub_dir"
+	set +e
+	(
+		cd "$stub_dir"
+		STUB_SHARK_RUN_WRITE_TRANSCRIPT=1 STUB_SHARK_RUN_EXTRA_TRANSCRIPT_ENTITY_KEY="../escape" \
+			"$STUB_SHARK" run T-E01-F01-001
+	) >"$WORKDIR/o.out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -eq 2 ]] || fail "o: stub exited $code, want 2 for a traversal entity key"
+	grep -qF 'extra transcript entity key must be a basename' "$err" ||
+		fail "o: traversal refusal missing: $(cat "$err")"
+	echo "TC-014o PASS"
+}
+
+# TC-014p (TD-156): dot is a traversal-equivalent basename and must not
+# resolve the test-only extra transcript directory to the run root.
+test_p() {
+	local stub_dir="$WORKDIR/p-stub" err="$WORKDIR/p.err"
+	mkdir -p "$stub_dir"
+	set +e
+	(
+		cd "$stub_dir"
+		STUB_SHARK_RUN_WRITE_TRANSCRIPT=1 STUB_SHARK_RUN_EXTRA_TRANSCRIPT_ENTITY_KEY="." \
+			"$STUB_SHARK" run T-E01-F01-001
+	) >"$WORKDIR/p.out" 2>"$err"
+	local code=$?
+	set -e
+	[[ "$code" -eq 2 ]] || fail "p: stub exited $code, want 2 for dot entity key"
+	grep -qF 'extra transcript entity key must be a basename' "$err" ||
+		fail "p: dot refusal missing: $(cat "$err")"
+	echo "TC-014p PASS"
+}
+
 test_a
 test_b
 test_c
@@ -745,5 +807,8 @@ test_j
 test_k
 test_l
 test_m
+test_n
+test_o
+test_p
 
 echo "TC-014: all sub-cases PASS"

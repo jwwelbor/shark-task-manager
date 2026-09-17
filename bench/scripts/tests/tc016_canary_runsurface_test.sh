@@ -74,6 +74,13 @@ test_a() {
 	grep -q "stages_completed" "$err" || fail "a: confirmed field set does not mention stages_completed: $(cat "$err")"
 	grep -q "output_summary" "$err" || fail "a: confirmed field set does not mention output_summary: $(cat "$err")"
 	grep -q "entity_key" "$err" || fail "a: confirmed field set does not mention entity_key: $(cat "$err")"
+	local stagelog_required
+	stagelog_required="$(sed -n 's/^STAGELOG_REQUIRED="\([^"]*\)"$/\1/p' "$CANARY")"
+	[[ -n "$stagelog_required" ]] || fail "a: could not read STAGELOG_REQUIRED from canary"
+	case ",$stagelog_required," in
+	*,entity_key,*) ;;
+	*) fail "a: STAGELOG_REQUIRED omits entity_key: $stagelog_required" ;;
+	esac
 
 	# Provisioning marker must have appeared (a real scratch project was
 	# used) and the scratch dir named in it must be gone after exit (AC-13:
@@ -153,7 +160,114 @@ JSON
 	echo "TC-016b PASS"
 }
 
+# TC-016c (TD-156): fixture mode must validate every spawn-agent StageLog,
+# not just the first representative stage. The first stage is valid while the
+# second has an empty entity_key, so pre-fix first-stage-only validation passes.
+test_c() {
+	local fixture="$WORKDIR/c-fixture.json" out="$WORKDIR/c.out" err="$WORKDIR/c.err"
+	cat >"$fixture" <<'JSON'
+{
+  "entity_key": "T-E01-F01-001",
+  "final_status": "completed",
+  "stages_completed": 2,
+  "stages": [
+    {"status": "development", "action": "spawn_agent", "agent_type": "developer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "entity_key": "T-E01-F01-001", "output_summary": "{}"},
+    {"status": "review", "action": "spawn_agent", "agent_type": "reviewer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "entity_key": "", "output_summary": "{}"}
+  ],
+  "outcome": "completed",
+  "total_duration_ns": 123
+}
+JSON
+	if CANARY_RUNSURFACE_RUNRESULT_FIXTURE="$fixture" "$CANARY" >"$out" 2>"$err"; then
+		fail "c: canary exited 0 with a later empty spawn-agent entity_key"
+	fi
+	grep -qF 'spawn_agent stage 2 has an empty entity_key' "$err" ||
+		fail "c: later-stage identity failure was not named: $(cat "$err")"
+	echo "TC-016c PASS"
+}
+
+# TC-016d (TD-156): whitespace-only identity is as invalid as an absent or
+# empty value. This fails against a truthiness-only validator that TC-016c's
+# empty-string fixture would not distinguish from the intended strip check.
+test_d() {
+	local fixture="$WORKDIR/d-fixture.json" out="$WORKDIR/d.out" err="$WORKDIR/d.err"
+	cat >"$fixture" <<'JSON'
+{
+  "entity_key": "T-E01-F01-001",
+  "final_status": "completed",
+  "stages_completed": 2,
+  "stages": [
+    {"status": "development", "action": "spawn_agent", "agent_type": "developer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "entity_key": "T-E01-F01-001", "output_summary": "{}"},
+    {"status": "review", "action": "spawn_agent", "agent_type": "reviewer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "entity_key": "   ", "output_summary": "{}"}
+  ],
+  "outcome": "completed",
+  "total_duration_ns": 123
+}
+JSON
+	if CANARY_RUNSURFACE_RUNRESULT_FIXTURE="$fixture" "$CANARY" >"$out" 2>"$err"; then
+		fail "d: canary exited 0 with a later whitespace-only spawn-agent entity_key"
+	fi
+	grep -qF 'spawn_agent stage 2 has an empty entity_key' "$err" ||
+		fail "d: later-stage whitespace identity failure was not named: $(cat "$err")"
+	echo "TC-016d PASS"
+}
+
+# TC-016e (TD-156): a missing entity_key member must be rejected independently
+# of the RunResult field-set contract. The stage remains otherwise valid so the
+# collection-wide identity validator—not another schema failure—names stage 2.
+test_e() {
+	local fixture="$WORKDIR/e-fixture.json" out="$WORKDIR/e.out" err="$WORKDIR/e.err"
+	cat >"$fixture" <<'JSON'
+{
+  "entity_key": "T-E01-F01-001",
+  "final_status": "completed",
+  "stages_completed": 2,
+  "stages": [
+    {"status": "development", "action": "spawn_agent", "agent_type": "developer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "entity_key": "T-E01-F01-001", "output_summary": "{}"},
+    {"status": "review", "action": "spawn_agent", "agent_type": "reviewer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "output_summary": "{}"}
+  ],
+  "outcome": "completed",
+  "total_duration_ns": 123
+}
+JSON
+	if CANARY_RUNSURFACE_RUNRESULT_FIXTURE="$fixture" "$CANARY" >"$out" 2>"$err"; then
+		fail "e: canary exited 0 with a later absent spawn-agent entity_key"
+	fi
+	grep -qF 'spawn_agent stage 2 has an empty entity_key' "$err" ||
+		fail "e: later-stage absent identity failure was not named: $(cat "$err")"
+	echo "TC-016e PASS"
+}
+
+# TC-016f (TD-156): the validator rejects non-string identity values rather
+# than accepting a truthy JSON scalar from an untrusted RunResult fixture.
+test_f() {
+	local fixture="$WORKDIR/f-fixture.json" out="$WORKDIR/f.out" err="$WORKDIR/f.err"
+	cat >"$fixture" <<'JSON'
+{
+  "entity_key": "T-E01-F01-001",
+  "final_status": "completed",
+  "stages_completed": 2,
+  "stages": [
+    {"status": "development", "action": "spawn_agent", "agent_type": "developer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "entity_key": "T-E01-F01-001", "output_summary": "{}"},
+    {"status": "review", "action": "spawn_agent", "agent_type": "reviewer", "provider": "anthropic", "duration_ns": 1, "exit_code": 0, "entity_key": 7, "output_summary": "{}"}
+  ],
+  "outcome": "completed",
+  "total_duration_ns": 123
+}
+JSON
+	if CANARY_RUNSURFACE_RUNRESULT_FIXTURE="$fixture" "$CANARY" >"$out" 2>"$err"; then
+		fail "f: canary exited 0 with a later non-string spawn-agent entity_key"
+	fi
+	grep -qF 'spawn_agent stage 2 has an empty entity_key' "$err" ||
+		fail "f: later-stage non-string identity failure was not named: $(cat "$err")"
+	echo "TC-016f PASS"
+}
+
 test_a
 test_b
+test_c
+test_d
+test_e
+test_f
 
 echo "TC-016 PASS"
