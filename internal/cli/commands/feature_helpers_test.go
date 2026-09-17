@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -833,6 +835,141 @@ func TestSortFeatures_ProgressUsesLiveComputedValue(t *testing.T) {
 	if features[0].Key != "E07-F02" || features[1].Key != "E07-F01" {
 		t.Errorf("sortFeatures did not use live-computed progress: got order %s, %s; want E07-F02, E07-F01",
 			features[0].Key, features[1].Key)
+	}
+}
+
+// TestFeatureListTaskWorkflow_UsesEmbeddedDefaultForEveryConsumer is a
+// production-path regression for TD-150. It must run serially because it
+// changes the process working directory and resets CLI workflow globals.
+func TestFeatureListTaskWorkflow_UsesEmbeddedDefaultForEveryConsumer(t *testing.T) {
+	cfg, features, breakdowns := zeroConfigFeatureListFixture(t)
+
+	sortFeatures(features, "progress", breakdowns, cfg)
+	if features[0].Key != "E07-F02" || features[1].Key != "E07-F01" {
+		t.Fatalf("zero-config live-progress sort = %s, %s; want E07-F02, E07-F01", features[0].Key, features[1].Key)
+	}
+	assertFeatureListTableProgress(t, features, breakdowns, cfg)
+	assertFeatureListJSONProgress(t, features, breakdowns, cfg)
+}
+
+func TestFeatureListTaskWorkflow_UsesExplicitConfig(t *testing.T) {
+	project := t.TempDir()
+	explicitConfig := filepath.Join(t.TempDir(), ".sharkconfig.json")
+	writeFeatureListWorkflowConfig(t, filepath.Join(project, ".sharkconfig.json"), "root")
+	writeFeatureListWorkflowConfig(t, explicitConfig, "explicit")
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	originalConfigFile := cli.GlobalConfig.ConfigFile
+	t.Cleanup(func() {
+		cli.GlobalConfig.ConfigFile = originalConfigFile
+		cli.ResetWorkflowService()
+		config.ClearWorkflowCache()
+		if err := os.Chdir(originalWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	if err := os.Chdir(project); err != nil {
+		t.Fatalf("change to project directory: %v", err)
+	}
+	cli.GlobalConfig.ConfigFile = explicitConfig
+	config.ClearWorkflowCache()
+
+	cfg := featureListTaskWorkflow()
+	if got := cfg.SpecialStatuses[config.StartStatusKey][0]; got != "explicit" {
+		t.Fatalf("feature-list task workflow start = %q, want explicit config start", got)
+	}
+	features := []FeatureWithTaskCount{
+		{Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01"}, ProgressPct: 10}},
+		{Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F02"}, ProgressPct: 90}},
+	}
+	breakdowns := map[int64]map[models.TaskStatus]int{
+		1: {models.TaskStatus("explicit"): 1},
+		2: {models.TaskStatus("done"): 1},
+	}
+	sortFeatures(features, "progress", breakdowns, cfg)
+	if features[0].Key != "E07-F02" || features[1].Key != "E07-F01" {
+		t.Fatalf("explicit-config live-progress sort = %s, %s; want E07-F02, E07-F01", features[0].Key, features[1].Key)
+	}
+	assertFeatureListTableProgress(t, features, breakdowns, cfg)
+	assertFeatureListJSONProgress(t, features, breakdowns, cfg)
+}
+
+func writeFeatureListWorkflowConfig(t *testing.T, path, start string) {
+	t.Helper()
+	contents := `{"task_workflow":{"status_flow_version":"1.0","special_statuses":{"_start_":["` + start + `"],"_complete_":["done"]},"status_flow":{"` + start + `":["done"],"done":[]},"status_metadata":{"` + start + `":{"phase":"development","progress_weight":1},"done":{"phase":"done","progress_weight":0}}}}`
+	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
+		t.Fatalf("write workflow config: %v", err)
+	}
+}
+
+func zeroConfigFeatureListFixture(t *testing.T) (*config.WorkflowConfig, []FeatureWithTaskCount, map[int64]map[models.TaskStatus]int) {
+	t.Helper()
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("change to zero-config directory: %v", err)
+	}
+	config.ClearWorkflowCache()
+	cli.ResetWorkflowService()
+	t.Cleanup(func() {
+		cli.ResetWorkflowService()
+		config.ClearWorkflowCache()
+		if err := os.Chdir(originalWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	cfg := featureListTaskWorkflow()
+	completed, found := cfg.GetStatusMetadata("completed")
+	if !found || completed.ProgressWeight != 1 {
+		t.Fatalf("embedded completed metadata = %#v, found=%v; want weight 1", completed, found)
+	}
+	return cfg,
+		[]FeatureWithTaskCount{
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01"}, ProgressPct: 10}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F02"}, ProgressPct: 90}},
+		},
+		map[int64]map[models.TaskStatus]int{1: {models.TaskStatus("completed"): 1}, 2: {models.TaskStatus("draft"): 1}}
+}
+
+func assertFeatureListTableProgress(t *testing.T, features []FeatureWithTaskCount, breakdowns map[int64]map[models.TaskStatus]int, cfg *config.WorkflowConfig) {
+	t.Helper()
+	if got := featureListProgressDisplay(features[0], featureStatusCounts(breakdowns[features[0].ID]), cfg); got != "0% (0.0/1)" {
+		t.Fatalf("zero-config table progress = %q, want 0%% (0.0/1)", got)
+	}
+	if got := featureListProgressDisplay(features[1], featureStatusCounts(breakdowns[features[1].ID]), cfg); got != "100% (1.0/1)" {
+		t.Fatalf("zero-config table progress = %q, want 100%% (1.0/1)", got)
+	}
+}
+
+func assertFeatureListJSONProgress(t *testing.T, features []FeatureWithTaskCount, breakdowns map[int64]map[models.TaskStatus]int, cfg *config.WorkflowConfig) {
+	t.Helper()
+	output := captureOutput(t, func() {
+		if err := outputFeatureListJSON(features, breakdowns, cfg); err != nil {
+			t.Fatalf("render JSON: %v", err)
+		}
+	})
+	var decoded struct {
+		Results []struct {
+			Key      string                 `json:"key"`
+			Progress map[string]interface{} `json:"progress"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		t.Fatalf("decode feature-list JSON: %v; output=%s", err, output)
+	}
+	if len(decoded.Results) != 2 || decoded.Results[0].Key != "E07-F02" || decoded.Results[1].Key != "E07-F01" {
+		t.Fatalf("JSON order does not match live-progress sort: %#v", decoded.Results)
+	}
+	if _, fallback := decoded.Results[0].Progress["pct"]; fallback {
+		t.Fatalf("zero-config JSON used cached-progress fallback: %#v", decoded.Results[0].Progress)
+	}
+	if decoded.Results[0].Progress["weighted_pct"] != float64(0) || decoded.Results[1].Progress["weighted_pct"] != float64(100) {
+		t.Fatalf("JSON weighted progress = %#v, %#v; want 0 then 100", decoded.Results[0].Progress, decoded.Results[1].Progress)
 	}
 }
 

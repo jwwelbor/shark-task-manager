@@ -93,7 +93,7 @@ func filterFeaturesByCompletedStatus(features []FeatureWithTaskCount, showAll bo
 // persisted ProgressPct cache. Using the cache here let the displayed
 // percentage and the sort order disagree for the same row whenever the
 // cache lagged the live task-status breakdown (B047 AC5). cfg is the same
-// workflow config the table/JSON renderers load; when nil (config
+// workflow config the table/JSON renderers receive; when nil (config
 // unavailable), sorting falls back to the cached ProgressPct, matching
 // their fallback behavior.
 func sortFeatures(features []FeatureWithTaskCount, sortBy string, statusBreakdownBatch map[int64]map[models.TaskStatus]int, cfg *config.WorkflowConfig) {
@@ -105,10 +105,7 @@ func sortFeatures(features []FeatureWithTaskCount, sortBy string, statusBreakdow
 				progressPcts[feature.Key] = feature.ProgressPct
 				continue
 			}
-			statusCounts := make(map[string]int, len(statusBreakdownBatch[feature.ID]))
-			for taskStatus, count := range statusBreakdownBatch[feature.ID] {
-				statusCounts[string(taskStatus)] = count
-			}
+			statusCounts := featureStatusCounts(statusBreakdownBatch[feature.ID])
 			progressPcts[feature.Key] = status.CalculateProgress(statusCounts, cfg).WeightedPct
 		}
 		sort.SliceStable(features, func(i, j int) bool {
@@ -133,6 +130,28 @@ func sortFeatures(features []FeatureWithTaskCount, sortBy string, statusBreakdow
 			return features[i].Key < features[j].Key
 		})
 	}
+}
+
+// featureStatusCounts converts one feature's task-status batch into the
+// string-keyed shape shared by list sorting, table rendering, and JSON output.
+func featureStatusCounts(statusBreakdown map[models.TaskStatus]int) map[string]int {
+	statusCounts := make(map[string]int, len(statusBreakdown))
+	for taskStatus, count := range statusBreakdown {
+		statusCounts[string(taskStatus)] = count
+	}
+	return statusCounts
+}
+
+// featureListProgressDisplay is the single feature-list table presentation
+// rule for configured task-status progress. Keeping it separate makes the
+// table's canonical-workflow dependency directly testable without coupling
+// tests to pterm's cached output writer.
+func featureListProgressDisplay(feature FeatureWithTaskCount, statusCounts map[string]int, cfg *config.WorkflowConfig) string {
+	if cfg == nil {
+		return fmt.Sprintf("%.0f%%", feature.ProgressPct)
+	}
+	progress := status.CalculateProgress(statusCounts, cfg)
+	return fmt.Sprintf("%.0f%% (%s)", progress.WeightedPct, progress.WeightedRatio)
 }
 
 // buildFeaturePlanningBasicInfo assembles the key-value info table for planning mode feature display.
@@ -237,23 +256,13 @@ func renderFeatureTasksSection(tasks []*models.Task) {
 // and a `!` / `!!` suffix is appended for non-color signal so colorblind
 // users still see the warning without relying on hue. A legend is printed
 // below the table when any non-healthy row is shown.
-func renderFeatureListTable(features []FeatureWithTaskCount, statusBreakdownBatch map[int64]map[models.TaskStatus]int) {
+func renderFeatureListTable(features []FeatureWithTaskCount, statusBreakdownBatch map[int64]map[models.TaskStatus]int, cfg *config.WorkflowConfig) {
 	// E07-F42: Size column added to feature list table (REQ-F-006).
 	headers := []string{"Key", "Title", "Progress", "Status", "Size"}
 	const titleColIdx = 1
 
 	if statusBreakdownBatch == nil {
 		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
-	}
-
-	// Load config once for all features
-	configPath, cfgErr := cli.GetConfigPath()
-	if cfgErr != nil && cli.GlobalConfig.Verbose {
-		slog.Warn("Failed to get config path", "error", cfgErr)
-	}
-	cfg, cfgErr := config.LoadWorkflowConfig(configPath)
-	if cfgErr != nil && cli.GlobalConfig.Verbose {
-		slog.Warn("Failed to load config", "error", cfgErr)
 	}
 
 	// First pass: build rows with empty title cells. Title widths are
@@ -272,10 +281,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, statusBreakdownBatc
 		}
 
 		// Convert to string-keyed map for progress calculation
-		statusCounts := make(map[string]int)
-		for taskStatus, count := range statusBreakdown {
-			statusCounts[string(taskStatus)] = count
-		}
+		statusCounts := featureStatusCounts(statusBreakdown)
 
 		// Calculate health (folded into Status column color + suffix).
 		level := healthLevelFromCounts(statusCounts, cfg)
@@ -283,15 +289,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, statusBreakdownBatc
 			worstLevel = level
 		}
 
-		// Calculate progress with weighted ratio
-		var progressDisplay string
-		if cfg != nil {
-			progress := status.CalculateProgress(statusCounts, cfg)
-			progressDisplay = fmt.Sprintf("%.0f%% (%s)", progress.WeightedPct, progress.WeightedRatio)
-		} else {
-			// Fallback to simple percentage if config unavailable
-			progressDisplay = fmt.Sprintf("%.0f%%", feature.ProgressPct)
-		}
+		progressDisplay := featureListProgressDisplay(feature, statusCounts, cfg)
 
 		// Status text + manual-override indicator + non-color health signal.
 		statusText := string(feature.Status)
@@ -699,14 +697,7 @@ func renderFeatureActionItems(actionItems *status.ActionItems) {
 }
 
 // outputFeatureListJSON renders the feature list as enhanced JSON with health and progress info.
-func outputFeatureListJSON(featuresWithTaskCount []FeatureWithTaskCount, statusBreakdownBatch map[int64]map[models.TaskStatus]int) error {
-	// Load workflow config
-	configPath, _ := cli.GetConfigPath()
-	var cfg *config.WorkflowConfig
-	if configPath != "" {
-		cfg, _ = config.LoadWorkflowConfig(configPath)
-	}
-
+func outputFeatureListJSON(featuresWithTaskCount []FeatureWithTaskCount, statusBreakdownBatch map[int64]map[models.TaskStatus]int, cfg *config.WorkflowConfig) error {
 	if statusBreakdownBatch == nil {
 		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
 	}
@@ -717,10 +708,7 @@ func outputFeatureListJSON(featuresWithTaskCount []FeatureWithTaskCount, statusB
 		if statusBreakdown == nil {
 			statusBreakdown = make(map[models.TaskStatus]int)
 		}
-		statusCounts := make(map[string]int)
-		for taskStatus, count := range statusBreakdown {
-			statusCounts[string(taskStatus)] = count
-		}
+		statusCounts := featureStatusCounts(statusBreakdown)
 
 		health := calculateHealthIndicator(statusCounts, cfg)
 

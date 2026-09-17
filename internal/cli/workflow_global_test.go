@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -201,6 +202,49 @@ func TestGetWorkflowService_LoadsFromConfig(t *testing.T) {
 	defaultStatus := svc.GetDefaultStatus()
 	if defaultStatus != "custom_status" {
 		t.Errorf("Expected default status 'custom_status' from config, got %q", defaultStatus)
+	}
+}
+
+func TestGetWorkflowService_UsesExplicitConfigWithoutChangingProjectRoot(t *testing.T) {
+	project := t.TempDir()
+	explicitConfig := filepath.Join(t.TempDir(), ".sharkconfig.json")
+	writeWorkflowServiceConfig(t, filepath.Join(project, ".sharkconfig.json"), "root")
+	writeWorkflowServiceConfig(t, explicitConfig, "explicit")
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	originalConfigFile := GlobalConfig.ConfigFile
+	t.Cleanup(func() {
+		GlobalConfig.ConfigFile = originalConfigFile
+		ResetWorkflowService()
+		config.ClearWorkflowCache()
+		if err := os.Chdir(originalWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	if err := os.Chdir(project); err != nil {
+		t.Fatalf("change to project directory: %v", err)
+	}
+	GlobalConfig.ConfigFile = explicitConfig
+	ResetWorkflowService()
+	config.ClearWorkflowCache()
+
+	svc := GetWorkflowService()
+	if got := svc.GetDefaultStatus(); got != "explicit" {
+		t.Fatalf("workflow default status = %q, want explicit", got)
+	}
+	if got := svc.ProjectRoot(); got != project {
+		t.Fatalf("workflow project root = %q, want %q", got, project)
+	}
+}
+
+func writeWorkflowServiceConfig(t *testing.T, path, start string) {
+	t.Helper()
+	contents := `{"task_workflow":{"status_flow_version":"1.0","special_statuses":{"_start_":["` + start + `"],"_complete_":["done"]},"status_flow":{"` + start + `":["done"],"done":[]},"status_metadata":{"` + start + `":{"phase":"development","progress_weight":0},"done":{"phase":"done","progress_weight":1}}}}`
+	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
+		t.Fatalf("write workflow config: %v", err)
 	}
 }
 
