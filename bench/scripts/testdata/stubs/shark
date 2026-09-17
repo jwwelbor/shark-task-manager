@@ -69,6 +69,10 @@
 #                                 transcript-copy phase against the actual
 #                                 on-disk layout `shark run` produces, not
 #                                 just a RunResult stages[] fixture (TC-014m).
+#   STUB_SHARK_RUN_EXTRA_TRANSCRIPT_ENTITY_KEY when set with
+#                                 STUB_SHARK_RUN_WRITE_TRANSCRIPT=1, writes a
+#                                 second sibling entity directory containing
+#                                 the same transcript basename (TC-014n).
 set -euo pipefail
 
 log_invocation() {
@@ -163,6 +167,18 @@ if [[ "${1:-}" == "run" ]]; then
 		printf 'run.log stub content\n' >"$run_log_path"
 		printf 'COMMAND: echo hi\nEXIT: 0\nDURATION: 1ms\n---STDOUT---\nhi\n---STDERR---\n' \
 			>"$entity_dir/1-in_development-anthropic.log"
+		if [[ -n "${STUB_SHARK_RUN_EXTRA_TRANSCRIPT_ENTITY_KEY:-}" ]]; then
+			case "$STUB_SHARK_RUN_EXTRA_TRANSCRIPT_ENTITY_KEY" in
+			.|*/*|*\\*|*..*)
+				echo "stub shark: extra transcript entity key must be a basename" >&2
+				exit 2
+				;;
+			esac
+			extra_entity_dir="$(dirname "$run_log_path")/$STUB_SHARK_RUN_EXTRA_TRANSCRIPT_ENTITY_KEY"
+			mkdir -p "$extra_entity_dir"
+			printf 'COMMAND: echo second\nEXIT: 0\nDURATION: 1ms\n---STDOUT---\nsecond\n---STDERR---\n' \
+				>"$extra_entity_dir/1-in_development-anthropic.log"
+		fi
 	fi
 
 	if [[ "${STUB_SHARK_RUN_HANG:-0}" == "1" ]]; then
