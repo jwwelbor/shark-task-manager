@@ -91,7 +91,9 @@ func TestReviewPromptsUseCompactSuccessAndDetailedFindingsPolicy(t *testing.T) {
 			rendered, err := renderer.Render(tc.tmpl, vars)
 			require.NoError(t, err, "render %s", tc.tmpl)
 			for _, want := range tc.want {
-				require.Contains(t, rendered, want)
+				if !strings.Contains(rendered, want) {
+					t.Errorf("%s must contain compact-pass/detailed-findings phrase %q", tc.tmpl, want)
+				}
 			}
 		})
 	}
@@ -171,7 +173,9 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 			require.NoError(t, err, "%s should exist", tc.path)
 			content := string(body)
 			for _, want := range tc.want {
-				require.Contains(t, content, want)
+				if !strings.Contains(content, want) {
+					t.Errorf("%s must contain compact-pass/detailed-findings phrase %q", tc.path, want)
+				}
 			}
 		})
 	}
@@ -197,8 +201,9 @@ func TestConsolidatorRoutesNonBlockersThroughTriage(t *testing.T) {
 	content := string(body)
 
 	const triageReference = "triage skill's decision tree"
-	require.Contains(t, content, triageReference,
-		"consolidator.md must route non-blockers through the triage skill's decision tree")
+	if !strings.Contains(content, triageReference) {
+		t.Errorf("consolidator.md must route non-blockers through the triage skill's decision tree; missing phrase %q", triageReference)
+	}
 
 	directMapping := []string{
 		"host triages as tech-debt",
@@ -207,7 +212,8 @@ func TestConsolidatorRoutesNonBlockersThroughTriage(t *testing.T) {
 		"File as tech-debt only if",
 	}
 	for _, phrase := range directMapping {
-		require.NotContains(t, content, phrase,
-			"consolidator.md must not map finding severity directly to tech-debt")
+		if strings.Contains(content, phrase) {
+			t.Errorf("consolidator.md must not map finding severity directly to tech-debt; found forbidden phrase %q", phrase)
+		}
 	}
 }
