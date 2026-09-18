@@ -141,6 +141,14 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 		return err
 	}
 
+	// A workflow with several terminal statuses must mark every one that
+	// isn't the canonical "real" terminal as excluded from progress, or
+	// progress/readiness consumers will silently credit an abandonment
+	// terminal (e.g. a custom "cancelled"-like status) as satisfied (TD-153).
+	if err := validateTerminalProgressExclusion(workflow); err != nil {
+		return err
+	}
+
 	// A parking step's resume target is computed from history; combining it
 	// with action: advance_status would route through the positional
 	// StatusFlow view and reproduce the blocked-routing bug PR #103 fixed.
@@ -185,6 +193,44 @@ func validatePrimaryDesignations(workflow *WorkflowConfig, sprintLifecycle bool)
 		return requireDesignation(workflow, "archive terminal", archival)
 	}
 	return requireDesignation(workflow, "terminal", workflow.SpecialStatuses[CompleteStatusKey])
+}
+
+// validateTerminalProgressExclusion enforces the ExcludeFromProgress contract
+// that internal/progress, feature/epic progress, and sprint-readiness (TD-153,
+// from the B058 review) all rely on: bare IsTerminalStatus is read as "done"
+// unless a status opts out via exclude_from_progress. With a single terminal
+// status there is nothing to disambiguate. With several, the archive-terminal
+// designation (ArchiveTerminalStatus — already validated unambiguous above)
+// names the one true completion terminal; every other terminal status must
+// carry exclude_from_progress: true, or a custom abandonment-style terminal
+// (e.g. a "cancelled" status that forgot the flag) would be silently credited
+// as satisfied everywhere progress is computed.
+func validateTerminalProgressExclusion(workflow *WorkflowConfig) error {
+	terminals := workflow.SpecialStatuses[CompleteStatusKey]
+	if len(terminals) <= 1 {
+		return nil
+	}
+
+	canonical, err := workflow.ArchiveTerminalStatus()
+	if err != nil {
+		// No candidate, or still ambiguous: validatePrimaryDesignations above
+		// already reported the ambiguous case; nothing further to check here.
+		return nil
+	}
+
+	for _, name := range terminals {
+		if strings.EqualFold(name, canonical) {
+			continue
+		}
+		if st, ok := workflow.GetStep(name); ok && st != nil && st.ExcludeFromProgress {
+			continue
+		}
+		return &WorkflowValidationError{
+			Message: fmt.Sprintf("terminal step %q is not the canonical completion terminal (%q) and is missing exclude_from_progress: true — progress, feature/epic rollups, and sprint readiness treat any bare terminal status as satisfied", name, canonical),
+			Fix:     fmt.Sprintf("add exclude_from_progress: true to %q if it represents abandonment (cancelled, wont_fix, …), or tag it primary: true instead of %q if it is actually the success terminal", name, canonical),
+		}
+	}
+	return nil
 }
 
 // validateParkingActions rejects parking steps whose action is advance_status:

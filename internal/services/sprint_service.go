@@ -3222,6 +3222,28 @@ func buildAssignedKeys(assignments []sprint.AssignmentWithSize) map[string]bool 
 	return assignedKeys
 }
 
+// parseAssignmentDependsOn parses a single assignment's depends_on JSON
+// field, sharing the guard/parse logic that computeDependencySatisfactionFactor
+// and computeExternalDependencyTerminalStatus both need (TD-153).
+//
+// ok is false when the assignment has no dependencies to consider (a
+// non-task entity, or an empty/"[]"/"null" field) — callers should skip it
+// without treating it as a parse failure. When ok is true and err is non-nil,
+// the field was present but not valid JSON; callers decide how to report
+// that themselves — computeDependencySatisfactionFactor counts it as
+// malformed, while computeExternalDependencyTerminalStatus skips it silently
+// since malformed JSON is surfaced only once, by
+// computeDependencySatisfactionFactor.
+func parseAssignmentDependsOn(a sprint.AssignmentWithSize) (deps []string, ok bool, err error) {
+	if a.EntityType != "task" || a.DependsOn == "" || a.DependsOn == "[]" || a.DependsOn == "null" {
+		return nil, false, nil
+	}
+	if err := json.Unmarshal([]byte(a.DependsOn), &deps); err != nil {
+		return nil, true, err
+	}
+	return deps, true, nil
+}
+
 // computeExternalDependencyTerminalStatus batch-looks-up task dependencies
 // that are referenced by this sprint's assignments but are NOT themselves
 // assigned to this sprint (e.g. a prerequisite completed in an earlier
@@ -3265,11 +3287,11 @@ func (s *SprintService) computeExternalDependencyTerminalStatus(
 	var externalDeps []string
 	seen := make(map[string]bool)
 	for _, a := range assignments {
-		if a.EntityType != "task" || a.DependsOn == "" || a.DependsOn == "[]" || a.DependsOn == "null" {
+		deps, ok, err := parseAssignmentDependsOn(a)
+		if !ok {
 			continue
 		}
-		var deps []string
-		if err := json.Unmarshal([]byte(a.DependsOn), &deps); err != nil {
+		if err != nil {
 			// Malformed JSON is surfaced separately by computeDependencySatisfactionFactor.
 			continue
 		}
@@ -3398,12 +3420,11 @@ func computeDependencySatisfactionFactor(
 	unsatisfied := 0
 	malformed := 0
 	for _, a := range assignments {
-		if a.EntityType != "task" || a.DependsOn == "" || a.DependsOn == "[]" || a.DependsOn == "null" {
+		deps, ok, err := parseAssignmentDependsOn(a)
+		if !ok {
 			continue
 		}
-		// Parse depends_on as []string
-		var deps []string
-		if err := json.Unmarshal([]byte(a.DependsOn), &deps); err != nil {
+		if err != nil {
 			// Malformed JSON — treat as no dependencies (graceful degradation) but track count
 			malformed++
 			continue

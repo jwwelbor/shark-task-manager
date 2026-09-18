@@ -68,6 +68,7 @@ steps:
     description: "Question withdrawn"
     progress_weight: 1.0
     responsibility: none
+    exclude_from_progress: true
     action: archive
     terminal: true
   superseded:
@@ -77,6 +78,7 @@ steps:
     description: "Question superseded"
     progress_weight: 1.0
     responsibility: none
+    exclude_from_progress: true
     action: archive
     terminal: true
   archived:
@@ -86,5 +88,6 @@ steps:
     description: "Question archived before it was configured with a resolution owner and responders"
     progress_weight: 1.0
     responsibility: none
+    exclude_from_progress: true
     action: archive
     terminal: true
