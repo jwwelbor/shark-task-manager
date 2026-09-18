@@ -182,38 +182,49 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 }
 
 // TestConsolidatorRoutesNonBlockersThroughTriage is a B066 regression gate.
-// The deep-review consolidator must not map a non-blocking finding's
-// severity directly to tech-debt ("host triages as tech-debt" /
-// "host files as tech-debt"); it must route the finding through the triage
-// skill's decision tree (fix-now gate, duplicate search, type
-// classification), of which tech-debt is only one possible outcome. This
-// mirrors TestEmbedded_ReviewFindingsRouteThroughTriage in
+// The deep-review consolidator and the deep-review skill itself must not map
+// a non-blocking finding's severity directly to tech-debt ("host triages as
+// tech-debt" / "host files as tech-debt"), and must not gate on findings
+// being "fixed or explicitly triaged" without naming the triage skill's
+// decision tree — the vaguer phrasing that let a finding skip the fix-now
+// gate, duplicate search, and type classification (found in
+// deep-review/SKILL.md's consolidation contract, 2026-09-18, after the
+// original B066 fix scoped only consolidator.md). Every finding must route
+// through the triage skill's decision tree (fix-now gate, duplicate search,
+// type classification), of which tech-debt is only one possible outcome.
+// This mirrors TestEmbedded_ReviewFindingsRouteThroughTriage in
 // internal/sharkdata/embed_test.go, which covers the embedded-bundle
-// producers (review-code.md, tech-lead.md); consolidator.md lives in the
+// producers (review-code.md, tech-lead.md); the files below live in the
 // repo-tracked skills/shark-rider/ tree instead of the embedded bundle, so
-// it needs its own file-read assertion.
+// they need their own file-read assertion.
 func TestConsolidatorRoutesNonBlockersThroughTriage(t *testing.T) {
 	repoRoot := findRepoRootForInteractionTest(t)
-	path := filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md")
-
-	body, err := os.ReadFile(path)
-	require.NoError(t, err, "%s should exist", path)
-	content := string(body)
-
-	const triageReference = "triage skill's decision tree"
-	if !strings.Contains(content, triageReference) {
-		t.Errorf("consolidator.md must route non-blockers through the triage skill's decision tree; missing phrase %q", triageReference)
+	scopedFiles := []string{
+		filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md"),
+		filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "SKILL.md"),
 	}
 
+	const triageReference = "triage skill's decision tree"
 	directMapping := []string{
 		"host triages as tech-debt",
 		"host files as tech-debt",
 		"host files these as tech-debt",
 		"File as tech-debt only if",
 	}
-	for _, phrase := range directMapping {
-		if strings.Contains(content, phrase) {
-			t.Errorf("consolidator.md must not map finding severity directly to tech-debt; found forbidden phrase %q", phrase)
+
+	for _, path := range scopedFiles {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err, "%s should exist", path)
+		content := string(body)
+
+		if !strings.Contains(content, triageReference) {
+			t.Errorf("%s must route non-blockers through the triage skill's decision tree; missing phrase %q", path, triageReference)
+		}
+
+		for _, phrase := range directMapping {
+			if strings.Contains(content, phrase) {
+				t.Errorf("%s must not map finding severity directly to tech-debt; found forbidden phrase %q", path, phrase)
+			}
 		}
 	}
 }

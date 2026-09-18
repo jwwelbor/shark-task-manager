@@ -151,8 +151,7 @@ why automated review was unavailable. It cannot satisfy the unattended pre-merge
 `references/consolidator.md` accepts either six angle findings or one complete adversarial review.
 It must state the evidence mode and use the matching coverage claim. It may say
 “6-angle automated” only for `canonical-six-angle` or `dispatched-six-angle` with six completed
-specialists. For fallback findings, fix every blocker/non-blocker or explicitly triage it before
-CI/merge. An incomplete report cannot advance the gate.
+specialists. For fallback findings, fix every blocker or route it through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before CI/merge. An incomplete report cannot advance the gate.
 
 ## Flags and references
 
