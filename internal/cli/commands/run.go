@@ -124,7 +124,7 @@ func init() {
 		"",
 		"Override the resolved harness model; wins over the active claim and SHARK_HARNESS_MODEL",
 	)
-	runCmd.Flags().StringVar(&runResumeID, "resume-run", "", "Report durable resume status for an existing run_id's GateResult sidecar (T-E34-F05-002); accepts no new result bytes and does not dispatch or transition. For a gate_result_v1 stage dispatched by the core runner, the run_id to pass is the PER-STAGE id from that stage's status output (GateStatus.run_id / applyResultOutput.run_id), which is <shark.log run_id>-g<stage-iteration> — not the bare run_id `shark run` logged at invocation start (code-review round-7 Finding 1: each gate_result_v1 stage in one invocation gets its own persistence directory).")
+	runCmd.Flags().StringVar(&runResumeID, "resume-run", "", "Report durable resume status for an existing run_id's GateResult sidecar (T-E34-F05-002); accepts no new result bytes and does not dispatch or transition. For a gate_result_v1 stage dispatched by the core runner, the run_id to pass is the PER-STAGE id from that stage's status output (GateStatus.run_id / applyResultOutput.run_id), which is <invocation run_id>-<entity-key>-g<stage-iteration> (see gateStageRunID in internal/runner/controller.go; the entity-key component keeps cascade siblings dispatching the same stage number from colliding on one run directory) — not the bare run_id `shark run` logged at invocation start. Read it back from that stage's output rather than reconstructing it (code-review round-7 Finding 1: each gate_result_v1 stage in one invocation gets its own persistence directory).")
 	runCmd.Flags().StringVar(&runSession, "session", "", "Authorized session id for --resume-run")
 	cli.RootCmd.AddCommand(runCmd)
 }

@@ -18,7 +18,7 @@ outputs:
   - verdict: "PASS" | "PASS-with-triage" | "FAIL"
   - code_review_report: structured markdown written to code_review_report_path
   - blockers: list of {finding_id, file_line, rule, diagnosis, evidence, correction}
-  - non_blockers_to_triage: list of {finding_id, file_line, rule, summary, fix_suggestion} — host routes each through the triage skill's decision tree (fix-now gate, duplicate search, type classification); tech-debt is only one possible outcome
+  - non_blockers_to_triage: list of {finding_id, file_line, rule, summary, fix_suggestion} — host routes each through the triage skill's decision tree (see Step 12); tech-debt is only one possible outcome, never a default
   - nits: list of {file_line, rule, note} — no action needed
   - counter_factual_per_ac: list of {ac_id, covering_test, rationale_or_blocker_flag}
   - production_caller_chains: list of {service_contract, entrypoint, chain, arg_shape}
@@ -50,7 +50,7 @@ This workflow does **craft review** only. It does NOT re-verify what other phase
 
 If you find yourself re-running tests or re-verifying ACs against the PRD, **stop** — that's QA's job. Trust the phase contract; if QA is doing its job, you don't need to re-do it.
 
-A blocker found here halts the task; a non-blocker is returned in `non_blockers_to_triage` so the host can route it through the triage skill's decision tree (fix-now gate, duplicate search, type classification) — the finding may become a bug, task, question, change, or tech-debt depending on that classification, never tech-debt by default.
+A blocker found here halts the task; a non-blocker is returned in `non_blockers_to_triage` so the host can route it through the triage skill's decision tree (full contract in Step 12) — the finding may become a bug, task, question, change, or tech-debt depending on that classification, never tech-debt by default.
 
 ### Prompt-only changes
 
