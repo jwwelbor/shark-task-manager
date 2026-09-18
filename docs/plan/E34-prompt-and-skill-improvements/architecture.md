@@ -374,12 +374,14 @@ or summaries.
 
 - Route-step YAML gains `result_contract: legacy|gate_result_v1`. Omitted means
   `legacy`; unknown values fail workflow validation. The canonical adoption
-  matrix is: epic `feature_review` and the new `integration_review`; feature
-  `specification`, `test_planning`, `task_review`, `code_review`, `qa`, and
-  `approval`; tech-debt `triaged` and `in_progress`; and change-card
-  `development`, `code_review`, and `qa` opt into `gate_result_v1`. These are
-  the agent-owned planning, review, approval, and resolution steps that can
-  produce findings, sweeps, or I-04 impacts. Question
+  matrix is: epic `feature_review`; feature `specification`, `test_planning`,
+  `task_review`, `code_review`, `qa`, and `approval`; tech-debt `triaged` and
+  `in_progress`; and change-card `development`, `code_review`, and `qa` opt
+  into `gate_result_v1`. These are the agent-owned planning, review, approval,
+  and resolution steps that can produce findings, sweeps, or I-04 impacts.
+  Epic `integration_review` (added by E34-F08) stays `legacy` — it did not
+  exist in the shipped epic workflow when this matrix was fixed at T-E34-F05-005
+  and has not since been migrated. Question
   `ready_for_resolution` remains a human `pause`: the validated Question
   resolution service, not worker output, persists its I-04 reference note.
   ADR adoption uses a new parent-owned `shark impact record <entity-key>

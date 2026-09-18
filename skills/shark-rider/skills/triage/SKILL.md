@@ -9,6 +9,17 @@ You are performing **intake triage**: understand a discovered work item, find wh
 belongs, propose a classification, and (after confirmation) create it with just enough
 context. Then **stop** — no subtasks, no PRDs, no cascading workflow.
 
+## Routing contract (for review and other finding-producer skills)
+
+Any skill that surfaces a non-blocking finding — code review, deep-review, red-team,
+UAT — must route it through this skill's decision tree: the fix-now gate (Step 0), the
+existing-entity search (Step 3), and the classification table (Step 4). Tech-debt is only
+one possible outcome of that classification; a finding may just as easily become a bug,
+task, question, or change, or be resolved in place with no entity created at all. A
+finding producer must never map severity straight to an entity type, and must not gate on
+vague "fixed or triaged" language without naming this decision tree — that vagueness is
+exactly what let a finding skip fix-now, dedup, and classification in the past.
+
 ## Step 0: Fix-Now Gate
 
 Triage is for work that genuinely needs to be deferred. If the fix is trivial
