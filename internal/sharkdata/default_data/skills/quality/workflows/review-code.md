@@ -18,7 +18,7 @@ outputs:
   - verdict: "PASS" | "PASS-with-triage" | "FAIL"
   - code_review_report: structured markdown written to code_review_report_path
   - blockers: list of {finding_id, file_line, rule, diagnosis, evidence, correction}
-  - non_blockers_to_triage: list of {finding_id, file_line, rule, summary, fix_suggestion} — host routes each through the triage skill's decision tree (see Step 12); tech-debt is only one possible outcome, never a default
+  - non_blockers_to_triage: list of {finding_id, fingerprint, file_line, rule, summary, fix_suggestion} — host routes each through the triage skill's decision tree (see Step 12); tech-debt is only one possible outcome, never a default. `fingerprint` is a stable identifier (see Step 12) the triage skill searches on so a rerun finding the same defect links or updates the existing entity instead of creating a duplicate.
   - nits: list of {file_line, rule, note} — no action needed
   - counter_factual_per_ac: list of {ac_id, covering_test, rationale_or_blocker_flag}
   - production_caller_chains: list of {service_contract, entrypoint, chain, arg_shape}
@@ -262,6 +262,8 @@ For every finding, label it:
 
 The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. The fix-now gate may resolve a finding in place with no entity created at all; that counts as triaged. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. If the host's triage attempt fails for any reason (e.g., the target entity is in a state that doesn't accept new children, or the run is unattended and the decision tree's confirmation step has no one to answer it), it falls back to a feature-level note — that's a host concern, not a craft concern.
 
+**Stable fingerprint.** Compute `fingerprint` for every `non_blockers_to_triage` entry from inputs that survive a line-number shift across review rounds: the file path relative to the repo root, the `rule` category, and a short normalized slug of the finding's defect (lowercase, non-alphanumeric collapsed to `-`, e.g. `dry-duplicated-catch-block`) — never the raw line number, which drifts. Format: `<relative_file_path>#<rule>#<slug>`. The triage skill's duplicate search (Step 3 of its own decision tree) checks existing entities for this exact string before creating a new one; if found, it links/updates that entity instead of filing a second one for the same recurring finding.
+
 ## Required output structure (report content)
 
 Write the report to `code_review_report_path`. All sections required:
@@ -367,7 +369,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 ## Self-verification (before returning)
 
 - [ ] Every blocker cites a specific PRD requirement, standards section, or named risk.
-- [ ] Every non-blocker has a clear `file_line` + `summary` + `fix_suggestion` in `non_blockers_to_triage` so the host can file it without re-reading the report.
+- [ ] Every non-blocker has a clear `file_line` + `fingerprint` + `summary` + `fix_suggestion` in `non_blockers_to_triage` so the host can file it without re-reading the report, and reruns link the same entity instead of duplicating it.
 - [ ] Reuse search was actually performed (cite at least one grep result, even if "no duplicates found").
 - [ ] Standards crosswalk cites real sections from real docs (no fabricated citations).
 - [ ] Quality rubric scores are justified with evidence, not vibes.

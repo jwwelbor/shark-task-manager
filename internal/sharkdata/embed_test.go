@@ -2035,6 +2035,33 @@ func TestEmbedded_ReviewFindingsRouteThroughTriage(t *testing.T) {
 		strings.Join(violations, "\n"))
 }
 
+// TestEmbedded_NonBlockersCarryStableFingerprint is a review-triage-and-
+// agent-attention-plan regression gate (dev-artifacts/2026-09-15-review-
+// triage-and-agent-attention-plan/plan.md, Workstream 1: "Each item should
+// include a stable fingerprint so reruns update or link the same record
+// instead of multiplying it").
+//
+// review-code.md's `non_blockers_to_triage` output contract must declare a
+// `fingerprint` field and instruct the producer how to compute one that
+// survives a line-number shift across review rounds — without it, the
+// triage skill's duplicate search (skills/shark-rider/skills/triage/SKILL.md)
+// has nothing stable to search on, and reruns that rediscover the same
+// defect create a new tracker entity every time instead of linking the
+// existing one.
+func TestEmbedded_NonBlockersCarryStableFingerprint(t *testing.T) {
+	const relPath = "skills/quality/workflows/review-code.md"
+	body, err := ReadEmbedded(relPath)
+	require.NoError(t, err, "%s should exist", relPath)
+	content := string(body)
+
+	if !strings.Contains(content, "fingerprint") {
+		t.Errorf("%s: non_blockers_to_triage must declare and explain a `fingerprint` field for stable cross-run deduplication", relPath)
+	}
+	if !strings.Contains(content, "non_blockers_to_triage: list of {finding_id, fingerprint,") {
+		t.Errorf("%s: the outputs contract's non_blockers_to_triage shape must list fingerprint as a field, not just mention the word elsewhere", relPath)
+	}
+}
+
 // TestEmbedded_SkillsHaveNoStaleAgentSlugs enforces that skill files reference
 // only current embedded agents. The specialized agents that predated
 // consolidation (api-developer, frontend-developer, devops-engineer, and the

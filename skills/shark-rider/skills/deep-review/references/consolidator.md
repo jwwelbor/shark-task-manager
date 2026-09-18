@@ -144,7 +144,7 @@ For each service-contract change: entrypoint → call chain → leaf with argume
 
 ### I. Triage Summary
 - **Blockers** (must fix before QA): numbered list
-- **Non-blockers to triage** (host routes each through the triage skill's decision tree): numbered list with `file:line + summary + fix_suggestion`
+- **Non-blockers to triage** (host routes each through the triage skill's decision tree): numbered list with `file:line + fingerprint + summary + fix_suggestion` — `fingerprint` is `<relative_file_path>#<rule>#<slug>` (rule category plus a short normalized defect slug, never the raw line number), so a rerun finding the same defect links the existing entity instead of duplicating it
 - **Nits** (no action required): bullet list
 
 ### J. Verdict
@@ -158,7 +158,7 @@ One paragraph summarizing the state of the PR, what is good, and what must chang
 
 - [ ] Every blocker cites a specific risk, standards section, or named invariant
 - [ ] Any fundamental change to an existing architecture/workflow/pattern is explicitly judged as defensible or not defensible
-- [ ] Every non-blocker has `file:line + summary + fix_suggestion` so it can be routed through the triage skill's decision tree without re-reading the report
+- [ ] Every non-blocker has `file:line + fingerprint + summary + fix_suggestion` so it can be routed through the triage skill's decision tree without re-reading the report, and reruns link the same entity instead of duplicating it
 - [ ] Reuse search findings cite at least one grep result (even "no duplicates found")
 - [ ] If a structural sibling check was triggered, the sibling inventory table is in section C
 - [ ] Standards crosswalk cites real sections (no fabricated citations)

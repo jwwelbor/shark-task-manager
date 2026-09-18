@@ -51,8 +51,14 @@ than inventing an epic inside triage.
 
 ## Step 3: Search Existing Entities (dedup)
 
-Before creating anything, search for existing coverage so you don't duplicate. Enumerate
-existing items of each candidate type, not just a keyword search:
+Before creating anything, search for existing coverage so you don't duplicate. If the
+work item carries a `fingerprint` (a review/consolidator finding routed here as
+`<relative_file_path>#<rule>#<slug>`), search for that exact string first —
+`shark notes search "<fingerprint>"` and a grep of `docs/plan/tech-debt/`,
+`docs/plan/bugs/`, etc. for it. A match means the same recurring defect: link/update
+that entity instead of creating a new one, and skip the broader search below. With no
+fingerprint (or no match), enumerate existing items of each candidate type, not just a
+keyword search:
 
 - `shark status` to understand current shape and active work.
 - `shark list`, `shark list <epic>`, and `shark list <epic> <feature>` for likely
@@ -63,7 +69,9 @@ existing items of each candidate type, not just a keyword search:
   and future-work breadcrumbs.
 
 If an entity already covers the work, prefer **adding a note** to it over creating a new one.
-In the proposal, name the existing coverage and recommend the note target.
+In the proposal, name the existing coverage and recommend the note target. When creating a
+new entity from a fingerprinted finding, include the fingerprint verbatim in its description
+or as a note, so the next rerun's search actually finds it.
 
 ## Step 4: Classify
 

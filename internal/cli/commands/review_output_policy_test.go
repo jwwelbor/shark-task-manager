@@ -228,3 +228,22 @@ func TestConsolidatorRoutesNonBlockersThroughTriage(t *testing.T) {
 		}
 	}
 }
+
+// TestConsolidatorNonBlockersCarryStableFingerprint is a review-triage-and-
+// agent-attention-plan regression gate (plan.md Workstream 1: "Each item
+// should include a stable fingerprint so reruns update or link the same
+// record instead of multiplying it"). Mirrors
+// TestEmbedded_NonBlockersCarryStableFingerprint in
+// internal/sharkdata/embed_test.go for the repo-tracked consolidator.md.
+func TestConsolidatorNonBlockersCarryStableFingerprint(t *testing.T) {
+	repoRoot := findRepoRootForInteractionTest(t)
+	path := filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md")
+
+	body, err := os.ReadFile(path)
+	require.NoError(t, err, "%s should exist", path)
+	content := string(body)
+
+	if !strings.Contains(content, "fingerprint") {
+		t.Errorf("%s: the Triage Summary's non-blockers-to-triage line must declare a `fingerprint` field for stable cross-run deduplication", path)
+	}
+}
