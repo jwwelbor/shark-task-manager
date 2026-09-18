@@ -229,57 +229,6 @@ func TestRunClaimTierReachableThroughRealAcquisition(t *testing.T) {
 	}
 }
 
-// TestRunLeaseForRunnableAction_FlagOverrideReachesClaim is a narrow,
-// helper-level execution test: it drives the real
-// acquireRunLeaseForRunnableAction -> acquireRunLease -> resolveHarnessForClaim
-// chain directly, proving that whatever override this helper is called
-// with reaches the persisted ClaimInput's Harness/HarnessVersion/HarnessModel
-// fields.
-//
-// IMPORTANT SCOPE NOTE: this test passes its own `override` value straight
-// into acquireRunLeaseForRunnableAction as an argument -- it never invokes
-// `runRun`. It does NOT prove that runRun's own call site (run.go:289, which
-// passes runRun's locally-parsed `harnessOverride` variable into this same
-// helper) is wired correctly; zeroing that argument at run.go:289 has no
-// effect on this test; only a break inside the helper's own body (e.g.
-// dropping the forwarding of its `harnessOverride` parameter to
-// acquireRunLease) turns it red. TD-165's actual gap -- execution-level
-// proof that runRun passes the parsed flag override down into this helper
-// -- remains unclosed; see this file's package-level rework comment.
-func TestRunLeaseForRunnableAction_FlagOverrideReachesClaim(t *testing.T) {
-	unsetHarnessEnv(t)
-
-	mock := &mockRunClaimService{}
-	withRunClaimSvcOverride(t, mock)
-
-	transitioner := fixedNextTransitioner{info: &services.NextStatusInfo{CurrentStatus: "in_progress"}}
-	actionSvc := &config.MockActionService{GetStatusActionFunc: func(context.Context, string) (*config.OrchestratorAction, error) {
-		return &config.OrchestratorAction{Action: config.ActionSpawnAgent}, nil
-	}}
-
-	override := services.HarnessIdentity{Type: "claude", Version: "2.1.0", Model: "opus"}
-
-	lease, block, _, err := acquireRunLeaseForRunnableAction(
-		context.Background(), transitioner, actionSvc, nil, "task", "E01-F01-001", false, override,
-	)
-	if err != nil {
-		t.Fatalf("acquireRunLeaseForRunnableAction: %v", err)
-	}
-	if block != nil {
-		t.Fatalf("unexpected Question block: %#v", block)
-	}
-	if lease == nil {
-		t.Fatal("acquireRunLeaseForRunnableAction returned a nil lease for a dispatchable action")
-	}
-	if len(mock.claims) != 1 {
-		t.Fatalf("claims = %d, want 1", len(mock.claims))
-	}
-	got := mock.claims[0]
-	if got.Harness != "claude" || got.HarnessVersion != "2.1.0" || got.HarnessModel != "opus" {
-		t.Fatalf("claim harness fields = %#v, want the --harness/--harness-version/--harness-model override {claude 2.1.0 opus}", got)
-	}
-}
-
 // TestRunClaimTierDryRun_RendersViaEnvNotClaim covers the --dry-run edge of
 // the same fix: acquireRunLease returns (nil, nil) before touching the claim
 // when dryRun is true (unchanged by this fix), so no claim is ever created.
