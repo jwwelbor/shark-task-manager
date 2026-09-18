@@ -31,14 +31,59 @@ No branch is needed; the table is kept for audit.
 | TD-205 | PR #236 | `E34-F07/test-plan.md` and `T-E34-F07-001.md` both updated. |
 | TD-179 | PR #232 | `internal/services/impact_service.go` exists; `impact.go:143` calls `services.NewImpactService`. The extraction is done. |
 
-Three records from the same PR ranges are **not** fixed and are scheduled below:
-TD-198 (row 7), TD-199 (row 10), TD-202 (row 1).
-
 TD-179 shipping in an unrelated PR shows the lag is not confined to #234–#236.
 Before starting each row, re-verify its records against `HEAD` and drop anything
 already fixed.
 
+## Second reconciliation — done 2026-09-17
+
+Execution rule 1 was applied to every scheduled record before any branch was
+opened.  Twenty-one more were verified fixed in `main` at `d8e29ba` and
+force-set to `resolved`, leaving twelve genuinely open.  Three rows (the
+original 1, 4, and 5) emptied out entirely and need no branch.
+
+| Tech debt | Evidence at `d8e29ba` |
+| --- | --- |
+| TD-176 | `gatepersist/coordinator.go:107` and `run_resume.go:424` both bind `releaseErr` and report it. |
+| TD-177 | `gatepersist/reconcile.go:125` compares target status **or** digest; `kickback.go:176` records the round-2 UAT fix that folded reason into the digest. |
+| TD-178 | `run_apply_result.go:94` and `impact.go:74` both read through `gaterun.ReadBoundedRegularFile(path, workercontrol.MaxEnvelopeBytes)`. |
+| TD-181 | `workercontrol/question.go:36` bounds every `Options` element and `:49` bounds `recommendation` alongside `question`/`why_blocking`. |
+| TD-183 | `gatepersist/adapters.go:150-153` passes `SessionID`, `FromStatus`, and `GuardAdvance: true`. |
+| TD-184 | `run_apply_result.go:117` calls `verifyClaimSession` before any note/kickback/transition mutation. |
+| TD-185 | Both `change/{code_review,qa}.golden` end `.\n` — no trailing blank line. |
+| TD-187 | `gaterun/fsio_nofollow_windows.go:48-70` uses `windows.CreateFile` with `FILE_FLAG_OPEN_REPARSE_POINT` and a handle-attribute reparse check; no `Lstat`-then-open. |
+| TD-189 | `run_resume.go:358` defines `finishGateIngest`; both ingest paths call it. |
+| TD-190 | The `buildGateCoordinator` comment no longer mentions a placeholder or T-E34-F05-005. |
+| TD-192 | `entity_service.go:451,455,468` normalize both sides before comparing. |
+| TD-193 | `runner/dispatcher.go:198,201` use `readBoundedStream(..., MaxEnvelopeBytes)`; `:263` applies `io.LimitReader`. |
+| TD-198 | `E34-interaction-map.md:45-49,64-65,77` carry the corrected I-02/I-03 pointers and hand the missing parity test to TD-211. |
+| TD-202 | `impact.go:131` unmarshals into a typed `gateresult.ChangeImpactSet` and reconciles field-by-field; the `map[string]interface{}` merge is gone. |
+| TD-207 | `integration/history.go:180` calls `ValidateEpicRunID(epicRunID)` first. |
+| TD-209 | `sharkdata/overrides_status.go:177` excludes the installer's `overrides/.gitkeep`. |
+| TD-210 | `run_cascade_integration_test.go` carries no hardcoded status list. |
+| TD-217 | `epic/integration_review.md` step 5 names the candidate's `tracked_path_digests`/`untracked_path_digests` **in addition to** event-level paths. |
+| TD-218 | `TestCascadeIntegrationGuard_NonEpicDoesNotCaptureBase` drives the real `cascadeIntegrationGuard` with a feature key. |
+| TD-219 | `candidate_test.go:736,739` assert exact cardinality; `TestComputeDirtyPathDigests_RenameDeleteAndCleanTree` covers rename, delete, and clean-tree. |
+| TD-220 | `table_parser_test.go:232-262` blanks/misvalues `Same-model gate`, `Separate QA`, and `Final UAT` independently. |
+
 ## Delivery order
+
+Rows are renumbered after the second reconciliation.  Every remaining row is
+independent of every other — the `run_cascade_integration_test.go` collision
+that forced the original row-6-after-2/4/5 ordering is gone with TD-210 and
+TD-218.
+
+| Order | Branch | Tech debt | Scope and PR boundary |
+| --- | --- | --- | --- |
+| 1 | `tech-debt/advance-guard-idempotency` | TD-191 | The `TransitionStatus` idempotency early-return fires before `enforceAdvanceGuard`/`recordAdvanceGuard`, so a guarded transition landing on an already-at-target entity succeeds without touching the CAS replay ledger. |
+| 2 | `tech-debt/run-lock-ownership` | TD-186 | `RunLock.Release` has no ownership token, so a late `Release` from a handle whose lock was reclaimed can unlink a different holder's lock file. |
+| 3 | `tech-debt/gate-test-coverage` | TD-165, TD-188, TD-231 | Tests only, no behavior change: execution-level harness-wiring and `GateIngest` companions for the two source-scan guards, and consolidator failure diagnostics that stop dumping ~9KB into the failure message. |
+| 4 | `tech-debt/docs-and-prompt-accuracy` | TD-180, TD-230, TD-232, TD-233 | Documentation and prompt text only: the `epic.integration_review` adoption-matrix note, a runnable coordinator-side `gate_result_v1` apply-result example with `run_id` semantics, the user-global finish-feature skill's triage decision tree, and a single shared triage-routing contract reference. |
+| 5 | `tech-debt/question-api-error-surface` | TD-234 | Standalone: the question owner-mismatch error leaks CLI flag syntax into HTTP API responses.  Keep separate — it is the only row touching the API error surface. |
+| 6 | `tech-debt/workflow-progress-guard` | TD-153 | Standalone: `ExcludeFromProgress` fails open for custom workflows, plus the duplicated `DependsOn` guard in `sprint_service.go`. |
+| 7 | `tech-debt/i02-i03-recurrence-field` | TD-199 | Decision first, code second.  Whether I-02/I-03 get an explicit recurrence-classification field is an epic-owner call weighed against updating every consumer (E34-F07, E34-F08).  Record the decision; close as accepted-as-is if the churn is not worth it, and only then open a branch. |
+
+## Superseded delivery order (pre-reconciliation, kept for audit)
 
 | Order | Branch | Tech debt | Scope and PR boundary |
 | --- | --- | --- | --- |
@@ -64,10 +109,9 @@ already fixed.
 1. Re-verify each row's records against `HEAD` before starting that row — the
    Reconciliation table shows the tracker has drifted from `main` before.
 2. Work only from an isolated branch/worktree based on current `origin/main`.
-3. Rows 1–4 are independent of each other and may run in parallel.  Row 5 lands
-   after rows 1–3.  Row 6 lands after rows 2, 4, and 5 — TD-210 and TD-218 both
-   edit `run_cascade_integration_test.go`.  Rows 7–10 are independent of
-   everything.
+3. After the second reconciliation every remaining row is independent and may
+   run in any order or in parallel.  The pre-reconciliation ordering
+   constraints are recorded in the superseded table above.
 4. Run the relevant focused test while developing, then `make fmt`, `make lint`,
    and `make test` before a PR is ready.
 5. Run the full review/PR/CI/merge lifecycle through `/finish-feature` for each
