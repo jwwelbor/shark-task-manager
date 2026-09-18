@@ -74,6 +74,52 @@ func TestRunLock_ReleaseAllowsReacquire(t *testing.T) {
 	_ = lock2.Release()
 }
 
+func TestRunLock_ReleaseRefusesToUnlinkReplacedLockFile(t *testing.T) {
+	dir := newRunDir(t)
+
+	lock, err := AcquireRunLock(dir, time.Second)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	// Simulate the narrow TD-186 window: an operator decides lock is stale
+	// and removes it, then a second holder acquires a fresh lock file of the
+	// same name, before the original (merely hung, not crashed) holder's
+	// Release finally fires.
+	dh, err := openRunDirNoFollow(dir)
+	if err != nil {
+		t.Fatalf("open run dir: %v", err)
+	}
+	if err := removeAt(dh, lockFileName); err != nil {
+		t.Fatalf("simulate operator removing stale lock: %v", err)
+	}
+	replacement, err := createExclAt(dh, lockFileName, 0o600)
+	if err != nil {
+		t.Fatalf("simulate second holder acquiring lock: %v", err)
+	}
+	_ = replacement.Close()
+	_ = dh.Close()
+
+	// The original holder's Release must detect the identity mismatch and
+	// refuse to unlink — not silently delete the second holder's lock file.
+	if err := lock.Release(); err == nil {
+		t.Fatal("release after replacement: want error, got nil")
+	}
+
+	dh2, err := openRunDirNoFollow(dir)
+	if err != nil {
+		t.Fatalf("open run dir after release: %v", err)
+	}
+	defer func() { _ = dh2.Close() }()
+	exists, _, _, err := existingTargetKindAt(dh2, lockFileName)
+	if err != nil {
+		t.Fatalf("stat lock file after release: %v", err)
+	}
+	if !exists {
+		t.Fatal("the second holder's lock file was unlinked by the first holder's stale Release")
+	}
+}
+
 func TestRunLock_SerializesManyGoroutines(t *testing.T) {
 	dir := newRunDir(t)
 	const n = 8
