@@ -15,6 +15,12 @@ rollback boundaries are intentional.
 Delivered and `wont_fix` records are not tracked here.  Use the tracker for that
 history.
 
+> **Status: executed and closed, 2026-09-18.**  All seven rows below are
+> delivered; see [Outcome](#outcome--2026-09-18).  Two records remain
+> non-terminal by design (TD-146/TD-147, blocked upstream) and one (TD-191) is
+> parked awaiting an owner decision recorded on the record itself.  Nothing in
+> the delivery table is still to do.
+
 ## Reconciliation — done 2026-09-17
 
 These nine were verified fixed in `main` but still sat at `identified`.  All
@@ -39,7 +45,8 @@ already fixed.
 
 Execution rule 1 was applied to every scheduled record before any branch was
 opened.  Twenty-one more were verified fixed in `main` at `d8e29ba` and
-force-set to `resolved`, leaving twelve genuinely open.  Three rows (the
+force-set to `resolved`, leaving twelve genuinely open at the time this was
+written.  All twelve have since been dispatched — see [Outcome](#outcome--2026-09-18).  Three rows (the
 original 1, 4, and 5) emptied out entirely and need no branch.
 
 | Tech debt | Evidence at `d8e29ba` |
@@ -66,7 +73,7 @@ original 1, 4, and 5) emptied out entirely and need no branch.
 | TD-219 | `candidate_test.go:736,739` assert exact cardinality; `TestComputeDirtyPathDigests_RenameDeleteAndCleanTree` covers rename, delete, and clean-tree. |
 | TD-220 | `table_parser_test.go:232-262` blanks/misvalues `Same-model gate`, `Separate QA`, and `Final UAT` independently. |
 
-## Delivery order
+## Delivery order (all rows delivered — see Outcome)
 
 Rows are renumbered after the second reconciliation.  Every remaining row is
 independent of every other — the `run_cascade_integration_test.go` collision
@@ -82,6 +89,40 @@ TD-218.
 | 5 | `tech-debt/question-api-error-surface` | TD-234 | Standalone: the question owner-mismatch error leaks CLI flag syntax into HTTP API responses.  Keep separate — it is the only row touching the API error surface. |
 | 6 | `tech-debt/workflow-progress-guard` | TD-153 | Standalone: `ExcludeFromProgress` fails open for custom workflows, plus the duplicated `DependsOn` guard in `sprint_service.go`. |
 | 7 | `tech-debt/i02-i03-recurrence-field` | TD-199 | Decision first, code second.  Whether I-02/I-03 get an explicit recurrence-classification field is an epic-owner call weighed against updating every consumer (E34-F07, E34-F08).  Record the decision; close as accepted-as-is if the churn is not worth it, and only then open a branch. |
+
+## Outcome — 2026-09-18
+
+Every row was executed through `/shark-rider run`.  Six pull requests merged.
+A row is recorded closed here only when its PR merged **and** its tracker
+records were advanced, per execution rule 5.
+
+| Row | PR | Outcome |
+| --- | --- | --- |
+| 1 — TD-191 | [#266](https://github.com/jwwelbor/shark-task-manager/pull/266) (docs only) | **Not implemented — owner decision required.**  The defect is confirmed at `entity_service.go:273-282`, and research found a path the record lacked: `status_group.go:490` sets `GuardAdvance = true` for *every* `shark status advance`, which makes `configuration.md`'s documented "already consumed" rejection unreachable.  But TD-191's Resolution Notes carry an explicit architect instruction not to move guard enforcement ahead of the idempotency return.  Both positions and three options are recorded on the record.  Stays `identified`. |
+| 2 — TD-186 | [#267](https://github.com/jwwelbor/shark-task-manager/pull/267) | **Resolved.**  `Release` now fences its unlink on a nonce written at acquire.  Inode/device fencing — the research report's own recommendation — was built first and rejected on evidence: ext4 reuses the freed inode on remove-then-create, so it gave zero protection.  The comment states plainly that this narrows rather than closes the race. |
+| 3 — TD-165, TD-188, TD-231 | [#265](https://github.com/jwwelbor/shark-task-manager/pull/265) | **TD-231 resolved** (fixed all three affected tests, not the one named).  **TD-165 and TD-188 `wont_fix`**: both asked for work decision D7 already settled — `run_test.go:633-639` records that `test-plan.md` rejected seam-injecting `buildTransitioner`/`cli.Get*Service` and that D7 *sanctions* source-invariant checks for this property.  A candidate TD-165 test was withdrawn after review proved its mutation-detection delta over the existing suite was zero. |
+| 4 — TD-180, TD-230, TD-232, TD-233 | [#268](https://github.com/jwwelbor/shark-task-manager/pull/268) | **All resolved.**  TD-232 was completed separately before this row ran.  TD-180's premise was stale in the opposite direction — the matrix claimed `integration_review` opts into `gate_result_v1` when the shipped step is `legacy`.  TD-233 deviated from its own plan: a single cross-tree reference is not resolvable at runtime, so one canonical statement per deployment tree. |
+| 5 — TD-234 | [#269](https://github.com/jwwelbor/shark-task-manager/pull/269) | **Resolved.**  Typed `QuestionOwnerMismatchError` keeps the service layer transport-neutral; the CLI re-adds its flag hint via `errors.As`.  B062's assertions preserved, not weakened. |
+| 6 — TD-153 | [#270](https://github.com/jwwelbor/shark-task-manager/pull/270) | **Resolved.**  Closed by a validator rule rather than a runtime selector, leaving all five progress consumers untouched.  The rule immediately caught a live shipped gap: `question.yaml` was crediting `withdrawn`/`superseded`/`archived` as complete progress. |
+| 7 — TD-199 | — (no branch) | **`wont_fix`, accepted as-is.**  The architect decision already existed on the record (2026-09-15).  Re-verified that E34-F08 shipping — the named hypothetical trigger — did not create cross-feature demand: no `recurrence` field in `internal/gateresult`, no consumer queries one.  Row 7 directs closing without a branch in exactly this case. |
+
+### Defects found that no record had filed
+
+Re-verifying before implementing, rather than implementing from the record text,
+surfaced four things the plan did not contain:
+
+- `run.go`'s `--resume-run` flag help stated the per-stage `run_id` as
+  `<run_id>-g<stage-iteration>`; `gateStageRunID` builds
+  `<invocation run_id>-<entity-key>-g<stage-iteration>`.  Anyone following the
+  help text would construct an id that does not match the sidecar.  Fixed in #268.
+- `question.yaml`'s three abandonment terminals carried `progress_weight: 1.0`
+  with no `exclude_from_progress`, so withdrawn and superseded Questions counted
+  as fully-complete progress.  Fixed in #270.
+- Inode/device fencing is a no-op on ext4 for the remove-then-create case, so the
+  approach TD-186's research recommended would have shipped a fix that fixed
+  nothing.  Avoided in #267.
+- A new test with zero mutation-detection delta over the existing suite was
+  withdrawn rather than shipped.  Avoided in #265.
 
 ## Superseded delivery order (pre-reconciliation, kept for audit)
 
@@ -102,6 +143,7 @@ TD-218.
 
 | Tech debt | Blocker |
 | --- | --- |
+| TD-191 | Awaiting an owner decision.  Its Resolution Notes carry an architect instruction not to move advance-guard enforcement ahead of the idempotency return; the 2026-09-18 research reaches the opposite conclusion and proposes a narrower in-path guard.  Three options are recorded on the record and in PR #266.  Latent here — `advance_guard` is not enabled in this repo.  Do not implement without that decision. |
 | TD-146, TD-147 | E40-F10 needs a stable per-gate join from upstream I-08 for elapsed/cost measurements and comparison deltas.  Both stay `triaged` until the upstream contract is extended or the F10 contract is renegotiated.  Do not open a branch. |
 
 ## Execution rules
