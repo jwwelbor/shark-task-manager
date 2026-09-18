@@ -43,8 +43,11 @@ func designationFixture() *WorkflowConfig {
 			"aaa_wrong_completed": {Phase: "done", Outcomes: pfb("archived", "aaa_wrong_archived", "hold")},
 
 			// Terminal pair — no action: archive, so the primary tag decides.
+			// aaa_wrong_archived is excluded from progress: it is the
+			// non-canonical terminal, and validateTerminalProgressExclusion
+			// requires every non-canonical terminal to opt out (TD-153).
 			"archived":           {Phase: "done", Terminal: true, Primary: true},
-			"aaa_wrong_archived": {Phase: "done", Terminal: true},
+			"aaa_wrong_archived": {Phase: "done", Terminal: true, ExcludeFromProgress: true},
 
 			// Parking step for the blocked outcomes.
 			"hold": {Phase: "paused", Parking: true, Action: "pause"},
@@ -149,6 +152,47 @@ func TestValidateWorkflow_MultipleArchiveTerminals_RequirePrimary(t *testing.T) 
 	got, selErr := cfg.ArchiveTerminalStatus()
 	assert.NoError(t, selErr)
 	assert.Equal(t, "archived", got, "expected runtime selector to agree")
+}
+
+// TestValidateWorkflow_AbandonmentTerminalMissingExcludeFromProgress proves
+// TD-153's gap is closed: a custom workflow that adds a terminal abandonment
+// status (e.g. "cancelled") without exclude_from_progress: true is now
+// rejected at validate time, instead of being silently credited as done by
+// every progress/readiness consumer (the exact bug B058's fix closed, for a
+// misconfigured custom workflow).
+func TestValidateWorkflow_AbandonmentTerminalMissingExcludeFromProgress(t *testing.T) {
+	cfg := designationFixture()
+	// Simulate the fixed fixture forgetting the flag on its non-canonical
+	// terminal, exactly like an author adding a new "cancelled" status and
+	// missing exclude_from_progress.
+	cfg.Steps["aaa_wrong_archived"].ExcludeFromProgress = false
+
+	err := ValidateWorkflow(cfg)
+	require.Error(t, err, "a non-canonical terminal missing exclude_from_progress must fail validation")
+	assert.Contains(t, err.Error(), "aaa_wrong_archived")
+	assert.Contains(t, err.Error(), "exclude_from_progress")
+
+	// Restoring the flag validates clean again — confirms the check is
+	// specific to the missing flag, not some other property of the mutation.
+	cfg.Steps["aaa_wrong_archived"].ExcludeFromProgress = true
+	assert.NoError(t, ValidateWorkflow(cfg), "restoring exclude_from_progress should validate clean")
+}
+
+// TestValidateWorkflow_SingleTerminal_NoExclusionRequired proves the guard
+// does not fire when there is nothing to disambiguate: a workflow with a
+// single terminal status needs neither primary: true nor
+// exclude_from_progress on it (matches the shipped sprint workflow's single
+// "archived" terminal).
+func TestValidateWorkflow_SingleTerminal_NoExclusionRequired(t *testing.T) {
+	cfg := &WorkflowConfig{
+		Start: "active",
+		Steps: map[string]*Step{
+			"active": {Phase: "execution", Outcomes: pfb("done", "active", "active")},
+			"done":   {Phase: "done", Terminal: true},
+		},
+	}
+	cfg.DeriveLegacy()
+	assert.NoError(t, ValidateWorkflow(cfg), "single terminal status requires no exclude_from_progress")
 }
 
 func TestValidateWorkflow_ParkingStepWithAdvanceStatus(t *testing.T) {
