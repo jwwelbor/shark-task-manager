@@ -28,6 +28,9 @@ type questionListServiceStub struct {
 	resolveIn         *services.ResolveQuestionInput
 	withdrawIn        *services.WithdrawQuestionInput
 	supersedeIn       *services.SupersedeQuestionInput
+	resolveErr        error
+	withdrawErr       error
+	supersedeErr      error
 	question          *models.Question
 	openByResponderIn *openByResponderInput
 	blockingForIn     *blockingForInput
@@ -85,18 +88,27 @@ func (s *questionListServiceStub) RecordResponse(_ context.Context, in services.
 	return s.workflowQuestion(), nil
 }
 func (s *questionListServiceStub) Resolve(_ context.Context, in services.ResolveQuestionInput) (*models.Question, error) {
-	s.resolved = true
 	s.resolveIn = &in
+	if s.resolveErr != nil {
+		return nil, s.resolveErr
+	}
+	s.resolved = true
 	return s.workflowQuestion(), nil
 }
 func (s *questionListServiceStub) Withdraw(_ context.Context, in services.WithdrawQuestionInput) (*models.Question, error) {
-	s.withdrawn = true
 	s.withdrawIn = &in
+	if s.withdrawErr != nil {
+		return nil, s.withdrawErr
+	}
+	s.withdrawn = true
 	return s.workflowQuestion(), nil
 }
 func (s *questionListServiceStub) Supersede(_ context.Context, in services.SupersedeQuestionInput) (*models.Question, error) {
-	s.superseded = true
 	s.supersedeIn = &in
+	if s.supersedeErr != nil {
+		return nil, s.supersedeErr
+	}
+	s.superseded = true
 	return s.workflowQuestion(), nil
 }
 func (s *questionListServiceStub) ListOpenQuestionsByResponder(_ context.Context, responder string, limit, offset int) ([]models.QuestionProjection, error) {
@@ -675,6 +687,37 @@ func TestQuestionSupersedeOwnerAliasRemainsCompatible(t *testing.T) {
 			}
 			if !stub.superseded || stub.supersedeIn == nil || stub.supersedeIn.Owner != "owner" {
 				t.Fatalf("Supersede input = %#v, called=%v", stub.supersedeIn, stub.superseded)
+			}
+		})
+	}
+}
+
+// TestQuestionResolveOwnerMismatchAddsCLIFlagHint verifies TD-234's CLI-side
+// half: the service layer's owner-mismatch error is transport-neutral (no
+// --resolution-owner syntax, see internal/services/question_service_test.go),
+// so the CLI must add its own flag hint on top for a human operator to know
+// how to retry. The API side of this contract (no leak) is asserted in
+// internal/api/question_handler_test.go.
+func TestQuestionResolveOwnerMismatchAddsCLIFlagHint(t *testing.T) {
+	for _, tc := range []struct {
+		verb string
+		args []string
+		set  func(*questionListServiceStub, error)
+	}{
+		{"resolve", []string{"resolve", "q001", "--resolution-owner", "someone-else", "--resolution-kind", "no_lasting_consequence"}, func(s *questionListServiceStub, err error) { s.resolveErr = err }},
+		{"withdraw", []string{"withdraw", "q001", "--resolution-owner", "someone-else", "--reason", "obsolete"}, func(s *questionListServiceStub, err error) { s.withdrawErr = err }},
+		{"supersede", []string{"supersede", "q001", "--resolution-owner", "someone-else", "--reason", "obsolete", "--superseded-by", "q002"}, func(s *questionListServiceStub, err error) { s.supersedeErr = err }},
+	} {
+		t.Run(tc.verb, func(t *testing.T) {
+			stub := &questionListServiceStub{}
+			tc.set(stub, &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: &services.QuestionOwnerMismatchError{ConfiguredOwner: "release-owner"}})
+			withQuestionSvcOverride(t, stub)
+			_, err := executeQuestionCommand(t, tc.args...)
+			if err == nil {
+				t.Fatalf("question %s error = nil, want owner mismatch", tc.verb)
+			}
+			if !strings.Contains(err.Error(), `--resolution-owner="release-owner"`) {
+				t.Fatalf("question %s error = %q, want CLI flag retry hint", tc.verb, err)
 			}
 		})
 	}

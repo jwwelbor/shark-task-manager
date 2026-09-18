@@ -337,7 +337,7 @@ func (s *QuestionService) loadClosableQuestion(ctx context.Context, key, owner s
 		return nil, nil, errors.New("Question workflow is not configured")
 	}
 	if owner != state.ResolutionOwner {
-		return nil, nil, questionConflictError(fmt.Errorf("resolution owner does not match configured owner; retry with --resolution-owner=%q", state.ResolutionOwner))
+		return nil, nil, questionConflictError(&QuestionOwnerMismatchError{ConfiguredOwner: state.ResolutionOwner})
 	}
 	return question, state, nil
 }
