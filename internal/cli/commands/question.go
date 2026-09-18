@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -445,7 +446,7 @@ func runQuestionResolve(cmd *cobra.Command, args []string) error {
 	}
 	q, err := getQuestionService().Resolve(cmd.Context(), services.ResolveQuestionInput{Key: strings.ToUpper(args[0]), Owner: owner, Kind: kind, Pointer: pointer})
 	if err != nil {
-		return err
+		return withQuestionOwnerMismatchHint(err)
 	}
 	return outputQuestion(q, "Resolved Question")
 }
@@ -461,7 +462,7 @@ func runQuestionWithdraw(cmd *cobra.Command, args []string) error {
 	}
 	q, err := getQuestionService().Withdraw(cmd.Context(), services.WithdrawQuestionInput{Key: strings.ToUpper(args[0]), Owner: owner, Reason: reason})
 	if err != nil {
-		return err
+		return withQuestionOwnerMismatchHint(err)
 	}
 	return outputQuestion(q, "Withdrew Question")
 }
@@ -481,9 +482,22 @@ func runQuestionSupersede(cmd *cobra.Command, args []string) error {
 	}
 	q, err := getQuestionService().Supersede(cmd.Context(), services.SupersedeQuestionInput{Key: strings.ToUpper(args[0]), Owner: owner, Reason: reason, SupersededBy: strings.ToUpper(supersededBy)})
 	if err != nil {
-		return err
+		return withQuestionOwnerMismatchHint(err)
 	}
 	return outputQuestion(q, "Superseded Question")
+}
+
+// withQuestionOwnerMismatchHint adds the CLI-specific --resolution-owner
+// retry hint to a QuestionOwnerMismatchError. The service layer's Error()
+// text is transport-neutral (TD-234): it names the configured owner but not
+// CLI flag syntax, since the same message is also returned verbatim in HTTP
+// API JSON error bodies. Only this CLI entry point adds the flag hint.
+func withQuestionOwnerMismatchHint(err error) error {
+	var mismatch *services.QuestionOwnerMismatchError
+	if errors.As(err, &mismatch) {
+		return fmt.Errorf("%w; retry with --resolution-owner=%q", err, mismatch.ConfiguredOwner)
+	}
+	return err
 }
 func outputQuestion(q *models.Question, prefix string) error {
 	if cli.GlobalConfig.JSON {

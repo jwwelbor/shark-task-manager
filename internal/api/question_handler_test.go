@@ -422,15 +422,25 @@ func TestQuestionHandlerWorkflowRoutesReturnMetadataOnly_TC109(t *testing.T) {
 	}
 }
 
+// TestQuestionHandlerResolveOwnerMismatchReturnsConflict is TD-234's
+// regression guard: the JSON error body must not leak the CLI's
+// --resolution-owner flag syntax, even though the configured owner value
+// must still be named so an API caller can recover. The error is built from
+// the real QuestionOwnerMismatchError (wrapped exactly as
+// loadClosableQuestion produces it), not a hand-written string, so a
+// reintroduced CLI-flag string in the service layer would turn this test red.
 func TestQuestionHandlerResolveOwnerMismatchReturnsConflict(t *testing.T) {
-	svc := &mockQuestionService{resolveErr: &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: fmt.Errorf(`resolution owner does not match configured owner; retry with --resolution-owner=%q`, "release-owner")}}
+	svc := &mockQuestionService{resolveErr: &services.QuestionRuleError{Class: services.QuestionRuleConflict, Err: &services.QuestionOwnerMismatchError{ConfiguredOwner: "release-owner"}}}
 	rec := httptest.NewRecorder()
 	questionMux(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/questions/Q001/resolve", strings.NewReader(`{"owner":"someone-else","resolution_kind":"no_lasting_consequence"}`)))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `--resolution-owner=\"release-owner\"`) {
-		t.Fatalf("body=%s, want owner retry guidance", rec.Body.String())
+	if strings.Contains(rec.Body.String(), "--resolution-owner") {
+		t.Fatalf("body=%s, must not leak CLI flag syntax into the API response", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `release-owner`) {
+		t.Fatalf("body=%s, want configured owner named for recovery", rec.Body.String())
 	}
 }
 

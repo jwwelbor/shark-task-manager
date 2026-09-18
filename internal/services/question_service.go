@@ -62,6 +62,19 @@ func (e *QuestionFullReadDeniedError) Error() string {
 	return fmt.Sprintf("full Question read for %s is not authorized", e.Key)
 }
 
+// QuestionOwnerMismatchError is the typed rejection for a caller whose Owner
+// input does not match a Question's configured resolution owner. Error()
+// stays transport-neutral (names the concept and the configured value, no
+// CLI flag syntax or JSON field name) so it is safe to surface verbatim from
+// the HTTP API; a transport that wants an audience-specific hint (e.g. the
+// CLI's --resolution-owner flag) unwraps this type with errors.As and builds
+// its own message instead of relying on Error() text.
+type QuestionOwnerMismatchError struct{ ConfiguredOwner string }
+
+func (e *QuestionOwnerMismatchError) Error() string {
+	return fmt.Sprintf("resolution owner does not match configured owner %q", e.ConfiguredOwner)
+}
+
 // QuestionRuleError is a caller-correctable Question workflow rejection.
 // Its class lets transports preserve the public 400/409 contract without
 // inferring business semantics from Error text.

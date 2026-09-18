@@ -734,8 +734,18 @@ func TestQuestionServiceResolveOwnerMismatchNamesConfiguredOwner(t *testing.T) {
 	if err == nil {
 		t.Fatal("Resolve() error = nil, want owner mismatch")
 	}
-	if !strings.Contains(err.Error(), `--resolution-owner="release-owner"`) {
-		t.Fatalf("Resolve() error = %q, want configured owner retry guidance", err)
+	// TD-234: Error() is transport-neutral (no --resolution-owner CLI flag
+	// syntax) because the HTTP API surfaces it verbatim in JSON error bodies;
+	// the configured owner value must still be named so a caller can recover.
+	if strings.Contains(err.Error(), "--resolution-owner") {
+		t.Fatalf("Resolve() error = %q, must not leak CLI flag syntax", err)
+	}
+	if !strings.Contains(err.Error(), `"release-owner"`) {
+		t.Fatalf("Resolve() error = %q, want configured owner named", err)
+	}
+	var mismatch *QuestionOwnerMismatchError
+	if !errors.As(err, &mismatch) || mismatch.ConfiguredOwner != "release-owner" {
+		t.Fatalf("Resolve() error = %T %v, want QuestionOwnerMismatchError{ConfiguredOwner: release-owner}", err, err)
 	}
 	var ruleErr *QuestionRuleError
 	if !errors.As(err, &ruleErr) || ruleErr.Class != QuestionRuleConflict {
@@ -936,8 +946,13 @@ func TestQuestionServiceClosersRejectGuardViolations_TC107(t *testing.T) {
 			if callErr == nil {
 				t.Fatal("error = nil, want rejection for a caller that is not the configured resolution owner")
 			}
-			if !strings.Contains(callErr.Error(), `--resolution-owner="release-owner"`) {
-				t.Fatalf("error = %q, want configured owner retry guidance", callErr)
+			// TD-234: transport-neutral — no CLI flag syntax, but the
+			// configured owner is still named for recovery.
+			if strings.Contains(callErr.Error(), "--resolution-owner") {
+				t.Fatalf("error = %q, must not leak CLI flag syntax", callErr)
+			}
+			if !strings.Contains(callErr.Error(), `"release-owner"`) {
+				t.Fatalf("error = %q, want configured owner named", callErr)
 			}
 			if called {
 				t.Fatal("repository write called despite the owner mismatch")
