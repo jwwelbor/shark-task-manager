@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -182,24 +183,41 @@ func TestBundleContentListHumanOutputIsCompactByDefault(t *testing.T) {
 	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
 	writeContentCommandBundleFile(t, root, "bundle/skills/zebra/SKILL.md", "---\nname: zebra\ndescription: A zebra skill\n---\n")
 	writeContentCommandBundleFile(t, root, "bundle/skills/alpha/SKILL.md", "---\nname: alpha\ndescription: An alpha skill\n---\n")
+	writeContentCommandBundleFile(t, root, "bundle/agents/alpha.md", "---\nname: alpha\ndescription: An alpha agent\n---\n")
 
 	origNoColor := cli.GlobalConfig.NoColor
 	t.Cleanup(func() { cli.GlobalConfig.NoColor = origNoColor })
 	cli.GlobalConfig.NoColor = false
 
-	var runErr error
-	out := captureOutput(t, func() {
-		runErr = runBundleContentList(&cobra.Command{}, services.BundleContentKindSkill)
-	})
-	require.NoError(t, runErr)
+	for _, test := range []struct {
+		name        string
+		cmd         *cobra.Command
+		kind        services.BundleContentKind
+		description string
+	}{
+		{name: "skills", cmd: skillListCmd, kind: services.BundleContentKindSkill, description: "An alpha skill"},
+		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent, description: "An alpha agent"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setBundleContentAllFlag(t, test.cmd, false)
 
-	text := string(out)
-	assert.Contains(t, text, cli.ColorCyan+"alpha"+cli.ColorReset)
-	assert.Contains(t, text, cli.ColorCyan+"zebra"+cli.ColorReset)
-	assert.NotContains(t, text, "An alpha skill")
-	assert.NotContains(t, text, "A zebra skill")
-	assert.Contains(t, text, "Use --all to show descriptions.")
-	assert.Less(t, strings.Index(text, "alpha"), strings.Index(text, "zebra"))
+			var runErr error
+			out := captureOutput(t, func() {
+				runErr = runBundleContentList(test.cmd, test.kind)
+			})
+			require.NoError(t, runErr)
+
+			text := string(out)
+			assert.Contains(t, text, cli.ColorCyan+"alpha"+cli.ColorReset)
+			assert.NotContains(t, text, test.description)
+			assert.Contains(t, text, "Use --all to show descriptions.")
+			if test.kind == services.BundleContentKindSkill {
+				assert.Contains(t, text, cli.ColorCyan+"zebra"+cli.ColorReset)
+				assert.NotContains(t, text, "A zebra skill")
+				assert.Less(t, strings.Index(text, "alpha"), strings.Index(text, "zebra"))
+			}
+		})
+	}
 }
 
 func TestBundleContentListHumanOutputAllShowsDescriptionsAndRespectsNoColor(t *testing.T) {
@@ -222,7 +240,7 @@ func TestBundleContentListHumanOutputAllShowsDescriptionsAndRespectsNoColor(t *t
 		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent, description: "An alpha agent"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			setBundleContentAllFlag(t, test.cmd)
+			setBundleContentAllFlag(t, test.cmd, true)
 
 			var runErr error
 			out := captureOutput(t, func() {
@@ -232,6 +250,10 @@ func TestBundleContentListHumanOutputAllShowsDescriptionsAndRespectsNoColor(t *t
 
 			text := string(out)
 			assert.Contains(t, text, "alpha\n"+test.description+"\n")
+			if test.kind == services.BundleContentKindAgent {
+				assert.Contains(t, text, "no-desc\n\nproduct-manager")
+				assert.NotContains(t, text, "no-desc\n\n\nproduct-manager")
+			}
 			assert.NotContains(t, text, "\033[")
 			assert.NotContains(t, text, "Use --all to show descriptions.")
 		})
@@ -253,7 +275,7 @@ func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T)
 		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			setBundleContentAllFlag(t, test.cmd)
+			setBundleContentAllFlag(t, test.cmd, true)
 			var runErr error
 			out := captureOutput(t, func() {
 				runErr = runBundleContentList(test.cmd, test.kind)
@@ -264,6 +286,7 @@ func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T)
 			require.NoError(t, json.Unmarshal(out, &entries))
 			entry := findBundleContentListEntry(t, entries, "no-desc")
 			assert.Equal(t, "disk", entry["source"])
+			assert.Equal(t, "", entry["description"])
 		})
 	}
 }
@@ -274,11 +297,19 @@ func TestBundleContentListDefaultJSONIncludesDescriptionsWithoutSourcesForAgents
 	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
 	cli.GlobalConfig.JSON = true
 
-	for _, kind := range []services.BundleContentKind{services.BundleContentKindSkill, services.BundleContentKindAgent} {
-		t.Run(string(kind), func(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		cmd  *cobra.Command
+		kind services.BundleContentKind
+	}{
+		{name: "skills", cmd: skillListCmd, kind: services.BundleContentKindSkill},
+		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setBundleContentAllFlag(t, test.cmd, false)
 			var runErr error
 			out := captureOutput(t, func() {
-				runErr = runBundleContentList(&cobra.Command{}, kind)
+				runErr = runBundleContentList(test.cmd, test.kind)
 			})
 			require.NoError(t, runErr)
 
@@ -302,13 +333,13 @@ func findRegisteredCommand(root *cobra.Command, name string) *cobra.Command {
 	return nil
 }
 
-func setBundleContentAllFlag(t *testing.T, cmd *cobra.Command) {
+func setBundleContentAllFlag(t *testing.T, cmd *cobra.Command, value bool) {
 	t.Helper()
 
 	flag := cmd.Flags().Lookup("all")
 	require.NotNil(t, flag, "registered list command must define --all")
 	previousValue := flag.Value.String()
-	require.NoError(t, cmd.Flags().Set("all", "true"))
+	require.NoError(t, cmd.Flags().Set("all", strconv.FormatBool(value)))
 	t.Cleanup(func() {
 		require.NoError(t, cmd.Flags().Set("all", previousValue))
 	})
