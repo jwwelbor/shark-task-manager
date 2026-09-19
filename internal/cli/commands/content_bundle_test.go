@@ -154,10 +154,11 @@ func TestSkillListJSONIncludesEmbeddedAndDedupesOverrides(t *testing.T) {
 	writeContentCommandBundleFile(t, root, "bundle/skills/triage/SKILL.md", "DISK")
 	writeContentCommandBundleFile(t, root, "bundle/overrides/skills/triage/SKILL.md", "OVERRIDE")
 	cli.GlobalConfig.JSON = true
+	assertBundleContentAllFlagDefault(t, skillListCmd)
 
 	var runErr error
 	out := captureOutput(t, func() {
-		runErr = runBundleContentList(&cobra.Command{}, services.BundleContentKindSkill)
+		runErr = runBundleContentList(skillListCmd, services.BundleContentKindSkill)
 	})
 	require.NoError(t, runErr)
 
@@ -177,6 +178,16 @@ func TestSkillListJSONIncludesEmbeddedAndDedupesOverrides(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, seenTriage, "list should include one logical entry per name")
+
+	setBundleContentAllFlag(t, skillListCmd, true)
+	out = captureOutput(t, func() {
+		runErr = runBundleContentList(skillListCmd, services.BundleContentKindSkill)
+	})
+	require.NoError(t, runErr)
+
+	require.NoError(t, json.Unmarshal(out, &entries))
+	triage := findBundleContentListEntry(t, entries, "triage")
+	assert.Equal(t, "override", triage["source"])
 }
 
 func TestBundleContentListHumanOutputIsCompactByDefault(t *testing.T) {
