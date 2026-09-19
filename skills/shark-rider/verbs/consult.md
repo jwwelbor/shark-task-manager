@@ -25,7 +25,7 @@ Split the args after the verb:
 - First token → `<agent>` candidate (or empty).
 - Remaining tokens → `<referent>` (may be empty).
 
-If **no args at all**: run `shark agent list` to display available agents, then
+If **no args at all**: run `shark agent list --all` to display available agents, then
 **STOP** with: "Use `/shark-rider consult <agent>` to start a consultation."
 
 ---
@@ -48,7 +48,7 @@ Walk the list:
 
    Available agents:
    ```
-   followed by `shark agent list` output, then **STOP**.
+   followed by `shark agent list --all` output, then **STOP**.
 
 ---
 

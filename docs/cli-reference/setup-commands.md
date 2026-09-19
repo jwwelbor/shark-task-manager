@@ -65,6 +65,23 @@ resolved from the embedded `shark-data/` bundle via `workflow_config:
 
 ## Content Bundle
 
+### List bundled skills and agents
+
+Use these commands to inspect the effective bundle content. The compact human
+output lists colored names; use `--all` to include descriptions. JSON output
+always includes `name` and `description`; add `--all` when a caller also needs
+the resolution `source`.
+
+```bash
+shark skill list
+shark skill list --all
+shark agent list --json
+shark agent list --json --all
+```
+
+Use `shark skill get <name>` and `shark agent get <name>` to retrieve one
+item. Their JSON responses retain source metadata.
+
 ### shark admin install-shark-data
 
 Extract the embedded content bundle to the configured `shark_data_path`
