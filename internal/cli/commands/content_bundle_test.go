@@ -273,7 +273,9 @@ func TestBundleContentListHumanOutputAllShowsDescriptionsAndRespectsNoColor(t *t
 
 func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T) {
 	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/skills/alpha/SKILL.md", "---\nname: alpha\ndescription: A skill description\n---\n")
 	writeContentCommandBundleFile(t, root, "bundle/skills/no-desc/SKILL.md", "---\nname: no-desc\n---\n")
+	writeContentCommandBundleFile(t, root, "bundle/agents/alpha.md", "---\nname: alpha\ndescription: An agent description\n---\n")
 	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
 	cli.GlobalConfig.JSON = true
 
@@ -298,6 +300,13 @@ func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T)
 			entry := findBundleContentListEntry(t, entries, "no-desc")
 			assert.Equal(t, "disk", entry["source"])
 			assert.Equal(t, "", entry["description"])
+			entry = findBundleContentListEntry(t, entries, "alpha")
+			assert.Equal(t, "disk", entry["source"])
+			if test.kind == services.BundleContentKindSkill {
+				assert.Equal(t, "A skill description", entry["description"])
+			} else {
+				assert.Equal(t, "An agent description", entry["description"])
+			}
 		})
 	}
 }
