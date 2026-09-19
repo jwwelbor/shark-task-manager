@@ -61,6 +61,13 @@ func TestSkillAndAgentCommandsRegistered(t *testing.T) {
 	require.NotNil(t, findRegisteredCommand(cli.RootCmd, "agent"), "top-level agent command should be registered")
 }
 
+func TestBundleContentListCommandHelpDescribesDetailMode(t *testing.T) {
+	for _, cmd := range []*cobra.Command{skillListCmd, agentListCmd} {
+		assert.Contains(t, cmd.Short, "--json --all")
+		assert.Contains(t, cmd.Flags().Lookup("all").Usage, "JSON output")
+	}
+}
+
 func TestSkillGetImplementationHumanOutputFromEmbedded(t *testing.T) {
 	setupContentCommandProject(t, `{}`)
 

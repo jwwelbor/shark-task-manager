@@ -26,7 +26,7 @@ var skillGetCmd = &cobra.Command{
 
 var skillListCmd = &cobra.Command{
 	Use:   "list [--all]",
-	Short: "List bundled skills (use --all for descriptions; JSON includes sources)",
+	Short: "List bundled skills (use --all for descriptions; --json --all includes sources)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBundleContentList(cmd, services.BundleContentKindSkill)
@@ -50,7 +50,7 @@ var agentGetCmd = &cobra.Command{
 
 var agentListCmd = &cobra.Command{
 	Use:   "list [--all]",
-	Short: "List bundled agents (use --all for descriptions; JSON includes sources)",
+	Short: "List bundled agents (use --all for descriptions; --json --all includes sources)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBundleContentList(cmd, services.BundleContentKindAgent)
