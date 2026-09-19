@@ -26,7 +26,7 @@ var skillGetCmd = &cobra.Command{
 
 var skillListCmd = &cobra.Command{
 	Use:   "list [--all]",
-	Short: "List bundled skills (use --all for descriptions and sources)",
+	Short: "List bundled skills (use --all for descriptions; JSON includes sources)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBundleContentList(cmd, services.BundleContentKindSkill)
@@ -50,7 +50,7 @@ var agentGetCmd = &cobra.Command{
 
 var agentListCmd = &cobra.Command{
 	Use:   "list [--all]",
-	Short: "List bundled agents (use --all for descriptions and sources)",
+	Short: "List bundled agents (use --all for descriptions; JSON includes sources)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBundleContentList(cmd, services.BundleContentKindAgent)
@@ -60,8 +60,8 @@ var agentListCmd = &cobra.Command{
 func init() {
 	skillGetCmd.Flags().Bool("raw", false, "Return exact stored content without include resolution or frontmatter stripping")
 	agentGetCmd.Flags().Bool("raw", false, "Return exact stored content without include resolution or frontmatter stripping")
-	skillListCmd.Flags().Bool("all", false, "Show descriptions and source metadata")
-	agentListCmd.Flags().Bool("all", false, "Show descriptions and source metadata")
+	skillListCmd.Flags().Bool("all", false, "Show descriptions; JSON output also includes source metadata")
+	agentListCmd.Flags().Bool("all", false, "Show descriptions; JSON output also includes source metadata")
 
 	skillCmd.AddCommand(skillListCmd, skillGetCmd)
 	agentCmd.AddCommand(agentListCmd, agentGetCmd)
@@ -100,8 +100,10 @@ func runBundleContentGet(cmd *cobra.Command, kind services.BundleContentKind, ar
 		return cli.OutputJSON(result)
 	}
 
-	_, err = fmt.Fprint(os.Stdout, result.Content)
-	return err
+	if _, err := fmt.Fprint(os.Stdout, result.Content); err != nil {
+		return fmt.Errorf("write bundle content: %w", err)
+	}
+	return nil
 }
 
 func runBundleContentList(cmd *cobra.Command, kind services.BundleContentKind) error {
@@ -125,34 +127,45 @@ func runBundleContentList(cmd *cobra.Command, kind services.BundleContentKind) e
 		return err
 	}
 
-	if cli.GlobalConfig.JSON {
-		if showAll {
-			return cli.OutputJSON(bundleContentListDetails(entries))
-		}
-		return cli.OutputJSON(bundleContentListSummaries(entries))
-	}
+	return outputBundleContentList(entries, showAll)
+}
 
+func outputBundleContentList(entries []services.BundleContentEntry, showAll bool) error {
+	if cli.GlobalConfig.JSON {
+		return outputBundleContentListJSON(entries, showAll)
+	}
+	return printBundleContentList(entries, showAll)
+}
+
+func outputBundleContentListJSON(entries []services.BundleContentEntry, showAll bool) error {
+	if showAll {
+		return cli.OutputJSON(bundleContentListDetails(entries))
+	}
+	return cli.OutputJSON(bundleContentListSummaries(entries))
+}
+
+func printBundleContentList(entries []services.BundleContentEntry, showAll bool) error {
 	for index, entry := range entries {
 		if _, err := fmt.Fprintln(os.Stdout, colorBundleContentName(entry.Name)); err != nil {
-			return err
+			return fmt.Errorf("write bundle content name: %w", err)
 		}
 		if !showAll {
 			continue
 		}
 		if entry.Description != "" {
 			if _, err := fmt.Fprintln(os.Stdout, entry.Description); err != nil {
-				return err
+				return fmt.Errorf("write bundle content description: %w", err)
 			}
 		}
 		if index < len(entries)-1 {
 			if _, err := fmt.Fprintln(os.Stdout); err != nil {
-				return err
+				return fmt.Errorf("write bundle content separator: %w", err)
 			}
 		}
 	}
 	if !showAll {
 		if _, err := fmt.Fprintln(os.Stdout, "Use --all to show descriptions."); err != nil {
-			return err
+			return fmt.Errorf("write bundle content hint: %w", err)
 		}
 	}
 	return nil

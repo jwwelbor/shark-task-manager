@@ -197,6 +197,7 @@ func TestBundleContentListHumanOutputIsCompactByDefault(t *testing.T) {
 
 func TestBundleContentListHumanOutputAllShowsDescriptionsAndRespectsNoColor(t *testing.T) {
 	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/skills/alpha/SKILL.md", "---\nname: alpha\ndescription: A skill description\n---\n")
 	writeContentCommandBundleFile(t, root, "bundle/agents/alpha.md", "---\nname: alpha\ndescription: An alpha agent\n---\n")
 	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
 
@@ -204,19 +205,30 @@ func TestBundleContentListHumanOutputAllShowsDescriptionsAndRespectsNoColor(t *t
 	t.Cleanup(func() { cli.GlobalConfig.NoColor = origNoColor })
 	cli.GlobalConfig.NoColor = true
 
-	cmd := &cobra.Command{}
-	cmd.Flags().Bool("all", true, "")
-	var runErr error
-	out := captureOutput(t, func() {
-		runErr = runBundleContentList(cmd, services.BundleContentKindAgent)
-	})
-	require.NoError(t, runErr)
+	for _, test := range []struct {
+		name        string
+		cmd         *cobra.Command
+		kind        services.BundleContentKind
+		description string
+	}{
+		{name: "skills", cmd: skillListCmd, kind: services.BundleContentKindSkill, description: "A skill description"},
+		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent, description: "An alpha agent"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setBundleContentAllFlag(t, test.cmd)
 
-	text := string(out)
-	assert.Contains(t, text, "alpha\nAn alpha agent\n\n")
-	assert.Contains(t, text, "no-desc\n")
-	assert.NotContains(t, text, "\033[")
-	assert.NotContains(t, text, "Use --all to show descriptions.")
+			var runErr error
+			out := captureOutput(t, func() {
+				runErr = runBundleContentList(test.cmd, test.kind)
+			})
+			require.NoError(t, runErr)
+
+			text := string(out)
+			assert.Contains(t, text, "alpha\n"+test.description+"\n")
+			assert.NotContains(t, text, "\033[")
+			assert.NotContains(t, text, "Use --all to show descriptions.")
+		})
+	}
 }
 
 func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T) {
@@ -225,23 +237,26 @@ func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T)
 	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
 	cli.GlobalConfig.JSON = true
 
-	for _, kind := range []services.BundleContentKind{services.BundleContentKindSkill, services.BundleContentKindAgent} {
-		t.Run(string(kind), func(t *testing.T) {
-			cmd := &cobra.Command{}
-			cmd.Flags().Bool("all", true, "")
+	for _, test := range []struct {
+		name string
+		cmd  *cobra.Command
+		kind services.BundleContentKind
+	}{
+		{name: "skills", cmd: skillListCmd, kind: services.BundleContentKindSkill},
+		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setBundleContentAllFlag(t, test.cmd)
 			var runErr error
 			out := captureOutput(t, func() {
-				runErr = runBundleContentList(cmd, kind)
+				runErr = runBundleContentList(test.cmd, test.kind)
 			})
 			require.NoError(t, runErr)
 
 			var entries []map[string]string
 			require.NoError(t, json.Unmarshal(out, &entries))
-			for _, entry := range entries {
-				assert.Contains(t, entry, "name")
-				assert.Contains(t, entry, "description")
-				assert.Contains(t, entry, "source")
-			}
+			entry := findBundleContentListEntry(t, entries, "no-desc")
+			assert.Equal(t, "disk", entry["source"])
 		})
 	}
 }
@@ -277,5 +292,28 @@ func findRegisteredCommand(root *cobra.Command, name string) *cobra.Command {
 			return cmd
 		}
 	}
+	return nil
+}
+
+func setBundleContentAllFlag(t *testing.T, cmd *cobra.Command) {
+	t.Helper()
+
+	flag := cmd.Flags().Lookup("all")
+	require.NotNil(t, flag, "registered list command must define --all")
+	previousValue := flag.Value.String()
+	require.NoError(t, cmd.Flags().Set("all", "true"))
+	t.Cleanup(func() {
+		require.NoError(t, cmd.Flags().Set("all", previousValue))
+	})
+}
+
+func findBundleContentListEntry(t *testing.T, entries []map[string]string, name string) map[string]string {
+	t.Helper()
+	for _, entry := range entries {
+		if entry["name"] == name {
+			return entry
+		}
+	}
+	t.Fatalf("bundle content entry %q not found", name)
 	return nil
 }
