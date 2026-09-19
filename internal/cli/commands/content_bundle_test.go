@@ -199,7 +199,7 @@ func TestBundleContentListHumanOutputIsCompactByDefault(t *testing.T) {
 		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent, description: "An alpha agent"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			setBundleContentAllFlag(t, test.cmd, false)
+			assertBundleContentAllFlagDefault(t, test.cmd)
 
 			var runErr error
 			out := captureOutput(t, func() {
@@ -293,7 +293,9 @@ func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T)
 
 func TestBundleContentListDefaultJSONIncludesDescriptionsWithoutSourcesForAgentsAndSkills(t *testing.T) {
 	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/skills/alpha/SKILL.md", "---\nname: alpha\ndescription: A skill description\n---\n")
 	writeContentCommandBundleFile(t, root, "bundle/skills/no-desc/SKILL.md", "---\nname: no-desc\n---\n")
+	writeContentCommandBundleFile(t, root, "bundle/agents/alpha.md", "---\nname: alpha\ndescription: An agent description\n---\n")
 	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
 	cli.GlobalConfig.JSON = true
 
@@ -306,7 +308,7 @@ func TestBundleContentListDefaultJSONIncludesDescriptionsWithoutSourcesForAgents
 		{name: "agents", cmd: agentListCmd, kind: services.BundleContentKindAgent},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			setBundleContentAllFlag(t, test.cmd, false)
+			assertBundleContentAllFlagDefault(t, test.cmd)
 			var runErr error
 			out := captureOutput(t, func() {
 				runErr = runBundleContentList(test.cmd, test.kind)
@@ -319,6 +321,12 @@ func TestBundleContentListDefaultJSONIncludesDescriptionsWithoutSourcesForAgents
 				assert.Contains(t, entry, "name")
 				assert.Contains(t, entry, "description")
 				assert.NotContains(t, entry, "source")
+			}
+			entry := findBundleContentListEntry(t, entries, "alpha")
+			if test.kind == services.BundleContentKindSkill {
+				assert.Equal(t, "A skill description", entry["description"])
+			} else {
+				assert.Equal(t, "An agent description", entry["description"])
 			}
 		})
 	}
@@ -343,6 +351,17 @@ func setBundleContentAllFlag(t *testing.T, cmd *cobra.Command, value bool) {
 	t.Cleanup(func() {
 		require.NoError(t, cmd.Flags().Set("all", previousValue))
 	})
+}
+
+func assertBundleContentAllFlagDefault(t *testing.T, cmd *cobra.Command) {
+	t.Helper()
+
+	flag := cmd.Flags().Lookup("all")
+	require.NotNil(t, flag, "registered list command must define --all")
+	assert.Equal(t, "false", flag.DefValue)
+	showAll, err := cmd.Flags().GetBool("all")
+	require.NoError(t, err)
+	assert.False(t, showAll)
 }
 
 func findBundleContentListEntry(t *testing.T, entries []map[string]string, name string) map[string]string {
