@@ -122,6 +122,25 @@ func TestSkillGetJSONIncludesResolutionMetadata(t *testing.T) {
 	assert.Contains(t, payload["content"], "# Implementation Skill")
 }
 
+func TestAgentGetJSONIncludesResolutionMetadata(t *testing.T) {
+	setupContentCommandProject(t, `{}`)
+	cli.GlobalConfig.JSON = true
+
+	var runErr error
+	out := captureOutput(t, func() {
+		runErr = runBundleContentGet(testContentGetCommand(false), services.BundleContentKindAgent, []string{"developer"})
+	})
+	require.NoError(t, runErr)
+
+	var payload map[string]interface{}
+	require.NoError(t, json.Unmarshal(out, &payload))
+	assert.Equal(t, "agent", payload["kind"])
+	assert.Equal(t, "developer", payload["name"])
+	assert.Equal(t, "developer.md", payload["path"])
+	assert.Equal(t, "embedded", payload["source"])
+	assert.Contains(t, payload["content"], "# Developer Agent")
+}
+
 func TestSkillListJSONIncludesEmbeddedAndDedupesOverrides(t *testing.T) {
 	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
 	writeContentCommandBundleFile(t, root, "bundle/skills/triage/SKILL.md", "DISK")
@@ -137,14 +156,11 @@ func TestSkillListJSONIncludesEmbeddedAndDedupesOverrides(t *testing.T) {
 	var entries []map[string]string
 	require.NoError(t, json.Unmarshal(out, &entries))
 
-	sourcesByName := map[string]string{}
 	for _, entry := range entries {
-		sourcesByName[entry["name"]] = entry["source"]
+		assert.Contains(t, entry, "name")
+		assert.Contains(t, entry, "description")
+		assert.NotContains(t, entry, "source")
 	}
-
-	assert.Equal(t, "override", sourcesByName["triage"])
-	assert.Equal(t, "embedded", sourcesByName["feature-design"])
-	assert.Equal(t, "embedded", sourcesByName["implementation"])
 
 	var seenTriage int
 	for _, entry := range entries {
@@ -153,6 +169,106 @@ func TestSkillListJSONIncludesEmbeddedAndDedupesOverrides(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, seenTriage, "list should include one logical entry per name")
+}
+
+func TestBundleContentListHumanOutputIsCompactByDefault(t *testing.T) {
+	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/skills/zebra/SKILL.md", "---\nname: zebra\ndescription: A zebra skill\n---\n")
+	writeContentCommandBundleFile(t, root, "bundle/skills/alpha/SKILL.md", "---\nname: alpha\ndescription: An alpha skill\n---\n")
+
+	origNoColor := cli.GlobalConfig.NoColor
+	t.Cleanup(func() { cli.GlobalConfig.NoColor = origNoColor })
+	cli.GlobalConfig.NoColor = false
+
+	var runErr error
+	out := captureOutput(t, func() {
+		runErr = runBundleContentList(&cobra.Command{}, services.BundleContentKindSkill)
+	})
+	require.NoError(t, runErr)
+
+	text := string(out)
+	assert.Contains(t, text, cli.ColorCyan+"alpha"+cli.ColorReset)
+	assert.Contains(t, text, cli.ColorCyan+"zebra"+cli.ColorReset)
+	assert.NotContains(t, text, "An alpha skill")
+	assert.NotContains(t, text, "A zebra skill")
+	assert.Contains(t, text, "Use --all to show descriptions.")
+	assert.Less(t, strings.Index(text, "alpha"), strings.Index(text, "zebra"))
+}
+
+func TestBundleContentListHumanOutputAllShowsDescriptionsAndRespectsNoColor(t *testing.T) {
+	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/agents/alpha.md", "---\nname: alpha\ndescription: An alpha agent\n---\n")
+	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
+
+	origNoColor := cli.GlobalConfig.NoColor
+	t.Cleanup(func() { cli.GlobalConfig.NoColor = origNoColor })
+	cli.GlobalConfig.NoColor = true
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("all", true, "")
+	var runErr error
+	out := captureOutput(t, func() {
+		runErr = runBundleContentList(cmd, services.BundleContentKindAgent)
+	})
+	require.NoError(t, runErr)
+
+	text := string(out)
+	assert.Contains(t, text, "alpha\nAn alpha agent\n\n")
+	assert.Contains(t, text, "no-desc\n")
+	assert.NotContains(t, text, "\033[")
+	assert.NotContains(t, text, "Use --all to show descriptions.")
+}
+
+func TestBundleContentListJSONAllIncludesSourcesForAgentsAndSkills(t *testing.T) {
+	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/skills/no-desc/SKILL.md", "---\nname: no-desc\n---\n")
+	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
+	cli.GlobalConfig.JSON = true
+
+	for _, kind := range []services.BundleContentKind{services.BundleContentKindSkill, services.BundleContentKindAgent} {
+		t.Run(string(kind), func(t *testing.T) {
+			cmd := &cobra.Command{}
+			cmd.Flags().Bool("all", true, "")
+			var runErr error
+			out := captureOutput(t, func() {
+				runErr = runBundleContentList(cmd, kind)
+			})
+			require.NoError(t, runErr)
+
+			var entries []map[string]string
+			require.NoError(t, json.Unmarshal(out, &entries))
+			for _, entry := range entries {
+				assert.Contains(t, entry, "name")
+				assert.Contains(t, entry, "description")
+				assert.Contains(t, entry, "source")
+			}
+		})
+	}
+}
+
+func TestBundleContentListDefaultJSONIncludesDescriptionsWithoutSourcesForAgentsAndSkills(t *testing.T) {
+	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/skills/no-desc/SKILL.md", "---\nname: no-desc\n---\n")
+	writeContentCommandBundleFile(t, root, "bundle/agents/no-desc.md", "---\nname: no-desc\n---\n")
+	cli.GlobalConfig.JSON = true
+
+	for _, kind := range []services.BundleContentKind{services.BundleContentKindSkill, services.BundleContentKindAgent} {
+		t.Run(string(kind), func(t *testing.T) {
+			var runErr error
+			out := captureOutput(t, func() {
+				runErr = runBundleContentList(&cobra.Command{}, kind)
+			})
+			require.NoError(t, runErr)
+
+			var entries []map[string]string
+			require.NoError(t, json.Unmarshal(out, &entries))
+			for _, entry := range entries {
+				assert.Contains(t, entry, "name")
+				assert.Contains(t, entry, "description")
+				assert.NotContains(t, entry, "source")
+			}
+		})
+	}
 }
 
 func findRegisteredCommand(root *cobra.Command, name string) *cobra.Command {

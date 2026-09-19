@@ -25,8 +25,8 @@ var skillGetCmd = &cobra.Command{
 }
 
 var skillListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List bundled skills",
+	Use:   "list [--all]",
+	Short: "List bundled skills (use --all for descriptions and sources)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBundleContentList(cmd, services.BundleContentKindSkill)
@@ -49,8 +49,8 @@ var agentGetCmd = &cobra.Command{
 }
 
 var agentListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List bundled agents",
+	Use:   "list [--all]",
+	Short: "List bundled agents (use --all for descriptions and sources)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBundleContentList(cmd, services.BundleContentKindAgent)
@@ -60,6 +60,8 @@ var agentListCmd = &cobra.Command{
 func init() {
 	skillGetCmd.Flags().Bool("raw", false, "Return exact stored content without include resolution or frontmatter stripping")
 	agentGetCmd.Flags().Bool("raw", false, "Return exact stored content without include resolution or frontmatter stripping")
+	skillListCmd.Flags().Bool("all", false, "Show descriptions and source metadata")
+	agentListCmd.Flags().Bool("all", false, "Show descriptions and source metadata")
 
 	skillCmd.AddCommand(skillListCmd, skillGetCmd)
 	agentCmd.AddCommand(agentListCmd, agentGetCmd)
@@ -118,22 +120,83 @@ func runBundleContentList(cmd *cobra.Command, kind services.BundleContentKind) e
 		return err
 	}
 
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(entries)
+	showAll, err := getBundleContentAllFlag(cmd)
+	if err != nil {
+		return err
 	}
 
-	for _, entry := range entries {
-		var line string
-		if entry.Description != "" {
-			line = fmt.Sprintf("%s — %s\n", entry.Name, entry.Description)
-		} else {
-			line = entry.Name + "\n"
+	if cli.GlobalConfig.JSON {
+		if showAll {
+			return cli.OutputJSON(bundleContentListDetails(entries))
 		}
-		if _, err := fmt.Fprint(os.Stdout, line); err != nil {
+		return cli.OutputJSON(bundleContentListSummaries(entries))
+	}
+
+	for index, entry := range entries {
+		if _, err := fmt.Fprintln(os.Stdout, colorBundleContentName(entry.Name)); err != nil {
+			return err
+		}
+		if !showAll {
+			continue
+		}
+		if entry.Description != "" {
+			if _, err := fmt.Fprintln(os.Stdout, entry.Description); err != nil {
+				return err
+			}
+		}
+		if index < len(entries)-1 {
+			if _, err := fmt.Fprintln(os.Stdout); err != nil {
+				return err
+			}
+		}
+	}
+	if !showAll {
+		if _, err := fmt.Fprintln(os.Stdout, "Use --all to show descriptions."); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type bundleContentListSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type bundleContentListDetail struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+}
+
+func bundleContentListSummaries(entries []services.BundleContentEntry) []bundleContentListSummary {
+	result := make([]bundleContentListSummary, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, bundleContentListSummary{
+			Name:        entry.Name,
+			Description: entry.Description,
+		})
+	}
+	return result
+}
+
+func bundleContentListDetails(entries []services.BundleContentEntry) []bundleContentListDetail {
+	result := make([]bundleContentListDetail, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, bundleContentListDetail{
+			Name:        entry.Name,
+			Description: entry.Description,
+			Source:      entry.Source,
+		})
+	}
+	return result
+}
+
+func colorBundleContentName(name string) string {
+	if cli.GlobalConfig.NoColor {
+		return name
+	}
+	return cli.ColorCyan + name + cli.ColorReset
 }
 
 func getBundleContentRawFlag(cmd *cobra.Command) (bool, error) {
@@ -145,4 +208,15 @@ func getBundleContentRawFlag(cmd *cobra.Command) (bool, error) {
 		return false, fmt.Errorf("read raw flag: %w", err)
 	}
 	return raw, nil
+}
+
+func getBundleContentAllFlag(cmd *cobra.Command) (bool, error) {
+	if cmd == nil || cmd.Flags().Lookup("all") == nil {
+		return false, nil
+	}
+	showAll, err := cmd.Flags().GetBool("all")
+	if err != nil {
+		return false, fmt.Errorf("read all flag: %w", err)
+	}
+	return showAll, nil
 }
