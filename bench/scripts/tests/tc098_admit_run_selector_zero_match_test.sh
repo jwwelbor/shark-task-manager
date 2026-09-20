@@ -48,12 +48,13 @@ fail() {
 [[ -f "$CORPUS_YAML" ]] || fail "corpus.yaml missing: $CORPUS_YAML"
 
 WORKDIR="$(mktemp -d)"
-cleanup() { rm -rf "$WORKDIR"; }
+TRANSIENT_CORPUS="$(dirname "$CORPUS_YAML")/.corpus-zero-match-$$.yaml"
+TRANSIENT_CORPUS_MULTIPKG="$(dirname "$CORPUS_YAML")/.corpus-multipkg-partial-match-$$.yaml"
+cleanup() { rm -f "$TRANSIENT_CORPUS" "$TRANSIENT_CORPUS_MULTIPKG"; rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
 TRANSIENT_ITEM="pricing-negative-subtotal"
 TRANSIENT_SET="pricing_zero_match_selector"
-TRANSIENT_CORPUS="$WORKDIR/corpus-zero-match.yaml"
 # No test in bench/fixture-repo/pkg/pricing/pricing_test.go is named
 # anything like this -- the selector is well-formed (passes the grammar
 # check) but matches zero enumerated tests.
@@ -87,7 +88,6 @@ echo "TC-098: end-to-end admit.sh process exits 2 with a clear stderr message fo
 # only ever exercised with exactly one package in the loop, which is
 # behaviorally indistinguishable from a (wrong) per-package check.
 TRANSIENT_SET_MULTIPKG="pricing_multipkg_partial_match"
-TRANSIENT_CORPUS_MULTIPKG="$WORKDIR/corpus-multipkg-partial-match.yaml"
 # "./pkg/..." enumerates every fixture-repo package (pkg/pricing, pkg/cart,
 # pkg/inventory, pkg/validate) as ONE p2p_set. TestTaxAmount exists only in
 # pkg/pricing -- the selector matches something there and nothing in the

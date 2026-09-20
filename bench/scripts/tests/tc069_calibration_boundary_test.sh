@@ -326,6 +326,7 @@ candidate_fields = {
     "base_commit": sha("base_commit"), "tree_digest": sha("tree_digest"),
     "binary_diff_digest": sha("binary_diff_digest"), "changed_path_digest": sha("changed_path_digest"),
     "test_suite_digest": sha("test_suite_digest"),
+    "scratch_content_digest": sha("scratch_content_digest"),
 }
 candidate = dict(candidate_fields)
 candidate["dirty_untracked_manifest"] = []

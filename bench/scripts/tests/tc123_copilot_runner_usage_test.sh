@@ -63,6 +63,7 @@ resolve_usage = scope["resolve_usage"]
 provider_usage_envelope = scope["provider_usage_envelope"]
 I05BundleWriter = scope["I05BundleWriter"]
 stage_snapshot_digest = scope["stage_snapshot_digest"]
+finalize_stage_evidence = scope["finalize_stage_evidence"]
 
 # ---------------------------------------------------------------------------
 # Test 1: mapped_provider(response) mapping
@@ -107,6 +108,7 @@ usage, errors = resolve_usage("github_copilot_cli", mock_envelope)
 
 expected_slots = {
     "input_tokens": 2500,
+    "output_tokens": 480,
     "cache_read_input_tokens": 1200,
     "cache_creation_input_tokens": 300,
     "model_ids": ["claude-sonnet-5"],
@@ -115,7 +117,7 @@ expected_slots = {
     "provider_session_id": "copilot-sess-777",
 }
 
-assert len(usage) == 7, f"expected 7 slots, got {len(usage)}: {usage}"
+assert len(usage) == 8, f"expected 8 slots, got {len(usage)}: {usage}"
 for slot, want_val in expected_slots.items():
     assert slot in usage, f"missing expected slot {slot}"
     assert usage[slot] == want_val, f"slot {slot} value mismatch: {usage[slot]} != {want_val}"
@@ -135,7 +137,7 @@ assert cost_errors[0]["slot"] == "total_cost"
 usage_norm, errors_norm = resolve_usage("copilot", mock_envelope)
 assert usage_norm == usage
 assert errors_norm == errors
-print("    resolve_usage 7 slots + cost honesty: PASS")
+print("    resolve_usage 8 slots + cost honesty: PASS")
 
 # ---------------------------------------------------------------------------
 # Test 3: resolve_usage() missing mapped slot handling
@@ -150,7 +152,7 @@ partial_envelope["usage"] = {
 }
 usage_part, errors_part = resolve_usage("github_copilot_cli", partial_envelope)
 assert "input_tokens" not in usage_part
-assert len(usage_part) == 6
+assert len(usage_part) == 7
 assert any(e.get("kind") == "usage_slot_unavailable" and e.get("slot") == "input_tokens" for e in errors_part)
 assert any(e.get("kind") == "usage_slot_unavailable" and e.get("slot") == "total_cost" for e in errors_part)
 print("    resolve_usage missing slot: PASS")
@@ -168,7 +170,7 @@ worker_result = {
 unwrapped = provider_usage_envelope(worker_result)
 assert unwrapped == mock_envelope
 usage_unwrapped, errors_unwrapped = resolve_usage("github_copilot_cli", unwrapped)
-assert len(usage_unwrapped) == 7
+assert len(usage_unwrapped) == 8
 assert any(e.get("kind") == "usage_slot_unavailable" and e.get("slot") == "total_cost" for e in errors_unwrapped)
 print("    provider_usage_envelope: PASS")
 
@@ -193,6 +195,8 @@ identity = {
     "scenario_path": str(scenario_path),
     "fixture_digest": "sha256:fix123",
     "shark_content_digest": "sha256:content123",
+    "rendered_prompt_digests": [],
+    "provider_identity": [],
     "roots": {
         "agent_fixture_checkout": str(repo_root),
         "scratch_shark_project": str(work_dir),
@@ -248,8 +252,8 @@ snapshot_file = bundle_dir / "stages/1-develop.json"
 assert snapshot_file.is_file(), f"missing stage snapshot {snapshot_file}"
 snapshot = json.loads(snapshot_file.read_text(encoding="utf-8"))
 
-# Assert snapshot usage has all 7 slots
-assert len(snapshot["usage"]) == 7
+# Assert snapshot usage has all 8 slots
+assert len(snapshot["usage"]) == 8
 for slot in expected_slots:
     assert slot in snapshot["usage"]
 assert "total_cost" not in snapshot["usage"]
@@ -283,22 +287,38 @@ print("    stage snapshot & telemetry: PASS")
 # Test 6: Non-corruption of run outcome from missing total_cost
 # ---------------------------------------------------------------------------
 print("--> Test 6: Non-corruption of run outcome")
-# Emulate evidence_errors filtering logic from record_stage_and_gate
 evidence_errors = []
-stage_errors = list(writer_errors)
-response = dispatch["response"]
+record["stages"] = []
+record["limits"] = {"observed_wall_clock_seconds": 0.0}
+dispatch_t6 = dict(dispatch)
+dispatch_t6["ordinal"] = 2
 
-filtered = [
-    {"dispatch_ordinal": dispatch["ordinal"], **item}
-    for item in stage_errors
-    if item.get("kind") != "unmapped_provider"
-    and not (
-        item.get("kind") == "usage_slot_unavailable"
-        and item.get("slot") == "total_cost"
-        and mapped_provider(response) == "github_copilot_cli"
-    )
-]
-evidence_errors.extend(filtered)
+timing_t6 = {
+    "stage_start": 2100000000,
+    "stage_end": 3000000000,
+    "claimed": [("provider_active", 2200000000, 2900000000)],
+}
+
+stage_candidate_t6, gate_cat = finalize_stage_evidence(
+    record=record,
+    evidence_errors=evidence_errors,
+    dispatch=dispatch_t6,
+    candidate=stage_candidate,
+    response=dispatch_t6["response"],
+    entity=dispatch_t6["response"]["entity_key"],
+    fixture_root=str(repo_root),
+    fixture_input_digest="sha256:input123",
+    execution_adapter=str(adapter_path),
+    adapter=str(adapter_path),
+    i05_writer=writer,
+    shark="true",
+    scratch=repo_root,
+    worker_result=worker_result,
+    timing=timing_t6,
+    rc_start_ns=2950000000,
+    stage_visits={},
+    started=0.0,
+)
 
 # In a run where only total_cost was unavailable for Copilot, evidence_errors must be empty
 assert len(evidence_errors) == 0, f"evidence_errors should be empty for Copilot total_cost omission, got: {evidence_errors}"

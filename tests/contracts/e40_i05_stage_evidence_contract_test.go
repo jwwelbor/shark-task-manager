@@ -236,6 +236,7 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		}
 		wantCopilotSlots := []string{
 			"input_tokens",
+			"output_tokens",
 			"cache_read_input_tokens",
 			"cache_creation_input_tokens",
 			"model_ids",

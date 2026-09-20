@@ -33,9 +33,11 @@ fail() {
 [[ -f "$NONJSON_FIXTURE" ]] || fail "non-JSON fixture missing: $NONJSON_FIXTURE"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found on PATH"
 
-WORKDIR="$(mktemp -d)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
+WORKDIR="$REPO_ROOT/.test_work_tc121_$$"
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
+mkdir -p "$WORKDIR"
 
 # ---------------------------------------------------------------------------
 # Test 1 (agreeing case): against committed clean fixture under

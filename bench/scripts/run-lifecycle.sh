@@ -1360,7 +1360,7 @@ class I05BundleWriter:
             candidate["test_suite_dir"] = test_suite_dir
             snapshot["candidate"] = candidate
         snapshot["errors"] = errors
-        snapshot["provider"] = provider
+        snapshot["provider"] = mapped_provider(response) or provider
 
         # T-E40-F12-007 (REQ-NF-002): times only the write path itself --
         # serialize + write stages/<n>.json + transcript + access.jsonl

@@ -132,7 +132,9 @@ tests=(
 	"$SCRIPT_DIR/tc117_i05_caller_pass_through_guard_test.sh"
 	"$SCRIPT_DIR/tc118_real_lifecycle_contract_test.sh"
 	"$SCRIPT_DIR/tc119_admit_testmain_source_deletion_test.sh"
+	"$SCRIPT_DIR/tc120_copilot_adapter_test.sh"
 	"$SCRIPT_DIR/tc121_copilot_usage_mapping_canary_test.sh"
+	"$SCRIPT_DIR/tc122_copilot_routing_identity_test.sh"
 	"$SCRIPT_DIR/tc123_copilot_runner_usage_test.sh"
 )
 

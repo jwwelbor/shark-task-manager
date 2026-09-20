@@ -161,12 +161,12 @@ CORPUS_YAML="$SCRIPTS_DIR/../corpus/corpus.yaml"
 [[ -f "$CORPUS_YAML" ]] || fail "corpus.yaml missing: $CORPUS_YAML"
 
 WORKDIR="$(mktemp -d)"
-cleanup() { rm -rf "$WORKDIR"; }
+TRANSIENT_CORPUS="$(dirname "$CORPUS_YAML")/.corpus-bad-grammar-$$.yaml"
+cleanup() { rm -f "$TRANSIENT_CORPUS"; rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
 TRANSIENT_ITEM="pricing-negative-subtotal"
 TRANSIENT_SET="pricing_bad_grammar_selector"
-TRANSIENT_CORPUS="$WORKDIR/corpus-bad-grammar.yaml"
 # Both TestTaxAmount and TestApplyDiscount are real, passing tests in
 # bench/fixture-repo/pkg/pricing/pricing_test.go -- go test -run would
 # happily select and run both; only admit.sh's Python-side grammar check

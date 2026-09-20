@@ -150,6 +150,10 @@ transcript_paths = sys.argv[3:]
 with open(mapping_path) as f:
     mapping = yaml.safe_load(f)
 
+if not isinstance(mapping, dict):
+    sys.stderr.write("canary-copilot-usagemapping: usage-mapping.yaml is not a YAML mapping\n")
+    sys.exit(2)
+
 provider = mapping.get("providers", {}).get("github_copilot_cli", {})
 if provider.get("status") != "mapped":
     sys.stderr.write(
@@ -307,6 +311,25 @@ for transcript_path in transcript_paths:
                     % envelope_path
                 )
                 fail("usage_slot_unavailable slot=input_tokens envelope_path=%s" % envelope_path)
+
+        # output_tokens: completion_tokens or output_tokens in checkpoint model entry or result usage
+        if "output_tokens" in slots:
+            slot_info = slots["output_tokens"]
+            envelope_path = slot_info.get("envelope_path", "")
+            found = False
+            if "output_tokens" in result_usage or "completion_tokens" in result_usage:
+                found = True
+            if not found:
+                for m_name, m_data in checkpoint_models.items():
+                    if isinstance(m_data, dict) and ("completion_tokens" in m_data or "output_tokens" in m_data):
+                        found = True
+                        break
+            if not found:
+                sys.stderr.write(
+                    "canary-copilot-usagemapping: usage_slot_unavailable: slot=output_tokens envelope_path=%s\n"
+                    % envelope_path
+                )
+                fail("usage_slot_unavailable slot=output_tokens envelope_path=%s" % envelope_path)
 
         # api_active_duration_ms: totalApiDurationMs in result usage
         if "api_active_duration_ms" in slots:

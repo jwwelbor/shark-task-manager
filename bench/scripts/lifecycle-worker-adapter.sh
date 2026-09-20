@@ -238,8 +238,9 @@ def decode_envelope(raw):
         decoded = None
         # Process line-by-line for JSONL streams or multi-line outputs.
         # Look for assistant.message events or trailing JSON objects.
+        # Scan in reverse order so multi-turn streams capture the terminal outcome message.
         lines = raw.splitlines()
-        for line in lines:
+        for line in reversed(lines):
             line_str = line.strip()
             if not line_str:
                 continue
@@ -343,10 +344,10 @@ def _extract_copilot_measurements(lines):
                 if isinstance(sess_ms, (int, float)) and not isinstance(sess_ms, bool) and sess_ms >= 0:
                     session_duration_ms = int(sess_ms)
 
-    input_tokens = 0
-    output_tokens = 0
-    cache_read = 0
-    cache_write = 0
+    input_tokens = None
+    output_tokens = None
+    cache_read = None
+    cache_write = None
     total_nano_aiu = None
     premium_requests = None
 
@@ -381,34 +382,57 @@ def _extract_copilot_measurements(lines):
                 if isinstance(model_name, str) and model_name:
                     model_set.add(model_name)
                 if isinstance(m_usage, dict):
-                    pt = m_usage.get("prompt_tokens") or m_usage.get("input_tokens") or 0
-                    ot = m_usage.get("output_tokens") or 0
-                    cr = m_usage.get("cache_read") or m_usage.get("cache_read_input_tokens") or 0
-                    cw = m_usage.get("cache_write") or m_usage.get("cache_creation_input_tokens") or 0
-                    if isinstance(pt, int) and pt >= 0:
-                        input_tokens += pt
-                    if isinstance(ot, int) and ot >= 0:
-                        output_tokens += ot
-                    if isinstance(cr, int) and cr >= 0:
-                        cache_read += cr
-                    if isinstance(cw, int) and cw >= 0:
-                        cache_write += cw
+                    pt = None
+                    for k in ("prompt_tokens", "input_tokens"):
+                        if k in m_usage and isinstance(m_usage[k], int) and m_usage[k] >= 0:
+                            pt = m_usage[k]
+                            break
+                    ot = None
+                    for k in ("output_tokens", "completion_tokens"):
+                        if k in m_usage and isinstance(m_usage[k], int) and m_usage[k] >= 0:
+                            ot = m_usage[k]
+                            break
+                    cr = None
+                    for k in ("cache_read", "cache_read_input_tokens"):
+                        if k in m_usage and isinstance(m_usage[k], int) and m_usage[k] >= 0:
+                            cr = m_usage[k]
+                            break
+                    cw = None
+                    for k in ("cache_write", "cache_creation_input_tokens"):
+                        if k in m_usage and isinstance(m_usage[k], int) and m_usage[k] >= 0:
+                            cw = m_usage[k]
+                            break
+
+                    if pt is not None:
+                        input_tokens = (input_tokens or 0) + pt
+                    if ot is not None:
+                        output_tokens = (output_tokens or 0) + ot
+                    if cr is not None:
+                        cache_read = (cache_read or 0) + cr
+                    if cw is not None:
+                        cache_write = (cache_write or 0) + cw
 
     model_ids = sorted(model_set)
 
     bounded_usage = {}
     provider_envelope = {}
+    usage_dict = {}
 
-    bounded_usage["input_tokens"] = input_tokens
-    bounded_usage["output_tokens"] = output_tokens
-    bounded_usage["cache_read_input_tokens"] = cache_read
-    bounded_usage["cache_creation_input_tokens"] = cache_write
-    provider_envelope["usage"] = {
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "cache_read_input_tokens": cache_read,
-        "cache_creation_input_tokens": cache_write,
-    }
+    if input_tokens is not None:
+        bounded_usage["input_tokens"] = input_tokens
+        usage_dict["input_tokens"] = input_tokens
+    if output_tokens is not None:
+        bounded_usage["output_tokens"] = output_tokens
+        usage_dict["output_tokens"] = output_tokens
+    if cache_read is not None:
+        bounded_usage["cache_read_input_tokens"] = cache_read
+        usage_dict["cache_read_input_tokens"] = cache_read
+    if cache_write is not None:
+        bounded_usage["cache_creation_input_tokens"] = cache_write
+        usage_dict["cache_creation_input_tokens"] = cache_write
+
+    if usage_dict:
+        provider_envelope["usage"] = usage_dict
 
     if model_ids:
         bounded_usage["model_ids"] = model_ids

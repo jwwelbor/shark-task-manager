@@ -80,6 +80,9 @@ providers:
       input_tokens:
         envelope_path: usage.input_tokens
         verification_tier: real_capture
+      output_tokens:
+        envelope_path: usage.output_tokens
+        verification_tier: real_capture
       cache_read_input_tokens:
         envelope_path: usage.cache_read_input_tokens
         verification_tier: real_capture

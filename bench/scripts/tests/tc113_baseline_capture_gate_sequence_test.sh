@@ -642,7 +642,7 @@ def write_json(path, obj):
 
 CANDIDATE_IDENTITY_FIELDS = (
     "base_commit", "tree_digest", "binary_diff_digest", "changed_path_digest",
-    "dirty_untracked_manifest", "test_suite_digest",
+    "dirty_untracked_manifest", "test_suite_digest", "scratch_content_digest",
 )
 
 

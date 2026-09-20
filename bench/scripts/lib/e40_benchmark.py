@@ -206,7 +206,9 @@ def validate_routing_profile_schema(
     if resolved_schema_path.exists():
         try:
             schema = load_yaml(resolved_schema_path, "profile schema")
-        except Exception:
+        except (OSError, yaml.YAMLError, OperatorError):
+            # Fall back to built-in default vocabulary when the external schema
+            # cannot be read, parsed, or loaded as a dictionary.
             schema = None
 
     valid_efforts = (
