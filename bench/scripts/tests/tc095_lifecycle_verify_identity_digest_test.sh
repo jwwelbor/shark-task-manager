@@ -54,7 +54,7 @@ os.environ["LIFECYCLE_BENCH_DIR"] = os.path.join(repo_root, "bench")
 # importing it defines candidate_identity()/refresh_candidate() without
 # running main() or requiring a --scenario/--root CLI invocation.
 source = open(runner_path, encoding="utf-8").read()
-match = re.search(r"<<'PY'\n(.*)\ntry:\n    raise SystemExit\(main", source, re.DOTALL)
+match = re.search(r"<<'PY'\n(.*)\n(?:if __name__ == [\"']__main__[\"']:\n\s*)?try:\n\s*raise SystemExit\(main", source, re.DOTALL)
 assert match, "could not locate run-lifecycle.sh's embedded python body"
 namespace = {"__name__": "run_lifecycle_under_test"}
 exec(compile(match.group(1), runner_path, "exec"), namespace)

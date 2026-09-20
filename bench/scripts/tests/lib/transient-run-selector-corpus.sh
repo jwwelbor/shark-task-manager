@@ -40,20 +40,20 @@ data["p2p_sets"][set_name] = {
 }
 
 corpus_dir = os.path.dirname(os.path.abspath(src_path))
+dst_dir = os.path.dirname(os.path.abspath(dst_path))
 
 for item in data["items"]:
     if item["id"] == item_id:
         item["p2p_set"] = set_name
         # admit.sh resolves every path field in an item relative to the
         # corpus.yaml file it was given (os.path.dirname(corpus_yaml_path)).
-        # This transient copy lives in a different directory, so rewrite
-        # every path field to an absolute path pointing back at the real,
-        # committed corpus/ tree it was copied from.
-        for key in ("prompt_path", "seed_path", "reference_patch_path"):
-            if key in item:
-                item[key] = os.path.join(corpus_dir, item[key])
-        for i, p in enumerate(item["f2p"]["paths"]):
-            item["f2p"]["paths"][i] = os.path.join(corpus_dir, p)
+        # If dst_corpus is in a different directory, rewrite paths.
+        if dst_dir != corpus_dir:
+            for key in ("prompt_path", "seed_path", "reference_patch_path"):
+                if key in item:
+                    item[key] = os.path.join(corpus_dir, item[key])
+            for i, p in enumerate(item["f2p"]["paths"]):
+                item["f2p"]["paths"][i] = os.path.join(corpus_dir, p)
         break
 
 with open(dst_path, "w") as f:

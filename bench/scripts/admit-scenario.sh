@@ -122,11 +122,11 @@ import traceback
 
 import yaml
 
-sys.path.insert(0, os.path.join(os.path.dirname(eval_predicate_script), "lib"))
-from predicate_ids import named_ids_for
-
 package_yaml_path, checkout_script, eval_predicate_script, scenarios_yaml_path, repo_root = sys.argv[1:6]
 package_dir = os.path.dirname(package_yaml_path)
+
+sys.path.insert(0, os.path.join(os.path.dirname(eval_predicate_script), "lib"))
+from predicate_ids import named_ids_for
 
 CHECK_A = "a_runnable_base_fixture"
 CHECK_B = "b_p2p_selection_at_base"

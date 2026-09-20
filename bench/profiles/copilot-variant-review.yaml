@@ -1,0 +1,29 @@
+# bench/profiles/copilot-variant-review.yaml
+#
+# Variant Copilot routing profile routing the review step to GPT-5.4 with
+# xhigh reasoning effort for comparative yield and quality evaluation.
+# Conforms to bench/profiles/schema.yaml (AC-F13-13).
+
+schema_version: "1.0"
+profile_id: copilot-variant-review
+description: "Variant Copilot routing profile routing review step to GPT-5.4 with xhigh reasoning effort"
+provider: copilot
+routes:
+  discovery:
+    model: gemini-3.8-flash
+    effort: medium
+  specification:
+    model: claude-sonnet-5
+    effort: medium
+  planning:
+    model: gemini-3.8-flash
+    effort: minimal
+  development:
+    model: claude-sonnet-5
+    effort: high
+  review:
+    model: gpt-5.4
+    effort: xhigh
+  qa:
+    model: gemini-3.8-flash
+    effort: low

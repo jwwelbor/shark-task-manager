@@ -69,6 +69,39 @@ providers:
   openai_codex_cli:
     status: unmapped
 
+  # E40-F13: GitHub Copilot CLI provider usage envelope mapping.
+  # Slots are bound to verified envelope paths extracted from real Copilot CLI
+  # JSONL output. total_cost is deliberately unmapped to honor cost honesty
+  # principles (Copilot emits AI credit metrics totalNanoAiu and premiumRequests,
+  # never USD currency; synthetic conversion is strictly prohibited).
+  github_copilot_cli:
+    status: mapped
+    slots:
+      input_tokens:
+        envelope_path: usage.input_tokens
+        verification_tier: real_capture
+      output_tokens:
+        envelope_path: usage.output_tokens
+        verification_tier: real_capture
+      cache_read_input_tokens:
+        envelope_path: usage.cache_read_input_tokens
+        verification_tier: real_capture
+      cache_creation_input_tokens:
+        envelope_path: usage.cache_creation_input_tokens
+        verification_tier: real_capture
+      model_ids:
+        envelope_path: "sorted(modelUsage keys)"
+        verification_tier: real_capture
+      api_active_duration_ms:
+        envelope_path: duration_api_ms
+        verification_tier: real_capture
+      turn_count:
+        envelope_path: num_turns
+        verification_tier: real_capture
+      provider_session_id:
+        envelope_path: session_id
+        verification_tier: real_capture
+
 # REQ-F-018: every real_capture slot except provider_session_id, which is
 # deliberately excluded (ADR-F06-12) so no unverified slot gates G14
 # comparison identity.

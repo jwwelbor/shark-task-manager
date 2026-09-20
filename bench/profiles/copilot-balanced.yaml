@@ -1,0 +1,29 @@
+# bench/profiles/copilot-balanced.yaml
+#
+# Balanced Copilot routing profile using Gemini for lightweight steps (discovery,
+# planning, QA) and Claude Sonnet for complex generation steps (specification,
+# development, review). Conforms to bench/profiles/schema.yaml (AC-F13-13).
+
+schema_version: "1.0"
+profile_id: copilot-balanced
+description: "Balanced Copilot routing profile using Gemini for lightweight steps and Claude for complex development and review"
+provider: copilot
+routes:
+  discovery:
+    model: gemini-3.8-flash
+    effort: medium
+  specification:
+    model: claude-sonnet-5
+    effort: medium
+  planning:
+    model: gemini-3.8-flash
+    effort: minimal
+  development:
+    model: claude-sonnet-5
+    effort: high
+  review:
+    model: claude-sonnet-5
+    effort: high
+  qa:
+    model: gemini-3.8-flash
+    effort: low

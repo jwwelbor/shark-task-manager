@@ -41,12 +41,12 @@ fail() {
 [[ -f "$CORPUS_YAML" ]] || fail "corpus.yaml missing: $CORPUS_YAML"
 
 WORKDIR="$(mktemp -d)"
-cleanup() { rm -rf "$WORKDIR"; }
+TRANSIENT_CORPUS="$(dirname "$CORPUS_YAML")/.corpus-run-selector-$$.yaml"
+cleanup() { rm -f "$TRANSIENT_CORPUS"; rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
 TRANSIENT_ITEM="pricing-negative-subtotal"
 TRANSIENT_SET="pricing_taxamount_only"
-TRANSIENT_CORPUS="$WORKDIR/corpus-run-selector.yaml"
 
 build_transient_run_selector_corpus \
 	"$CORPUS_YAML" "$TRANSIENT_CORPUS" "$TRANSIENT_ITEM" "$TRANSIENT_SET" \
