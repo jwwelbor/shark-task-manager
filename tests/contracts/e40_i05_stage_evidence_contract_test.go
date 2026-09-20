@@ -226,6 +226,39 @@ func TestTC042_I05StageEvidenceContract(t *testing.T) {
 		if len(codex.Slots) != 0 {
 			t.Errorf("openai_codex_cli (unmapped) declares %d slot bindings, want 0", len(codex.Slots))
 		}
+
+		copilot, ok := mapping.Providers["github_copilot_cli"]
+		if !ok {
+			t.Fatal("usage-mapping.yaml has no github_copilot_cli provider block")
+		}
+		if copilot.Status != "mapped" {
+			t.Errorf("github_copilot_cli status = %q, want %q", copilot.Status, "mapped")
+		}
+		wantCopilotSlots := []string{
+			"input_tokens",
+			"cache_read_input_tokens",
+			"cache_creation_input_tokens",
+			"model_ids",
+			"api_active_duration_ms",
+			"turn_count",
+			"provider_session_id",
+		}
+		if len(copilot.Slots) != len(wantCopilotSlots) {
+			t.Errorf("github_copilot_cli has %d slots, want %d", len(copilot.Slots), len(wantCopilotSlots))
+		}
+		for _, slot := range wantCopilotSlots {
+			binding, ok := copilot.Slots[slot]
+			if !ok {
+				t.Errorf("github_copilot_cli is missing slot binding %q", slot)
+				continue
+			}
+			if binding.VerificationTier != "real_capture" {
+				t.Errorf("github_copilot_cli slot %q verification_tier = %q, want %q", slot, binding.VerificationTier, "real_capture")
+			}
+		}
+		if _, ok := copilot.Slots["total_cost"]; ok {
+			t.Errorf("github_copilot_cli must not declare total_cost slot binding (cost honesty)")
+		}
 	})
 
 	// AC-001, AC-002 (positive cell), AC-020 (bidirectional agreement):

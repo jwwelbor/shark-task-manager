@@ -103,18 +103,24 @@ I05_DIR="$WORKDIR/i05"
 mkdir -p "$I05_DIR"
 
 configure_runtime() {
-	# configure_runtime <config_path> <adapter-or-empty> <i05-dir-or-empty>
+	# configure_runtime <config_path> <adapter-or-empty> <i05-dir-or-empty> [provider-command-or-empty]
 	local config_path="$1" adapter="$2" i05dir="$3"
-	python3 - "$config_path" "$adapter" "$i05dir" <<'PY'
+	local prov_cmd="${4:-}"
+	python3 - "$config_path" "$adapter" "$i05dir" "$prov_cmd" <<'PY'
 import pathlib
 import sys
 import yaml
 
-path, adapter, i05dir = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+path, adapter, i05dir, prov_cmd = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
 config = yaml.safe_load(path.read_text(encoding="utf-8"))
 if adapter:
     config["runtime"]["lifecycle_adapter"] = adapter
-    config["runtime"]["provider_command"] = [adapter]
+    if prov_cmd == "__OMIT__":
+        config["runtime"]["provider_command"] = None
+    elif prov_cmd:
+        config["runtime"]["provider_command"] = [prov_cmd]
+    else:
+        config["runtime"]["provider_command"] = [adapter]
 else:
     config["runtime"]["lifecycle_adapter"] = None
     config["runtime"]["provider_command"] = None
@@ -310,6 +316,53 @@ if blocker["requirement"] != "P4" or blocker["cause"] != "provider_not_ready":
     raise SystemExit(f"expected P4/provider_not_ready, got {blocker!r}")
 PY
 echo "TC-103(P4 falsified alone: exactly 1 blocker, P4/provider_not_ready) PASS"
+
+# ===========================================================================
+# AC-F13-10: P4 with custom generic adapter and omitted provider_command
+# fails closed, but route-aware adapter (lifecycle-worker-adapter.sh)
+# without provider_command passes P4.
+# ===========================================================================
+echo "TC-103: AC-F13-10 -- generic adapter without provider_command fails closed"
+
+configure_runtime "$READY_ROOT/e40-demo.yaml" "$DUMMY_ADAPTER" "$I05_DIR" "__OMIT__"
+set +e
+"$OPERATOR" preflight --config "$READY_ROOT/e40-demo.yaml" --reps 1 --out "$WORKDIR/preflight-p4-generic-no-cmd" \
+	>"$WORKDIR/preflight-p4-generic-no-cmd.out" 2>"$WORKDIR/preflight-p4-generic-no-cmd.err"
+p4_no_cmd_rc=$?
+set -e
+[[ "$p4_no_cmd_rc" -eq 1 ]] || fail "generic adapter without provider_command exited $p4_no_cmd_rc, want 1 (blocked)"
+P4_NO_CMD_RESULT="$WORKDIR/preflight-p4-generic-no-cmd/preflight-result.json"
+[[ "$(json_field "$P4_NO_CMD_RESULT" status)" == "blocked" ]] || fail "status is not 'blocked'"
+python3 - "$P4_NO_CMD_RESULT" <<'PY'
+import json
+import sys
+
+result = json.load(open(sys.argv[1], encoding="utf-8"))
+blockers = result["blockers"]
+if len(blockers) != 1:
+    raise SystemExit(f"expected exactly 1 blocker, got {len(blockers)}: {blockers!r}")
+blocker = blockers[0]
+if blocker["requirement"] != "P4" or blocker["cause"] != "provider_not_ready":
+    raise SystemExit(f"expected P4/provider_not_ready, got {blocker!r}")
+if "runtime.provider_command is not configured" not in blocker["detail"]:
+    raise SystemExit(f"expected provider_command detail, got {blocker['detail']!r}")
+PY
+echo "TC-103(AC-F13-10: generic adapter without provider_command fails closed) PASS"
+
+echo "TC-103: AC-F13-10 -- route-aware adapter without provider_command passes"
+
+ROUTE_AWARE_ADAPTER="$SCRIPTS_DIR/lifecycle-worker-adapter.sh"
+configure_runtime "$READY_ROOT/e40-demo.yaml" "$ROUTE_AWARE_ADAPTER" "$I05_DIR" "__OMIT__"
+set +e
+"$OPERATOR" preflight --config "$READY_ROOT/e40-demo.yaml" --reps 1 --out "$WORKDIR/preflight-p4-route-aware" \
+	>"$WORKDIR/preflight-p4-route-aware.out" 2>"$WORKDIR/preflight-p4-route-aware.err"
+p4_route_aware_rc=$?
+set -e
+[[ "$p4_route_aware_rc" -eq 0 ]] || fail "route-aware adapter without provider_command exited $p4_route_aware_rc, want 0: $(cat "$WORKDIR/preflight-p4-route-aware.err")"
+P4_ROUTE_AWARE_RESULT="$WORKDIR/preflight-p4-route-aware/preflight-result.json"
+[[ "$(json_field "$P4_ROUTE_AWARE_RESULT" status)" == "pass" ]] || fail "status is not 'pass': $(cat "$P4_ROUTE_AWARE_RESULT")"
+[[ "$(blockers_json "$P4_ROUTE_AWARE_RESULT")" == "[]" ]] || fail "expected empty blockers, got $(blockers_json "$P4_ROUTE_AWARE_RESULT")"
+echo "TC-103(AC-F13-10: route-aware adapter without provider_command passes P4) PASS"
 
 # ===========================================================================
 # P5 falsified alone: scenario_roots.<id>.i05_bundle_dir unconfigured.

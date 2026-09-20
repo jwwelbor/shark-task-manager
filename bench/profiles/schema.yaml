@@ -1,0 +1,49 @@
+# bench/profiles/schema.yaml
+#
+# Schema definition for E40 benchmark model routing profiles.
+# Used by lifecycle v2 benchmark harness for route-aware model selection (REQ-F-009, AC-F13-13).
+
+schema_version: "1.0"
+
+top_level_fields:
+  - schema_version
+  - profile_id
+  - description
+  - provider
+  - routes
+
+required_fields:
+  - /schema_version
+  - /profile_id
+  - /description
+  - /provider
+  - /routes
+
+properties:
+  /schema_version: string
+  /profile_id: string
+  /description: string
+  /provider: string
+  /routes: object
+  /routes/*/model: string
+  /routes/*/effort: string
+
+valid_providers:
+  - copilot
+  - github-copilot
+  - github_copilot
+  - github
+  - claude
+  - anthropic
+  - codex
+  - openai
+
+valid_efforts:
+  - none
+  - minimal
+  - low
+  - medium
+  - high
+  - xhigh
+  - max
+  - unavailable

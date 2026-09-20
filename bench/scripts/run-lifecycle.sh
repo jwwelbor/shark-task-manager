@@ -760,8 +760,15 @@ def mapped_provider(response):
     usage-mapping.yaml provider key it corresponds to (e.g.
     "anthropic_claude_cli") -- normalize before calling `resolve_usage()`,
     never look up the bare label directly."""
-    provider = str(response.get("provider", "")).lower()
-    return "anthropic_claude_cli" if "anthropic" in provider or "claude" in provider else provider
+    if isinstance(response, dict):
+        provider = str(response.get("provider", "")).lower()
+    else:
+        provider = str(response or "").lower()
+    if "anthropic" in provider or "claude" in provider:
+        return "anthropic_claude_cli"
+    if "copilot" in provider or "github" in provider:
+        return "github_copilot_cli"
+    return provider
 
 
 def usage_mapping_providers():
@@ -800,6 +807,10 @@ def resolve_usage(provider_name, envelope):
     with a matching `usage_slot_unavailable` error naming the slot and
     path."""
     providers = usage_mapping_providers()
+    if provider_name and provider_name not in providers:
+        norm = mapped_provider(provider_name)
+        if norm in providers:
+            provider_name = norm
     block = providers.get(provider_name) if provider_name else None
     if not isinstance(block, dict) or block.get("status") != "mapped":
         return {}, [{"kind": "unmapped_provider", "provider": provider_name or ""}]
@@ -814,6 +825,11 @@ def resolve_usage(provider_name, envelope):
             errors.append({"kind": "usage_slot_unavailable", "slot": slot, "envelope_path": path})
             continue
         usage[slot] = value
+    # REQ-F-005 / AC-F13-09: Copilot emits AI credit metrics (totalNanoAiu / premiumRequests),
+    # never USD currency. Synthesizing USD cost is strictly prohibited (B064 cost honesty).
+    # Missing total_cost MUST be recorded honestly as usage_slot_unavailable without corrupting the run.
+    if provider_name == "github_copilot_cli" and "total_cost" not in usage:
+        errors.append({"kind": "usage_slot_unavailable", "slot": "total_cost", "envelope_path": None})
     return usage, errors
 
 
@@ -829,6 +845,8 @@ def provider_usage_envelope(worker_result):
     if not isinstance(worker_result, dict):
         return {}
     envelope = worker_result.get("provider_usage_envelope")
+    if not isinstance(envelope, dict) and isinstance(worker_result.get("measurements"), dict):
+        envelope = worker_result["measurements"].get("provider_usage_envelope")
     return envelope if isinstance(envelope, dict) else worker_result
 
 
@@ -1318,6 +1336,19 @@ class I05BundleWriter:
             "rework_count": rework_count,
             "evaluator_access": [],
         }
+        # REQ-F-005: preserve raw credit metrics in stage snapshot telemetry without fabricating USD costs
+        telemetry = {}
+        for src in (provider_usage_envelope(worker_envelope), worker_envelope, worker_envelope.get("measurements") if isinstance(worker_envelope, dict) else None):
+            if isinstance(src, dict):
+                for k in ("total_nano_aiu", "premium_requests"):
+                    if k in src and src[k] is not None and k not in telemetry:
+                        telemetry[k] = src[k]
+                if isinstance(src.get("telemetry"), dict):
+                    for k, v in src["telemetry"].items():
+                        if k not in telemetry and v is not None:
+                            telemetry[k] = v
+        if telemetry:
+            snapshot["telemetry"] = telemetry
         if category is not None:
             snapshot["stage_category"] = category
         if str(self.scenario.get("entity_family", "")) == "feature":
@@ -2155,6 +2186,18 @@ def finalize_stage_evidence(
             "detail": str(stage_candidate["test_identity_error"]),
         })
     lifecycle_stage["errors"] = usage_errors
+    telemetry = {}
+    for src in (provider_usage_envelope(worker_result), worker_result, worker_result.get("measurements") if isinstance(worker_result, dict) else None):
+        if isinstance(src, dict):
+            for k in ("total_nano_aiu", "premium_requests"):
+                if k in src and src[k] is not None and k not in telemetry:
+                    telemetry[k] = src[k]
+            if isinstance(src.get("telemetry"), dict):
+                for k, v in src["telemetry"].items():
+                    if k not in telemetry and v is not None:
+                        telemetry[k] = v
+    if telemetry:
+        lifecycle_stage["telemetry"] = telemetry
     # Same stage_input_lineage() call I05BundleWriter's own
     # record_stage() makes for this dispatch's snapshot, so I-07's
     # stage input_lineage[] reflects the identical typed input
@@ -2178,10 +2221,14 @@ def finalize_stage_evidence(
         # provider, test_suite_unavailable, unknown_stage_category)
         # means required evidence for evidence THAT SHOULD be
         # collectible went missing -- fatal to publication eligibility.
+        # REQ-F-005/AC-F13-09: total_cost for github_copilot_cli is unmapped
+        # by design (credit metrics are reported, not USD); its absence is
+        # recorded as usage_slot_unavailable but is NOT fatal to the run.
         evidence_errors.extend(
             {"dispatch_ordinal": dispatch["ordinal"], **item}
             for item in stage_errors
             if item.get("kind") != "unmapped_provider"
+            and not (item.get("kind") == "usage_slot_unavailable" and item.get("slot") == "total_cost" and mapped_provider(response) == "github_copilot_cli")
         )
     prompt_digest = str(response.get("prompt_sha256"))
     record["identity"]["rendered_prompt_digests"].append(prompt_digest)
@@ -2741,14 +2788,15 @@ def main(argv):
     return 0 if terminal in ("complete", "resource_limit") else 1
 
 
-try:
-    raise SystemExit(main(sys.argv[1:]))
-except (RuntimeError, OSError, ValueError, TypeError) as exc:
-    # Reached only for a failure before/outside main()'s own dispatch-loop
-    # try/except (line ~2365) -- i.e. no lifecycle.jsonl or bundle.json was
-    # ever finalized. Exit 2 (not 1, which main() now reserves for a
-    # completed, evidence-bearing named stop outcome) keeps that
-    # distinction visible to run-lifecycle-batch.sh's own run_rc handling.
-    print(f"run-lifecycle: {exc}", file=sys.stderr)
-    raise SystemExit(2)
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (RuntimeError, OSError, ValueError, TypeError) as exc:
+        # Reached only for a failure before/outside main()'s own dispatch-loop
+        # try/except (line ~2365) -- i.e. no lifecycle.jsonl or bundle.json was
+        # ever finalized. Exit 2 (not 1, which main() now reserves for a
+        # completed, evidence-bearing named stop outcome) keeps that
+        # distinction visible to run-lifecycle-batch.sh's own run_rc handling.
+        print(f"run-lifecycle: {exc}", file=sys.stderr)
+        raise SystemExit(2)
 PY

@@ -1,0 +1,28 @@
+# bench/profiles/copilot-default.yaml
+#
+# Default Copilot routing profile (balanced baseline configuration).
+# Conforms to bench/profiles/schema.yaml (AC-F13-13).
+
+schema_version: "1.0"
+profile_id: copilot-default
+description: "Default Copilot routing profile (balanced configuration)"
+provider: copilot
+routes:
+  discovery:
+    model: gemini-3.8-flash
+    effort: medium
+  specification:
+    model: claude-sonnet-5
+    effort: medium
+  planning:
+    model: gemini-3.8-flash
+    effort: minimal
+  development:
+    model: claude-sonnet-5
+    effort: high
+  review:
+    model: claude-sonnet-5
+    effort: high
+  qa:
+    model: gemini-3.8-flash
+    effort: low

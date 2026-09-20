@@ -42,6 +42,14 @@ DEFAULT_SCENARIO_INDEX = BENCH_DIR / "scenarios" / "scenarios.yaml"
 DEFAULT_SCHEMA = BENCH_DIR / "reports" / "lifecycle-baseline-schema.yaml"
 DEFAULT_I05_SCHEMA = BENCH_DIR / "evidence" / "i05-schema.yaml"
 DEFAULT_I07_SCHEMA = BENCH_DIR / "runs" / "i07-schema.yaml"
+DEFAULT_PROFILES_DIR = BENCH_DIR / "profiles"
+DEFAULT_PROFILE_SCHEMA = DEFAULT_PROFILES_DIR / "schema.yaml"
+VALID_ROUTING_EFFORTS = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max", "unavailable"}
+)
+VALID_ROUTING_PROVIDERS = frozenset(
+    {"copilot", "github-copilot", "github_copilot", "github", "claude", "anthropic", "codex", "openai"}
+)
 RETENTION_REGISTRY_PATH = BENCH_DIR / "retention-registry.yaml"
 CHECKOUT_SCENARIO_FIXTURE_BIN = SCRIPTS_DIR / "checkout-scenario-fixture.sh"
 FIXTURE_BASE_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -148,9 +156,15 @@ def workflow_routing_identity(root: Path) -> dict[str, Any]:
             for index, child in enumerate(value):
                 visit(child, source, [*pointer, str(index)])
 
-    for path in sorted((*root.rglob("*.yaml"), *root.rglob("*.yml"))):
+    if root.is_file():
+        paths = [root]
+        base_dir = root.parent
+    else:
+        paths = sorted((*root.rglob("*.yaml"), *root.rglob("*.yml")))
+        base_dir = root
+    for path in paths:
         document = load_yaml(path, "workflow routing file")
-        visit(document, path.relative_to(root).as_posix(), [])
+        visit(document, path.relative_to(base_dir).as_posix(), [])
     routes.sort(key=lambda row: (row["source"], row["pointer"]))
     if not routes:
         raise OperatorError(
@@ -170,6 +184,142 @@ def workflow_routing_identity(root: Path) -> dict[str, Any]:
     }
     result["routing_digest"] = canonical_digest(result)
     return result
+
+
+def load_routing_profile(path: Path) -> dict[str, Any]:
+    """Load and parse a YAML model routing profile."""
+    return load_yaml(path, "model routing profile")
+
+
+def validate_routing_profile_schema(
+    profile: dict[str, Any], schema_path: Path | None = None
+) -> list[str]:
+    """Validate a model routing profile dictionary against schema.yaml rules (AC-F13-13).
+    Returns a list of error strings; an empty list indicates the profile is valid.
+    """
+    errors: list[str] = []
+    if not isinstance(profile, dict):
+        return ["profile must be a YAML mapping/dictionary"]
+
+    schema = None
+    resolved_schema_path = schema_path or DEFAULT_PROFILE_SCHEMA
+    if resolved_schema_path.exists():
+        try:
+            schema = load_yaml(resolved_schema_path, "profile schema")
+        except Exception:
+            schema = None
+
+    valid_efforts = (
+        set(schema.get("valid_efforts", []))
+        if schema and isinstance(schema.get("valid_efforts"), list)
+        else set(VALID_ROUTING_EFFORTS)
+    )
+    valid_providers = (
+        set(schema.get("valid_providers", []))
+        if schema and isinstance(schema.get("valid_providers"), list)
+        else set(VALID_ROUTING_PROVIDERS)
+    )
+
+    schema_version = profile.get("schema_version")
+    if schema_version != "1.0":
+        errors.append(f"expected schema_version '1.0', got {schema_version!r}")
+
+    profile_id = profile.get("profile_id")
+    if not isinstance(profile_id, str) or not profile_id.strip():
+        errors.append("profile_id must be a non-empty string")
+
+    description = profile.get("description")
+    if not isinstance(description, str) or not description.strip():
+        errors.append("description must be a non-empty string")
+
+    provider = profile.get("provider")
+    if not isinstance(provider, str) or not provider.strip():
+        errors.append("provider must be a non-empty string")
+    elif valid_providers and provider.lower() not in valid_providers:
+        errors.append(
+            f"unsupported provider {provider!r}; expected one of {sorted(valid_providers)}"
+        )
+
+    routes = profile.get("routes")
+    if not isinstance(routes, dict) or not routes:
+        errors.append("routes must be a non-empty dictionary of step definitions")
+    else:
+        for step_name, route in routes.items():
+            if not isinstance(route, dict):
+                errors.append(f"routes[{step_name!r}] must be a dictionary")
+                continue
+            model = route.get("model")
+            if not isinstance(model, str) or not model.strip():
+                errors.append(f"routes[{step_name!r}].model must be a non-empty string")
+            effort = route.get("effort")
+            if effort is not None:
+                if not isinstance(effort, str) or effort.lower() not in valid_efforts:
+                    errors.append(
+                        f"routes[{step_name!r}].effort {effort!r} is invalid; expected one of {sorted(valid_efforts)}"
+                    )
+
+    return errors
+
+
+def apply_routing_profile(
+    profile: dict[str, Any], workflow_dir: Path
+) -> list[Path]:
+    """Apply a model routing profile to workflow YAML files in workflow_dir.
+    Updates steps matching route keys with the profile's provider, model, and effort.
+    Returns the list of modified file paths.
+    """
+    errors = validate_routing_profile_schema(profile)
+    if errors:
+        raise OperatorError(
+            f"cannot apply invalid routing profile: {'; '.join(errors)}"
+        )
+    routes = profile.get("routes") or {}
+    provider = profile.get("provider")
+
+    paths = (
+        [workflow_dir]
+        if workflow_dir.is_file()
+        else sorted((*workflow_dir.rglob("*.yaml"), *workflow_dir.rglob("*.yml")))
+    )
+    modified_paths: list[Path] = []
+
+    for path in paths:
+        document = load_yaml(path, "workflow file")
+        modified = False
+
+        # Route-based workflow (Shark 2.x steps block)
+        steps = document.get("steps")
+        if isinstance(steps, dict):
+            for step_name, step_data in steps.items():
+                if isinstance(step_data, dict) and step_name in routes:
+                    route = routes[step_name]
+                    if provider:
+                        step_data["provider"] = provider
+                    if "model" in route:
+                        step_data["model"] = route["model"]
+                    if "effort" in route:
+                        step_data["effort"] = route["effort"]
+                    modified = True
+
+        # Legacy status_metadata fallback
+        status_meta = document.get("status_metadata")
+        if isinstance(status_meta, dict):
+            for step_name, step_data in status_meta.items():
+                if isinstance(step_data, dict) and step_name in routes:
+                    route = routes[step_name]
+                    if provider:
+                        step_data["provider"] = provider
+                    if "model" in route:
+                        step_data["model"] = route["model"]
+                    if "effort" in route:
+                        step_data["effort"] = route["effort"]
+                    modified = True
+
+        if modified:
+            write_yaml(path, document)
+            modified_paths.append(path)
+
+    return modified_paths
 
 
 def load_yaml(path: Path, label: str) -> dict[str, Any]:
@@ -2205,19 +2355,31 @@ def runtime_readiness(
     return not blockers, blockers
 
 
+ROUTE_AWARE_LIFECYCLE_ADAPTERS = frozenset({"lifecycle-worker-adapter.sh"})
+
+
+def is_route_aware_lifecycle_adapter(adapter: str) -> bool:
+    """Return True if the configured lifecycle_adapter is known to resolve
+    route providers without requiring runtime.provider_command."""
+    return Path(adapter).name in ROUTE_AWARE_LIFECYCLE_ADAPTERS
+
+
 def preflight_provider_command_finding(config: dict[str, Any]) -> dict[str, Any] | None:
-    """AC-F11-09 P4 (preflight-only half): the shipped default
-    `lifecycle_adapter` (`lifecycle-worker-adapter.sh`) reads
-    `runtime.provider_command` to know which provider CLI to invoke and
-    refuses to run without one. `runtime_readiness` deliberately does not
-    check this (see its own docstring) because it is shared with
-    `execute_profile`'s spend gate; preflight's own, additional readiness
-    reporting checks it here instead, only when an adapter is configured at
-    all -- an unconfigured adapter is already its own P4 finding from
-    `runtime_readiness`, and this would otherwise double-report it."""
+    """AC-F11-09 P4 (preflight-only half) and AC-F13-10:
+    When runtime.lifecycle_adapter is configured with a route-aware adapter
+    (such as the shipped `lifecycle-worker-adapter.sh`), it resolves route
+    providers internally and does not require runtime.provider_command.
+    When a generic custom adapter is configured without runtime.provider_command,
+    preflight returns a P4 blocker. An unconfigured adapter is reported by
+    `runtime_readiness`."""
     runtime = runtime_config(config)
     adapter = runtime.get("lifecycle_adapter")
-    if isinstance(adapter, str) and adapter and not runtime.get("provider_command"):
+    if (
+        isinstance(adapter, str)
+        and adapter
+        and not is_route_aware_lifecycle_adapter(adapter)
+        and not runtime.get("provider_command")
+    ):
         return {
             "requirement": "P4",
             "scenario_id": None,

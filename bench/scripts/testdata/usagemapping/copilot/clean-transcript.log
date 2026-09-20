@@ -1,0 +1,10 @@
+COMMAND: copilot --output-format json --stream off --model claude-sonnet-5
+EXIT: 0
+DURATION: 3200ms
+---STDOUT---
+{"type":"session.start","data":{"sessionId":"copilot-session-real-001"}}
+{"type":"model.call_start","data":{"model":"claude-sonnet-5"}}
+{"type":"assistant.message","data":{"content":"{\"kind\":\"final\",\"recommended_outcome\":\"pass\",\"evidence\":[]}","model":"claude-sonnet-5"}}
+{"type":"session.usage_checkpoint","data":{"promptCacheBreakState":{"models":{"claude-sonnet-5":{"prompt_tokens":1200,"output_tokens":450,"cache_read":800,"cache_write":200}}},"totalNanoAiu":55000000,"totalPremiumRequests":2,"lastActiveModel":"claude-sonnet-5"}}
+{"type":"result","data":{"exitCode":0,"usage":{"totalApiDurationMs":3200,"sessionDurationMs":4500},"sessionId":"copilot-session-real-001"}}
+---STDERR---

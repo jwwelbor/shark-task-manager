@@ -174,6 +174,34 @@ def command_for(args, request):
                 command.extend(["--effort", effort])
         elif request["provider"] in {"openai", "codex"}:
             command = ["codex", "exec", "--json"]
+        elif request["provider"] in {"copilot", "github-copilot", "github_copilot", "github"}:
+            model = request.get("model")
+            if not isinstance(model, str) or not model:
+                raise AdapterError("copilot provider requires a non-empty model")
+            copilot_bin = args.provider_command or "copilot"
+            command = [
+                copilot_bin,
+                "--output-format",
+                "json",
+                "--stream",
+                "off",
+                "--model",
+                model,
+                "--disallow-temp-dir",
+                "--no-custom-instructions",
+                "--no-ask-user",
+                "--allow-all-tools",
+                "--disable-builtin-mcps",
+                "--no-color",
+            ]
+            scratch_root = os.environ.get("LIFECYCLE_SCRATCH_ROOT") or request.get("scratch_root")
+            if scratch_root:
+                command.extend(["-C", str(scratch_root)])
+            effort = request.get("effort")
+            if isinstance(effort, str) and effort and effort != "unavailable":
+                effort_normalized = effort.lower()
+                if effort_normalized in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
+                    command.extend(["--reasoning-effort", effort_normalized])
         else:
             raise AdapterError(
                 "no provider command configured; use --provider-command or LIFECYCLE_PROVIDER_COMMAND"
@@ -208,19 +236,43 @@ def decode_envelope(raw):
         decoded = json.loads(raw)
     except json.JSONDecodeError:
         decoded = None
-        for line in reversed(raw.splitlines()):
+        # Process line-by-line for JSONL streams or multi-line outputs.
+        # Look for assistant.message events or trailing JSON objects.
+        lines = raw.splitlines()
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
             try:
-                candidate = json.loads(line)
+                candidate = json.loads(line_str)
             except json.JSONDecodeError:
                 continue
-            if isinstance(candidate, dict):
+            if isinstance(candidate, dict) and candidate.get("type") == "assistant.message":
+                data = candidate.get("data")
+                if isinstance(data, dict):
+                    content = data.get("content")
+                    if isinstance(content, str) and content.strip():
+                        try:
+                            return decode_envelope(content)
+                        except AdapterError:
+                            pass
+        # Fallback to candidate objects in reverse order (e.g. standard JSON lines)
+        for line in reversed(lines):
+            line_str = line.strip()
+            if not line_str:
+                continue
+            try:
+                candidate = json.loads(line_str)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict) and candidate.get("type") != "result":
                 decoded = candidate
                 break
         if decoded is None:
             match = re.search(r"(?m)^RECOMMENDED OUTCOME:\s*(\S+)\s*$", raw)
             if match:
                 return {"kind": "final", "recommended_outcome": match.group(1), "evidence": []}
-            raise AdapterError("provider output is not a JSON control envelope")
+            raise AdapterError("provider output does not contain a control envelope")
 
     if isinstance(decoded, dict) and isinstance(decoded.get("kind"), str):
         return decoded
@@ -231,13 +283,184 @@ def decode_envelope(raw):
                 return wrapped
             if isinstance(wrapped, str):
                 return decode_envelope(wrapped)
+    match = re.search(r"(?m)^RECOMMENDED OUTCOME:\s*(\S+)\s*$", raw)
+    if match:
+        return {"kind": "final", "recommended_outcome": match.group(1), "evidence": []}
     raise AdapterError("provider output does not contain a control envelope")
+
+
+def _extract_copilot_measurements(lines):
+    # Parse Copilot JSONL event stream to extract cumulative token usage,
+    # durations, session ID, active models, turn count, and credit metrics.
+    # Strictly omits synthetic USD costs.
+    session_id = None
+    duration_api_ms = None
+    session_duration_ms = None
+    turn_count = 0
+    model_set = set()
+    last_checkpoint_data = None
+
+    for line in lines:
+        line_str = line.strip()
+        if not line_str:
+            continue
+        try:
+            event = json.loads(line_str)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+
+        event_type = event.get("type")
+        data = event.get("data")
+        if not isinstance(data, dict):
+            continue
+
+        if event_type == "assistant.message":
+            turn_count += 1
+            model = data.get("model")
+            if isinstance(model, str) and model:
+                model_set.add(model)
+        elif event_type == "model.call_start":
+            model = data.get("model")
+            if isinstance(model, str) and model:
+                model_set.add(model)
+        elif event_type == "session.usage_checkpoint":
+            last_checkpoint_data = data
+            last_model = data.get("lastActiveModel")
+            if isinstance(last_model, str) and last_model:
+                model_set.add(last_model)
+        elif event_type == "result":
+            sid = event.get("sessionId") or data.get("sessionId")
+            if isinstance(sid, str) and sid:
+                session_id = sid
+            usage_data = data.get("usage")
+            if isinstance(usage_data, dict):
+                api_ms = usage_data.get("totalApiDurationMs")
+                if isinstance(api_ms, (int, float)) and not isinstance(api_ms, bool) and api_ms >= 0:
+                    duration_api_ms = int(api_ms)
+                sess_ms = usage_data.get("sessionDurationMs")
+                if isinstance(sess_ms, (int, float)) and not isinstance(sess_ms, bool) and sess_ms >= 0:
+                    session_duration_ms = int(sess_ms)
+
+    input_tokens = 0
+    output_tokens = 0
+    cache_read = 0
+    cache_write = 0
+    total_nano_aiu = None
+    premium_requests = None
+
+    if isinstance(last_checkpoint_data, dict):
+        # Extract credit metrics
+        nano = last_checkpoint_data.get("totalNanoAiu")
+        if isinstance(nano, (int, float)) and not isinstance(nano, bool) and nano >= 0:
+            total_nano_aiu = int(nano)
+        prem = last_checkpoint_data.get("totalPremiumRequests")
+        if isinstance(prem, (int, float)) and not isinstance(prem, bool) and prem >= 0:
+            premium_requests = int(prem)
+
+        # Inspect promptCacheBreakState for cumulative token accounting
+        cache_state = last_checkpoint_data.get("promptCacheBreakState")
+        models_dict = None
+        if isinstance(cache_state, dict):
+            # Might be structured as data.promptCacheBreakState.main.models or promptCacheBreakState.models
+            if "models" in cache_state and isinstance(cache_state["models"], dict):
+                models_dict = cache_state["models"]
+            elif "main" in cache_state and isinstance(cache_state["main"], dict):
+                main_dict = cache_state["main"]
+                if isinstance(main_dict.get("models"), dict):
+                    models_dict = main_dict["models"]
+        elif isinstance(cache_state, list):
+            for item in cache_state:
+                if isinstance(item, dict) and isinstance(item.get("models"), dict):
+                    models_dict = item["models"]
+                    break
+
+        if isinstance(models_dict, dict):
+            for model_name, m_usage in models_dict.items():
+                if isinstance(model_name, str) and model_name:
+                    model_set.add(model_name)
+                if isinstance(m_usage, dict):
+                    pt = m_usage.get("prompt_tokens") or m_usage.get("input_tokens") or 0
+                    ot = m_usage.get("output_tokens") or 0
+                    cr = m_usage.get("cache_read") or m_usage.get("cache_read_input_tokens") or 0
+                    cw = m_usage.get("cache_write") or m_usage.get("cache_creation_input_tokens") or 0
+                    if isinstance(pt, int) and pt >= 0:
+                        input_tokens += pt
+                    if isinstance(ot, int) and ot >= 0:
+                        output_tokens += ot
+                    if isinstance(cr, int) and cr >= 0:
+                        cache_read += cr
+                    if isinstance(cw, int) and cw >= 0:
+                        cache_write += cw
+
+    model_ids = sorted(model_set)
+
+    bounded_usage = {}
+    provider_envelope = {}
+
+    bounded_usage["input_tokens"] = input_tokens
+    bounded_usage["output_tokens"] = output_tokens
+    bounded_usage["cache_read_input_tokens"] = cache_read
+    bounded_usage["cache_creation_input_tokens"] = cache_write
+    provider_envelope["usage"] = {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": cache_write,
+    }
+
+    if model_ids:
+        bounded_usage["model_ids"] = model_ids
+        provider_envelope["modelUsage"] = {m: {} for m in model_ids}
+
+    if duration_api_ms is not None:
+        bounded_usage["api_active_duration_ms"] = duration_api_ms
+        provider_envelope["duration_api_ms"] = duration_api_ms
+    if session_duration_ms is not None:
+        provider_envelope["sessionDurationMs"] = session_duration_ms
+
+    if turn_count > 0:
+        bounded_usage["turn_count"] = turn_count
+        provider_envelope["num_turns"] = turn_count
+
+    if session_id:
+        bounded_usage["provider_session_id"] = session_id
+        provider_envelope["session_id"] = session_id
+
+    if total_nano_aiu is not None:
+        provider_envelope["total_nano_aiu"] = total_nano_aiu
+    if premium_requests is not None:
+        provider_envelope["premium_requests"] = premium_requests
+
+    measurements = {}
+    if bounded_usage:
+        measurements["usage"] = bounded_usage
+    if provider_envelope:
+        measurements["provider_usage_envelope"] = provider_envelope
+    return measurements
 
 
 def provider_measurements(raw):
     try:
         document = json.loads(raw)
     except json.JSONDecodeError:
+        # Check if raw is a JSONL event stream (e.g. from GitHub Copilot CLI)
+        lines = raw.splitlines()
+        copilot_events = False
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+            try:
+                candidate = json.loads(line_str)
+                if isinstance(candidate, dict) and "type" in candidate:
+                    copilot_events = True
+                    break
+            except json.JSONDecodeError:
+                continue
+        if copilot_events:
+            return _extract_copilot_measurements(lines)
         return {}
     if not isinstance(document, dict):
         return {}
