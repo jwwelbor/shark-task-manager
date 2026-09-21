@@ -60,7 +60,7 @@ func (s *TaskQueryService) ListTasks(ctx context.Context, filters TaskFilters) (
 	}
 
 	// Apply filters
-	var filtered []*models.Task
+	filtered := make([]*models.Task, 0, len(tasks))
 	for _, task := range tasks {
 		if filters.Status != "" && string(task.Status) != filters.Status {
 			continue

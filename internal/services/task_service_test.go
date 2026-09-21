@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -39,6 +40,7 @@ type MockTaskRepository struct {
 	DeleteFunc                        func(ctx context.Context, id int64) error
 	ListFunc                          func(ctx context.Context) ([]*models.Task, error)
 	ListByFeatureFunc                 func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	ListByFeatureKeyFunc              func(ctx context.Context, featureKey string) ([]*models.Task, error)
 	ListByEpicFunc                    func(ctx context.Context, epicKey string) ([]*models.Task, error)
 	GetTaskDependenciesFunc           func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	GetTaskDependentsFunc             func(ctx context.Context, taskKey string) ([]*models.Task, error)
@@ -116,6 +118,9 @@ func (m *MockTaskRepository) ListByFeature(ctx context.Context, featureID int64)
 }
 
 func (m *MockTaskRepository) ListByFeatureKey(ctx context.Context, featureKey string) ([]*models.Task, error) {
+	if m.ListByFeatureKeyFunc != nil {
+		return m.ListByFeatureKeyFunc(ctx, featureKey)
+	}
 	if m.ListByFeatureFunc != nil {
 		return m.ListByFeatureFunc(ctx, 0)
 	}
@@ -733,6 +738,29 @@ func TestTaskService_ListTasks_No_Filters(t *testing.T) {
 	assert.NotNil(t, tasks)
 	// Completed tasks excluded by default
 	assert.Equal(t, 2, len(tasks))
+}
+
+func TestTaskService_ListTasks_CompletedFeatureReturnsJSONEmptyArray(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByFeatureKeyFunc: func(ctx context.Context, featureKey string) ([]*models.Task, error) {
+			assert.Equal(t, "E04-F01", featureKey)
+			return []*models.Task{
+				{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001"}, Status: models.TaskStatus("completed")},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	tasks, err := svc.ListTasks(context.Background(), TaskFilters{FeatureKey: "E04-F01"})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, tasks, "B074: a populated feature filtered to no visible tasks must return an empty slice")
+	assert.Empty(t, tasks)
+
+	encoded, err := json.Marshal(tasks)
+	assert.NoError(t, err)
+	assert.Equal(t, "[]", string(encoded), "B074: JSON list output must be an empty collection, not null")
 }
 
 func TestTaskService_ListTasks_Show_All(t *testing.T) {
