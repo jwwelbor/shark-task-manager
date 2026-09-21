@@ -24,7 +24,7 @@ shark get E07-F01-001 --field key          # Just the key
 
 ```bash
 # Daily workflow
-shark status                               # Project dashboard
+shark progress                             # Project dashboard
 shark status advance E07-F01-001           # Advance to next workflow status
 shark status set E07-F01-001 completed     # Set status directly
 
@@ -46,10 +46,11 @@ Commands for day-to-day task lifecycle operations.
 
 | Command | Description | Standard Equivalent |
 |---------|-------------|---------------------|
-| `shark status [key]` | Project dashboard or entity status | - |
+| `shark progress [EPIC] [FEATURE]` | Project, epic, or feature progress dashboard | - |
+| `shark get <key>` | Entity details and status inspection | - |
 | `shark status set <key> <status>` | Set entity status directly | `shark task set-status` |
 | `shark status advance <key>` | Advance to next workflow status | `shark task next-status` |
-| `shark status options <key>` | Show valid next statuses | - |
+| `shark status transitions <key>` | Show valid next statuses | - |
 | `shark status history <key>` | View status change history | - |
 
 **Reference:** [Status Commands](status-commands.md)

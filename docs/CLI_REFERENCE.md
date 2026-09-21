@@ -18,8 +18,10 @@ shark list E07                             # List features
 shark list E07-F01                         # List tasks
 
 # Status & Analytics
-shark status                               # Project dashboard
+shark progress                             # Project dashboard
 shark progress E07                         # Epic progress
+shark get E07-F01-001 --field status       # Entity status
+shark status transitions E07-F01-001       # Available status transitions
 shark status history E07-F01-001           # Change history
 ```
 

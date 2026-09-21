@@ -58,15 +58,16 @@ shark view E07-F01-001                     # View task file
 ## Status & Analytics
 
 ```bash
-# Status dashboard
-shark status                               # Project dashboard
-shark status E07                           # Epic status with feature rollups
-shark status E07-F01                       # Feature status with task breakdown
+# Status and entity inspection
+shark progress                             # Project dashboard
+shark progress E07                         # Epic progress with feature rollups
+shark get E07-F01 --field status           # Feature status
+shark get <key>                             # Entity details
 
 # Status management
 shark status set E07-F01-001 in_development   # Set status directly
 shark status advance E07-F01-001              # Advance to next status
-shark status options E07-F01-001              # Show valid next statuses
+shark status transitions E07-F01-001         # Show valid next statuses
 shark status history E07-F01-001              # Status change history
 
 # Progress & analytics

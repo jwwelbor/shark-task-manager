@@ -1,67 +1,44 @@
 # Status Commands
 
-Commands for viewing status dashboards and managing entity status transitions.
+Commands for managing entity status transitions. Use `shark progress` for project,
+epic, or feature dashboards and `shark get <key>` for entity details.
 
 ## Quick Reference
 
-- `shark status` - Display status dashboard for project, epic, or feature
+- `shark status` - Status operation namespace
 - `shark status set` - Set an entity to a specific status
 - `shark status advance` - Advance an entity to the next workflow status
-- `shark status options` - Show available status transitions (read-only)
+- `shark status transitions` - Show available status transitions (read-only)
 - `shark status history` - Show status change history for a task
 
 ## shark status
 
-Display a comprehensive status dashboard showing project progress, active tasks, and blocked items. The scope is determined by positional arguments: no arguments shows the full project, an epic key scopes to that epic, and adding a feature key scopes to that feature.
+`shark status` is a subcommand namespace for status operations. Running it
+without a subcommand displays help; it does not display a dashboard or inspect
+an entity.
+
+Use `shark progress [EPIC] [FEATURE]` for project, epic, or feature dashboards.
+Use `shark get <key> --field status` for an entity's current status, or
+`shark get <key>` for its full details.
 
 ### Usage
 
 ```
-shark status [EPIC] [FEATURE] [flags]
+shark status <set|advance|transitions|history> ...
 ```
 
-### Positional Arguments
-
-| Argument | Description |
-|----------|-------------|
-| _(none)_ | Show full project dashboard |
-| `EPIC` | Show status for a specific epic (e.g., `E05`) |
-| `EPIC FEATURE` | Show status for a specific feature (e.g., `E05 F02` or `E05-F02`) |
-
-### Flags
-
-| Flag | Description |
-|------|-------------|
-| `--epic <key>` | Filter by epic key (flag syntax, still supported) |
-| `--include-archived` | Include archived epics and features |
-| `--recent <window>` | Recent completion window (`24h`, `7d`, `30d`, `90d`) |
-| `-h, --help` | Help for status |
-
-### Examples
+### Related inspection commands
 
 ```bash
-# Show full project status dashboard
-shark status
+# Project or epic/feature dashboard
+shark progress
+shark progress E05
+shark progress E05 F02
 
-# Show status for epic E05
-shark status E05
-
-# Show status for feature E05-F02 (two positional args)
-shark status E05 F02
-
-# Show status for feature E05-F02 (combined format)
-shark status E05-F02
-
-# Include completions from the last 7 days
-shark status --recent=7d
-
-# JSON output for scripting
-shark status --json
+# Entity details or current status
+shark get E05-F02
+shark get E05-F02 --field status
 ```
-
-### Relationship to `shark progress`
-
-The `shark status` command focuses on current status, active work, and blocked items. The separate `shark progress` command provides a progress-oriented dashboard with health indicators and completion metrics. Both accept the same positional arguments and filtering flags. Use `status` when you want a snapshot of current state; use `progress` when you want completion percentages and health summaries.
 
 ## shark status set
 
@@ -150,14 +127,14 @@ shark status advance E07-F01-001 --outcome fail --session "$SID" --from-status c
 shark status advance E07-F01-001 --outcome fail --session "$SID" --from-status code_review --force-repeat --reason="manual override"
 ```
 
-## shark status options
+## shark status transitions
 
 Show the available status transitions for an epic, feature, or task without making any changes. This is a read-only command useful for understanding what transitions are currently valid before performing one.
 
 ### Usage
 
 ```
-shark status options <key> [flags]
+shark status transitions <key> [flags]
 ```
 
 ### Key Formats
@@ -178,13 +155,13 @@ shark status options <key> [flags]
 
 ```bash
 # Show available transitions for a task
-shark status options E07-F01-001
+shark status transitions E07-F01-001
 
 # Show available transitions for an epic
-shark status options E07
+shark status transitions E07
 
 # JSON output for scripting
-shark status options E07-F01 --json
+shark status transitions E07-F01 --json
 ```
 
 ## shark status history

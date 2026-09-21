@@ -416,7 +416,7 @@ shark status set CC-001 declined
 shark status history CC-001
 
 # View valid next statuses
-shark status options CC-001
+shark status transitions CC-001
 ```
 
 ---
