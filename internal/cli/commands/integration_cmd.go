@@ -53,14 +53,32 @@ Examples:
 	RunE: runIntegrationBackfill,
 }
 
+var integrationCandidateMigrationCmd = &cobra.Command{
+	Use:   "migrate-candidate <epic-key>",
+	Short: "Migrate a registered legacy integration candidate to path-digest schema",
+	Long: `Migrate an already-registered integration candidate created before
+candidate-level tracked/untracked path digests were captured. The migration
+preserves the candidate's accumulated identity, archives the exact legacy
+record, and captures the current working-tree inventory.
+
+Requires an active claim on <epic-key> whose session matches --session.
+--dry-run validates and computes the replacement without writing it.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runIntegrationCandidateMigration,
+}
+
 func init() {
 	integrationBackfillCmd.Flags().String("epic-run-id", "", "Epic run ID to register (required)")
 	integrationBackfillCmd.Flags().String("base", "", "Base commit for the epic's pre-existing history (required)")
 	integrationBackfillCmd.Flags().String("events-file", "", "Path to a JSON array of IntegrationEvent-shaped entries (required)")
 	integrationBackfillCmd.Flags().String("session", "", "Session id of the active claim on <epic-key> (required)")
 	integrationBackfillCmd.Flags().Bool("dry-run", false, "Validate and report without writing anything")
+	integrationCandidateMigrationCmd.Flags().String("epic-run-id", "", "Epic run ID whose legacy candidate should be migrated (required)")
+	integrationCandidateMigrationCmd.Flags().String("session", "", "Session id of the active claim on <epic-key> (required)")
+	integrationCandidateMigrationCmd.Flags().Bool("dry-run", false, "Validate and report without writing anything")
 
 	integrationCmd.AddCommand(integrationBackfillCmd)
+	integrationCmd.AddCommand(integrationCandidateMigrationCmd)
 	cli.RootCmd.AddCommand(integrationCmd)
 }
 
@@ -197,6 +215,72 @@ func runIntegrationBackfill(cmd *cobra.Command, args []string) error {
 		cli.Info(fmt.Sprintf("Dry run: would register integration run %s for %s (base %s, %d event(s))", epicRunID, epicKey, base, len(events)))
 	} else {
 		cli.Success(fmt.Sprintf("Backfilled integration run %s for %s (base %s, %d event(s))", epicRunID, epicKey, base, len(events)))
+	}
+	return nil
+}
+
+// runIntegrationCandidateMigration implements
+// `shark integration migrate-candidate <epic-key>`. Authorization remains in
+// this CLI layer; the integration package owns only the filesystem migration.
+func runIntegrationCandidateMigration(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	epicKey := strings.ToUpper(strings.TrimSpace(args[0]))
+	if err := models.ValidateEpicKey(epicKey); err != nil {
+		err = fmt.Errorf("%q is not a valid epic key: %w", args[0], err)
+		cli.Error(err.Error())
+		return err
+	}
+	epicRunID, _ := cmd.Flags().GetString("epic-run-id")
+	session, _ := cmd.Flags().GetString("session")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	epicRunID = strings.TrimSpace(epicRunID)
+	session = strings.TrimSpace(session)
+	if epicRunID == "" || session == "" {
+		err := fmt.Errorf("--epic-run-id and --session are required")
+		cli.Error(err.Error())
+		return err
+	}
+	if err := integration.ValidateEpicRunID(epicRunID); err != nil {
+		cli.Error(err.Error())
+		return err
+	}
+
+	claim, err := integrationClaimLookup(ctx, "epic", epicKey)
+	if err != nil {
+		err = fmt.Errorf("look up claim for %s: %w", epicKey, err)
+		cli.Error(err.Error())
+		return err
+	}
+	if claim == nil {
+		err := fmt.Errorf("no active claim on %s; candidate migration requires an active claim matching --session", epicKey)
+		cli.Error(err.Error())
+		return err
+	}
+	if claim.SessionID != session {
+		err := fmt.Errorf("--session does not match the active claim's session on %s", epicKey)
+		cli.Error(err.Error())
+		return err
+	}
+
+	candidate, err := integration.MigrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun)
+	if err != nil {
+		cli.Error(err.Error())
+		return err
+	}
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]any{
+			"dry_run":     dryRun,
+			"epic_key":    epicKey,
+			"epic_run_id": epicRunID,
+			"candidate":   candidate,
+		})
+	}
+	if dryRun {
+		cli.Info(fmt.Sprintf("Dry run: would migrate legacy integration candidate %s for %s", epicRunID, epicKey))
+	} else {
+		cli.Success(fmt.Sprintf("Migrated legacy integration candidate %s for %s", epicRunID, epicKey))
 	}
 	return nil
 }

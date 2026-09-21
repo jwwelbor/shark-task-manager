@@ -593,10 +593,13 @@ func simulateBackfillCandidate(epicRunID, base string, events []IntegrationEvent
 	sort.Strings(ids)
 
 	candidate := &IntegrationCandidate{
-		EpicRunID:  epicRunID,
-		BaseCommit: base,
-		HeadCommit: head,
-		EventIDs:   ids,
+		EpicRunID:               epicRunID,
+		BaseCommit:              base,
+		HeadCommit:              head,
+		EventIDs:                ids,
+		PathDigestSchemaVersion: currentPathDigestSchemaVersion,
+		TrackedPathDigests:      map[string]string{},
+		UntrackedPathDigests:    map[string]string{},
 	}
 	digest, err := computeDigest(*candidate)
 	if err != nil {

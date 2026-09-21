@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
@@ -24,6 +25,13 @@ import (
 // through the retry is reported to the caller rather than looping a third
 // time.
 const maxUpdateCandidateAttempts = 2
+
+// currentPathDigestSchemaVersion marks candidates whose path-digest
+// inventory was computed by the current candidate writer. A zero value is
+// deliberately reserved for pre-B076 candidates, where the fields did not
+// exist and an omitted empty map cannot prove that a clean inventory was
+// captured.
+const currentPathDigestSchemaVersion = 1
 
 // candidateClaimPollInterval / candidateClaimTimeout bound the wait for a
 // competing writer that has claimed, but not yet published, the transition
@@ -55,13 +63,14 @@ var (
 //
 // Spec reference: spec.md REQ-F-004, task T-E34-F08-006 AC-T1.
 type IntegrationCandidate struct {
-	EpicRunID            string            `json:"epic_run_id"`
-	BaseCommit           string            `json:"base_commit"`
-	HeadCommit           string            `json:"head_commit"`
-	EventIDs             []string          `json:"event_ids"`
-	TrackedPathDigests   map[string]string `json:"tracked_path_digests,omitempty"`
-	UntrackedPathDigests map[string]string `json:"untracked_path_digests,omitempty"`
-	Digest               string            `json:"digest"`
+	EpicRunID               string            `json:"epic_run_id"`
+	BaseCommit              string            `json:"base_commit"`
+	HeadCommit              string            `json:"head_commit"`
+	EventIDs                []string          `json:"event_ids"`
+	PathDigestSchemaVersion int               `json:"path_digest_schema_version,omitempty"`
+	TrackedPathDigests      map[string]string `json:"tracked_path_digests,omitempty"`
+	UntrackedPathDigests    map[string]string `json:"untracked_path_digests,omitempty"`
+	Digest                  string            `json:"digest"`
 }
 
 // CandidateConflictError indicates UpdateCandidate's compare-and-swap write
@@ -173,6 +182,102 @@ func GetCandidate(ctx context.Context, epicRunID string) (*IntegrationCandidate,
 	}
 	candidate, _, err := readCandidate(candidatePath(projectRoot, epicRunID))
 	return candidate, err
+}
+
+// MigrateCandidatePathDigests upgrades an already-registered legacy
+// candidate whose path-digest inventory predates candidate-level capture.
+// It preserves the candidate's run/base/head/event identity, computes the
+// inventory from the current working tree, and publishes the replacement
+// through the same CAS and archived-head path used by UpdateCandidate.
+//
+// A dry run performs all reads and digest computation but does not write. An
+// already-migrated candidate is returned unchanged, making retries safe.
+func MigrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string, dryRun bool) (*IntegrationCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: %w", err)
+	}
+	epicKey = strings.TrimSpace(epicKey)
+	if err := models.ValidateEpicKey(epicKey); err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: invalid epic key %q: %w", epicKey, err)
+	}
+	epicRunID = strings.TrimSpace(epicRunID)
+	if err := ValidateEpicRunID(epicRunID); err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: %w", err)
+	}
+	projectRoot, err := projectroot.FindProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: resolve project root: %w", err)
+	}
+
+	for attempt := 0; attempt < maxUpdateCandidateAttempts; attempt++ {
+		candidate, err := attemptMigrateCandidate(ctx, projectRoot, epicKey, epicRunID, dryRun)
+		if err == nil {
+			return candidate, nil
+		}
+		var conflict *CandidateConflictError
+		if !errors.As(err, &conflict) || dryRun {
+			return nil, err
+		}
+	}
+	return nil, &CandidateConflictError{Path: candidatePath(projectRoot, epicRunID)}
+}
+
+func attemptMigrateCandidate(ctx context.Context, projectRoot, epicKey, epicRunID string, dryRun bool) (*IntegrationCandidate, error) {
+	run, err := readRun(runRecordPath(projectRoot, epicKey))
+	if err != nil {
+		return nil, err
+	}
+	if run == nil {
+		return nil, fmt.Errorf("integration: migrate candidate: no integration run registered for %s", epicKey)
+	}
+	if run.EpicRunID != epicRunID {
+		return nil, fmt.Errorf("integration: migrate candidate: run %q belongs to %s, not %s", epicRunID, run.EpicKey, epicKey)
+	}
+
+	path := candidatePath(projectRoot, epicRunID)
+	current, currentBytes, err := readCandidate(path)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, fmt.Errorf("integration: migrate candidate: no candidate exists for run %s", epicRunID)
+	}
+	if current.EpicRunID != epicRunID || current.BaseCommit != run.BaseCommit {
+		return nil, fmt.Errorf("integration: migrate candidate: candidate identity does not match registered run %s", epicRunID)
+	}
+	computed, err := computeDigest(*current)
+	if err != nil {
+		return nil, err
+	}
+	if computed != current.Digest {
+		return nil, fmt.Errorf("integration: migrate candidate: candidate digest is invalid")
+	}
+	if current.PathDigestSchemaVersion == currentPathDigestSchemaVersion {
+		return current, nil
+	}
+	if current.PathDigestSchemaVersion > currentPathDigestSchemaVersion {
+		return nil, fmt.Errorf("integration: migrate candidate: unsupported path-digest schema version %d", current.PathDigestSchemaVersion)
+	}
+
+	tracked, untracked, err := computeDirtyPathDigests(ctx, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	next := *current
+	next.PathDigestSchemaVersion = currentPathDigestSchemaVersion
+	next.TrackedPathDigests = tracked
+	next.UntrackedPathDigests = untracked
+	next.Digest, err = computeDigest(next)
+	if err != nil {
+		return nil, err
+	}
+	if dryRun {
+		return &next, nil
+	}
+	if err := publishMigratedCandidate(ctx, path, current, currentBytes, &next); err != nil {
+		return nil, err
+	}
+	return &next, nil
 }
 
 // attemptUpdateCandidate performs one read-build-claim-publish cycle of
@@ -326,6 +431,48 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 	published = true
 
 	return next, nil
+}
+
+// publishMigratedCandidate publishes a replacement for an existing legacy
+// candidate through the same claim/archive/rename sequence as ordinary
+// candidate updates. Keeping migration on this path preserves the archived
+// predecessor and prevents a stale migration from overwriting a newer head.
+func publishMigratedCandidate(ctx context.Context, path string, current *IntegrationCandidate, currentBytes []byte, next *IntegrationCandidate) error {
+	data, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return fmt.Errorf("integration: marshal migrated candidate: %w", err)
+	}
+	claimsDir := candidateClaimsDir(path)
+	if err := os.MkdirAll(claimsDir, runDirMode); err != nil {
+		return fmt.Errorf("integration: create candidate claims directory: %w", err)
+	}
+	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
+	if err := writeTempFileSynced(tmpPath, data); err != nil {
+		return fmt.Errorf("integration: write migrated candidate: %w", err)
+	}
+	claimPath := filepath.Join(claimsDir, claimFileName(current.Digest))
+	if err := claimCandidateTransition(ctx, path, claimPath, tmpPath, current.Digest); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	published := false
+	defer func() {
+		if !published {
+			_ = os.Remove(claimPath)
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
+		return err
+	}
+	if archiveTestHook != nil {
+		archiveTestHook()
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("integration: publish migrated candidate at %s: %w", path, err)
+	}
+	published = true
+	return nil
 }
 
 // claimCandidateTransition atomically claims the expected prior digest, or
@@ -525,7 +672,11 @@ func claimFileName(expectedDigest string) string {
 // invariant is integration_review's closure-check job (spec.md REQ-F-005),
 // not this function's.
 func buildNextCandidate(ctx context.Context, projectRoot string, current *IntegrationCandidate, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
-	next := &IntegrationCandidate{EpicRunID: epicRunID, HeadCommit: newEvent.FeatureCommit}
+	next := &IntegrationCandidate{
+		EpicRunID:               epicRunID,
+		HeadCommit:              newEvent.FeatureCommit,
+		PathDigestSchemaVersion: currentPathDigestSchemaVersion,
+	}
 
 	ids := map[string]struct{}{newEvent.EventID: {}}
 	if current != nil {

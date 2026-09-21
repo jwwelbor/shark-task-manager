@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -316,6 +318,9 @@ func TestUpdateCandidate_CreatesCandidateFile(t *testing.T) {
 	if onDisk.Digest != candidate.Digest {
 		t.Errorf("on-disk Digest = %q, want %q", onDisk.Digest, candidate.Digest)
 	}
+	if onDisk.PathDigestSchemaVersion != currentPathDigestSchemaVersion {
+		t.Errorf("on-disk PathDigestSchemaVersion = %d, want %d", onDisk.PathDigestSchemaVersion, currentPathDigestSchemaVersion)
+	}
 }
 
 // TestUpdateCandidate_DigestExcludesItself covers task AC-T1: recomputing
@@ -342,6 +347,66 @@ func TestUpdateCandidate_DigestExcludesItself(t *testing.T) {
 	}
 	if recomputed != candidate.Digest {
 		t.Errorf("recomputed digest %q != recorded digest %q", recomputed, candidate.Digest)
+	}
+}
+
+// TestMigrateCandidatePathDigests_RepairsLegacyCandidate covers B076: a
+// candidate written before candidate-level path-digest capture must be
+// explicitly migrated before integration_review can trust it. The migration
+// preserves the accumulated identity, captures the current clean-tree
+// inventory, and retains the exact legacy bytes as an archived predecessor.
+func TestMigrateCandidatePathDigests_RepairsLegacyCandidate(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	legacy := IntegrationCandidate{
+		EpicRunID:  run.EpicRunID,
+		BaseCommit: headCommit,
+		HeadCommit: "legacy-head",
+		EventIDs:   []string{"legacy-event"},
+		Digest:     "",
+	}
+	legacy.Digest, err = computeDigest(legacy)
+	if err != nil {
+		t.Fatalf("compute legacy digest: %v", err)
+	}
+	legacyBytes, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy candidate: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
+
+	migrated, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, false)
+	if err != nil {
+		t.Fatalf("MigrateCandidatePathDigests: %v", err)
+	}
+	if migrated.PathDigestSchemaVersion != currentPathDigestSchemaVersion {
+		t.Fatalf("PathDigestSchemaVersion = %d, want %d", migrated.PathDigestSchemaVersion, currentPathDigestSchemaVersion)
+	}
+	if migrated.BaseCommit != legacy.BaseCommit || migrated.HeadCommit != legacy.HeadCommit || !slices.Equal(migrated.EventIDs, legacy.EventIDs) {
+		t.Fatalf("migration changed candidate identity: got %+v, want base/head/events from %+v", migrated, legacy)
+	}
+	if migrated.TrackedPathDigests == nil || migrated.UntrackedPathDigests == nil {
+		t.Fatalf("migration must persist verified empty path-digest maps: got tracked=%v untracked=%v", migrated.TrackedPathDigests, migrated.UntrackedPathDigests)
+	}
+
+	archived, err := os.ReadFile(filepath.Join(candidateHeadsDir(path), legacy.Digest+".json"))
+	if err != nil {
+		t.Fatalf("read archived legacy candidate: %v", err)
+	}
+	if !bytes.Equal(archived, legacyBytes) {
+		t.Fatalf("archived legacy candidate bytes changed during migration")
 	}
 }
 
