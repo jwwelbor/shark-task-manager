@@ -216,8 +216,8 @@ shark link E01-F01 E01-F02 --type=follows
 # Question-only gate: Question -> eligible non-Question entity
 shark link Q001 E01-F01 --type=question_blocks
 
-# Legacy task-specific syntax (still works)
-shark task link E01-F02-001 E01-F02-002 --type=depends_on
-shark task unlink E01-F02-001 E01-F02-002
+# Task-specific syntax uses relationship flags
+shark task link E01-F02-001 --depends-on E01-F02-002
+shark task unlink E01-F02-001 --depends-on E01-F02-002
 shark task deps E01-F02-001                  # Dependency tree
 ```

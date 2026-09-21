@@ -195,19 +195,40 @@ func TestB073WorkflowGuideUsesCurrentRelationshipSyntax(t *testing.T) {
 		t.Fatal("runtime.Caller failed")
 	}
 	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../.."))
-	content, err := os.ReadFile(filepath.Join(projectRoot, "docs", "WORKFLOW_GUIDE.md"))
-	if err != nil {
-		t.Fatalf("read workflow guide: %v", err)
+	documents := []struct {
+		path     string
+		required []string
+	}{
+		{
+			path: filepath.Join("docs", "WORKFLOW_GUIDE.md"),
+			required: []string{
+				"shark link A B --type=depends_on",
+				"shark link A B --type=blocks",
+			},
+		},
+		{
+			path: filepath.Join("skills", "shark-rider", "context", "entity-crud.md"),
+			required: []string{
+				"shark task link E01-F02-001 --depends-on E01-F02-002",
+				"shark task unlink E01-F02-001 --depends-on E01-F02-002",
+			},
+		},
 	}
-	text := string(content)
-	for _, forbidden := range []string{"--type=depends-on", "--type=relates-to", "--type=blocked_by"} {
-		if strings.Contains(text, forbidden) {
-			t.Errorf("workflow guide still contains obsolete relationship syntax %q", forbidden)
+	for _, document := range documents {
+		content, err := os.ReadFile(filepath.Join(projectRoot, document.path))
+		if err != nil {
+			t.Fatalf("read %s: %v", document.path, err)
 		}
-	}
-	for _, required := range []string{"shark link A B --type=depends_on", "shark link A B --type=blocks"} {
-		if !strings.Contains(text, required) {
-			t.Errorf("workflow guide does not contain current relationship syntax %q", required)
+		text := string(content)
+		for _, forbidden := range []string{"--type=depends-on", "--type=relates-to", "--type=blocked_by"} {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s still contains obsolete relationship syntax %q", document.path, forbidden)
+			}
+		}
+		for _, required := range document.required {
+			if !strings.Contains(text, required) {
+				t.Errorf("%s does not contain current relationship syntax %q", document.path, required)
+			}
 		}
 	}
 }
