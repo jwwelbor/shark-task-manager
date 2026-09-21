@@ -382,7 +382,7 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 	if transResult.ChildCount > 0 {
 		cli.Warning(fmt.Sprintf("%d child entities remain in current states.", transResult.ChildCount))
 	}
-	cli.Info(fmt.Sprintf("Run `shark next %s --json` to get your next instructions.", transResult.EntityKey))
+	printNextInstructions(transResult.EntityKey)
 	return nil
 }
 

@@ -3,12 +3,13 @@ package commands
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockEpicServiceForTest wraps a mock EpicService for testing the next-status command.
@@ -186,17 +187,9 @@ func TestPerformEntityTransition_UsesCanonicalDispatchAdvice(t *testing.T) {
 	output, err := captureStdoutForTest(t, func() error {
 		return performEntityTransition(context.Background(), mock, "E16", "active", services.TransitionOptions{}, result)
 	})
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
+	require.NoError(t, err)
 
-	wantAdvice := "Run `shark next E16 --json` to get your next instructions."
-	if !strings.Contains(output, wantAdvice) {
-		t.Errorf("expected canonical dispatch advice %q in output %q", wantAdvice, output)
-	}
-	if strings.Contains(output, "orchestrator_action") {
-		t.Errorf("expected obsolete orchestrator_action advice to be absent from output %q", output)
-	}
+	assertCanonicalDispatchAdvice(t, output, "E16")
 }
 
 func TestSetStatus_UsesCanonicalDispatchAdvice(t *testing.T) {
@@ -221,17 +214,16 @@ func TestSetStatus_UsesCanonicalDispatchAdvice(t *testing.T) {
 		cmd.SetArgs([]string{"E16", "active"})
 		return cmd.Execute()
 	})
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
+	require.NoError(t, err)
 
-	wantAdvice := "Run `shark next E16 --json` to get your next instructions."
-	if !strings.Contains(output, wantAdvice) {
-		t.Errorf("expected canonical dispatch advice %q in output %q", wantAdvice, output)
-	}
-	if strings.Contains(output, "orchestrator_action") {
-		t.Errorf("expected obsolete orchestrator_action advice to be absent from output %q", output)
-	}
+	assertCanonicalDispatchAdvice(t, output, "E16")
+}
+
+func assertCanonicalDispatchAdvice(t *testing.T, output, entityKey string) {
+	t.Helper()
+	wantAdvice := fmt.Sprintf("Run `shark next %s --json` to get your next instructions.", entityKey)
+	assert.Contains(t, output, wantAdvice)
+	assert.NotContains(t, output, "orchestrator_action")
 }
 
 func TestPerformEntityTransition_Error(t *testing.T) {
