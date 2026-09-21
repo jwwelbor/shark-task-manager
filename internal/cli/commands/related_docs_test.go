@@ -269,6 +269,21 @@ func TestRelatedDocsListTask(t *testing.T) {
 	}
 }
 
+// TestRelatedDocsListInfersBugFromPositionalKey covers B072: a related-docs
+// list invocation should infer the entity type from a positional key.
+func TestRelatedDocsListInfersBugFromPositionalKey(t *testing.T) {
+	entityType, key, err := resolveRelatedDocsListSelection([]string{"B072"}, "", "", "", "", "", "")
+	if err != nil {
+		t.Fatalf("resolveRelatedDocsListSelection returned error: %v", err)
+	}
+	if entityType != "bug" {
+		t.Fatalf("entity type = %q, want %q", entityType, "bug")
+	}
+	if key != "B072" {
+		t.Fatalf("key = %q, want %q", key, "B072")
+	}
+}
+
 // TestRelatedDocsListJSON tests JSON output
 func TestRelatedDocsListJSON(t *testing.T) {
 	mockDocRepo := NewMockDocumentRepository()

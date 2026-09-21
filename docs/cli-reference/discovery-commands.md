@@ -166,12 +166,12 @@ shark related-docs add "Task Details" docs/details.md --task=T-E01-F01-001
 
 ### `shark related-docs list`
 
-List all documents linked to an epic, feature, or task. Requires exactly one of `--epic`, `--feature`, or `--task` flags.
+List all documents linked to an epic, feature, task, bug, change-card, or question. Pass an entity key positionally to infer its type, or provide exactly one explicit entity-type flag.
 
 **Usage:**
 
 ```
-shark related-docs list [flags]
+shark related-docs list [<entity-key>] [flags]
 ```
 
 **Flags:**
@@ -181,11 +181,17 @@ shark related-docs list [flags]
 | `--epic <key>` | Epic key (e.g., `E01`) |
 | `--feature <key>` | Feature key (e.g., `E01-F01`) |
 | `--task <key>` | Task key (e.g., `T-E01-F01-001`) |
+| `--bug <key>` | Bug key (e.g., `B001`) |
+| `--change <key>` | Change-card key (e.g., `CC-001`) |
+| `--question <key>` | Question key (e.g., `Q001`) |
 | `--json` | Output in JSON format |
 
 **Examples:**
 
 ```bash
+# Infer the entity type from a positional key
+shark related-docs list B001 --json
+
 # List docs linked to an epic
 shark related-docs list --epic=E01
 

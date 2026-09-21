@@ -59,16 +59,20 @@ Examples:
 
 // relatedDocsListCmd lists documents for a parent entity
 var relatedDocsListCmd = &cobra.Command{
-	Use:   "list",
+	Use:   "list [<entity-key>]",
 	Short: "List related documents",
-	Long: `List all documents linked to an epic, feature, or task.
+	Long: `List all documents linked to an epic, feature, task, bug, change-card, or question.
 
-Requires exactly one of --epic, --feature, or --task flags.
+Pass an entity key positionally to infer its type, or use exactly one explicit
+entity-type flag.
 
 Examples:
+  shark related-docs list E01
+  shark related-docs list B001 --json
   shark related-docs list --epic=E01
   shark related-docs list --feature=E01-F01 --json
   shark related-docs list --task=T-E01-F01-001`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runRelatedDocsListList,
 }
 
@@ -210,48 +214,102 @@ func printDocUnlinked(title, entityType, parentKey string) error {
 	return nil
 }
 
-// dispatchListDocs fetches related documents for the first non-empty entity key.
-func dispatchListDocs(ctx context.Context, epic, feature, task, bug, change, question string) ([]*models.Document, error) {
-	if epic != "" {
-		docs, err := cli.GetEpicService().ListRelatedDocumentsByKey(ctx, epic)
+// dispatchListDocs fetches related documents for the selected entity key.
+func dispatchListDocs(ctx context.Context, entityType, key string) ([]*models.Document, error) {
+	switch entityType {
+	case "epic":
+		docs, err := cli.GetEpicService().ListRelatedDocumentsByKey(ctx, key)
 		if err != nil {
 			return nil, fmt.Errorf("epic not found: %w", err)
 		}
 		return docs, nil
-	}
-	if feature != "" {
-		docs, err := cli.GetFeatureService().ListRelatedDocumentsByKey(ctx, feature)
+	case "feature":
+		docs, err := cli.GetFeatureService().ListRelatedDocumentsByKey(ctx, key)
 		if err != nil {
 			return nil, fmt.Errorf("feature not found: %w", err)
 		}
 		return docs, nil
-	}
-	if bug != "" {
-		docs, err := cli.GetBugService().ListRelatedDocumentsByKey(ctx, bug)
+	case "bug":
+		docs, err := cli.GetBugService().ListRelatedDocumentsByKey(ctx, key)
 		if err != nil {
 			return nil, fmt.Errorf("bug not found: %w", err)
 		}
 		return docs, nil
-	}
-	if change != "" {
-		docs, err := cli.GetChangeCardService().ListRelatedDocumentsByKey(ctx, change)
+	case "change":
+		docs, err := cli.GetChangeCardService().ListRelatedDocumentsByKey(ctx, key)
 		if err != nil {
 			return nil, fmt.Errorf("change-card not found: %w", err)
 		}
 		return docs, nil
-	}
-	if question != "" {
-		docs, err := cli.GetQuestionDocumentService(ctx).ListDocumentsByKey(ctx, question)
+	case "question":
+		docs, err := cli.GetQuestionDocumentService(ctx).ListDocumentsByKey(ctx, key)
 		if err != nil {
 			return nil, fmt.Errorf("question not found: %w", err)
 		}
 		return docs, nil
+	case "task":
+		docs, err := cli.GetTaskServiceWithDocs().ListRelatedDocuments(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("task not found: %w", err)
+		}
+		return docs, nil
+	default:
+		return nil, fmt.Errorf("unsupported related-docs entity type %q", entityType)
 	}
-	docs, err := cli.GetTaskServiceWithDocs().ListRelatedDocuments(ctx, task)
-	if err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
+}
+
+// resolveRelatedDocsListSelection resolves either a positional entity key or
+// one explicit entity-type selector into the values consumed by dispatchListDocs.
+func resolveRelatedDocsListSelection(args []string, epic, feature, task, bug, change, question string) (string, string, error) {
+	selectors := []struct {
+		entityType string
+		key        string
+	}{
+		{entityType: "epic", key: epic},
+		{entityType: "feature", key: feature},
+		{entityType: "task", key: task},
+		{entityType: "bug", key: bug},
+		{entityType: "change", key: change},
+		{entityType: "question", key: question},
 	}
-	return docs, nil
+
+	selected := 0
+	for _, selector := range selectors {
+		if selector.key != "" {
+			selected++
+		}
+	}
+
+	if len(args) > 1 {
+		return "", "", fmt.Errorf("related-docs list accepts at most one positional entity key")
+	}
+	if len(args) == 1 {
+		if selected > 0 {
+			return "", "", fmt.Errorf("cannot combine positional entity key %q with an explicit entity-type flag", args[0])
+		}
+
+		entityType := DetectEntityType(args[0])
+		switch entityType {
+		case "epic", "feature", "task", "bug", "change", "question":
+			return entityType, args[0], nil
+		default:
+			return "", "", fmt.Errorf("cannot infer a supported entity type from key %q", args[0])
+		}
+	}
+
+	if selected == 0 {
+		return "", "", fmt.Errorf("one of --epic, --feature, --task, --bug, --change, or --question must be specified")
+	}
+	if selected > 1 {
+		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, or --question must be specified")
+	}
+
+	for _, selector := range selectors {
+		if selector.key != "" {
+			return selector.entityType, selector.key, nil
+		}
+	}
+	return "", "", fmt.Errorf("related-docs list selector could not be resolved")
 }
 
 // runRelatedDocsListList handles listing documents
@@ -265,11 +323,12 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	useJSON := jsonOutput || cli.GlobalConfig.JSON
 
-	if epic == "" && feature == "" && task == "" && bug == "" && change == "" && question == "" {
-		return fmt.Errorf("one of --epic, --feature, --task, --bug, --change, or --question must be specified")
+	entityType, key, err := resolveRelatedDocsListSelection(args, epic, feature, task, bug, change, question)
+	if err != nil {
+		return err
 	}
 
-	docs, err := dispatchListDocs(cmd.Context(), epic, feature, task, bug, change, question)
+	docs, err := dispatchListDocs(cmd.Context(), entityType, key)
 	if err != nil {
 		return err
 	}
