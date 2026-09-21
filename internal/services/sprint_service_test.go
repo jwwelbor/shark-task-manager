@@ -1547,14 +1547,14 @@ func TestSprintService_GetSprintBacklog_CompletionPercentBVA(t *testing.T) {
 			expectedCompleted: 4,
 		},
 		{
-			name: "terminal compatibility alias counts as completed",
+			name: "excluded terminal compatibility alias does not count as completed",
 			items: []*sprint.BacklogItem{
 				makeItem("change_card", "declined"),
 			},
 			completedStatus:   "completed",
-			expectedPercent:   100.0,
+			expectedPercent:   0.0,
 			expectedTotal:     1,
-			expectedCompleted: 1,
+			expectedCompleted: 0,
 		},
 		{
 			name: "TC-B05d: 0 of 10 completed = 0.0%",

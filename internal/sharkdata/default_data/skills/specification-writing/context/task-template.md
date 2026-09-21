@@ -6,7 +6,6 @@ This document defines the complete structure for Tasks (agent-executable impleme
 
 ```markdown
 ---
-status: created
 feature: /docs/plan/{epic-key}/{feature-key}
 created: YYYY-MM-DD
 assigned_agent: developer | devops | architect | qa
@@ -277,9 +276,7 @@ If wireframes are missing and the task touches frontend code, the BA/PM should r
 
 ## Frontmatter Fields
 
-**status**: `draft` | `development` | `blocked` | `on_hold` | `completed` | `cancelled`
-
-Note: Status is managed by the active workflow and tracked in the project data store. Task files remain in the feature directory regardless of status.
+Workflow status is managed by the active workflow and stored in the project data store. Do not add a `status` field or status snapshot to task Markdown. Task files remain in the feature directory regardless of lifecycle state.
 
 **feature**: Path to feature directory containing design docs
 
@@ -339,15 +336,15 @@ Create `tasks/README.md` to index all Tasks:
 ## Overview
 This folder contains agent-executable tasks that implement the {feature-key} feature in phases.
 
-## Active Tasks
+## Tasks
 
-| Task | Status | Assigned Agent | Dependencies | Size |
-|-----|--------|----------------|--------------|------|
-| [T-E##-F##-001](./T-E##-F##-001.md) | todo | architect | None | XS |
-| [T-E##-F##-002](./T-E##-F##-002.md) | todo | developer | T-E##-F##-001 | M |
-| [T-E##-F##-003](./T-E##-F##-003.md) | todo | developer | T-E##-F##-001, T-E##-F##-002 | L |
-| [T-E##-F##-004](./T-E##-F##-004.md) | todo | developer | T-E##-F##-001, T-E##-F##-003 | L |
-| [T-E##-F##-005](./T-E##-F##-005.md) | todo | developer | T-E##-F##-004 | M |
+| Task | Assigned Agent | Dependencies | Size |
+|-----|----------------|--------------|------|
+| [T-E##-F##-001](./T-E##-F##-001.md) | architect | None | XS |
+| [T-E##-F##-002](./T-E##-F##-002.md) | developer | T-E##-F##-001 | M |
+| [T-E##-F##-003](./T-E##-F##-003.md) | developer | T-E##-F##-001, T-E##-F##-002 | L |
+| [T-E##-F##-004](./T-E##-F##-004.md) | developer | T-E##-F##-001, T-E##-F##-003 | L |
+| [T-E##-F##-005](./T-E##-F##-005.md) | developer | T-E##-F##-004 | M |
 
 ## Workflow
 
@@ -358,11 +355,11 @@ This folder contains agent-executable tasks that implement the {feature-key} fea
 4. **Task 004**: Frontend Development (8 hours) - Depends on 001, 003
 5. **Task 005**: Integration Testing (6 hours) - Depends on 004
 
-## Status Definitions
+## Lifecycle state
 
-Status is tracked in the project data store. Task specs should name the intended workflow state semantically, but should not embed platform-specific transition instructions. Use the active task workflow to transition among `draft`, `development`, `blocked`, `on_hold`, `completed`, and `cancelled`.
+Use the active project workflow to read and transition task lifecycle state. Do not record it in task files or the task index.
 
-Task files remain in `/docs/plan/{epic}/{feature}/tasks/` regardless of status.
+Task files remain in `/docs/plan/{epic}/{feature}/tasks/` regardless of lifecycle state.
 
 ## Design Documentation
 All tasks reference these design documents in /docs/plan/{epic-key}/{feature-key}/:

@@ -166,6 +166,18 @@ type sprintAnalyticsAdapter struct {
 	repo *sprintrepo.SprintAnalyticsRepository
 }
 
+func (a *sprintAnalyticsAdapter) ListVelocitySprints(ctx context.Context, limit int, statuses []string) ([]services.AnalyticsVelocitySprint, error) {
+	sprints, err := a.repo.ListVelocitySprints(ctx, limit, statuses)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]services.AnalyticsVelocitySprint, len(sprints))
+	for i, sp := range sprints {
+		out[i] = services.AnalyticsVelocitySprint{ID: sp.ID, Key: sp.Key, Name: sp.Name}
+	}
+	return out, nil
+}
+
 func (a *sprintAnalyticsAdapter) GetVelocityData(ctx context.Context, limit int) ([]services.AnalyticsVelocityRow, error) {
 	rows, err := a.repo.GetVelocityData(ctx, limit)
 	if err != nil {
@@ -194,6 +206,7 @@ func (a *sprintAnalyticsAdapter) GetSprintAssignedEntities(ctx context.Context, 
 			Key:        e.Key,
 			EntityType: e.EntityType,
 			EntityID:   e.EntityID,
+			Status:     e.Status,
 			AssignedAt: e.AssignedAt,
 			RemovedAt:  e.RemovedAt,
 			Size:       e.Size,

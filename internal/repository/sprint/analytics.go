@@ -3,6 +3,7 @@ package sprint
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
@@ -22,6 +23,61 @@ type SprintAnalyticsRepository struct {
 // NewSprintAnalyticsRepository creates a SprintAnalyticsRepository backed by db.
 func NewSprintAnalyticsRepository(db *dbconn.DB) *SprintAnalyticsRepository {
 	return &SprintAnalyticsRepository{db: db}
+}
+
+// ListVelocitySprints returns the last limit sprints whose persisted status is
+// one of the workflow-derived successful done-phase statuses supplied by the
+// service layer. The repository deliberately does not decide which statuses
+// represent successful delivery.
+func (r *SprintAnalyticsRepository) ListVelocitySprints(ctx context.Context, limit int, statuses []string) ([]VelocitySprint, error) {
+	if limit <= 0 || len(statuses) == 0 {
+		return []VelocitySprint{}, nil
+	}
+
+	placeholders := "?"
+	args := make([]interface{}, 0, len(statuses)+1)
+	for i, status := range statuses {
+		if i > 0 {
+			placeholders += ", ?"
+		}
+		args = append(args, strings.ToLower(status))
+	}
+	args = append(args, limit)
+
+	query := `
+		WITH recent_done AS (
+			SELECT id, key, name, end_date
+			FROM sprints
+			WHERE LOWER(status) IN (` + placeholders + `)
+			ORDER BY end_date DESC
+			LIMIT ?
+		)
+		SELECT id, key, name
+		FROM recent_done
+		ORDER BY end_date ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list velocity sprints: %w", err)
+	}
+	defer rows.Close()
+
+	var result []VelocitySprint
+	for rows.Next() {
+		var row VelocitySprint
+		if err := rows.Scan(&row.ID, &row.Key, &row.Name); err != nil {
+			return nil, fmt.Errorf("failed to scan velocity sprint: %w", err)
+		}
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate velocity sprints: %w", err)
+	}
+	if result == nil {
+		return []VelocitySprint{}, nil
+	}
+	return result, nil
 }
 
 // GetVelocityData returns the last `limit` completed sprints ordered oldest-first
@@ -147,28 +203,28 @@ func (r *SprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Contex
 	// per entity type enables the query planner to use the (entity_type, entity_id)
 	// composite index on each branch independently.
 	query := `
-		SELECT t.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, t.size
+		SELECT t.key, sa.entity_type, sa.entity_id, t.status, sa.assigned_at, sa.removed_at, t.size
 		FROM sprint_assignments sa
 		JOIN tasks t ON t.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'task'
 
 		UNION ALL
 
-		SELECT b.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, b.size
+		SELECT b.key, sa.entity_type, sa.entity_id, b.status, sa.assigned_at, sa.removed_at, b.size
 		FROM sprint_assignments sa
 		JOIN bugs b ON b.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'bug'
 
 		UNION ALL
 
-		SELECT cc.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, cc.size
+		SELECT cc.key, sa.entity_type, sa.entity_id, cc.status, sa.assigned_at, sa.removed_at, cc.size
 		FROM sprint_assignments sa
 		JOIN change_cards cc ON cc.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'change_card'
 
 		UNION ALL
 
-		SELECT td.key, sa.entity_type, sa.entity_id, sa.assigned_at, sa.removed_at, td.size
+		SELECT td.key, sa.entity_type, sa.entity_id, td.status, sa.assigned_at, sa.removed_at, td.size
 		FROM sprint_assignments sa
 		JOIN tech_debts td ON td.id = sa.entity_id
 		WHERE sa.sprint_id = ? AND sa.entity_type = 'tech_debt'
@@ -187,6 +243,7 @@ func (r *SprintAnalyticsRepository) GetSprintAssignedEntities(ctx context.Contex
 			&e.Key,
 			&e.EntityType,
 			&e.EntityID,
+			&e.Status,
 			flexTime{&e.AssignedAt},
 			flexNullTime{&e.RemovedAt},
 			&e.Size,

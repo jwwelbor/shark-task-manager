@@ -48,11 +48,11 @@ make test   # Run full test suite
    - Add implementation details to task frontmatter
    - Include specification, acceptance criteria, test plan
    - Link related documents using `related-docs:` frontmatter field
+   - Keep workflow status in Shark's database. Do not add a `status` field or status snapshot to Markdown.
    - Example:
      ```yaml
      ---
      task_key: T-E07-F06-001
-     status: todo
      feature: /path/to/feature
      priority: 5
      dependencies: []

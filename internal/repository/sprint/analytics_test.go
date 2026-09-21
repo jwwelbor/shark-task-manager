@@ -593,6 +593,7 @@ func TestGetSprintAssignedEntities(t *testing.T) {
 	// B061: downstream retrospective note lookup requires the canonical entity
 	// key, not the synthetic "task-<id>" identifier previously derived later.
 	assert.Equal(t, "TEST-E99-F01-010", active.Key)
+	assert.Equal(t, "completed", active.Status, "assignment projection must include the entity's current status")
 	assert.Nil(t, active.RemovedAt, "active assignment has no removed_at")
 	require.NotNil(t, active.Size, "active assignment has size")
 	assert.Equal(t, 5, *active.Size)
@@ -989,4 +990,29 @@ func containsStr(s, substr string) bool {
 		}
 		return false
 	}())
+}
+
+func TestListVelocitySprints_UsesSuppliedDoneStatuses(t *testing.T) {
+	ctx := context.Background()
+	rawDB := test.GetTestDB()
+	repo := NewSprintAnalyticsRepository(dbconn.NewDB(rawDB))
+	now := time.Now().UTC()
+	_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key IN ('S981', 'S982')`)
+	defer func() {
+		_, _ = rawDB.ExecContext(ctx, `DELETE FROM sprints WHERE key IN ('S981', 'S982')`)
+	}()
+
+	seedSprintForAnalytics(t, ctx, "S981", "wrapped", now.AddDate(0, 0, -10), now.AddDate(0, 0, -3))
+	seedSprintForAnalytics(t, ctx, "S982", "completed", now.AddDate(0, 0, -8), now.AddDate(0, 0, -1))
+
+	sprints, err := repo.ListVelocitySprints(ctx, 10, []string{"wrapped"})
+	require.NoError(t, err)
+	require.Len(t, sprints, 1)
+	assert.Equal(t, "S981", sprints[0].Key)
+
+	// Mixed-case configured status must match lowercased status in the database.
+	sprintsCase, err := repo.ListVelocitySprints(ctx, 10, []string{"WRAPPED"})
+	require.NoError(t, err)
+	require.Len(t, sprintsCase, 1)
+	assert.Equal(t, "S981", sprintsCase[0].Key)
 }
