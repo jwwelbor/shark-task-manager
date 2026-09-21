@@ -18,6 +18,21 @@ type taskGetServicer interface {
 	GetTaskDisplayData(ctx context.Context, task *models.Task) (*services.TaskDisplayData, error)
 }
 
+// taskListServicer is the narrow interface consumed by runTaskList.
+type taskListServicer interface {
+	ListTasks(ctx context.Context, filters services.TaskFilters) ([]*models.Task, error)
+}
+
+// taskListSvcOverride is non-nil only during tests.
+var taskListSvcOverride taskListServicer
+
+func getTaskListService() taskListServicer {
+	if taskListSvcOverride != nil {
+		return taskListSvcOverride
+	}
+	return cli.GetTaskService()
+}
+
 // taskGetSvcOverride is non-nil only during tests.
 var taskGetSvcOverride taskGetServicer
 
@@ -101,6 +116,10 @@ var taskSetStatusCmd = &cobra.Command{
 
 // runTaskList lists tasks with optional filters.
 func runTaskList(cmd *cobra.Command, args []string) error {
+	return runTaskListWithService(cmd, args, getTaskListService())
+}
+
+func runTaskListWithService(cmd *cobra.Command, args []string, svc taskListServicer) error {
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
 	var err error
@@ -124,7 +143,6 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		tagFilter = rawTags
 	}
 
-	svc := cli.GetTaskService()
 	tasks, err := svc.ListTasks(cmd.Context(), services.TaskFilters{
 		EpicKey: epicKey, FeatureKey: featureKey, Status: status,
 		AgentType: agentType, ShowAll: showAll, Blocked: blocked,

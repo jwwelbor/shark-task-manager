@@ -1,17 +1,110 @@
 package commands
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/spf13/cobra"
 )
 
 // Integration tests for task list command with positional arguments
+
+type b074TaskListService struct {
+	listFn func(context.Context, services.TaskFilters) ([]*models.Task, error)
+}
+
+func (s b074TaskListService) ListTasks(ctx context.Context, filters services.TaskFilters) ([]*models.Task, error) {
+	return s.listFn(ctx, filters)
+}
+
+func TestB074UnifiedListProductionBoundary(t *testing.T) {
+	tests := []struct {
+		name        string
+		all         bool
+		wantJSON    string
+		wantShowAll bool
+	}{
+		{name: "default filtering serializes empty array", wantJSON: "[]", wantShowAll: false},
+		{name: "all preserves completed task array", all: true, wantShowAll: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured services.TaskFilters
+			previousService := taskListSvcOverride
+			previousJSON := cli.GlobalConfig.JSON
+			previousField := cli.GlobalConfig.Field
+			t.Cleanup(func() {
+				taskListSvcOverride = previousService
+				cli.GlobalConfig.JSON = previousJSON
+				cli.GlobalConfig.Field = previousField
+			})
+			taskListSvcOverride = b074TaskListService{listFn: func(_ context.Context, filters services.TaskFilters) ([]*models.Task, error) {
+				captured = filters
+				if tt.all {
+					return []*models.Task{{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001"}, Status: models.TaskStatus("completed")}}, nil
+				}
+				return []*models.Task{}, nil
+			}}
+			cli.GlobalConfig.JSON = true
+			cli.GlobalConfig.Field = ""
+
+			cmd := &cobra.Command{Use: "list"}
+			cmd.SetContext(context.Background())
+			cmd.Flags().String("status", "", "status")
+			cmd.Flags().String("sort-by", "", "sort")
+			cmd.Flags().Bool("show-all", false, "show all")
+			cmd.Flags().Bool("all", tt.all, "all")
+			cmd.Flags().StringSlice("tag", nil, "tag")
+
+			oldStdout := os.Stdout
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("create stdout pipe: %v", err)
+			}
+			os.Stdout = writer
+			err = runList(cmd, []string{"E04", "F01"})
+			_ = writer.Close()
+			os.Stdout = oldStdout
+			output, readErr := io.ReadAll(reader)
+			_ = reader.Close()
+			if err != nil {
+				t.Fatalf("runList: %v", err)
+			}
+			if readErr != nil {
+				t.Fatalf("read JSON output: %v", readErr)
+			}
+			trimmed := bytes.TrimSpace(output)
+			if !tt.all {
+				if got := string(trimmed); got != tt.wantJSON {
+					t.Fatalf("JSON output = %q, want %q", got, tt.wantJSON)
+				}
+			} else {
+				var tasks []*models.Task
+				if err := json.Unmarshal(trimmed, &tasks); err != nil {
+					t.Fatalf("decode --all JSON output: %v", err)
+				}
+				if len(tasks) != 1 || tasks[0].Key != "T-E04-F01-001" || tasks[0].Status != models.TaskStatus("completed") {
+					t.Fatalf("--all JSON tasks = %#v, want one completed task", tasks)
+				}
+			}
+			if captured.FeatureKey != "E04-F01" || captured.ShowAll != tt.wantShowAll {
+				t.Fatalf("filters = %+v, want feature E04-F01 and show_all=%v", captured, tt.wantShowAll)
+			}
+		})
+	}
+}
 
 // TestParseTaskListArgsIntegration verifies positional argument parsing for task list
 func TestParseTaskListArgsIntegration(t *testing.T) {

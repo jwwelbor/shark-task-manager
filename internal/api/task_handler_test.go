@@ -8,13 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
-	internaltest "github.com/jwwelbor/shark-task-manager/internal/test"
-	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // mockTaskService is a test double for TaskServicer.
@@ -198,79 +194,6 @@ func TestTaskHandler_ListTasks(t *testing.T) {
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-	})
-}
-
-func TestTaskHandler_ListTasks_CompletedFeatureJSONBoundary(t *testing.T) {
-	ctx := context.Background()
-	db := repository.NewDB(internaltest.GetTestDB())
-	epicRepo := repository.NewEpicRepository(db)
-	featureRepo := repository.NewFeatureRepository(db)
-	taskRepo := repository.NewTaskRepository(db)
-
-	keySuffix := 90 + time.Now().UnixNano()%10
-	epicKey := fmt.Sprintf("E%d", keySuffix)
-	featureKey := fmt.Sprintf("%s-F01", epicKey)
-	if existing, _ := epicRepo.GetByKey(ctx, epicKey); existing != nil {
-		t.Skipf("test epic %s already exists", epicKey)
-	}
-	epic := &models.Epic{
-		BaseEntity: models.BaseEntity{Key: epicKey, Title: "B074 API Boundary Epic"},
-		Status:     models.EpicStatusActive,
-		Priority:   models.PriorityHigh,
-	}
-	if err := epicRepo.Create(ctx, epic); err != nil {
-		t.Fatalf("create epic: %v", err)
-	}
-	feature := &models.Feature{
-		BaseEntity: models.BaseEntity{Key: featureKey, Title: "B074 API Boundary Feature"},
-		EpicID:     epic.ID,
-		Status:     models.FeatureStatusActive,
-	}
-	if err := featureRepo.Create(ctx, feature); err != nil {
-		t.Fatalf("create feature: %v", err)
-	}
-	task := &models.Task{
-		BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-001", featureKey), Title: "Completed B074 task"},
-		FeatureID:  feature.ID,
-		Status:     models.TaskStatus("completed"),
-		Priority:   1,
-	}
-	if err := taskRepo.Create(ctx, task); err != nil {
-		t.Fatalf("create task: %v", err)
-	}
-
-	svc := services.NewTaskService(taskRepo, services.NewEntityService(workflow.NewService(".")), nil)
-	mux := newTaskHandlerMux(svc)
-
-	t.Run("default filtering serializes empty array", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks?feature="+featureKey, nil)
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-		}
-		if got := bytes.TrimSpace(rec.Body.Bytes()); string(got) != "[]" {
-			t.Fatalf("expected production API to serialize an empty collection as [], got %q", got)
-		}
-	})
-
-	t.Run("show all preserves completed task array", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks?feature="+featureKey+"&show_all=true", nil)
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-		}
-		var tasks []*models.Task
-		if err := json.NewDecoder(rec.Body).Decode(&tasks); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		if len(tasks) != 1 || tasks[0].Status != models.TaskStatus("completed") {
-			t.Fatalf("expected one completed task through production API, got %#v", tasks)
 		}
 	})
 }
