@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/spf13/cobra"
 )
 
 func TestMapDetectedTypeToEntityType(t *testing.T) {
@@ -138,5 +139,33 @@ func TestLinkHelpAdvertisesDirectedQuestionBlocks(t *testing.T) {
 	}
 	if !strings.Contains(unlinkCmd.Long, "question_blocks") {
 		t.Errorf("unlink long help does not advertise removal of a Question gate: %q", unlinkCmd.Long)
+	}
+	if !strings.Contains(linkCmd.Long, "from-key is blocked by to-key") ||
+		!strings.Contains(linkCmd.Long, "from-key blocks to-key") {
+		t.Errorf("link long help does not explain directional dependency syntax: %q", linkCmd.Long)
+	}
+}
+
+func TestLinkRejectsBlockedByWithDirectionalGuidance(t *testing.T) {
+	previousRelType := linkRelType
+	linkRelType = "blocked_by"
+	t.Cleanup(func() { linkRelType = previousRelType })
+
+	err := runLink(&cobra.Command{}, []string{"from-key", "to-key"})
+	if err == nil {
+		t.Fatal("runLink() returned nil for unsupported blocked_by relationship type")
+	}
+
+	message := err.Error()
+	for _, expected := range []string{
+		`"blocked_by" is not a relationship type`,
+		`--type=depends_on`,
+		`from-key is blocked by to-key`,
+		`--type=blocks`,
+		`from-key blocks to-key`,
+	} {
+		if !strings.Contains(message, expected) {
+			t.Errorf("runLink() error = %q, want guidance containing %q", message, expected)
+		}
 	}
 }
