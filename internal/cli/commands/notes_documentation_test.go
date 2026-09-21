@@ -40,11 +40,15 @@ func TestB071NotesDocumentationMatchesSupportedCommandSurface(t *testing.T) {
 		{
 			path: filepath.Join(".claude", "rules", "quickref.md"),
 			contains: []string{
+				`shark notes add E07-F01-001 --type decision "Chose JWT over sessions"`,
 				`shark notes search "authentication"`,
 				"shark task notes E07-F01-001",
 			},
 			forbids: []string{
 				"shark notes E07-F01-001",
+				"shark notes list",
+				"shark note list",
+				"shark notes {ENTITY_KEY}",
 			},
 		},
 		{
@@ -55,6 +59,9 @@ func TestB071NotesDocumentationMatchesSupportedCommandSurface(t *testing.T) {
 			},
 			forbids: []string{
 				"`shark notes <key>` — View entity notes",
+				"shark notes list",
+				"shark note list",
+				"shark notes {ENTITY_KEY}",
 			},
 		},
 		{
@@ -65,6 +72,9 @@ func TestB071NotesDocumentationMatchesSupportedCommandSurface(t *testing.T) {
 			},
 			forbids: []string{
 				"`shark notes <key>` | View entity notes",
+				"shark notes list",
+				"shark note list",
+				"shark notes {ENTITY_KEY}",
 			},
 		},
 	}
