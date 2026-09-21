@@ -1,7 +1,7 @@
 # Status Commands
 
-Commands for managing entity status transitions. Use `shark progress` for project,
-epic, or feature dashboards and `shark get <key>` for entity details.
+Commands for managing entity status transitions. Use `shark progress` for project
+or epic dashboards and `shark get <key>` for feature or other entity details.
 
 ## Quick Reference
 

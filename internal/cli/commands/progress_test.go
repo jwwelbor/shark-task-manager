@@ -19,15 +19,16 @@ func TestParseProgressRequest(t *testing.T) {
 		epicFlag    string
 		wantEpicKey string
 		wantErr     bool
+		wantErrText string
 	}{
-		{"no args", []string{}, "", "", false},
-		{"epic positional", []string{"E05"}, "", "E05", false},
-		{"epic positional overrides flag", []string{"E05"}, "E07", "E05", false},
-		{"epic flag only", []string{}, "E05", "E05", false},
-		{"combined feature format is rejected", []string{"E05-F02"}, "", "", true},
-		{"separate feature arguments are rejected", []string{"E05", "F02"}, "", "", true},
-		{"too many args", []string{"E05", "F02", "extra"}, "", "", true},
-		{"lowercase epic normalized", []string{"e05"}, "", "E05", false},
+		{"no args", []string{}, "", "", false, ""},
+		{"epic positional", []string{"E05"}, "", "E05", false, ""},
+		{"epic positional overrides flag", []string{"E05"}, "E07", "E05", false, ""},
+		{"epic flag only", []string{}, "E05", "E05", false, ""},
+		{"combined feature format is rejected", []string{"E05-F02"}, "", "", true, "shark get E05-F02"},
+		{"separate feature arguments are rejected", []string{"E05", "F02"}, "", "", true, "shark get E05-F02"},
+		{"too many args", []string{"E05", "F02", "extra"}, "", "", true, ""},
+		{"lowercase epic normalized", []string{"e05"}, "", "E05", false, ""},
 	}
 
 	for _, tt := range tests {
@@ -43,7 +44,10 @@ func TestParseProgressRequest(t *testing.T) {
 
 			req, err := parseProgressRequest(cmd, tt.args)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
+				if tt.wantErrText != "" {
+					assert.Contains(t, err.Error(), tt.wantErrText)
+				}
 				return
 			}
 			assert.NoError(t, err)

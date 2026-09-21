@@ -70,6 +70,7 @@ func TestStatusDocumentationUsesNamespaceContract(t *testing.T) {
 				"## shark status transitions",
 			},
 			forbids: []string{
+				"Use `shark progress` for project,\nepic, or feature dashboards",
 				"- `shark status` - Display status dashboard",
 				"shark status [EPIC] [FEATURE] [flags]",
 				"shark status E05",
