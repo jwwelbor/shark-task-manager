@@ -201,7 +201,7 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	}
 
 	if dryRun {
-		return simulateBackfillCandidate(epicRunID, base, events)
+		return simulateBackfillCandidate(ctx, projectRoot, epicRunID, base, events)
 	}
 	// The ctx.Err() check must come before ensureBackfillManifest: that call
 	// can publish the recovery manifest to disk (publishBackfillManifest), a
@@ -583,7 +583,7 @@ func checkBackfillRunIdentity(run *IntegrationRun, epicKey, epicRunID, base stri
 // (EventIDs is the sorted set of every entry's EventID; HeadCommit is the
 // last-applied event's FeatureCommit) without touching any file, since a
 // dry run must leave every sidecar and note byte-for-byte unchanged.
-func simulateBackfillCandidate(epicRunID, base string, events []IntegrationEvent) (*IntegrationCandidate, error) {
+func simulateBackfillCandidate(ctx context.Context, projectRoot, epicRunID, base string, events []IntegrationEvent) (*IntegrationCandidate, error) {
 	ids := make([]string, 0, len(events))
 	var head string
 	for _, ev := range events {
@@ -592,14 +592,19 @@ func simulateBackfillCandidate(epicRunID, base string, events []IntegrationEvent
 	}
 	sort.Strings(ids)
 
+	tracked, untracked, err := computeDirtyPathDigests(ctx, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+
 	candidate := &IntegrationCandidate{
 		EpicRunID:               epicRunID,
 		BaseCommit:              base,
 		HeadCommit:              head,
 		EventIDs:                ids,
 		PathDigestSchemaVersion: currentPathDigestSchemaVersion,
-		TrackedPathDigests:      map[string]string{},
-		UntrackedPathDigests:    map[string]string{},
+		TrackedPathDigests:      tracked,
+		UntrackedPathDigests:    untracked,
 	}
 	digest, err := computeDigest(*candidate)
 	if err != nil {

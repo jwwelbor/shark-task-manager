@@ -2,6 +2,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -230,8 +231,8 @@ func attemptMigrateCandidate(ctx context.Context, projectRoot, epicKey, epicRunI
 	if run == nil {
 		return nil, fmt.Errorf("integration: migrate candidate: no integration run registered for %s", epicKey)
 	}
-	if run.EpicRunID != epicRunID {
-		return nil, fmt.Errorf("integration: migrate candidate: run %q belongs to %s, not %s", epicRunID, run.EpicKey, epicKey)
+	if run.EpicKey != epicKey || run.EpicRunID != epicRunID {
+		return nil, fmt.Errorf("integration: migrate candidate: registered run identity does not match epic %s and run %s", epicKey, epicRunID)
 	}
 
 	path := candidatePath(projectRoot, epicRunID)
@@ -633,9 +634,13 @@ func archiveCandidateHead(candidatePath, headDigest string, headBytes []byte) er
 
 	if err := os.Link(tmpPath, archivePath); err != nil {
 		if os.IsExist(err) {
-			// Already archived by an earlier attempt at this exact
-			// transition — headDigest's content is immutable, so this is
-			// not an error.
+			archivedBytes, readErr := os.ReadFile(archivePath)
+			if readErr != nil {
+				return fmt.Errorf("integration: verify existing archived head at %s: %w", archivePath, readErr)
+			}
+			if !bytes.Equal(archivedBytes, headBytes) {
+				return fmt.Errorf("integration: existing archived head at %s does not match digest %s", archivePath, headDigest)
+			}
 			return nil
 		}
 		return fmt.Errorf("integration: publish archived head at %s: %w", archivePath, err)

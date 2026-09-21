@@ -97,6 +97,12 @@ func TestBackfill_DryRun_WritesNothing(t *testing.T) {
 	dir, headCommit := chdirProjectRoot(t)
 	shark := filepath.Join(dir, ".shark")
 	before := countFilesUnder(t, shark)
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("dirty tracked"), 0o644); err != nil {
+		t.Fatalf("dirty seed.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("untracked"), 0o644); err != nil {
+		t.Fatalf("untracked.txt: %v", err)
+	}
 
 	const epicRunID = "run-dry"
 	events := validBackfillEvents(epicRunID)
@@ -117,6 +123,12 @@ func TestBackfill_DryRun_WritesNothing(t *testing.T) {
 	}
 	if candidate.Digest == "" {
 		t.Error("candidate.Digest is empty")
+	}
+	if _, ok := candidate.TrackedPathDigests["seed.txt"]; !ok {
+		t.Fatalf("dry-run omitted dirty tracked path digest: %#v", candidate.TrackedPathDigests)
+	}
+	if _, ok := candidate.UntrackedPathDigests["untracked.txt"]; !ok {
+		t.Fatalf("dry-run omitted untracked path digest: %#v", candidate.UntrackedPathDigests)
 	}
 
 	after := countFilesUnder(t, shark)

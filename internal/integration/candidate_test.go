@@ -410,6 +410,52 @@ func TestMigrateCandidatePathDigests_RepairsLegacyCandidate(t *testing.T) {
 	}
 }
 
+func TestMigrateCandidatePathDigests_RejectsMismatchedRunEpic(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	run.EpicKey = "E98"
+	runBytes, err := json.MarshalIndent(run, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal mismatched run: %v", err)
+	}
+	if err := os.WriteFile(runRecordPath(dir, epicKey), runBytes, runFileMode); err != nil {
+		t.Fatalf("write mismatched run: %v", err)
+	}
+
+	legacy := IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "legacy-head", EventIDs: []string{"legacy-event"}}
+	legacy.Digest, err = computeDigest(legacy)
+	if err != nil {
+		t.Fatalf("compute legacy digest: %v", err)
+	}
+	legacyBytes, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy candidate: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
+
+	if _, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, false); err == nil {
+		t.Fatal("expected mismatched run epic key to be rejected")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read candidate after rejection: %v", err)
+	}
+	if !bytes.Equal(got, legacyBytes) {
+		t.Fatal("mismatched run rejection mutated the candidate")
+	}
+}
+
 // TestUpdateCandidate_StaleDigestRetrySucceeds covers TC-008 and task
 // AC-T3/AC-T4's first half: a write against a stale expected-prior digest
 // is rejected, but a single automatic retry closes the race when the
