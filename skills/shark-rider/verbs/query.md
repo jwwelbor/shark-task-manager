@@ -9,9 +9,9 @@ question or run the command — do not invent a workflow.
 If the input starts with a shark subcommand, run it verbatim and show the result:
 
 ```bash
-shark status                 # project dashboard
-shark status E01             # epic status with rollups
-shark status E01-F02         # feature status with task breakdown
+shark progress              # project dashboard
+shark progress E01          # epic progress with feature rollups
+shark get E01-F02           # feature details and current status
 shark list                   # epics
 shark list E01               # features in E01
 shark list E01 F02           # tasks in E01-F02
@@ -49,9 +49,9 @@ Translate prose into read-only shark queries, then summarize. Examples:
 |-----|-----------|
 | "show blocked tasks" | `shark task list --blocked` |
 | "what's in progress" | `shark task list --status in_<phase>` (resolve phase from the workflow) |
-| "status of E01" | `shark status E01` |
+| "status of E01" | `shark progress E01` |
 | "who's working on what" | `shark claims` |
-| "next up for E01-F02" | `shark status E01-F02` + `shark status transitions E01-F02` |
+| "next up for E01-F02" | `shark get E01-F02` + `shark status transitions E01-F02` |
 
 Prefer `--field` for single values; never pipe JSON through `head`/`grep`/`jq`/`python`.
 
@@ -61,7 +61,7 @@ Prefer `--field` for single values; never pipe JSON through `head`/`grep`/`jq`/`
 |----|-----|
 | `shark status set <key> <status>` | `shark task set-status …` |
 | `shark status advance <key> --outcome pass\|fail\|blocked` | `shark status advance --status …` / bare `next-status` |
-| `shark status transitions <key>` | `shark status options …` |
+| `shark status transitions <key>` | obsolete transition-preview command |
 | `shark claim / release / heartbeat / claims` | (1.x had no lease model) |
 
 ## Mutations

@@ -161,5 +161,5 @@ workflow's job via the released outcome.
 | `shark task next-status KEY` / `set-status KEY X` | `shark status advance` / `shark status set` |
 | Hardcoding `ready_for_*` target on block | Return `blocked`; the route decides |
 | Skipping `shark get` first | Always read details before working |
-| `shark status options KEY` | `shark status transitions KEY` |
+| Obsolete transition-preview command | `shark status transitions KEY` |
 | Piping JSON through python/jq | Use `--field`: `shark get KEY --field status` |

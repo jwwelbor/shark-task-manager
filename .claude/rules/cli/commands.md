@@ -30,7 +30,7 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 - `shark status advance <key>` — Advance to next workflow status
 - `shark status transitions <key>` — Show valid next statuses
 - `shark status history <key>` — View status change history
-- `shark progress [EPIC] [FEATURE]` — Project, epic, or feature progress dashboard
+- `shark progress [EPIC]` — Project or epic progress dashboard
 - `shark get <key>` — Entity details and status inspection
 - `shark analytics [key]` — Project or entity analytics
 

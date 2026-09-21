@@ -18,7 +18,7 @@ Display a progress dashboard showing project progress, health indicators, active
 ### Usage
 
 ```
-shark progress [EPIC] [FEATURE] [flags]
+shark progress [EPIC] [flags]
 ```
 
 ### Positional Arguments
@@ -27,7 +27,6 @@ shark progress [EPIC] [FEATURE] [flags]
 |----------|-------------|
 | (no args) | Show full project progress dashboard |
 | EPIC | Show progress for a specific epic (e.g., `E04`) |
-| EPIC FEATURE | Show progress for a specific feature (e.g., `E04 F01` or `E04-F01`) |
 
 Keys are case insensitive and support both numeric and slugged formats.
 
@@ -62,17 +61,15 @@ shark progress --epic=E05
 
 Shows progress for epic E05 including feature breakdowns, task status distribution, and health indicators.
 
-**Feature-scoped progress:**
+**Feature details and status:**
 
 ```bash
-# Two-argument positional syntax
-shark progress E05 F02
-
-# Combined format
-shark progress E05-F02
+shark get E05-F02
+shark get E05-F02 --field status
 ```
 
-Shows detailed progress for a specific feature including individual task statuses and completion metrics.
+Use `shark get` for feature details and current status. `shark progress` currently
+supports project-wide and epic-scoped dashboards.
 
 **Include recent completions:**
 

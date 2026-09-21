@@ -17,7 +17,7 @@ epic, or feature dashboards and `shark get <key>` for entity details.
 without a subcommand displays help; it does not display a dashboard or inspect
 an entity.
 
-Use `shark progress [EPIC] [FEATURE]` for project, epic, or feature dashboards.
+Use `shark progress [EPIC]` for project or epic dashboards.
 Use `shark get <key> --field status` for an entity's current status, or
 `shark get <key>` for its full details.
 
@@ -30,10 +30,9 @@ shark status <set|advance|transitions|history> ...
 ### Related inspection commands
 
 ```bash
-# Project or epic/feature dashboard
+# Project or epic dashboard
 shark progress
 shark progress E05
-shark progress E05 F02
 
 # Entity details or current status
 shark get E05-F02

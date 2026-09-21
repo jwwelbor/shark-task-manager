@@ -50,7 +50,7 @@ func TestStatusDocumentationUsesNamespaceContract(t *testing.T) {
 		{
 			path: filepath.Join("docs", "cli-reference", "README.md"),
 			contains: []string{
-				"`shark progress [EPIC] [FEATURE]`",
+				"`shark progress [EPIC]`",
 				"`shark get <key>`",
 				"`shark status set <key> <status>`",
 				"`shark status transitions <key>`",
@@ -64,7 +64,7 @@ func TestStatusDocumentationUsesNamespaceContract(t *testing.T) {
 			path: filepath.Join("docs", "cli-reference", "status-commands.md"),
 			contains: []string{
 				"`shark status` is a subcommand namespace",
-				"shark progress [EPIC] [FEATURE]",
+				"shark progress [EPIC]",
 				"shark get <key> --field status",
 				"## shark status transitions",
 			},
@@ -73,6 +73,20 @@ func TestStatusDocumentationUsesNamespaceContract(t *testing.T) {
 				"shark status [EPIC] [FEATURE] [flags]",
 				"shark status E05",
 				"shark status options",
+				"shark progress [EPIC] [FEATURE]",
+				"shark progress E05 F02",
+			},
+		},
+		{
+			path: filepath.Join("docs", "cli-reference", "progress-analytics.md"),
+			contains: []string{
+				"shark progress [EPIC] [flags]",
+				"shark get E05-F02 --field status",
+			},
+			forbids: []string{
+				"shark progress [EPIC] [FEATURE]",
+				"shark progress E05 F02",
+				"shark progress E05-F02",
 			},
 		},
 		{
@@ -84,6 +98,63 @@ func TestStatusDocumentationUsesNamespaceContract(t *testing.T) {
 			forbids: []string{
 				"`shark status [KEY]` — Project dashboard or entity status",
 				"`shark status options <key>`",
+				"`shark progress [EPIC] [FEATURE]`",
+			},
+		},
+		{
+			path: filepath.Join("skills", "shark-rider", "verbs", "query.md"),
+			contains: []string{
+				"shark progress",
+				"shark get E01-F02",
+			},
+			forbids: []string{
+				"shark status E01",
+				"shark status E01-F02",
+			},
+		},
+		{
+			path: filepath.Join("skills", "shark-rider", "context", "workflow-and-status.md"),
+			contains: []string{
+				"shark progress",
+				"shark get E01-F02",
+			},
+			forbids: []string{
+				"shark status            # project-wide dashboard",
+				"shark status E01        # epic status",
+				"shark status E01-F02    # feature status",
+			},
+		},
+		{
+			path:     filepath.Join("skills", "shark-rider", "SKILL.md"),
+			contains: []string{"shark progress [epic]"},
+			forbids:  []string{"shark status [key]"},
+		},
+		{
+			path:     filepath.Join("skills", "shark-rider", "verbs", "help.md"),
+			contains: []string{"Read:             shark progress [epic]"},
+			forbids:  []string{"Read:             shark status [key]"},
+		},
+		{
+			path:     filepath.Join("skills", "shark-rider", "verbs", "viewer.md"),
+			contains: []string{"shark progress"},
+			forbids:  []string{"suggest `shark status`"},
+		},
+		{
+			path:     filepath.Join("skills", "shark-rider", "skills", "triage", "SKILL.md"),
+			contains: []string{"`shark progress` to understand current shape"},
+			forbids:  []string{"`shark status` to understand current shape"},
+		},
+		{
+			path:     filepath.Join("docs", "architectural-overview.md"),
+			contains: []string{"shark progress E07"},
+			forbids:  []string{"shark status E07\n"},
+		},
+		{
+			path:     filepath.Join("docs", "guides", "observability.md"),
+			contains: []string{"shark progress"},
+			forbids: []string{
+				"shark status E07-F01",
+				"./bin/shark status",
 			},
 		},
 	}

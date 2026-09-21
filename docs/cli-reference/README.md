@@ -46,7 +46,7 @@ Commands for day-to-day task lifecycle operations.
 
 | Command | Description | Standard Equivalent |
 |---------|-------------|---------------------|
-| `shark progress [EPIC] [FEATURE]` | Project, epic, or feature progress dashboard | - |
+| `shark progress [EPIC]` | Project or epic progress dashboard | - |
 | `shark get <key>` | Entity details and status inspection | - |
 | `shark status set <key> <status>` | Set entity status directly | `shark task set-status` |
 | `shark status advance <key>` | Advance to next workflow status | `shark task next-status` |

@@ -10,4 +10,4 @@ shark web
 
 Report the URL it prints (default `http://localhost:PORT`). Pass through any
 extra args (e.g. `--port`). If `shark web` is unavailable in this build, say so
-and suggest `shark status` for a terminal dashboard instead.
+and suggest `shark progress` for a terminal dashboard instead.

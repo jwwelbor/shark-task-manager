@@ -255,7 +255,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 shark task list
 For verbose debug logging during development:
 
 ```bash
-SHARK_LOG_LEVEL=debug shark status E07-F01
+SHARK_LOG_LEVEL=debug shark get E07-F01
 ```
 
 For production, keep the default `info` level or set `warn` to reduce volume:
@@ -320,7 +320,7 @@ Key behaviors:
 Override the destination per-run without editing the config:
 
 ```bash
-SHARK_LOG_FILE=/var/log/shark/$(date +%F).log shark status
+SHARK_LOG_FILE=/var/log/shark/$(date +%F).log shark progress
 ```
 
 An empty `SHARK_LOG_FILE` is treated as "not set" and does not override the config value — use a different env var setting or edit `.sharkconfig.json` to explicitly disable the file destination.
@@ -351,7 +351,7 @@ cat otel.log
 To see structured JSON logs with debug detail:
 
 ```bash
-SHARK_OTEL_ENABLED=true SHARK_LOG_LEVEL=debug SHARK_LOG_FORMAT=json ./bin/shark status 2>debug.log
+SHARK_OTEL_ENABLED=true SHARK_LOG_LEVEL=debug SHARK_LOG_FORMAT=json ./bin/shark progress 2>debug.log
 cat debug.log | python3 -m json.tool  # pretty-print
 ```
 
@@ -471,7 +471,7 @@ Point shark at it:
 ```bash
 SHARK_OTEL_ENABLED=true \
   OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
-  ./bin/shark status
+  ./bin/shark progress
 ```
 
 The collector can be configured to export to Jaeger, Zipkin, Prometheus, Grafana Cloud, Honeycomb, Datadog, or any OTLP-compatible backend via its config file.

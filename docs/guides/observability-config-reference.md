@@ -390,7 +390,7 @@ Send traces and metrics to a collector with 10% sampling to limit volume.
 Override the endpoint via environment variable in deployments where the collector address is injected at runtime:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector.svc.cluster.local:4317 shark status
+OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector.svc.cluster.local:4317 shark progress
 ```
 
 ### Full sampling — debugging a production issue

@@ -435,7 +435,7 @@ sequenceDiagram
         UAT->>S: shark status set E07-F01-001 completed
     end
 
-    H->>S: shark status E07
+    H->>S: shark progress E07
     S-->>H: Epic E07: 12/12 tasks completed (100%)
 ```
 

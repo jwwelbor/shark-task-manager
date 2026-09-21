@@ -19,7 +19,7 @@ Day-to-day:       /shark-rider run <key> | triage "desc" | demo <epic-key|featur
 Sprint:           /shark-rider plan-sprint <key> | run-sprint <key> | run-agent-team <epic-key|feature-key> | run-sprint-team <sprint-key> | retro-sprint <key>
 Maintenance:      /shark-rider update-docs | amend <key> "change" | revalidate <key> | help [commands|<verb>]
 
-Read:             shark status [key] | shark list [epic] [feature] | shark get <key> | shark view <key> | shark search "query"
+Read:             shark progress [epic] | shark list [epic] [feature] | shark get <key> | shark view <key> | shark search "query"
 Create:           shark create epic|feature|task|bug|change|tech-debt|idea|note ...
 Workflow:         shark status advance <key> --outcome pass|fail|blocked | shark status set <key> <status>
 Leases:           shark claim <key> | shark heartbeat <key> | shark release <key> [--session SID | --force] | shark claims
