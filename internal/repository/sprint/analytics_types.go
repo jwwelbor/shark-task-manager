@@ -11,12 +11,22 @@ type VelocityRow struct {
 	UnsizedCompleted int
 }
 
+// VelocitySprint identifies a sprint selected for velocity calculation. Item
+// completion is intentionally calculated in the service layer from each
+// entity's workflow, rather than by this repository projection.
+type VelocitySprint struct {
+	ID   int64
+	Key  string
+	Name string
+}
+
 // AssignedEntity represents one row from the polymorphic sprint_assignments join.
 // Used for burndown reconstruction and sprint summary calculations.
 type AssignedEntity struct {
 	Key        string
 	EntityType string
 	EntityID   int64
+	Status     string
 	AssignedAt time.Time
 	RemovedAt  *time.Time
 	Size       *int // from entity table; nil when size IS NULL

@@ -1453,7 +1453,7 @@ func (s *SprintService) GetSprintBacklog(ctx context.Context, sprintKey string, 
 
 	// Count completed items across both view modes.
 	for _, item := range items {
-		if entityWorkflowIndex.isTerminal(item.EntityType, item.Status) {
+		if entityWorkflowIndex.isSuccessfulCompletion(item.EntityType, item.Status) {
 			completedCount++
 		}
 	}
@@ -1592,13 +1592,18 @@ func backlogItemToView(item *sprint.BacklogItem) *BacklogItemView {
 type sprintEntityWorkflowIndex struct {
 	workflows        map[string]*workflow.Service
 	terminalStatuses map[string]map[string]bool
+	successStatuses  map[string]map[string]bool
 	blockedStatuses  map[string]map[string]bool
 }
 
 func newSprintEntityWorkflowIndex(sprintWorkflow *workflow.Service) sprintEntityWorkflowIndex {
+	if sprintWorkflow == nil {
+		sprintWorkflow = workflow.NewServiceFromMultiLevel(nil)
+	}
 	index := sprintEntityWorkflowIndex{
 		workflows:        make(map[string]*workflow.Service, len(sprintAssignableWorkflowLevels)),
 		terminalStatuses: make(map[string]map[string]bool),
+		successStatuses:  make(map[string]map[string]bool),
 		blockedStatuses:  make(map[string]map[string]bool),
 	}
 	for _, level := range sprintAssignableWorkflowLevels {
@@ -1606,6 +1611,7 @@ func newSprintEntityWorkflowIndex(sprintWorkflow *workflow.Service) sprintEntity
 	}
 	for entityType, entityWorkflow := range index.workflows {
 		index.terminalStatuses[entityType] = terminalSet(entityWorkflow)
+		index.successStatuses[entityType] = successfulTerminalSet(entityWorkflow)
 		blockedStatuses := entityWorkflow.GetStatusesByPhase("blocked")
 		if len(blockedStatuses) == 0 {
 			blockedStatuses = []string{"blocked"}
@@ -1624,6 +1630,15 @@ func (i sprintEntityWorkflowIndex) workflowFor(entityType string) (*workflow.Ser
 func (i sprintEntityWorkflowIndex) isTerminal(entityType, status string) bool {
 	entityWorkflow, storageEntityType, ok := i.workflowFor(entityType)
 	return ok && i.terminalStatuses[storageEntityType][workflowStatusKey(entityWorkflow, status)]
+}
+
+// isSuccessfulCompletion reports whether an item is in a terminal workflow
+// state that counts as delivered. Terminal abandonment states explicitly opt
+// out through exclude_from_progress and must never contribute to sprint
+// backlog, summary, velocity, or burndown completion.
+func (i sprintEntityWorkflowIndex) isSuccessfulCompletion(entityType, status string) bool {
+	entityWorkflow, storageEntityType, ok := i.workflowFor(entityType)
+	return ok && i.successStatuses[storageEntityType][workflowStatusKey(entityWorkflow, status)]
 }
 
 func (i sprintEntityWorkflowIndex) isBlocked(entityType, status string) bool {
@@ -3912,4 +3927,15 @@ func workflowStatusVocabulary(svc *workflow.Service, statuses []string) []string
 // terminalSet returns canonical terminal statuses for the given workflow level.
 func terminalSet(svc *workflow.Service) map[string]bool {
 	return normalizedStatusSet(svc, svc.GetTerminalStatuses())
+}
+
+func successfulTerminalSet(svc *workflow.Service) map[string]bool {
+	statuses := make([]string, 0)
+	for _, status := range svc.GetTerminalStatuses() {
+		canonical := svc.NormalizeStatus(status)
+		if !svc.GetStatusMetadata(canonical).ExcludeFromProgress {
+			statuses = append(statuses, canonical)
+		}
+	}
+	return normalizedStatusSet(svc, statuses)
 }

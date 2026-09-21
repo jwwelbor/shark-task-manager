@@ -103,11 +103,8 @@ shark create task E##-F## "Task Title" --file="{task-file-path}"     # missing
 shark update {task-key} --title="Task Title" --file="{task-file-path}"  # drifted
 ```
 
-Status only when the file's frontmatter explicitly declares one and it differs:
-
-```bash
-shark status set {task-key} {status-from-file}
-```
+Do not read or sync `status` from frontmatter. Shark stores workflow status in
+the project data store, not Markdown files.
 
 Sync `--agent` / `--priority` / `--order` from frontmatter when present.
 

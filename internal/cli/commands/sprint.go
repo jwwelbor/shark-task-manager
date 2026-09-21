@@ -698,7 +698,6 @@ type sprintTemplateData struct {
 	Goal      string
 	StartDate string
 	EndDate   string
-	Status    string
 	Date      string
 }
 
@@ -713,7 +712,6 @@ func renderSprintTemplate(sprint *models.Sprint) ([]byte, error) {
 		Goal:      sprint.Goal,
 		StartDate: sprint.StartDate.Format("2006-01-02"),
 		EndDate:   sprint.EndDate.Format("2006-01-02"),
-		Status:    string(sprint.Status),
 		Date:      time.Now().Format("2006-01-02"),
 	}
 	tmpl, err := template.New("sprint").Parse(string(raw))

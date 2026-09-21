@@ -23,12 +23,22 @@ type AnalyticsVelocityRow struct {
 	UnsizedCompleted int
 }
 
+// AnalyticsVelocitySprint identifies a workflow-derived done-phase sprint.
+// The service loads its assigned entities and classifies each current status
+// before adding it to velocity.
+type AnalyticsVelocitySprint struct {
+	ID   int64
+	Key  string
+	Name string
+}
+
 // AnalyticsAssignedEntity represents one sprint-assignment row as seen by the service.
 // Mirrors sprint.AssignedEntity without creating a repository dependency.
 type AnalyticsAssignedEntity struct {
 	Key        string
 	EntityType string
 	EntityID   int64
+	Status     string
 	AssignedAt time.Time
 	RemovedAt  *time.Time
 	Size       *int

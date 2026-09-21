@@ -21,6 +21,13 @@ type SprintAnalyticsService struct {
 	workflowSvc   *workflow.Service
 }
 
+// velocitySprintRepository is implemented by the production analytics adapter.
+// It projects workflow-derived done-phase sprint candidates; this service then
+// classifies the assigned items using their entity-specific workflows.
+type velocitySprintRepository interface {
+	ListVelocitySprints(ctx context.Context, limit int, statuses []string) ([]AnalyticsVelocitySprint, error)
+}
+
 // SetWorkflow configures sprint and task status classification for analytics.
 func (s *SprintAnalyticsService) SetWorkflow(workflowSvc *workflow.Service) {
 	s.workflowSvc = workflowSvc
@@ -74,7 +81,7 @@ func (s *SprintAnalyticsService) GetVelocity(ctx context.Context, n int) (*Veloc
 		return nil, fmt.Errorf("sprints must be between 1 and 100, got %d", n)
 	}
 
-	rows, err := s.analyticsRepo.GetVelocityData(ctx, n)
+	rows, err := s.velocityRows(ctx, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get velocity data: %w", err)
 	}
@@ -179,8 +186,9 @@ func (s *SprintAnalyticsService) GetBurndown(ctx context.Context, sprintKey stri
 	// Build a map of entity completion timestamps.
 	// Key: (entityType, entityID) → earliest completion timestamp within the sprint.
 	completedAt := make(map[burndownEntityKey]time.Time)
+	itemWorkflows := newSprintEntityWorkflowIndex(s.workflowSvc)
 	for _, ev := range completionEvents {
-		if s.isTerminalTaskStatus(ev.NewStatus) {
+		if itemWorkflows.isSuccessfulCompletion(ev.EntityType, ev.NewStatus) {
 			k := burndownEntityKey{entityType: ev.EntityType, entityID: ev.EntityID}
 			if existing, ok := completedAt[k]; !ok || ev.Timestamp.Before(existing) {
 				completedAt[k] = ev.Timestamp
@@ -351,17 +359,15 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 		}
 	}
 
-	// Step 4b: Load completion events within the sprint window.
-	completionEvents, err := s.analyticsRepo.GetCompletionEvents(ctx, sp.ID, sp.StartDate, sp.EndDate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get completion events for sprint %s: %w", sprintKey, err)
-	}
-
-	// Build a set of completed entity keys for O(1) lookup.
-	completedSet := make(map[summaryEntityKey]bool, len(completionEvents))
-	for _, ev := range completionEvents {
-		if isTerminalStatus(ev.NewStatus) {
-			completedSet[summaryEntityKey{ev.EntityType, ev.EntityID}] = true
+	// Step 4b: Summary completion is a current assigned-scope snapshot, not a
+	// count of transitions that happened during the sprint calendar window.
+	// This credits items that were completed before the sprint started and
+	// excludes terminal abandonment states.
+	itemWorkflows := newSprintEntityWorkflowIndex(s.workflowSvc)
+	completedSet := make(map[summaryEntityKey]bool, len(entities))
+	for _, e := range entities {
+		if itemWorkflows.isSuccessfulCompletion(e.EntityType, e.Status) {
+			completedSet[summaryEntityKey{e.EntityType, e.EntityID}] = true
 		}
 	}
 
@@ -389,7 +395,7 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 	// velocityResult.TrailingAverage because it includes the current sprint in
 	// its denominator.
 	var trailingAvgVelocity float64
-	priorRows, err := s.analyticsRepo.GetVelocityData(ctx, 6)
+	priorRows, err := s.velocityRows(ctx, 6)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get velocity data for sprint %s summary: %w", sprintKey, err)
 	}
@@ -538,26 +544,6 @@ func truncateToDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// isTerminalStatus returns true when the given status represents task completion.
-// The list of terminal statuses is service-layer knowledge (per spec Decision 1
-// and spec §4.3 note: "terminal states determined by the caller").
-// Using a map for O(1) lookup.
-func isTerminalStatus(status string) bool {
-	terminals := map[string]bool{
-		"completed": true,
-		"done":      true,
-		"closed":    true,
-		"approved":  true,
-		"cancelled": true,
-		"archived":  true,
-		"resolved":  true,
-		"wont_fix":  true,
-		"wont_do":   true,
-		"dismissed": true,
-	}
-	return terminals[status]
-}
-
 func (s *SprintAnalyticsService) isPlanningSprintStatus(status string) bool {
 	if s.workflowSvc != nil {
 		for _, candidate := range s.workflowSvc.ForLevel(workflow.LevelSprint).GetStatusesByPhase("planning") {
@@ -576,11 +562,55 @@ func (s *SprintAnalyticsService) isTerminalSprintStatus(status string) bool {
 	return status == "completed" || status == "archived"
 }
 
-func (s *SprintAnalyticsService) isTerminalTaskStatus(status string) bool {
-	if s.workflowSvc != nil {
-		return s.workflowSvc.ForLevel(workflow.LevelTask).IsTerminalStatus(status)
+func (s *SprintAnalyticsService) velocityRows(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+	if repo, ok := s.analyticsRepo.(velocitySprintRepository); ok {
+		sprints, err := repo.ListVelocitySprints(ctx, limit, s.successfulDoneSprintStatuses())
+		if err != nil {
+			return nil, err
+		}
+		itemWorkflows := newSprintEntityWorkflowIndex(s.workflowSvc)
+		rows := make([]AnalyticsVelocityRow, 0, len(sprints))
+		for _, sp := range sprints {
+			entities, err := s.analyticsRepo.GetSprintAssignedEntities(ctx, sp.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get assigned entities for velocity sprint %s: %w", sp.Key, err)
+			}
+			row := AnalyticsVelocityRow{SprintKey: sp.Key, SprintName: sp.Name}
+			for _, entity := range entities {
+				if !itemWorkflows.isSuccessfulCompletion(entity.EntityType, entity.Status) {
+					continue
+				}
+				if entity.Size == nil {
+					row.UnsizedCompleted++
+					continue
+				}
+				row.CompletedSize += *entity.Size
+			}
+			rows = append(rows, row)
+		}
+		return rows, nil
 	}
-	return isTerminalStatus(status)
+
+	// Compatibility seam for existing in-memory analytics fakes. Production
+	// adapters implement velocitySprintRepository above, so delivery metrics
+	// always use current status and workflow-derived sprint selection.
+	return s.analyticsRepo.GetVelocityData(ctx, limit)
+}
+
+func (s *SprintAnalyticsService) successfulDoneSprintStatuses() []string {
+	workflowSvc := s.workflowSvc
+	if workflowSvc == nil {
+		workflowSvc = workflow.NewServiceFromMultiLevel(nil)
+	}
+	sprintWorkflow := workflowSvc.ForLevel(workflow.LevelSprint)
+	statuses := make([]string, 0)
+	for _, status := range sprintWorkflow.GetStatusesByPhase("done") {
+		canonical := sprintWorkflow.NormalizeStatus(status)
+		if !sprintWorkflow.GetStatusMetadata(canonical).ExcludeFromProgress {
+			statuses = append(statuses, canonical)
+		}
+	}
+	return workflowStatusVocabulary(sprintWorkflow, statuses)
 }
 
 // computeSizeAtDay returns the total sized value of all entities that are

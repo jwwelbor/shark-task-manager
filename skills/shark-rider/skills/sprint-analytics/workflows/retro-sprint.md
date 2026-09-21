@@ -143,7 +143,6 @@ Compose the retro report as a single markdown document. Use the structure below 
 # Sprint {S###} Retrospective
 
 **Sprint**: {S###}
-**Status**: {STATUS}
 **Generated**: {YYYY-MM-DD}
 
 ---

@@ -54,6 +54,15 @@ func (m *MockSprintAnalyticsRepository) GetCycleTimeByPhase(ctx context.Context,
 	return nil, fmt.Errorf("GetCycleTimeByPhase not implemented in mock")
 }
 
+type velocitySprintAnalyticsRepository struct {
+	*MockSprintAnalyticsRepository
+	listVelocitySprints func(ctx context.Context, limit int, statuses []string) ([]AnalyticsVelocitySprint, error)
+}
+
+func (m *velocitySprintAnalyticsRepository) ListVelocitySprints(ctx context.Context, limit int, statuses []string) ([]AnalyticsVelocitySprint, error) {
+	return m.listVelocitySprints(ctx, limit, statuses)
+}
+
 // --- TC-V-01: Velocity shows last 5 completed sprints oldest-first with correct Σ size ---
 
 func TestGetVelocity_Happy(t *testing.T) {
@@ -92,6 +101,36 @@ func TestGetVelocity_Happy(t *testing.T) {
 	assert.Equal(t, 10, result.Sprints[0].CompletedSize)
 	assert.Equal(t, "S005", result.Sprints[4].Key)
 	assert.Equal(t, 18, result.Sprints[4].CompletedSize)
+}
+
+func TestGetVelocity_UsesWorkflowDerivedSprintsAndSuccessfulItems(t *testing.T) {
+	workflowSvc := analyticsItemWorkflow(t)
+	size5, size8 := 5, 8
+	repo := &velocitySprintAnalyticsRepository{
+		MockSprintAnalyticsRepository: &MockSprintAnalyticsRepository{
+			GetSprintAssignedEntitiesFunc: func(_ context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+				require.Equal(t, int64(9), sprintID)
+				return []AnalyticsAssignedEntity{
+					{EntityType: "task", EntityID: 1, Status: "DONE", Size: &size5},
+					{EntityType: "change_card", EntityID: 2, Status: "declined", Size: &size8},
+				}, nil
+			},
+		},
+		listVelocitySprints: func(_ context.Context, limit int, statuses []string) ([]AnalyticsVelocitySprint, error) {
+			require.Equal(t, 1, limit)
+			assert.Contains(t, statuses, "wrapped")
+			return []AnalyticsVelocitySprint{{ID: 9, Key: "S009", Name: "Workflow sprint"}}, nil
+		},
+	}
+
+	svc := NewSprintAnalyticsService(repo, nil)
+	svc.SetWorkflow(workflowSvc)
+	result, err := svc.GetVelocity(context.Background(), 1)
+
+	require.NoError(t, err)
+	require.Len(t, result.Sprints, 1)
+	assert.Equal(t, 5, result.Sprints[0].CompletedSize)
+	assert.Equal(t, 0, result.Sprints[0].UnsizedCompleted)
 }
 
 // --- TC-V-02: Velocity respects default limit (limit passed to repo) ---
@@ -713,7 +752,7 @@ func TestGetBurndown_NonTaskCompletionReducesActualRemaining(t *testing.T) {
 		},
 		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
 			return []AnalyticsCompletionEvent{
-				{EntityID: 1, EntityType: "bug", NewStatus: "resolved", Timestamp: completedAt},
+				{EntityID: 1, EntityType: "bug", NewStatus: "completed", Timestamp: completedAt},
 			}, nil
 		},
 	}
@@ -729,6 +768,31 @@ func TestGetBurndown_NonTaskCompletionReducesActualRemaining(t *testing.T) {
 	require.NotNil(t, result.DataPoints[1].ActualRemaining)
 	assert.InDelta(t, 21.0, *result.DataPoints[0].ActualRemaining, 0.001)
 	assert.InDelta(t, 13.0, *result.DataPoints[1].ActualRemaining, 0.001)
+}
+
+func TestGetBurndown_ExcludedTerminalDoesNotBurnDeliveredWork(t *testing.T) {
+	startDate := testBase
+	endDate := testBase.AddDate(0, 0, 1)
+	size := 5
+	sprintRepo := &MockSprintRepository{GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+		return &models.Sprint{ID: 31, Key: "S031", Name: "Sprint 31", Status: "completed", StartDate: startDate, EndDate: endDate}, nil
+	}}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(context.Context, int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{{EntityType: "task", EntityID: 1, AssignedAt: startDate, Size: &size}}, nil
+		},
+		GetCompletionEventsFunc: func(context.Context, int64, time.Time, time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{{EntityType: "task", EntityID: 1, NewStatus: "cancelled", Timestamp: startDate.Add(12 * time.Hour)}}, nil
+		},
+	}
+
+	svc := newSprintAnalyticsServiceWithClock(analyticsRepo, sprintRepo, func() time.Time { return endDate.AddDate(0, 0, 1) })
+	result, err := svc.GetBurndown(context.Background(), "S031")
+
+	require.NoError(t, err)
+	require.Len(t, result.DataPoints, 2)
+	assert.InDelta(t, 5.0, *result.DataPoints[0].ActualRemaining, 0.001)
+	assert.InDelta(t, 5.0, *result.DataPoints[1].ActualRemaining, 0.001)
 }
 
 // --- TC-B-09: UnsizedRemaining present in every data point ---
@@ -1036,6 +1100,7 @@ func TestGetSummary_BaseFieldsComplete(t *testing.T) {
 		entities[i] = AnalyticsAssignedEntity{
 			EntityType: "task",
 			EntityID:   int64(i + 1),
+			Status:     "completed",
 			AssignedAt: assignedBefore,
 			Size:       &size5,
 		}
@@ -1096,7 +1161,7 @@ func TestGetSummary_BaseFieldsComplete(t *testing.T) {
 	assert.InDelta(t, 5.26, result.VelocityDeltaPct, 0.1)
 }
 
-func TestGetSummary_CountsOnlyTerminalCompletionEvents(t *testing.T) {
+func TestGetSummary_CountsCurrentSuccessfulStatuses(t *testing.T) {
 	startDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
 	endDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	size5 := 5
@@ -1109,8 +1174,8 @@ func TestGetSummary_CountsOnlyTerminalCompletionEvents(t *testing.T) {
 	analyticsRepo := &MockSprintAnalyticsRepository{
 		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
 			return []AnalyticsAssignedEntity{
-				{EntityType: "task", EntityID: 1, AssignedAt: startDate, Size: &size5},
-				{EntityType: "task", EntityID: 2, AssignedAt: startDate, Size: &size5},
+				{EntityType: "task", EntityID: 1, Status: "in_progress", AssignedAt: startDate, Size: &size5},
+				{EntityType: "task", EntityID: 2, Status: "completed", AssignedAt: startDate, Size: &size5},
 			}, nil
 		},
 		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
@@ -1209,9 +1274,9 @@ func TestGetSummary_DetailedWithCycleTimeData(t *testing.T) {
 	midSprint := startDate.Add(3 * 24 * time.Hour) // day 3
 
 	entities := []AnalyticsAssignedEntity{
-		{EntityType: "task", EntityID: 1, AssignedAt: assignedBefore, Size: &size5},
-		{EntityType: "task", EntityID: 2, AssignedAt: assignedBefore, Size: &size5},
-		{EntityType: "task", EntityID: 3, AssignedAt: midSprint, Size: &size5}, // mid-sprint add
+		{EntityType: "task", EntityID: 1, Status: "completed", AssignedAt: assignedBefore, Size: &size5},
+		{EntityType: "task", EntityID: 2, Status: "completed", AssignedAt: assignedBefore, Size: &size5},
+		{EntityType: "task", EntityID: 3, Status: "in_progress", AssignedAt: midSprint, Size: &size5}, // mid-sprint add
 	}
 	completionEvents := []AnalyticsCompletionEvent{
 		{EntityID: 1, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
@@ -1404,9 +1469,9 @@ func TestGetSummary_UnsizedCounting(t *testing.T) {
 
 	// 3 planned: 2 sized, 1 unsized
 	entities := []AnalyticsAssignedEntity{
-		{EntityType: "task", EntityID: 1, AssignedAt: assignedBefore, Size: &size5},
-		{EntityType: "task", EntityID: 2, AssignedAt: assignedBefore, Size: nil}, // unsized
-		{EntityType: "task", EntityID: 3, AssignedAt: assignedBefore, Size: &size5},
+		{EntityType: "task", EntityID: 1, Status: "completed", AssignedAt: assignedBefore, Size: &size5},
+		{EntityType: "task", EntityID: 2, Status: "completed", AssignedAt: assignedBefore, Size: nil}, // unsized
+		{EntityType: "task", EntityID: 3, Status: "in_progress", AssignedAt: assignedBefore, Size: &size5},
 	}
 	// 2 completed: entity 1 (sized) and entity 2 (unsized)
 	completionEvents := []AnalyticsCompletionEvent{
@@ -1472,9 +1537,9 @@ func TestGetSummary_SizeBandDistribution(t *testing.T) {
 	assignedBefore := startDate.Add(-1 * time.Hour)
 
 	entities := []AnalyticsAssignedEntity{
-		{EntityType: "task", EntityID: 1, AssignedAt: assignedBefore, Size: &size1}, // XS
-		{EntityType: "task", EntityID: 2, AssignedAt: assignedBefore, Size: &size3}, // M
-		{EntityType: "task", EntityID: 3, AssignedAt: assignedBefore, Size: &size5}, // L
+		{EntityType: "task", EntityID: 1, Status: "completed", AssignedAt: assignedBefore, Size: &size1}, // XS
+		{EntityType: "task", EntityID: 2, Status: "completed", AssignedAt: assignedBefore, Size: &size3}, // M
+		{EntityType: "task", EntityID: 3, Status: "completed", AssignedAt: assignedBefore, Size: &size5}, // L
 	}
 	completionEvents := []AnalyticsCompletionEvent{
 		{EntityID: 1, EntityType: "task", NewStatus: "completed", Timestamp: endDate.Add(-1 * time.Hour)},
@@ -1539,6 +1604,7 @@ func TestGetSummary_TrailingAvgExcludesCurrentSprint(t *testing.T) {
 		entities[i] = AnalyticsAssignedEntity{
 			EntityType: "task",
 			EntityID:   int64(i + 1),
+			Status:     "completed",
 			AssignedAt: assignedBefore,
 			Size:       &size5,
 		}
@@ -1645,4 +1711,110 @@ func TestGetSummary_SizeBandDistribution_NilWhenEmpty(t *testing.T) {
 	// SizeBandDistribution must be nil, not an empty slice, when no bands exist.
 	assert.Nil(t, result.SizeBandDistribution,
 		"SizeBandDistribution must be nil (not []) when no recognized sizes are present")
+}
+
+func TestGetSummary_CurrentScopeCountsPreSprintMixedSuccessfulItems(t *testing.T) {
+	start := time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 7)
+	sizes := []int{1, 2, 3, 5, 8, 5, 3, 1, 8}
+	entities := []AnalyticsAssignedEntity{
+		{EntityType: "task", EntityID: 1, Status: "DONE", AssignedAt: start.Add(-time.Hour), Size: &sizes[0]},
+		{EntityType: "task", EntityID: 2, Status: "done", AssignedAt: start.Add(-time.Hour), Size: &sizes[1]},
+		{EntityType: "task", EntityID: 3, Status: "Completed", AssignedAt: start.Add(-time.Hour), Size: &sizes[2]},
+		{EntityType: "bug", EntityID: 4, Status: "RESOLVED", AssignedAt: start.Add(-time.Hour), Size: &sizes[3]},
+		{EntityType: "bug", EntityID: 5, Status: "resolved", AssignedAt: start.Add(-time.Hour), Size: &sizes[4]},
+		{EntityType: "bug", EntityID: 6, Status: "resolved", AssignedAt: start.Add(-time.Hour)},
+		{EntityType: "change_card", EntityID: 7, Status: "APPROVED", AssignedAt: start.Add(-time.Hour), Size: &sizes[5]},
+		{EntityType: "change_card", EntityID: 8, Status: "approved", AssignedAt: start.Add(-time.Hour), Size: &sizes[6]},
+		{EntityType: "change_card", EntityID: 9, Status: "approved", AssignedAt: start.Add(-time.Hour), Size: &sizes[7]},
+		{EntityType: "tech_debt", EntityID: 10, Status: "FIXED", AssignedAt: start.Add(-time.Hour), Size: &sizes[8]},
+		{EntityType: "tech_debt", EntityID: 11, Status: "resolved", AssignedAt: start.Add(-time.Hour)},
+		{EntityType: "tech_debt", EntityID: 12, Status: "resolved", AssignedAt: start.Add(-time.Hour)},
+		{EntityType: "tech_debt", EntityID: 13, Status: "resolved", AssignedAt: start.Add(-time.Hour)},
+		{EntityType: "tech_debt", EntityID: 14, Status: "resolved", AssignedAt: start.Add(-time.Hour)},
+	}
+	historyCalled := false
+	repo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(_ context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			require.Equal(t, int64(42), sprintID)
+			return entities, nil
+		},
+		GetCompletionEventsFunc: func(context.Context, int64, time.Time, time.Time) ([]AnalyticsCompletionEvent, error) {
+			historyCalled = true
+			return nil, errors.New("summary must not depend on sprint-window history")
+		},
+		GetVelocityDataFunc: func(context.Context, int) ([]AnalyticsVelocityRow, error) { return []AnalyticsVelocityRow{}, nil },
+	}
+	sprintRepo := &MockSprintRepository{GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+		return sprintHelper("S009", "wrapped", start, end), nil
+	}}
+
+	svc := NewSprintAnalyticsService(repo, sprintRepo)
+	svc.SetWorkflow(analyticsItemWorkflow(t))
+	result, err := svc.GetSummary(context.Background(), "S009", false)
+
+	require.NoError(t, err)
+	assert.Equal(t, 14, result.PlannedCount)
+	assert.Equal(t, 14, result.CompletedCount)
+	assert.Equal(t, 36, result.PlannedSize)
+	assert.Equal(t, 36, result.CompletedSize)
+	assert.False(t, historyCalled)
+}
+
+func TestGetSummary_ExcludedTerminalStatusesAreNotDelivered(t *testing.T) {
+	start := time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)
+	size := 5
+	repo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(context.Context, int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
+				{EntityType: "task", EntityID: 1, Status: "cancelled", AssignedAt: start, Size: &size},
+				{EntityType: "bug", EntityID: 2, Status: "cancelled", AssignedAt: start, Size: &size},
+				{EntityType: "change_card", EntityID: 3, Status: "declined", AssignedAt: start, Size: &size},
+				{EntityType: "tech_debt", EntityID: 4, Status: "wont_fix", AssignedAt: start, Size: &size},
+			}, nil
+		},
+		GetVelocityDataFunc: func(context.Context, int) ([]AnalyticsVelocityRow, error) { return []AnalyticsVelocityRow{}, nil },
+	}
+	sprintRepo := &MockSprintRepository{GetByKeyFunc: func(context.Context, string) (*models.Sprint, error) {
+		return sprintHelper("S009", "wrapped", start, start.AddDate(0, 0, 7)), nil
+	}}
+
+	svc := NewSprintAnalyticsService(repo, sprintRepo)
+	svc.SetWorkflow(analyticsItemWorkflow(t))
+	result, err := svc.GetSummary(context.Background(), "S009", false)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.CompletedCount)
+	assert.Equal(t, 0, result.CompletedSize)
+}
+
+func analyticsItemWorkflow(t *testing.T) *workflow.Service {
+	t.Helper()
+	makeWorkflow := func(steps map[string]*config.Step) *config.WorkflowConfig {
+		wf := &config.WorkflowConfig{Steps: steps}
+		wf.DeriveLegacy()
+		return wf
+	}
+	return workflow.NewServiceFromMultiLevel(&config.MultiLevelWorkflow{
+		Task: makeWorkflow(map[string]*config.Step{
+			"completed": {Aliases: []string{"done"}, Terminal: true},
+			"cancelled": {Terminal: true, ExcludeFromProgress: true},
+		}),
+		Bug: makeWorkflow(map[string]*config.Step{
+			"resolved":  {Terminal: true},
+			"cancelled": {Terminal: true, ExcludeFromProgress: true},
+		}),
+		Change: makeWorkflow(map[string]*config.Step{
+			"approved":  {Terminal: true},
+			"cancelled": {Aliases: []string{"declined"}, Terminal: true, ExcludeFromProgress: true},
+		}),
+		TechDebt: makeWorkflow(map[string]*config.Step{
+			"resolved":  {Aliases: []string{"fixed"}, Terminal: true},
+			"wont_fix":  {Terminal: true, ExcludeFromProgress: true},
+			"cancelled": {Terminal: true, ExcludeFromProgress: true},
+		}),
+		Sprint: makeWorkflow(map[string]*config.Step{
+			"wrapped": {Phase: "done", Terminal: true},
+		}),
+	})
 }
