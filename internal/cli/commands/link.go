@@ -25,8 +25,15 @@ Entity type is auto-detected from the key format:
   CC-###         -> change
   Q###           -> Question
 
-Relationship types: depends_on, blocks, related_to, follows,
-  spawned_from, duplicates, references, linked_to, question_blocks
+Directional relationship types:
+  depends_on    from-key is blocked by to-key
+  blocks        from-key blocks to-key
+
+Other relationship types: related_to, follows, spawned_from, duplicates,
+  references, linked_to, question_blocks
+
+There is no blocked_by relationship type. To express that from-key is blocked
+by to-key, use --type=depends_on with the dependent entity first.
 
 question_blocks is directed: its source must be a Question and its target must
 be an eligible non-Question workflow entity.
@@ -73,7 +80,7 @@ func init() {
 		panic(fmt.Sprintf("failed to mark flag required: %v", err))
 	}
 
-	unlinkCmd.Flags().StringVar(&linkRelType, "type", "", "Relationship type (required)")
+	unlinkCmd.Flags().StringVar(&linkRelType, "type", "", "Relationship type (required): use depends_on when from-key is blocked by to-key; use blocks when from-key blocks to-key")
 	if err := unlinkCmd.MarkFlagRequired("type"); err != nil {
 		panic(fmt.Sprintf("failed to mark flag required: %v", err))
 	}
@@ -137,9 +144,8 @@ func runLink(cmd *cobra.Command, args []string) error {
 	relType := models.EntityRelationshipType(linkRelType)
 
 	// Validate relationship type
-	if !models.ValidEntityRelationshipTypeSet[relType] {
-		validTypes := models.ValidEntityRelationshipTypes()
-		return fmt.Errorf("invalid relationship type %q; valid types: %s", linkRelType, strings.Join(validTypes, ", "))
+	if err := validateLinkRelationshipType(linkRelType, fromKey, toKey); err != nil {
+		return err
 	}
 
 	// Resolve both entity keys
@@ -174,9 +180,8 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 	relType := models.EntityRelationshipType(linkRelType)
 
 	// Validate relationship type
-	if !models.ValidEntityRelationshipTypeSet[relType] {
-		validTypes := models.ValidEntityRelationshipTypes()
-		return fmt.Errorf("invalid relationship type %q; valid types: %s", linkRelType, strings.Join(validTypes, ", "))
+	if err := validateLinkRelationshipType(linkRelType, fromKey, toKey); err != nil {
+		return err
 	}
 
 	// Resolve both entity keys
@@ -207,6 +212,22 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 
 	cli.Success(fmt.Sprintf("Removed %s relationship: %s -> %s", relType, fromKey, toKey))
 	return nil
+}
+
+func validateLinkRelationshipType(relType, fromKey, toKey string) error {
+	if models.ValidEntityRelationshipTypeSet[models.EntityRelationshipType(relType)] {
+		return nil
+	}
+
+	validTypes := models.ValidEntityRelationshipTypes()
+	if relType == "blocked_by" {
+		return fmt.Errorf(
+			"invalid relationship type %q: %q is not a relationship type; to express %s is blocked by %s, use --type=depends_on; to express %s blocks %s, use --type=blocks; valid types: %s",
+			relType, relType, fromKey, toKey, fromKey, toKey, strings.Join(validTypes, ", "),
+		)
+	}
+
+	return fmt.Errorf("invalid relationship type %q; valid types: %s", relType, strings.Join(validTypes, ", "))
 }
 
 // linksOutputEntry represents a single relationship for display/JSON output.

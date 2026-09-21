@@ -686,20 +686,20 @@ shark status advance T-E01-F01-001 --agent="claude-sonnet-001"
 # Save progress notes as work progresses
 shark task note add T-E01-F01-001 \
   "Created login endpoint skeleton at internal/api/login.go" \
-  --category=progress
+  --type=comment
 
 shark task note add T-E01-F01-001 \
   "Decided to use JWT with 24h expiry based on security requirements" \
-  --category=decision
+  --type=decision
 
 shark task note add T-E01-F01-001 \
   "How many failed login attempts before lockout?" \
-  --category=question
+  --type=question
 
 # Agent encounters a blocker
 shark task note add T-E01-F01-001 \
   "Need database schema for user_sessions table from DBA" \
-  --category=blocker
+  --type=blocker
 
 # Before ending session, save structured context for easy resume
 shark task context set T-E01-F01-001 \
@@ -792,11 +792,11 @@ shark status advance T-E01-F01-001 --agent="claude-sonnet-002"
 # Add progress notes
 shark task note add T-E01-F01-001 \
   "Implemented rate limiting: 5 attempts per 15 minutes" \
-  --category=progress
+  --type=comment
 
 shark task note add T-E01-F01-001 \
   "Confirmed with product: lockout after 5 failed attempts for 1 hour" \
-  --category=decision
+  --type=decision
 
 # Update context as work progresses
 shark task context set T-E01-F01-001 \
@@ -847,9 +847,9 @@ shark task next-status T-E01-F01-001 \
 shark task list E01 F01 --json
 
 # Create dependency relationships
-shark task link T-E01-F01-003 T-E01-F01-001 --type=depends-on
-shark task link T-E01-F01-004 T-E01-F01-002 --type=depends-on
-shark task link T-E01-F01-005 T-E01-F01-003 --type=depends-on
+shark task link T-E01-F01-003 --depends-on T-E01-F01-001
+shark task link T-E01-F01-004 --depends-on T-E01-F01-002
+shark task link T-E01-F01-005 --depends-on T-E01-F01-003
 
 # Get next available task (respects dependencies)
 shark task next --epic=E01 --json
@@ -874,14 +874,14 @@ shark task blocks T-E01-F01-003
 shark status advance T-E04-F02-001 --agent="refactor-agent"
 
 # Add progress notes after each file
-shark task note add T-E04-F02-001 "Refactored user.go - extracted validation" --category=progress
-shark task note add T-E04-F02-001 "Refactored auth.go - simplified token logic" --category=progress
-shark task note add T-E04-F02-001 "Updated 15 test files to match new structure" --category=progress
+shark task note add T-E04-F02-001 "Refactored user.go - extracted validation" --type=comment
+shark task note add T-E04-F02-001 "Refactored auth.go - simplified token logic" --type=comment
+shark task note add T-E04-F02-001 "Updated 15 test files to match new structure" --type=comment
 
 # Document architectural decision
 shark task note add T-E04-F02-001 \
   "Moved validation to separate package for reusability" \
-  --category=decision
+  --type=decision
 
 # Save context before pausing
 shark task context set T-E04-F02-001 \
@@ -940,11 +940,11 @@ shark status advance T-E03-F01-001 --agent="research-agent"
 
 shark task note add T-E03-F01-001 \
   "Researched 3 payment providers: Stripe (best fit), Square, PayPal" \
-  --category=progress
+  --type=comment
 
 shark task note add T-E03-F01-001 \
   "Stripe chosen: better API, lower fees, better docs" \
-  --category=decision
+  --type=decision
 
 shark task context set T-E03-F01-001 \
   --progress="Research complete, ready for implementation" \
@@ -986,9 +986,9 @@ shark status advance T-E01-F01-001 --agent="agent-id"
 
 ```bash
 # ✅ GOOD: Add notes as decisions are made
-shark task note add T-E01-F01-001 "Using Redis for session store" --category=decision
-shark task note add T-E01-F01-001 "Completed user service integration" --category=progress
-shark task note add T-E01-F01-001 "Need Redis connection string" --category=blocker
+shark task note add T-E01-F01-001 "Using Redis for session store" --type=decision
+shark task note add T-E01-F01-001 "Completed user service integration" --type=comment
+shark task note add T-E01-F01-001 "Need Redis connection string" --type=blocker
 
 # ✅ GOOD: Save structured context before pausing
 shark task context set T-E01-F01-001 \
@@ -1052,8 +1052,8 @@ shark task criteria import T-E01-F01-001
 #  SUCCESS  Imported 8 acceptance criteria
 
 # Work for 2 hours, make progress on research
-shark task note add T-E01-F01-001 "Evaluated OAuth providers" --category=progress
-shark task note add T-E01-F01-001 "Auth0 selected for managed solution" --category=decision
+shark task note add T-E01-F01-001 "Evaluated OAuth providers" --type=comment
+shark task note add T-E01-F01-001 "Auth0 selected for managed solution" --type=decision
 
 shark task context set T-E01-F01-001 \
   --progress="Provider research complete, starting integration" \
@@ -1073,7 +1073,7 @@ shark task resume T-E01-F01-001 --json  # Review context from Monday
 shark status advance T-E01-F01-001 --agent="agent-wed-pm"
 
 # Implement OAuth callback
-shark task note add T-E01-F01-001 "OAuth callback endpoint implemented" --category=progress
+shark task note add T-E01-F01-001 "OAuth callback endpoint implemented" --type=comment
 shark task criteria check T-E01-F01-001 "OAuth callback handles authorization code"
 
 shark task context set T-E01-F01-001 \
@@ -1140,13 +1140,13 @@ shark task block <task-key> --reason="<reason>"
 shark task unblock <task-key>
 
 # Task intelligence (E10 features)
-shark task note add <task-key> "<note>" [--category=progress|blocker|question|decision|context]
+shark task note add <task-key> "<note>" [--type=comment|blocker|question|decision]
 shark task notes <task-key> [--json]
 shark task timeline <task-key> [--json]
-shark notes search "<query>" [--category=<type>] [--epic=<key>]
+shark notes search "<query>" [--type=<type>] [--epic=<key>]
 
-shark task link <source> <target> [--type=depends-on|blocks|relates-to|duplicates]
-shark task unlink <source> <target>
+shark task link <source-task> [--depends-on <target-task>] [--blocks <target-task>]
+shark task unlink <source-task> --depends-on <target-task>
 shark task deps <task-key> [--json]
 shark task blocked-by <task-key> [--json]
 shark task blocks <task-key> [--json]
@@ -1155,6 +1155,11 @@ shark task criteria import <task-key>
 shark task criteria check <task-key> "<criterion>"
 shark task criteria fail <task-key> "<criterion>"
 shark feature criteria <feature-key> [--json]
+
+For generic entity relationships, direction is explicit: “A is blocked by B"
+uses `shark link A B --type=depends_on`, while “A blocks B” uses
+`shark link A B --type=blocks`. `blocked_by` is a read-side label, not a
+relationship type accepted for writes.
 
 shark task context set <task-key> [--progress="..."] [--decisions="..."] [--questions="..."] [--blockers="..."]
 shark task context get <task-key> [--json]

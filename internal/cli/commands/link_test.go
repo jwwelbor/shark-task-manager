@@ -1,10 +1,14 @@
 package commands
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/spf13/cobra"
 )
 
 func TestMapDetectedTypeToEntityType(t *testing.T) {
@@ -138,5 +142,123 @@ func TestLinkHelpAdvertisesDirectedQuestionBlocks(t *testing.T) {
 	}
 	if !strings.Contains(unlinkCmd.Long, "question_blocks") {
 		t.Errorf("unlink long help does not advertise removal of a Question gate: %q", unlinkCmd.Long)
+	}
+	if !strings.Contains(linkCmd.Long, "from-key is blocked by to-key") ||
+		!strings.Contains(linkCmd.Long, "from-key blocks to-key") {
+		t.Errorf("link long help does not explain directional dependency syntax: %q", linkCmd.Long)
+	}
+}
+
+func TestLinkRejectsBlockedByWithDirectionalGuidance(t *testing.T) {
+	previousRelType := linkRelType
+	linkRelType = "blocked_by"
+	t.Cleanup(func() { linkRelType = previousRelType })
+
+	err := runLink(&cobra.Command{}, []string{"from-key", "to-key"})
+	if err == nil {
+		t.Fatal("runLink() returned nil for unsupported blocked_by relationship type")
+	}
+
+	message := err.Error()
+	for _, expected := range []string{
+		`"blocked_by" is not a relationship type`,
+		`--type=depends_on`,
+		`from-key is blocked by to-key`,
+		`--type=blocks`,
+		`from-key blocks to-key`,
+	} {
+		if !strings.Contains(message, expected) {
+			t.Errorf("runLink() error = %q, want guidance containing %q", message, expected)
+		}
+	}
+}
+
+func TestUnlinkRejectsBlockedByWithDirectionalGuidance(t *testing.T) {
+	previousRelType := linkRelType
+	linkRelType = "blocked_by"
+	t.Cleanup(func() { linkRelType = previousRelType })
+
+	err := runUnlink(&cobra.Command{}, []string{"from-key", "to-key"})
+	if err == nil {
+		t.Fatal("runUnlink() returned nil for unsupported blocked_by relationship type")
+	}
+	if !strings.Contains(err.Error(), `"blocked_by" is not a relationship type`) ||
+		!strings.Contains(err.Error(), "--type=depends_on") ||
+		!strings.Contains(err.Error(), "--type=blocks") {
+		t.Fatalf("runUnlink() error = %q, want directional blocked_by guidance", err)
+	}
+}
+
+func TestB073WorkflowGuideUsesCurrentRelationshipSyntax(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../.."))
+	documents := []struct {
+		path      string
+		required  []string
+		forbidden []string
+	}{
+		{
+			path: filepath.Join("docs", "WORKFLOW_GUIDE.md"),
+			required: []string{
+				"shark link A B --type=depends_on",
+				"shark link A B --type=blocks",
+				"shark task unlink <source-task> --depends-on <target-task>",
+			},
+			forbidden: []string{"shark task unlink <source> <target>"},
+		},
+		{
+			path: filepath.Join("skills", "shark-rider", "context", "entity-crud.md"),
+			required: []string{
+				"shark task link E01-F02-001 --depends-on E01-F02-002",
+				"shark task unlink E01-F02-001 --depends-on E01-F02-002",
+			},
+		},
+		{
+			path: filepath.Join(".claude", "rules", "quickref.md"),
+			required: []string{
+				"shark task link E07-F01-001 --depends-on E07-F01-002",
+				"shark task unlink E07-F01-001 --depends-on E07-F01-002",
+			},
+			forbidden: []string{
+				"shark task link E07-F01-001 E07-F01-002 --type=depends_on",
+				"shark task unlink E07-F01-001 E07-F01-002",
+			},
+		},
+		{
+			path: filepath.Join(".claude", "rules", "cli", "commands.md"),
+			required: []string{
+				"shark task link <task-key> --depends-on <target-task>",
+				"shark task unlink <task-key> --depends-on <target-task>",
+			},
+			forbidden: []string{
+				"shark task link <key1> <key2> --type=TYPE",
+				"shark task unlink <key1> <key2>",
+			},
+		},
+	}
+	for _, document := range documents {
+		content, err := os.ReadFile(filepath.Join(projectRoot, document.path))
+		if err != nil {
+			t.Fatalf("read %s: %v", document.path, err)
+		}
+		text := string(content)
+		for _, forbidden := range []string{"--type=depends-on", "--type=relates-to", "--type=blocked_by"} {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s still contains obsolete relationship syntax %q", document.path, forbidden)
+			}
+		}
+		for _, forbidden := range document.forbidden {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s still contains obsolete task relationship syntax %q", document.path, forbidden)
+			}
+		}
+		for _, required := range document.required {
+			if !strings.Contains(text, required) {
+				t.Errorf("%s does not contain current relationship syntax %q", document.path, required)
+			}
+		}
 	}
 }

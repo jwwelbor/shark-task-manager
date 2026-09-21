@@ -58,15 +58,16 @@ shark view E07-F01-001                     # View task file
 ## Status & Analytics
 
 ```bash
-# Status dashboard
-shark status                               # Project dashboard
-shark status E07                           # Epic status with feature rollups
-shark status E07-F01                       # Feature status with task breakdown
+# Status and entity inspection
+shark progress                             # Project dashboard
+shark progress E07                         # Epic progress with feature rollups
+shark get E07-F01 --field status           # Feature status
+shark get <key>                             # Entity details
 
 # Status management
 shark status set E07-F01-001 in_development   # Set status directly
 shark status advance E07-F01-001              # Advance to next status
-shark status options E07-F01-001              # Show valid next statuses
+shark status transitions E07-F01-001         # Show valid next statuses
 shark status history E07-F01-001              # Status change history
 
 # Progress & analytics
@@ -95,8 +96,8 @@ shark task set-status E07-F01-001 blocked  # Set status directly
 
 # Dependencies
 shark task deps E07-F01-001                # Show dependency tree
-shark task link E07-F01-001 E07-F01-002 --type=depends_on
-shark task unlink E07-F01-001 E07-F01-002
+shark task link E07-F01-001 --depends-on E07-F01-002
+shark task unlink E07-F01-001 --depends-on E07-F01-002
 
 # Context & Notes
 shark task context set E07-F01-001 --field current_step --value "Implementing API"
@@ -145,7 +146,9 @@ shark idea promote 1 --epic=E07            # Promote to task/feature
 
 ```bash
 shark search "authentication"              # Search across entities
-shark notes E07-F01-001                    # View entity notes
+shark notes add E07-F01-001 --type decision "Chose JWT over sessions"
+shark notes search "authentication"        # Search note content across entities
+shark task notes E07-F01-001               # View task notes
 shark related-docs list --feature=E07-F01  # List related documents
 shark related-docs add --feature=E07-F01 --path="docs/design.md"
 ```

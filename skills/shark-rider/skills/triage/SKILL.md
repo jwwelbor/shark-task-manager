@@ -60,7 +60,7 @@ that entity instead of creating a new one, and skip the broader search below. Wi
 fingerprint (or no match), enumerate existing items of each candidate type, not just a
 keyword search:
 
-- `shark status` to understand current shape and active work.
+- `shark progress` to understand current shape and active work.
 - `shark list`, `shark list <epic>`, and `shark list <epic> <feature>` for likely
   epic/feature/task parents.
 - `shark list bugs`, `shark list changes`, `shark list ideas`, and

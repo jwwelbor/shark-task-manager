@@ -2,6 +2,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/projectroot"
 )
 
@@ -24,6 +26,13 @@ import (
 // through the retry is reported to the caller rather than looping a third
 // time.
 const maxUpdateCandidateAttempts = 2
+
+// currentPathDigestSchemaVersion marks candidates whose path-digest
+// inventory was computed by the current candidate writer. A zero value is
+// deliberately reserved for pre-B076 candidates, where the fields did not
+// exist and an omitted empty map cannot prove that a clean inventory was
+// captured.
+const currentPathDigestSchemaVersion = 1
 
 // candidateClaimPollInterval / candidateClaimTimeout bound the wait for a
 // competing writer that has claimed, but not yet published, the transition
@@ -55,13 +64,14 @@ var (
 //
 // Spec reference: spec.md REQ-F-004, task T-E34-F08-006 AC-T1.
 type IntegrationCandidate struct {
-	EpicRunID            string            `json:"epic_run_id"`
-	BaseCommit           string            `json:"base_commit"`
-	HeadCommit           string            `json:"head_commit"`
-	EventIDs             []string          `json:"event_ids"`
-	TrackedPathDigests   map[string]string `json:"tracked_path_digests,omitempty"`
-	UntrackedPathDigests map[string]string `json:"untracked_path_digests,omitempty"`
-	Digest               string            `json:"digest"`
+	EpicRunID               string            `json:"epic_run_id"`
+	BaseCommit              string            `json:"base_commit"`
+	HeadCommit              string            `json:"head_commit"`
+	EventIDs                []string          `json:"event_ids"`
+	PathDigestSchemaVersion int               `json:"path_digest_schema_version,omitempty"`
+	TrackedPathDigests      map[string]string `json:"tracked_path_digests,omitempty"`
+	UntrackedPathDigests    map[string]string `json:"untracked_path_digests,omitempty"`
+	Digest                  string            `json:"digest"`
 }
 
 // CandidateConflictError indicates UpdateCandidate's compare-and-swap write
@@ -175,6 +185,128 @@ func GetCandidate(ctx context.Context, epicRunID string) (*IntegrationCandidate,
 	return candidate, err
 }
 
+// MigrateCandidatePathDigestsAuthorized is the migration entrypoint for a
+// candidate transition is claimed and immediately before archival/publication,
+// caller that owns an external lease. A non-dry-run call must provide the
+// authorizer; this keeps durable migration writes behind an explicit lease
+// boundary instead of exposing an unauthenticated compatibility path.
+func MigrateCandidatePathDigestsAuthorized(ctx context.Context, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
+	if !dryRun && authorize == nil {
+		return nil, fmt.Errorf("integration: migrate candidate: authorization callback is required for writes")
+	}
+	return migrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun, authorize)
+}
+
+func migrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: %w", err)
+	}
+	epicKey = strings.TrimSpace(epicKey)
+	if err := models.ValidateEpicKey(epicKey); err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: invalid epic key %q: %w", epicKey, err)
+	}
+	epicRunID = strings.TrimSpace(epicRunID)
+	if err := ValidateEpicRunID(epicRunID); err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: %w", err)
+	}
+	projectRoot, err := projectroot.FindProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("integration: migrate candidate: resolve project root: %w", err)
+	}
+
+	for attempt := 0; attempt < maxUpdateCandidateAttempts; attempt++ {
+		candidate, err := attemptMigrateCandidate(ctx, projectRoot, epicKey, epicRunID, dryRun, authorize)
+		if err == nil {
+			return candidate, nil
+		}
+		var conflict *CandidateConflictError
+		if !errors.As(err, &conflict) || dryRun {
+			return nil, err
+		}
+	}
+	return nil, &CandidateConflictError{Path: candidatePath(projectRoot, epicRunID)}
+}
+
+func attemptMigrateCandidate(ctx context.Context, projectRoot, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
+	_, current, currentBytes, err := readLegacyCandidateForMigration(projectRoot, epicKey, epicRunID)
+	if err != nil {
+		return nil, err
+	}
+	if current.PathDigestSchemaVersion == currentPathDigestSchemaVersion {
+		return current, nil
+	}
+	if current.PathDigestSchemaVersion > currentPathDigestSchemaVersion {
+		return nil, fmt.Errorf("integration: migrate candidate: unsupported path-digest schema version %d", current.PathDigestSchemaVersion)
+	}
+
+	tracked, untracked, err := computeDirtyPathDigests(ctx, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	next := *current
+	next.PathDigestSchemaVersion = currentPathDigestSchemaVersion
+	next.TrackedPathDigests = tracked
+	next.UntrackedPathDigests = untracked
+	next.Digest, err = computeDigest(next)
+	if err != nil {
+		return nil, err
+	}
+	if dryRun {
+		return &next, nil
+	}
+	if err := publishMigratedCandidate(ctx, candidatePath(projectRoot, epicRunID), current, currentBytes, &next, authorize); err != nil {
+		return nil, err
+	}
+	return &next, nil
+}
+
+func readLegacyCandidateForMigration(projectRoot, epicKey, epicRunID string) (*IntegrationRun, *IntegrationCandidate, []byte, error) {
+	run, err := readMigrationRun(projectRoot, epicKey, epicRunID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	current, currentBytes, err := readMigrationCandidate(projectRoot, run, epicRunID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	computed, err := computeDigest(*current)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if computed != current.Digest {
+		return nil, nil, nil, fmt.Errorf("integration: migrate candidate: candidate digest is invalid")
+	}
+	return run, current, currentBytes, nil
+}
+
+func readMigrationRun(projectRoot, epicKey, epicRunID string) (*IntegrationRun, error) {
+	run, err := readRun(runRecordPath(projectRoot, epicKey))
+	if err != nil {
+		return nil, err
+	}
+	if run == nil {
+		return nil, fmt.Errorf("integration: migrate candidate: no integration run registered for %s", epicKey)
+	}
+	if run.EpicKey != epicKey || run.EpicRunID != epicRunID {
+		return nil, fmt.Errorf("integration: migrate candidate: registered run identity does not match epic %s and run %s", epicKey, epicRunID)
+	}
+	return run, nil
+}
+
+func readMigrationCandidate(projectRoot string, run *IntegrationRun, epicRunID string) (*IntegrationCandidate, []byte, error) {
+	current, currentBytes, err := readCandidate(candidatePath(projectRoot, epicRunID))
+	if err != nil {
+		return nil, nil, err
+	}
+	if current == nil {
+		return nil, nil, fmt.Errorf("integration: migrate candidate: no candidate exists for run %s", epicRunID)
+	}
+	if current.EpicRunID != epicRunID || current.BaseCommit != run.BaseCommit {
+		return nil, nil, fmt.Errorf("integration: migrate candidate: candidate identity does not match registered run %s", epicRunID)
+	}
+	return current, currentBytes, nil
+}
+
 // attemptUpdateCandidate performs one read-build-claim-publish cycle of
 // UpdateCandidate's compare-and-swap: it reads the current candidate (or
 // nil if none exists), builds the next candidate on top of it, writes that
@@ -243,11 +375,6 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 	if err := os.MkdirAll(dir, runDirMode); err != nil {
 		return nil, fmt.Errorf("integration: create candidate directory %s: %w", dir, err)
 	}
-	claimsDir := candidateClaimsDir(path)
-	if err := os.MkdirAll(claimsDir, runDirMode); err != nil {
-		return nil, fmt.Errorf("integration: create candidate claims directory %s: %w", claimsDir, err)
-	}
-
 	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := writeTempFileSynced(tmpPath, data); err != nil {
 		return nil, fmt.Errorf("integration: write synced temp candidate file: %w", err)
@@ -257,37 +384,44 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 		updateCandidateTestHook()
 	}
 
-	// The compare-and-swap: claim the transition away from expectedDigest.
-	// os.Link is atomic create-if-absent, so exactly one concurrent writer
-	// racing the same expectedDigest ever wins this claim — no reread, no
-	// window between "check" and "write" for a second writer to slip
-	// through. A claim behind a *successfully published* transition is
-	// retained forever, so a slot can never be reopened for reuse by a
-	// stale writer once it has actually been spent (see the rollback
-	// deferred immediately below for the unpublished case).
-	claimPath := filepath.Join(claimsDir, claimFileName(expectedDigest))
-	if err := claimCandidateTransition(ctx, path, claimPath, tmpPath, expectedDigest); err != nil {
-		// A temp file is private to this attempt. Failure to remove it cannot
-		// change candidate or claim state, so the causal claim error wins.
-		_ = os.Remove(tmpPath)
+	if err := publishCandidateTransition(ctx, path, current, currentBytes, tmpPath, expectedDigest, nil); err != nil {
 		return nil, err
 	}
 
-	// Claim-rollback safety net (code-review kickback on T-E34-F08-006:
-	// defect class "a permanent-by-design claim marker created before a
-	// later fallible step, with no rollback on that step's failure"). The
-	// claim above is meant to be permanent only once this transition is
-	// actually published (the rename below succeeds) — until then, this
-	// writer is the sole owner of expectedDigest's claim (no one else can
-	// ever win the same os.Link), so it is always safe for this writer
-	// alone to release it. Without this, a transient failure in archiving
-	// or in the final rename would leave the claim behind forever while the
-	// on-disk candidate's digest never advances past expectedDigest —
-	// permanently converting a transient I/O error into every future
-	// attempt (this call's own retry and every independent call after it)
-	// losing the same claim's os.Link and reporting a spurious
-	// *CandidateConflictError, even though no other writer ever won or
-	// published under it.
+	return next, nil
+}
+
+// publishMigratedCandidate publishes a replacement for an existing legacy
+// candidate through the same claim/archive/rename sequence as ordinary
+// candidate updates. Keeping migration on this path preserves the archived
+// predecessor and prevents a stale migration from overwriting a newer head.
+func publishMigratedCandidate(ctx context.Context, path string, current *IntegrationCandidate, currentBytes []byte, next *IntegrationCandidate, authorize func(context.Context) error) error {
+	data, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return fmt.Errorf("integration: marshal migrated candidate: %w", err)
+	}
+	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
+	if err := writeTempFileSynced(tmpPath, data); err != nil {
+		return fmt.Errorf("integration: write migrated candidate: %w", err)
+	}
+	return publishCandidateTransition(ctx, path, current, currentBytes, tmpPath, current.Digest, authorize)
+}
+
+// publishCandidateTransition owns the shared claim, authorization, archive,
+// and rename protocol used by ordinary updates and legacy migration. Keeping
+// these steps in one path prevents a new publisher from accidentally losing
+// rollback or archived-head guarantees.
+func publishCandidateTransition(ctx context.Context, path string, current *IntegrationCandidate, currentBytes []byte, tmpPath, expectedDigest string, authorize func(context.Context) error) error {
+	claimsDir := candidateClaimsDir(path)
+	if err := os.MkdirAll(claimsDir, runDirMode); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("integration: create candidate claims directory %s: %w", claimsDir, err)
+	}
+	claimPath := filepath.Join(claimsDir, claimFileName(expectedDigest))
+	if err := claimCandidateTransition(ctx, path, claimPath, tmpPath, expectedDigest); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
 	published := false
 	defer func() {
 		if !published {
@@ -295,37 +429,34 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 			_ = os.Remove(tmpPath)
 		}
 	}()
-
-	// Archived-head retention (task T-E34-F08-012 AC-T1): only the claim's
-	// winner ever reaches this point, so exactly one caller archives the
-	// head it is about to replace. current's exact, unmodified bytes as
-	// read from disk (currentBytes, not a re-marshal of the parsed struct)
-	// are durably written to integration-heads/<current.Digest>.json
-	// *before* the rename below replaces the live candidate — so a crash
-	// between the two writes never leaves a replaced head with no retained
-	// prior copy, and every prior_record_digest is recomputable later by
-	// re-hashing these retained bytes (architecture.md "Epic integration
-	// candidate identity"). The very first candidate for a run (current ==
-	// nil) has no prior head to retain.
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return err
+		}
+	}
 	if current != nil {
+		if authorize != nil {
+			if err := authorize(ctx); err != nil {
+				return err
+			}
+		}
 		if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
-			return nil, err
+			return err
 		}
 		if archiveTestHook != nil {
 			archiveTestHook()
 		}
 	}
-
-	// Only the claim's winner ever reaches this rename: a losing writer
-	// returned above without renaming, so the file on disk after a
-	// rejected attempt is exactly what the winning writer last published
-	// (task AC-T3).
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return err
+		}
+	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		return nil, fmt.Errorf("integration: publish candidate at %s: %w", path, err)
+		return fmt.Errorf("integration: publish candidate at %s: %w", path, err)
 	}
 	published = true
-
-	return next, nil
+	return nil
 }
 
 // claimCandidateTransition atomically claims the expected prior digest, or
@@ -486,9 +617,13 @@ func archiveCandidateHead(candidatePath, headDigest string, headBytes []byte) er
 
 	if err := os.Link(tmpPath, archivePath); err != nil {
 		if os.IsExist(err) {
-			// Already archived by an earlier attempt at this exact
-			// transition — headDigest's content is immutable, so this is
-			// not an error.
+			archivedBytes, readErr := os.ReadFile(archivePath)
+			if readErr != nil {
+				return fmt.Errorf("integration: verify existing archived head at %s: %w", archivePath, readErr)
+			}
+			if !bytes.Equal(archivedBytes, headBytes) {
+				return fmt.Errorf("integration: existing archived head at %s does not match digest %s", archivePath, headDigest)
+			}
 			return nil
 		}
 		return fmt.Errorf("integration: publish archived head at %s: %w", archivePath, err)
@@ -525,7 +660,11 @@ func claimFileName(expectedDigest string) string {
 // invariant is integration_review's closure-check job (spec.md REQ-F-005),
 // not this function's.
 func buildNextCandidate(ctx context.Context, projectRoot string, current *IntegrationCandidate, epicRunID string, newEvent *IntegrationEvent) (*IntegrationCandidate, error) {
-	next := &IntegrationCandidate{EpicRunID: epicRunID, HeadCommit: newEvent.FeatureCommit}
+	next := &IntegrationCandidate{
+		EpicRunID:               epicRunID,
+		HeadCommit:              newEvent.FeatureCommit,
+		PathDigestSchemaVersion: currentPathDigestSchemaVersion,
+	}
 
 	ids := map[string]struct{}{newEvent.EventID: {}}
 	if current != nil {
@@ -581,7 +720,7 @@ const sharkRuntimeDirPrefix = ".shark/"
 // left to digest, or a directory entry from a fully-untracked directory)
 // is omitted rather than erroring.
 func computeDirtyPathDigests(ctx context.Context, projectRoot string) (tracked, untracked map[string]string, err error) {
-	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z")
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z", "-uall")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {
@@ -644,12 +783,15 @@ func computeDirtyPathDigests(ctx context.Context, projectRoot string) (tracked, 
 // to digest, and that is not itself a failure to compute one.
 func digestWorkingTreeFile(projectRoot, relPath string) (digest string, ok bool, err error) {
 	full := filepath.Join(projectRoot, relPath)
-	info, err := os.Stat(full)
+	info, err := os.Lstat(full)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("integration: stat dirty path %s: %w", relPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", false, fmt.Errorf("integration: refuse to hash symlink dirty path %s", relPath)
 	}
 	if info.IsDir() {
 		return "", false, nil

@@ -431,7 +431,7 @@ shark status set B001 wont_fix
 shark status history B001
 
 # View valid next statuses
-shark status options B001
+shark status transitions B001
 ```
 
 ---

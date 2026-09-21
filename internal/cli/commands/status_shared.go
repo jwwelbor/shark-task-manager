@@ -13,6 +13,10 @@ type entityTransitioner interface {
 	TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
 }
 
+func printNextInstructions(entityKey string) {
+	cli.Info(fmt.Sprintf("Run `shark next %s --json` to get your next instructions.", entityKey))
+}
+
 // performEntityTransition executes a status transition via the service layer.
 func performEntityTransition(ctx context.Context, svc entityTransitioner, entityKey string, targetStatus string, opts services.TransitionOptions, result *EntityNextStatusResult) error {
 	if opts.Force {
@@ -42,7 +46,7 @@ func performEntityTransition(ctx context.Context, svc entityTransitioner, entity
 	if transResult.ChildCount > 0 {
 		cli.Warning(fmt.Sprintf("%d child entities remain in current states.", transResult.ChildCount))
 	}
-	cli.Info(fmt.Sprintf("Run `shark get %s --field orchestrator_action` to get your next instructions.", result.EntityKey))
+	printNextInstructions(result.EntityKey)
 	return nil
 }
 

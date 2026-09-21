@@ -44,9 +44,9 @@ shark status history E01-F02-001 --json
 ### Dashboard
 
 ```bash
-shark status            # project-wide dashboard
-shark status E01        # epic status with feature rollups
-shark status E01-F02    # feature status with task breakdown
+shark progress          # project-wide dashboard
+shark progress E01      # epic progress with feature rollups
+shark get E01-F02       # feature details and current status
 ```
 
 ## Claim / session lease

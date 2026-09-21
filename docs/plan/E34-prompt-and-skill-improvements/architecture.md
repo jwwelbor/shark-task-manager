@@ -324,6 +324,15 @@ create an explicit replacement record linked by `prior_record_digest`; they do
 not silently rewrite the base. Unrelated interleaved commits remain visible in
 the full base-to-candidate inventory and require a disposition.
 
+Candidate records written by the current capture path carry
+`path_digest_schema_version: 1`. This marker is retained even when the
+tracked/untracked maps are empty and omitted by JSON serialization, so a clean
+current candidate is distinguishable from a pre-schema legacy candidate that
+never captured an inventory. Registered legacy candidates must be upgraded by
+the authorized `shark integration migrate-candidate` operation; the operation
+preserves the candidate identity, captures the current inventory, and archives
+the exact predecessor before replacement.
+
 Initial capture also writes one idempotent epic `reference` note with
 `record_kind=integration-candidate-root`, the epic run ID, base, and head digest.
 Feature-completion and restarted-parent callers resolve this unique nonterminal

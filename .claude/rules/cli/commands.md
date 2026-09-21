@@ -25,12 +25,13 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 
 ### Status & Analytics
 
-- `shark status [KEY]` — Project dashboard or entity status
+- `shark status` — Status operation namespace (`set`, `advance`, `transitions`, `history`)
 - `shark status set <key> <status> [--reason] [--force]` — Set status directly
 - `shark status advance <key>` — Advance to next workflow status
-- `shark status options <key>` — Show valid next statuses
+- `shark status transitions <key>` — Show valid next statuses
 - `shark status history <key>` — View status change history
-- `shark progress <key>` — Detailed progress breakdown
+- `shark progress [EPIC]` — Project or epic progress dashboard
+- `shark get <key>` — Entity details and status inspection
 - `shark analytics [key]` — Project or entity analytics
 
 ### Entity Management
@@ -52,8 +53,8 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 
 **Dependencies:**
 - `shark task deps <key> [--depth=N]` — Dependency tree
-- `shark task link <key1> <key2> --type=TYPE` — Link entities
-- `shark task unlink <key1> <key2>` — Remove link
+- `shark task link <task-key> --depends-on <target-task>` — Link task relationships
+- `shark task unlink <task-key> --depends-on <target-task>` — Remove task relationships
 - `shark task blocked-by <key>` — Show what blocks this task
 - `shark task blocks <key>` — Show what this task blocks
 
@@ -113,7 +114,9 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 ### Discovery Commands
 
 - `shark search <query> [--type=TYPE]` — Search across entities
-- `shark notes <key>` — View entity notes
+- `shark notes add <key> --type <type> <content>` — Add a typed note to any entity
+- `shark notes search <query>` — Search note content across entities
+- `shark <entity> notes <key>` — View notes for a specific entity (for example, `shark task notes <task-key>`)
 - `shark related-docs list/add/delete` — Manage related documents
 
 ### Setup & Configuration

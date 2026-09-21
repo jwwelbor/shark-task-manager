@@ -24,7 +24,7 @@ shark status set E07-F01-001 in_development            # Set status directly
 
 ```bash
 # Use readable output (default)
-shark status                               # Project dashboard
+shark progress                             # Project dashboard
 shark progress E07                         # Epic progress
 shark list E07                             # Features in epic
 
@@ -45,7 +45,7 @@ Shark supports two command styles that work identically:
 | `shark status advance <key>` | `shark task next-status <key>` | Advance to next status |
 | `shark status set <key> <status>` | `shark task set-status <key> <status>` | Set a specific status |
 
-**Recommendation**: Use status commands for daily workflow, standard entity commands for scripts and documentation.
+**Recommendation**: Use `shark progress` for dashboards, `shark get` for entity inspection, and status subcommands for daily workflow.
 
 ---
 
@@ -136,7 +136,7 @@ shark task note add E07-F01-001 --type implementation "Added JWT token validatio
 
 ```bash
 # See what transitions are available
-shark status options E07-F01-001 --json
+shark status transitions E07-F01-001 --json
 
 # Use --force only as admin override
 shark status advance E07-F01-001 --force  # Bypasses validation

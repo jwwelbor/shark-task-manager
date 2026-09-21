@@ -149,6 +149,28 @@ Claim the concrete entity returned by Shark:
 SID=$(shark claim {response.entity_key} --by "$CLAUDE_SID" --field session_id)
 ```
 
+Before spawning the worker, start a parent-owned lease supervisor for this
+session. The supervisor must renew with `shark heartbeat` at
+`max(TTL/3, 1 second)` using the same `SID`; use the project-configured claim
+TTL (the default is 15 minutes), not a hard-coded worker timeout. This is a
+lease supervisor, not the liveness event stream and not a worker
+responsibility.
+
+- Start the supervisor before spawning the worker and keep it running through
+  the worker's entire execution and any consultation.
+- Treat any heartbeat failure as lease loss: stop the worker immediately, do
+  not deliver its handoff, and do not apply the result. A stale handoff is
+  context for a fresh keyed dispatch only; do not re-claim automatically under
+  the old result or session.
+- After the worker returns a terminal result, issue one final heartbeat. If it
+  fails, stop the periodic supervisor and do not apply the result. If it
+  succeeds, stop the periodic supervisor and immediately perform the result
+  application (`--apply-result` for `gate_result_v1`), which still performs
+  its own active-session re-check before writing.
+- Release the session-scoped claim on every terminal or failure path when the
+  session still matches; a lost or reissued lease is safely left to the next
+  keyed dispatch and must never be used to authorize a write.
+
 Spawn the host worker using a host-safe adapter:
 
 - Claude Code Agent tool: select `subagent_type` by `response.effort` —

@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -316,6 +318,9 @@ func TestUpdateCandidate_CreatesCandidateFile(t *testing.T) {
 	if onDisk.Digest != candidate.Digest {
 		t.Errorf("on-disk Digest = %q, want %q", onDisk.Digest, candidate.Digest)
 	}
+	if onDisk.PathDigestSchemaVersion != currentPathDigestSchemaVersion {
+		t.Errorf("on-disk PathDigestSchemaVersion = %d, want %d", onDisk.PathDigestSchemaVersion, currentPathDigestSchemaVersion)
+	}
 }
 
 // TestUpdateCandidate_DigestExcludesItself covers task AC-T1: recomputing
@@ -342,6 +347,325 @@ func TestUpdateCandidate_DigestExcludesItself(t *testing.T) {
 	}
 	if recomputed != candidate.Digest {
 		t.Errorf("recomputed digest %q != recorded digest %q", recomputed, candidate.Digest)
+	}
+}
+
+func TestMigrateCandidatePathDigestsAuthorized_RejectsNilAuthorizerForWrites(t *testing.T) {
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), "E99", "run-nil-authorizer", false, nil); err == nil || !strings.Contains(err.Error(), "authorization callback") {
+		t.Fatalf("error = %v, want required authorization callback", err)
+	}
+}
+
+// TestMigrateCandidatePathDigests_RepairsLegacyCandidate covers B076: a
+// candidate written before candidate-level path-digest capture must be
+// explicitly migrated before integration_review can trust it. The migration
+// preserves the accumulated identity, captures the current clean-tree
+// inventory, and retains the exact legacy bytes as an archived predecessor.
+func TestMigrateCandidatePathDigests_RepairsLegacyCandidate(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+
+	legacy := IntegrationCandidate{
+		EpicRunID:  run.EpicRunID,
+		BaseCommit: headCommit,
+		HeadCommit: "legacy-head",
+		EventIDs:   []string{"legacy-event"},
+		Digest:     "",
+	}
+	legacy.Digest, err = computeDigest(legacy)
+	if err != nil {
+		t.Fatalf("compute legacy digest: %v", err)
+	}
+	legacyBytes, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy candidate: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("dirty during migration"), 0o644); err != nil {
+		t.Fatalf("write dirty tracked file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "migration-untracked.txt"), []byte("untracked during migration"), 0o644); err != nil {
+		t.Fatalf("write untracked file: %v", err)
+	}
+
+	migrated, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatalf("MigrateCandidatePathDigests: %v", err)
+	}
+	if migrated.PathDigestSchemaVersion != currentPathDigestSchemaVersion {
+		t.Fatalf("PathDigestSchemaVersion = %d, want %d", migrated.PathDigestSchemaVersion, currentPathDigestSchemaVersion)
+	}
+	if migrated.BaseCommit != legacy.BaseCommit || migrated.HeadCommit != legacy.HeadCommit || !slices.Equal(migrated.EventIDs, legacy.EventIDs) {
+		t.Fatalf("migration changed candidate identity: got %+v, want base/head/events from %+v", migrated, legacy)
+	}
+	if migrated.TrackedPathDigests == nil || migrated.UntrackedPathDigests == nil {
+		t.Fatalf("migration must persist verified empty path-digest maps: got tracked=%v untracked=%v", migrated.TrackedPathDigests, migrated.UntrackedPathDigests)
+	}
+	if _, ok := migrated.TrackedPathDigests["seed.txt"]; !ok {
+		t.Fatalf("migration omitted dirty tracked path digest: %#v", migrated.TrackedPathDigests)
+	}
+	if _, ok := migrated.UntrackedPathDigests["migration-untracked.txt"]; !ok {
+		t.Fatalf("migration omitted untracked path digest: %#v", migrated.UntrackedPathDigests)
+	}
+
+	archived, err := os.ReadFile(filepath.Join(candidateHeadsDir(path), legacy.Digest+".json"))
+	if err != nil {
+		t.Fatalf("read archived legacy candidate: %v", err)
+	}
+	if !bytes.Equal(archived, legacyBytes) {
+		t.Fatalf("archived legacy candidate bytes changed during migration")
+	}
+}
+
+func TestMigrateCandidatePathDigests_DryRunWritesNothing(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	legacy := IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "legacy-head", EventIDs: []string{"legacy-event"}}
+	legacy.Digest, err = computeDigest(legacy)
+	if err != nil {
+		t.Fatalf("compute legacy digest: %v", err)
+	}
+	legacyBytes, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy candidate: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("dirty during dry run"), 0o644); err != nil {
+		t.Fatalf("write dirty tracked file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "migration-dry-run-untracked.txt"), []byte("untracked during dry run"), 0o644); err != nil {
+		t.Fatalf("write untracked file: %v", err)
+	}
+
+	beforeCandidate, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read candidate before dry run: %v", err)
+	}
+	beforeFiles := countFilesUnder(t, filepath.Join(dir, ".shark"))
+	migrated, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, true, nil)
+	if err != nil {
+		t.Fatalf("dry-run migration: %v", err)
+	}
+	if migrated.PathDigestSchemaVersion != currentPathDigestSchemaVersion {
+		t.Fatalf("dry-run schema version = %d, want %d", migrated.PathDigestSchemaVersion, currentPathDigestSchemaVersion)
+	}
+	if _, ok := migrated.TrackedPathDigests["seed.txt"]; !ok {
+		t.Fatalf("dry-run migration omitted dirty tracked path digest: %#v", migrated.TrackedPathDigests)
+	}
+	if _, ok := migrated.UntrackedPathDigests["migration-dry-run-untracked.txt"]; !ok {
+		t.Fatalf("dry-run migration omitted untracked path digest: %#v", migrated.UntrackedPathDigests)
+	}
+	afterCandidate, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read candidate after dry run: %v", err)
+	}
+	if !bytes.Equal(afterCandidate, beforeCandidate) {
+		t.Fatal("dry-run migration mutated the candidate")
+	}
+	if afterFiles := countFilesUnder(t, filepath.Join(dir, ".shark")); afterFiles != beforeFiles {
+		t.Fatalf("dry-run migration changed .shark files: before=%d after=%d", beforeFiles, afterFiles)
+	}
+}
+
+func TestMigrateCandidatePathDigests_AuthorizationRecheckAbortsPublish(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	legacy := IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "legacy-head", EventIDs: []string{"legacy-event"}}
+	legacy.Digest, err = computeDigest(legacy)
+	if err != nil {
+		t.Fatalf("compute legacy digest: %v", err)
+	}
+	legacyBytes, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy candidate: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error {
+		return errors.New("lease expired during migration")
+	}); err == nil {
+		t.Fatal("expected authorization recheck to abort migration")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read candidate after authorization rejection: %v", err)
+	}
+	if !bytes.Equal(after, legacyBytes) {
+		t.Fatal("authorization rejection mutated the candidate")
+	}
+	if files := countFilesUnder(t, candidateHeadsDir(path)); files != 0 {
+		t.Fatalf("authorization rejection archived %d predecessor files", files)
+	}
+}
+
+func TestMigrateCandidatePathDigests_RejectsMismatchedRunEpic(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	run.EpicKey = "E98"
+	runBytes, err := json.MarshalIndent(run, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal mismatched run: %v", err)
+	}
+	if err := os.WriteFile(runRecordPath(dir, epicKey), runBytes, runFileMode); err != nil {
+		t.Fatalf("write mismatched run: %v", err)
+	}
+
+	legacy := IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "legacy-head", EventIDs: []string{"legacy-event"}}
+	legacy.Digest, err = computeDigest(legacy)
+	if err != nil {
+		t.Fatalf("compute legacy digest: %v", err)
+	}
+	legacyBytes, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy candidate: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
+
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil }); err == nil {
+		t.Fatal("expected mismatched run epic key to be rejected")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read candidate after rejection: %v", err)
+	}
+	if !bytes.Equal(got, legacyBytes) {
+		t.Fatal("mismatched run rejection mutated the candidate")
+	}
+}
+
+func TestMigrateCandidatePathDigests_RejectsInvalidDigest(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	legacy := IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "legacy-head", EventIDs: []string{"legacy-event"}, Digest: "not-the-real-digest"}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	legacyBytes, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal candidate: %v", err)
+	}
+	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
+		t.Fatalf("write candidate: %v", err)
+	}
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil }); err == nil {
+		t.Fatal("expected invalid candidate digest to be rejected")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read candidate after rejection: %v", err)
+	}
+	if !bytes.Equal(got, legacyBytes) {
+		t.Fatal("invalid-digest rejection mutated the candidate")
+	}
+}
+
+func TestMigrateCandidatePathDigests_RejectsFutureSchema(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	future := IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "future-head", EventIDs: []string{"future-event"}, PathDigestSchemaVersion: currentPathDigestSchemaVersion + 1, TrackedPathDigests: map[string]string{}, UntrackedPathDigests: map[string]string{}}
+	future.Digest, err = computeDigest(future)
+	if err != nil {
+		t.Fatalf("compute future digest: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	data, err := json.MarshalIndent(future, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal future candidate: %v", err)
+	}
+	if err := os.WriteFile(path, data, runFileMode); err != nil {
+		t.Fatalf("write future candidate: %v", err)
+	}
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil }); err == nil {
+		t.Fatal("expected future schema to be rejected")
+	}
+}
+
+func TestMigrateCandidatePathDigests_AlreadyMigratedIsIdempotent(t *testing.T) {
+	dir, headCommit := chdirProjectRoot(t)
+	const epicKey = "E99"
+	run, err := CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	migrated := IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "current-head", EventIDs: []string{"current-event"}, PathDigestSchemaVersion: currentPathDigestSchemaVersion, TrackedPathDigests: map[string]string{}, UntrackedPathDigests: map[string]string{}}
+	migrated.Digest, err = computeDigest(migrated)
+	if err != nil {
+		t.Fatalf("compute migrated digest: %v", err)
+	}
+	path := candidatePath(dir, run.EpicRunID)
+	if err := os.MkdirAll(filepath.Dir(path), runDirMode); err != nil {
+		t.Fatalf("create candidate directory: %v", err)
+	}
+	data, err := json.MarshalIndent(migrated, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal migrated candidate: %v", err)
+	}
+	if err := os.WriteFile(path, data, runFileMode); err != nil {
+		t.Fatalf("write migrated candidate: %v", err)
+	}
+	got, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatalf("idempotent migration: %v", err)
+	}
+	if got.Digest != migrated.Digest || got.PathDigestSchemaVersion != currentPathDigestSchemaVersion {
+		t.Fatalf("idempotent migration changed candidate: got %+v, want %+v", got, migrated)
+	}
+	if _, err := os.Stat(filepath.Join(candidateHeadsDir(path), migrated.Digest+".json")); !os.IsNotExist(err) {
+		t.Fatalf("idempotent migration unexpectedly archived current candidate: err=%v", err)
 	}
 }
 
@@ -692,6 +1016,31 @@ func TestArchiveCandidateHead_IdempotentWhenAlreadyArchived(t *testing.T) {
 	}
 	if string(archived) != string(data) {
 		t.Fatalf("archived content = %s, want %s", archived, data)
+	}
+}
+
+func TestArchiveCandidateHead_RejectsConflictingExistingBytes(t *testing.T) {
+	dir, _ := chdirProjectRoot(t)
+
+	path := candidatePath(dir, "run-archive-conflict")
+	want := []byte(`{"epic_run_id":"run-archive-conflict"}`)
+	conflicting := []byte(`{"epic_run_id":"different"}`)
+	if err := archiveCandidateHead(path, "digest-x", want); err != nil {
+		t.Fatalf("first archiveCandidateHead: %v", err)
+	}
+	archivePath := filepath.Join(candidateHeadsDir(path), "digest-x.json")
+	if err := os.WriteFile(archivePath, conflicting, runFileMode); err != nil {
+		t.Fatalf("tamper archived bytes: %v", err)
+	}
+	if err := archiveCandidateHead(path, "digest-x", want); err == nil {
+		t.Fatal("expected conflicting archived bytes to be rejected")
+	}
+	got, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("read conflicting archive: %v", err)
+	}
+	if !bytes.Equal(got, conflicting) {
+		t.Fatal("conflicting archive bytes were overwritten")
 	}
 }
 

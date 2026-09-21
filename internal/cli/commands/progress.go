@@ -17,7 +17,7 @@ import (
 // Once E17-F07 is complete, "shark status <id>" becomes a deprecated alias
 // for this command, resolving the namespace collision with status transitions.
 var progressCmd = &cobra.Command{
-	Use:     "progress [EPIC] [FEATURE]",
+	Use:     "progress [EPIC]",
 	Short:   "Show progress, health indicators, and task breakdown",
 	GroupID: "advanced",
 	Long: `Display a progress dashboard showing project progress, health indicators,
@@ -26,13 +26,10 @@ active tasks, and blocked items.
 Positional Arguments:
   (no args)       Show full project progress dashboard
   EPIC            Show progress for specific epic (e.g., E04)
-  EPIC FEATURE    Show progress for specific feature (e.g., E04 F01 or E04-F01)
 
 Examples:
   shark progress                     Show full project progress dashboard
   shark progress E05                 Show progress for epic E05
-  shark progress E05 F02             Show progress for feature E05-F02
-  shark progress E05-F02             Show progress for feature E05-F02 (combined format)
   shark progress --epic=E05          Flag syntax (still supported)
   shark progress --recent=7d         Include recent completions (7 days)
   shark progress --json              Output as JSON`,
@@ -80,16 +77,23 @@ func runProgress(cmd *cobra.Command, args []string) error {
 }
 
 // parseProgressRequest builds a StatusRequest from command arguments and flags.
-// Supports three invocation forms:
+// Supports project-wide and epic-scoped invocation forms. Feature-scoped
+// progress is intentionally rejected because the request model currently
+// carries only an epic filter; use shark get for feature inspection.
 //
 //	shark progress                      -> no filter
 //	shark progress E05                  -> epic filter
-//	shark progress E05 F02              -> epic + feature filter
-//	shark progress E05-F02              -> combined format (feature filter)
 func parseProgressRequest(cmd *cobra.Command, args []string) (*status.StatusRequest, error) {
-	_, positionalEpic, _, err := ParseListArgs(args)
+	_, positionalEpic, positionalFeature, err := ParseListArgs(args)
 	if err != nil {
 		return nil, err
+	}
+	if positionalFeature != nil {
+		featureKey := *positionalFeature
+		if positionalEpic != nil {
+			featureKey = *positionalEpic + "-" + featureKey
+		}
+		return nil, fmt.Errorf("feature-scoped progress is not supported; use 'shark get %s' for feature details", featureKey)
 	}
 
 	epicKeyFlag, _ := cmd.Flags().GetString("epic")

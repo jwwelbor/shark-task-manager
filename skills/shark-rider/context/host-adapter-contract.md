@@ -55,6 +55,29 @@ adds no second envelope shape:
 | `evidence` | Bounded evidence references; never the rendered prompt or a transcript |
 | `gate_result` | Present on `kind: final` only when the dispatched step's `result_contract` (from `shark next <key> --json`) is `gate_result_v1` — the I-02 GateResult v1 nested payload; see `context/worker-control-schema.yaml`'s `example_final_gate_result` |
 
+## Lease lifetime during external execution (B075)
+
+The parent owns the lease for the complete external execution lifecycle: from
+claim, through worker execution and consultation, until result application or
+failure cleanup. The worker never claims, heartbeats, releases, or transitions
+the entity. Before spawning a long-running worker, the parent starts a lease
+supervisor using the same `session_id` and renews at `max(TTL/3, 1 second)`;
+the default TTL is 15 minutes, but project configuration wins.
+
+If renewal fails, the parent stops the worker and must never apply the result
+or deliver its handoff under the lost authority. The handoff is context only:
+re-claiming under the old result or session is not an authorized recovery.
+Recovery is a fresh keyed dispatch and a new successful claim. The parent may
+attempt a session-scoped release for cleanup, but a release that finds the
+session gone or reissued must not be treated as permission to write.
+
+When the worker returns a terminal result, the parent sends one final
+heartbeat. A failed final heartbeat means never apply; a successful one allows
+the parent to stop the periodic supervisor and immediately call the shared
+`--apply-result` boundary. That boundary performs its own active-session
+re-check, so expiry or reclaim between the final heartbeat and persistence
+still fails closed with zero writes.
+
 ### `result_contract`-gated dispatch (T-E34-F05-004)
 
 `shark next <key> --json` additionally exposes `result_contract`

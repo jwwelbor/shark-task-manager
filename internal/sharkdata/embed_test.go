@@ -1252,6 +1252,14 @@ func TestIntegrationReviewUsesCandidateLevelPathDigests(t *testing.T) {
 		"integration review must retain backfill event-path evidence alongside candidate-level digests")
 }
 
+func TestIntegrationReviewProvidesLegacyCandidateMigration(t *testing.T) {
+	content := readEmbeddedString(t, "prompts/epic/integration_review.md")
+	assert.Contains(t, content, "shark integration migrate-candidate",
+		"integration review must provide the explicit migration for registered legacy candidates")
+	assert.Contains(t, content, "already-registered legacy candidate",
+		"integration review must distinguish candidate migration from pre-execution backfill")
+}
+
 // TestIntegrationReviewAdoptionManifestFieldListMatchesArchitecture is
 // TC-I-05-ADOPTION-MANIFEST (AC-T4): epic/integration_review.md's own
 // `adoption_manifest` field table must list exactly architecture.md's 8 I-05

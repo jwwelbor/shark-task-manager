@@ -150,7 +150,7 @@ shark task blocked-by T-E10-F03-004 --json
 shark task complete T-E10-F03-004 --json
 
 # 5. Check project status
-shark status --json
+shark progress --json
 ```
 
 ### Proposed (concise, discoverable)
@@ -168,7 +168,7 @@ shark deps show T-E10-F03-004 --json
 shark work complete T-E10-F03-004 --json
 
 # 5. Check project status
-shark status --json
+shark progress --json
 ```
 
 ---

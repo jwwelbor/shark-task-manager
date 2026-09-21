@@ -155,7 +155,7 @@ Valid transitions from 'completed':
 Use --force to bypass transition validation.
 ```
 
-**Solution:** Follow valid lifecycle transitions. Use `shark status options <key>` to see valid next statuses. Use `--force` as admin override if needed.
+**Solution:** Follow valid lifecycle transitions. Use `shark status transitions <key>` to see valid next statuses. Use `--force` as admin override if needed.
 
 ---
 
@@ -242,7 +242,7 @@ All dependencies must be completed before starting this task.
 - All keys are **case insensitive** (`E07` = `e07`)
 - Use `--json` for machine-parseable error details
 - Use `shark <command> --help` for command syntax
-- Use `shark status options <key>` to see valid status transitions
+- Use `shark status transitions <key>` to see valid status transitions
 - Use `shark update <key>` to quickly update any entity (auto-detects type)
 - Use `shark docs` as a shorthand for `shark related-docs`
 - Use `--force` to bypass validation (admin override)

@@ -1,17 +1,131 @@
 package commands
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/spf13/cobra"
 )
 
 // Integration tests for task list command with positional arguments
+
+type b074TaskQueryRepository struct {
+	tasks      []*models.Task
+	featureKey string
+}
+
+func (r *b074TaskQueryRepository) List(context.Context) ([]*models.Task, error) {
+	return r.tasks, nil
+}
+
+func (r *b074TaskQueryRepository) ListByFeatureKey(_ context.Context, featureKey string) ([]*models.Task, error) {
+	r.featureKey = featureKey
+	return r.tasks, nil
+}
+
+func (b074TaskQueryRepository) ListByEpic(context.Context, string) ([]*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) FindByFileChanged(context.Context, string) ([]*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) GetByKey(context.Context, string) (*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) GetByID(context.Context, int64) (*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) GetTaskDisplayDataRaw(context.Context, int64) (*repository.TaskDisplayDataRaw, error) {
+	return nil, nil
+}
+
+func TestB074UnifiedListProductionBoundary(t *testing.T) {
+	tests := []struct {
+		name     string
+		all      bool
+		wantJSON string
+	}{
+		{name: "default filtering serializes empty array", wantJSON: "[]"},
+		{name: "all preserves completed task array", all: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			previousService := taskListSvcOverride
+			previousJSON := cli.GlobalConfig.JSON
+			previousField := cli.GlobalConfig.Field
+			t.Cleanup(func() {
+				taskListSvcOverride = previousService
+				cli.GlobalConfig.JSON = previousJSON
+				cli.GlobalConfig.Field = previousField
+			})
+			queryRepo := &b074TaskQueryRepository{
+				tasks: []*models.Task{{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001"}, Status: models.TaskStatus("completed")}},
+			}
+			taskListSvcOverride = services.NewTaskQueryService(queryRepo)
+			cli.GlobalConfig.JSON = true
+			cli.GlobalConfig.Field = ""
+
+			cmd := &cobra.Command{Use: "list"}
+			cmd.SetContext(context.Background())
+			cmd.Flags().String("status", "", "status")
+			cmd.Flags().String("sort-by", "", "sort")
+			cmd.Flags().Bool("show-all", false, "show all")
+			cmd.Flags().Bool("all", tt.all, "all")
+			cmd.Flags().StringSlice("tag", nil, "tag")
+
+			oldStdout := os.Stdout
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("create stdout pipe: %v", err)
+			}
+			os.Stdout = writer
+			err = runList(cmd, []string{"E04", "F01"})
+			_ = writer.Close()
+			os.Stdout = oldStdout
+			output, readErr := io.ReadAll(reader)
+			_ = reader.Close()
+			if err != nil {
+				t.Fatalf("runList: %v", err)
+			}
+			if readErr != nil {
+				t.Fatalf("read JSON output: %v", readErr)
+			}
+			trimmed := bytes.TrimSpace(output)
+			if !tt.all {
+				if got := string(trimmed); got != tt.wantJSON {
+					t.Fatalf("JSON output = %q, want %q", got, tt.wantJSON)
+				}
+			} else {
+				var tasks []*models.Task
+				if err := json.Unmarshal(trimmed, &tasks); err != nil {
+					t.Fatalf("decode --all JSON output: %v", err)
+				}
+				if len(tasks) != 1 || tasks[0].Key != "T-E04-F01-001" || tasks[0].Status != models.TaskStatus("completed") {
+					t.Fatalf("--all JSON tasks = %#v, want one completed task", tasks)
+				}
+			}
+			if queryRepo.featureKey != "E04-F01" {
+				t.Fatalf("repository feature key = %q, want E04-F01", queryRepo.featureKey)
+			}
+		})
+	}
+}
 
 // TestParseTaskListArgsIntegration verifies positional argument parsing for task list
 func TestParseTaskListArgsIntegration(t *testing.T) {

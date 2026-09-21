@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,10 +14,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/integration"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
+
+func TestIntegrationMaintenanceCommandsAreRegistered(t *testing.T) {
+	for _, tc := range []struct {
+		path  []string
+		want  *cobra.Command
+		flags []string
+	}{
+		{path: []string{"integration", "backfill"}, want: integrationBackfillCmd, flags: []string{"epic-run-id", "base", "events-file", "session", "dry-run"}},
+		{path: []string{"integration", "migrate-candidate"}, want: integrationCandidateMigrationCmd, flags: []string{"epic-run-id", "session", "dry-run"}},
+	} {
+		t.Run(strings.Join(tc.path, "/"), func(t *testing.T) {
+			got, _, err := cli.RootCmd.Find(tc.path)
+			if err != nil {
+				t.Fatalf("find %v: %v", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("registered command = %p, want %p", got, tc.want)
+			}
+			for _, flag := range tc.flags {
+				if got.Flags().Lookup(flag) == nil {
+					t.Errorf("registered command omits --%s", flag)
+				}
+			}
+		})
+	}
+}
 
 // deriveEventIDForTest replicates integration.deriveEventID's unexported
 // derivation (spec.md REQ-F-004: first 16 hex chars of
@@ -135,6 +163,7 @@ func countFilesUnderForTest(t *testing.T, root string) int {
 func buildIntegrationBackfillTestCmd(t *testing.T, epicRunID, base, eventsFile, session string) *cobra.Command {
 	t.Helper()
 	cmd := &cobra.Command{Use: "backfill", SilenceErrors: true, SilenceUsage: true}
+	cmd.SetContext(context.Background())
 	cmd.Flags().String("epic-run-id", "", "")
 	cmd.Flags().String("base", "", "")
 	cmd.Flags().String("events-file", "", "")
@@ -152,6 +181,43 @@ func buildIntegrationBackfillTestCmd(t *testing.T, epicRunID, base, eventsFile, 
 	set("events-file", eventsFile)
 	set("session", session)
 	return cmd
+}
+
+func buildIntegrationCandidateMigrationTestCmd(t *testing.T, epicRunID, session string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "migrate-candidate", SilenceErrors: true, SilenceUsage: true}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("epic-run-id", "", "")
+	cmd.Flags().String("session", "", "")
+	cmd.Flags().Bool("dry-run", false, "")
+	if err := cmd.Flags().Set("epic-run-id", epicRunID); err != nil {
+		t.Fatalf("set --epic-run-id: %v", err)
+	}
+	if err := cmd.Flags().Set("session", session); err != nil {
+		t.Fatalf("set --session: %v", err)
+	}
+	return cmd
+}
+
+func writeLegacyCandidateForTest(t *testing.T, dir string, candidate integration.IntegrationCandidate) {
+	t.Helper()
+	data, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatalf("marshal legacy candidate for digest: %v", err)
+	}
+	sum := sha256.Sum256(data)
+	candidate.Digest = hex.EncodeToString(sum[:])
+	data, err = json.MarshalIndent(candidate, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy candidate: %v", err)
+	}
+	path := filepath.Join(dir, ".shark", "runs", candidate.EpicRunID, "integration-candidate.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create legacy candidate directory: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
 }
 
 // withIntegrationClaimLookup overrides the integrationClaimLookup seam for
@@ -317,10 +383,11 @@ func TestRunIntegrationBackfill_MatchingClaim_WiresToRealBackfill(t *testing.T) 
 			t.Fatalf("unexpected claim lookup: entityType=%q entityKey=%q", entityType, entityKey)
 		}
 		return &models.EntityClaim{
-			EntityType: "epic",
-			EntityKey:  epicKey,
-			ClaimedBy:  "agent-1",
-			SessionID:  session,
+			EntityType:    "epic",
+			EntityKey:     epicKey,
+			ClaimedBy:     "agent-1",
+			SessionID:     session,
+			LastHeartbeat: time.Now().UTC(),
 		}, nil
 	})
 	recorder := &fakeCLINoteRecorder{}
@@ -379,10 +446,11 @@ func TestRunIntegrationBackfill_MalformedEventsFile_RejectsWithZeroMutation(t *t
 
 	withIntegrationClaimLookup(t, func(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
 		return &models.EntityClaim{
-			EntityType: "epic",
-			EntityKey:  epicKey,
-			ClaimedBy:  "agent-1",
-			SessionID:  session,
+			EntityType:    "epic",
+			EntityKey:     epicKey,
+			ClaimedBy:     "agent-1",
+			SessionID:     session,
+			LastHeartbeat: time.Now().UTC(),
 		}, nil
 	})
 	recorder := &fakeCLINoteRecorder{}
@@ -494,6 +562,125 @@ func TestRunIntegrationBackfill_NonCanonicalEpicKey_RejectsBeforeClaimLookup(t *
 	after := countFilesUnderForTest(t, shark)
 	if after != before {
 		t.Fatalf("expected zero mutation on rejection: before=%d after=%d", before, after)
+	}
+}
+
+// TestRunIntegrationCandidateMigration_MatchingClaim_WiresRealMigration
+// proves the B076 operator path: an active claim authorizes migration of an
+// already-registered legacy candidate, and the command reaches the real
+// integration migration rather than fabricating a result.
+func TestRunIntegrationCandidateMigration_MatchingClaim_WiresRealMigration(t *testing.T) {
+	dir := t.TempDir()
+	headCommit := initIntegrationTestGitRepo(t, dir)
+	t.Chdir(dir)
+
+	const epicKey = "E90"
+	const session = "session-abc"
+	run, err := integration.CaptureBase(context.Background(), epicKey)
+	if err != nil {
+		t.Fatalf("CaptureBase: %v", err)
+	}
+	legacy := integration.IntegrationCandidate{
+		EpicRunID:  run.EpicRunID,
+		BaseCommit: headCommit,
+		HeadCommit: "legacy-head",
+		EventIDs:   []string{"legacy-event"},
+	}
+	writeLegacyCandidateForTest(t, dir, legacy)
+
+	withIntegrationClaimLookup(t, func(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
+		if entityType != "epic" || entityKey != epicKey {
+			t.Fatalf("unexpected claim lookup: entityType=%q entityKey=%q", entityType, entityKey)
+		}
+		return &models.EntityClaim{EntityType: "epic", EntityKey: epicKey, SessionID: session, LastHeartbeat: time.Now().UTC()}, nil
+	})
+
+	cmd := buildIntegrationCandidateMigrationTestCmd(t, run.EpicRunID, session)
+	if err := runIntegrationCandidateMigration(cmd, []string{epicKey}); err != nil {
+		t.Fatalf("runIntegrationCandidateMigration: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".shark", "runs", run.EpicRunID, "integration-candidate.json"))
+	if err != nil {
+		t.Fatalf("read migrated candidate: %v", err)
+	}
+	var migrated integration.IntegrationCandidate
+	if err := json.Unmarshal(data, &migrated); err != nil {
+		t.Fatalf("decode migrated candidate: %v", err)
+	}
+	if migrated.PathDigestSchemaVersion != 1 {
+		t.Fatalf("PathDigestSchemaVersion = %d, want 1", migrated.PathDigestSchemaVersion)
+	}
+}
+
+func TestRunIntegrationCandidateMigration_RejectsStaleOrMismatchedClaims(t *testing.T) {
+	tests := []struct {
+		name        string
+		claim       *models.EntityClaim
+		wantErr     string
+		dryRun      bool
+		wantNoWrite bool
+	}{
+		{name: "no claim", claim: nil, wantErr: "no active claim", wantNoWrite: true},
+		{name: "session mismatch", claim: &models.EntityClaim{SessionID: "other", LastHeartbeat: time.Now().UTC()}, wantErr: "session", wantNoWrite: true},
+		{name: "expired claim", claim: &models.EntityClaim{SessionID: "session-abc", LastHeartbeat: time.Now().UTC().Add(-16 * time.Minute)}, wantErr: "expired", wantNoWrite: true},
+		{name: "dry run", claim: &models.EntityClaim{SessionID: "session-abc", LastHeartbeat: time.Now().UTC()}, dryRun: true, wantNoWrite: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			headCommit := initIntegrationTestGitRepo(t, dir)
+			t.Chdir(dir)
+			const epicKey = "E90"
+			const session = "session-abc"
+			run, err := integration.CaptureBase(context.Background(), epicKey)
+			if err != nil {
+				t.Fatalf("CaptureBase: %v", err)
+			}
+			legacy := integration.IntegrationCandidate{EpicRunID: run.EpicRunID, BaseCommit: headCommit, HeadCommit: "legacy-head", EventIDs: []string{"legacy-event"}}
+			writeLegacyCandidateForTest(t, dir, legacy)
+			path := filepath.Join(dir, ".shark", "runs", run.EpicRunID, "integration-candidate.json")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read candidate before migration: %v", err)
+			}
+			beforeFiles := countFilesUnderForTest(t, filepath.Join(dir, ".shark"))
+			withIntegrationClaimLookup(t, func(context.Context, string, string) (*models.EntityClaim, error) {
+				if tc.claim == nil {
+					return nil, nil
+				}
+				claim := *tc.claim
+				claim.EntityType, claim.EntityKey = "epic", epicKey
+				return &claim, nil
+			})
+			cmd := buildIntegrationCandidateMigrationTestCmd(t, run.EpicRunID, session)
+			if tc.dryRun {
+				if err := cmd.Flags().Set("dry-run", "true"); err != nil {
+					t.Fatalf("set dry-run: %v", err)
+				}
+			}
+			err = runIntegrationCandidateMigration(cmd, []string{epicKey})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(strings.ToLower(err.Error()), tc.wantErr) {
+					t.Fatalf("error = %v, want substring %q", err, tc.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("runIntegrationCandidateMigration: %v", err)
+			}
+			if tc.wantNoWrite {
+				after, readErr := os.ReadFile(path)
+				if readErr != nil {
+					t.Fatalf("read candidate after migration: %v", readErr)
+				}
+				if !bytes.Equal(after, before) {
+					t.Fatal("rejected or dry-run migration mutated the candidate")
+				}
+				if afterFiles := countFilesUnderForTest(t, filepath.Join(dir, ".shark")); afterFiles != beforeFiles {
+					t.Fatalf("rejected or dry-run migration changed .shark files: before=%d after=%d", beforeFiles, afterFiles)
+				}
+			}
+			_ = headCommit
+		})
 	}
 }
 

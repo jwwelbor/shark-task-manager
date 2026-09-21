@@ -99,7 +99,7 @@ patterns in the `context/*.md` references.
 
 | Capability | Recipe |
 |-----------|--------|
-| Read state | `shark status [key]` · `shark list [epic] [feature]` · `shark get <key> [--field f]` · `shark view <key>` · `shark search "q"` · `shark claims` |
+| Read state | `shark progress [epic]` · `shark list [epic] [feature]` · `shark get <key> [--field f]` · `shark view <key>` · `shark search "q"` · `shark claims` |
 | Status & leases by hand | `shark status advance <key> --outcome pass\|fail\|blocked` · `shark status set <key> <status> [--force]` · `shark status transitions\|history <key>` · `shark claim\|heartbeat\|release <key>` → `context/workflow-and-status.md` |
 | Entity CRUD | `shark create epic\|feature\|task\|bug\|change\|idea …` · doc already on disk? add `--key=<KEY> --file=<path>` to link it (never a tree sync for one entity) · after create, fill any shark-generated placeholder file with available context · `shark update <key> …` (no `--status`) · `shark delete <key>` · `shark link <a> <b> --type=…` → `context/entity-crud.md` |
 | Notes · context · docs | `shark create note <key> "…" --type=…` · `shark context set <key> --field … --value …` · `shark related-docs add\|list …` → `context/notes-context-docs.md` |

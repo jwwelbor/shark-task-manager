@@ -47,7 +47,7 @@ shark progress E07 --field weighted_progress
 Disable ANSI color codes in output. Useful in CI/CD pipelines, log files, or when piping output.
 
 ```bash
-shark status --no-color
+shark progress --no-color
 shark list E07 --no-color | tee output.txt
 ```
 
@@ -66,7 +66,7 @@ Override the database file path. Defaults to `shark-tasks.db` in the project roo
 
 ```bash
 shark task list --db=/path/to/custom.db
-shark status --db=./test-shark-tasks.db
+shark progress --db=./test-shark-tasks.db
 ```
 
 ### `--config`
@@ -75,7 +75,7 @@ Override the configuration file path. Defaults to `.sharkconfig.json` in the pro
 
 ```bash
 shark task list --config=/path/to/.sharkconfig.json
-shark status --config=.sharkconfig.prod.json
+shark progress --config=.sharkconfig.prod.json
 ```
 
 ## Environment Variables
@@ -113,7 +113,7 @@ shark task list --json --no-color --db="$CI_DB_PATH"
 
 ```bash
 # Default colored output
-shark status
+shark progress
 shark list E07
 
 # Quick field extraction

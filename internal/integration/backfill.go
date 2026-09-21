@@ -125,7 +125,7 @@ func ValidateEpicRunID(epicRunID string) error {
 // the "not already registered" check completes — read-only, no write of
 // any kind — before Backfill ever touches disk (AC-T4:
 // validate-fully-before-first-write). dryRun stops right there. A
-// non-dryRun call that passes every check writes exactly one
+// non-dryRun call through BackfillAuthorized that passes every check writes exactly one
 // IntegrationRun, one IntegrationEvent per input entry, one
 // IntegrationCandidate, and one epic `--type=reference` note (AC-T1). A
 // second Backfill attempt against an epic that already carries a
@@ -142,8 +142,27 @@ func ValidateEpicRunID(epicRunID string) error {
 // []IntegrationEvent, dryRun bool) (*IntegrationCandidate, error)` shape:
 // without a recorder, Backfill would have no way to satisfy AC-6/AC-T1's
 // "creates ... one epic reference note" requirement while still honoring
-// run.go's own no-internal_services-dependency rule.
+// run.go's own no-internal_services-dependency rule. Durable writes additionally
+// require BackfillAuthorized so the caller's lease remains explicit.
 func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, base string, events []IntegrationEvent, dryRun bool, createdBy string) (*IntegrationCandidate, error) {
+	if !dryRun {
+		return nil, fmt.Errorf("integration: backfill: authorization callback is required for writes")
+	}
+	return backfill(ctx, recorder, epicKey, epicRunID, base, events, dryRun, createdBy, nil)
+}
+
+// BackfillAuthorized performs backfill with an explicit lease authorization
+// callback. The callback is checked immediately before each write phase so a
+// long validation or event fold cannot silently continue after the caller's
+// session has been lost.
+func BackfillAuthorized(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, base string, events []IntegrationEvent, dryRun bool, createdBy string, authorize func(context.Context) error) (*IntegrationCandidate, error) {
+	if !dryRun && authorize == nil {
+		return nil, fmt.Errorf("integration: backfill: authorization callback is required for writes")
+	}
+	return backfill(ctx, recorder, epicKey, epicRunID, base, events, dryRun, createdBy, authorize)
+}
+
+func backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, base string, events []IntegrationEvent, dryRun bool, createdBy string, authorize func(context.Context) error) (*IntegrationCandidate, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("integration: backfill: %w", err)
 	}
@@ -201,7 +220,7 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	}
 
 	if dryRun {
-		return simulateBackfillCandidate(epicRunID, base, events)
+		return simulateBackfillCandidate(ctx, projectRoot, epicRunID, base, events)
 	}
 	// The ctx.Err() check must come before ensureBackfillManifest: that call
 	// can publish the recovery manifest to disk (publishBackfillManifest), a
@@ -209,6 +228,11 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	// documents as "before first write" (AC-T4).
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("integration: backfill before first write: %w", err)
+	}
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return nil, fmt.Errorf("integration: backfill before first write: %w", err)
+		}
 	}
 	if err := reconcileBackfillManifestAndCandidate(projectRoot, epicKey, epicRunID, base, events); err != nil {
 		return nil, err
@@ -227,6 +251,11 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("integration: backfill before event %d: %w", i, err)
 		}
+		if authorize != nil {
+			if err := authorize(ctx); err != nil {
+				return nil, fmt.Errorf("integration: backfill before event %d: %w", i, err)
+			}
+		}
 		input := events[i]
 		recorded, err := RecordEvent(epicRunID, input.FeatureKey, input.FeatureCommit, input.TrackedPaths, input.UntrackedPaths)
 		if err != nil {
@@ -243,6 +272,11 @@ func Backfill(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, ba
 	}
 	if err := validateCompletedBackfillCandidate(epicKey, candidate, events); err != nil {
 		return nil, err
+	}
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return nil, fmt.Errorf("integration: backfill before registration: %w", err)
+		}
 	}
 
 	if _, err := RegisterRun(ctx, recorder, run, candidate, lastEvent, createdBy); err != nil {
@@ -583,7 +617,7 @@ func checkBackfillRunIdentity(run *IntegrationRun, epicKey, epicRunID, base stri
 // (EventIDs is the sorted set of every entry's EventID; HeadCommit is the
 // last-applied event's FeatureCommit) without touching any file, since a
 // dry run must leave every sidecar and note byte-for-byte unchanged.
-func simulateBackfillCandidate(epicRunID, base string, events []IntegrationEvent) (*IntegrationCandidate, error) {
+func simulateBackfillCandidate(ctx context.Context, projectRoot, epicRunID, base string, events []IntegrationEvent) (*IntegrationCandidate, error) {
 	ids := make([]string, 0, len(events))
 	var head string
 	for _, ev := range events {
@@ -592,11 +626,19 @@ func simulateBackfillCandidate(epicRunID, base string, events []IntegrationEvent
 	}
 	sort.Strings(ids)
 
+	tracked, untracked, err := computeDirtyPathDigests(ctx, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+
 	candidate := &IntegrationCandidate{
-		EpicRunID:  epicRunID,
-		BaseCommit: base,
-		HeadCommit: head,
-		EventIDs:   ids,
+		EpicRunID:               epicRunID,
+		BaseCommit:              base,
+		HeadCommit:              head,
+		EventIDs:                ids,
+		PathDigestSchemaVersion: currentPathDigestSchemaVersion,
+		TrackedPathDigests:      tracked,
+		UntrackedPathDigests:    untracked,
 	}
 	digest, err := computeDigest(*candidate)
 	if err != nil {
