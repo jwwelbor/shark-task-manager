@@ -194,6 +194,18 @@ func GetCandidate(ctx context.Context, epicRunID string) (*IntegrationCandidate,
 // A dry run performs all reads and digest computation but does not write. An
 // already-migrated candidate is returned unchanged, making retries safe.
 func MigrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string, dryRun bool) (*IntegrationCandidate, error) {
+	return migrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun, nil)
+}
+
+// MigrateCandidatePathDigestsAuthorized is the migration entrypoint for a
+// caller that owns an external lease. The authorizer is invoked after the
+// candidate transition is claimed and immediately before archival/publication,
+// so a lease that expires during the inventory scan cannot authorize a write.
+func MigrateCandidatePathDigestsAuthorized(ctx context.Context, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
+	return migrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun, authorize)
+}
+
+func migrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("integration: migrate candidate: %w", err)
 	}
@@ -211,7 +223,7 @@ func MigrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string,
 	}
 
 	for attempt := 0; attempt < maxUpdateCandidateAttempts; attempt++ {
-		candidate, err := attemptMigrateCandidate(ctx, projectRoot, epicKey, epicRunID, dryRun)
+		candidate, err := attemptMigrateCandidate(ctx, projectRoot, epicKey, epicRunID, dryRun, authorize)
 		if err == nil {
 			return candidate, nil
 		}
@@ -223,35 +235,10 @@ func MigrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string,
 	return nil, &CandidateConflictError{Path: candidatePath(projectRoot, epicRunID)}
 }
 
-func attemptMigrateCandidate(ctx context.Context, projectRoot, epicKey, epicRunID string, dryRun bool) (*IntegrationCandidate, error) {
-	run, err := readRun(runRecordPath(projectRoot, epicKey))
+func attemptMigrateCandidate(ctx context.Context, projectRoot, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
+	_, current, currentBytes, err := readLegacyCandidateForMigration(projectRoot, epicKey, epicRunID)
 	if err != nil {
 		return nil, err
-	}
-	if run == nil {
-		return nil, fmt.Errorf("integration: migrate candidate: no integration run registered for %s", epicKey)
-	}
-	if run.EpicKey != epicKey || run.EpicRunID != epicRunID {
-		return nil, fmt.Errorf("integration: migrate candidate: registered run identity does not match epic %s and run %s", epicKey, epicRunID)
-	}
-
-	path := candidatePath(projectRoot, epicRunID)
-	current, currentBytes, err := readCandidate(path)
-	if err != nil {
-		return nil, err
-	}
-	if current == nil {
-		return nil, fmt.Errorf("integration: migrate candidate: no candidate exists for run %s", epicRunID)
-	}
-	if current.EpicRunID != epicRunID || current.BaseCommit != run.BaseCommit {
-		return nil, fmt.Errorf("integration: migrate candidate: candidate identity does not match registered run %s", epicRunID)
-	}
-	computed, err := computeDigest(*current)
-	if err != nil {
-		return nil, err
-	}
-	if computed != current.Digest {
-		return nil, fmt.Errorf("integration: migrate candidate: candidate digest is invalid")
 	}
 	if current.PathDigestSchemaVersion == currentPathDigestSchemaVersion {
 		return current, nil
@@ -275,10 +262,57 @@ func attemptMigrateCandidate(ctx context.Context, projectRoot, epicKey, epicRunI
 	if dryRun {
 		return &next, nil
 	}
-	if err := publishMigratedCandidate(ctx, path, current, currentBytes, &next); err != nil {
+	if err := publishMigratedCandidate(ctx, candidatePath(projectRoot, epicRunID), current, currentBytes, &next, authorize); err != nil {
 		return nil, err
 	}
 	return &next, nil
+}
+
+func readLegacyCandidateForMigration(projectRoot, epicKey, epicRunID string) (*IntegrationRun, *IntegrationCandidate, []byte, error) {
+	run, err := readMigrationRun(projectRoot, epicKey, epicRunID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	current, currentBytes, err := readMigrationCandidate(projectRoot, run, epicRunID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	computed, err := computeDigest(*current)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if computed != current.Digest {
+		return nil, nil, nil, fmt.Errorf("integration: migrate candidate: candidate digest is invalid")
+	}
+	return run, current, currentBytes, nil
+}
+
+func readMigrationRun(projectRoot, epicKey, epicRunID string) (*IntegrationRun, error) {
+	run, err := readRun(runRecordPath(projectRoot, epicKey))
+	if err != nil {
+		return nil, err
+	}
+	if run == nil {
+		return nil, fmt.Errorf("integration: migrate candidate: no integration run registered for %s", epicKey)
+	}
+	if run.EpicKey != epicKey || run.EpicRunID != epicRunID {
+		return nil, fmt.Errorf("integration: migrate candidate: registered run identity does not match epic %s and run %s", epicKey, epicRunID)
+	}
+	return run, nil
+}
+
+func readMigrationCandidate(projectRoot string, run *IntegrationRun, epicRunID string) (*IntegrationCandidate, []byte, error) {
+	current, currentBytes, err := readCandidate(candidatePath(projectRoot, epicRunID))
+	if err != nil {
+		return nil, nil, err
+	}
+	if current == nil {
+		return nil, nil, fmt.Errorf("integration: migrate candidate: no candidate exists for run %s", epicRunID)
+	}
+	if current.EpicRunID != epicRunID || current.BaseCommit != run.BaseCommit {
+		return nil, nil, fmt.Errorf("integration: migrate candidate: candidate identity does not match registered run %s", epicRunID)
+	}
+	return current, currentBytes, nil
 }
 
 // attemptUpdateCandidate performs one read-build-claim-publish cycle of
@@ -438,7 +472,7 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 // candidate through the same claim/archive/rename sequence as ordinary
 // candidate updates. Keeping migration on this path preserves the archived
 // predecessor and prevents a stale migration from overwriting a newer head.
-func publishMigratedCandidate(ctx context.Context, path string, current *IntegrationCandidate, currentBytes []byte, next *IntegrationCandidate) error {
+func publishMigratedCandidate(ctx context.Context, path string, current *IntegrationCandidate, currentBytes []byte, next *IntegrationCandidate, authorize func(context.Context) error) error {
 	data, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return fmt.Errorf("integration: marshal migrated candidate: %w", err)
@@ -463,6 +497,11 @@ func publishMigratedCandidate(ctx context.Context, path string, current *Integra
 			_ = os.Remove(tmpPath)
 		}
 	}()
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return err
+		}
+	}
 	if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
 		return err
 	}
@@ -737,7 +776,7 @@ const sharkRuntimeDirPrefix = ".shark/"
 // left to digest, or a directory entry from a fully-untracked directory)
 // is omitted rather than erroring.
 func computeDirtyPathDigests(ctx context.Context, projectRoot string) (tracked, untracked map[string]string, err error) {
-	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z")
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z", "-uall")
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {

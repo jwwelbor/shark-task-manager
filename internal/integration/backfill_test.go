@@ -103,6 +103,13 @@ func TestBackfill_DryRun_WritesNothing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("untracked"), 0o644); err != nil {
 		t.Fatalf("untracked.txt: %v", err)
 	}
+	nested := filepath.Join(dir, "untracked-dir", "nested.txt")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+		t.Fatalf("nested untracked directory: %v", err)
+	}
+	if err := os.WriteFile(nested, []byte("nested untracked"), 0o644); err != nil {
+		t.Fatalf("nested untracked file: %v", err)
+	}
 
 	const epicRunID = "run-dry"
 	events := validBackfillEvents(epicRunID)
@@ -129,6 +136,9 @@ func TestBackfill_DryRun_WritesNothing(t *testing.T) {
 	}
 	if _, ok := candidate.UntrackedPathDigests["untracked.txt"]; !ok {
 		t.Fatalf("dry-run omitted untracked path digest: %#v", candidate.UntrackedPathDigests)
+	}
+	if _, ok := candidate.UntrackedPathDigests["untracked-dir/nested.txt"]; !ok {
+		t.Fatalf("dry-run omitted nested untracked path digest: %#v", candidate.UntrackedPathDigests)
 	}
 
 	after := countFilesUnder(t, shark)

@@ -223,7 +223,7 @@ func runIntegrationBackfill(cmd *cobra.Command, args []string) error {
 // `shark integration migrate-candidate <epic-key>`. Authorization remains in
 // this CLI layer; the integration package owns only the filesystem migration.
 func runIntegrationCandidateMigration(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	epicKey := strings.ToUpper(strings.TrimSpace(args[0]))
@@ -232,11 +232,11 @@ func runIntegrationCandidateMigration(cmd *cobra.Command, args []string) error {
 		cli.Error(err.Error())
 		return err
 	}
-	epicRunID, _ := cmd.Flags().GetString("epic-run-id")
-	session, _ := cmd.Flags().GetString("session")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	epicRunID = strings.TrimSpace(epicRunID)
-	session = strings.TrimSpace(session)
+	epicRunID, session, dryRun, err := integrationCandidateMigrationOptions(cmd)
+	if err != nil {
+		cli.Error(err.Error())
+		return err
+	}
 	if epicRunID == "" || session == "" {
 		err := fmt.Errorf("--epic-run-id and --session are required")
 		cli.Error(err.Error())
@@ -247,24 +247,18 @@ func runIntegrationCandidateMigration(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	claim, err := integrationClaimLookup(ctx, "epic", epicKey)
-	if err != nil {
-		err = fmt.Errorf("look up claim for %s: %w", epicKey, err)
-		cli.Error(err.Error())
-		return err
-	}
-	if claim == nil {
-		err := fmt.Errorf("no active claim on %s; candidate migration requires an active claim matching --session", epicKey)
-		cli.Error(err.Error())
-		return err
-	}
-	if claim.SessionID != session {
-		err := fmt.Errorf("--session does not match the active claim's session on %s", epicKey)
+	if err := requireIntegrationClaim(ctx, epicKey, session, "candidate migration"); err != nil {
 		cli.Error(err.Error())
 		return err
 	}
 
-	candidate, err := integration.MigrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun)
+	// Re-check the same TTL-aware claim immediately before publication inside
+	// the integration CAS/archive boundary; inventory collection can outlive a
+	// lease and must never authorize a write after that lease is lost.
+	authorize := func(checkCtx context.Context) error {
+		return requireIntegrationClaim(checkCtx, epicKey, session, "candidate migration publication")
+	}
+	candidate, err := integration.MigrateCandidatePathDigestsAuthorized(ctx, epicKey, epicRunID, dryRun, authorize)
 	if err != nil {
 		cli.Error(err.Error())
 		return err
@@ -281,6 +275,39 @@ func runIntegrationCandidateMigration(cmd *cobra.Command, args []string) error {
 		cli.Info(fmt.Sprintf("Dry run: would migrate legacy integration candidate %s for %s", epicRunID, epicKey))
 	} else {
 		cli.Success(fmt.Sprintf("Migrated legacy integration candidate %s for %s", epicRunID, epicKey))
+	}
+	return nil
+}
+
+func integrationCandidateMigrationOptions(cmd *cobra.Command) (string, string, bool, error) {
+	epicRunID, err := cmd.Flags().GetString("epic-run-id")
+	if err != nil {
+		return "", "", false, fmt.Errorf("read --epic-run-id: %w", err)
+	}
+	session, err := cmd.Flags().GetString("session")
+	if err != nil {
+		return "", "", false, fmt.Errorf("read --session: %w", err)
+	}
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	if err != nil {
+		return "", "", false, fmt.Errorf("read --dry-run: %w", err)
+	}
+	return strings.TrimSpace(epicRunID), strings.TrimSpace(session), dryRun, nil
+}
+
+func requireIntegrationClaim(ctx context.Context, epicKey, session, operation string) error {
+	claim, err := integrationClaimLookup(ctx, "epic", epicKey)
+	if err != nil {
+		return fmt.Errorf("look up claim for %s: %w", epicKey, err)
+	}
+	if claim == nil {
+		return fmt.Errorf("no active claim on %s; %s requires an active claim matching --session", epicKey, operation)
+	}
+	if claim.SessionID != session {
+		return fmt.Errorf("--session does not match the active claim's session on %s", epicKey)
+	}
+	if claim.IsExpired(time.Now().UTC(), cli.GetClaimService().TTL()) {
+		return fmt.Errorf("the claim session on %s has expired; re-claim the epic before %s", epicKey, operation)
 	}
 	return nil
 }

@@ -261,6 +261,39 @@ func dispatchListDocs(ctx context.Context, entityType, key string) ([]*models.Do
 // resolveRelatedDocsListSelection resolves either a positional entity key or
 // one explicit entity-type selector into the values consumed by dispatchListDocs.
 func resolveRelatedDocsListSelection(args []string, epic, feature, task, bug, change, question string) (string, string, error) {
+	if len(args) > 1 {
+		return "", "", fmt.Errorf("related-docs list accepts at most one positional entity key")
+	}
+	if len(args) == 1 {
+		if hasExplicitRelatedDocsSelector(epic, feature, task, bug, change, question) {
+			return "", "", fmt.Errorf("cannot combine positional entity key %q with an explicit entity-type flag", args[0])
+		}
+		return resolvePositionalRelatedDocsSelection(args[0])
+	}
+	return resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, question)
+}
+
+func hasExplicitRelatedDocsSelector(keys ...string) bool {
+	selected := 0
+	for _, key := range keys {
+		if key != "" {
+			selected++
+		}
+	}
+	return selected > 0
+}
+
+func resolvePositionalRelatedDocsSelection(key string) (string, string, error) {
+	entityType := DetectEntityType(key)
+	switch entityType {
+	case "epic", "feature", "task", "bug", "change", "question":
+		return entityType, key, nil
+	default:
+		return "", "", fmt.Errorf("cannot infer a supported entity type from key %q", key)
+	}
+}
+
+func resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, question string) (string, string, error) {
 	selectors := []struct {
 		entityType string
 		key        string
@@ -272,44 +305,22 @@ func resolveRelatedDocsListSelection(args []string, epic, feature, task, bug, ch
 		{entityType: "change", key: change},
 		{entityType: "question", key: question},
 	}
-
 	selected := 0
+	var selectedType, selectedKey string
 	for _, selector := range selectors {
-		if selector.key != "" {
-			selected++
+		if selector.key == "" {
+			continue
 		}
+		selected++
+		selectedType, selectedKey = selector.entityType, selector.key
 	}
-
-	if len(args) > 1 {
-		return "", "", fmt.Errorf("related-docs list accepts at most one positional entity key")
-	}
-	if len(args) == 1 {
-		if selected > 0 {
-			return "", "", fmt.Errorf("cannot combine positional entity key %q with an explicit entity-type flag", args[0])
-		}
-
-		entityType := DetectEntityType(args[0])
-		switch entityType {
-		case "epic", "feature", "task", "bug", "change", "question":
-			return entityType, args[0], nil
-		default:
-			return "", "", fmt.Errorf("cannot infer a supported entity type from key %q", args[0])
-		}
-	}
-
 	if selected == 0 {
 		return "", "", fmt.Errorf("one of --epic, --feature, --task, --bug, --change, or --question must be specified")
 	}
 	if selected > 1 {
 		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, or --question must be specified")
 	}
-
-	for _, selector := range selectors {
-		if selector.key != "" {
-			return selector.entityType, selector.key, nil
-		}
-	}
-	return "", "", fmt.Errorf("related-docs list selector could not be resolved")
+	return selectedType, selectedKey, nil
 }
 
 // runRelatedDocsListList handles listing documents
