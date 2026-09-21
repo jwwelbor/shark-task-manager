@@ -3,8 +3,10 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -160,6 +162,75 @@ func TestPerformEntityTransition_Success(t *testing.T) {
 	}
 	if result.NewStatus != "active" {
 		t.Errorf("expected new_status 'active', got %q", result.NewStatus)
+	}
+}
+
+func TestPerformEntityTransition_UsesCanonicalDispatchAdvice(t *testing.T) {
+	mock := &mockEpicServiceForTest{
+		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{
+				EntityType:   "epic",
+				EntityKey:    epicKey,
+				FromStatus:   "draft",
+				ToStatus:     targetStatus,
+				Transitioned: true,
+			}, nil
+		},
+	}
+
+	result := &EntityNextStatusResult{EntityType: "epic", EntityKey: "E16"}
+	originalConfig := cli.GlobalConfig
+	cli.GlobalConfig = &cli.Config{NoColor: true}
+	t.Cleanup(func() { cli.GlobalConfig = originalConfig })
+
+	output, err := captureStdoutForTest(t, func() error {
+		return performEntityTransition(context.Background(), mock, "E16", "active", services.TransitionOptions{}, result)
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	wantAdvice := "Run `shark next E16 --json` to get your next instructions."
+	if !strings.Contains(output, wantAdvice) {
+		t.Errorf("expected canonical dispatch advice %q in output %q", wantAdvice, output)
+	}
+	if strings.Contains(output, "orchestrator_action") {
+		t.Errorf("expected obsolete orchestrator_action advice to be absent from output %q", output)
+	}
+}
+
+func TestSetStatus_UsesCanonicalDispatchAdvice(t *testing.T) {
+	mock := &mockEpicServiceForTest{
+		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{
+				EntityType:   "epic",
+				EntityKey:    epicKey,
+				FromStatus:   "draft",
+				ToStatus:     targetStatus,
+				Transitioned: true,
+			}, nil
+		},
+	}
+
+	cmd := makeSetStatusCmd("epic", func() entityTransitioner { return mock })
+	originalConfig := cli.GlobalConfig
+	cli.GlobalConfig = &cli.Config{NoColor: true}
+	t.Cleanup(func() { cli.GlobalConfig = originalConfig })
+
+	output, err := captureStdoutForTest(t, func() error {
+		cmd.SetArgs([]string{"E16", "active"})
+		return cmd.Execute()
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	wantAdvice := "Run `shark next E16 --json` to get your next instructions."
+	if !strings.Contains(output, wantAdvice) {
+		t.Errorf("expected canonical dispatch advice %q in output %q", wantAdvice, output)
+	}
+	if strings.Contains(output, "orchestrator_action") {
+		t.Errorf("expected obsolete orchestrator_action advice to be absent from output %q", output)
 	}
 }
 
