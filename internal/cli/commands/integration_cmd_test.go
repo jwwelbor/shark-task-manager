@@ -356,10 +356,11 @@ func TestRunIntegrationBackfill_MatchingClaim_WiresToRealBackfill(t *testing.T) 
 			t.Fatalf("unexpected claim lookup: entityType=%q entityKey=%q", entityType, entityKey)
 		}
 		return &models.EntityClaim{
-			EntityType: "epic",
-			EntityKey:  epicKey,
-			ClaimedBy:  "agent-1",
-			SessionID:  session,
+			EntityType:    "epic",
+			EntityKey:     epicKey,
+			ClaimedBy:     "agent-1",
+			SessionID:     session,
+			LastHeartbeat: time.Now().UTC(),
 		}, nil
 	})
 	recorder := &fakeCLINoteRecorder{}
@@ -418,10 +419,11 @@ func TestRunIntegrationBackfill_MalformedEventsFile_RejectsWithZeroMutation(t *t
 
 	withIntegrationClaimLookup(t, func(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
 		return &models.EntityClaim{
-			EntityType: "epic",
-			EntityKey:  epicKey,
-			ClaimedBy:  "agent-1",
-			SessionID:  session,
+			EntityType:    "epic",
+			EntityKey:     epicKey,
+			ClaimedBy:     "agent-1",
+			SessionID:     session,
+			LastHeartbeat: time.Now().UTC(),
 		}, nil
 	})
 	recorder := &fakeCLINoteRecorder{}

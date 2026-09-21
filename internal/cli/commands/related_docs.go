@@ -284,6 +284,7 @@ func hasExplicitRelatedDocsSelector(keys ...string) bool {
 }
 
 func resolvePositionalRelatedDocsSelection(key string) (string, string, error) {
+	key = NormalizeKey(key)
 	entityType := DetectEntityType(key)
 	switch entityType {
 	case "epic", "feature", "task", "bug", "change", "question":

@@ -107,7 +107,7 @@ var integrationNoteRecorder = func(ctx context.Context) (integration.NoteRecorde
 
 // runIntegrationBackfill implements `shark integration backfill <epic-key>`.
 func runIntegrationBackfill(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	// Reuses internal/models.ValidateEpicKey rather than DetectEntityType's
@@ -156,20 +156,9 @@ func runIntegrationBackfill(cmd *cobra.Command, args []string) error {
 
 	// Claim/session authorization — this layer's own check. A rejection here
 	// leaves every sidecar and note untouched: integration.Backfill is never
-	// called on this path.
-	claim, err := integrationClaimLookup(ctx, "epic", epicKey)
-	if err != nil {
-		err = fmt.Errorf("look up claim for %s: %w", epicKey, err)
-		cli.Error(err.Error())
-		return err
-	}
-	if claim == nil {
-		err := fmt.Errorf("no active claim on %s; backfill requires an active claim matching --session", epicKey)
-		cli.Error(err.Error())
-		return err
-	}
-	if claim.SessionID != session {
-		err := fmt.Errorf("--session does not match the active claim's session on %s", epicKey)
+	// called on this path. The shared helper also applies the lease-expiry
+	// policy used by candidate migration.
+	if err := requireIntegrationClaim(ctx, epicKey, session, "backfill"); err != nil {
 		cli.Error(err.Error())
 		return err
 	}

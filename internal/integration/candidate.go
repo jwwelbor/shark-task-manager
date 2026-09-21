@@ -194,6 +194,9 @@ func GetCandidate(ctx context.Context, epicRunID string) (*IntegrationCandidate,
 // A dry run performs all reads and digest computation but does not write. An
 // already-migrated candidate is returned unchanged, making retries safe.
 func MigrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string, dryRun bool) (*IntegrationCandidate, error) {
+	if !dryRun {
+		return nil, fmt.Errorf("integration: migrate candidate: authorization callback is required for writes")
+	}
 	return migrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun, nil)
 }
 
@@ -202,6 +205,9 @@ func MigrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string,
 // candidate transition is claimed and immediately before archival/publication,
 // so a lease that expires during the inventory scan cannot authorize a write.
 func MigrateCandidatePathDigestsAuthorized(ctx context.Context, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
+	if !dryRun && authorize == nil {
+		return nil, fmt.Errorf("integration: migrate candidate: authorization callback is required for writes")
+	}
 	return migrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun, authorize)
 }
 
@@ -383,11 +389,6 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 	if err := os.MkdirAll(dir, runDirMode); err != nil {
 		return nil, fmt.Errorf("integration: create candidate directory %s: %w", dir, err)
 	}
-	claimsDir := candidateClaimsDir(path)
-	if err := os.MkdirAll(claimsDir, runDirMode); err != nil {
-		return nil, fmt.Errorf("integration: create candidate claims directory %s: %w", claimsDir, err)
-	}
-
 	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := writeTempFileSynced(tmpPath, data); err != nil {
 		return nil, fmt.Errorf("integration: write synced temp candidate file: %w", err)
@@ -397,73 +398,9 @@ func attemptUpdateCandidate(ctx context.Context, projectRoot, path, epicRunID st
 		updateCandidateTestHook()
 	}
 
-	// The compare-and-swap: claim the transition away from expectedDigest.
-	// os.Link is atomic create-if-absent, so exactly one concurrent writer
-	// racing the same expectedDigest ever wins this claim — no reread, no
-	// window between "check" and "write" for a second writer to slip
-	// through. A claim behind a *successfully published* transition is
-	// retained forever, so a slot can never be reopened for reuse by a
-	// stale writer once it has actually been spent (see the rollback
-	// deferred immediately below for the unpublished case).
-	claimPath := filepath.Join(claimsDir, claimFileName(expectedDigest))
-	if err := claimCandidateTransition(ctx, path, claimPath, tmpPath, expectedDigest); err != nil {
-		// A temp file is private to this attempt. Failure to remove it cannot
-		// change candidate or claim state, so the causal claim error wins.
-		_ = os.Remove(tmpPath)
+	if err := publishCandidateTransition(ctx, path, current, currentBytes, tmpPath, expectedDigest, nil); err != nil {
 		return nil, err
 	}
-
-	// Claim-rollback safety net (code-review kickback on T-E34-F08-006:
-	// defect class "a permanent-by-design claim marker created before a
-	// later fallible step, with no rollback on that step's failure"). The
-	// claim above is meant to be permanent only once this transition is
-	// actually published (the rename below succeeds) — until then, this
-	// writer is the sole owner of expectedDigest's claim (no one else can
-	// ever win the same os.Link), so it is always safe for this writer
-	// alone to release it. Without this, a transient failure in archiving
-	// or in the final rename would leave the claim behind forever while the
-	// on-disk candidate's digest never advances past expectedDigest —
-	// permanently converting a transient I/O error into every future
-	// attempt (this call's own retry and every independent call after it)
-	// losing the same claim's os.Link and reporting a spurious
-	// *CandidateConflictError, even though no other writer ever won or
-	// published under it.
-	published := false
-	defer func() {
-		if !published {
-			_ = os.Remove(claimPath)
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	// Archived-head retention (task T-E34-F08-012 AC-T1): only the claim's
-	// winner ever reaches this point, so exactly one caller archives the
-	// head it is about to replace. current's exact, unmodified bytes as
-	// read from disk (currentBytes, not a re-marshal of the parsed struct)
-	// are durably written to integration-heads/<current.Digest>.json
-	// *before* the rename below replaces the live candidate — so a crash
-	// between the two writes never leaves a replaced head with no retained
-	// prior copy, and every prior_record_digest is recomputable later by
-	// re-hashing these retained bytes (architecture.md "Epic integration
-	// candidate identity"). The very first candidate for a run (current ==
-	// nil) has no prior head to retain.
-	if current != nil {
-		if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
-			return nil, err
-		}
-		if archiveTestHook != nil {
-			archiveTestHook()
-		}
-	}
-
-	// Only the claim's winner ever reaches this rename: a losing writer
-	// returned above without renaming, so the file on disk after a
-	// rejected attempt is exactly what the winning writer last published
-	// (task AC-T3).
-	if err := os.Rename(tmpPath, path); err != nil {
-		return nil, fmt.Errorf("integration: publish candidate at %s: %w", path, err)
-	}
-	published = true
 
 	return next, nil
 }
@@ -477,16 +414,25 @@ func publishMigratedCandidate(ctx context.Context, path string, current *Integra
 	if err != nil {
 		return fmt.Errorf("integration: marshal migrated candidate: %w", err)
 	}
-	claimsDir := candidateClaimsDir(path)
-	if err := os.MkdirAll(claimsDir, runDirMode); err != nil {
-		return fmt.Errorf("integration: create candidate claims directory: %w", err)
-	}
 	tmpPath := fmt.Sprintf("%s.%d-%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := writeTempFileSynced(tmpPath, data); err != nil {
 		return fmt.Errorf("integration: write migrated candidate: %w", err)
 	}
-	claimPath := filepath.Join(claimsDir, claimFileName(current.Digest))
-	if err := claimCandidateTransition(ctx, path, claimPath, tmpPath, current.Digest); err != nil {
+	return publishCandidateTransition(ctx, path, current, currentBytes, tmpPath, current.Digest, authorize)
+}
+
+// publishCandidateTransition owns the shared claim, authorization, archive,
+// and rename protocol used by ordinary updates and legacy migration. Keeping
+// these steps in one path prevents a new publisher from accidentally losing
+// rollback or archived-head guarantees.
+func publishCandidateTransition(ctx context.Context, path string, current *IntegrationCandidate, currentBytes []byte, tmpPath, expectedDigest string, authorize func(context.Context) error) error {
+	claimsDir := candidateClaimsDir(path)
+	if err := os.MkdirAll(claimsDir, runDirMode); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("integration: create candidate claims directory %s: %w", claimsDir, err)
+	}
+	claimPath := filepath.Join(claimsDir, claimFileName(expectedDigest))
+	if err := claimCandidateTransition(ctx, path, claimPath, tmpPath, expectedDigest); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
@@ -502,14 +448,16 @@ func publishMigratedCandidate(ctx context.Context, path string, current *Integra
 			return err
 		}
 	}
-	if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
-		return err
-	}
-	if archiveTestHook != nil {
-		archiveTestHook()
+	if current != nil {
+		if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
+			return err
+		}
+		if archiveTestHook != nil {
+			archiveTestHook()
+		}
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("integration: publish migrated candidate at %s: %w", path, err)
+		return fmt.Errorf("integration: publish candidate at %s: %w", path, err)
 	}
 	published = true
 	return nil

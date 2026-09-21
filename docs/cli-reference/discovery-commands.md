@@ -146,8 +146,11 @@ shark related-docs add <title> <path> [flags]
 | `--epic <key>` | Epic key (e.g., `E01`) |
 | `--feature <key>` | Feature key (e.g., `E01-F01`) |
 | `--task <key>` | Task key (e.g., `T-E01-F01-001`) |
+| `--bug <key>` | Bug key (e.g., `B001`) |
+| `--change <key>` | Change-card key (e.g., `CC-001`) |
+| `--question <key>` | Question key (e.g., `Q001`) |
 
-Exactly one of `--epic`, `--feature`, or `--task` is required.
+Exactly one of `--epic`, `--feature`, `--task`, `--bug`, `--change`, or `--question` is required.
 
 **Examples:**
 

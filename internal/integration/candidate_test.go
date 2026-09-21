@@ -393,7 +393,7 @@ func TestMigrateCandidatePathDigests_RepairsLegacyCandidate(t *testing.T) {
 		t.Fatalf("write untracked file: %v", err)
 	}
 
-	migrated, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, false)
+	migrated, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatalf("MigrateCandidatePathDigests: %v", err)
 	}
@@ -557,7 +557,7 @@ func TestMigrateCandidatePathDigests_RejectsMismatchedRunEpic(t *testing.T) {
 		t.Fatalf("write legacy candidate: %v", err)
 	}
 
-	if _, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, false); err == nil {
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil }); err == nil {
 		t.Fatal("expected mismatched run epic key to be rejected")
 	}
 	got, err := os.ReadFile(path)
@@ -588,7 +588,7 @@ func TestMigrateCandidatePathDigests_RejectsInvalidDigest(t *testing.T) {
 	if err := os.WriteFile(path, legacyBytes, runFileMode); err != nil {
 		t.Fatalf("write candidate: %v", err)
 	}
-	if _, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, false); err == nil {
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil }); err == nil {
 		t.Fatal("expected invalid candidate digest to be rejected")
 	}
 	got, err := os.ReadFile(path)
@@ -623,7 +623,7 @@ func TestMigrateCandidatePathDigests_RejectsFutureSchema(t *testing.T) {
 	if err := os.WriteFile(path, data, runFileMode); err != nil {
 		t.Fatalf("write future candidate: %v", err)
 	}
-	if _, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, false); err == nil {
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil }); err == nil {
 		t.Fatal("expected future schema to be rejected")
 	}
 }
@@ -651,7 +651,7 @@ func TestMigrateCandidatePathDigests_AlreadyMigratedIsIdempotent(t *testing.T) {
 	if err := os.WriteFile(path, data, runFileMode); err != nil {
 		t.Fatalf("write migrated candidate: %v", err)
 	}
-	got, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, false)
+	got, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, false, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatalf("idempotent migration: %v", err)
 	}

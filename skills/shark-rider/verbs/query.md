@@ -49,7 +49,7 @@ Translate prose into read-only shark queries, then summarize. Examples:
 |-----|-----------|
 | "show blocked tasks" | `shark task list --blocked` |
 | "what's in progress" | `shark task list --status in_<phase>` (resolve phase from the workflow) |
-| "status of E01" | `shark progress E01` |
+| "status of E01" | `shark get E01 --field status` |
 | "who's working on what" | `shark claims` |
 | "next up for E01-F02" | `shark get E01-F02` + `shark status transitions E01-F02` |
 
