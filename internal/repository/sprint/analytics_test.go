@@ -1009,4 +1009,10 @@ func TestListVelocitySprints_UsesSuppliedDoneStatuses(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, sprints, 1)
 	assert.Equal(t, "S981", sprints[0].Key)
+
+	// Mixed-case configured status must match lowercased status in the database.
+	sprintsCase, err := repo.ListVelocitySprints(ctx, 10, []string{"WRAPPED"})
+	require.NoError(t, err)
+	require.Len(t, sprintsCase, 1)
+	assert.Equal(t, "S981", sprintsCase[0].Key)
 }

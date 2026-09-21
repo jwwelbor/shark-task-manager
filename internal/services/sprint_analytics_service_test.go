@@ -1371,6 +1371,43 @@ func TestGetSummary_CarryoverUsesCanonicalEntityKey(t *testing.T) {
 	assert.Equal(t, "task", result.CarryoverEntities[0].EntityType)
 }
 
+func TestGetSummary_ExcludesTerminalAbandonedEntitiesFromCarryover(t *testing.T) {
+	startDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	size := 3
+
+	sprintRepo := &MockSprintRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Sprint, error) {
+			return sprintHelper("S024", "completed", startDate, endDate), nil
+		},
+	}
+	analyticsRepo := &MockSprintAnalyticsRepository{
+		GetSprintAssignedEntitiesFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsAssignedEntity, error) {
+			return []AnalyticsAssignedEntity{
+				{Key: "T-E24-F01-001", EntityType: "task", EntityID: 1, Status: "completed", AssignedAt: startDate, Size: &size},
+				{Key: "T-E24-F01-002", EntityType: "task", EntityID: 2, Status: "cancelled", AssignedAt: startDate, Size: &size},
+				{Key: "T-E24-F01-003", EntityType: "task", EntityID: 3, Status: "in_progress", AssignedAt: startDate, Size: &size},
+			}, nil
+		},
+		GetCompletionEventsFunc: func(ctx context.Context, sprintID int64, start, end time.Time) ([]AnalyticsCompletionEvent, error) {
+			return []AnalyticsCompletionEvent{}, nil
+		},
+		GetVelocityDataFunc: func(ctx context.Context, limit int) ([]AnalyticsVelocityRow, error) {
+			return []AnalyticsVelocityRow{}, nil
+		},
+		GetCycleTimeByPhaseFunc: func(ctx context.Context, sprintID int64) ([]AnalyticsPhaseTimeRow, error) {
+			return []AnalyticsPhaseTimeRow{}, nil
+		},
+	}
+
+	result, err := NewSprintAnalyticsService(analyticsRepo, sprintRepo).GetSummary(context.Background(), "S024", true)
+
+	require.NoError(t, err)
+	// Only T-E24-F01-003 should be carried over; completed and cancelled (terminal) are excluded.
+	require.Len(t, result.CarryoverEntities, 1)
+	assert.Equal(t, "T-E24-F01-003", result.CarryoverEntities[0].Key)
+}
+
 // --- TC-S-06: detailed=true with GetCycleTimeByPhase returning empty slice → CycleTimeByPhase=nil.
 // Counter-factual: buggy impl stores [] instead of nil fails the nil check and JSON null test.
 func TestGetSummary_DetailedNoCycleTimeData_CycleTimeNil(t *testing.T) {

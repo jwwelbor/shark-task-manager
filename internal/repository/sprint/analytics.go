@@ -3,6 +3,7 @@ package sprint
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
@@ -39,7 +40,7 @@ func (r *SprintAnalyticsRepository) ListVelocitySprints(ctx context.Context, lim
 		if i > 0 {
 			placeholders += ", ?"
 		}
-		args = append(args, status)
+		args = append(args, strings.ToLower(status))
 	}
 	args = append(args, limit)
 

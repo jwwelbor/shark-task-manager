@@ -497,10 +497,11 @@ func (s *SprintAnalyticsService) GetSummary(ctx context.Context, sprintKey strin
 			result.SizeBandDistribution = bands
 		}
 
-		// Carryover entities: assigned (not removed) and not completed.
+		// Carryover entities: assigned (not removed) and neither completed nor
+		// terminal abandonment (terminal items are closed and must not carry over).
 		var carryover []CarryoverEntity
 		for _, e := range entities {
-			if e.RemovedAt == nil && !completedSet[summaryEntityKey{e.EntityType, e.EntityID}] {
+			if e.RemovedAt == nil && !completedSet[summaryEntityKey{e.EntityType, e.EntityID}] && !itemWorkflows.isTerminal(e.EntityType, e.Status) {
 				carryover = append(carryover, CarryoverEntity{
 					Key:        e.Key,
 					EntityType: e.EntityType,
