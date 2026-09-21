@@ -14,10 +14,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/integration"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
+
+func TestIntegrationMaintenanceCommandsAreRegistered(t *testing.T) {
+	for _, tc := range []struct {
+		path  []string
+		want  *cobra.Command
+		flags []string
+	}{
+		{path: []string{"integration", "backfill"}, want: integrationBackfillCmd, flags: []string{"epic-run-id", "base", "events-file", "session", "dry-run"}},
+		{path: []string{"integration", "migrate-candidate"}, want: integrationCandidateMigrationCmd, flags: []string{"epic-run-id", "session", "dry-run"}},
+	} {
+		t.Run(strings.Join(tc.path, "/"), func(t *testing.T) {
+			got, _, err := cli.RootCmd.Find(tc.path)
+			if err != nil {
+				t.Fatalf("find %v: %v", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("registered command = %p, want %p", got, tc.want)
+			}
+			for _, flag := range tc.flags {
+				if got.Flags().Lookup(flag) == nil {
+					t.Errorf("registered command omits --%s", flag)
+				}
+			}
+		})
+	}
+}
 
 // deriveEventIDForTest replicates integration.deriveEventID's unexported
 // derivation (spec.md REQ-F-004: first 16 hex chars of

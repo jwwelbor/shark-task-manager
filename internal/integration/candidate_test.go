@@ -350,6 +350,12 @@ func TestUpdateCandidate_DigestExcludesItself(t *testing.T) {
 	}
 }
 
+func TestMigrateCandidatePathDigestsAuthorized_RejectsNilAuthorizerForWrites(t *testing.T) {
+	if _, err := MigrateCandidatePathDigestsAuthorized(context.Background(), "E99", "run-nil-authorizer", false, nil); err == nil || !strings.Contains(err.Error(), "authorization callback") {
+		t.Fatalf("error = %v, want required authorization callback", err)
+	}
+}
+
 // TestMigrateCandidatePathDigests_RepairsLegacyCandidate covers B076: a
 // candidate written before candidate-level path-digest capture must be
 // explicitly migrated before integration_review can trust it. The migration
@@ -458,7 +464,7 @@ func TestMigrateCandidatePathDigests_DryRunWritesNothing(t *testing.T) {
 		t.Fatalf("read candidate before dry run: %v", err)
 	}
 	beforeFiles := countFilesUnder(t, filepath.Join(dir, ".shark"))
-	migrated, err := MigrateCandidatePathDigests(context.Background(), epicKey, run.EpicRunID, true)
+	migrated, err := MigrateCandidatePathDigestsAuthorized(context.Background(), epicKey, run.EpicRunID, true, nil)
 	if err != nil {
 		t.Fatalf("dry-run migration: %v", err)
 	}

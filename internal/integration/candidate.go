@@ -185,25 +185,11 @@ func GetCandidate(ctx context.Context, epicRunID string) (*IntegrationCandidate,
 	return candidate, err
 }
 
-// MigrateCandidatePathDigests upgrades an already-registered legacy
-// candidate whose path-digest inventory predates candidate-level capture.
-// It preserves the candidate's run/base/head/event identity, computes the
-// inventory from the current working tree, and publishes the replacement
-// through the same CAS and archived-head path used by UpdateCandidate.
-//
-// A dry run performs all reads and digest computation but does not write. An
-// already-migrated candidate is returned unchanged, making retries safe.
-func MigrateCandidatePathDigests(ctx context.Context, epicKey, epicRunID string, dryRun bool) (*IntegrationCandidate, error) {
-	if !dryRun {
-		return nil, fmt.Errorf("integration: migrate candidate: authorization callback is required for writes")
-	}
-	return migrateCandidatePathDigests(ctx, epicKey, epicRunID, dryRun, nil)
-}
-
 // MigrateCandidatePathDigestsAuthorized is the migration entrypoint for a
-// caller that owns an external lease. The authorizer is invoked after the
 // candidate transition is claimed and immediately before archival/publication,
-// so a lease that expires during the inventory scan cannot authorize a write.
+// caller that owns an external lease. A non-dry-run call must provide the
+// authorizer; this keeps durable migration writes behind an explicit lease
+// boundary instead of exposing an unauthenticated compatibility path.
 func MigrateCandidatePathDigestsAuthorized(ctx context.Context, epicKey, epicRunID string, dryRun bool, authorize func(context.Context) error) (*IntegrationCandidate, error) {
 	if !dryRun && authorize == nil {
 		return nil, fmt.Errorf("integration: migrate candidate: authorization callback is required for writes")
@@ -449,11 +435,21 @@ func publishCandidateTransition(ctx context.Context, path string, current *Integ
 		}
 	}
 	if current != nil {
+		if authorize != nil {
+			if err := authorize(ctx); err != nil {
+				return err
+			}
+		}
 		if err := archiveCandidateHead(path, current.Digest, currentBytes); err != nil {
 			return err
 		}
 		if archiveTestHook != nil {
 			archiveTestHook()
+		}
+	}
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return err
 		}
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
@@ -787,12 +783,15 @@ func computeDirtyPathDigests(ctx context.Context, projectRoot string) (tracked, 
 // to digest, and that is not itself a failure to compute one.
 func digestWorkingTreeFile(projectRoot, relPath string) (digest string, ok bool, err error) {
 	full := filepath.Join(projectRoot, relPath)
-	info, err := os.Stat(full)
+	info, err := os.Lstat(full)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("integration: stat dirty path %s: %w", relPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", false, fmt.Errorf("integration: refuse to hash symlink dirty path %s", relPath)
 	}
 	if info.IsDir() {
 		return "", false, nil

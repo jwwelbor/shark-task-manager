@@ -12,6 +12,16 @@ import (
 	"testing"
 )
 
+func backfillForTest(ctx context.Context, recorder NoteRecorder, epicKey, epicRunID, base string, events []IntegrationEvent, dryRun bool, createdBy string) (*IntegrationCandidate, error) {
+	return BackfillAuthorized(ctx, recorder, epicKey, epicRunID, base, events, dryRun, createdBy, func(context.Context) error { return nil })
+}
+
+func TestBackfillAuthorized_RejectsNilAuthorizerForWrites(t *testing.T) {
+	if _, err := BackfillAuthorized(context.Background(), &fakeNoteRecorder{}, "E99", "run-nil-authorizer", "base", nil, false, "test-agent", nil); err == nil || !strings.Contains(err.Error(), "authorization callback") {
+		t.Fatalf("error = %v, want required authorization callback", err)
+	}
+}
+
 // Task T-E34-F08-007 covers test-plan.md TC-009's service-level decision
 // table for integration.Backfill: dry-run, non-dry-run, re-registration,
 // and four malformed-input variants — each variant asserting zero new
@@ -156,7 +166,7 @@ func TestBackfill_DryRun_WritesNothing(t *testing.T) {
 	// call against the identical input must fold to the exact same digest
 	// simulateBackfillCandidate predicted, or the "reports what it would
 	// create" promise is false.
-	real, err := Backfill(context.Background(), recorder, "E90", epicRunID, headCommit, events, false, "test-agent")
+	real, err := backfillForTest(context.Background(), recorder, "E90", epicRunID, headCommit, events, false, "test-agent")
 	if err != nil {
 		t.Fatalf("non-dry-run Backfill after dry-run: %v", err)
 	}
@@ -172,7 +182,7 @@ func TestBackfill_CanceledContextWritesNothing(t *testing.T) {
 	cancel()
 	recorder := &fakeNoteRecorder{}
 
-	_, err := Backfill(ctx, recorder, "E90", "run-cancelled", headCommit, validBackfillEvents("run-cancelled"), false, "test-agent")
+	_, err := backfillForTest(ctx, recorder, "E90", "run-cancelled", headCommit, validBackfillEvents("run-cancelled"), false, "test-agent")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Backfill() error = %v, want context cancellation", err)
 	}
@@ -195,7 +205,7 @@ func TestBackfill_NonDryRun_CreatesExactlyOneOfEach(t *testing.T) {
 	events := validBackfillEvents(epicRunID)
 	recorder := &fakeNoteRecorder{}
 
-	candidate, err := Backfill(context.Background(), recorder, "E91", epicRunID, headCommit, events, false, "test-agent")
+	candidate, err := backfillForTest(context.Background(), recorder, "E91", epicRunID, headCommit, events, false, "test-agent")
 	if err != nil {
 		t.Fatalf("Backfill: %v", err)
 	}
@@ -253,7 +263,7 @@ func TestBackfill_SecondAttemptAgainstRegisteredEpic_Rejected(t *testing.T) {
 	events := validBackfillEvents(epicRunID)
 	recorder := &fakeNoteRecorder{}
 
-	if _, err := Backfill(context.Background(), recorder, "E92", epicRunID, headCommit, events, false, "test-agent"); err != nil {
+	if _, err := backfillForTest(context.Background(), recorder, "E92", epicRunID, headCommit, events, false, "test-agent"); err != nil {
 		t.Fatalf("first Backfill: %v", err)
 	}
 
@@ -261,7 +271,7 @@ func TestBackfill_SecondAttemptAgainstRegisteredEpic_Rejected(t *testing.T) {
 	notesAfterFirst := len(recorder.notes)
 
 	t.Run("identical retry", func(t *testing.T) {
-		_, err := Backfill(context.Background(), recorder, "E92", epicRunID, headCommit, events, false, "test-agent")
+		_, err := backfillForTest(context.Background(), recorder, "E92", epicRunID, headCommit, events, false, "test-agent")
 		if err == nil {
 			t.Fatal("expected the second backfill attempt to be rejected")
 		}
@@ -280,7 +290,7 @@ func TestBackfill_SecondAttemptAgainstRegisteredEpic_Rejected(t *testing.T) {
 	t.Run("conflicting run id", func(t *testing.T) {
 		otherRunID := "run-second-conflicting"
 		otherEvents := validBackfillEvents(otherRunID)
-		_, err := Backfill(context.Background(), recorder, "E92", otherRunID, headCommit, otherEvents, false, "test-agent")
+		_, err := backfillForTest(context.Background(), recorder, "E92", otherRunID, headCommit, otherEvents, false, "test-agent")
 		if err == nil {
 			t.Fatal("expected the conflicting-run-id attempt to be rejected")
 		}
@@ -316,7 +326,7 @@ func TestBackfill_ManifestAuthorizesPartialRetry(t *testing.T) {
 		t.Fatalf("seed candidate: %v", err)
 	}
 
-	candidate, err := Backfill(context.Background(), &fakeNoteRecorder{}, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	candidate, err := backfillForTest(context.Background(), &fakeNoteRecorder{}, epicKey, epicRunID, headCommit, events, false, "test-agent")
 	if err != nil {
 		t.Fatalf("resume Backfill: %v", err)
 	}
@@ -504,7 +514,7 @@ func TestBackfill_DivergentRetainedEventFailsBeforeMutation(t *testing.T) {
 	filesBefore := countFilesUnder(t, filepath.Join(dir, ".shark"))
 	recorder := &fakeNoteRecorder{}
 
-	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	_, err := backfillForTest(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
 	var conflict *RegistrationConflictError
 	if !errors.As(err, &conflict) {
 		t.Fatalf("Backfill error = %T %v, want *RegistrationConflictError", err, err)
@@ -584,7 +594,7 @@ func TestBackfill_LegacyPartialStateWithoutManifestFailsClosed(t *testing.T) {
 		t.Fatalf("seed legacy run: %v", err)
 	}
 	recorder := &fakeNoteRecorder{}
-	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	_, err := backfillForTest(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
 	var conflict *RegistrationConflictError
 	if !errors.As(err, &conflict) {
 		t.Fatalf("Backfill error = %T %v, want RegistrationConflictError", err, err)
@@ -605,7 +615,7 @@ func TestBackfill_ManifestMismatchFailsBeforeMutation(t *testing.T) {
 	changed := append([]IntegrationEvent(nil), events...)
 	changed[0].TrackedPaths = []string{"different.go"}
 	recorder := &fakeNoteRecorder{}
-	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, changed, false, "test-agent")
+	_, err := backfillForTest(context.Background(), recorder, epicKey, epicRunID, headCommit, changed, false, "test-agent")
 	var conflict *RegistrationConflictError
 	if !errors.As(err, &conflict) {
 		t.Fatalf("Backfill error = %T %v, want RegistrationConflictError", err, err)
@@ -631,7 +641,7 @@ func TestBackfill_CorruptManifestFailsBeforeMutation(t *testing.T) {
 		t.Fatalf("corrupt manifest: %v", err)
 	}
 	recorder := &fakeNoteRecorder{}
-	_, err := Backfill(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
+	_, err := backfillForTest(context.Background(), recorder, epicKey, epicRunID, headCommit, events, false, "test-agent")
 	var conflict *RegistrationConflictError
 	if !errors.As(err, &conflict) {
 		t.Fatalf("Backfill error = %T %v, want RegistrationConflictError", err, err)
@@ -654,7 +664,7 @@ func TestBackfill_MalformedInput_ZeroMutation(t *testing.T) {
 		events := validBackfillEvents(epicRunID)
 		recorder := &fakeNoteRecorder{}
 
-		_, err := Backfill(context.Background(), recorder, "E93", epicRunID, "0000000000000000000000000000000000000dead", events, false, "test-agent")
+		_, err := backfillForTest(context.Background(), recorder, "E93", epicRunID, "0000000000000000000000000000000000000dead", events, false, "test-agent")
 		if err == nil {
 			t.Fatal("expected an error for an unreachable --base commit")
 		}
@@ -690,7 +700,7 @@ func TestBackfill_MalformedInput_ZeroMutation(t *testing.T) {
 		events[1].EventID = events[0].EventID // force a duplicate
 		recorder := &fakeNoteRecorder{}
 
-		_, err := Backfill(context.Background(), recorder, "E94", epicRunID, headCommit, events, false, "test-agent")
+		_, err := backfillForTest(context.Background(), recorder, "E94", epicRunID, headCommit, events, false, "test-agent")
 		if err == nil {
 			t.Fatal("expected an error for a duplicate EventID")
 		}
@@ -715,7 +725,7 @@ func TestBackfill_MalformedInput_ZeroMutation(t *testing.T) {
 		events[1].EventID = "not-the-real-digest-for-this-entry"
 		recorder := &fakeNoteRecorder{}
 
-		_, err := Backfill(context.Background(), recorder, "E95", epicRunID, headCommit, events, false, "test-agent")
+		_, err := backfillForTest(context.Background(), recorder, "E95", epicRunID, headCommit, events, false, "test-agent")
 		if err == nil {
 			t.Fatal("expected an error for an EventID that doesn't match its own entry's derived digest")
 		}
@@ -744,7 +754,7 @@ func TestBackfill_MalformedInput_ZeroMutation(t *testing.T) {
 		}
 		recorder := &fakeNoteRecorder{}
 
-		_, err := Backfill(context.Background(), recorder, "E96", epicRunID, headCommit, events, false, "test-agent")
+		_, err := backfillForTest(context.Background(), recorder, "E96", epicRunID, headCommit, events, false, "test-agent")
 		if err == nil {
 			t.Fatal("expected an error for an events array exceeding the bounded size limit")
 		}
@@ -814,7 +824,7 @@ func TestBackfill_PathTraversal_Rejected(t *testing.T) {
 			events := validBackfillEvents(payload)
 			recorder := &fakeNoteRecorder{}
 
-			_, err := Backfill(context.Background(), recorder, "E80", payload, headCommit, events, false, "test-agent")
+			_, err := backfillForTest(context.Background(), recorder, "E80", payload, headCommit, events, false, "test-agent")
 			if err == nil {
 				t.Fatalf("expected --epic-run-id %q to be rejected", payload)
 			}
@@ -852,7 +862,7 @@ func TestBackfill_PathTraversal_Rejected(t *testing.T) {
 			events := validBackfillEvents(epicRunID)
 			recorder := &fakeNoteRecorder{}
 
-			_, err := Backfill(context.Background(), recorder, payload, epicRunID, headCommit, events, false, "test-agent")
+			_, err := backfillForTest(context.Background(), recorder, payload, epicRunID, headCommit, events, false, "test-agent")
 			if err == nil {
 				t.Fatalf("expected epic key %q to be rejected", payload)
 			}
@@ -910,7 +920,7 @@ func TestBackfill_UsesRealAdditionalCommit(t *testing.T) {
 	events := validBackfillEvents(epicRunID)
 	recorder := &fakeNoteRecorder{}
 
-	candidate, err := Backfill(context.Background(), recorder, "E97", epicRunID, second, events, false, "test-agent")
+	candidate, err := backfillForTest(context.Background(), recorder, "E97", epicRunID, second, events, false, "test-agent")
 	if err != nil {
 		t.Fatalf("Backfill against a real second commit: %v", err)
 	}

@@ -186,7 +186,10 @@ func runIntegrationBackfill(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	candidate, err := integration.Backfill(ctx, recorder, epicKey, epicRunID, base, events, dryRun, backfillActor())
+	authorize := func(checkCtx context.Context) error {
+		return requireIntegrationClaim(checkCtx, epicKey, session, "backfill publication")
+	}
+	candidate, err := integration.BackfillAuthorized(ctx, recorder, epicKey, epicRunID, base, events, dryRun, backfillActor(), authorize)
 	if err != nil {
 		cli.Error(err.Error())
 		return err
