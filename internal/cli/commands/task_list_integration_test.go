@@ -20,28 +20,52 @@ import (
 
 // Integration tests for task list command with positional arguments
 
-type b074TaskListService struct {
-	listFn func(context.Context, services.TaskFilters) ([]*models.Task, error)
+type b074TaskQueryRepository struct {
+	tasks      []*models.Task
+	featureKey string
 }
 
-func (s b074TaskListService) ListTasks(ctx context.Context, filters services.TaskFilters) ([]*models.Task, error) {
-	return s.listFn(ctx, filters)
+func (r *b074TaskQueryRepository) List(context.Context) ([]*models.Task, error) {
+	return r.tasks, nil
+}
+
+func (r *b074TaskQueryRepository) ListByFeatureKey(_ context.Context, featureKey string) ([]*models.Task, error) {
+	r.featureKey = featureKey
+	return r.tasks, nil
+}
+
+func (b074TaskQueryRepository) ListByEpic(context.Context, string) ([]*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) FindByFileChanged(context.Context, string) ([]*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) GetByKey(context.Context, string) (*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) GetByID(context.Context, int64) (*models.Task, error) {
+	return nil, nil
+}
+
+func (b074TaskQueryRepository) GetTaskDisplayDataRaw(context.Context, int64) (*repository.TaskDisplayDataRaw, error) {
+	return nil, nil
 }
 
 func TestB074UnifiedListProductionBoundary(t *testing.T) {
 	tests := []struct {
-		name        string
-		all         bool
-		wantJSON    string
-		wantShowAll bool
+		name     string
+		all      bool
+		wantJSON string
 	}{
-		{name: "default filtering serializes empty array", wantJSON: "[]", wantShowAll: false},
-		{name: "all preserves completed task array", all: true, wantShowAll: true},
+		{name: "default filtering serializes empty array", wantJSON: "[]"},
+		{name: "all preserves completed task array", all: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var captured services.TaskFilters
 			previousService := taskListSvcOverride
 			previousJSON := cli.GlobalConfig.JSON
 			previousField := cli.GlobalConfig.Field
@@ -50,13 +74,10 @@ func TestB074UnifiedListProductionBoundary(t *testing.T) {
 				cli.GlobalConfig.JSON = previousJSON
 				cli.GlobalConfig.Field = previousField
 			})
-			taskListSvcOverride = b074TaskListService{listFn: func(_ context.Context, filters services.TaskFilters) ([]*models.Task, error) {
-				captured = filters
-				if tt.all {
-					return []*models.Task{{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001"}, Status: models.TaskStatus("completed")}}, nil
-				}
-				return []*models.Task{}, nil
-			}}
+			queryRepo := &b074TaskQueryRepository{
+				tasks: []*models.Task{{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001"}, Status: models.TaskStatus("completed")}},
+			}
+			taskListSvcOverride = services.NewTaskQueryService(queryRepo)
 			cli.GlobalConfig.JSON = true
 			cli.GlobalConfig.Field = ""
 
@@ -99,8 +120,8 @@ func TestB074UnifiedListProductionBoundary(t *testing.T) {
 					t.Fatalf("--all JSON tasks = %#v, want one completed task", tasks)
 				}
 			}
-			if captured.FeatureKey != "E04-F01" || captured.ShowAll != tt.wantShowAll {
-				t.Fatalf("filters = %+v, want feature E04-F01 and show_all=%v", captured, tt.wantShowAll)
+			if queryRepo.featureKey != "E04-F01" {
+				t.Fatalf("repository feature key = %q, want E04-F01", queryRepo.featureKey)
 			}
 		})
 	}
