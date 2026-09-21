@@ -364,7 +364,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 		if childLease != nil {
 			childOpts.SessionID = childLease.sessionID
 		}
-		childResult, runErr := childController.Run(ctx, key, childOpts)
+		childRunCtx := ctx
+		if childLease != nil && childLease.ctx != nil {
+			childRunCtx = childLease.ctx
+		}
+		childResult, runErr := childController.Run(childRunCtx, key, childOpts)
 		outcome := "failed"
 		if childResult != nil && childResult.Outcome != "" {
 			outcome = childResult.Outcome
@@ -448,7 +452,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// derives entity_key from RunProgress.EntityKey / update.EntityKey).
 	opts.Progress = rec.Observe
 
-	result, err := controller.Run(ctx, normalizedKey, opts)
+	runCtx := ctx
+	if runLease != nil && runLease.ctx != nil {
+		runCtx = runLease.ctx
+	}
+	result, err := controller.Run(runCtx, normalizedKey, opts)
 	if err != nil {
 		return fmt.Errorf("run failed for %s: %w", normalizedKey, err)
 	}
@@ -502,9 +510,12 @@ type activeRunLease struct {
 	entityType      string
 	entityKey       string
 	sessionID       string
+	ctx             context.Context
 	stopHeartbeat   context.CancelFunc
 	heartbeatDoneCh <-chan struct{}
 }
+
+var runHeartbeatMinimumInterval = time.Second
 
 // resolveHarnessForClaim computes the harness identity to persist onto the
 // lease this run acquires: the explicit --harness/--harness-version/
@@ -558,12 +569,13 @@ func acquireRunLease(ctx context.Context, entityType, entityKey, claimedBy strin
 	}
 
 	hbCtx, stopHeartbeat := context.WithCancel(ctx)
-	doneCh := startRunHeartbeat(hbCtx, svc, entityType, entityKey, claim.SessionID)
+	doneCh := startRunHeartbeat(hbCtx, svc, entityType, entityKey, claim.SessionID, stopHeartbeat)
 	return &activeRunLease{
 		svc:             svc,
 		entityType:      entityType,
 		entityKey:       entityKey,
 		sessionID:       claim.SessionID,
+		ctx:             hbCtx,
 		stopHeartbeat:   stopHeartbeat,
 		heartbeatDoneCh: doneCh,
 	}, nil
@@ -765,11 +777,11 @@ func (l *activeRunLease) Release(outcome string) error {
 	return err
 }
 
-func startRunHeartbeat(ctx context.Context, svc runClaimServicer, entityType, entityKey, sessionID string) <-chan struct{} {
+func startRunHeartbeat(ctx context.Context, svc runClaimServicer, entityType, entityKey, sessionID string, cancel context.CancelFunc) <-chan struct{} {
 	done := make(chan struct{})
 	interval := svc.TTL() / 3
-	if interval < time.Second {
-		interval = time.Second
+	if interval < runHeartbeatMinimumInterval {
+		interval = runHeartbeatMinimumInterval
 	}
 
 	go func() {
@@ -783,7 +795,9 @@ func startRunHeartbeat(ctx context.Context, svc runClaimServicer, entityType, en
 				return
 			case <-ticker.C:
 				if err := svc.Heartbeat(ctx, entityType, entityKey, sessionID, nil, "shark run active"); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: failed to heartbeat run claim for %s: %v\n", entityKey, err)
+					fmt.Fprintf(os.Stderr, "error: lost run claim for %s: %v\n", entityKey, err)
+					cancel()
+					return
 				}
 			}
 		}

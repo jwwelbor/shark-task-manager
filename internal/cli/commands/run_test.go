@@ -25,10 +25,11 @@ import (
 )
 
 type mockRunClaimService struct {
-	ttl        time.Duration
-	claims     []services.ClaimInput
-	releases   []runReleaseCall
-	heartbeats []runHeartbeatCall
+	ttl          time.Duration
+	claims       []services.ClaimInput
+	releases     []runReleaseCall
+	heartbeats   []runHeartbeatCall
+	heartbeatErr error
 
 	// getClaim/getErr script Get's return value (T-E34-F05-004 rework:
 	// verifyClaimSession's authorization gate). Both nil by default, i.e. "no
@@ -87,7 +88,7 @@ func (m *mockRunClaimService) Heartbeat(ctx context.Context, entityType, entityK
 		sessionID:  sessionID,
 		note:       note,
 	})
-	return nil
+	return m.heartbeatErr
 }
 
 func (m *mockRunClaimService) Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error) {
@@ -156,6 +157,30 @@ func TestRunLease_ReleasesAcquiredSession(t *testing.T) {
 	}
 	if got.force {
 		t.Fatal("run release used force; want session-scoped release")
+	}
+}
+
+func TestRunLease_HeartbeatFailureCancelsRunContext(t *testing.T) {
+	originalInterval := runHeartbeatMinimumInterval
+	runHeartbeatMinimumInterval = 5 * time.Millisecond
+	t.Cleanup(func() { runHeartbeatMinimumInterval = originalInterval })
+
+	mock := &mockRunClaimService{ttl: time.Millisecond, heartbeatErr: errors.New("claim was reclaimed")}
+	withRunClaimSvcOverride(t, mock)
+
+	lease, err := acquireRunLease(context.Background(), "bug", "B041", "", false, services.HarnessIdentity{})
+	if err != nil {
+		t.Fatalf("acquireRunLease: %v", err)
+	}
+	defer func() { _ = lease.Release("failed") }()
+
+	select {
+	case <-lease.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("heartbeat failure did not cancel the active run context")
+	}
+	if len(mock.heartbeats) == 0 {
+		t.Fatal("heartbeat supervisor did not attempt renewal")
 	}
 }
 
