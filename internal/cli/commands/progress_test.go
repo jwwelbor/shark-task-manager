@@ -24,7 +24,8 @@ func TestParseProgressRequest(t *testing.T) {
 		{"epic positional", []string{"E05"}, "", "E05", false},
 		{"epic positional overrides flag", []string{"E05"}, "E07", "E05", false},
 		{"epic flag only", []string{}, "E05", "E05", false},
-		{"combined feature format", []string{"E05-F02"}, "", "E05", false},
+		{"combined feature format is rejected", []string{"E05-F02"}, "", "", true},
+		{"separate feature arguments are rejected", []string{"E05", "F02"}, "", "", true},
 		{"too many args", []string{"E05", "F02", "extra"}, "", "", true},
 		{"lowercase epic normalized", []string{"e05"}, "", "E05", false},
 	}
@@ -49,6 +50,12 @@ func TestParseProgressRequest(t *testing.T) {
 			assert.Equal(t, tt.wantEpicKey, req.EpicKey)
 		})
 	}
+}
+
+func TestProgressCommandDocumentsSupportedScope(t *testing.T) {
+	assert.Equal(t, "progress [EPIC]", progressCmd.Use)
+	assert.NotContains(t, progressCmd.Long, "[FEATURE]")
+	assert.NotContains(t, progressCmd.Long, "E05-F02")
 }
 
 func TestParseProgressRequest_Flags(t *testing.T) {

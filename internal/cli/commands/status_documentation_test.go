@@ -58,6 +58,7 @@ func TestStatusDocumentationUsesNamespaceContract(t *testing.T) {
 			forbids: []string{
 				"`shark status [key]` | Project dashboard or entity status",
 				"`shark status options <key>`",
+				"| `shark progress <key>` | Detailed progress breakdown |",
 			},
 		},
 		{

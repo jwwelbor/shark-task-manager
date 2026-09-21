@@ -112,7 +112,8 @@ Full entity-specific subcommands, analytics, and administrative tools.
 |---------|-------------|
 | `shark idea` | Manage ideas (create, list, get, update, delete, promote) |
 | `shark analytics [key]` | Project or entity analytics |
-| `shark progress <key>` | Detailed progress breakdown |
+| `shark progress [EPIC]` | Project or epic progress dashboard |
+| `shark get <key>` | Detailed entity inspection |
 | `shark sprint` | Sprint lifecycle, planning, capacity, and analytics. See [Sprint Commands](sprint-commands.md). |
 
 #### Entity Commands
