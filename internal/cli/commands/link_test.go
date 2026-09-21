@@ -196,21 +196,46 @@ func TestB073WorkflowGuideUsesCurrentRelationshipSyntax(t *testing.T) {
 	}
 	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../.."))
 	documents := []struct {
-		path     string
-		required []string
+		path      string
+		required  []string
+		forbidden []string
 	}{
 		{
 			path: filepath.Join("docs", "WORKFLOW_GUIDE.md"),
 			required: []string{
 				"shark link A B --type=depends_on",
 				"shark link A B --type=blocks",
+				"shark task unlink <source-task> --depends-on <target-task>",
 			},
+			forbidden: []string{"shark task unlink <source> <target>"},
 		},
 		{
 			path: filepath.Join("skills", "shark-rider", "context", "entity-crud.md"),
 			required: []string{
 				"shark task link E01-F02-001 --depends-on E01-F02-002",
 				"shark task unlink E01-F02-001 --depends-on E01-F02-002",
+			},
+		},
+		{
+			path: filepath.Join(".claude", "rules", "quickref.md"),
+			required: []string{
+				"shark task link E07-F01-001 --depends-on E07-F01-002",
+				"shark task unlink E07-F01-001 --depends-on E07-F01-002",
+			},
+			forbidden: []string{
+				"shark task link E07-F01-001 E07-F01-002 --type=depends_on",
+				"shark task unlink E07-F01-001 E07-F01-002",
+			},
+		},
+		{
+			path: filepath.Join(".claude", "rules", "cli", "commands.md"),
+			required: []string{
+				"shark task link <task-key> --depends-on <target-task>",
+				"shark task unlink <task-key> --depends-on <target-task>",
+			},
+			forbidden: []string{
+				"shark task link <key1> <key2> --type=TYPE",
+				"shark task unlink <key1> <key2>",
 			},
 		},
 	}
@@ -223,6 +248,11 @@ func TestB073WorkflowGuideUsesCurrentRelationshipSyntax(t *testing.T) {
 		for _, forbidden := range []string{"--type=depends-on", "--type=relates-to", "--type=blocked_by"} {
 			if strings.Contains(text, forbidden) {
 				t.Errorf("%s still contains obsolete relationship syntax %q", document.path, forbidden)
+			}
+		}
+		for _, forbidden := range document.forbidden {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s still contains obsolete task relationship syntax %q", document.path, forbidden)
 			}
 		}
 		for _, required := range document.required {

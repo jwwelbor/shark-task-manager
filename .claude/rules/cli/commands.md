@@ -53,8 +53,8 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 
 **Dependencies:**
 - `shark task deps <key> [--depth=N]` — Dependency tree
-- `shark task link <key1> <key2> --type=TYPE` — Link entities
-- `shark task unlink <key1> <key2>` — Remove link
+- `shark task link <task-key> --depends-on <target-task>` — Link task relationships
+- `shark task unlink <task-key> --depends-on <target-task>` — Remove task relationships
 - `shark task blocked-by <key>` — Show what blocks this task
 - `shark task blocks <key>` — Show what this task blocks
 

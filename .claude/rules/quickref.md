@@ -96,8 +96,8 @@ shark task set-status E07-F01-001 blocked  # Set status directly
 
 # Dependencies
 shark task deps E07-F01-001                # Show dependency tree
-shark task link E07-F01-001 E07-F01-002 --type=depends_on
-shark task unlink E07-F01-001 E07-F01-002
+shark task link E07-F01-001 --depends-on E07-F01-002
+shark task unlink E07-F01-001 --depends-on E07-F01-002
 
 # Context & Notes
 shark task context set E07-F01-001 --field current_step --value "Implementing API"

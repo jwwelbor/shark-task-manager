@@ -1146,7 +1146,7 @@ shark task timeline <task-key> [--json]
 shark notes search "<query>" [--category=<type>] [--epic=<key>]
 
 shark task link <source-task> [--depends-on <target-task>] [--blocks <target-task>]
-shark task unlink <source> <target>
+shark task unlink <source-task> --depends-on <target-task>
 shark task deps <task-key> [--json]
 shark task blocked-by <task-key> [--json]
 shark task blocks <task-key> [--json]
