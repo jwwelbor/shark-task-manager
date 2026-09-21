@@ -114,7 +114,9 @@ The CLI is organized into categories, not by entity type. Entity type is auto-de
 ### Discovery Commands
 
 - `shark search <query> [--type=TYPE]` — Search across entities
-- `shark notes <key>` — View entity notes
+- `shark notes add <key> --type <type> <content>` — Add a typed note to any entity
+- `shark notes search <query>` — Search note content across entities
+- `shark <entity> notes <key>` — View notes for a specific entity (for example, `shark task notes <task-key>`)
 - `shark related-docs list/add/delete` — Manage related documents
 
 ### Setup & Configuration

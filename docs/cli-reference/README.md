@@ -78,7 +78,9 @@ Commands for creating, updating, and organizing entities.
 | `shark update <key> [flags]` | Update entity (auto-detects type from key — epic/feature/task/bug/change/tech-debt/idea) |
 | `shark delete <key>` | Delete an entity (auto-detects type from key, including tech-debt TD-###) |
 | `shark context get/set/clear <key>` | Manage entity context fields |
-| `shark notes <key>` | View entity notes |
+| `shark notes add <key> --type <type> <content>` | Add a typed note to any entity |
+| `shark notes search <query>` | Search note content across entities |
+| `shark <entity> notes <key>` | View notes for a specific entity |
 | `shark related-docs` | Manage related documents |
 | `shark docs` | Alias for `shark related-docs` |
 | `shark history <key>` | View entity history |

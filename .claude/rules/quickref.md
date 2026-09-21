@@ -146,7 +146,8 @@ shark idea promote 1 --epic=E07            # Promote to task/feature
 
 ```bash
 shark search "authentication"              # Search across entities
-shark notes E07-F01-001                    # View entity notes
+shark notes search "authentication"        # Search note content across entities
+shark task notes E07-F01-001               # View task notes
 shark related-docs list --feature=E07-F01  # List related documents
 shark related-docs add --feature=E07-F01 --path="docs/design.md"
 ```
