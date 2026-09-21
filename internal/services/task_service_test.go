@@ -763,6 +763,29 @@ func TestTaskService_ListTasks_CompletedFeatureReturnsJSONEmptyArray(t *testing.
 	assert.Equal(t, "[]", string(encoded), "B074: JSON list output must be an empty collection, not null")
 }
 
+func TestTaskService_ListTasks_CompletedFeatureShowAllPreservesCompletedTask(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByFeatureKeyFunc: func(ctx context.Context, featureKey string) ([]*models.Task, error) {
+			assert.Equal(t, "E04-F01", featureKey)
+			return []*models.Task{
+				{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001"}, Status: models.TaskStatus("completed")},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	tasks, err := svc.ListTasks(context.Background(), TaskFilters{FeatureKey: "E04-F01", ShowAll: true})
+
+	assert.NoError(t, err)
+	assert.Len(t, tasks, 1, "B074: feature-scoped --all must preserve completed tasks")
+	encoded, err := json.Marshal(tasks)
+	assert.NoError(t, err)
+	assert.NotEqual(t, "null", string(encoded))
+	assert.Contains(t, string(encoded), "T-E04-F01-001")
+	assert.Contains(t, string(encoded), "completed")
+}
+
 func TestTaskService_ListTasks_Show_All(t *testing.T) {
 	allTasks := []*models.Task{
 		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 5},
