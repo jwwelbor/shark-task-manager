@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -269,18 +270,45 @@ func TestRelatedDocsListTask(t *testing.T) {
 	}
 }
 
-// TestRelatedDocsListInfersBugFromPositionalKey covers B072: a related-docs
-// list invocation should infer the entity type from a positional key.
-func TestRelatedDocsListInfersBugFromPositionalKey(t *testing.T) {
-	entityType, key, err := resolveRelatedDocsListSelection([]string{"B072"}, "", "", "", "", "", "")
-	if err != nil {
-		t.Fatalf("resolveRelatedDocsListSelection returned error: %v", err)
+// TestRelatedDocsListPositionalSelection covers B072: a related-docs list
+// invocation should infer supported entity types from a positional key and
+// reject ambiguous or unsupported input before dispatch.
+func TestRelatedDocsListPositionalSelection(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		bug      string
+		wantType string
+		wantKey  string
+		wantErr  string
+	}{
+		{name: "epic", args: []string{"E01"}, wantType: "epic", wantKey: "E01"},
+		{name: "feature", args: []string{"E01-F01"}, wantType: "feature", wantKey: "E01-F01"},
+		{name: "task", args: []string{"T-E01-F01-001"}, wantType: "task", wantKey: "T-E01-F01-001"},
+		{name: "bug", args: []string{"B072"}, wantType: "bug", wantKey: "B072"},
+		{name: "change", args: []string{"CC-001"}, wantType: "change", wantKey: "CC-001"},
+		{name: "question", args: []string{"Q001"}, wantType: "question", wantKey: "Q001"},
+		{name: "unsupported entity", args: []string{"TD001"}, wantErr: "cannot infer a supported entity type"},
+		{name: "multiple positional keys", args: []string{"E01", "E02"}, wantErr: "at most one positional entity key"},
+		{name: "positional and explicit selector", args: []string{"B072"}, bug: "B073", wantErr: "cannot combine positional entity key"},
 	}
-	if entityType != "bug" {
-		t.Fatalf("entity type = %q, want %q", entityType, "bug")
-	}
-	if key != "B072" {
-		t.Fatalf("key = %q, want %q", key, "B072")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entityType, key, err := resolveRelatedDocsListSelection(tt.args, "", "", "", tt.bug, "", "")
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveRelatedDocsListSelection returned error: %v", err)
+			}
+			if entityType != tt.wantType || key != tt.wantKey {
+				t.Fatalf("selection = (%q, %q), want (%q, %q)", entityType, key, tt.wantType, tt.wantKey)
+			}
+		})
 	}
 }
 

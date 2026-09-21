@@ -8,7 +8,7 @@ Shark provides three discovery mechanisms:
 
 - **`shark search`** - Find tasks by file metadata (files changed during completion)
 - **`shark notes search`** - Search note content across all entities (epics, features, tasks)
-- **`shark related-docs`** - Manage document links attached to epics, features, or tasks
+- **`shark related-docs`** - Manage document links attached to epics, features, tasks, bugs, change-cards, or questions
 
 These commands are useful for tracing which tasks touched specific files, finding past decisions or solutions recorded in notes, and maintaining links between entities and their supporting documentation.
 
