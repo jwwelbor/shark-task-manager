@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -166,6 +169,45 @@ func TestLinkRejectsBlockedByWithDirectionalGuidance(t *testing.T) {
 	} {
 		if !strings.Contains(message, expected) {
 			t.Errorf("runLink() error = %q, want guidance containing %q", message, expected)
+		}
+	}
+}
+
+func TestUnlinkRejectsBlockedByWithDirectionalGuidance(t *testing.T) {
+	previousRelType := linkRelType
+	linkRelType = "blocked_by"
+	t.Cleanup(func() { linkRelType = previousRelType })
+
+	err := runUnlink(&cobra.Command{}, []string{"from-key", "to-key"})
+	if err == nil {
+		t.Fatal("runUnlink() returned nil for unsupported blocked_by relationship type")
+	}
+	if !strings.Contains(err.Error(), `"blocked_by" is not a relationship type`) ||
+		!strings.Contains(err.Error(), "--type=depends_on") ||
+		!strings.Contains(err.Error(), "--type=blocks") {
+		t.Fatalf("runUnlink() error = %q, want directional blocked_by guidance", err)
+	}
+}
+
+func TestB073WorkflowGuideUsesCurrentRelationshipSyntax(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../.."))
+	content, err := os.ReadFile(filepath.Join(projectRoot, "docs", "WORKFLOW_GUIDE.md"))
+	if err != nil {
+		t.Fatalf("read workflow guide: %v", err)
+	}
+	text := string(content)
+	for _, forbidden := range []string{"--type=depends-on", "--type=relates-to", "--type=blocked_by"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("workflow guide still contains obsolete relationship syntax %q", forbidden)
+		}
+	}
+	for _, required := range []string{"shark link A B --type=depends_on", "shark link A B --type=blocks"} {
+		if !strings.Contains(text, required) {
+			t.Errorf("workflow guide does not contain current relationship syntax %q", required)
 		}
 	}
 }

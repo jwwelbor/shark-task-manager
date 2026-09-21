@@ -847,9 +847,9 @@ shark task next-status T-E01-F01-001 \
 shark task list E01 F01 --json
 
 # Create dependency relationships
-shark task link T-E01-F01-003 T-E01-F01-001 --type=depends-on
-shark task link T-E01-F01-004 T-E01-F01-002 --type=depends-on
-shark task link T-E01-F01-005 T-E01-F01-003 --type=depends-on
+shark task link T-E01-F01-003 --depends-on T-E01-F01-001
+shark task link T-E01-F01-004 --depends-on T-E01-F01-002
+shark task link T-E01-F01-005 --depends-on T-E01-F01-003
 
 # Get next available task (respects dependencies)
 shark task next --epic=E01 --json
@@ -1145,7 +1145,7 @@ shark task notes <task-key> [--json]
 shark task timeline <task-key> [--json]
 shark notes search "<query>" [--category=<type>] [--epic=<key>]
 
-shark task link <source> <target> [--type=depends-on|blocks|relates-to|duplicates]
+shark task link <source-task> [--depends-on <target-task>] [--blocks <target-task>]
 shark task unlink <source> <target>
 shark task deps <task-key> [--json]
 shark task blocked-by <task-key> [--json]
@@ -1155,6 +1155,11 @@ shark task criteria import <task-key>
 shark task criteria check <task-key> "<criterion>"
 shark task criteria fail <task-key> "<criterion>"
 shark feature criteria <feature-key> [--json]
+
+For generic entity relationships, direction is explicit: “A is blocked by B"
+uses `shark link A B --type=depends_on`, while “A blocks B” uses
+`shark link A B --type=blocks`. `blocked_by` is a read-side label, not a
+relationship type accepted for writes.
 
 shark task context set <task-key> [--progress="..."] [--decisions="..."] [--questions="..."] [--blockers="..."]
 shark task context get <task-key> [--json]
