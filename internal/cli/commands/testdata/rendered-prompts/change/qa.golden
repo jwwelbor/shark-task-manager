@@ -154,7 +154,7 @@ REVIEW OUTPUT POLICY (applies to the report below):
   - any finding -> one-line fail/triage summary plus report path
 
 
-PRODUCE QA report at docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md:
+PRODUCE QA report at `docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md`:
 - If zero findings: compact PASS artifact only
   - Verdict: PASS
   - Scope reviewed: task scope, touched paths, feature context, and targeted test surface

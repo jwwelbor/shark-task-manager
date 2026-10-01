@@ -413,7 +413,7 @@ REVIEW OUTPUT POLICY (applies to the report below):
   - any finding -> one-line fail/triage summary plus report path
 
 
-PRODUCE code review report at docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md:
+PRODUCE code review report at `docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md`:
 - If zero findings: compact PASS artifact only
   - Verdict: PASS
   - Scope reviewed: task spec, feature context, diff, and implementation surface

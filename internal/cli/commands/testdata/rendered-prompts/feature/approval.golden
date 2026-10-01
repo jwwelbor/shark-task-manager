@@ -81,7 +81,7 @@ REVIEW OUTPUT POLICY (applies to the report below):
   - any finding -> one-line fail/triage summary plus report path
 
 
-PRODUCE UAT report to docs/review/E07/E07-F01/uat-<timestamp>-E07-F01.md:
+PRODUCE UAT report to `docs/review/E07/E07-F01/uat-<timestamp>-E07-F01.md`:
 - If zero findings: compact APPROVED artifact only
   - Verdict: APPROVED
   - Scope reviewed: spec, test-plan, prior reports, tasks, diff, and red-team surface
