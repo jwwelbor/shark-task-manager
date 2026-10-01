@@ -16,7 +16,7 @@ mode; a manual or partial review is never silently promoted to a six-angle autom
 |---|---|---|---|
 | 1 | Native `Workflow` | `canonical-six-angle` | Complete when all 6 specialists and the consolidator finish |
 | 2 | Host subagent dispatch without `Workflow` | `dispatched-six-angle` | Complete when 6 angle reviewers and the consolidator finish |
-| 3 | Alternate-model CLI | `adversarial-cli` | Complete when one bounded CLI review is structurally valid |
+| 3 | Alternate/comparable CLI | `adversarial-cli` | Complete when one bounded comparable CLI review is structurally valid |
 | 4 | Local/manual review | `manual-diagnostic` | Diagnostic only; stop before merge unless the user explicitly authorizes an exception |
 | none | No valid automated evidence | `incomplete` | Stop before CI/merge |
 
@@ -51,7 +51,12 @@ reviewer is available, and rejects timeout, non-zero exit, empty, malformed,
 and partial CLI output. It runs CLI review in read-only/plan mode with a
 bounded timeout. The host is supplied as `--host codex|claude` (or
 `DEEP_REVIEW_HOST`), so Codex-hosted sessions prefer Claude and Claude-hosted
-sessions prefer Codex.
+sessions prefer Codex. If the preferred alternate CLI is unavailable,
+unauthenticated, exits non-zero, times out, or returns malformed output, retry
+with the host's own comparable CLI when it is installed. In a Codex-hosted
+session, this means falling back to `codex exec --sandbox read-only` when
+Claude CLI cannot complete the review. Record the CLI that actually produced
+the valid review in `adversarial_model` and preserve the fallback reason.
 
 ## Capture the review scope
 
@@ -100,7 +105,9 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 3. Wait for all six results. If any result is missing, malformed, timed out,
    or reports incomplete coverage, mark the review `incomplete` and skip to
    step 5 to persist it. Do not replace a failed dispatched review with the
-   CLI fallback.
+   CLI fallback; the comparable-CLI retry rule applies when Runner 3's
+   preferred alternate CLI is unavailable, not when a six-angle dispatch is
+   incomplete.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
    captured scope (`diff_path`, `base_commit`), the complete changed-file
    list, and all six specialist results. Require the consolidator to verify
@@ -114,7 +121,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    `runner_mode=incomplete` with `specialists_completed` and
    `consolidator_completed` reflecting what actually completed.
 
-## Runner 3: alternate-model CLI
+## Runner 3: alternate/comparable-model CLI
 
 Build one read-only adversarial prompt containing the diff path, complete changed-file list,
 standards path, task context, and the following required output contract:
@@ -136,9 +143,14 @@ python3 "$skill_dir/scripts/adaptive_review.py" run-cli \
   --review-output-path "$review_output_path" --host "${DEEP_REVIEW_HOST:-unknown}"
 ```
 
-The script records `adversarial_model`, `specialists_completed=0`, and
-`consolidator_completed=true` only after a complete adversarial result validates. A successful
-fallback is not a six-angle review and must be reported as `adversarial-cli`.
+The runner tries the preferred opposite-host CLI first, then any installed
+comparable CLI (including the host CLI) when the preferred process is
+unavailable or its output fails validation. It records the CLI that actually
+produced the valid result in `adversarial_model`,
+`specialists_completed=0`, and `consolidator_completed=true` only after a
+complete adversarial result validates. A successful fallback is not a
+six-angle review and must be reported as `adversarial-cli` with the fallback
+reason retained.
 
 ## Runner 4: manual diagnostic
 

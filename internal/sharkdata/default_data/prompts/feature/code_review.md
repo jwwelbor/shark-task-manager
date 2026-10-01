@@ -64,7 +64,7 @@ PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
 
 {{template "_review_output_policy" .}}
 
-PRODUCE verification report to {{.review_base}}code-review-<timestamp>-{{.id}}.md:
+PRODUCE verification report to `{{.review_base}}code-review-<timestamp>-{{.id}}.md`:
 - If zero findings: compact PASS artifact only
   - Verdict: PASS, and which parts ran (tier)
   - Scope reviewed: spec, test-plan, task set, diff, and implementation surface

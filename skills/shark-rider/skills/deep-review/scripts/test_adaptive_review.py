@@ -10,7 +10,12 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from adaptive_review import Capabilities, select_runner, valid_adversarial_output  # noqa: E402
+from adaptive_review import (  # noqa: E402
+    Capabilities,
+    cli_candidates,
+    select_runner,
+    valid_adversarial_output,
+)
 
 
 class AdaptiveReviewTests(unittest.TestCase):
@@ -19,7 +24,14 @@ class AdaptiveReviewTests(unittest.TestCase):
         self.assertEqual(select_runner(Capabilities(False, True, True, True))['runner_mode'], 'dispatched-six-angle')
         self.assertEqual(select_runner(Capabilities(False, False, True, False), 'claude')['adversarial_model'], 'codex')
         self.assertEqual(select_runner(Capabilities(False, False, False, True), 'codex')['adversarial_model'], 'claude')
+        self.assertEqual(select_runner(Capabilities(False, False, True, False), 'codex')['adversarial_model'], 'codex')
         self.assertEqual(select_runner(Capabilities(False, False, False, False))['runner_mode'], 'incomplete')
+
+    def test_cli_candidates_retry_host_cli_after_preferred_alternate(self):
+        self.assertEqual(
+            cli_candidates(Capabilities(False, False, True, True), 'codex', 'claude'),
+            ['claude', 'codex'],
+        )
 
     def test_output_validation_rejects_partial(self):
         good = 'REVIEWED SCOPE: 2 files\nFINDINGS: none\nThe change is safe and complete.\nVERDICT: PASS'
@@ -74,6 +86,36 @@ class AdaptiveReviewTests(unittest.TestCase):
                 ], capture_output=True, text=True, check=False)
                 self.assertEqual(proc.returncode, 2, name)
                 self.assertIn('INCOMPLETE', report.read_text(), name)
+
+    def test_cli_retries_comparable_host_cli_after_preferred_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            failed = root / 'failed-reviewer'
+            failed.write_text('#!/bin/sh\nexit 1\n')
+            failed.chmod(failed.stat().st_mode | stat.S_IXUSR)
+            successful = root / 'codex-reviewer'
+            successful.write_text(
+                "#!/bin/sh\nprintf '%s\\n' "
+                "'REVIEWED SCOPE: fixture files and coverage' "
+                "'FINDINGS: none' "
+                "'The comparable CLI review is complete and evidence was checked.' "
+                "'VERDICT: PASS'\n"
+            )
+            successful.chmod(successful.stat().st_mode | stat.S_IXUSR)
+            report = root / 'report.md'
+            proc = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(root), '--diff-path', '/tmp/diff',
+                '--base-commit', 'abc123', '--review-output-path', str(report), '--host', 'codex',
+                '--claude-command', str(failed), '--codex-command', str(successful), '--timeout', '2',
+                '--no-workflow-available', '--no-agent-dispatch-available',
+            ], capture_output=True, text=True, check=False)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            metadata = json.loads(proc.stdout)
+            self.assertEqual(metadata['adversarial_model'], 'codex')
+            self.assertIn('using codex CLI', report.read_text())
 
     def test_no_automated_runner_persists_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:

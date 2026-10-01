@@ -3,7 +3,8 @@
 
 The script is deliberately independent of Claude Code/Codex APIs.  Host skills
 use ``select`` for capability routing; ``run-cli`` is the bounded, read-only
-out-of-band fallback and report writer.
+out-of-band fallback and report writer. If the preferred alternate CLI cannot
+complete the review, run-cli retries an installed comparable CLI.
 """
 
 from __future__ import annotations
@@ -143,6 +144,15 @@ def select_runner(caps: Capabilities, host: str | None = None) -> dict[str, obje
             "adversarial_model": alternate,
             "fallback_reason": "Workflow and agent dispatch unavailable",
         }
+    if host in available and available[host]:
+        return {
+            "runner_mode": "adversarial-cli",
+            "adversarial_model": host,
+            "fallback_reason": (
+                "preferred alternate CLI unavailable; using the host's "
+                "comparable CLI"
+            ),
+        }
     for model in ("claude", "codex"):
         if available[model]:
             return {
@@ -155,6 +165,19 @@ def select_runner(caps: Capabilities, host: str | None = None) -> dict[str, obje
         "adversarial_model": None,
         "fallback_reason": "no Workflow, agent dispatch, codex, or claude capability available",
     }
+
+
+def cli_candidates(caps: Capabilities, host: str | None, preferred: str) -> list[str]:
+    """Return preferred CLI followed by usable comparable fallbacks."""
+    host_name = (host or os.environ.get("DEEP_REVIEW_HOST") or "unknown").lower()
+    available = {"codex": caps.codex, "claude": caps.claude}
+    candidates = [preferred]
+    if host_name in available and available[host_name] and host_name not in candidates:
+        candidates.append(host_name)
+    for model in ("claude", "codex"):
+        if available[model] and model not in candidates:
+            candidates.append(model)
+    return candidates
 
 
 def valid_adversarial_output(text: str) -> bool:
@@ -223,28 +246,53 @@ def run_cli(args: argparse.Namespace) -> int:
         return 2
 
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
-    override = args.claude_command if choice["adversarial_model"] == "claude" else args.codex_command
-    argv = _cli_argv(str(choice["adversarial_model"]), override, prompt)
-    try:
-        completed = run_bounded_reviewer(argv, args.project_root, args.timeout)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        base["fallback_reason"] = f"{choice['fallback_reason']}; CLI failed: {type(exc).__name__}"
+    preferred = str(choice["adversarial_model"])
+    candidates = cli_candidates(caps, args.host, preferred)
+    failures: list[str] = []
+    output = ""
+    selected_model = preferred
+    for model in candidates:
+        override = args.claude_command if model == "claude" else args.codex_command
+        argv = _cli_argv(model, override, prompt)
+        try:
+            completed = run_bounded_reviewer(argv, args.project_root, args.timeout)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            failures.append(f"{model}: {type(exc).__name__}")
+            continue
+        candidate_output = (completed.stdout or "").strip()
+        if completed.returncode != 0:
+            failures.append(f"{model}: non-zero exit status {completed.returncode}")
+            continue
+        if not valid_adversarial_output(candidate_output):
+            failures.append(f"{model}: empty, malformed, or partial reviewer output")
+            continue
+        output = candidate_output
+        selected_model = model
+        break
+
+    if not output:
+        base["adversarial_model"] = None
+        base["fallback_reason"] = "; ".join(
+            [str(choice["fallback_reason"]), *failures]
+        )
         body = "## Review status\n\n**INCOMPLETE** — alternate-model CLI did not produce a complete review."
         persist_report(Path(args.review_output_path), body, base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
 
-    output = (completed.stdout or "").strip()
-    if completed.returncode != 0 or not valid_adversarial_output(output):
-        reason = "non-zero exit status" if completed.returncode else "empty, malformed, or partial reviewer output"
-        base["fallback_reason"] = f"{choice['fallback_reason']}; {reason}"
-        body = "## Review status\n\n**INCOMPLETE** — alternate-model CLI did not produce a complete review."
-        persist_report(Path(args.review_output_path), body, base, args.branch)
-        print(json.dumps({**base, "report_path": args.review_output_path, "exit_status": completed.returncode}))
-        return 2
-
     verdict = VERDICT_RE.search(output).group(1).upper()
-    base.update({"specialists_completed": 0, "consolidator_completed": True, "verdict": verdict})
+    if failures:
+        base["fallback_reason"] = "; ".join(
+            [str(choice["fallback_reason"]), *failures, f"using {selected_model} CLI"]
+        )
+    base.update(
+        {
+            "adversarial_model": selected_model,
+            "specialists_completed": 0,
+            "consolidator_completed": True,
+            "verdict": verdict,
+        }
+    )
     persist_report(Path(args.review_output_path), output, base, args.branch)
     print(json.dumps({**base, "report_path": args.review_output_path, "exit_status": completed.returncode}))
     return 0

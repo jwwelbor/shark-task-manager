@@ -31,7 +31,7 @@ RE-VERIFICATION ROUND (a prior UAT report matching {{.review_base}}uat-*-{{.id}}
 
 {{template "_review_output_policy" .}}
 
-PRODUCE UAT report to {{.review_base}}uat-<timestamp>-{{.id}}.md:
+PRODUCE UAT report to `{{.review_base}}uat-<timestamp>-{{.id}}.md`:
 - If zero findings: compact APPROVED artifact only
   - Verdict: APPROVED
   - Scope reviewed: spec, test-plan, prior reports, tasks, diff, and red-team surface

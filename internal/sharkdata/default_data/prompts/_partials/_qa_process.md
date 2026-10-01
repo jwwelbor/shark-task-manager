@@ -51,7 +51,7 @@ DO NOT RUN:
 
 {{template "_review_output_policy" .}}
 
-PRODUCE QA report at {{.review_base}}qa-<timestamp>-{{.id}}.md:
+PRODUCE QA report at `{{.review_base}}qa-<timestamp>-{{.id}}.md`:
 - If zero findings: compact PASS artifact only
   - Verdict: PASS
   - Scope reviewed: task scope, touched paths, feature context, and targeted test surface

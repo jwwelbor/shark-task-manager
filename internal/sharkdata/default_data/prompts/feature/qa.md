@@ -72,7 +72,7 @@ VALIDATE:
 
 {{template "_review_output_policy" .}}
 
-PRODUCE QA report to {{.review_base}}qa-<timestamp>-{{.id}}.md:
+PRODUCE QA report to `{{.review_base}}qa-<timestamp>-{{.id}}.md`:
 - If zero findings: compact PASS artifact only
   - Verdict: PASS
   - Scope reviewed: diff, task scopes, spec, test-plan, and integration context
