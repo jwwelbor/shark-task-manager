@@ -564,7 +564,7 @@ var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"feature/test_planning.md":   "91d86e2a390f722b7baa1e7f7b372660284ac42410c3e50d64b212b8232eb40b",
 	"feature/task_generation.md": "3bd98c3bab9d9233825d044d9889f810da99f2f41f692100718490b5e205a1cf",
 	"feature/task_review.md":     "a0e64b910dd76108bb6ca9380ed4660c4540384b8aa2c79cee4db7e19cfc9bac",
-	"feature/approval.md":        "a975ab19981f2802320c25ddbdfcef772644c9ebc517b924fc220a32c999b29d",
+	"feature/approval.md":        "b555814fcb69df48ce3d1b777c1ffafe37bf3eaaa770b9f8157f11b8e873f41a",
 	"task/development.md":        "7c6f658345c95bbf5f264b59150483d7617c6011a3107b80cee7f59955d7850b",
 }
 
