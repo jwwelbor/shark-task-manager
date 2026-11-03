@@ -76,7 +76,7 @@ func (s *TaskQueryService) ListTasks(ctx context.Context, filters TaskFilters) (
 			continue
 		}
 
-		if !filters.ShowAll && string(task.Status) == "completed" {
+		if !filters.ShowAll && task.Status == models.TaskStatusCompleted {
 			continue
 		}
 

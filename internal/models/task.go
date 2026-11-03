@@ -8,6 +8,9 @@ import (
 // TaskStatus represents the status of a task
 type TaskStatus string
 
+// TaskStatusCompleted is the canonical task status hidden by default in list output.
+const TaskStatusCompleted TaskStatus = "completed"
+
 // Task represents an atomic work unit within a feature
 type Task struct {
 	BaseEntity                  // 9 shared fields + 10 accessor methods
