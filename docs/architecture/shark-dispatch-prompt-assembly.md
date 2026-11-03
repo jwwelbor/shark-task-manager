@@ -74,6 +74,21 @@ sequenceDiagram
 - `shark get ... orchestrator_action` remains an inspection surface. It is not
   the dispatch prompt assembly API.
 
+### Keep JSON and diagnostics separate
+
+On a successful dispatch, `shark next <key> --json` writes one complete JSON
+response to stdout. Warnings and diagnostics go to stderr. This includes the
+required `[shark-stats] WARN` when unresolved prompt placeholders remain; the
+response also carries their names in `unresolved_placeholders`.
+
+Capture the streams separately and parse only stdout. Do not merge stderr into
+the JSON input with `2>&1`:
+
+```bash
+shark next E07-F01-001 --json > response.json 2> diagnostics.log
+jq -r '.action' response.json
+```
+
 ## Failure Mode Captured 2026-07-04
 
 The failed `~/projects/wwgm` session used `shark get E01 --json` and attempted

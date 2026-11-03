@@ -143,21 +143,28 @@ func runTaskListWithService(cmd *cobra.Command, args []string, svc taskListServi
 		tagFilter = rawTags
 	}
 
-	tasks, err := svc.ListTasks(cmd.Context(), services.TaskFilters{
+	filters := services.TaskFilters{
 		EpicKey: epicKey, FeatureKey: featureKey, Status: status,
 		AgentType: agentType, ShowAll: showAll, Blocked: blocked,
 		MinPriority: minPriority, MaxPriority: maxPriority,
 		Tags: tagFilter, HasRejections: hasRejections,
-	})
+	}
+	tasks, err := svc.ListTasks(cmd.Context(), filters)
 	if err != nil {
 		return handleEntityServiceError(cmd, cli.GetTagService(), err, models.EntityTypeTask, "")
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(tasks)
 	}
-	// E07-F42: Size column added to task list table (REQ-F-006).
-	// Agent column dropped and Status abbreviated to free width for Title.
-	cli.OutputTable(taskListHeaders, buildTaskListRows(tasks))
+	hintShown, err := maybeShowCompletedTaskHint(cmd, svc, filters, tasks)
+	if err != nil {
+		return err
+	}
+	if !hintShown {
+		// E07-F42: Size column added to task list table (REQ-F-006).
+		// Agent column dropped and Status abbreviated to free width for Title.
+		cli.OutputTable(taskListHeaders, buildTaskListRows(tasks))
+	}
 	return nil
 }
 
