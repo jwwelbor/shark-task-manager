@@ -581,10 +581,11 @@ func TestGetDashboard_WithData(t *testing.T) {
 		INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 		VALUES
 			(?, ?, 'Completed Task', 'completed', 'backend', 5, '[]'),
+			(?, ?, 'Done Task', 'done', 'backend', 5, '[]'),
 			(?, ?, 'In Progress Task', 'in_progress', 'backend', 5, '[]'),
 			(?, ?, 'Todo Task', 'todo', 'frontend', 5, '[]'),
 			(?, ?, 'Blocked Task', 'blocked', 'backend', 5, '[]')
-	`, featureID, fmt.Sprintf("T-%s-001", featureKey), featureID, fmt.Sprintf("T-%s-002", featureKey), featureID, fmt.Sprintf("T-%s-003", featureKey), featureID, fmt.Sprintf("T-%s-004", featureKey))
+	`, featureID, fmt.Sprintf("T-%s-001", featureKey), featureID, fmt.Sprintf("T-%s-005", featureKey), featureID, fmt.Sprintf("T-%s-002", featureKey), featureID, fmt.Sprintf("T-%s-003", featureKey), featureID, fmt.Sprintf("T-%s-004", featureKey))
 
 	// Update blocked task with reason
 	_, _ = database.ExecContext(ctx, `
@@ -615,11 +616,11 @@ func TestGetDashboard_WithData(t *testing.T) {
 	}
 
 	// Verify task counts
-	if dashboard.Summary.Tasks.Total != 4 {
-		t.Errorf("Expected 4 total tasks, got %d", dashboard.Summary.Tasks.Total)
+	if dashboard.Summary.Tasks.Total != 5 {
+		t.Errorf("Expected 5 total tasks, got %d", dashboard.Summary.Tasks.Total)
 	}
-	if dashboard.Summary.Tasks.Completed != 1 {
-		t.Errorf("Expected 1 completed task, got %d", dashboard.Summary.Tasks.Completed)
+	if dashboard.Summary.Tasks.Completed != 2 {
+		t.Errorf("Expected both completed and done tasks to count as completed, got %d", dashboard.Summary.Tasks.Completed)
 	}
 	if dashboard.Summary.Tasks.InProgress != 1 {
 		t.Errorf("Expected 1 in_progress task, got %d", dashboard.Summary.Tasks.InProgress)
@@ -636,8 +637,8 @@ func TestGetDashboard_WithData(t *testing.T) {
 		t.Errorf("Expected 1 blocked task in summary, got %d", dashboard.Summary.BlockedCount)
 	}
 
-	// Verify overall progress (1 completed out of 4 = 25%)
-	expectedProgress := 25.0
+	// Verify overall progress treats terminal done tasks as completed (2 out of 5 = 40%).
+	expectedProgress := 40.0
 	if dashboard.Summary.OverallProgress != expectedProgress {
 		t.Errorf("Expected %f%% overall progress, got %f%%", expectedProgress, dashboard.Summary.OverallProgress)
 	}
@@ -650,11 +651,14 @@ func TestGetDashboard_WithData(t *testing.T) {
 	if epic.Key != epicKey {
 		t.Errorf("Expected epic key %s, got %s", epicKey, epic.Key)
 	}
-	if epic.TasksTotal != 4 {
-		t.Errorf("Expected 4 total tasks in epic, got %d", epic.TasksTotal)
+	if epic.TasksTotal != 5 {
+		t.Errorf("Expected 5 total tasks in epic, got %d", epic.TasksTotal)
 	}
-	if epic.TasksCompleted != 1 {
-		t.Errorf("Expected 1 completed task in epic, got %d", epic.TasksCompleted)
+	if epic.TasksCompleted != 2 {
+		t.Errorf("Expected both completed and done tasks to count as completed in the epic, got %d", epic.TasksCompleted)
+	}
+	if epic.FeaturesActive != 1 {
+		t.Errorf("Expected the single active feature to count once despite its tasks, got %d", epic.FeaturesActive)
 	}
 
 	// Verify active tasks
