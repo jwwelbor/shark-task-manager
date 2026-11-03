@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 )
 
 type queuedTaskListService struct {
@@ -64,18 +64,11 @@ func TestTaskListDoesNotRetryWhenVisibleTasksExist(t *testing.T) {
 	output, err := captureTaskListHintStdout(t, func() error {
 		return runTaskListWithService(cmd, []string{"E04", "F01"}, service)
 	})
-	if err != nil {
-		t.Fatalf("runTaskListWithService() error = %v", err)
-	}
-	if !strings.Contains(output, "T-E04-F01-003") || !strings.Contains(output, "Visible task") {
-		t.Fatalf("output = %q, want visible task row", output)
-	}
-	if strings.Contains(output, "--all to display") {
-		t.Fatalf("output = %q, unexpected completed-task hint", output)
-	}
-	if len(service.filters) != 1 {
-		t.Fatalf("ListTasks() calls = %d, want 1 when visible tasks exist", len(service.filters))
-	}
+	require.NoError(t, err, "runTaskListWithService()")
+	require.Contains(t, output, "T-E04-F01-003")
+	require.Contains(t, output, "Visible task")
+	require.NotContains(t, output, "--all to display")
+	require.Len(t, service.filters, 1, "ListTasks() calls when visible tasks exist")
 }
 
 func runCompletedTaskHintCase(t *testing.T, completedTasks []*models.Task, want string) {
@@ -88,15 +81,9 @@ func runCompletedTaskHintCase(t *testing.T, completedTasks []*models.Task, want 
 	output, err := captureTaskListHintStdout(t, func() error {
 		return runTaskListWithService(cmd, []string{"E04", "F01"}, service)
 	})
-	if err != nil {
-		t.Fatalf("runTaskListWithService() error = %v", err)
-	}
-	if !strings.Contains(output, want) {
-		t.Fatalf("output = %q, want completed-task hint %q", output, want)
-	}
-	if strings.Contains(output, "No results found") {
-		t.Fatalf("output = %q, generic empty-result message should be replaced by the hint", output)
-	}
+	require.NoError(t, err, "runTaskListWithService()")
+	require.Contains(t, output, want)
+	require.NotContains(t, output, "No results found", "completed-task hint should replace generic empty-result message")
 	assertTaskListHintFilters(t, service.filters)
 }
 
@@ -107,26 +94,19 @@ func setTaskListHintFlags(t *testing.T, cmd *cobra.Command) {
 		"priority-min": "2",
 		"priority-max": "5",
 	} {
-		if err := cmd.Flags().Set(flag, value); err != nil {
-			t.Fatalf("set %s: %v", flag, err)
-		}
+		require.NoError(t, cmd.Flags().Set(flag, value), "set %s", flag)
 	}
 }
 
 func assertTaskListHintFilters(t *testing.T, filters []services.TaskFilters) {
 	t.Helper()
-	if len(filters) != 2 {
-		t.Fatalf("ListTasks() calls = %d, want 2", len(filters))
-	}
-	if filters[0].ShowAll || !filters[1].ShowAll {
-		t.Fatalf("ShowAll filters = [%v, %v], want [false, true]", filters[0].ShowAll, filters[1].ShowAll)
-	}
+	require.Len(t, filters, 2, "ListTasks() calls")
+	require.False(t, filters[0].ShowAll, "first query should preserve the default completed-task filter")
+	require.True(t, filters[1].ShowAll, "retry should include completed tasks")
 	first, second := filters[0], filters[1]
 	first.ShowAll = false
 	second.ShowAll = false
-	if !reflect.DeepEqual(first, second) {
-		t.Fatalf("retry filters = %#v, want original filters except ShowAll", filters[1])
-	}
+	require.Equal(t, first, second, "retry filters should match the original except ShowAll")
 }
 
 func TestTaskListKeepsGenericEmptyMessageWhenNoCompletedTasksAreHidden(t *testing.T) {
@@ -151,15 +131,9 @@ func TestTaskListKeepsGenericEmptyMessageWhenNoCompletedTasksAreHidden(t *testin
 			output, err := captureTaskListHintStdout(t, func() error {
 				return runTaskListWithService(cmd, []string{"E04", "F01"}, service)
 			})
-			if err != nil {
-				t.Fatalf("runTaskListWithService() error = %v", err)
-			}
-			if !strings.Contains(output, "No results found") {
-				t.Fatalf("output = %q, want generic empty-result message", output)
-			}
-			if strings.Contains(output, "--all to display") {
-				t.Fatalf("output = %q, unexpected --all hint", output)
-			}
+			require.NoError(t, err, "runTaskListWithService()")
+			require.Contains(t, output, "No results found")
+			require.NotContains(t, output, "--all to display")
 		})
 	}
 }
@@ -172,15 +146,9 @@ func TestTaskListJSONEmptyResultDoesNotRunCompletedTaskHintQuery(t *testing.T) {
 	output, err := captureTaskListHintStdout(t, func() error {
 		return runTaskListWithService(cmd, []string{"E04", "F01"}, service)
 	})
-	if err != nil {
-		t.Fatalf("runTaskListWithService() error = %v", err)
-	}
-	if strings.TrimSpace(output) != "[]" {
-		t.Fatalf("JSON output = %q, want []", output)
-	}
-	if len(service.filters) != 1 {
-		t.Fatalf("ListTasks() calls = %d, want 1 for JSON output", len(service.filters))
-	}
+	require.NoError(t, err, "runTaskListWithService()")
+	require.Equal(t, "[]", strings.TrimSpace(output), "JSON output")
+	require.Len(t, service.filters, 1, "ListTasks() calls for JSON output")
 }
 
 func TestTaskListWithAllDoesNotRunCompletedTaskHintQuery(t *testing.T) {
@@ -188,21 +156,14 @@ func TestTaskListWithAllDoesNotRunCompletedTaskHintQuery(t *testing.T) {
 
 	service := &queuedTaskListService{results: [][]*models.Task{{}}}
 	cmd := newTaskListHintTestCommand(t)
-	if err := cmd.Flags().Set("all", "true"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, cmd.Flags().Set("all", "true"))
 	output, err := captureTaskListHintStdout(t, func() error {
 		return runTaskListWithService(cmd, []string{"E04", "F01"}, service)
 	})
-	if err != nil {
-		t.Fatalf("runTaskListWithService() error = %v", err)
-	}
-	if !strings.Contains(output, "No results found") || strings.Contains(output, "--all to display") {
-		t.Fatalf("output = %q, want ordinary empty-result message without hint", output)
-	}
-	if len(service.filters) != 1 {
-		t.Fatalf("ListTasks() calls = %d, want 1 for --all", len(service.filters))
-	}
+	require.NoError(t, err, "runTaskListWithService()")
+	require.Contains(t, output, "No results found")
+	require.NotContains(t, output, "--all to display")
+	require.Len(t, service.filters, 1, "ListTasks() calls for --all")
 }
 
 func TestTaskListReturnsErrorWhenCompletedTaskCountQueryFails(t *testing.T) {
@@ -216,12 +177,8 @@ func TestTaskListReturnsErrorWhenCompletedTaskCountQueryFails(t *testing.T) {
 	_, err := captureTaskListHintStdout(t, func() error {
 		return runTaskListWithService(cmd, []string{"E04", "F01"}, service)
 	})
-	if err == nil {
-		t.Fatal("runTaskListWithService() error = nil, want count-query error")
-	}
-	if len(service.filters) != 2 {
-		t.Fatalf("ListTasks() calls = %d, want 2", len(service.filters))
-	}
+	require.Error(t, err, "runTaskListWithService() should return the count-query error")
+	require.Len(t, service.filters, 2, "ListTasks() calls")
 }
 
 func newTaskListHintTestCommand(t *testing.T) *cobra.Command {
