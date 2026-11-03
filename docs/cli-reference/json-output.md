@@ -119,6 +119,18 @@ regardless of its type.
 
 ## Usage in Scripts
 
+### Parse `shark next` stdout separately
+
+On a successful dispatch, `shark next <key> --json` writes the complete JSON
+response to stdout. Warnings and diagnostics go to stderr. Capture both streams
+separately and pass only stdout to your JSON parser. Do not merge them with
+`2>&1` before parsing; a warning can make the combined stream invalid JSON.
+
+```bash
+shark next E07-F01-001 --json > response.json 2> diagnostics.log
+jq -r '.action' response.json
+```
+
 ### Bash Example
 
 ```bash
