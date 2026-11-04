@@ -1,0 +1,132 @@
+{
+  "example_set_digest": "54a31ebcdd4e16595b36b680e96f3ecda56d803fdfe38f668e3b08ca65e8ec48",
+  "examples": [
+    {
+      "example_digest": "613af0a274c3d012a8e4fcda134afa788ac22113178be970ec2fa0458c37c2e9",
+      "example_id": "CAL-001",
+      "grades": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "label": null,
+      "rationales": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "rubric_version": "planning-decomposition-v1"
+    },
+    {
+      "example_digest": "cfe154c9ee63355df9e9bcad3263e4cfa5b31e377a9cae83e5cf9b2e121ec1d2",
+      "example_id": "CAL-002",
+      "grades": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "label": null,
+      "rationales": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "rubric_version": "planning-decomposition-v1"
+    },
+    {
+      "example_digest": "b7014b6bb94d6b42d740167b3b0eeba10a742bfebede46ac59ebb82b525e74fa",
+      "example_id": "CAL-003",
+      "grades": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "label": null,
+      "rationales": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "rubric_version": "planning-decomposition-v1"
+    },
+    {
+      "example_digest": "beacd0e114ed6a01c9ac6f76da254ddc2577ce1103cb0ae2aa668864a522e839",
+      "example_id": "CAL-004",
+      "grades": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "label": null,
+      "rationales": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "rubric_version": "planning-decomposition-v1"
+    },
+    {
+      "example_digest": "f1e1f8f2d45b1ea304629ed9f1f4888e061ca68075c34c0332dd1f34cb9352d4",
+      "example_id": "CAL-005",
+      "grades": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "label": null,
+      "rationales": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "rubric_version": "planning-decomposition-v1"
+    },
+    {
+      "example_digest": "635eb9a515d5bfa620d05c1f782c07fb9b4170fc88cdf0d7c872e2d0dbd2ddc6",
+      "example_id": "CAL-006",
+      "grades": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "label": null,
+      "rationales": {
+        "F": null,
+        "M": null,
+        "P": null,
+        "R": null,
+        "S": null
+      },
+      "rubric_version": "planning-decomposition-v1"
+    }
+  ],
+  "review_complete": false,
+  "review_source_reference": null,
+  "reviewed_at": null,
+  "reviewer_id": null,
+  "rubric_digest": "2a2ab7eefde5a287a5b0aff3b56b0a01c0c8cc0d368e2eef77c227271d09ed42",
+  "rubric_version": "planning-decomposition-v1",
+  "schema_version": "1.0"
+}

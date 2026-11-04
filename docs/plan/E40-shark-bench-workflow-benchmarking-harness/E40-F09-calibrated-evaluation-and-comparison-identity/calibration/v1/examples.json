@@ -1,0 +1,313 @@
+{
+  "examples": [
+    {
+      "example_digest": "613af0a274c3d012a8e4fcda134afa788ac22113178be970ec2fa0458c37c2e9",
+      "example_id": "CAL-001",
+      "origin": "assistant-authored fictional planning packet; no human scores",
+      "planning_entries": [
+        {
+          "content": "Individual readers need a spreadsheet copy of their local list without retyping fields. Export title, author, and reading state; private notes, imports, and shared libraries are out of scope.",
+          "entry_digest": "ae42e8a0e87c67887726b9e509e89c884fff0ac31dceeb3e6a85ac54f6ad9c13",
+          "entry_id": "CAL-001-D01",
+          "stage": "D01",
+          "topic": "Problem and users"
+        },
+        {
+          "content": "Export a header and one row per stored book in insertion order, with exactly three columns. Reopening the CSV must preserve commas, quotes, and line breaks within fields. An empty list produces the header only. Check that private notes never occur in output. Preserve the local data model and operate without network access.",
+          "entry_digest": "1205fdfb1162662a1fdc232dc6d967d1cd4e31b5e98f564f6cc49ae67adc93ea",
+          "entry_id": "CAL-001-D02",
+          "stage": "D02",
+          "topic": "Success and constraints"
+        },
+        {
+          "content": "REF-01 supplies both the requested columns and the privacy constraint. It also identifies an available standard-library CSV writer. No external market claim is needed. Throughput is unmeasured; the 200-book fixture defines the initial test size, not a proven timing bound.",
+          "entry_digest": "0354658cd267d1ee21784377d250a2e7280a0eda90e1470eb49ad46af503bca3",
+          "entry_id": "CAL-001-D03",
+          "stage": "D03",
+          "topic": "Research"
+        },
+        {
+          "content": "Use the existing retrieval method and CSV writer. Hand-building comma-separated strings is simpler initially but risks incorrect quoting; a new export service or remote spreadsheet API would add scope without meeting a new requirement. Keep insertion order so export order is predictable. Surface file-write errors without modifying books.",
+          "entry_digest": "8d9b6f42d6ad34c44bf68e4b213f1c396af81b86d304aba246142251028bc6b6",
+          "entry_id": "CAL-001-D04",
+          "stage": "D04",
+          "topic": "Feasibility and trade-offs"
+        },
+        {
+          "content": "First add a pure conversion from books to three export fields; then add CSV file output; then verify ordinary, empty, quoted, multiline, privacy, and write-failure cases. All work stays local and leaves the stored reading list unchanged. This completes export only.",
+          "entry_digest": "d1cee656ca4ed0b9ce02cc93dc57f747ec79063782b4edfdabe23fc0ba5ce0ed",
+          "entry_id": "CAL-001-D05",
+          "stage": "D05",
+          "topic": "Synthesis and decomposition"
+        }
+      ],
+      "references": [
+        {
+          "content": "In this fictional desktop application, an individual reader maintains up to 200 books locally. The existing fields are title, author, reading state, and private notes. The fixture supports retrieving books in insertion order. Its standard library has a CSV writer. The user request is: \"I want title, author, and reading state in a spreadsheet. My private notes must stay out of the export.\" Network access is unavailable. No performance measurements or competitor research have been supplied.",
+          "origin": "newly authored fictional scenario reference material",
+          "reference_digest": "81984607078d303383ae72adfa6bd17f2815efdaae5bdaca92271497c13747e5",
+          "reference_id": "CAL-001-REF-01"
+        }
+      ],
+      "title": "Export a personal reading list"
+    },
+    {
+      "example_digest": "cfe154c9ee63355df9e9bcad3263e4cfa5b31e377a9cae83e5cf9b2e121ec1d2",
+      "example_id": "CAL-002",
+      "origin": "assistant-authored fictional planning packet; no human scores",
+      "planning_entries": [
+        {
+          "content": "Tagging should be more convenient for people with many items. Add bulk tagging for selected inventory items.",
+          "entry_digest": "9e6f0ff60216bd9fcca3c2b3359f10cbd6b6d4245f973328b661b8b5b0a6be42",
+          "entry_id": "CAL-002-D01",
+          "stage": "D01",
+          "topic": "Problem and users"
+        },
+        {
+          "content": "The command accepts a tag and a list of IDs. Correctness means all valid selected items acquire the tag. It should be fast and easy. Keep the existing storage format.",
+          "entry_digest": "8bbab93f986deb048f6236dbd5761095bf7b14b3485e02ce49ba9b65bf56d1d4",
+          "entry_id": "CAL-002-D02",
+          "stage": "D02",
+          "topic": "Success and constraints"
+        },
+        {
+          "content": "REF-01 says single-item tagging already exists, so it may be reusable. Users probably expect bulk actions. There is no evidence about common selection sizes or failure preferences.",
+          "entry_digest": "c90ce30a23883d56d566aafdde7cfc205e3cd8284bb65fa5c291a6b7af9e35ee",
+          "entry_id": "CAL-002-D03",
+          "stage": "D03",
+          "topic": "Research"
+        },
+        {
+          "content": "Loop over IDs and call the existing operation. This is easy to implement. If an ID is unknown, skip it and continue; the command can report a count afterward. A batch transaction could be added later if users want it.",
+          "entry_digest": "c145e96c96b35c79764ac6eab9d324ff2cd5b92f307473e90eab5aa4d73a135c",
+          "entry_id": "CAL-002-D04",
+          "stage": "D04",
+          "topic": "Feasibility and trade-offs"
+        },
+        {
+          "content": "Add argument parsing, iterate the existing operation, and print the changed-item count. Test several valid IDs and an empty input. Ask the user whether partial success is acceptable before releasing, although the proposed implementation already skips unknown IDs. Duplicate tags and duplicate IDs are not yet specified.",
+          "entry_digest": "5e99e8317e733afd689cbb76fc24cfe2dd9d806502a222640251fa88227a730c",
+          "entry_id": "CAL-002-D05",
+          "stage": "D05",
+          "topic": "Synthesis and decomposition"
+        }
+      ],
+      "references": [
+        {
+          "content": "A fictional local inventory app is used by one hobbyist. Each item has a stable ID and a list of tags. A single-item tagging operation exists. A user has requested tagging several selected items in one command. Selection may include an unknown ID. The user has not decided whether unknown IDs should abort the command or permit partial success. No user study, competitor data, or load measurements are available.",
+          "origin": "newly authored fictional scenario reference material",
+          "reference_digest": "39d111021da5b750c2ce61514e6f31a8db38f2528b9874cd095e3e159eabbc61",
+          "reference_id": "CAL-002-REF-01"
+        }
+      ],
+      "title": "Tag several inventory items"
+    },
+    {
+      "example_digest": "b7014b6bb94d6b42d740167b3b0eeba10a742bfebede46ac59ebb82b525e74fa",
+      "example_id": "CAL-003",
+      "origin": "assistant-authored fictional planning packet; no human scores",
+      "planning_entries": [
+        {
+          "content": "Everyone needs smarter search. Build an AI search feature for students, companies, and schools.",
+          "entry_digest": "8d7d15fc91de9b2c53eb8c38988a5afa398307458f924b21584f6b3840d1573e",
+          "entry_id": "CAL-003-D01",
+          "stage": "D01",
+          "topic": "Problem and users"
+        },
+        {
+          "content": "Make search delightful and accurate. It should always find the best note. There are no meaningful constraints.",
+          "entry_digest": "7394e567d1235b8f3f472e63128666e314587e044218d272af30c26b7f2cfc50",
+          "entry_id": "CAL-003-D02",
+          "stage": "D02",
+          "topic": "Success and constraints"
+        },
+        {
+          "content": "Most people prefer semantic search. Our system will improve productivity by 70 percent, and all leading notebooks use cloud AI. The fictional market is worth a billion dollars. No sources are listed.",
+          "entry_digest": "1c2b80da5efd0d5d9a82e1a85d93c29c3237c0fb781e4e77e0a965c74cd219cd",
+          "entry_id": "CAL-003-D03",
+          "stage": "D03",
+          "topic": "Research"
+        },
+        {
+          "content": "Send every note title and body to a hosted language model on every query. This is obviously the best approach, so no simpler alternatives need consideration.",
+          "entry_digest": "ed696b245d9d4e8fd6f2ec36bb50a8373e1811eeae27fb4fea7fac150e2af64e",
+          "entry_id": "CAL-003-D04",
+          "stage": "D04",
+          "topic": "Feasibility and trade-offs"
+        },
+        {
+          "content": "First integrate a cloud account, then upload notes, then add team recommendations and paid subscriptions. Title substring matching can wait. No acceptance cases are identified.",
+          "entry_digest": "10a01f39d4e0396fc78bede89dfad54f573369e00a779a03a04417bda594d6a9",
+          "entry_id": "CAL-003-D05",
+          "stage": "D05",
+          "topic": "Synthesis and decomposition"
+        }
+      ],
+      "references": [
+        {
+          "content": "In this fictional local notebook, one student has 300 notes with stable IDs, titles, and body text. The request is: \"Find titles containing my search text, ignoring capitalization.\" The product must work offline. The existing title-listing operation returns titles and IDs in creation order. No survey, market figures, or ranking research has been supplied.",
+          "origin": "newly authored fictional scenario reference material",
+          "reference_digest": "1b3bf94bcf1833358482cb1ad098f86358683e1982c50ef6fdc745e7715effcd",
+          "reference_id": "CAL-003-REF-01"
+        }
+      ],
+      "title": "Find notes by title"
+    },
+    {
+      "example_digest": "beacd0e114ed6a01c9ac6f76da254ddc2577ce1103cb0ae2aa668864a522e839",
+      "example_id": "CAL-004",
+      "origin": "assistant-authored fictional planning packet; no human scores",
+      "planning_entries": [
+        {
+          "content": "Household members want to print or examine the pantry list in a spreadsheet. Add an offline export of name, quantity, and location. Imports and online sharing remain out of scope.",
+          "entry_digest": "a8af8c098e889f1ae9c303ef596d4610ff2b6948587c70ba457b6484f8fdc0e6",
+          "entry_id": "CAL-004-D01",
+          "stage": "D01",
+          "topic": "Problem and users"
+        },
+        {
+          "content": "Write exactly the stated columns, one row per item, preserving insertion order. Quote embedded commas and quotes correctly. Empty lists still export a header. Use the existing data model and operate without network access.",
+          "entry_digest": "0b3467ef9c12c4b2c3f3e8d00e72e604ac95bea34711fa45fce8c049b4d946db",
+          "entry_id": "CAL-004-D02",
+          "stage": "D02",
+          "topic": "Success and constraints"
+        },
+        {
+          "content": "REF-01 supports the format, storage boundary, and available CSV writer. With at most 500 items, export is guaranteed to complete within 5 ms and use less than 1 KB of memory; no measurements are needed.",
+          "entry_digest": "e4efd350bc59d22141372cfba350d5940065674bcf89105217f457b886247484",
+          "entry_id": "CAL-004-D03",
+          "stage": "D03",
+          "topic": "Research"
+        },
+        {
+          "content": "Use the standard CSV writer. Streaming rows avoids constructing an extra full CSV string, while returning a string would simplify preview code. Choose streaming to a file because no preview is requested. File size depends on field lengths; timing remains an open measurement despite the guarantee stated in D03.",
+          "entry_digest": "a180f7075c63cf72b7c072a4913bf9bce377e092018e6805d252b8b4160234ef",
+          "entry_id": "CAL-004-D04",
+          "stage": "D04",
+          "topic": "Feasibility and trade-offs"
+        },
+        {
+          "content": "Implement the three-field row mapping, file writing, and tests for empty lists, ordering, escaping, and file errors. Keep the offline scope. A guaranteed 5 ms completion time is retained as an acceptance condition without defining a machine or maximum field size.",
+          "entry_digest": "223c9f84f7c284294e59ee328af8bddd33ed50c42dd35a4c6aab42d21f9a38c4",
+          "entry_id": "CAL-004-D05",
+          "stage": "D05",
+          "topic": "Synthesis and decomposition"
+        }
+      ],
+      "references": [
+        {
+          "content": "A fictional pantry tracker stores item name, quantity, and location locally for one household. The user asks for an offline CSV export of those three fields. The fixture has at most 500 items and a standard-library CSV writer. Existing retrieval uses insertion order. Imports and cloud sharing are excluded. No timing or memory measurements have been supplied.",
+          "origin": "newly authored fictional scenario reference material",
+          "reference_digest": "07113d9a99a0bec61a5d9a1584e690ffc06680be6406ef0ff441a9ab284a0ae0",
+          "reference_id": "CAL-004-REF-01"
+        }
+      ],
+      "title": "Export a pantry list"
+    },
+    {
+      "example_digest": "f1e1f8f2d45b1ea304629ed9f1f4888e061ca68075c34c0332dd1f34cb9352d4",
+      "example_id": "CAL-005",
+      "origin": "assistant-authored fictional planning packet; no human scores",
+      "planning_entries": [
+        {
+          "content": "Individual researchers currently repeat the same tagging command on each note. Provide one local operation for a bounded selection. Tag removal, saved groups, and cross-user sharing are excluded.",
+          "entry_digest": "cffa90f5d33d4096a4a474f8129ae308700a2946f672ec6c5a8b4ac3e831c800",
+          "entry_id": "CAL-005-D01",
+          "stage": "D01",
+          "topic": "Problem and users"
+        },
+        {
+          "content": "A valid selection receives exactly one instance of the tag per note. Duplicate IDs and existing tags are harmless. Any missing ID produces a list of missing IDs and leaves every note unchanged. Reject selections above 20 before writing. Preserve the storage format.",
+          "entry_digest": "60e81d0cab43b107b710e821ffcb64f4fff2d137ec7b3c118f25a2abfa1662a6",
+          "entry_id": "CAL-005-D02",
+          "stage": "D02",
+          "topic": "Success and constraints"
+        },
+        {
+          "content": "REF-01 directly supplies the selection bound and failure policy. Reuse the lookup and transaction capabilities it identifies. There is no claim about competitor behavior or adoption. Whether users will need more than 20 notes remains unknown and is outside this request.",
+          "entry_digest": "4da786f6d91633755a58bed80663b5a4ef676c1f5a958c1062a4ca228707c8d3",
+          "entry_id": "CAL-005-D03",
+          "stage": "D03",
+          "topic": "Research"
+        },
+        {
+          "content": "Deduplicate IDs, validate all of them using read-only lookup, then apply updates in one transaction. Independent writes could leave a partial selection changed if a later write fails, which violates the requested behavior. The transaction costs some coordination but fits the bounded selection. Report storage failure and roll back.",
+          "entry_digest": "65aebd701e5ea990f38add256c42db4d82d51522773c89c0306183549a81aba1",
+          "entry_id": "CAL-005-D04",
+          "stage": "D04",
+          "topic": "Feasibility and trade-offs"
+        },
+        {
+          "content": "Define input normalization and validation first, then transactional updates, then the result summary. Verify missing-ID rollback, write-failure rollback, duplicates, existing tags, empty input, and the 20-item boundary. The plan implements only tag addition and preserves the all-or-nothing rule throughout.",
+          "entry_digest": "65805bd64be5eba434af1450be80f79803af7d27f9ff89bfb5658700abadf0e4",
+          "entry_id": "CAL-005-D05",
+          "stage": "D05",
+          "topic": "Synthesis and decomposition"
+        }
+      ],
+      "references": [
+        {
+          "content": "A fictional local research notebook has stable note IDs and sets of tags. A read-only ID lookup and a transactional single-tag update are available. A researcher requests adding one tag to a selection of up to 20 notes. Their stated preference is: \"If any selected ID is missing, tell me which ones and change nothing.\" Duplicate selected IDs and already-present tags should have no extra effect. No external user study is supplied.",
+          "origin": "newly authored fictional scenario reference material",
+          "reference_digest": "8872143209e1426846947c4d064abf2cdab44ad7191faedfdc36bb822c6fe97d",
+          "reference_id": "CAL-005-REF-01"
+        }
+      ],
+      "title": "Tag selected research notes"
+    },
+    {
+      "example_digest": "635eb9a515d5bfa620d05c1f782c07fb9b4170fc88cdf0d7c872e2d0dbd2ddc6",
+      "example_id": "CAL-006",
+      "origin": "assistant-authored fictional planning packet; no human scores",
+      "planning_entries": [
+        {
+          "content": "The home cook needs to find a saved recipe without scrolling through the full list. Limit the first change to title search in the local notebook.",
+          "entry_digest": "4206d315c0d3bfe9ad279c0a2be927c8e597745e733eacf4ae9ce247eecf3b45",
+          "entry_id": "CAL-006-D01",
+          "stage": "D01",
+          "topic": "Problem and users"
+        },
+        {
+          "content": "Given a query, show matching recipe IDs and titles without changing saved recipes. Results should ignore case and keep creation order. Empty-query behavior and accented-letter behavior need confirmation. No response-time target has been chosen.",
+          "entry_digest": "5d6d41283dcf95ec39593efacc030e2d6b7f588b550df5458361eaa87055dbde",
+          "entry_id": "CAL-006-D02",
+          "stage": "D02",
+          "topic": "Success and constraints"
+        },
+        {
+          "content": "REF-01 provides the user need and existing listing operation. There is no reason yet to add an index for a 250-recipe fixture. That is an initial design assumption rather than a measured performance claim. Matching accents remains an unresolved product decision.",
+          "entry_digest": "43c00a709a343d5050444ed91829ede12a33a4b3c2a93bc1dc48f9ac9f6dc9f5",
+          "entry_id": "CAL-006-D03",
+          "stage": "D03",
+          "topic": "Research"
+        },
+        {
+          "content": "Filter the title list using a case-normalized substring comparison. It avoids an indexing dependency but does not define accent matching or whether multiple query words must be adjacent. A tokenizer could handle separated words, at the cost of another matching policy. Confirm those policies before finalizing acceptance cases.",
+          "entry_digest": "76bc32bf3a0aa12b94e9eed7f9519a2ddbf587b9b20379183aedba73c8570381",
+          "entry_id": "CAL-006-D04",
+          "stage": "D04",
+          "topic": "Feasibility and trade-offs"
+        },
+        {
+          "content": "Add title filtering and ordinary case-insensitive tests after the matching decisions are recorded. Then add ingredient filtering to make the feature useful for cooking and test it too. Ingredient filtering was not requested in D01 or REF-01. Empty-query tests remain pending the user's answer.",
+          "entry_digest": "f08d3fde8b60a199e82abe112868adc8a0ab1cbbc0abc512259da6750e6832df",
+          "entry_id": "CAL-006-D05",
+          "stage": "D05",
+          "topic": "Synthesis and decomposition"
+        }
+      ],
+      "references": [
+        {
+          "content": "A fictional recipe notebook serves one home cook and stores up to 250 recipes locally. The request is: \"Search words anywhere in a recipe title, ignoring case, so I can find a recipe I saved.\" The existing query lists recipe titles and IDs in creation order. Body search and ingredient filtering are not requested. The desired behavior for an empty query is undecided. The fixture includes mixed-case titles and titles containing accented letters. No language-specific search policy or performance data has been supplied.",
+          "origin": "newly authored fictional scenario reference material",
+          "reference_digest": "8c74a8b1051b18e9d82d6479b6fd198674105ccf600e850ebed40e55664faace",
+          "reference_id": "CAL-006-REF-01"
+        }
+      ],
+      "title": "Find saved recipes by title"
+    }
+  ],
+  "origin": "fictional examples authored for human review on 2026-10-03",
+  "schema_version": "1.0",
+  "set_id": "e40-planning-calibration-examples-v1"
+}
