@@ -59,6 +59,10 @@ func (m *mockBugRepo) Update(ctx context.Context, bug *models.Bug) error {
 	return nil
 }
 
+func (m *mockBugRepo) UpdateIfStatus(ctx context.Context, bug *models.Bug, _ models.BugStatus) (bool, error) {
+	return true, m.Update(ctx, bug)
+}
+
 func (m *mockBugRepo) Delete(ctx context.Context, id int64) error {
 	if m.deleteFn != nil {
 		return m.deleteFn(ctx, id)
@@ -219,9 +223,11 @@ func newBugWorkflowSvc() *workflow.Service {
 // mockBugEntityRepo is a minimal EntityRepository adapter for bug tests.
 type mockBugEntityRepo struct {
 	bugRepo *mockBugRepo
+	key     string
 }
 
 func (m *mockBugEntityRepo) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	m.key = key
 	return m.bugRepo.GetByKey(ctx, key)
 }
 
@@ -234,7 +240,13 @@ func (m *mockBugEntityRepo) UpdateStatus(ctx context.Context, id int64, status s
 }
 
 func (m *mockBugEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
-	bug, err := m.bugRepo.GetByID(ctx, id)
+	var bug *models.Bug
+	var err error
+	if m.bugRepo.getByIDFn != nil {
+		bug, err = m.bugRepo.GetByID(ctx, id)
+	} else {
+		bug, err = m.bugRepo.GetByKey(ctx, m.key)
+	}
 	if err != nil {
 		return false, err
 	}

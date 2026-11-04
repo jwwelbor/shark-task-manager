@@ -89,6 +89,36 @@ func newTestEntityService(t *testing.T) *EntityService {
 	return NewEntityService(wfSvc).ForLevel(workflow.LevelEpic)
 }
 
+func TestBugTransitionRejectsChangedSourceWithoutAdvanceGuard(t *testing.T) {
+	for _, tc := range []struct{ target, concurrent string }{{"development", "plan_review"}, {"repair_plan", "research"}} {
+		t.Run(tc.concurrent, func(t *testing.T) {
+			live := "qa"
+			repo := &mockEntityRepo{
+				getByKeyFn: func(context.Context, string) (models.Entity, error) {
+					snapshot := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001"}, Status: models.BugStatus(live)}
+					live = tc.concurrent // another valid QA rework route wins first
+					return snapshot, nil
+				},
+				updateStatusFn: func(context.Context, int64, string) error {
+					t.Fatal("unconditional status write bypasses source validation")
+					return nil
+				},
+				updateStatusIfCurrentFn: func(_ context.Context, _ int64, expected, target string) (bool, error) {
+					if live != expected {
+						return false, nil
+					}
+					live = target
+					return true, nil
+				},
+			}
+			svc := NewEntityService(workflow.NewService(t.TempDir())).ForLevel("bug")
+			_, err := svc.TransitionStatus(context.Background(), repo, models.EntityTypeBug, "B001", tc.target, TransitionOptions{}, SimpleTransitionFeatures(), nil)
+			require.ErrorIs(t, err, ErrAdvanceGuardStaleFromStatus)
+			require.Equal(t, tc.concurrent, live)
+		})
+	}
+}
+
 // --- TransitionStatus Tests ---
 
 func TestEntityService_TransitionStatus_HappyPath(t *testing.T) {

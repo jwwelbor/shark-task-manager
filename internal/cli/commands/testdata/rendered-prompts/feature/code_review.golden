@@ -200,7 +200,8 @@ nested Codex craft review. Angle reviewers produce evidence only; the parent
 retains the lease, heartbeats, transitions and result ingestion.
 
 Freeze the complete scope, including unaccepted predecessor changes. Bind the
-review to the candidate tree, diff hash, manifest and accepted plan revision.
+review to the candidate tree, diff hash and manifest. Bind the accepted plan
+revision when applicable; bug repair reviews require it.
 Record runner mode, completed specialists, consolidation, actual reviewer model,
 fallback reason, base commit and diff path. Record requested and verified
 effective execution identity separately; explicitly mark unknown identity.

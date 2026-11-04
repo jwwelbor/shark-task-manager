@@ -289,17 +289,8 @@ func (s *EntityService) transitionStatus(
 	if err != nil {
 		return nil, err
 	}
-	if entityType == models.EntityTypeBug && !opts.Force && !opts.GateAdmissionVerified && s.requiresBugGateAdmission(resolvedCurrentStatus, targetStatus) {
-		return nil, fmt.Errorf("cannot advance bug %s from %s: a validated gate result is required; use shark run to submit it", key, resolvedCurrentStatus)
-	}
-
-	// A research step may only take its pass route after the selected recipe's
-	// structural evidence contract is complete. Failure and parking routes stay
-	// available for recovery and escalation.
-	if !opts.Force && s.requiresResearchEvidence(resolvedCurrentStatus, targetStatus) {
-		if err := research.ValidateEntity(s.workflowSvc.ProjectRoot(), entity); err != nil {
-			return nil, fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
-		}
+	if err := s.validateTransitionEvidence(entityType, key, entity, resolvedCurrentStatus, targetStatus, opts); err != nil {
+		return nil, err
 	}
 
 	// Step 5: Enforce reason for forced transitions
@@ -401,11 +392,10 @@ func (s *EntityService) updateTransitionStatus(
 	opts TransitionOptions,
 ) error {
 	if !s.shouldUseAdvanceGuard(opts) {
-		// A terminal reopen is authorized from an observed source status. Even
-		// when the optional replay ledger is disabled, preserve that narrow
-		// authorization boundary with a conditional update so a concurrent
-		// non-terminal transition cannot inherit its forced route bypass.
-		if opts.ForceTerminalReopen {
+		// Preserve the observed source for terminal reopens and unforced bug
+		// transitions even without the optional replay ledger. Otherwise a
+		// concurrent transition can invalidate the evidence checks above.
+		if opts.ForceTerminalReopen || (entityType == models.EntityTypeBug && !opts.Force) {
 			updated, err := repo.UpdateStatusIfCurrent(ctx, entityID, currentStatus, targetStatus)
 			if err != nil {
 				return fmt.Errorf("failed to update %s status: %w", entityType, err)
@@ -545,6 +535,18 @@ func (s *EntityService) compensateAdvanceGuard(ctx context.Context, entityType m
 	if err := s.advanceGuardRepo.DeleteConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome); err != nil {
 		slog.Warn("failed to compensate advance guard consumption after failed status update", "entity_type", entityType, "entity_id", entityID, "error", err)
 	}
+}
+
+func (s *EntityService) validateTransitionEvidence(entityType models.EntityType, key string, entity models.Entity, fromStatus, targetStatus string, opts TransitionOptions) error {
+	if entityType == models.EntityTypeBug && !opts.Force && !opts.GateAdmissionVerified && s.requiresBugGateAdmission(fromStatus, targetStatus) {
+		return fmt.Errorf("cannot advance bug %s from %s: a validated gate result is required; use shark run to submit it", key, fromStatus)
+	}
+	if !opts.Force && s.requiresResearchEvidence(fromStatus, targetStatus) {
+		if err := research.ValidateEntity(s.workflowSvc.ProjectRoot(), entity); err != nil {
+			return fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
+		}
+	}
+	return nil
 }
 
 func (s *EntityService) requiresBugGateAdmission(fromStatus, targetStatus string) bool {

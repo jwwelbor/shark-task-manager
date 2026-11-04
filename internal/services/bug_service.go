@@ -24,6 +24,7 @@ type BugRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Bug, error)
 	GetByID(ctx context.Context, id int64) (*models.Bug, error)
 	Update(ctx context.Context, bug *models.Bug) error
+	UpdateIfStatus(ctx context.Context, bug *models.Bug, expected models.BugStatus) (bool, error)
 	Delete(ctx context.Context, id int64) error
 	UpdateStatus(ctx context.Context, id int64, status models.BugStatus) error
 	GetNextKey(ctx context.Context) (string, error)
@@ -317,6 +318,7 @@ func (s *BugService) UpdateBug(ctx context.Context, key string, updates BugUpdat
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bug %s: %w", key, err)
 	}
+	expectedStatus := bug.Status
 
 	if updates.Title != nil {
 		if strings.TrimSpace(*updates.Title) == "" {
@@ -376,8 +378,12 @@ func (s *BugService) UpdateBug(ctx context.Context, key string, updates BugUpdat
 		}
 	}
 
-	if err := s.repo.Update(ctx, bug); err != nil {
+	updated, err := s.repo.UpdateIfStatus(ctx, bug, expectedStatus)
+	if err != nil {
 		return nil, fmt.Errorf("failed to update bug %s: %w", key, err)
+	}
+	if !updated {
+		return nil, fmt.Errorf("failed to update bug %s: %w", key, ErrAdvanceGuardStaleFromStatus)
 	}
 
 	// `--tag` on update is additive only; detach goes through `shark bug tag rm`.
@@ -492,6 +498,7 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bug %s: %w", key, err)
 	}
+	expectedStatus := bug.Status
 
 	// Update severity
 	bug.Severity = models.BugSeverity(input.Severity)
@@ -500,13 +507,21 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 	validTransitions := s.workflowSvc.GetValidTransitions(string(bug.Status))
 	for _, t := range validTransitions {
 		if t == "triaged" {
+			from := s.workflowSvc.NormalizeStatus(string(expectedStatus))
+			if err := s.entitySvc.validateTransitionEvidence(models.EntityTypeBug, key, bug, from, t, TransitionOptions{}); err != nil {
+				return nil, err
+			}
 			bug.Status = "triaged"
 			break
 		}
 	}
 
-	if err := s.repo.Update(ctx, bug); err != nil {
+	updated, err := s.repo.UpdateIfStatus(ctx, bug, expectedStatus)
+	if err != nil {
 		return nil, fmt.Errorf("failed to triage bug %s: %w", key, err)
+	}
+	if !updated {
+		return nil, fmt.Errorf("failed to triage bug %s: %w", key, ErrAdvanceGuardStaleFromStatus)
 	}
 	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bug.ID); err != nil {
 		return nil, err

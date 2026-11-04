@@ -60,9 +60,21 @@ func TestBugSuccessRoutesRequireAdmission(t *testing.T) {
 			for _, advance := range [][]string{{"status", "set", "B001", route[1]}, {"status", "advance", "B001"}} {
 				out, err = run("status", "set", "B001", route[0], "--force", "--reason", "fixture setup")
 				require.NoError(t, err, string(out))
+				beforeHistory, historyErr := run("history", "B001")
+				require.NoError(t, historyErr, string(beforeHistory))
 				out, err = run(advance...)
 				require.Error(t, err, string(out))
 				require.Contains(t, string(out), "validated gate result is required")
+				status, statusErr := run("get", "B001")
+				require.NoError(t, statusErr, string(status))
+				var current struct {
+					Status string `json:"status"`
+				}
+				require.NoError(t, json.Unmarshal(status, &current))
+				require.Equal(t, route[0], current.Status)
+				afterHistory, historyErr := run("history", "B001")
+				require.NoError(t, historyErr, string(afterHistory))
+				require.JSONEq(t, string(beforeHistory), string(afterHistory))
 			}
 		})
 	}
@@ -72,6 +84,73 @@ func TestBugSuccessRoutesRequireAdmission(t *testing.T) {
 		out, err = run("status", "set", "B001", route[1])
 		require.NoError(t, err, string(out))
 	}
+}
+
+func TestBugTriageCannotBypassConfiguredSuccessGate(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = root
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "fixture.db")
+	run := func(args ...string) ([]byte, error) {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", dbPath, "--json")...)
+		cmd.Dir = project
+		return cmd.CombinedOutput()
+	}
+	out, err = run("admin", "init", "--non-interactive")
+	require.NoError(t, err, string(out))
+	source := filepath.Join(root, "internal", "sharkdata", "default_data", "workflow")
+	workflowDir := filepath.Join(project, "workflow")
+	require.NoError(t, os.Mkdir(workflowDir, 0700))
+	entries, err := os.ReadDir(source)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(source, entry.Name()))
+		require.NoError(t, readErr)
+		if entry.Name() == "bug.yaml" {
+			text := string(data)
+			start, end := strings.Index(text, "  development:\n"), strings.Index(text, "  draft:\n")
+			require.True(t, start >= 0 && end > start)
+			triaged := strings.Replace(text[start:end], "  development:\n", "  triaged:\n", 1)
+			text = strings.Replace(text, "  plan_review:\n", triaged+"  plan_review:\n", 1)
+			text = strings.Replace(text, "      pass: development\n", "      pass: triaged\n", 1)
+			data = []byte(text)
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(workflowDir, entry.Name()), data, 0600))
+	}
+	configPath := filepath.Join(project, ".sharkconfig.json")
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	var config map[string]any
+	require.NoError(t, json.Unmarshal(data, &config))
+	config["workflow_config"] = workflowDir
+	data, err = json.Marshal(config)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(configPath, data, 0600))
+	out, err = run("bug", "create", "Configured triage gate")
+	require.NoError(t, err, string(out))
+	out, err = run("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
+	require.NoError(t, err, string(out))
+	out, err = run("bug", "triage", "B001", "--severity=high")
+	require.Error(t, err, string(out))
+	require.Contains(t, string(out), "validated gate result is required")
+	out, err = run("get", "B001")
+	require.NoError(t, err, string(out))
+	var bug struct {
+		Status   string `json:"status"`
+		Severity string `json:"severity"`
+	}
+	require.NoError(t, json.Unmarshal(out, &bug))
+	require.Equal(t, "plan_review", bug.Status)
+	require.Equal(t, "medium", bug.Severity)
 }
 
 func (f *failAfterRealTransition) Transition(ctx context.Context, typ models.EntityType, key, target, reason, agent string, guard gatepersist.TransitionGuard) (string, bool, error) {
