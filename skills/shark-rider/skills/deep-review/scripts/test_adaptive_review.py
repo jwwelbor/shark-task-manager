@@ -167,6 +167,13 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertEqual(Path(str(report) + '.angles.json').read_bytes(), expected[str(angles)])
             self.assertEqual(Path(str(report) + '.diff').read_bytes(), expected[str(diff)])
 
+    def test_retained_artifacts_reject_output_above_shared_limit(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('adaptive_review.MAX_ARTIFACT_BYTES', 4):
+            path = Path(tmp) / 'evidence'
+            with self.assertRaisesRegex(ValueError, 'exceeds size limit'):
+                adaptive_review._write_new_bytes(path, b'12345')
+            self.assertFalse(path.exists())
+
     def test_cli_success_persists_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

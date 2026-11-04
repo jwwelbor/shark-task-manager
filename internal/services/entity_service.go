@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/research"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -288,6 +289,9 @@ func (s *EntityService) transitionStatus(
 	if err != nil {
 		return nil, err
 	}
+	if entityType == models.EntityTypeBug && !opts.Force && !opts.GateAdmissionVerified && s.requiresBugGateAdmission(resolvedCurrentStatus, targetStatus) {
+		return nil, fmt.Errorf("cannot advance bug %s from %s: a validated gate result is required; use shark run to submit it", key, resolvedCurrentStatus)
+	}
 
 	// A research step may only take its pass route after the selected recipe's
 	// structural evidence contract is complete. Failure and parking routes stay
@@ -541,6 +545,19 @@ func (s *EntityService) compensateAdvanceGuard(ctx context.Context, entityType m
 	if err := s.advanceGuardRepo.DeleteConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome); err != nil {
 		slog.Warn("failed to compensate advance guard consumption after failed status update", "entity_type", entityType, "entity_id", entityID, "error", err)
 	}
+}
+
+func (s *EntityService) requiresBugGateAdmission(fromStatus, targetStatus string) bool {
+	if s.workflowSvc.GetResultContract(fromStatus) != "gate_result_v1" {
+		return false
+	}
+	roles := s.workflowSvc.GetOutcomeRoles(fromStatus)
+	for outcome, target := range s.workflowSvc.GetOutcomes(fromStatus) {
+		if roles[outcome] == gateresult.RoleSuccess && strings.EqualFold(target, targetStatus) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *EntityService) requiresResearchEvidence(fromStatus, targetStatus string) bool {

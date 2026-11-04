@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from source_inventory import source_inventory
-from safe_review_io import read_review_file
+from safe_review_io import MAX_ARTIFACT_BYTES, read_review_file
 from review_status import filter_status, runtime_prefix, runtime_project, selection_overlaps_runtime
 
 
@@ -484,6 +484,8 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
 
 
 def _write_new_bytes(path, data):
+    if len(data) > MAX_ARTIFACT_BYTES:
+        raise ValueError("retained review artifact exceeds size limit")
     with path.open("xb") as output:
         output.write(data)
 
@@ -518,7 +520,10 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
             _write_new_bytes(retained_scope, data)
             metadata["retained_scope"] = str(retained_scope.resolve())
             metadata["scope_sha256"] = hashlib.sha256(data).hexdigest()
-        report.write(_report_header(metadata, branch) + body.rstrip() + "\n")
+        content = _report_header(metadata, branch) + body.rstrip() + "\n"
+        if len(content.encode("utf-8")) > MAX_ARTIFACT_BYTES:
+            raise ValueError("retained review report exceeds size limit")
+        report.write(content)
 
 
 def _cli_prompt(args, scope):

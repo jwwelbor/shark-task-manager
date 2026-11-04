@@ -33,6 +33,47 @@ type failAfterRealTransition struct {
 	fail     bool
 }
 
+// TestBugSuccessRoutesRequireAdmission exercises both public status commands;
+// explicit force is used only to position each disposable fixture.
+func TestBugSuccessRoutesRequireAdmission(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = root
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "fixture.db")
+	run := func(args ...string) ([]byte, error) {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", dbPath, "--json")...)
+		cmd.Dir = project
+		return cmd.CombinedOutput()
+	}
+	for _, args := range [][]string{{"admin", "init", "--non-interactive"}, {"bug", "create", "Gate bypass fixture"}} {
+		out, err = run(args...)
+		require.NoError(t, err, string(out))
+	}
+	for _, route := range [][2]string{{"repair_plan", "plan_review"}, {"plan_review", "development"}, {"development", "code_review"}, {"code_review", "qa"}, {"qa", "completed"}} {
+		t.Run(route[0], func(t *testing.T) {
+			for _, advance := range [][]string{{"status", "set", "B001", route[1]}, {"status", "advance", "B001"}} {
+				out, err = run("status", "set", "B001", route[0], "--force", "--reason", "fixture setup")
+				require.NoError(t, err, string(out))
+				out, err = run(advance...)
+				require.Error(t, err, string(out))
+				require.Contains(t, string(out), "validated gate result is required")
+			}
+		})
+	}
+	for _, route := range [][2]string{{"plan_review", "repair_plan"}, {"qa", "blocked"}} {
+		out, err = run("status", "set", "B001", route[0], "--force", "--reason", "fixture setup")
+		require.NoError(t, err, string(out))
+		out, err = run("status", "set", "B001", route[1])
+		require.NoError(t, err, string(out))
+	}
+}
+
 func (f *failAfterRealTransition) Transition(ctx context.Context, typ models.EntityType, key, target, reason, agent string, guard gatepersist.TransitionGuard) (string, bool, error) {
 	from, changed, err := f.delegate.Transition(ctx, typ, key, target, reason, agent, guard)
 	if err == nil && changed && f.fail {

@@ -451,7 +451,7 @@ func (c *Coordinator) transitionWithProvenance(ctx context.Context, req Request,
 	if state.AdmissionVersion == BoundAdmissionVersion {
 		reason = BoundTransitionReason(req.Gate, req.OutcomeKey, req.RunID, state.OperationDigest)
 	}
-	guard := TransitionGuard{SessionID: req.Session.ID, FromStatus: req.SourceStatus, Outcome: req.OutcomeKey}
+	guard := TransitionGuard{SessionID: req.Session.ID, FromStatus: req.SourceStatus, Outcome: req.OutcomeKey, AdmissionVerified: c.Admission != nil}
 	from, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent, guard)
 	if err != nil {
 		return fmt.Errorf("gatepersist: apply main transition: %w", err)

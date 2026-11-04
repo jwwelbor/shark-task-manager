@@ -20,6 +20,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBugEvidenceLimitsDistinguishPlansAndReviewArtifacts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "evidence")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Truncate(2*1024*1024+1))
+	require.NoError(t, file.Close())
+	_, err = readBoundedBugEvidence(root, "evidence", bugEvidenceLimit("bug_repair_plan"))
+	require.Error(t, err)
+	for _, kind := range []string{"bug_review_scope", "bug_review_report", "bug_review_decisions", "bug_review_angles"} {
+		_, err = readBoundedBugEvidence(root, "evidence", bugEvidenceLimit(kind))
+		require.NoError(t, err, kind)
+	}
+	require.NoError(t, os.Truncate(path, 128*1024*1024+1))
+	_, err = readBoundedBugEvidence(root, "evidence", bugEvidenceLimit("bug_review_report"))
+	require.Error(t, err)
+}
+
 func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) string {
@@ -158,7 +176,9 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	decisionPath := filepath.Join(root, ".shark", "decisions.json")
 	require.NoError(t, os.WriteFile(decisionPath, nativeResult.Decisions, 0600))
 	bodyPath := filepath.Join(root, ".shark", "body.md")
-	require.NoError(t, os.WriteFile(bodyPath, []byte(nativeResult.Report), 0600))
+	// The writer permits reports larger than the plan-evidence limit; admission
+	// must accept the same bounded review artifacts that the writer produces.
+	require.NoError(t, os.WriteFile(bodyPath, []byte(nativeResult.Report+"\n"+strings.Repeat("x", 2*1024*1024)), 0600))
 	reportPath := filepath.Join(root, ".shark", "report.md")
 	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "canonical-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--angle-results", anglePath, "--review-decisions", decisionPath)
 	out, err = cmd.CombinedOutput()

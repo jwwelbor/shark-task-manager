@@ -33,7 +33,7 @@ func readBugEvidence(req gatepersist.Request, kind string) (workercontrol.Eviden
 		return ref, nil, err
 	}
 	root := bugEvidenceProject(req)
-	data, err := readBoundedBugEvidence(root, ref.Pointer)
+	data, err := readBoundedBugEvidence(root, ref.Pointer, bugEvidenceLimit(kind))
 	if err != nil {
 		return ref, nil, err
 	}
@@ -75,7 +75,16 @@ func validateBugEvidenceRef(ref workercontrol.EvidenceRef) ([]byte, error) {
 	}
 	return expected, nil
 }
-func readBoundedBugEvidence(projectRoot, path string) ([]byte, error) {
+func bugEvidenceLimit(kind string) int64 {
+	switch kind {
+	case "bug_review_scope", "bug_review_report", "bug_review_decisions", "bug_review_angles":
+		return 128 * 1024 * 1024
+	default:
+		return 2 * 1024 * 1024
+	}
+}
+
+func readBoundedBugEvidence(projectRoot, path string, limit int64) ([]byte, error) {
 	root, err := os.OpenRoot(projectRoot)
 	if err != nil {
 		return nil, err
@@ -87,11 +96,11 @@ func readBoundedBugEvidence(projectRoot, path string) ([]byte, error) {
 	}
 	defer func() { _ = file.Close() }() // Read-only handle; close does not affect verified bytes.
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 2*1024*1024 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
 		return nil, fmt.Errorf("evidence must be a bounded regular file")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, 2*1024*1024+1))
-	if err != nil || len(data) > 2*1024*1024 {
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil || int64(len(data)) > limit {
 		return nil, fmt.Errorf("cannot read bounded evidence")
 	}
 	return data, nil

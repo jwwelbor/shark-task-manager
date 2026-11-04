@@ -695,7 +695,7 @@ EXIT GATE:
 - Quality gate passes
 - No unrelated changes
 
-DECISION: pass only when the accepted plan and coverage obligations are verified. Use review_plan for a valid plan whose approval is missing or stale; use needs_research for changed diagnosis, replan for a material approach change, fail for implementation rework, and blocked for unavailable external evidence. For route_rework outcomes leave kickbacks empty and retain findings in the summary. The parent owns transitions.
+DECISION: pass only when the accepted plan and coverage obligations are verified. Use review_plan for a valid plan whose approval is missing or stale; use needs_research for changed diagnosis, replan for a material approach change, fail for implementation rework, and blocked for unavailable external evidence. For route_rework outcomes leave kickbacks empty, keep the summary concise, and retain findings in the structured findings and narrative report. The parent owns transitions.
 
 The fail outcome's role is `route_rework`.
 
