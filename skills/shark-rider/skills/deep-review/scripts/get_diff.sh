@@ -8,7 +8,7 @@ project_root=$(git rev-parse --show-toplevel)
 # A committed candidate makes the tree identity and the manifest unambiguous.
 # Fail closed instead of silently omitting staged, unstaged or untracked files.
 if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
-  echo '{"error": "Working tree is not clean; capture all candidate changes in a commit before review"}' >&2
+  echo '{"error": "Working tree is not clean; prepare an isolated snapshot of explicit candidate paths before review"}' >&2
   exit 1
 fi
 
@@ -111,13 +111,14 @@ CANDIDATE_COMMIT="$candidate_commit" \
 CANDIDATE_TREE="$candidate_tree" \
 DIFF_SHA256="$diff_sha256" \
 REVIEW_OUTPUT_PATH="$review_output_path" \
+REVIEW_SOURCE_METADATA="${REVIEW_SOURCE_METADATA:-}" \
 python3 - <<'PYEOF'
 import os, json, subprocess
 diff_path = os.environ["DIFF_PATH"]
 project_root = os.environ["PROJECT_ROOT"]
 coding_standards_path = os.environ.get("CODING_STANDARDS_PATH", "")
 changed_files = [os.fsdecode(p) for p in subprocess.check_output(["git", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]]).split(b"\0") if p]
-print(json.dumps({
+scope = {
   "diff_path": diff_path,
   "changed_files": changed_files,
   "changed_file_count": len(changed_files),
@@ -130,5 +131,13 @@ print(json.dumps({
   "candidate_tree": os.environ.get("CANDIDATE_TREE") or None,
   "diff_sha256": os.environ.get("DIFF_SHA256") or None,
   "review_output_path": os.environ.get("REVIEW_OUTPUT_PATH") or None,
-}))
+}
+source_path = os.environ.get("REVIEW_SOURCE_METADATA")
+if source_path:
+  with open(source_path, encoding="utf-8") as source_file:
+    source = json.load(source_file)
+  if source["candidate_commit"] != scope["candidate_commit"] or source["candidate_tree"] != scope["candidate_tree"] or os.path.realpath(source["project_root"]) != os.path.realpath(project_root):
+    raise ValueError("source snapshot metadata does not match candidate")
+  scope["source_snapshot"] = source
+print(json.dumps(scope))
 PYEOF

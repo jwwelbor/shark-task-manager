@@ -84,7 +84,27 @@ skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
 REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 
-The capture requires a clean committed candidate and fails closed on staged, unstaged or untracked files. Set `REVIEW_BASE` to the accepted baseline when the plan specifies one; otherwise omit it to use the merge base.
+The capture requires a clean committed candidate. If relevant work is uncommitted,
+the parent first enumerates every candidate path, including unaccepted predecessor
+changes and relevant untracked files, and prepares an isolated snapshot without
+altering the source worktree or index:
+
+```bash
+python3 "$skill_dir/scripts/prepare_candidate.py" --project-root "$project_root" \
+  --destination /absolute/new/review-worktree --metadata-file /absolute/new/snapshot.json \
+  path/to/first-candidate path/to/second-candidate
+cd /absolute/new/review-worktree
+REVIEW_BASE="<accepted-baseline-commit>" REVIEW_SOURCE_METADATA=/absolute/new/snapshot.json \
+  bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
+```
+
+Select paths explicitly; do not include unrelated work. Inspect the full diff and
+manifest to ensure no relevant work was omitted and no unrelated work included.
+The scope validator rechecks selected source files and source HEAD before accepting
+the report. Retain the isolated worktree and snapshot metadata for review and QA;
+never modify or clean the original worktree as part of capture. If a complete
+snapshot cannot be prepared, report INCOMPLETE. Set `REVIEW_BASE` to the accepted
+baseline when specified; otherwise omit it to use the merge base.
 
 Retain `candidate_commit`, `candidate_tree`, `diff_sha256`, `diff_path`, `base_commit`, `changed_files`, `changed_file_count`, `diff_shortstat`,
 `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Review the complete
@@ -94,7 +114,7 @@ changed-file list unless the user explicitly narrows scope.
 
 When `Workflow` is available, invoke `scripts/review_workflow.js` with the scope metadata and the
 requested effort (`low|medium|high|xhigh|max`). It runs all six angle prompts in parallel and the
-consolidator. The returned report is compact on a clean PASS and detailed only for findings or
+consolidator. Only a valid result from all six angles, complete changed-file coverage, and a valid consolidator report may be recorded as complete. An exception, partial result, coverage gap, or malformed report is INCOMPLETE; persist actual counts and never replace it with a CLI pass. The returned report is compact on a clean PASS and detailed only for findings or
 triage. Persist the returned body with `adaptive_review.py write-report` and:
 
 Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
@@ -118,7 +138,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    `references/angle-f-standards.md` and `references/consolidator.md`.
 2. Dispatch all six angle agents in one batch through the host subagent tool.
    Give every agent the complete captured scope, its one assigned angle
-   prompt, and these constraints: read-only work; no edits, commits, pushes,
+   prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema; list every file inspected.
    Submit all six dispatches at once. The host may queue work when its
    concurrency limit is lower than six.

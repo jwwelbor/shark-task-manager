@@ -12,7 +12,7 @@ import (
 // candidate feature). Until that step exists, this test asserts the 12
 // entries that do.
 var canonicalAdoptionMatrix = map[string][]string{
-	"bug":      {"plan_review", "development", "code_review", "qa"},
+	"bug":      {"repair_plan", "plan_review", "development", "code_review", "qa"},
 	"epic":     {"feature_review"},
 	"feature":  {"specification", "test_planning", "task_review", "code_review", "qa", "approval"},
 	"techDebt": {"triaged", "in_progress"},

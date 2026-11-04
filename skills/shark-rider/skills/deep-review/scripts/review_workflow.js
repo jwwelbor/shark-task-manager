@@ -87,7 +87,7 @@ ${extraContext || ''}
 
 Your detailed review instructions are in: ${refsDir}/${angleFile}
 
-Read that file completely, then execute the review substituting the CONTEXT values above.
+Read that file completely. Also read the canonical portable craft criteria via shark skill get quality workflows/review-code.md (or the corresponding extracted bundle file), and apply them within your angle. Then execute the review substituting the CONTEXT values above.
 Return ONLY a JSON object with a "findings" array and a "reviewed_files" array of changed files you actually opened or inspected. No other text.`
 }
 
@@ -105,14 +105,29 @@ const specContext = [
   acContext,
 ].filter(Boolean).join('\n')
 
-const angleResults = await parallel([
+let angleResults
+try {
+  angleResults = await parallel([
   () => agent(preamble('angle-a-bugs.md'),                          { label: 'A: bugs + caller chains',  phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
   () => agent(preamble('angle-b-behavior.md'),                      { label: 'B: removed behavior + SOLID', phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
   () => agent(preamble('angle-c-sibling.md'),                       { label: 'C: cross-file + sibling',  phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
   () => agent(preamble('angle-d-cleanup.md'),                       { label: 'D: reuse + complexity',    phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
   () => agent(preamble('angle-e-tests.md', specContext),            { label: 'E: tests + counter-factual', phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
   () => agent(preamble('angle-f-standards.md'),                     { label: 'F: standards crosswalk',   phase: 'Review', schema: FINDING_SCHEMA, effort: reviewEffort }),
-])
+  ])
+} catch (error) {
+  return `INCOMPLETE: specialist dispatch failed: ${String(error)}`
+}
+
+const validAngle = r => r && Array.isArray(r.findings) && Array.isArray(r.reviewed_files) &&
+  r.reviewed_files.every(f => typeof f === 'string') && r.findings.every(f =>
+    f && typeof f.file === 'string' && Number.isFinite(f.line) &&
+    ['blocker', 'non-blocker', 'nit'].includes(f.severity) &&
+    ['rule', 'summary', 'diagnosis'].every(k => typeof f[k] === 'string'))
+const completed = Array.isArray(angleResults) ? angleResults.filter(validAngle).length : 0
+if (completed !== 6 || angleResults.length !== 6) {
+  return `INCOMPLETE: ${completed} of 6 specialist results were valid; consolidation was not run.`
+}
 
 const allFindings = angleResults
   .filter(Boolean)
@@ -122,6 +137,10 @@ const reviewedFiles = [...new Set(angleResults
   .filter(Boolean)
   .flatMap(r => (r && Array.isArray(r.reviewed_files)) ? r.reviewed_files : []))]
 
+const uncovered = changedFiles.filter(file => !reviewedFiles.includes(file))
+if (uncovered.length) {
+  return `INCOMPLETE: changed files lack review coverage: ${uncovered.join(', ')}`
+}
 log(`Collected ${allFindings.length} candidate findings across angles A–F`)
 
 // ─── Phase 2: Consolidate ────────────────────────────────────────────────────
@@ -152,4 +171,7 @@ Return the report as plain text (markdown). No JSON wrapper.`
 
 const report = await agent(consolidatorPreamble, { label: 'consolidator', phase: 'Consolidate', effort: reviewEffort })
 
+if (typeof report !== 'string' || !/\bVERDICT\s*:?\s*\*{0,2}(PASS(?:-with-triage)?|FAIL)\b/i.test(report)) {
+  return 'INCOMPLETE: consolidator returned missing or malformed report.'
+}
 return report

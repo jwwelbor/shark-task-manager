@@ -43,6 +43,7 @@ func TestGateResultV1PromptRoleMatchesWorkflowOutcomeRole(t *testing.T) {
 		step string
 		tmpl string
 	}{
+		{"bug repair_plan", configworkflow.DefaultBugWorkflow(), "repair_plan", "bug/repair_plan.md"},
 		{"bug plan_review", configworkflow.DefaultBugWorkflow(), "plan_review", "bug/plan_review.md"},
 		{"bug development", configworkflow.DefaultBugWorkflow(), "development", "bug/development.md"},
 		{"bug code_review", configworkflow.DefaultBugWorkflow(), "code_review", "bug/code_review.md"},

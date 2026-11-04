@@ -18,6 +18,28 @@ from adaptive_review import (  # noqa: E402
 )
 
 
+def scope_fixture(root):
+    repo = root / 'repo'
+    repo.mkdir()
+    def git(*args):
+        return subprocess.run(['git', '-c', 'commit.gpgsign=false', *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    git('init', '-b', 'main')
+    git('config', 'commit.gpgsign', 'false')
+    git('config', 'user.name', 'Test')
+    git('config', 'user.email', 'test@example.invalid')
+    (repo / 'source').write_text('old')
+    git('add', 'source')
+    git('commit', '-m', 'base')
+    git('checkout', '-b', 'candidate')
+    (repo / 'source').write_text('new')
+    git('commit', '-am', 'candidate')
+    capture = subprocess.run(['bash', str(HERE / 'get_diff.sh')], cwd=repo, check=True, capture_output=True, text=True)
+    scope = json.loads(capture.stdout)
+    scope_file = root / 'scope.json'
+    scope_file.write_text(capture.stdout)
+    return repo, scope, scope_file
+
+
 class AdaptiveReviewTests(unittest.TestCase):
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')
@@ -42,6 +64,7 @@ class AdaptiveReviewTests(unittest.TestCase):
     def test_cli_success_persists_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
             prompt = root / 'prompt.txt'
             prompt.write_text('review')
             fake = root / 'fake-reviewer'
@@ -50,17 +73,39 @@ class AdaptiveReviewTests(unittest.TestCase):
             report = root / 'report.md'
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(root), '--diff-path', '/tmp/diff',
-                '--base-commit', 'abc123', '--review-output-path', str(report), '--host', 'claude',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'claude',
                 '--codex-command', str(fake), '--timeout', '2', '--no-workflow-available', '--no-agent-dispatch-available',
             ], capture_output=True, text=True, check=False)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             metadata = json.loads(proc.stdout)
             self.assertEqual(metadata['runner_mode'], 'adversarial-cli')
             self.assertIn('Base commit:', report.read_text())
-            self.assertIn('`abc123`', report.read_text())
+            self.assertIn(scope['base_commit'], report.read_text())
             self.assertIn('Adversarial model:', report.read_text())
             self.assertIn('`codex`', report.read_text())
+
+    def test_cli_rejects_missing_scope_and_wrong_execution_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            called = root / 'reviewer-called'
+            fake = root / 'reviewer'
+            fake.write_text(f'#!/bin/sh\ntouch "{called}"\n')
+            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+            common = [sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                      '--prompt-file', str(prompt), '--diff-path', scope['diff_path'],
+                      '--base-commit', scope['base_commit'], '--review-output-path', str(root / 'report.md'),
+                      '--host', 'claude', '--codex-command', str(fake),
+                      '--no-workflow-available', '--no-agent-dispatch-available']
+            for extra in (['--project-root', str(repo)],
+                          ['--project-root', str(root), '--scope-file', str(scope_file)]):
+                result = subprocess.run(common + extra, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
+                self.assertFalse(called.exists())
 
     def test_cli_failures_are_incomplete(self):
         cases = {
@@ -71,6 +116,7 @@ class AdaptiveReviewTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
             prompt = root / 'prompt.txt'
             prompt.write_text('review')
             for name, contents in cases.items():
@@ -80,8 +126,8 @@ class AdaptiveReviewTests(unittest.TestCase):
                 report = root / f'{name}.md'
                 proc = subprocess.run([
                     sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                    '--prompt-file', str(prompt), '--project-root', str(root), '--diff-path', '/tmp/diff',
-                    '--base-commit', 'abc123', '--review-output-path', str(report), '--host', 'claude',
+                    '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                    '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'claude',
                     '--codex-command', str(fake), '--timeout', '0.1', '--no-workflow-available', '--no-agent-dispatch-available',
                 ], capture_output=True, text=True, check=False)
                 self.assertEqual(proc.returncode, 2, name)
@@ -90,6 +136,7 @@ class AdaptiveReviewTests(unittest.TestCase):
     def test_cli_retries_comparable_host_cli_after_preferred_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
             prompt = root / 'prompt.txt'
             prompt.write_text('review')
             failed = root / 'failed-reviewer'
@@ -107,8 +154,8 @@ class AdaptiveReviewTests(unittest.TestCase):
             report = root / 'report.md'
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(root), '--diff-path', '/tmp/diff',
-                '--base-commit', 'abc123', '--review-output-path', str(report), '--host', 'codex',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'codex',
                 '--claude-command', str(failed), '--codex-command', str(successful), '--timeout', '2',
                 '--no-workflow-available', '--no-agent-dispatch-available',
             ], capture_output=True, text=True, check=False)
@@ -120,14 +167,15 @@ class AdaptiveReviewTests(unittest.TestCase):
     def test_no_automated_runner_persists_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
             prompt = root / 'prompt.txt'
             prompt.write_text('review')
             report = root / 'report.md'
             env = {**os.environ, 'PATH': '/nonexistent'}
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(root), '--diff-path', '/tmp/diff',
-                '--base-commit', 'abc123', '--review-output-path', str(report), '--host', 'unknown',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'unknown',
                 '--no-workflow-available', '--no-agent-dispatch-available',
             ], env=env, capture_output=True, text=True, check=False)
             self.assertEqual(proc.returncode, 2)

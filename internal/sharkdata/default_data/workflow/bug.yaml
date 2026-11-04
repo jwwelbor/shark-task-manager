@@ -28,6 +28,7 @@ steps:
       fail: route_rework
       needs_research: route_rework
       replan: route_rework
+      review_plan: route_rework
       on_hold: hold
       pass: success
     phase: review
@@ -48,6 +49,7 @@ steps:
       fail: development
       needs_research: research
       replan: repair_plan
+      review_plan: plan_review
       on_hold: on_hold
       pass: qa
   completed:
@@ -67,6 +69,7 @@ steps:
       fail: route_rework
       needs_research: route_rework
       replan: route_rework
+      review_plan: route_rework
       on_hold: hold
       pass: success
     phase: development
@@ -87,6 +90,7 @@ steps:
       fail: development
       needs_research: research
       replan: repair_plan
+      review_plan: plan_review
       on_hold: on_hold
       pass: code_review
   draft:
@@ -122,6 +126,7 @@ steps:
       fail: route_rework
       needs_research: route_rework
       replan: route_rework
+      review_plan: route_rework
       on_hold: hold
       pass: success
     phase: qa
@@ -142,6 +147,7 @@ steps:
       fail: development
       needs_research: research
       replan: repair_plan
+      review_plan: plan_review
       on_hold: on_hold
       pass: completed
   repair_plan:
@@ -157,12 +163,19 @@ steps:
     provider: anthropic
     model: sonnet
     prompt: bug/repair_plan.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
       fail: repair_plan
       needs_research: research
       on_hold: on_hold
       pass: plan_review
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      needs_research: route_rework
+      on_hold: hold
+      pass: success
   plan_review:
     phase: planning
     color: magenta
@@ -191,7 +204,7 @@ steps:
       on_hold: hold
       pass: success
   research:
-    phase: planning
+    phase: research
     color: purple
     display_token: RSR
     description: Ready for recipe-driven bug investigation

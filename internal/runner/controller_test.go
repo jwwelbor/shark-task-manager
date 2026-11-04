@@ -2884,3 +2884,30 @@ func TestRunController_CascadeAction_IntegrationGuardSuccessAllowsDispatch(t *te
 		t.Errorf("expected Outcome=completed, got %s (error=%q)", result.Outcome, result.Error)
 	}
 }
+
+func TestRunController_SameStageFailureStopsInsteadOfRedispatching(t *testing.T) {
+	calls := 0
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "research", Outcomes: map[string]string{"fail": "research"}, AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "research"}}}}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+		return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "research"}, nil
+	}}
+	dispatchers := map[string]AgentDispatcher{"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+		calls++
+		if calls > 1 {
+			t.Fatal("same-stage failure dispatched again")
+		}
+		return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: fail"}, nil
+	}}}
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	result, err := ctrl.Run(context.Background(), "B001", RunOptions{EntityType: "bug"})
+	if err != nil || result.Outcome != "paused" || result.FinalStatus != "research" || calls != 1 {
+		t.Fatalf("same-stage result = %+v, err = %v, dispatches = %d", result, err, calls)
+	}
+}

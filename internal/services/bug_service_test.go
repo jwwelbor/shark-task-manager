@@ -1871,3 +1871,36 @@ func TestBugService_UpdateBug_NoSizeChange(t *testing.T) {
 		t.Errorf("expected capturedBug.Size=3 (unchanged), got %d", *capturedBug.Size)
 	}
 }
+
+func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
+	root := t.TempDir()
+	file := "B001.md"
+	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test", FilePath: &file}, Status: "research", Severity: models.BugSeverityHigh}
+	repo := &mockBugRepo{getByKeyFn: func(context.Context, string) (*models.Bug, error) { return bug, nil }}
+	wf := workflow.NewService(root)
+	svc := NewBugService(repo, NewEntityService(wf), &mockBugEntityRepo{bugRepo: repo}, &bugLinkEpicRepo{}, &bugLinkFeatureRepo{}, &bugLinkTaskRepo{}, "", nil)
+	ctx := context.Background()
+	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err == nil {
+		t.Fatal("missing report allowed research pass")
+	}
+	reportPath := filepath.Join(root, "B001.research-report.md")
+	if err := os.WriteFile(reportPath, []byte("invalid report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err == nil {
+		t.Fatal("invalid report allowed research pass")
+	}
+	valid := "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n\n## Scope\nBug scope.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `B001.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `source.go`.\n\n## Findings\nCause found.\n\n## Decisions\nRepair the cause.\n\n## Sources\n- `source.go`\n"
+	if err := os.WriteFile(reportPath, []byte(valid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err != nil {
+		t.Fatalf("valid report rejected: %v", err)
+	}
+	if err := os.Remove(reportPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TransitionStatus(ctx, "B001", "blocked", TransitionOptions{}); err != nil {
+		t.Fatalf("recovery route should not require report: %v", err)
+	}
+}

@@ -2,9 +2,11 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -491,5 +493,43 @@ func TestResolveApplyResultWorkflowService_ScopesToEntityLevel(t *testing.T) {
 	taskSvc := resolveApplyResultWorkflowService("task")
 	if taskSvc.IsTerminalStatus("resolved") {
 		t.Fatal("expected resolveApplyResultWorkflowService(\"task\").IsTerminalStatus(\"resolved\") to be false — task's workflow has no \"resolved\" status at all; a true result here means .ForLevel(entityType) scoping regressed to an unscoped/shared resolver")
+	}
+}
+
+// The configured default bug routes must survive the same dispatch metadata and
+// structured ingestion used by the parent, with the lease retained for rework.
+func TestBugReworkOutcomesUseDispatchedRoutesAndKeepParentLease(t *testing.T) {
+	cases := []struct{ stage, outcome, target string }{
+		{"repair_plan", "needs_research", "research"},
+		{"plan_review", "needs_research", "research"},
+		{"plan_review", "replan", "repair_plan"},
+		{"code_review", "fail", "development"},
+		{"development", "review_plan", "plan_review"},
+		{"code_review", "review_plan", "plan_review"},
+		{"qa", "review_plan", "plan_review"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.stage+"/"+tc.outcome, func(t *testing.T) {
+			key := "B001"
+			wf := workflow.NewServiceFromMultiLevel(&config.MultiLevelWorkflow{Bug: config.DefaultBugWorkflow()}).ForLevel(workflow.LevelBug)
+			entitySvc := services.NewEntityService(wf).ForLevel(workflow.LevelBug)
+			bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: key}, Status: models.BugStatus(tc.stage)}
+			info := entitySvc.GetNextStatusForEntity(models.EntityTypeBug, key, bug, nil)
+			if info.ResultContract != "gate_result_v1" || info.Outcomes[tc.outcome] != tc.target || info.OutcomeRoles[tc.outcome] != gateresult.RoleRouteRework {
+				t.Fatalf("unexpected dispatch contract: %+v", info)
+			}
+			transition := &fakeParityTransition{status: map[string]string{key: tc.stage}}
+			lease := &trackingLeaseReleaser{}
+			coord := gatepersist.NewCoordinator(&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{}, fakeParityStatusValidator{}, transition, transition, lease, transition)
+			envelope := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":%q,"evidence":[],"gate_result":{"schema_version":1,"summary":"rework required"}}`, tc.outcome))
+			res, err := applyResultIngest(context.Background(), applyResultDeps{
+				Transitioner: &fakeParityTransitioner{status: map[string]string{key: tc.stage}, outcomes: info.Outcomes, resultContract: info.ResultContract, outcomeRoles: info.OutcomeRoles},
+				Coordinator:  coord, ProjectRoot: t.TempDir(), RunID: "cc044-" + tc.stage + "-" + tc.outcome,
+				EntityType: "bug", EntityKey: key, SessionID: "parent-session", WorkflowSvc: fakeTerminalStatusChecker{},
+			}, envelope)
+			if err != nil || res.ToStatus != tc.target || lease.released {
+				t.Fatalf("result=%+v err=%v lease released=%v", res, err, lease.released)
+			}
+		})
 	}
 }

@@ -3,7 +3,7 @@
 
 Fix bug {{.id}}: "{{.title}}".
 
-Read the research report, accepted repair plan and approval, authoritative decisions, prior findings, affected production callers and coverage index before evaluating any existing fix. Existing code must satisfy the same obligations and exit gate as new work. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the approved plan content hash matches the current plan. Maintain one coverage index: obligation, authoritative source, production caller or boundary, planned change, required assertions, and current evidence. Reference existing decisions; escalate conflicting authority to its owner. Keep all findings and route to the earliest invalidated stage. Diagnosis changes invalidate the plan and downstream evidence; material plan changes invalidate approval; candidate changes invalidate review and QA. Reuse unchanged valid evidence. Unavailable external evidence is blocked, not acceptance.
+Read the research report, accepted repair plan and approval, authoritative decisions, prior findings, affected production callers and coverage index before evaluating any existing fix. Existing code must satisfy the same obligations and exit gate as new work. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the approved plan content hash matches the current plan. Maintain current evidence in the separately linked evidence record without editing the approved plan. The plan contains the single coverage index: obligation, authoritative source, production caller or boundary, planned change, required assertions, and links to a separate mutable evidence record. {{template "_bug_repair_contract" .}}
 Apply `skills/quality/workflows/defect-class-sweep.md` (if the bundle is not extracted, read it with `shark skill get quality workflows/defect-class-sweep.md`) to rejection defect classes, preserving valid dispositions and existing retry policy.
 
 ---
@@ -37,7 +37,7 @@ EXIT GATE:
 - Quality gate passes
 - No unrelated changes
 
-DECISION: pass only when the accepted plan and coverage obligations are verified. Use needs_research for changed diagnosis, replan for a material approach change, fail for implementation rework, and blocked for unavailable external evidence. For route_rework outcomes leave kickbacks empty and retain findings in the summary. The parent owns transitions.
+DECISION: pass only when the accepted plan and coverage obligations are verified. Use review_plan for a valid plan whose approval is missing or stale; use needs_research for changed diagnosis, replan for a material approach change, fail for implementation rework, and blocked for unavailable external evidence. For route_rework outcomes leave kickbacks empty and retain findings in the summary. The parent owns transitions.
 
 The fail outcome's role is `route_rework`.
 

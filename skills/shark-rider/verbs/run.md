@@ -324,8 +324,9 @@ already validates and persists for the core runner. Instead:
    and nested `gate_result` against the step's `outcome_roles`, persists
    notes/kickbacks/impacts, and applies the transition — fail closed (no
    transition) on any validation error.
-4. Release the lease with the ingested outcome, then return to Step 1 with
-   the original `{KEY}`.
+4. Release the lease with the ingested outcome. If the resulting status equals
+   the dispatched status, stop this invocation and report the unresolved stage;
+   otherwise return to Step 1 with the original `{KEY}`.
 
 A step whose `result_contract` is absent or `legacy` is unaffected — continue
 with the directive parsing below exactly as before.
@@ -394,7 +395,9 @@ the workflow prompts emit, apply them in this order, then advance:
    termination" above. Releasing the Shark lease retires the entity's
    workflow state; it does not stop the host process. Skipping this is how
    a worker outlives its assigned dispatch and keeps acting unsupervised.
-8. Return to Step 1 with the original `{KEY}`.
+8. If the resulting status equals the dispatched status, stop this invocation
+   and report the unresolved stage; otherwise return to Step 1 with the original
+   `{KEY}`.
 
 If the worker fails or throws, still release the lease, terminate its host
 session, record a blocker note if possible, and surface the failure before

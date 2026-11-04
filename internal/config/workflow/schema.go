@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 )
@@ -417,8 +418,9 @@ func getPhaseOrder(phase string) int {
 }
 
 // IsBackwardTransition determines if a transition from one status to another is backward
-// based on phase ordering. A backward transition is one where the new phase is ordered
-// before (lower order number) the current phase.
+// using explicit route_rework outcomes where unambiguous, then phase ordering.
+// A distinct target exclusively configured as route_rework is backward even
+// when its phase is the same or has no standard phase ordering.
 //
 // Returns:
 //   - (false, nil) for forward transitions or same phase
@@ -443,6 +445,29 @@ func (w *WorkflowConfig) IsBackwardTransition(fromStatus, toStatus string) (bool
 	// If either status lacks phase information, treat as not backward
 	if fromMeta.Phase == "" || toMeta.Phase == "" {
 		return false, nil
+	}
+
+	// Explicit route-rework outcomes classify a distinct target as rework even
+	// when phases are equal or deliberately use non-ordering vocabulary such
+	// as research. If a target is also a success route, status alone is
+	// ambiguous; preserve the phase-based behavior instead of guessing.
+	if !strings.EqualFold(fromStatus, toStatus) {
+		if step, ok := w.GetStep(fromStatus); ok && step != nil {
+			rework, other := false, false
+			for outcome, target := range step.Outcomes {
+				if !strings.EqualFold(target, toStatus) {
+					continue
+				}
+				if step.OutcomeRoles[outcome] == "route_rework" {
+					rework = true
+				} else {
+					other = true
+				}
+			}
+			if rework && !other {
+				return true, nil
+			}
+		}
 	}
 
 	// Get phase orders

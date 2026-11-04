@@ -656,6 +656,14 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		if outcome.done {
 			return result, nil
 		}
+		// A completed worker that routes to its own status has not advanced.
+		// Stop this invocation rather than repeatedly dispatching without progress.
+		if (action.Action == config.ActionSpawnAgent || action.Action == config.ActionCheckOrResume) && strings.EqualFold(outcome.nextStatus, currentStatus) {
+			result.FinalStatus = currentStatus
+			result.Outcome = "paused"
+			result.TotalDuration = time.Since(startTime)
+			return result, nil
+		}
 		currentStatus = outcome.nextStatus
 		if outcome.nextInfo != nil {
 			nextInfo = outcome.nextInfo
@@ -1203,11 +1211,9 @@ func (c *RunController) ingestGateResultForDispatch(
 		return "", nil, err
 	}
 
-	// Only confirm retirement (and release the lease) when the resolved
-	// target status is terminal — i.e. only when the Run() loop is about to
-	// stop dispatching this entity in this invocation, not merely because
-	// this one gate stage finished.
-	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) {
+	// Confirm retirement when this invocation will stop: a terminal target or
+	// a same-stage result that cannot make progress without another invocation.
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) || strings.EqualFold(ingestResult.ToStatus, currentStatus) {
 		retireReq := baseReq
 		retireReq.RetirementConfirmed = true
 		// RunConcluded: true — this IS the Run() loop's last dispatch for

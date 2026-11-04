@@ -20,6 +20,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -222,14 +223,35 @@ def validate_scope(path: str, base_commit: str, diff_path: str) -> dict[str, obj
     manifest = [os.fsdecode(p) for p in git("diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
     if manifest != scope["changed_files"] or len(manifest) != scope["changed_file_count"]:
         raise ValueError("scope manifest does not match candidate")
+    source = scope.get("source_snapshot")
+    if source:
+        source_root = source["source_root"]
+        if source["candidate_commit"] != candidate or source["candidate_tree"] != tree:
+            raise ValueError("source snapshot identity does not match candidate")
+        def source_git(*args, env=None):
+            return subprocess.run(["git", "-C", source_root, *args], env=env, check=True,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
+        if source_git("rev-parse", "HEAD") != source["source_commit"]:
+            raise ValueError("source commit changed since capture")
+        paths = source["selected_paths"]
+        if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p and not Path(p).is_absolute() and '..' not in Path(p).parts and p != '.' for p in paths):
+            raise ValueError("invalid source snapshot paths")
+        with tempfile.TemporaryDirectory(prefix="review-verify-index-") as temp:
+            env = dict(os.environ, GIT_INDEX_FILE=str(Path(temp) / "index"))
+            source_git("read-tree", source["source_commit"], env=env)
+            source_git("--literal-pathspecs", "add", "-A", "--", *paths, env=env)
+            if source_git("write-tree", env=env) != tree:
+                raise ValueError("source candidate changed since capture")
     return scope
 
 
 def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | None:
-    if not args.scope_file:
-        return None
     try:
+        if not args.scope_file:
+            raise ValueError("captured scope is required")
         scope = validate_scope(args.scope_file, args.base_commit, args.diff_path)
+        if hasattr(args, "project_root") and Path(args.project_root).resolve() != Path(scope["project_root"]).resolve():
+            raise ValueError("review execution root does not match captured scope")
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
         metadata["runner_mode"] = "incomplete"
         metadata["verdict"] = "INCOMPLETE"

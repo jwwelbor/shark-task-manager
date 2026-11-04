@@ -228,3 +228,31 @@ func TestValidateWorkflow_RejectsBadResultContract(t *testing.T) {
 		t.Fatal("expected ValidateWorkflow to reject an incomplete outcome_roles map")
 	}
 }
+
+func TestBugRepairRoutesClassifyReworkWithoutMisclassifyingForwardProgress(t *testing.T) {
+	cfg := DefaultBugWorkflow()
+	cases := []struct {
+		from, to string
+		backward bool
+	}{
+		{"repair_plan", "research", true},
+		{"plan_review", "research", true},
+		{"plan_review", "repair_plan", true},
+		{"development", "plan_review", true},
+		{"code_review", "research", true},
+		{"qa", "plan_review", true},
+		{"draft", "research", false},
+		{"research", "repair_plan", false},
+		{"repair_plan", "plan_review", false},
+		{"plan_review", "development", false},
+		{"development", "development", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.from+"_to_"+tc.to, func(t *testing.T) {
+			got, err := cfg.IsBackwardTransition(tc.from, tc.to)
+			if err != nil || got != tc.backward {
+				t.Fatalf("backward=%v err=%v, want %v", got, err, tc.backward)
+			}
+		})
+	}
+}

@@ -99,7 +99,7 @@ READ:
 (3) Applicable feature spec or accepted repair plan for intent
 (4) Code review report from docs/review/E07/E07-F01/code-review-*-E07-F01.md
 (5) Implementation code and existing test results
-(6) `git diff` of the task's changes to derive the actual touched paths
+(6) The complete frozen review manifest and base-to-candidate diff; verify the current candidate identity and review evidence match before selecting tests
 
 SCOPED TEST RUN (single pass; do NOT run the full suite):
 
@@ -108,7 +108,7 @@ The full integration suite may have pre-existing failures unrelated to any singl
 1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
 
 2. **Targeted unit tests (always run):**
-   - Identify changed source files from `git diff` AND from the entity scope
+   - Identify changed source files from the reviewed manifest AND from the entity scope
    - Map each changed source file to its test counterparts using the project's test layout (see `docs/architecture/file-system.md` / `tech-stack.md`)
    - Add any tests explicitly named in the entity test cases and acceptance criteria
    - Run only those with the project's test runner
@@ -164,7 +164,7 @@ PRODUCE QA report at `docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md`:
   - `0 defects found`
 - If any failed command/test, missing AC proof, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report
   - Verdict: PASS or FAIL
-  - Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
+  - Test scope rationale: which paths you ran and why (cite touched files from the reviewed manifest)
   - Test results summary (counts, durations)
   - AC verification status — name the test that proves each AC
   - Edge cases tested
