@@ -156,12 +156,14 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 
 1. Read `references/angle-a-bugs.md` through
    `references/angle-f-standards.md` and `references/consolidator.md`.
-2. Dispatch all six angle agents in one batch through the host subagent tool.
+2. Dispatch all six angle agents through the host subagent tool, using the
+   available parallel capacity. If the host cannot queue all six at once,
+   dispatch the remaining angles as slots become available.
    Give every agent the complete captured scope, its one assigned angle
    prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
-   Submit all six dispatches at once. The host may queue work when its
-   concurrency limit is lower than six.
+   Keep the same frozen candidate and scope for every angle, regardless of
+   scheduling; do not consolidate until all six results have arrived.
 3. Wait for all six results. If any result is missing, malformed, timed out, has a mismatched candidate identity,
    or does not list the entire changed-file manifest, mark the review `incomplete` and skip to
    step 5 to persist it. Do not replace a failed dispatched review with the
