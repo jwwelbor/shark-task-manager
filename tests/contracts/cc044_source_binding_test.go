@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -47,6 +46,7 @@ func TestBugGateRejectsSourceChangedAfterAdmission(t *testing.T) {
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
 	project := t.TempDir()
+	baseline := initCC044Baseline(t, project)
 	dbPath := filepath.Join(project, "fixture.db")
 	shark := func(args ...string) {
 		t.Helper()
@@ -83,7 +83,7 @@ func TestBugGateRejectsSourceChangedAfterAdmission(t *testing.T) {
 	plan := []byte("approved plan")
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
 	digest := sha256.Sum256(plan)
-	payload, err := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", digest)}, {"kind": "bug_review_baseline", "pointer": strings.Repeat("a", 40)}}, "gate_result": map[string]any{"schema_version": 1, "summary": "approved plan"}})
+	payload, err := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", digest)}, {"kind": "bug_review_baseline", "pointer": baseline}}, "gate_result": map[string]any{"schema_version": 1, "summary": "approved plan"}})
 	require.NoError(t, err)
 	_, err = runner.IngestGateResult(ctx, runner.GateIngestRequest{EnvelopeBytes: payload, Coordinator: coord, ProjectRoot: project, RunID: "wrong-source", EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: "plan_review", Gate: "plan_review", Session: gatepersist.Session{ID: "fixture-session"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": "development"}})
 	require.ErrorIs(t, err, services.ErrAdvanceGuardStaleFromStatus)

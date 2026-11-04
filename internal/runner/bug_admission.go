@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -28,8 +29,17 @@ func BugGateAdmission(ctx context.Context, req gatepersist.Request) error {
 	if _, _, err := readBugEvidence(req, "bug_repair_plan"); err != nil {
 		return fmt.Errorf("plan evidence: %w", err)
 	}
-	_, err := readBugBaseline(req)
-	return err
+	baseline, err := readBugBaseline(req)
+	if err != nil {
+		return err
+	}
+	if req.Gate == "plan_review" {
+		out, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", bugEvidenceProject(req), "cat-file", "-t", baseline).Output()
+		if err != nil || strings.TrimSpace(string(out)) != "commit" {
+			return fmt.Errorf("bug_review_baseline %s is not a commit in the selected repository", baseline)
+		}
+	}
+	return nil
 }
 
 func readBugBaseline(req gatepersist.Request) (string, error) {

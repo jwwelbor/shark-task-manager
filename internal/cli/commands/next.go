@@ -243,6 +243,7 @@ type nextAdapterCache struct {
 	actionSvcRoot   action.ActionService
 	surfaceForks    bool
 	questionBlocker questionBlockChecker
+	bugWorkflow     *configworkflow.WorkflowConfig
 
 	// harnessResolver resolves harness identity per spec.md REQ-F-002's
 	// flag > claim > env > zero precedence (T-E34-F01-003/004). nil is a
@@ -270,6 +271,7 @@ func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
 		entries:         make(map[string]*nextAdapters),
 		actionSvcRoot:   root,
 		questionBlocker: cli.GetQuestionBlocker(),
+		bugWorkflow:     cli.GetWorkflowService().ForLevel("bug").GetWorkflow(),
 		harnessResolver: cli.GetHarnessResolver(),
 	}, nil
 }
@@ -848,6 +850,11 @@ func resolveEntity(
 		return NextResponse{}, fmt.Errorf("failed to read status for %s: %w", normalizedKey, err)
 	}
 	currentStatus := nextInfo.CurrentStatus
+	if strategy.mode == nextResolutionMode && entityType == "bug" && cache.bugWorkflow != nil {
+		if err := configworkflow.ValidateBugEvidenceRoutes(cache.bugWorkflow); err != nil {
+			return NextResponse{}, fmt.Errorf("invalid bug workflow: %w", err)
+		}
+	}
 
 	resp := NextResponse{
 		EntityKey:      normalizedKey,

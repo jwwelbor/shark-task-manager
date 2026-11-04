@@ -33,6 +33,22 @@ type failAfterRealTransition struct {
 	fail     bool
 }
 
+func initCC044Baseline(t *testing.T, project string) string {
+	t.Helper()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", project, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.invalid")
+	git("commit", "--allow-empty", "-m", "baseline")
+	return git("rev-parse", "HEAD")
+}
+
 func TestFeatureReworkPreservesExistingReasonPolicy(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	require.NoError(t, err)
@@ -424,6 +440,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
 	project := t.TempDir()
+	baseline := initCC044Baseline(t, project)
 	dbPath := filepath.Join(project, "fixture.db")
 	shark := func(args ...string) {
 		t.Helper()
@@ -485,7 +502,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 		path := filepath.Join(project, "docs", "plan", "bugs", name)
 		require.NoError(t, os.WriteFile(path, []byte(content), 0600))
 		hash := sha256.Sum256([]byte(content))
-		data, e := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []map[string]string{{"kind": "bug_repair_plan", "pointer": filepath.ToSlash(filepath.Join("docs", "plan", "bugs", name)), "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": strings.Repeat("a", 40)}}, "gate_result": map[string]any{"schema_version": 1, "summary": content}})
+		data, e := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []map[string]string{{"kind": "bug_repair_plan", "pointer": filepath.ToSlash(filepath.Join("docs", "plan", "bugs", name)), "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": baseline}}, "gate_result": map[string]any{"schema_version": 1, "summary": content}})
 		require.NoError(t, e)
 		return data
 	}
@@ -592,6 +609,7 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
 	project := t.TempDir()
+	baseline := initCC044Baseline(t, project)
 	dbPath := filepath.Join(project, "fixture.db")
 	shark := func(args ...string) []byte {
 		t.Helper()
@@ -631,7 +649,7 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	plan := []byte("# Approved fixture plan\n")
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
 	hash := sha256.Sum256(plan)
-	refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": strings.Repeat("a", 40)}}
+	refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": baseline}}
 	resultPath := filepath.Join(project, "result.json")
 	write := func(outcome string) {
 		t.Helper()

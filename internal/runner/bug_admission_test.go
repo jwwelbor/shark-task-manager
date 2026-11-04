@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -16,8 +18,21 @@ import (
 
 func TestBugPlanAdmissionThroughGateIngestion(t *testing.T) {
 	root := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	git("init")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.invalid")
+	git("commit", "--allow-empty", "-m", "baseline")
+	baseline := git("rev-parse", "HEAD")
 	plan := []byte("accepted plan revision\n")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0o600))
+	blob := git("hash-object", "-w", "plan.md")
 	digest := sha256.Sum256(plan)
 	cases := []struct {
 		name, evidence string
@@ -27,7 +42,9 @@ func TestBugPlanAdmissionThroughGateIngestion(t *testing.T) {
 		{"stale", `[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}]`, false},
 		{"escaping", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"../plan.md","summary":"sha256:%x"}]`, digest), false},
 		{"missing baseline", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"}]`, digest), false},
-		{"current", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]`, digest), true},
+		{"unknown commit", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]`, digest), false},
+		{"blob is not a commit", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}]`, digest, blob), false},
+		{"current", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}]`, digest, baseline), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
