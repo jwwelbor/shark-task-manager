@@ -79,5 +79,5 @@ func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 }
 
 func validBugDecisionShape(f bugReviewDecision) bool {
-	return f.File != "" && f.Line > 0 && f.Rule != "" && f.Summary != "" && f.Diagnosis != "" && f.Disposition != "" && f.Reason != ""
+	return f.File != "" && f.Line > 0 && f.Rule != "" && f.Summary != "" && f.Diagnosis != "" && strings.TrimSpace(f.Disposition) != "" && strings.TrimSpace(f.Reason) != ""
 }

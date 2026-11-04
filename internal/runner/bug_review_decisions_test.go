@@ -26,7 +26,7 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	require.NoError(t, err)
 	decisions, err := validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
-	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions), "unresolved blocker")
+	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "open", "reason": "not refuted"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
@@ -37,13 +37,13 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	require.NoError(t, err)
 	decisions, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
-	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions), "unresolved blocker")
+	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "refuted", "reason": "call site proves it cannot occur"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
 	decisions, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
-	require.NoError(t, validateBugReviewAngles(rawAngles, scope, decisions))
+	require.NoError(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"))
 }
 
 func TestReviewDecisionConformanceFixtures(t *testing.T) {
@@ -83,7 +83,7 @@ func TestReviewDecisionConformanceFixtures(t *testing.T) {
 			}
 			decisions, e := validateBugReviewDecisions(tc.Decisions, scope, verdict)
 			if e == nil {
-				e = validateBugReviewAngles(angleBytes, scope, decisions)
+				e = validateBugReviewAngles(angleBytes, scope, decisions, verdict)
 			}
 			require.Equal(t, tc.Valid, e == nil, "error: %v", e)
 		})

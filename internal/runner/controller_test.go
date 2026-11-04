@@ -2916,3 +2916,33 @@ func TestRunController_SameStageFailureStopsInsteadOfRedispatching(t *testing.T)
 		require.FailNowf(t, "assertion failed", "same-stage result = %+v, err = %v, dispatches = %d", result, err, calls)
 	}
 }
+
+func TestRunController_TaskSameStageReworkRetainsRetryBehavior(t *testing.T) {
+	current, calls := "development", 0
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			if current == "completed" {
+				return &services.NextStatusInfo{CurrentStatus: current, IsTerminal: true}, nil
+			}
+			return &services.NextStatusInfo{CurrentStatus: current, Outcomes: map[string]string{"fail": "development", "pass": "completed"}, AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}}, {TransitionInfo: workflow.TransitionInfo{TargetStatus: "development"}}}}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			current = target
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actions := &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+		return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "task"}, nil
+	}}
+	dispatchers := map[string]AgentDispatcher{"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+		calls++
+		if calls == 1 {
+			return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: fail"}, nil
+		}
+		return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: pass"}, nil
+	}}}
+	result, err := makeController(t, transitioner, actions, dispatchers).Run(context.Background(), "T-E01-F01-001", RunOptions{EntityType: "task"})
+	require.NoError(t, err)
+	require.Equal(t, "completed", result.Outcome)
+	require.Equal(t, 2, calls)
+}

@@ -171,7 +171,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
    captured scope (`diff_path`, `base_commit`), the complete changed-file
    list, and all six specialist results. Require the consolidator to verify
-   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. Before a pass, every blocker needs disposition `refuted` and an evidence-based reason; a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
+   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; retain and route any downgraded finding through the triage decision tree. A downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
 5. Persist with `scripts/adaptive_review.py write-report`, passing the
    captured `base_commit` and `diff_path` and the consolidator's verdict. If
    all six specialist results and the consolidator are valid, use

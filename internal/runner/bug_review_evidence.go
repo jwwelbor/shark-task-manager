@@ -16,6 +16,7 @@ var bugContradictoryBlocker = regexp.MustCompile(`\bnot\s+refuted\b|\bblockers?\
 var bugIncompleteReport = regexp.MustCompile(`(?i)\bINCOMPLETE\b`)
 var bugReviewScopeWord = regexp.MustCompile(`(?i)\b(scope|coverage)\b`)
 var bugReviewFindingsWord = regexp.MustCompile(`(?i)\b(findings|defects)\b`)
+var bugReviewHeaderField = regexp.MustCompile(`\*\*([^*\n]+):\*\*`)
 
 type bugAngleFinding struct {
 	Severity  string `json:"severity"`
@@ -98,7 +99,7 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 	if err := verifyReviewArtifactHash(header, "Angle results", angleData); err != nil {
 		return err
 	}
-	return validateBugReviewAngles(angleData, scope, decisions)
+	return validateBugReviewAngles(angleData, scope, decisions, verdict)
 }
 
 func verifyReviewArtifactHash(header, label string, data []byte) error {
@@ -109,10 +110,33 @@ func verifyReviewArtifactHash(header, label string, data []byte) error {
 	return nil
 }
 func validateBugReviewHeader(header string, scope bugCandidateScope) error {
+	if err := validateUniqueBugReviewHeader(header); err != nil {
+		return err
+	}
 	for label, value := range map[string]string{"Base commit": scope.BaseCommit, "Candidate": scope.CandidateCommit, "Tree": scope.CandidateTree, "Diff SHA-256": scope.DiffSHA256, "Repair plan SHA-256": scope.RepairPlanSHA256} {
 		if value == "" || !strings.Contains(header, "**"+label+":** `"+value+"`") {
 			return fmt.Errorf("review report %s mismatch", label)
 		}
+	}
+	return nil
+}
+
+func validateUniqueBugReviewHeader(header string) error {
+	seen := map[string]bool{}
+	for _, match := range bugReviewHeaderField.FindAllStringSubmatch(header, -1) {
+		name := strings.ToLower(match[1])
+		if seen[name] {
+			return fmt.Errorf("review report has duplicate %s field", name)
+		}
+		seen[name] = true
+	}
+	for _, key := range []string{"runner_mode", "specialists_completed", "consolidator_completed"} {
+		if strings.Count(strings.ToLower(header), "`"+key+"=") != 1 {
+			return fmt.Errorf("review report has missing or duplicate %s metadata", key)
+		}
+	}
+	if len(bugReviewVerdict.FindAllStringSubmatch(header, -1)) != 1 {
+		return fmt.Errorf("review report must have one header verdict")
 	}
 	return nil
 }
@@ -163,7 +187,7 @@ func validBugCLIHeader(header string) bool {
 	return strings.Contains(header, "`runner_mode=adversarial-cli`") && strings.Contains(header, "`specialists_completed=0`") && !strings.Contains(header, "**Adversarial model:** `none`") && strings.Contains(header, "**Adversarial model:** `")
 }
 
-func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision) error {
+func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
 	var angles map[string]bugAngle
 	if err := json.Unmarshal(data, &angles); err != nil || len(angles) != 6 {
 		return fmt.Errorf("six angle results are required")
@@ -173,13 +197,13 @@ func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map
 		if !found {
 			return fmt.Errorf("angle %s missing", name)
 		}
-		if err := validateBugReviewAngle(angle, scope, decisions); err != nil {
+		if err := validateBugReviewAngle(angle, scope, decisions, verdict); err != nil {
 			return fmt.Errorf("angle %s: %w", name, err)
 		}
 	}
 	return nil
 }
-func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision) error {
+func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
 	if !angle.CandidateIdentity.matches(scope) {
 		return fmt.Errorf("candidate mismatch")
 	}
@@ -196,13 +220,13 @@ func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions m
 		return fmt.Errorf("findings missing")
 	}
 	for _, finding := range angle.Findings {
-		if err := validateBugAngleFinding(finding, decisions); err != nil {
+		if err := validateBugAngleFinding(finding, decisions, verdict); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-func validateBugAngleFinding(f bugAngleFinding, decisions map[bugFindingKey]bugReviewDecision) error {
+func validateBugAngleFinding(f bugAngleFinding, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
 	if !validBugAngleFinding(f) {
 		return fmt.Errorf("finding malformed")
 	}
@@ -213,10 +237,17 @@ func validateBugAngleFinding(f bugAngleFinding, decisions map[bugFindingKey]bugR
 		}
 		return fmt.Errorf("finding has no explicit disposition")
 	}
-	if f.Severity == "blocker" && (decision.Severity != "blocker" || decision.Disposition != "refuted") {
+	if f.Severity == "blocker" && !resolvedBugRawBlocker(decision, verdict) {
 		return fmt.Errorf("unresolved blocker")
 	}
 	return nil
+}
+
+func resolvedBugRawBlocker(decision bugReviewDecision, verdict string) bool {
+	if decision.Severity == "blocker" {
+		return decision.Disposition == "refuted"
+	}
+	return strings.EqualFold(verdict, "PASS-WITH-TRIAGE") && decision.Disposition != "refuted"
 }
 func validBugAngleFinding(f bugAngleFinding) bool {
 	if f.Severity != "blocker" && f.Severity != "non-blocker" && f.Severity != "nit" {

@@ -83,6 +83,27 @@ func BugWorktreeProjectRoot(ctx context.Context, parentProject, worktree string)
 	return root, nil
 }
 
+// ValidateBugWorkingDir checks the worker's actual cwd before dispatch. Bug
+// evidence pointers are project-relative, so a different cwd would otherwise
+// cause workers and the parent to interpret the same pointer differently.
+func ValidateBugWorkingDir(ctx context.Context, parentProject, workingDir string) error {
+	if workingDir == "" {
+		return nil
+	}
+	project, err := BugWorktreeProjectRoot(ctx, parentProject, workingDir)
+	if err != nil {
+		return fmt.Errorf("bug workdir %q cannot be bound to project %q: %w", workingDir, parentProject, err)
+	}
+	actual, err := canonicalBugProject(workingDir)
+	if err != nil {
+		return fmt.Errorf("resolve bug workdir %q: %w", workingDir, err)
+	}
+	if actual != project {
+		return fmt.Errorf("bug workdir %q must be the corresponding Shark project root %q so evidence paths agree", actual, project)
+	}
+	return nil
+}
+
 func resolveBugEvidenceRoot(ctx context.Context, parentProject, workingDir string) (string, error) {
 	parentRepo, relative, err := candidateRepository(ctx, parentProject)
 	if err != nil {

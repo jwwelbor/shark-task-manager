@@ -405,6 +405,8 @@ def _finding_key(finding):
 def _validate_decision(finding, verdict):
     if not _valid_finding(finding, ("file", "rule", "summary", "diagnosis", "disposition", "reason")):
         raise ValueError("malformed review decision")
+    if not finding["disposition"].strip() or not finding["reason"].strip():
+        raise ValueError("review decision requires a disposition and reason")
     if verdict.upper().startswith("PASS") and finding["severity"] == "blocker" and finding["disposition"] != "refuted":
         raise ValueError("passing review contains an unresolved blocker")
     if verdict.upper() == "PASS" and finding["disposition"] != "refuted":
@@ -418,8 +420,14 @@ def _check_raw_findings(raw_findings, by_key, verdict):
         decision = by_key.get(_finding_key(finding))
         if not decision:
             raise ValueError("raw finding has no explicit disposition")
-        if verdict.upper().startswith("PASS") and finding["severity"] == "blocker" and (decision["severity"] != "blocker" or decision["disposition"] != "refuted"):
-            raise ValueError("raw blocker has no explicit refutation")
+        if verdict.upper().startswith("PASS") and finding["severity"] == "blocker" and not _resolved_raw_blocker(decision, verdict):
+            raise ValueError("raw blocker has no refutation or justified downgrade")
+
+
+def _resolved_raw_blocker(decision, verdict):
+    if decision["severity"] == "blocker":
+        return decision["disposition"] == "refuted"
+    return verdict.upper() == "PASS-WITH-TRIAGE" and decision["disposition"] != "refuted"
 
 
 def validate_review_decisions(decisions: object, scope: dict[str, object], raw_findings: list[dict[str, object]], verdict: str) -> None:

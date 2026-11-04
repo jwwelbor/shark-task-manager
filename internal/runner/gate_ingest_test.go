@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -152,6 +153,18 @@ func TestIngestGateResult_ValidEnvelopePersistsAndTransitions(t *testing.T) {
 	}
 	if !result.Transitioned || result.ToStatus != "in_review" {
 		t.Fatalf("expected transition to in_review, got %+v", result.Result)
+	}
+}
+
+func TestIngestGateResult_RejectsBugSuccessAndReworkSharingTarget(t *testing.T) {
+	req := baseGateIngestRequest(t, validGateEnvelope())
+	req.EntityType = models.EntityTypeBug
+	req.EntityKey = "B001"
+	req.OutcomeRoles["fail"] = gateresult.RoleRouteRework
+	req.Outcomes["fail"] = "IN_REVIEW"
+	_, err := IngestGateResult(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "share target") {
+		t.Fatalf("expected ambiguous bug route rejection, got %v", err)
 	}
 }
 

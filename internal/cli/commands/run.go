@@ -168,6 +168,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if runResumeID != "" {
 		return runResumeRun(ctx, entityType, normalizedKey)
 	}
+	if entityType == "bug" {
+		if err := config.ValidateBugEvidenceRoutes(cli.GetWorkflowService().ForLevel("bug").GetWorkflow()); err != nil {
+			return fmt.Errorf("invalid bug workflow: %w", err)
+		}
+	}
 
 	// T-E34-F05-004: --apply-result is Rider's initial-ingestion surface. It
 	// calls the same runner.IngestGateResult boundary the core runner calls
@@ -412,6 +417,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return fmt.Errorf("locate bug project in retained worktree %s: %w", worktreePath, err)
 			}
+		}
+	}
+	if entityType == "bug" {
+		if err := runner.ValidateBugWorkingDir(ctx, projectRoot, workingDir); err != nil {
+			return err
 		}
 	}
 

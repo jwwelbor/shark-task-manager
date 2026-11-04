@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -140,6 +141,19 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 	targetStatus, ok := req.Outcomes[env.RecommendedOutcome]
 	if !ok {
 		return nil, fmt.Errorf("gate ingestion: recommended_outcome %q has no configured target status", env.RecommendedOutcome)
+	}
+	if req.EntityType == models.EntityTypeBug && bugEvidenceGate(req.Gate) {
+		for success, target := range req.Outcomes {
+			if req.OutcomeRoles[success] != gateresult.RoleSuccess {
+				continue
+			}
+			for outcome, other := range req.Outcomes {
+				role := req.OutcomeRoles[outcome]
+				if (role == gateresult.RoleRouteRework || role == gateresult.RoleKickbackRework) && strings.EqualFold(target, other) {
+					return nil, fmt.Errorf("gate ingestion: bug success and rework outcomes share target %q", target)
+				}
+			}
+		}
 	}
 
 	runDir, err := gaterun.RunDir(req.ProjectRoot, req.RunID)

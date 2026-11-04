@@ -656,9 +656,9 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		if outcome.done {
 			return result, nil
 		}
-		// A completed worker that routes to its own status has not advanced.
+		// A bug worker that routes to its own status has not advanced.
 		// Stop this invocation rather than repeatedly dispatching without progress.
-		if (action.Action == config.ActionSpawnAgent || action.Action == config.ActionCheckOrResume) && strings.EqualFold(outcome.nextStatus, currentStatus) {
+		if opts.EntityType == "bug" && (action.Action == config.ActionSpawnAgent || action.Action == config.ActionCheckOrResume) && strings.EqualFold(outcome.nextStatus, currentStatus) {
 			result.FinalStatus = currentStatus
 			result.Outcome = "paused"
 			result.TotalDuration = time.Since(startTime)

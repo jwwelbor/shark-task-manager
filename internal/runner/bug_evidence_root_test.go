@@ -30,6 +30,11 @@ func TestBugEvidenceRootBindsWorkerAndRecoversFromIdentity(t *testing.T) {
 	git(parent, "commit", "-m", "base")
 	worker := filepath.Join(t.TempDir(), "worker")
 	git(parent, "worktree", "add", "--detach", worker, "HEAD")
+	require.NoError(t, ValidateBugWorkingDir(ctx, parent, parent))
+	require.NoError(t, ValidateBugWorkingDir(ctx, parent, worker))
+	subdir := filepath.Join(worker, "nested")
+	require.NoError(t, os.Mkdir(subdir, 0700))
+	require.ErrorContains(t, ValidateBugWorkingDir(ctx, parent, subdir), "corresponding Shark project root")
 	runDir, err := gaterun.RunDir(parent, "root-test")
 	require.NoError(t, err)
 	req := GateIngestRequest{ProjectRoot: parent, WorkingDir: worker, RunID: "root-test", EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: "plan_review", Gate: "plan_review", EnvelopeBytes: []byte(`{"kind":"final"}`)}
@@ -51,6 +56,7 @@ func TestBugEvidenceRootBindsWorkerAndRecoversFromIdentity(t *testing.T) {
 	require.ErrorContains(t, err, "operation_digest mismatch")
 	foreign := t.TempDir()
 	git(foreign, "init", "-b", "main")
+	require.ErrorContains(t, ValidateBugWorkingDir(ctx, parent, foreign), "cannot be bound")
 	req.WorkingDir = foreign
 	_, err = gateEvidenceRoot(ctx, req, runDir, gateresult.RoleSuccess)
 	require.Error(t, err)

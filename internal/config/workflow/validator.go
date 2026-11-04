@@ -125,6 +125,11 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 			Fix:     "set result_contract to legacy or gate_result_v1, and for gate_result_v1 declare outcome_roles with exactly one supported role per configured outcome",
 		}
 	}
+	if level == "bug" {
+		if err := validateBugEvidenceRoutes(workflow); err != nil {
+			return err
+		}
+	}
 
 	// No old-status alias may be claimed by two steps.
 	if _, aliasErrs := workflow.AliasMap(); len(aliasErrs) > 0 {
@@ -157,6 +162,53 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 	}
 
 	return nil
+}
+
+// validateBugEvidenceRoutes rejects routes whose target alone cannot distinguish
+// an evidence-bearing success from rework. Same-role sharing is permitted.
+func validateBugEvidenceRoutes(w *WorkflowConfig) error {
+	for name, step := range w.Steps {
+		if step == nil {
+			continue
+		}
+		if strings.EqualFold(name, "research") && w.GetResultContract(name) == ResultContractLegacy {
+			if _, ok := step.Outcomes["pass"]; !ok {
+				return &WorkflowValidationError{Message: "legacy bug research has no pass outcome", Fix: "configure a pass outcome for the research success route"}
+			}
+		}
+		if w.GetResultContract(name) != ResultContractGateResultV1 || !bugEvidenceBearingGate(name) {
+			continue
+		}
+		for success, target := range step.Outcomes {
+			if step.OutcomeRoles[success] != "success" {
+				continue
+			}
+			for outcome, other := range step.Outcomes {
+				role := step.OutcomeRoles[outcome]
+				if (role == "route_rework" || role == "kickback_rework") && strings.EqualFold(w.ResolveAlias(target), w.ResolveAlias(other)) {
+					return &WorkflowValidationError{Message: fmt.Sprintf("bug step %q sends success %q and rework %q to the same target %q", name, success, outcome, target), Fix: "route success and rework to distinct targets"}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func bugEvidenceBearingGate(name string) bool {
+	switch strings.ToLower(name) {
+	case "repair_plan", "plan_review", "development", "code_review", "qa":
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateBugEvidenceRoutes is also used before bug worker dispatch.
+func ValidateBugEvidenceRoutes(w *WorkflowConfig) error {
+	if w == nil || !w.HasSteps() {
+		return nil
+	}
+	return validateBugEvidenceRoutes(w)
 }
 
 // validatePrimaryDesignations enforces the designation rule for the semantic

@@ -329,7 +329,7 @@ func (e *legacyTransitionCalledError) Error() string {
 }
 
 func TestRunController_GateSameStageReworkStopsAndRetiresLease(t *testing.T) {
-	key := "E01-F01-001"
+	key := "B001"
 	shared := &e2eGateTransitioner{
 		status: map[string]string{key: "todo"}, resultContract: "gate_result_v1",
 		outcomeRoles: map[string]gateresult.OutcomeRole{"fail": gateresult.RoleRouteRework},
@@ -354,7 +354,7 @@ func TestRunController_GateSameStageReworkStopsAndRetiresLease(t *testing.T) {
 	if err != nil {
 		require.NoError(t, err)
 	}
-	result, err := ctrl.Run(context.Background(), key, RunOptions{ProjectRoot: t.TempDir(), RunID: "run-same-stage", SessionID: "sess-1", EntityType: "task"})
+	result, err := ctrl.Run(context.Background(), key, RunOptions{ProjectRoot: t.TempDir(), RunID: "run-same-stage", SessionID: "sess-1", EntityType: "bug"})
 	if err != nil || result.Outcome != "paused" || result.FinalStatus != "todo" || calls != 1 || !lease.released {
 		require.FailNowf(t, "assertion failed", "result=%+v error=%v dispatches=%d lease_released=%v", result, err, calls, lease.released)
 	}

@@ -199,6 +199,20 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	envelope := func(refs string) []byte {
 		return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"approved"}}`, refs))
 	}
+	for i, extra := range []string{
+		"**Verdict:** FAIL",
+		"**Runner metadata:** `runner_mode=incomplete` `specialists_completed=2` `consolidator_completed=False`",
+		"**Candidate:** `" + strings.Repeat("0", 40) + "`",
+		"**Retained scope SHA-256:** `" + strings.Repeat("0", 64) + "`",
+	} {
+		conflicting := strings.Replace(string(reportBytes), "\n---\n", "\n"+extra+"\n\n---\n", 1)
+		path := fmt.Sprintf(".shark/conflicting-%d.md", i)
+		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(conflicting), 0600))
+		hash := sha256.Sum256([]byte(conflicting))
+		ref := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, path, hash)
+		err := verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "conflicting"), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)})
+		require.Error(t, err, "conflicting header %d must fail closed", i)
+	}
 	upperRef := strings.Replace(planRef, base, strings.ToUpper(base), 1)
 	_, upperErr := readBugReviewScope(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "uppercase"), EnvelopeJSON: envelope(upperRef + "," + scopeRef)})
 	require.NoError(t, upperErr)

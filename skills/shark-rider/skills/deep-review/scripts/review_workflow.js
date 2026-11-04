@@ -250,7 +250,7 @@ function consolidationFields(value) {
 const {report, decisions} = consolidationFields(consolidation)
 
 function validDecision(f) {
-  return validFinding(f) && ['disposition', 'reason'].every(k => typeof f[k] === 'string' && f[k].length > 0) &&
+  return validFinding(f) && ['disposition', 'reason'].every(k => typeof f[k] === 'string' && f[k].trim().length > 0) &&
     !(f.severity === 'blocker' && f.disposition === 'refuted' && /\bnot\s+refuted\b/i.test(f.reason))
 }
 
@@ -276,7 +276,9 @@ function reportVerdict(body) {
 
 function matchingDecision(finding, decision, verdict) {
   if (findingKey(finding) !== findingKey(decision)) return false
-  return !verdict.startsWith('PASS') || finding.severity !== 'blocker' || (decision.severity === 'blocker' && decision.disposition === 'refuted')
+  if (!verdict.startsWith('PASS') || finding.severity !== 'blocker') return true
+  if (decision.severity === 'blocker') return decision.disposition === 'refuted'
+  return verdict === 'PASS-WITH-TRIAGE' && decision.disposition !== 'refuted'
 }
 
 function passingDecisions(verdict, values, raw) {
