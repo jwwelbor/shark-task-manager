@@ -332,7 +332,7 @@ type RunControllerDeps struct {
 
 	// ApprovedBugPlan supplies the authoritative reviewed plan for downstream
 	// bug workers. Production wires it to the parent-owned approval records.
-	ApprovedBugPlan func(context.Context, string) (ApprovedPlan, error)
+	ApprovedBugPlan func(context.Context, string, string) (ApprovedPlan, error)
 
 	// ChildrenSvc lists dispatchable cascade children. Required when ActionCascade
 	// is reachable from this controller.
@@ -380,7 +380,7 @@ type RunController struct {
 	workflowSvc       *workflow.Service
 	dispatchers       map[string]AgentDispatcher
 	assembler         PromptAssembler
-	approvedBugPlan   func(context.Context, string) (ApprovedPlan, error)
+	approvedBugPlan   func(context.Context, string, string) (ApprovedPlan, error)
 	childrenSvc       CascadeChildrenService
 	runChild          CascadeChildRunner
 	questionResponses QuestionResponsePersister
@@ -664,7 +664,7 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		}
 		// A bug worker that routes to its own status has not advanced.
 		// Stop this invocation rather than repeatedly dispatching without progress.
-		if opts.EntityType == "bug" && (action.Action == config.ActionSpawnAgent || action.Action == config.ActionCheckOrResume) && strings.EqualFold(outcome.nextStatus, currentStatus) {
+		if opts.EntityType == "bug" && (action.Action == config.ActionSpawnAgent || action.Action == config.ActionCheckOrResume) && strings.EqualFold(c.workflowSvc.ForLevel("bug").NormalizeStatus(outcome.nextStatus), c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus)) {
 			result.FinalStatus = currentStatus
 			result.Outcome = "paused"
 			result.TotalDuration = time.Since(startTime)
@@ -1227,7 +1227,7 @@ func (c *RunController) ingestGateResultForDispatch(
 
 	// Confirm retirement when this invocation will stop: a terminal target or
 	// a same-stage result that cannot make progress without another invocation.
-	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) || (opts.EntityType == "bug" && strings.EqualFold(ingestResult.ToStatus, currentStatus)) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) || (opts.EntityType == "bug" && strings.EqualFold(c.workflowSvc.ForLevel("bug").NormalizeStatus(ingestResult.ToStatus), c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus))) {
 		retireReq := baseReq
 		retireReq.RetirementConfirmed = true
 		// RunConcluded: true — this IS the Run() loop's last dispatch for
@@ -1485,7 +1485,7 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 	if opts.EntityType == "bug" && c.workflowSvc.ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == config.ResultContractGateResultV1 && BugNeedsApprovedPlan(c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus)) && c.approvedBugPlan != nil {
-		plan, planErr := c.approvedBugPlan(ctx, key)
+		plan, planErr := c.approvedBugPlan(ctx, key, opts.WorkingDir)
 		if planErr != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{EntityKey: key, Status: currentStatus, Phase: "approved_plan", Error: planErr.Error(), RunID: opts.RunID})
 			return stageOutcome{done: true}

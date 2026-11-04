@@ -240,7 +240,15 @@ func cleanReviewStatus(runtimeProject string, run bugGitRunner) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	return filterReviewStatus(data, prefix)
+	top, err := run("rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, err
+	}
+	worktrees, err := reviewWorktreePrefixes(strings.TrimSpace(string(top)), normalizedRuntimeProject(runtimeProject), run)
+	if err != nil {
+		return nil, err
+	}
+	return filterReviewStatus(data, prefix, worktrees...)
 }
 
 func validateCleanBugHead(scope bugCandidateScope, run bugGitRunner) error {
@@ -268,7 +276,7 @@ func validateSnapshotSource(root string, scope bugCandidateScope, run bugGitRunn
 	if err := sameBugProject(root, source.SourceRoot); err != nil {
 		return fmt.Errorf("snapshot source mismatch: %w", err)
 	}
-	if err := validateSnapshotSelection(scope); err != nil {
+	if err := validateSnapshotSelection(root, scope, run); err != nil {
 		return err
 	}
 	head, err := run("rev-parse", "HEAD")
@@ -277,7 +285,7 @@ func validateSnapshotSource(root string, scope bugCandidateScope, run bugGitRunn
 	}
 	return validateSnapshotInventory(root, source, run)
 }
-func validateSnapshotSelection(scope bugCandidateScope) error {
+func validateSnapshotSelection(root string, scope bugCandidateScope, run bugGitRunner) error {
 	source := scope.Source
 	if normalizedRuntimeProject(source.RuntimeProject) != scope.RuntimeProject || source.CandidateCommit != scope.CandidateCommit || source.CandidateTree != scope.CandidateTree || len(source.SelectedPaths) == 0 {
 		return fmt.Errorf("snapshot identity mismatch")
@@ -286,9 +294,18 @@ func validateSnapshotSelection(scope bugCandidateScope) error {
 	if err != nil {
 		return err
 	}
+	worktrees, err := reviewWorktreePrefixes(root, scope.RuntimeProject, run)
+	if err != nil {
+		return err
+	}
 	for _, path := range source.SelectedPaths {
 		if !filepath.IsLocal(path) || path == "." || selectionOverlapsRuntime(filepath.ToSlash(path), prefix) {
 			return fmt.Errorf("invalid selected path")
+		}
+		for _, worktree := range worktrees {
+			if selectionOverlapsRuntime(filepath.ToSlash(path), worktree) {
+				return fmt.Errorf("invalid selected path")
+			}
 		}
 	}
 	return nil
@@ -439,13 +456,17 @@ func bugSourceInventory(root, runtimeProject string, git func(...string) ([]byte
 	if err != nil {
 		return "", err
 	}
-	if err := hashUntrackedInventory(root, prefix, names, field); err != nil {
+	worktrees, err := reviewWorktreePrefixes(root, runtimeProject, git)
+	if err != nil {
+		return "", err
+	}
+	if err := hashUntrackedInventory(root, prefix, worktrees, names, field); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func hashUntrackedInventory(root, prefix string, names []byte, field func([]byte)) error {
+func hashUntrackedInventory(root, prefix string, worktrees []string, names []byte, field func([]byte)) error {
 	confined, err := os.OpenRoot(root)
 	if err != nil {
 		return err
@@ -453,7 +474,7 @@ func hashUntrackedInventory(root, prefix string, names []byte, field func([]byte
 	// Closing a read-only directory handle cannot affect inventory integrity.
 	defer func() { _ = confined.Close() }()
 	for _, name := range bytes.Split(names, []byte{0}) {
-		if len(name) == 0 || strings.HasPrefix(string(name), prefix) {
+		if len(name) == 0 || reviewRuntimeUntracked(string(name), prefix, worktrees) {
 			continue
 		}
 		field(name)

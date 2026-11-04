@@ -244,7 +244,8 @@ type nextAdapterCache struct {
 	surfaceForks    bool
 	questionBlocker questionBlockChecker
 	bugWorkflow     *configworkflow.WorkflowConfig
-	approvedBugPlan func(context.Context, string) (runner.ApprovedPlan, error)
+	approvedBugPlan func(context.Context, string, string) (runner.ApprovedPlan, error)
+	bugWorkingDir   string
 
 	// harnessResolver resolves harness identity per spec.md REQ-F-002's
 	// flag > claim > env > zero precedence (T-E34-F01-003/004). nil is a
@@ -603,6 +604,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 	}
 
 	adapters.surfaceForks = !resolveSequentialDispatch(cmd)
+	adapters.bugWorkingDir = workdir
 
 	harnessOverride, err := harnessOverrideFromFlags(cmd)
 	if err != nil {
@@ -1060,7 +1062,7 @@ func resolveEntity(
 		}
 	}
 	if strategy.mode == nextResolutionMode && entityType == "bug" && cache.bugWorkflow != nil && cache.bugWorkflow.GetResultContract("plan_review") == configworkflow.ResultContractGateResultV1 && cache.approvedBugPlan != nil && runner.BugNeedsApprovedPlan(cache.bugWorkflow.ResolveAlias(currentStatus)) {
-		plan, planErr := cache.approvedBugPlan(ctx, normalizedKey)
+		plan, planErr := cache.approvedBugPlan(ctx, normalizedKey, cache.bugWorkingDir)
 		if planErr != nil {
 			return NextResponse{}, fmt.Errorf("resolve approved plan for %s: %w", normalizedKey, planErr)
 		}

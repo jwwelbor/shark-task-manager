@@ -193,3 +193,84 @@ func TestBugResearchRiderAdvanceUsesWorkerWorkdir(t *testing.T) {
 	require.NoError(t, json.Unmarshal(shark("get", "B001"), &bug))
 	require.Equal(t, "repair_plan", bug.Status)
 }
+
+func TestBugSelfReworkAliasStopsAndRetires(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture worker uses a POSIX shell")
+	}
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = repo
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	initCC044Baseline(t, project)
+	db := filepath.Join(project, "fixture.db")
+	shark := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", db, "--json")...)
+		cmd.Dir = project
+		data, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(data))
+	}
+	shark("admin", "init", "--non-interactive")
+	shark("admin", "install-shark-data")
+	path := filepath.Join(project, "shark-data", "workflow", "bug.yaml")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	before, rest, ok := strings.Cut(string(data), "  repair_plan:\n")
+	require.True(t, ok)
+	block, after, ok := strings.Cut(rest, "  research:\n")
+	require.True(t, ok)
+	block = "    aliases: [repair_plan_old]\n" + strings.Replace(block, "      fail: repair_plan\n", "      fail: repair_plan_old\n", 1)
+	require.NoError(t, os.WriteFile(path, []byte(before+"  repair_plan:\n"+block+"  research:\n"+after), 0600))
+	shark("bug", "create", "Self route alias")
+	shark("status", "set", "B001", "repair_plan", "--force", "--reason", "setup")
+	fake := t.TempDir()
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"kind\":\"final\",\"recommended_outcome\":\"fail\",\"evidence\":[],\"gate_result\":{\"schema_version\":1,\"summary\":\"retry\"}}'\n"
+	require.NoError(t, os.WriteFile(filepath.Join(fake, "claude"), []byte(script), 0700))
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "run", "B001", "--db", db, "--json")
+	cmd.Dir = project
+	cmd.Env = append(os.Environ(), "PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err = cmd.Output()
+	require.NoError(t, err, stderr.String())
+	var result struct {
+		Outcome     string `json:"outcome"`
+		FinalStatus string `json:"final_status"`
+		Stages      []struct {
+			GateStatus struct {
+				RetirementState string `json:"retirement_state"`
+			} `json:"gate_status"`
+		} `json:"stages"`
+	}
+	require.NoError(t, json.Unmarshal(out, &result), string(out))
+	require.Equal(t, "paused", result.Outcome)
+	require.Equal(t, "repair_plan", result.FinalStatus)
+	require.Len(t, result.Stages, 1)
+	require.NotEqual(t, "pending", result.Stages[0].GateStatus.RetirementState)
+}
+
+func TestNonBugWorktreeAndWorkdirRetainsExistingBehavior(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = repo
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	initCC044Baseline(t, project)
+	db := filepath.Join(project, "fixture.db")
+	for _, args := range [][]string{{"admin", "init", "--non-interactive"}, {"epic", "create", "Feature test"}, {"feature", "create", "E01", "Feature test"}, {"run", "E01-F01", "--dry-run", "--worktree", "--workdir", project}} {
+		cmd := exec.Command(binary, append(args, "--db", db, "--json")...)
+		cmd.Dir = project
+		out, err = cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+}

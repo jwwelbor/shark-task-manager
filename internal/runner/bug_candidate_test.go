@@ -259,6 +259,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, err)
 	planRoot, planCommit, planBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EnvelopeJSON: prior})
 	require.NoError(t, err)
+	require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "approved-plan", PlanCommit: planCommit}))
 	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved-plan", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, PlanRoot: planRoot, PlanCommit: planCommit, PlanBlob: planBlob})
 	require.NoError(t, err)
 	_, err = gaterun.CreateResult(dir, prior)

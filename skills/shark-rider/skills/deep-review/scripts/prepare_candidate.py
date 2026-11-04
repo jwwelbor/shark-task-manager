@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 
 from source_inventory import source_inventory
-from review_status import runtime_prefix, runtime_project, selection_overlaps_runtime
+from review_status import registered_worktrees, runtime_prefix, runtime_project, selection_overlaps_runtime
 
 
 def _validate_metadata_path(path, root, destination, parser):
@@ -56,7 +56,8 @@ def main():
         parser.error('project-root must be the repository root')
     project = runtime_project(root, args.shark_project_root or root)
     prefix = runtime_prefix(project)
-    if any(selection_overlaps_runtime(os.fsencode(path), prefix) for path in args.paths):
+    worktrees = registered_worktrees(root, project)
+    if any(selection_overlaps_runtime(os.fsencode(path), reserved) for path in args.paths for reserved in [prefix, *worktrees]):
         parser.error('runtime artifacts cannot be selected as source')
     head = git('rev-parse', 'HEAD')
     # A single snapshot tree cannot represent two different versions of one

@@ -55,6 +55,9 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	if err != nil || !exists || identity.PlanRoot == "" || identity.PlanCommit == "" || identity.PlanBlob == "" {
 		return fmt.Errorf("approved plan provenance is unavailable")
 	}
+	if err := verifyBugPlanRef(ctx, parent, identity.RunID, identity.PlanCommit); err != nil {
+		return err
+	}
 	for _, hash := range []string{identity.PlanCommit, identity.PlanBlob} {
 		if len(hash) != 40 && len(hash) != 64 {
 			return fmt.Errorf("approved plan provenance contains an invalid Git object ID")
@@ -99,6 +102,91 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	}
 	if _, err := committedBugPlanAt(ctx, root, ref); err != nil {
 		return fmt.Errorf("approved project plan changed: %w", err)
+	}
+	return nil
+}
+
+func bugPlanRef(parent, runID string) string {
+	hash := sha256.Sum256([]byte(parent + "\x00" + runID))
+	return fmt.Sprintf("refs/shark/approved-plans/%x", hash)
+}
+
+func verifyBugPlanRef(ctx context.Context, parent, runID, commit string) error {
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", bugPlanRef(parent, runID))
+	out, err := cmd.Output()
+	if err != nil || !strings.EqualFold(strings.TrimSpace(string(out)), commit) {
+		return fmt.Errorf("approved plan retention reference is unavailable or mismatched")
+	}
+	return nil
+}
+
+func retainBugPlanCommit(ctx context.Context, req gatepersist.Request) error {
+	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	ref := bugPlanRef(parent, req.RunID)
+	zero := strings.Repeat("0", len(req.PlanCommit))
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "update-ref", ref, req.PlanCommit, zero)
+	if err := cmd.Run(); err != nil {
+		if verifyErr := verifyBugPlanRef(ctx, parent, req.RunID, req.PlanCommit); verifyErr != nil {
+			return fmt.Errorf("retain approved plan commit: %w", verifyErr)
+		}
+	}
+	return nil
+}
+
+// verifyCurrentBugPlan rejects an unreviewed edit in the active checkout. A
+// clean older committed copy is allowed: the approved snapshot remains the
+// authority when a parent checkout has not yet received the reviewed commit.
+func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []byte) error {
+	identity, exists, err := gaterun.ReadIdentity(dir)
+	if err != nil || !exists {
+		return fmt.Errorf("approved plan identity is unavailable")
+	}
+	ref, err := findBugEvidence(gatepersist.Request{EnvelopeJSON: envelope}, "bug_repair_plan")
+	if err != nil {
+		return err
+	}
+	expected, err := validateBugEvidenceRef(ref)
+	if err != nil {
+		return err
+	}
+	plan, err := readBoundedBugEvidence(current, ref.Pointer, bugEvidenceLimit("bug_repair_plan"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	sum := sha256.Sum256(plan)
+	if bytes.Equal(sum[:], expected) {
+		return nil
+	}
+	run := func(args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", current}, args...)...).Output()
+	}
+	if _, err := run("ls-files", "--error-unmatch", "--", ref.Pointer); err != nil {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	status, err := run("status", "--porcelain=v1", "-z", "--", ref.Pointer)
+	if err != nil || len(status) != 0 {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	head, err := run("rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	base, err := run("merge-base", strings.TrimSpace(string(head)), identity.PlanCommit)
+	if err != nil {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	_, relative, err := candidateRepository(ctx, current)
+	if err != nil {
+		return err
+	}
+	path := filepath.ToSlash(filepath.Join(relative, ref.Pointer))
+	oldBlob, oldErr := run("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(base))+":"+path)
+	currentBlob, currentErr := run("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(head))+":"+path)
+	if oldErr != nil || currentErr != nil || !bytes.Equal(bytes.TrimSpace(oldBlob), bytes.TrimSpace(currentBlob)) {
+		return fmt.Errorf("active project plan changed without approval")
 	}
 	return nil
 }

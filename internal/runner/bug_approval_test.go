@@ -45,6 +45,7 @@ func TestPrepareBugPlanApprovalRequiresLinkedDigestBoundReport(t *testing.T) {
 		EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"},{"kind":"plan_review_report","pointer":"review.md","summary":"sha256:%x"}],"gate_result":{"schema_version":1,"summary":"approved"}}`, planHash, reportHash))}
 	req.PlanRoot, req.PlanCommit, req.PlanBlob, err = bugPlanProvenance(context.Background(), req)
 	require.NoError(t, err)
+	req.RunID = "approval"
 	require.ErrorContains(t, PrepareBugPlanApproval(context.Background(), req, bugApprovalDocuments{}), "not linked")
 	linked := bugApprovalDocuments{items: []*models.Document{{FilePath: "review.md"}}}
 	staleReport := []byte("plan_path: docs/plan/old.md\nplan_sha256: sha256:0000000000000000000000000000000000000000000000000000000000000000\n")
@@ -115,6 +116,7 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			require.NoError(t, err)
 			planRoot, planCommit, planBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EnvelopeJSON: prior})
 			require.NoError(t, err)
+			require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "approved-run", PlanCommit: planCommit}))
 			_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved-run", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, PlanRoot: planRoot, PlanCommit: planCommit, PlanBlob: planBlob})
 			require.NoError(t, err)
 			_, err = gaterun.CreateResult(dir, prior)

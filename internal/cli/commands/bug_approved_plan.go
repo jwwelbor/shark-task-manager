@@ -12,7 +12,7 @@ import (
 
 // approvedPlanForBug is shared by keyed next and the in-process runner so both
 // dispatch paths provide the same parent-retained plan revision.
-func approvedPlanForBug(ctx context.Context, key string) (runner.ApprovedPlan, error) {
+func approvedPlanForBug(ctx context.Context, key, workingDir string) (runner.ApprovedPlan, error) {
 	root, err := cli.FindProjectRoot()
 	if err != nil {
 		return runner.ApprovedPlan{}, fmt.Errorf("locate Shark project for approved plan: %w", err)
@@ -21,7 +21,7 @@ func approvedPlanForBug(ctx context.Context, key string) (runner.ApprovedPlan, e
 	if err != nil {
 		return runner.ApprovedPlan{}, fmt.Errorf("read approved plan notes: %w", err)
 	}
-	return runner.ApprovedBugPlan(ctx, root, key, notes, cli.GetEntityHistoryService(), cli.GetWorkflowService().ForLevel("bug").NormalizeStatus)
+	return runner.ApprovedBugPlan(ctx, root, workingDir, key, notes, cli.GetEntityHistoryService(), cli.GetWorkflowService().ForLevel("bug").NormalizeStatus)
 }
 
 func bugParentProjectInstructions(prompt string) (string, error) {

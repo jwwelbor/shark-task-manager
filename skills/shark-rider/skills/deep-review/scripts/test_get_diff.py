@@ -21,6 +21,29 @@ def run_writer(command, **kwargs):
 
 
 class CaptureScopeTest(unittest.TestCase):
+    def test_registered_runtime_worktree_is_excluded_but_other_files_are_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'repo'
+            root.mkdir()
+            def git(*args):
+                return subprocess.run(['git', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-C', str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
+            git('init', '-b', 'main')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            (root / 'file').write_text('base')
+            git('add', 'file')
+            git('commit', '-m', 'base')
+            base = git('rev-parse', 'HEAD')
+            (root / 'file').write_text('candidate')
+            git('commit', '-am', 'candidate')
+            worktree = root / '.shark-run-worktrees' / 'B001'
+            git('worktree', 'add', '-b', 'shark-run-B001-test', str(worktree))
+            result = subprocess.run(['bash', str(SCRIPT)], cwd=root, env={**os.environ, 'REVIEW_BASE': base}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            (root / '.shark-run-worktrees' / 'unrelated.txt').write_text('do not hide')
+            result = subprocess.run(['bash', str(SCRIPT)], cwd=root, env={**os.environ, 'REVIEW_BASE': base}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+
     def test_scope_rejects_untrusted_root_before_git(self):
         with tempfile.TemporaryDirectory() as tmp:
             trusted = Path(tmp) / 'trusted'

@@ -5,7 +5,7 @@ from pathlib import Path
 import stat
 import subprocess
 
-from review_status import filter_status, runtime_prefix, runtime_untracked
+from review_status import filter_status, registered_worktrees, runtime_prefix, runtime_untracked
 
 
 def _open_inventory_parent(root_fd, parts):
@@ -83,14 +83,15 @@ def _python_inventory(root, runtime_project):
         digest.update(len(data).to_bytes(8, 'big'))
         digest.update(data)
     prefix = runtime_prefix(runtime_project)
+    worktrees = registered_worktrees(root, runtime_project)
     status = git('status', '--porcelain=v1', '-z', '--untracked-files=all')
-    field(filter_status(status, prefix))
+    field(filter_status(status, prefix, worktrees))
     for args in (('diff', '--no-ext-diff', '--binary'), ('diff', '--no-ext-diff', '--cached', '--binary')):
         field(git(*args))
     root_fd = os.open(root, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
     try:
         for raw in git('ls-files', '--others', '--exclude-standard', '-z').split(b'\0'):
-            if raw and not runtime_untracked(raw, prefix):
+            if raw and not runtime_untracked(raw, prefix, worktrees):
                 field(raw)
                 kind, content = _entry(root_fd, raw)
                 field(kind)

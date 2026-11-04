@@ -28,7 +28,7 @@ from pathlib import Path
 
 from source_inventory import source_inventory
 from safe_review_io import MAX_ARTIFACT_BYTES, read_review_file
-from review_status import filter_status, runtime_prefix, runtime_project, selection_overlaps_runtime
+from review_status import filter_status, registered_worktrees, runtime_prefix, runtime_project, selection_overlaps_runtime
 
 
 VERDICT_RE = re.compile(r"\bVERDICT\s*:?\s*\*{0,2}\s*:?\s*(PASS(?:-with-triage)?|FAIL)\b", re.I | re.ASCII)
@@ -219,7 +219,8 @@ def _validate_scope_manifest(scope, base_commit, diff_path, root):
     candidate = _scope_git(root, "rev-parse", "HEAD").decode().strip()
     tree = _scope_git(root, "rev-parse", "HEAD^{tree}").decode().strip()
     status = _scope_git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-    if filter_status(status, runtime_prefix(scope.get("runtime_project", "."))):
+    runtime_project = scope.get("runtime_project", ".")
+    if filter_status(status, runtime_prefix(runtime_project), registered_worktrees(root, runtime_project)):
         raise ValueError("candidate worktree is dirty")
     if candidate != scope["candidate_commit"] or tree != scope["candidate_tree"]:
         raise ValueError("candidate changed since scope capture")
@@ -275,7 +276,8 @@ def _snapshot_paths(source):
     if not isinstance(paths, list) or not paths or not all(_valid_snapshot_path(p) for p in paths):
         raise ValueError("invalid source snapshot paths")
     prefix = runtime_prefix(source.get("runtime_project", "."))
-    if any(selection_overlaps_runtime(os.fsencode(p), prefix) for p in paths):
+    worktrees = registered_worktrees(source["source_root"], source.get("runtime_project", "."))
+    if any(selection_overlaps_runtime(os.fsencode(p), reserved) for p in paths for reserved in [prefix, *worktrees]):
         raise ValueError("runtime artifacts cannot be selected as source")
     return paths
 

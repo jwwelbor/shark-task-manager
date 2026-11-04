@@ -30,6 +30,9 @@ func PrepareBugApprovalSnapshot(ctx context.Context, req gatepersist.Request) er
 	if err != nil || blob != req.PlanBlob {
 		return fmt.Errorf("approved plan commit binding changed before transition")
 	}
+	if err := retainBugPlanCommit(ctx, req); err != nil {
+		return err
+	}
 	_, err = gaterun.CreateApprovedPlan(req.RunDir, plan)
 	return err
 }
@@ -117,7 +120,7 @@ type ApprovedPlan struct {
 	Bytes   []byte
 }
 
-func ApprovedBugPlan(ctx context.Context, projectRoot, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) (ApprovedPlan, error) {
+func ApprovedBugPlan(ctx context.Context, projectRoot, workingDir, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) (ApprovedPlan, error) {
 	if notes == nil || history == nil {
 		return ApprovedPlan{}, fmt.Errorf("plan approval readers are required")
 	}
@@ -147,6 +150,16 @@ func ApprovedBugPlan(ctx context.Context, projectRoot, key string, notes gateper
 	}
 	dir, err := gaterun.RunDir(projectRoot, meta.RunID)
 	if err != nil {
+		return ApprovedPlan{}, err
+	}
+	current := projectRoot
+	if workingDir != "" {
+		current, err = BugWorktreeProjectRoot(ctx, projectRoot, workingDir)
+		if err != nil {
+			return ApprovedPlan{}, err
+		}
+	}
+	if err := verifyCurrentBugPlan(ctx, current, dir, data); err != nil {
 		return ApprovedPlan{}, err
 	}
 	plan, err := verifyApprovedBugPlan(dir, data)
@@ -236,6 +249,16 @@ func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gate
 	data, evidenceRoot, err := readBugApprovalResult(ctx, req, meta, spec.gate)
 	if err != nil {
 		return err
+	}
+	if spec.gate == "plan_review" {
+		parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+		dir, err := gaterun.RunDir(parent, meta.RunID)
+		if err != nil {
+			return err
+		}
+		if err := verifyCurrentBugPlan(ctx, bugEvidenceProject(req), dir, data); err != nil {
+			return err
+		}
 	}
 	if err := compareBugApprovalEvidence(req, data, evidenceRoot, spec); err != nil {
 		return err

@@ -401,7 +401,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 5: Determine working directory, creating a git worktree if requested.
-	if runWorktree && runWorkDir != "" {
+	if entityType == "bug" && runWorktree && runWorkDir != "" {
 		return fmt.Errorf("--worktree and --workdir cannot be combined; select one worker working directory")
 	}
 	workingDir := runWorkDir
