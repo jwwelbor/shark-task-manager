@@ -51,7 +51,7 @@ func selectedEvidenceRoot(ctx context.Context, req GateIngestRequest, identity *
 }
 
 func verifyEvidenceRootIdentity(req GateIngestRequest, identity *gaterun.RunIdentity) error {
-	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeBytes)
+	digest, err := gaterun.ComputeBoundOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeBytes, identity.PlanRoot, identity.PlanCommit, identity.PlanBlob)
 	if err != nil {
 		return err
 	}

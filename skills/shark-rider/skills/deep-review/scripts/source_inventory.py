@@ -5,7 +5,7 @@ from pathlib import Path
 import stat
 import subprocess
 
-from review_status import filter_status, registered_worktrees, runtime_prefix, runtime_untracked
+from review_status import filter_status, registered_worktrees, runtime_prefix, runtime_untracked, validate_index_flags
 
 
 def _open_inventory_parent(root_fd, parts):
@@ -84,6 +84,7 @@ def _python_inventory(root, runtime_project):
         digest.update(data)
     prefix = runtime_prefix(runtime_project)
     worktrees = registered_worktrees(root, runtime_project)
+    validate_index_flags(git('ls-files', '-v', '-z'))
     status = git('status', '--porcelain=v1', '-z', '--untracked-files=all')
     field(filter_status(status, prefix, worktrees))
     for args in (('diff', '--no-ext-diff', '--binary'), ('diff', '--no-ext-diff', '--cached', '--binary')):

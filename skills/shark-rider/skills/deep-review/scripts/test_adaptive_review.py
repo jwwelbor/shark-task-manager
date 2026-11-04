@@ -198,7 +198,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertIn('`codex`', report.read_text())
 
     def test_cli_writer_requires_model_and_fallback_reason(self):
-        for model, reason in [('', 'unavailable'), ('unknown', 'unavailable'), ('codex', ''), ('codex', 'none')]:
+        for model, reason in [('', 'unavailable'), ('unknown', 'unavailable'), ('codex', ''), ('codex', 'none'), ('codex', '`unknown`'), ('codex', '` none `')]:
             args = argparse.Namespace(runner_mode='adversarial-cli', specialists_completed=0,
                                       consolidator_completed=True, adversarial_model=model, fallback_reason=reason)
             metadata = {'runner_mode': args.runner_mode, 'verdict': 'PASS', 'fallback_reason': reason}

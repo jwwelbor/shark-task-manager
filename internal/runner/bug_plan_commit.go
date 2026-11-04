@@ -197,6 +197,10 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 	if _, err := run("ls-files", "--error-unmatch", "--", ref.Pointer); err != nil {
 		return fmt.Errorf("active project plan changed without approval")
 	}
+	flags, err := run("ls-files", "-v", "-z", "--", ref.Pointer)
+	if err != nil || rejectHiddenIndexFlags(flags) != nil {
+		return fmt.Errorf("active project plan changed without approval: clear hidden Git index flags")
+	}
 	status, err := run("status", "--porcelain=v1", "-z", "--", ref.Pointer)
 	if err != nil || len(status) != 0 {
 		return fmt.Errorf("active project plan changed without approval")
@@ -250,12 +254,19 @@ func committedBugPlanAt(ctx context.Context, root string, ref workercontrol.Evid
 		return nil, err
 	}
 	run := func(args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
+		return exec.CommandContext(ctx, "git", append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
 	}
 	if _, err := run("ls-files", "--error-unmatch", "--", ref.Pointer); err != nil {
 		return nil, fmt.Errorf("plan is not tracked")
 	}
-	_, err = run("check-ignore", "--no-index", "-q", "--", ref.Pointer)
+	flags, err := run("ls-files", "-v", "-z", "--", ref.Pointer)
+	if err != nil {
+		return nil, fmt.Errorf("cannot inspect plan index flags: %w", err)
+	}
+	if err := rejectHiddenIndexFlags(flags); err != nil {
+		return nil, err
+	}
+	err = exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "check-ignore", "--no-index", "-q", "--", ref.Pointer).Run()
 	if err == nil {
 		return nil, fmt.Errorf("plan is ignored")
 	}
@@ -277,10 +288,25 @@ func committedBugPlanAt(ctx context.Context, root string, ref workercontrol.Evid
 	if err != nil || !bytes.Equal(bytes.TrimSpace(staged), bytes.TrimSpace(committed)) {
 		return nil, fmt.Errorf("plan index differs from the current commit")
 	}
+	indexEntry, err := run("ls-files", "--stage", "-z", "--", ref.Pointer)
+	if err != nil {
+		return nil, fmt.Errorf("cannot inspect plan index mode")
+	}
+	indexFields := strings.Fields(string(indexEntry))
+	gitTree := exec.CommandContext(ctx, "git", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", repository, "ls-tree", "--full-tree", "-z", "HEAD", "--", filepath.ToSlash(filepath.Join(relative, ref.Pointer)))
+	treeEntry, err := gitTree.Output()
+	treeFields := strings.Fields(string(treeEntry))
+	if err != nil || len(indexFields) < 3 || len(treeFields) < 3 || indexFields[2] != "0" || indexFields[0] != treeFields[0] || (treeFields[0] != "100644" && treeFields[0] != "100755") {
+		return nil, fmt.Errorf("plan mode differs from the current commit")
+	}
 	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--path", ref.Pointer, "--stdin")
 	cmd.Stdin = bytes.NewReader(plan)
 	actual, err := cmd.Output()
 	if err != nil || !bytes.Equal(bytes.TrimSpace(actual), bytes.TrimSpace(committed)) {
+		return nil, fmt.Errorf("plan differs from the current commit")
+	}
+	status, err := run("status", "--porcelain=v1", "-z", "--", ref.Pointer)
+	if err != nil || len(status) != 0 {
 		return nil, fmt.Errorf("plan differs from the current commit")
 	}
 	return plan, nil

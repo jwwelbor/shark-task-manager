@@ -28,7 +28,7 @@ from pathlib import Path
 
 from source_inventory import source_inventory
 from safe_review_io import MAX_ARTIFACT_BYTES, read_review_file
-from review_status import filter_status, registered_worktrees, runtime_prefix, runtime_project, selection_overlaps_runtime
+from review_status import filter_status, registered_worktrees, runtime_prefix, runtime_project, selection_overlaps_runtime, validate_index_flags
 
 
 VERDICT_RE = re.compile(r"\bVERDICT\s*:?\s*\*{0,2}\s*:?\s*(PASS(?:-with-triage)?|FAIL)\b", re.I | re.ASCII)
@@ -216,6 +216,7 @@ def _common_git_dir(root):
 
 
 def _validate_scope_manifest(scope, base_commit, diff_path, root):
+    validate_index_flags(_scope_git(root, "ls-files", "-v", "-z"))
     candidate = _scope_git(root, "rev-parse", "HEAD").decode().strip()
     tree = _scope_git(root, "rev-parse", "HEAD^{tree}").decode().strip()
     status = _scope_git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
@@ -723,7 +724,7 @@ def _writer_metadata(args):
 
 def _writer_runner_state(args, metadata, scope_error, incomplete_six):
     def meaningful(value):
-        return bool(value and str(value).strip().lower() not in {"", "none", "unknown"})
+        return bool(value and str(value).strip().strip("`").strip().lower() not in {"", "none", "unknown"})
     incomplete_cli = args.runner_mode == "adversarial-cli" and (args.specialists_completed != 0 or not args.consolidator_completed or not meaningful(args.adversarial_model) or not meaningful(args.fallback_reason))
     incomplete_dispatched = args.runner_mode == "dispatched-six-angle" and not meaningful(args.fallback_reason)
     diagnostic = args.runner_mode in {"manual-diagnostic", "incomplete"}

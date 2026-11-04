@@ -17,6 +17,27 @@ func reviewRuntimePrefix(project string) (string, error) {
 	return strings.TrimPrefix(path.Join(project, ".shark", "runs"), "./") + "/", nil
 }
 
+// rejectHiddenIndexFlags prevents Git's index hints from concealing tracked
+// source edits from status, diff and candidate freshness checks.
+func rejectHiddenIndexFlags(data []byte) error {
+	if len(data) > 0 && data[len(data)-1] != 0 {
+		return fmt.Errorf("malformed Git index flags")
+	}
+	for _, record := range bytes.Split(data, []byte{0}) {
+		if len(record) == 0 {
+			continue
+		}
+		if len(record) < 3 || record[1] != ' ' {
+			return fmt.Errorf("malformed Git index flags")
+		}
+		flag := record[0]
+		if flag == 'S' || (flag >= 'a' && flag <= 'z') {
+			return fmt.Errorf("tracked path %q has assume-unchanged or skip-worktree set; clear the flag before review", string(record[2:]))
+		}
+	}
+	return nil
+}
+
 func filterReviewStatus(data []byte, prefix string, worktrees ...string) ([]byte, error) {
 	if len(data) != 0 && data[len(data)-1] != 0 {
 		return nil, fmt.Errorf("malformed git status")

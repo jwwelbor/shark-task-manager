@@ -198,7 +198,7 @@ func (c *Coordinator) admitBeforeWrites(ctx context.Context, req Request) error 
 	return nil
 }
 func verifyAdmissionReplay(req Request, state *gaterun.OperationState) error {
-	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
+	digest, err := gaterun.ComputeBoundOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON, req.PlanRoot, req.PlanCommit, req.PlanBlob)
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func (c *Coordinator) initializeRun(ctx context.Context, req Request) (digest st
 	// later pass to NewOperationState/VerifyResumeIdentity are always the
 	// SAME computed value for the same call. This is one computation reused
 	// twice, not two independent digest computations that could drift.
-	digest, err = gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
+	digest, err = gaterun.ComputeBoundOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON, req.PlanRoot, req.PlanCommit, req.PlanBlob)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
 	}

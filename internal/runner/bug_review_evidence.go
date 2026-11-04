@@ -205,7 +205,7 @@ func validBugFallback(header string) bool {
 }
 
 func meaningfulBugReviewMetadata(value string) bool {
-	value = strings.ToLower(strings.Trim(strings.TrimSpace(value), "`"))
+	value = strings.ToLower(strings.TrimSpace(strings.Trim(strings.TrimSpace(value), "`")))
 	return value != "" && value != "none" && value != "unknown"
 }
 

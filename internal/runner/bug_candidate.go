@@ -232,6 +232,13 @@ func normalizedRuntimeProject(project string) string {
 }
 
 func cleanReviewStatus(runtimeProject string, run bugGitRunner) ([]byte, error) {
+	flags, err := run("ls-files", "-v", "-z")
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectHiddenIndexFlags(flags); err != nil {
+		return nil, err
+	}
 	prefix, err := reviewRuntimePrefix(runtimeProject)
 	if err != nil {
 		return nil, err

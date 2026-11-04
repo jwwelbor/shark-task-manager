@@ -44,6 +44,31 @@ class CaptureScopeTest(unittest.TestCase):
             result = subprocess.run(['bash', str(SCRIPT)], cwd=root, env={**os.environ, 'REVIEW_BASE': base}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
 
+    def test_scope_rejects_git_flags_that_hide_source_edits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args):
+                return subprocess.run(['git', '-C', str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
+            git('init', '-b', 'main')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            git('config', 'commit.gpgsign', 'false')
+            (root / 'file').write_text('base')
+            git('add', 'file')
+            git('commit', '-m', 'base')
+            base = git('rev-parse', 'HEAD')
+            (root / 'file').write_text('candidate')
+            git('commit', '-am', 'candidate')
+            for flag in ('assume-unchanged', 'skip-worktree'):
+                with self.subTest(flag=flag):
+                    git('update-index', '--' + flag, '--', 'file')
+                    (root / 'file').write_text('hidden edit')
+                    result = subprocess.run(['bash', str(SCRIPT)], cwd=root, env={**os.environ, 'REVIEW_BASE': base}, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('assume-unchanged or skip-worktree', result.stderr)
+                    git('update-index', '--no-' + flag, '--', 'file')
+                    (root / 'file').write_text('candidate')
+
     def test_scope_rejects_untrusted_root_before_git(self):
         with tempfile.TemporaryDirectory() as tmp:
             trusted = Path(tmp) / 'trusted'

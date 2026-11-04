@@ -609,8 +609,6 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	commitCC044Files(t, worker, "docs/plan/bugs/plan-uninitialized.md")
 	runDir, err := gaterun.RunDir(project, "uninitialized-run")
 	require.NoError(t, err)
-	digest, err := gaterun.ComputeOperationDigest("B003", "bug", "plan_review", "plan_review", uninitialized)
-	require.NoError(t, err)
 	planGit := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", worker}, args...)...)
@@ -618,7 +616,10 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 		require.NoError(t, e, string(data))
 		return strings.TrimSpace(string(data))
 	}
-	_, err = gaterun.CreateIdentity(runDir, gaterun.RunIdentity{RunID: "uninitialized-run", EntityKey: "B003", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, EvidenceRoot: worker, PlanRoot: worker, PlanCommit: planGit("rev-parse", "HEAD"), PlanBlob: planGit("rev-parse", "HEAD:docs/plan/bugs/plan-uninitialized.md")})
+	planCommit, planBlob := planGit("rev-parse", "HEAD"), planGit("rev-parse", "HEAD:docs/plan/bugs/plan-uninitialized.md")
+	digest, err := gaterun.ComputeBoundOperationDigest("B003", "bug", "plan_review", "plan_review", uninitialized, worker, planCommit, planBlob)
+	require.NoError(t, err)
+	_, err = gaterun.CreateIdentity(runDir, gaterun.RunIdentity{RunID: "uninitialized-run", EntityKey: "B003", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, EvidenceRoot: worker, PlanRoot: worker, PlanCommit: planCommit, PlanBlob: planBlob})
 	require.NoError(t, err)
 	_, err = gaterun.CreateResult(runDir, uninitialized)
 	require.NoError(t, err)

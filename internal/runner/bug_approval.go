@@ -366,7 +366,11 @@ func decodeBugApprovalResult(dir string, req gatepersist.Request, meta bugApprov
 	if err != nil || !exists {
 		return nil, fmt.Errorf("approval result unavailable")
 	}
-	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), gate, gate, data)
+	identity, exists, err := gaterun.ReadIdentity(dir)
+	if err != nil || !exists {
+		return nil, fmt.Errorf("approval run identity unavailable")
+	}
+	digest, err := gaterun.ComputeBoundOperationDigest(req.EntityKey, string(req.EntityType), gate, gate, data, identity.PlanRoot, identity.PlanCommit, identity.PlanBlob)
 	if err != nil || digest != meta.Digest {
 		return nil, fmt.Errorf("approval result identity mismatch")
 	}

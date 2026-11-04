@@ -92,7 +92,7 @@ func (h bugApprovalHistory) GetHistory(context.Context, models.EntityType, strin
 }
 
 func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
-	for _, mode := range []string{"valid", "renamed", "later_incomplete", "digest_case", "source_changed", "snapshot_tampered", "snapshot_missing", "baseline_changed", "missing", "unapproved", "invalidated", "partial", "tampered"} {
+	for _, mode := range []string{"valid", "renamed", "later_incomplete", "digest_case", "source_changed", "snapshot_tampered", "snapshot_missing", "baseline_changed", "missing", "unapproved", "invalidated", "partial", "tampered", "provenance_tampered"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			plan := []byte("plan v1\n")
@@ -112,9 +112,9 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			lock, err := gaterun.AcquireRunLock(dir, 0)
 			require.NoError(t, err)
 			require.NoError(t, lock.Release())
-			digest, err := gaterun.ComputeOperationDigest("B001", "bug", "plan_review", "plan_review", prior)
-			require.NoError(t, err)
 			planRoot, planCommit, planBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EnvelopeJSON: prior})
+			require.NoError(t, err)
+			digest, err := gaterun.ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", prior, planRoot, planCommit, planBlob)
 			require.NoError(t, err)
 			require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "approved-run", PlanCommit: planCommit}))
 			_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved-run", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, PlanRoot: planRoot, PlanCommit: planCommit, PlanBlob: planBlob})
@@ -123,6 +123,17 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			require.NoError(t, err)
 			_, err = gaterun.CreateApprovedPlan(dir, plan)
 			require.NoError(t, err)
+			if mode == "provenance_tampered" {
+				identityPath := filepath.Join(dir, "identity.json")
+				data, readErr := os.ReadFile(identityPath)
+				require.NoError(t, readErr)
+				var identity map[string]any
+				require.NoError(t, json.Unmarshal(data, &identity))
+				identity["plan_commit"] = strings.Repeat("b", 40)
+				data, err = json.Marshal(identity)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(identityPath, data, 0600))
+			}
 			if mode == "snapshot_tampered" {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "approved-plan.md"), []byte("different plan"), 0o600))
 			}
