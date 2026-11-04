@@ -323,13 +323,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 		childActionSvc := narrowActionServiceForEntity(actionSvcRoot, childType)
 
 		childController, err := runner.NewRunController(runner.RunControllerDeps{
-			Transitioner: childTransitioner,
-			Placeholders: childPlaceholderGen,
-			ActionSvc:    childActionSvc,
-			WorkflowSvc:  workflowSvc,
-			Dispatchers:  dispatchers,
+			Transitioner:    childTransitioner,
+			Placeholders:    childPlaceholderGen,
+			ActionSvc:       childActionSvc,
+			WorkflowSvc:     workflowSvc,
+			Dispatchers:     dispatchers,
+			ApprovedBugPlan: approvedPlanForBug,
 			PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
-				return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+				prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+				if err == nil && childType == "bug" {
+					return bugParentProjectInstructions(prompt)
+				}
+				return prompt, err
 			}),
 			ChildrenSvc:       childrenSvc,
 			RunChild:          runChild,
@@ -427,13 +432,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Step 6: Construct and run the controller.
 	controller, err := runner.NewRunController(runner.RunControllerDeps{
-		Transitioner: transitioner,
-		Placeholders: placeholderGen,
-		ActionSvc:    actionSvc,
-		WorkflowSvc:  workflowSvc,
-		Dispatchers:  dispatchers,
+		Transitioner:    transitioner,
+		Placeholders:    placeholderGen,
+		ActionSvc:       actionSvc,
+		WorkflowSvc:     workflowSvc,
+		Dispatchers:     dispatchers,
+		ApprovedBugPlan: approvedPlanForBug,
 		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
-			return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+			prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+			if err == nil && entityType == "bug" {
+				return bugParentProjectInstructions(prompt)
+			}
+			return prompt, err
 		}),
 		ChildrenSvc:       childrenSvc,
 		RunChild:          runChild,

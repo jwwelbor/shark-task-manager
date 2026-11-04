@@ -32,16 +32,26 @@ func readBugEvidence(req gatepersist.Request, kind string) (workercontrol.Eviden
 	if err != nil {
 		return ref, nil, err
 	}
-	root := bugEvidenceProject(req)
-	data, err := readBoundedBugEvidence(root, ref.Pointer, bugEvidenceLimit(kind))
-	if err != nil {
-		return ref, nil, err
+	roots := []string{bugEvidenceProject(req)}
+	// Plan documents and local plan reviews may be retained in either the
+	// worker project or the parent project; the digest selects the revision.
+	if req.EvidenceRoot != "" && (kind == "bug_repair_plan" || kind == "plan_review_report") {
+		roots = append(roots, filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir))))
 	}
-	digest := sha256.Sum256(data)
-	if !strings.EqualFold(hex.EncodeToString(digest[:]), hex.EncodeToString(expected)) {
-		return ref, nil, fmt.Errorf("evidence digest is stale")
+	var readErr error
+	for _, root := range roots {
+		data, err := readBoundedBugEvidence(root, ref.Pointer, bugEvidenceLimit(kind))
+		if err != nil {
+			readErr = err
+			continue
+		}
+		digest := sha256.Sum256(data)
+		if strings.EqualFold(hex.EncodeToString(digest[:]), hex.EncodeToString(expected)) {
+			return ref, data, nil
+		}
+		readErr = fmt.Errorf("evidence digest is stale")
 	}
-	return ref, data, nil
+	return ref, nil, readErr
 }
 func findBugEvidence(req gatepersist.Request, kind string) (workercontrol.EvidenceRef, error) {
 	envelope, err := workercontrol.Decode(req.EnvelopeJSON)
@@ -124,7 +134,7 @@ func readBugReviewScope(ctx context.Context, req gatepersist.Request) (workercon
 	if scope.BaseCommit != baseline {
 		return ref, fmt.Errorf("review scope baseline differs from approved baseline")
 	}
-	planRef, _, err := readBugEvidence(req, "bug_repair_plan")
+	planRef, err := findBugEvidence(req, "bug_repair_plan")
 	if err != nil {
 		return ref, err
 	}

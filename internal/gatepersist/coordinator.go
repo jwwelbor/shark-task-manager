@@ -45,6 +45,11 @@ type Coordinator struct {
 	// Admission validates gate-specific evidence before durable writes. It is
 	// optional for existing contracts and runs under the parent run lock.
 	Admission func(context.Context, Request) error
+
+	// BeforeTransition can retain admission evidence under the already-bound
+	// run identity immediately before a pending transition. It must be
+	// idempotent and must not mutate workflow state.
+	BeforeTransition func(context.Context, Request) error
 }
 
 // NewCoordinator constructs a Coordinator. Every dependency is required —
@@ -440,6 +445,11 @@ func (c *Coordinator) verifyPendingTransition(ctx context.Context, req Request, 
 	if c.Admission != nil && (c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) || c.sameStatus(req.EntityType, current, req.SourceStatus)) {
 		if err := c.Admission(ctx, req); err != nil {
 			return fmt.Errorf("gatepersist: admission rejected before transition: %w", err)
+		}
+	}
+	if c.BeforeTransition != nil && (c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) || c.sameStatus(req.EntityType, current, req.SourceStatus)) {
+		if err := c.BeforeTransition(ctx, req); err != nil {
+			return fmt.Errorf("gatepersist: prepare transition evidence: %w", err)
 		}
 	}
 	if c.sameStatus(req.EntityType, current, req.TargetStatus) && !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) {

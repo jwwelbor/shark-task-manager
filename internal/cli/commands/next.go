@@ -244,6 +244,7 @@ type nextAdapterCache struct {
 	surfaceForks    bool
 	questionBlocker questionBlockChecker
 	bugWorkflow     *configworkflow.WorkflowConfig
+	approvedBugPlan func(context.Context, string) ([]byte, error)
 
 	// harnessResolver resolves harness identity per spec.md REQ-F-002's
 	// flag > claim > env > zero precedence (T-E34-F01-003/004). nil is a
@@ -272,6 +273,7 @@ func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
 		actionSvcRoot:   root,
 		questionBlocker: cli.GetQuestionBlocker(),
 		bugWorkflow:     cli.GetWorkflowService().ForLevel("bug").GetWorkflow(),
+		approvedBugPlan: approvedPlanForBug,
 		harnessResolver: cli.GetHarnessResolver(),
 	}, nil
 }
@@ -492,6 +494,7 @@ Errors:
 		"",
 		"Write the exact UTF-8 prompt bytes to <path> (no trailing newline); fails loudly if the target is unwritable",
 	)
+	cmd.Flags().String("workdir", "", "Validate the intended worker working directory for bug dispatch")
 	cmd.Flags().String(
 		"harness",
 		"",
@@ -570,6 +573,22 @@ func runNext(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("invalid entity key %q: %w", args[0], err)
+	}
+	workdir, err := cmd.Flags().GetString("workdir")
+	if err != nil {
+		return err
+	}
+	if workdir != "" {
+		if entityType != "bug" {
+			return fmt.Errorf("--workdir is only supported for bug dispatch")
+		}
+		root, err := cli.FindProjectRoot()
+		if err != nil {
+			return fmt.Errorf("locate parent project: %w", err)
+		}
+		if err := runner.ValidateBugWorkingDir(ctx, root, workdir); err != nil {
+			return err
+		}
 	}
 
 	// Build a per-invocation adapter cache so cascade recursion doesn't
@@ -1033,6 +1052,19 @@ func resolveEntity(
 		return NextResponse{}, err
 	}
 	resp.Prompt = attached
+	if strategy.mode == nextResolutionMode && entityType == "bug" && cache.bugWorkflow != nil {
+		resp.Prompt, err = bugParentProjectInstructions(resp.Prompt)
+		if err != nil {
+			return NextResponse{}, fmt.Errorf("resolve parent project for %s: %w", normalizedKey, err)
+		}
+	}
+	if strategy.mode == nextResolutionMode && entityType == "bug" && cache.bugWorkflow != nil && cache.bugWorkflow.GetResultContract("plan_review") == configworkflow.ResultContractGateResultV1 && cache.approvedBugPlan != nil && runner.BugNeedsApprovedPlan(cache.bugWorkflow.ResolveAlias(currentStatus)) {
+		plan, planErr := cache.approvedBugPlan(ctx, normalizedKey)
+		if planErr != nil {
+			return NextResponse{}, fmt.Errorf("resolve approved plan for %s: %w", normalizedKey, planErr)
+		}
+		resp.Prompt = runner.AppendApprovedBugPlan(resp.Prompt, plan)
+	}
 
 	// Hash the fully assembled prompt — post-assembly, including the
 	// ownership preamble and agent body (D-004) — so PromptSHA256/PromptBytes
@@ -1040,9 +1072,9 @@ func resolveEntity(
 	// writes. Computed once here; runNext's OTel span attribute and the
 	// --prompt-out write both reuse resp.Prompt/resp.PromptBytes rather than
 	// re-hashing or re-measuring (REQ-NF-007).
-	sum := sha256.Sum256([]byte(attached))
+	sum := sha256.Sum256([]byte(resp.Prompt))
 	resp.PromptSHA256 = hex.EncodeToString(sum[:])
-	resp.PromptBytes = len(attached)
+	resp.PromptBytes = len(resp.Prompt)
 
 	return resp, nil
 }

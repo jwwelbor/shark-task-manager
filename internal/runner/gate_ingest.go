@@ -137,6 +137,9 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 	if err := gateresult.ValidateRole(role, result, req.EntityKey); err != nil {
 		return nil, fmt.Errorf("gate ingestion: validate gate_result against outcome role %q: %w", role, err)
 	}
+	if req.EntityType == models.EntityTypeBug && req.Gate == "plan_review" && role == gateresult.RoleSuccess && req.Coordinator.BeforeTransition == nil {
+		return nil, fmt.Errorf("gate ingestion: bug plan approval requires snapshot preparation")
+	}
 
 	targetStatus, ok := req.Outcomes[env.RecommendedOutcome]
 	if !ok {

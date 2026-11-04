@@ -26,8 +26,18 @@ func BugGateAdmission(ctx context.Context, req gatepersist.Request) error {
 	if err := verifyBugEvidenceRoot(ctx, req); err != nil {
 		return err
 	}
-	if _, _, err := readBugEvidence(req, "bug_repair_plan"); err != nil {
-		return fmt.Errorf("plan evidence: %w", err)
+	if req.Gate == "repair_plan" || req.Gate == "plan_review" {
+		if _, _, err := readBugEvidence(req, "bug_repair_plan"); err != nil {
+			return fmt.Errorf("plan evidence: %w", err)
+		}
+	} else {
+		ref, err := findBugEvidence(req, "bug_repair_plan")
+		if err != nil {
+			return fmt.Errorf("plan evidence: %w", err)
+		}
+		if _, err := validateBugEvidenceRef(ref); err != nil {
+			return fmt.Errorf("plan evidence: %w", err)
+		}
 	}
 	baseline, err := readBugBaseline(req)
 	if err != nil {

@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -13,6 +15,131 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
+
+// PrepareBugApprovalSnapshot retains the hash-verified plan under the bound
+// plan-review run. Downstream consumers use these bytes as the approved plan.
+func PrepareBugApprovalSnapshot(_ context.Context, req gatepersist.Request) error {
+	if req.EntityType != models.EntityTypeBug || req.Gate != "plan_review" || req.Role != gateresult.RoleSuccess {
+		return nil
+	}
+	_, plan, err := readBugEvidence(req, "bug_repair_plan")
+	if err != nil {
+		return fmt.Errorf("read approved plan: %w", err)
+	}
+	_, err = gaterun.CreateApprovedPlan(req.RunDir, plan)
+	return err
+}
+
+// BugDocumentReader resolves documents linked to the bug in the parent store.
+type BugDocumentReader interface {
+	ListRelatedDocumentsByKey(context.Context, string) ([]*models.Document, error)
+}
+
+// PrepareBugPlanApproval requires a linked, digest-bound independent review
+// report before retaining the reviewed plan revision.
+func PrepareBugPlanApproval(ctx context.Context, req gatepersist.Request, documents BugDocumentReader) error {
+	if err := ValidateBugPlanReviewReport(ctx, req, documents); err != nil {
+		return err
+	}
+	return PrepareBugApprovalSnapshot(ctx, req)
+}
+
+// ValidateBugPlanReviewReport checks the registered report before persistence.
+func ValidateBugPlanReviewReport(ctx context.Context, req gatepersist.Request, documents BugDocumentReader) error {
+	if req.EntityType != models.EntityTypeBug || req.Gate != "plan_review" || req.Role != gateresult.RoleSuccess {
+		return nil
+	}
+	if documents == nil {
+		return fmt.Errorf("plan review document reader is required")
+	}
+	ref, report, err := readBugEvidence(req, "plan_review_report")
+	if err != nil {
+		return fmt.Errorf("plan review report: %w", err)
+	}
+	if len(report) == 0 {
+		return fmt.Errorf("plan review report is empty")
+	}
+	linked, err := documents.ListRelatedDocumentsByKey(ctx, req.EntityKey)
+	if err != nil {
+		return fmt.Errorf("list plan review documents: %w", err)
+	}
+	for _, doc := range linked {
+		if doc != nil && filepath.Clean(doc.FilePath) == filepath.Clean(ref.Pointer) {
+			return nil
+		}
+	}
+	return fmt.Errorf("plan review report %q is not linked to bug %s", ref.Pointer, req.EntityKey)
+}
+
+func verifyApprovedBugPlan(dir string, envelope []byte) ([]byte, error) {
+	req := gatepersist.Request{EnvelopeJSON: envelope}
+	ref, err := findBugEvidence(req, "bug_repair_plan")
+	if err != nil {
+		return nil, err
+	}
+	expected, err := validateBugEvidenceRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	plan, exists, err := gaterun.ReadApprovedPlan(dir)
+	if err != nil || !exists {
+		return nil, fmt.Errorf("approved plan snapshot unavailable")
+	}
+	hash := sha256.Sum256(plan)
+	if !strings.EqualFold(hex.EncodeToString(expected), hex.EncodeToString(hash[:])) {
+		return nil, fmt.Errorf("approved plan snapshot digest mismatch")
+	}
+	return plan, nil
+}
+
+// ApprovedBugPlan resolves the latest applied, uninvalidated plan approval and
+// returns the digest-verified snapshot for dispatch to downstream workers.
+func ApprovedBugPlan(ctx context.Context, projectRoot, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) ([]byte, error) {
+	if notes == nil || history == nil {
+		return nil, fmt.Errorf("plan approval readers are required")
+	}
+	if normalize == nil {
+		normalize = func(value string) string { return value }
+	}
+	req := gatepersist.Request{EntityType: models.EntityTypeBug, EntityKey: key, RunDir: filepath.Join(projectRoot, ".shark", "runs", "dispatch")}
+	spec := bugPriorSpec{"plan_review", "bug_repair_plan", "development"}
+	entry, err := latestRelevantBugHistory(ctx, req, history, spec, normalize)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := latestBugApproval(ctx, req, notes, spec.gate, entry)
+	if err != nil {
+		return nil, err
+	}
+	if !matchesBugApprovalHistory(entry, spec, meta, normalize) {
+		return nil, fmt.Errorf("prior gate approval invalidated or not applied in history")
+	}
+	data, _, err := readBugApprovalResult(ctx, req, meta, spec.gate)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := gaterun.RunDir(projectRoot, meta.RunID)
+	if err != nil {
+		return nil, err
+	}
+	return verifyApprovedBugPlan(dir, data)
+}
+
+// AppendApprovedBugPlan places the approved bytes in the dispatched prompt.
+func AppendApprovedBugPlan(prompt string, plan []byte) string {
+	hash := sha256.Sum256(plan)
+	return fmt.Sprintf("%s\n\nThe following is the authoritative approved repair plan (sha256:%x). Use these exact bytes for the approved approach; a material change requires a new plan review.\n\n%s\n", prompt, hash, plan)
+}
+
+// BugNeedsApprovedPlan identifies worker stages downstream of plan approval.
+func BugNeedsApprovedPlan(status string) bool {
+	switch strings.ToLower(status) {
+	case "development", "code_review", "qa":
+		return true
+	default:
+		return false
+	}
+}
 
 // NewBugGateAdmission binds downstream evidence to completed prior gates.
 // Production supplies the parent workflow's bug-status normalizer; callers
@@ -148,6 +275,9 @@ func readBugApprovalResult(ctx context.Context, req gatepersist.Request, meta bu
 		return nil, "", err
 	}
 	data, err := decodeBugApprovalResult(dir, req, meta, gate)
+	if err == nil && gate == "plan_review" {
+		_, err = verifyApprovedBugPlan(dir, data)
+	}
 	return data, evidenceRoot, err
 }
 
@@ -165,6 +295,11 @@ func verifyBugApprovalIdentity(ctx context.Context, dir string, req gatepersist.
 	}
 	if identity.EvidenceRoot == "" {
 		return "", nil
+	}
+	if gate == "plan_review" {
+		// The retained, digest-bound snapshot is authoritative after approval;
+		// the original checkout need not remain available for later dispatch.
+		return identity.EvidenceRoot, nil
 	}
 	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
 	verified, err := resolveBugEvidenceRoot(ctx, parent, identity.EvidenceRoot)

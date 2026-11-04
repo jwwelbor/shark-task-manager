@@ -2,11 +2,14 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -41,6 +44,16 @@ func TestBugEvidenceRootBindsWorkerAndRecoversFromIdentity(t *testing.T) {
 	bound, err := gateEvidenceRoot(ctx, req, runDir, gateresult.RoleSuccess)
 	require.NoError(t, err)
 	require.Equal(t, worker, bound)
+	parentPlan, workerPlan := []byte("parent plan"), []byte("worker plan")
+	require.NoError(t, os.WriteFile(filepath.Join(parent, "plan.md"), parentPlan, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(worker, "plan.md"), workerPlan, 0600))
+	for _, expected := range [][]byte{parentPlan, workerPlan} {
+		sum := sha256.Sum256(expected)
+		request := gatepersist.Request{RunDir: runDir, EvidenceRoot: worker, EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"}]}`, sum))}
+		_, data, err := readBugEvidence(request, "bug_repair_plan")
+		require.NoError(t, err)
+		require.Equal(t, expected, data)
+	}
 	digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeBytes)
 	require.NoError(t, err)
 	identity := gaterun.RunIdentity{RunID: "root-test", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, EvidenceRoot: bound}

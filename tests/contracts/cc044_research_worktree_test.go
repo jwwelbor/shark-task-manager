@@ -1,0 +1,118 @@
+package contracts
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestBugResearchWorktreeUsesParentRecordsAndWorkerReport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture worker uses a POSIX shell")
+	}
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = repo
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	initCC044Baseline(t, project)
+	db := filepath.Join(project, "fixture.db")
+	shark := func(args ...string) []byte {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", db, "--json")...)
+		cmd.Dir = project
+		data, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(data))
+		return data
+	}
+	shark("admin", "init", "--non-interactive")
+	shark("bug", "create", "Research in a worktree")
+	shark("status", "set", "B001", "research", "--force", "--reason", "fixture setup")
+	blocked := `{"kind":"final","recommended_outcome":"blocked","evidence":[],"gate_result":{"schema_version":1,"summary":"Fixture stops after research","no_kickback_reason":"Fixture stops after research"}}`
+	script := fmt.Sprintf("#!/bin/sh\nset -eu\nreport=docs/plan/bugs/B001.research-report.md\nif [ -f \"$report\" ]; then printf '%%s\\n' '%s'; exit 0; fi\nmkdir -p docs/plan/bugs\ncat > \"$report\" <<'REPORT'\n---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n## Scope\nBug diagnosis.\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `app`.\n- [x] `affected_implementation_or_contract` — Evidence: `app`.\n## Findings\nThe cause is isolated.\n## Decisions\nRepair the existing boundary.\n## Sources\n- `app`\nREPORT\ngit add \"$report\"\ngit -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -m 'Record research' >/dev/null\n(cd %q && %q --db %q related-docs add 'Research report' docs/plan/bugs/B001.research-report.md --bug=B001 >/dev/null)\nprintf 'RECOMMENDED OUTCOME: pass\\n'\n", blocked, project, binary, db)
+	fakeDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "claude"), []byte(script), 0700))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "run", "B001", "--worktree", "--db", db, "--json")
+	cmd.Dir = project
+	cmd.Env = append(os.Environ(), "PATH="+fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err = cmd.Output()
+	require.NoError(t, err, stderr.String())
+	var result struct {
+		FinalStatus string `json:"final_status"`
+		Stages      []struct {
+			Status string `json:"status"`
+		} `json:"stages"`
+	}
+	require.NoError(t, json.Unmarshal(out, &result), string(out))
+	require.Equal(t, "blocked", result.FinalStatus, stderr.String())
+	require.GreaterOrEqual(t, len(result.Stages), 2)
+	require.Equal(t, "research", result.Stages[0].Status)
+	require.Contains(t, string(shark("related-docs", "list", "--bug=B001")), "B001.research-report.md")
+}
+
+func TestBugResearchRiderAdvanceUsesWorkerWorkdir(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = repo
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	initCC044Baseline(t, project)
+	db := filepath.Join(project, "fixture.db")
+	shark := func(args ...string) []byte {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", db, "--json")...)
+		cmd.Dir = project
+		data, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(data))
+		return data
+	}
+	shark("admin", "init", "--non-interactive")
+	shark("bug", "create", "Rider research")
+	shark("status", "set", "B001", "research", "--force", "--reason", "fixture setup")
+	worker := filepath.Join(t.TempDir(), "worker")
+	git := exec.Command("git", "-C", project, "worktree", "add", "--detach", worker, "HEAD")
+	out, err = git.CombinedOutput()
+	require.NoError(t, err, string(out))
+	shark("next", "B001", "--workdir", worker)
+	foreign := t.TempDir()
+	bad := exec.Command(binary, "next", "B001", "--workdir", foreign, "--db", db, "--json")
+	bad.Dir = project
+	out, err = bad.CombinedOutput()
+	require.Error(t, err)
+	require.Contains(t, string(out), "cannot be bound")
+	report := "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n## Scope\nDiagnose the bug.\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `app`.\n- [x] `affected_implementation_or_contract` — Evidence: `app`.\n## Findings\nCause located.\n## Decisions\nRepair the boundary.\n## Sources\n- `app`\n"
+	path := filepath.Join(worker, "docs", "plan", "bugs", "B001.research-report.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+	require.NoError(t, os.WriteFile(path, []byte(report), 0600))
+	for _, args := range [][]string{{"add", "docs/plan/bugs/B001.research-report.md"}, {"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-m", "Record research"}} {
+		cmd := exec.Command("git", append([]string{"-C", worker}, args...)...)
+		out, err = cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	shark("related-docs", "add", "Research report", "docs/plan/bugs/B001.research-report.md", "--bug=B001")
+	shark("status", "advance", "B001", "--outcome", "pass", "--workdir", worker)
+	var bug struct {
+		Status string `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal(shark("get", "B001"), &bug))
+	require.Equal(t, "repair_plan", bug.Status)
+}

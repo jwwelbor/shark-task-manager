@@ -11,6 +11,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/attribute"
@@ -217,6 +218,7 @@ func init() {
 	statusAdvanceCmd.Flags().String("agent", "", "Actor identity recorded as changed_by (default: $SHARK_ACTOR or 'cli')")
 	statusAdvanceCmd.Flags().String("session", "", "Lease/session id for guarded advances when advance_guard is enabled")
 	statusAdvanceCmd.Flags().String("from-status", "", "Expected current status for guarded advances when advance_guard is enabled")
+	statusAdvanceCmd.Flags().String("workdir", "", "Worker working directory for a bug research result")
 	statusAdvanceCmd.Flags().Bool("force-repeat", false, "Override guarded replay rejection when advance_guard.allow_repeat_with_force is enabled (requires --reason)")
 
 	// statusHistoryCmd flags
@@ -464,7 +466,7 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	// Determine the target. With --outcome, resolve via the route-based outcomes
 	// map (release semantics, D4). Without it, auto-select the default transition.
 	// cmd may be nil in unit tests that call runStatusAdvance directly.
-	var outcome, reason, agent, sessionID, fromStatusFlag string
+	var outcome, reason, agent, sessionID, fromStatusFlag, workdir string
 	var forceRepeat bool
 	if cmd != nil {
 		outcome, _ = cmd.Flags().GetString("outcome")
@@ -472,6 +474,7 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		agent, _ = cmd.Flags().GetString("agent")
 		sessionID, _ = cmd.Flags().GetString("session")
 		fromStatusFlag, _ = cmd.Flags().GetString("from-status")
+		workdir, _ = cmd.Flags().GetString("workdir")
 		forceRepeat, _ = cmd.Flags().GetBool("force-repeat")
 	}
 	if agent == "" {
@@ -485,6 +488,22 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		SessionID:   strings.TrimSpace(sessionID),
 		FromStatus:  strings.TrimSpace(fromStatusFlag),
 		ForceRepeat: forceRepeat,
+	}
+	if workdir != "" {
+		if entityType != "bug" || cli.GetWorkflowService().ForLevel("bug").NormalizeStatus(fromStatus) != "research" {
+			return fmt.Errorf("--workdir is only supported when advancing bug research")
+		}
+		root, err := cli.FindProjectRoot()
+		if err != nil {
+			return fmt.Errorf("locate parent project: %w", err)
+		}
+		if err := runner.ValidateBugWorkingDir(ctx, root, workdir); err != nil {
+			return err
+		}
+		opts.ResearchArtifactRoot, err = runner.BugWorktreeProjectRoot(ctx, root, workdir)
+		if err != nil {
+			return err
+		}
 	}
 	if cfg, err := cli.GetConfig(); err == nil && cfg != nil && cfg.IsAdvanceGuardEnabled() {
 		opts.GuardAdvance = true

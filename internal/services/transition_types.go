@@ -65,15 +65,17 @@ type TransitionOptions struct {
 	ForceTerminalReopen bool `json:"-"`
 	// GateAdmissionVerified is set by the parent gate coordinator only after
 	// its admission callback has accepted the pending operation.
-	GateAdmissionVerified bool   `json:"-"`
-	Reason                string `json:"reason,omitempty"`
-	DocumentPath          string `json:"document_path,omitempty"`
-	Agent                 string `json:"agent,omitempty"`
-	SessionID             string `json:"session_id,omitempty"`
-	FromStatus            string `json:"from_status,omitempty"`
-	Outcome               string `json:"outcome,omitempty"`
-	ForceRepeat           bool   `json:"force_repeat,omitempty"`
-	GuardAdvance          bool   `json:"guard_advance,omitempty"`
+	GateAdmissionVerified bool `json:"-"`
+	// ResearchArtifactRoot is a parent-selected linked-worktree project root.
+	ResearchArtifactRoot string `json:"-"`
+	Reason               string `json:"reason,omitempty"`
+	DocumentPath         string `json:"document_path,omitempty"`
+	Agent                string `json:"agent,omitempty"`
+	SessionID            string `json:"session_id,omitempty"`
+	FromStatus           string `json:"from_status,omitempty"`
+	Outcome              string `json:"outcome,omitempty"`
+	ForceRepeat          bool   `json:"force_repeat,omitempty"`
+	GuardAdvance         bool   `json:"guard_advance,omitempty"`
 }
 
 // TransitionResult represents the outcome of a status transition.

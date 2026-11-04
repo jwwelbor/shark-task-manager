@@ -316,6 +316,21 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	// even built) and Persist's actual writes. See
 	// gatepersist.ClaimVerifier's doc comment.
 	coordinator.ClaimVerifier = claimSvc
-	coordinator.Admission = runner.NewBugGateAdmission(noteSvc, history, workflowSvc.ForLevel("bug").NormalizeStatus)
+	admit := runner.NewBugGateAdmission(noteSvc, history, workflowSvc.ForLevel("bug").NormalizeStatus)
+	coordinator.Admission = func(ctx context.Context, req gatepersist.Request) error {
+		if err := admit(ctx, req); err != nil {
+			return err
+		}
+		if req.EntityType != models.EntityTypeBug || req.Gate != "plan_review" || req.Role != gateresult.RoleSuccess {
+			return nil
+		}
+		return runner.ValidateBugPlanReviewReport(ctx, req, cli.GetBugService())
+	}
+	coordinator.BeforeTransition = func(ctx context.Context, req gatepersist.Request) error {
+		if req.EntityType != models.EntityTypeBug || req.Gate != "plan_review" || req.Role != gateresult.RoleSuccess {
+			return nil
+		}
+		return runner.PrepareBugPlanApproval(ctx, req, cli.GetBugService())
+	}
 	return coordinator, nil
 }

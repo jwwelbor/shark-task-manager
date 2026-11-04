@@ -25,8 +25,37 @@ func (n bugApprovalNotes) ListNotes(context.Context, models.EntityType, string, 
 
 type bugApprovalHistory struct{ items []*models.EntityHistory }
 
+type bugApprovalDocuments struct{ items []*models.Document }
+
+func (d bugApprovalDocuments) ListRelatedDocumentsByKey(context.Context, string) ([]*models.Document, error) {
+	return d.items, nil
+}
+
+func TestPrepareBugPlanApprovalRequiresLinkedDigestBoundReport(t *testing.T) {
+	root := t.TempDir()
+	plan := []byte("reviewed plan")
+	report := []byte("independent review")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "review.md"), report, 0600))
+	planHash, reportHash := sha256.Sum256(plan), sha256.Sum256(report)
+	dir, err := gaterun.RunDir(root, "approval")
+	require.NoError(t, err)
+	req := gatepersist.Request{EntityType: models.EntityTypeBug, EntityKey: "B001", Gate: "plan_review", Role: gateresult.RoleSuccess, RunDir: dir,
+		EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"plan_review_report","pointer":"review.md","summary":"sha256:%x"}],"gate_result":{"schema_version":1,"summary":"approved"}}`, planHash, reportHash))}
+	require.ErrorContains(t, PrepareBugPlanApproval(context.Background(), req, bugApprovalDocuments{}), "not linked")
+	linked := bugApprovalDocuments{items: []*models.Document{{FilePath: "review.md"}}}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "review.md"), []byte("changed"), 0600))
+	require.ErrorContains(t, PrepareBugPlanApproval(context.Background(), req, linked), "digest is stale")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "review.md"), report, 0600))
+	require.NoError(t, PrepareBugPlanApproval(context.Background(), req, linked))
+	retained, exists, err := gaterun.ReadApprovedPlan(dir)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, plan, retained)
+}
+
 func validBugApprovalMode(mode string) bool {
-	return mode == "valid" || mode == "renamed" || mode == "later_incomplete" || mode == "digest_case"
+	return mode == "valid" || mode == "renamed" || mode == "later_incomplete" || mode == "digest_case" || mode == "source_changed"
 }
 
 func bugApprovalEnvelopeCase(mode string, hash [32]byte, envelope []byte) []byte {
@@ -53,7 +82,7 @@ func (h bugApprovalHistory) GetHistory(context.Context, models.EntityType, strin
 }
 
 func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
-	for _, mode := range []string{"valid", "renamed", "later_incomplete", "digest_case", "baseline_changed", "missing", "unapproved", "invalidated", "partial", "tampered"} {
+	for _, mode := range []string{"valid", "renamed", "later_incomplete", "digest_case", "source_changed", "snapshot_tampered", "snapshot_missing", "baseline_changed", "missing", "unapproved", "invalidated", "partial", "tampered"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			plan := []byte("plan v1\n")
@@ -79,6 +108,14 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			require.NoError(t, err)
 			_, err = gaterun.CreateResult(dir, prior)
 			require.NoError(t, err)
+			_, err = gaterun.CreateApprovedPlan(dir, plan)
+			require.NoError(t, err)
+			if mode == "snapshot_tampered" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "approved-plan.md"), []byte("different plan"), 0o600))
+			}
+			if mode == "snapshot_missing" {
+				require.NoError(t, os.Remove(filepath.Join(dir, "approved-plan.md")))
+			}
 			state := gaterun.NewOperationState("approved-run", "B001", "bug", "plan_review", "plan_review", digest)
 			state.AdmissionVersion = gatepersist.BoundAdmissionVersion
 			require.NoError(t, state.MarkPersistenceComplete())
@@ -106,6 +143,9 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 				plan = []byte("plan v2\n")
 				require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0o600))
 				hash = sha256.Sum256(plan)
+			}
+			if mode == "source_changed" {
+				require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), []byte("unreviewed edit"), 0o600))
 			}
 			if mode == "baseline_changed" {
 				baseline = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

@@ -261,6 +261,8 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, err)
 	_, err = gaterun.CreateResult(dir, prior)
 	require.NoError(t, err)
+	_, err = gaterun.CreateApprovedPlan(dir, plan)
+	require.NoError(t, err)
 	state := gaterun.NewOperationState("approved-plan", "B001", "bug", "plan_review", "plan_review", digest)
 	state.AdmissionVersion = gatepersist.BoundAdmissionVersion
 	require.NoError(t, state.MarkPersistenceComplete())

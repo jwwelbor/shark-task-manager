@@ -30,11 +30,17 @@ type artifact struct {
 // presence, front matter, selected recipe/tier/categories, checked modules,
 // and source evidence only; it deliberately does not evaluate prose quality.
 func ValidateEntity(projectRoot string, entity models.Entity) error {
+	return ValidateEntityAt(projectRoot, projectRoot, entity)
+}
+
+// ValidateEntityAt uses the parent project's recipe catalog and resolves the
+// report in the selected project checkout.
+func ValidateEntityAt(projectRoot, artifactRoot string, entity models.Entity) error {
 	catalog, err := LoadCatalog(projectRoot)
 	if err != nil {
 		return err
 	}
-	paths, err := ArtifactPaths(projectRoot, entity)
+	paths, err := ArtifactPaths(artifactRoot, entity)
 	if err != nil {
 		return err
 	}

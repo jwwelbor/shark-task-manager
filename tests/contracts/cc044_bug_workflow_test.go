@@ -325,6 +325,13 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
 			planHash := sha256.Sum256(plan)
 			refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", planHash)}, {"kind": "bug_review_baseline", "pointer": baseline}}
+			reportRel := "docs/review/B001.plan-review.md"
+			report := []byte("Independent review approved the plan.\n")
+			require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(project, reportRel)), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(project, reportRel), report, 0600))
+			shark("related-docs", "add", "Plan review", reportRel, "--bug=B001")
+			reportHash := sha256.Sum256(report)
+			refs = append(refs, map[string]string{"kind": "plan_review_report", "pointer": reportRel, "summary": fmt.Sprintf("sha256:%x", reportHash)})
 			resultPath := filepath.Join(project, ".shark", "runs", "fixture-result", "fixture-result.json")
 			require.NoError(t, os.MkdirAll(filepath.Dir(resultPath), 0700))
 			writeEnvelope := func(path string, evidence []map[string]string, outcome string) {
@@ -476,6 +483,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	claims := services.NewClaimService(claimrepo.NewRepository(storage), nil)
 	coordinator := gatepersist.NewCoordinator(notes, notes, history, gatepersist.NewWorkflowStatusValidator(flow), transition, transition, claims, transition)
 	coordinator.ClaimVerifier = claims
+	coordinator.BeforeTransition = runner.PrepareBugApprovalSnapshot
 	realAdmission := runner.NewBugGateAdmission(notes, history, flow.ForLevel("bug").NormalizeStatus)
 	calls := map[string]int{}
 	var callsMu sync.Mutex
@@ -557,6 +565,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	crashTransition := &failAfterRealTransition{delegate: transition, fail: true}
 	crashCoordinator := gatepersist.NewCoordinator(notes, notes, history, gatepersist.NewWorkflowStatusValidator(flow), crashTransition, transition, claims, transition)
 	crashCoordinator.ClaimVerifier = claims
+	crashCoordinator.BeforeTransition = runner.PrepareBugApprovalSnapshot
 	crashCoordinator.Admission = realAdmission
 	crashResult := makeEnvelope("plan-crash.md", "crash plan")
 	workerPlan := filepath.Join(worker, "docs", "plan", "bugs", "plan-crash.md")
@@ -650,6 +659,13 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
 	hash := sha256.Sum256(plan)
 	refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": baseline}}
+	reportRel := "docs/review/B001.plan-review.md"
+	report := []byte("Independent review approved the plan.\n")
+	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(project, reportRel)), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(project, reportRel), report, 0600))
+	shark("related-docs", "add", "Plan review", reportRel, "--bug=B001")
+	reportHash := sha256.Sum256(report)
+	refs = append(refs, map[string]string{"kind": "plan_review_report", "pointer": reportRel, "summary": fmt.Sprintf("sha256:%x", reportHash)})
 	resultPath := filepath.Join(project, "result.json")
 	write := func(outcome string) {
 		t.Helper()
@@ -659,6 +675,17 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	}
 	write("approved")
 	shark("run", "B001", "--apply-result", resultPath, "--run-id", "custom-approval", "--session", "fixture-session")
+	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), []byte("unreviewed edit\n"), 0600))
+	var downstream struct {
+		Prompt       string `json:"prompt"`
+		PromptSHA256 string `json:"prompt_sha256"`
+	}
+	downstreamJSON := shark("next", "B001")
+	require.NoError(t, json.Unmarshal(downstreamJSON, &downstream), string(downstreamJSON))
+	require.Contains(t, downstream.Prompt, string(plan))
+	require.NotContains(t, downstream.Prompt, "unreviewed edit")
+	promptHash := sha256.Sum256([]byte(downstream.Prompt))
+	require.Equal(t, fmt.Sprintf("%x", promptHash), downstream.PromptSHA256)
 	write("pass")
 	shark("run", "B001", "--apply-result", resultPath, "--run-id", "custom-development", "--session", "fixture-session")
 	var result struct {

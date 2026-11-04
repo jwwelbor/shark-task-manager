@@ -79,6 +79,7 @@ func TestBugGateRejectsSourceChangedAfterAdmission(t *testing.T) {
 	coord := gatepersist.NewCoordinator(notes, notes, history, gatepersist.NewWorkflowStatusValidator(flow), interleaved, transition, claims, transition)
 	coord.ClaimVerifier = claims
 	coord.Admission = runner.NewBugGateAdmission(notes, history)
+	coord.BeforeTransition = runner.PrepareBugApprovalSnapshot
 	planRel := "docs/plan/bugs/B001.repair-plan.md"
 	plan := []byte("approved plan")
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))

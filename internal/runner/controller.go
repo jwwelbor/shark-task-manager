@@ -330,6 +330,10 @@ type RunControllerDeps struct {
 	// host-facing prompt. Optional; nil preserves the legacy instruction passthrough.
 	PromptAssembler PromptAssembler
 
+	// ApprovedBugPlan supplies the authoritative reviewed plan for downstream
+	// bug workers. Production wires it to the parent-owned approval records.
+	ApprovedBugPlan func(context.Context, string) ([]byte, error)
+
 	// ChildrenSvc lists dispatchable cascade children. Required when ActionCascade
 	// is reachable from this controller.
 	ChildrenSvc CascadeChildrenService
@@ -376,6 +380,7 @@ type RunController struct {
 	workflowSvc       *workflow.Service
 	dispatchers       map[string]AgentDispatcher
 	assembler         PromptAssembler
+	approvedBugPlan   func(context.Context, string) ([]byte, error)
 	childrenSvc       CascadeChildrenService
 	runChild          CascadeChildRunner
 	questionResponses QuestionResponsePersister
@@ -415,6 +420,7 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		workflowSvc:       deps.WorkflowSvc,
 		dispatchers:       deps.Dispatchers,
 		assembler:         assembler,
+		approvedBugPlan:   deps.ApprovedBugPlan,
 		childrenSvc:       deps.ChildrenSvc,
 		runChild:          deps.RunChild,
 		questionResponses: deps.QuestionResponses,
@@ -1478,6 +1484,14 @@ func (c *RunController) handleSpawnAgent(
 		})
 		return stageOutcome{done: true}
 	}
+	if opts.EntityType == "bug" && c.workflowSvc.ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == config.ResultContractGateResultV1 && BugNeedsApprovedPlan(c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus)) && c.approvedBugPlan != nil {
+		plan, planErr := c.approvedBugPlan(ctx, key)
+		if planErr != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{EntityKey: key, Status: currentStatus, Phase: "approved_plan", Error: planErr.Error(), RunID: opts.RunID})
+			return stageOutcome{done: true}
+		}
+		assembledPrompt = AppendApprovedBugPlan(assembledPrompt, plan)
+	}
 
 	input := DispatchInput{
 		Instruction:    assembledPrompt,
@@ -1765,7 +1779,15 @@ func (c *RunController) handleSpawnAgent(
 			TranscriptPath: relPath,
 		})
 
-		transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
+		transitionOpts := guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo)
+		if opts.EntityType == "bug" && c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus) == "research" && opts.WorkingDir != "" {
+			transitionOpts.ResearchArtifactRoot, err = BugWorktreeProjectRoot(ctx, opts.ProjectRoot, opts.WorkingDir)
+			if err != nil {
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{EntityKey: key, Status: currentStatus, Phase: "research_evidence_root", Error: err.Error(), RunID: opts.RunID})
+				return stageOutcome{done: true}
+			}
+		}
+		transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, transitionOpts)
 		if err != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 				EntityKey: key,

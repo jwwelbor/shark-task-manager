@@ -3,7 +3,9 @@
 
 Research bug {{.id}}: "{{.title}}" using the v2 universal recipe catalog.
 Write only `{{.id}}.research-report.md` beside {{.file_path}} and register it
-as a related document. Front matter must include only `research_schema: 2`,
+as a related document. Commit the research document in `docs/plan` in its
+project checkout and register it against the parent Shark project's bug record.
+Front matter must include only `research_schema: 2`,
 `rigor`, a `categories` list drawn only from the recipe's category vocabulary
 (e.g. `frontend`, `backend`, `api`, `data`, `workflow_operations`,
 `documentation` — never a module ID), and a boolean `related_work` (`true` or
