@@ -226,8 +226,8 @@ def _validate_scope_manifest(scope, base_commit, diff_path, root):
     if base_commit != scope["base_commit"] or diff_path != scope["diff_path"]:
         raise ValueError("review arguments do not match captured scope")
     _scope_git(root, "merge-base", "--is-ancestor", base_commit, candidate)
-    _validate_scope_diff(scope, base_commit, diff_path, root, candidate)
-    return candidate, tree
+    diff = _validate_scope_diff(scope, base_commit, diff_path, root, candidate)
+    return candidate, tree, diff
 
 
 def _validate_scope_diff(scope, base_commit, diff_path, root, candidate):
@@ -238,6 +238,7 @@ def _validate_scope_diff(scope, base_commit, diff_path, root, candidate):
     manifest = [os.fsdecode(p) for p in _scope_git(root, "diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
     if manifest != scope["changed_files"] or len(manifest) != scope["changed_file_count"]:
         raise ValueError("scope manifest does not match candidate")
+    return diff
 
 
 def _snapshot_marker(root, candidate):
@@ -309,7 +310,7 @@ def _validate_source_root(scope, reviewed_root, expected_source_root):
         raise ValueError("review source root does not match trusted source")
 
 
-def validate_scope(scope: dict[str, object], base_commit: str, diff_path: str, expected_root: str, expected_source_root: str, expected_shark_root: str | None = None) -> dict[str, object]:
+def validate_scope(scope: dict[str, object], base_commit: str, diff_path: str, expected_root: str, expected_source_root: str, expected_shark_root: str | None = None, captured: dict | None = None) -> dict[str, object]:
     """Validate the frozen manifest and candidate before accepting a review."""
     root = scope["project_root"]
     if Path(root).resolve(strict=True) != Path(expected_root).resolve(strict=True):
@@ -319,7 +320,7 @@ def validate_scope(scope: dict[str, object], base_commit: str, diff_path: str, e
     if scope.get("runtime_project", ".") != expected_runtime:
         raise ValueError("review Shark project location mismatch")
     _validate_scope_identity(scope)
-    candidate, tree = _validate_scope_manifest(scope, base_commit, diff_path, root)
+    candidate, tree, diff = _validate_scope_manifest(scope, base_commit, diff_path, root)
     source = scope.get("source_snapshot")
     subject, marker = _snapshot_marker(root, candidate)
     if (subject == "Shark isolated review snapshot v1" or marker) and not source:
@@ -327,16 +328,20 @@ def validate_scope(scope: dict[str, object], base_commit: str, diff_path: str, e
     if source:
         _validate_snapshot_metadata(source, marker, root, candidate, tree, expected_runtime)
         _validate_snapshot_content(source, tree)
+    if captured is not None:
+        captured["diff"] = diff
     return scope
 
 
 def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | None:
     metadata.pop("_scope", None)
+    metadata.pop("_diff_bytes", None)
     try:
         if not args.scope_file:
             raise ValueError("captured scope is required")
         scope = json.loads(read_review_file(args.scope_file, 32 * 1024 * 1024).decode("utf-8"))
-        validate_scope(scope, args.base_commit, args.diff_path, args.project_root, args.source_root, args.shark_project_root)
+        captured = {}
+        validate_scope(scope, args.base_commit, args.diff_path, args.project_root, args.source_root, args.shark_project_root, captured)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
         metadata["runner_mode"] = "incomplete"
         metadata["verdict"] = "INCOMPLETE"
@@ -346,6 +351,7 @@ def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | N
         metadata[key] = scope[key]
     metadata["repair_plan_sha256"] = scope.get("repair_plan_sha256")
     metadata["_scope"] = scope
+    metadata["_diff_bytes"] = captured["diff"]
     return None
 
 
@@ -382,11 +388,11 @@ def _angle_findings(name, result, scope):
     return findings
 
 
-def validate_six_angles(path: str | None, scope: dict[str, object]) -> list[dict[str, object]]:
+def validate_six_angles(data: bytes, scope: dict[str, object]) -> list[dict[str, object]]:
     """Validate actual per-angle evidence before claiming six completed angles."""
-    if not path:
+    if not data:
         raise ValueError("six-angle results are required")
-    angles = json.loads(read_review_file(path, 32 * 1024 * 1024).decode("utf-8"))
+    angles = json.loads(data.decode("utf-8"))
     if not isinstance(angles, dict) or set(angles) != set("abcdef"):
         raise ValueError("six distinct angle results are required")
     return [finding for name, result in angles.items() for finding in _angle_findings(name, result, scope)]
@@ -407,12 +413,12 @@ def _validate_decision(finding, verdict):
         raise ValueError("refutation reason contradicts its disposition")
 
 
-def _check_raw_findings(raw_findings, by_key):
+def _check_raw_findings(raw_findings, by_key, verdict):
     for finding in raw_findings:
         decision = by_key.get(_finding_key(finding))
         if not decision:
             raise ValueError("raw finding has no explicit disposition")
-        if finding["severity"] == "blocker" and (decision["severity"] != "blocker" or decision["disposition"] != "refuted"):
+        if verdict.upper().startswith("PASS") and finding["severity"] == "blocker" and (decision["severity"] != "blocker" or decision["disposition"] != "refuted"):
             raise ValueError("raw blocker has no explicit refutation")
 
 
@@ -432,8 +438,7 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
         if key in by_key:
             raise ValueError("duplicate review decision")
         by_key[key] = finding
-    if verdict.upper().startswith("PASS"):
-        _check_raw_findings(raw_findings, by_key)
+    _check_raw_findings(raw_findings, by_key, verdict)
 
 
 def valid_review_report(body: str, verdict: str) -> bool:
@@ -495,10 +500,10 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
             _write_new_bytes(retained_decisions, data)
             metadata["retained_decisions"] = str(retained_decisions.resolve())
             metadata["decisions_sha256"] = hashlib.sha256(data).hexdigest()
-        angle_file = metadata.pop("_angle_results", None)
-        if angle_file:
+        angle_bytes = metadata.pop("_angle_bytes", None)
+        if angle_bytes is not None:
             retained_angles = Path(str(path) + ".angles.json")
-            data = read_review_file(angle_file, 32 * 1024 * 1024)
+            data = angle_bytes
             _write_new_bytes(retained_angles, data)
             metadata["retained_angles"] = str(retained_angles.resolve())
             metadata["angles_sha256"] = hashlib.sha256(data).hexdigest()
@@ -506,7 +511,7 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
         if scope is not None:
             retained = dict(scope)
             retained_diff = Path(str(path) + ".diff")
-            _write_new_bytes(retained_diff, read_review_file(scope["diff_path"], 128 * 1024 * 1024))
+            _write_new_bytes(retained_diff, metadata.pop("_diff_bytes"))
             retained["diff_path"] = str(retained_diff.resolve())
             retained_scope = Path(str(path) + ".scope.json")
             data = (json.dumps(retained, indent=2) + "\n").encode("utf-8")
@@ -626,6 +631,17 @@ def run_cli(args: argparse.Namespace) -> int:
         persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
+    try:
+        if scope != base["_scope"]:
+            raise ValueError("captured scope changed during review")
+        validate_review_decisions(selected_decisions, base["_scope"], [], verdict)
+    except (ValueError, KeyError, TypeError) as exc:
+        base["runner_mode"] = "incomplete"
+        base["verdict"] = "INCOMPLETE"
+        base["fallback_reason"] = f"review decisions no longer match the validated scope: {exc}"
+        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
+        print(json.dumps({**base, "report_path": args.review_output_path}))
+        return 2
     base["_decisions"] = selected_decisions
     persist_report(Path(args.review_output_path), output, base, args.branch)
     print(json.dumps({**base, "report_path": args.review_output_path, "exit_status": 0}))
@@ -633,36 +649,35 @@ def run_cli(args: argparse.Namespace) -> int:
 
 
 def _writer_angles(args, metadata, scope_error):
-    if args.angle_results and Path(args.angle_results).is_file():
-        # Retain partial evidence even when it cannot support a passing review.
-        metadata["_angle_results"] = args.angle_results
     is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
     incomplete = is_six and (args.specialists_completed != 6 or not args.consolidator_completed)
+    try:
+        if args.angle_results:
+            # Retain exactly the bytes checked, including partial evidence.
+            metadata["_angle_bytes"] = read_review_file(args.angle_results, 32 * 1024 * 1024)
+    except (OSError, ValueError) as exc:
+        metadata["fallback_reason"] = f"angle evidence unavailable: {exc}"
+        return [], is_six
     if not is_six or scope_error or incomplete:
         return [], incomplete
     try:
-        findings = validate_six_angles(args.angle_results, metadata["_scope"])
-        metadata["_angle_results"] = args.angle_results
+        findings = validate_six_angles(metadata.get("_angle_bytes"), metadata["_scope"])
         return findings, False
     except (OSError, ValueError, KeyError, TypeError) as exc:
         metadata["fallback_reason"] = f"angle evidence invalid: {exc}"
         return [], True
 
 
-def _retain_failed_decisions(args, scope_error):
-    return args.verdict.upper() == "FAIL" and bool(args.review_decisions) and not scope_error
-
-
 def _writer_decisions(args, metadata, scope_error, findings, body):
     passing = args.verdict.upper() in {"PASS", "PASS-WITH-TRIAGE"}
+    failing = args.verdict.upper() == "FAIL"
     invalid_pass = passing and not valid_passing_report(body, args.verdict)
-    invalid_fail = args.verdict.upper() == "FAIL" and not valid_review_report(body, "FAIL")
-    should_retain_failure = _retain_failed_decisions(args, scope_error)
-    if not (passing or should_retain_failure):
+    invalid_fail = failing and not valid_review_report(body, "FAIL")
+    if not (passing or failing):
         return invalid_pass, invalid_fail
     try:
         if not args.review_decisions or scope_error:
-            raise ValueError("passing review requires candidate-bound decisions")
+            raise ValueError("completed review requires candidate-bound decisions")
         decisions = json.loads(read_review_file(args.review_decisions, 32 * 1024 * 1024).decode("utf-8"))
         validate_review_decisions(decisions, metadata["_scope"], findings, args.verdict)
         metadata["_decisions"] = decisions
@@ -671,6 +686,7 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
             invalid_pass = True
         else:
             metadata["fallback_reason"] = "failed review decisions were unavailable or malformed"
+            invalid_fail = True
     return invalid_pass, invalid_fail
 
 

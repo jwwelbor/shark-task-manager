@@ -31,23 +31,38 @@ func TestBugWorktreeDispatchRetainsEvidence(t *testing.T) {
 	build.Dir = repo
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
-	project := t.TempDir()
-	run := func(name string, args ...string) string {
+	for _, relativeProject := range []string{".", "nested/project"} {
+		t.Run(relativeProject, func(t *testing.T) {
+			testBugWorktreeDispatch(t, binary, relativeProject)
+		})
+	}
+}
+
+func testBugWorktreeDispatch(t *testing.T, binary, relativeProject string) {
+	t.Helper()
+	repository := t.TempDir()
+	project := filepath.Join(repository, relativeProject)
+	require.NoError(t, os.MkdirAll(project, 0700))
+	runIn := func(dir, name string, args ...string) string {
 		t.Helper()
 		cmd := exec.Command(name, args...)
-		cmd.Dir = project
+		cmd.Dir = dir
 		data, e := cmd.CombinedOutput()
 		require.NoError(t, e, string(data))
 		return strings.TrimSpace(string(data))
 	}
-	git := func(args ...string) string { t.Helper(); return run("git", args...) }
+	run := func(name string, args ...string) string {
+		t.Helper()
+		return runIn(project, name, args...)
+	}
+	git := func(args ...string) string { t.Helper(); return runIn(repository, "git", args...) }
 	git("init", "-b", "main")
 	git("config", "user.name", "Test")
 	git("config", "user.email", "test@example.invalid")
 	git("config", "commit.gpgsign", "false")
 	git("config", "core.hooksPath", t.TempDir())
 	require.NoError(t, os.WriteFile(filepath.Join(project, "app"), []byte("base"), 0600))
-	git("add", "app")
+	git("add", filepath.Join(relativeProject, "app"))
 	git("commit", "-m", "base")
 	baseline := git("rev-parse", "HEAD")
 	dbPath := filepath.Join(project, "fixture.db")
@@ -77,7 +92,7 @@ func TestBugWorktreeDispatchRetainsEvidence(t *testing.T) {
 	cmd.Env = append(os.Environ(), "PATH="+fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	out, err = cmd.Output()
+	out, err := cmd.Output()
 	require.NoError(t, err, stderr.String())
 	var result struct {
 		Outcome     string `json:"outcome"`

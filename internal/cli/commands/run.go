@@ -384,6 +384,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return childResult, nil
 	}
 
+	projectRoot, err := cli.FindProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to locate project root: %w", err)
+	}
+
 	// Step 5: Determine working directory, creating a git worktree if requested.
 	workingDir := runWorkDir
 	if runWorktree {
@@ -402,6 +407,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 				fmt.Fprintf(os.Stderr, "warning: failed to remove worktree %s: %v\n", worktreePath, removeErr)
 			}
 		}()
+		if entityType == "bug" {
+			workingDir, err = runner.BugWorktreeProjectRoot(ctx, projectRoot, worktreePath)
+			if err != nil {
+				return fmt.Errorf("locate bug project in retained worktree %s: %w", worktreePath, err)
+			}
+		}
 	}
 
 	// Step 6: Construct and run the controller.
@@ -424,11 +435,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)
-	}
-
-	projectRoot, err := cli.FindProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to locate project root: %w", err)
 	}
 
 	var runSessionID string

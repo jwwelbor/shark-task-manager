@@ -186,13 +186,21 @@ class CaptureScopeTest(unittest.TestCase):
                 self.assertEqual(subprocess.run(validate, capture_output=True).returncode, 0)
                 self.assertEqual(git('status', '--porcelain'), '')
                 failed_decisions = {'candidate_identity': identity, 'findings': [{'file': 'change.txt', 'line': 1, 'severity': 'blocker', 'rule': 'BUG', 'summary': 'broken', 'diagnosis': 'wrong', 'disposition': 'open', 'reason': 'still reproducible'}]}
-                decisions.write_text(json.dumps(failed_decisions))
                 body_path.write_text('Reviewed scope: all candidate files and callers. Findings: a blocking bug remains and requires repair. VERDICT: FAIL')
                 failed_writer = writer.copy()
                 failed_writer[failed_writer.index('--verdict') + 1] = 'FAIL'
+                failed_angles = json.loads(original_angles)
+                failed_angles['a']['findings'] = [{k: v for k, v in failed_decisions['findings'][0].items() if k not in ('disposition', 'reason')}]
+                angles.write_text(json.dumps(failed_angles))
+                decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+                omitted = run_writer(failed_writer, capture_output=True, text=True)
+                self.assertEqual(omitted.returncode, 2)
+                self.assertEqual(json.loads(omitted.stdout)['verdict'], 'INCOMPLETE')
+                decisions.write_text(json.dumps(failed_decisions))
                 failed = run_writer(failed_writer, capture_output=True, text=True)
                 self.assertEqual(failed.returncode, 0, failed.stderr)
                 self.assertTrue(Path(json.loads(failed.stdout)['retained_decisions']).is_file())
+                angles.write_text(original_angles)
                 body_path.write_text('Reviewed scope: all candidate files and callers. Findings: none. Detailed checks confirmed complete coverage. VERDICT: PASS')
                 contradictory_fail = run_writer(failed_writer, capture_output=True, text=True)
                 self.assertEqual(contradictory_fail.returncode, 2)

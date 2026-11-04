@@ -70,6 +70,19 @@ func bugEvidenceGate(gate string) bool {
 	}
 }
 
+// BugWorktreeProjectRoot maps the parent Shark project into its linked worktree.
+// Workers and evidence admission must use the same project-relative paths.
+func BugWorktreeProjectRoot(ctx context.Context, parentProject, worktree string) (string, error) {
+	root, err := resolveBugEvidenceRoot(ctx, parentProject, worktree)
+	if err != nil {
+		return "", err
+	}
+	if root == "" {
+		return canonicalBugProject(parentProject)
+	}
+	return root, nil
+}
+
 func resolveBugEvidenceRoot(ctx context.Context, parentProject, workingDir string) (string, error) {
 	parentRepo, relative, err := candidateRepository(ctx, parentProject)
 	if err != nil {

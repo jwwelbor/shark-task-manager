@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import argparse
+import contextlib
+import io
 import json
 import os
 import shlex
@@ -13,6 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import adaptive_review  # noqa: E402
 from adaptive_review import (  # noqa: E402
     Capabilities,
     cli_candidates,
@@ -124,6 +128,45 @@ class AdaptiveReviewTests(unittest.TestCase):
         decisions['findings'][0]['reason'] = 'evidence shows the caller cannot reach this branch'
         validate_review_decisions(decisions, scope, [blocker], 'PASS')
 
+    def test_failed_review_keeps_every_raw_finding(self):
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd'}
+        finding = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong'}
+        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
+        with self.assertRaisesRegex(ValueError, 'no explicit disposition'):
+            validate_review_decisions(decisions, scope, [finding], 'FAIL')
+        decisions['findings'] = [{**finding, 'disposition': 'open', 'reason': 'still reproducible'}]
+        validate_review_decisions(decisions, scope, [finding], 'FAIL')
+
+    def test_report_retains_validated_bytes_after_source_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            identity = review_packet(scope)['decisions']['candidate_identity']
+            angles = root / 'angles.json'
+            angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
+            decisions = root / 'decisions.json'
+            decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+            body = root / 'body'
+            body.write_text(review_packet(scope)['report'])
+            report = root / 'report'
+            diff = Path(scope['diff_path'])
+            expected = {str(path): path.read_bytes() for path in (angles, diff)}
+            original_read = adaptive_review.read_review_file
+            def replace_after_read(path, limit):
+                data = original_read(path, limit)
+                if str(path) in expected:
+                    Path(path).write_bytes(b'replaced')
+                return data
+            args = argparse.Namespace(runner_mode='dispatched-six-angle', specialists_completed=6, consolidator_completed=True,
+                adversarial_model=None, fallback_reason=None, base_commit=scope['base_commit'], diff_path=str(diff), verdict='PASS',
+                requested_model=None, effective_model=None, scope_file=str(scope_file), project_root=str(repo), source_root=str(repo),
+                shark_project_root=None, angle_results=str(angles), review_decisions=str(decisions), body_file=str(body),
+                review_output_path=str(report), branch='fixture')
+            with patch('adaptive_review.read_review_file', side_effect=replace_after_read), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(adaptive_review.write_report(args), 0)
+            self.assertEqual(Path(str(report) + '.angles.json').read_bytes(), expected[str(angles)])
+            self.assertEqual(Path(str(report) + '.diff').read_bytes(), expected[str(diff)])
+
     def test_cli_success_persists_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -146,6 +189,26 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertIn(scope['base_commit'], report.read_text())
             self.assertIn('Adversarial model:', report.read_text())
             self.assertIn('`codex`', report.read_text())
+
+    def test_cli_rejects_scope_replacement_during_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            fake = root / 'reviewer'
+            changed = {**scope, 'repair_plan_sha256': 'a' * 64}
+            fake.write_text("#!/bin/sh\nprintf '%s' " + shlex.quote(json.dumps(changed)) + ' > ' + shlex.quote(str(scope_file)) +
+                            "\nprintf '%s\\n' " + shlex.quote(json.dumps(review_packet(scope))) + "\n")
+            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(root / 'report'),
+                '--host', 'claude', '--codex-command', str(fake), '--no-workflow-available', '--no-agent-dispatch-available',
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
 
     def test_cli_pass_with_open_blocker_is_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:

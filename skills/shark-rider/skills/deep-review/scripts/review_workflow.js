@@ -274,15 +274,15 @@ function reportVerdict(body) {
   return matches[0][1].toUpperCase()
 }
 
-function matchingDecision(finding, decision) {
+function matchingDecision(finding, decision, verdict) {
   if (findingKey(finding) !== findingKey(decision)) return false
-  return finding.severity !== 'blocker' || (decision.severity === 'blocker' && decision.disposition === 'refuted')
+  return !verdict.startsWith('PASS') || finding.severity !== 'blocker' || (decision.severity === 'blocker' && decision.disposition === 'refuted')
 }
 
 function passingDecisions(verdict, values, raw) {
+  if (raw.some(f => !values.some(d => matchingDecision(f, d, verdict)))) return false
   if (!verdict.startsWith('PASS')) return true
   if (values.some(f => f.severity === 'blocker' && f.disposition !== 'refuted')) return false
-  if (raw.some(f => !values.some(d => matchingDecision(f, d)))) return false
   return verdict !== 'PASS' || !values.some(f => f.disposition !== 'refuted')
 }
 
