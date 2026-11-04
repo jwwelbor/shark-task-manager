@@ -26,7 +26,8 @@ func TestBugPlanAdmissionThroughGateIngestion(t *testing.T) {
 		{"missing", `[]`, false},
 		{"stale", `[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}]`, false},
 		{"escaping", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"../plan.md","summary":"sha256:%x"}]`, digest), false},
-		{"current", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"}]`, digest), true},
+		{"missing baseline", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"}]`, digest), false},
+		{"current", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]`, digest), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

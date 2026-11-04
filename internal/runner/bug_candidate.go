@@ -7,31 +7,49 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
 type bugCandidateScope struct {
-	ProjectRoot      string   `json:"project_root"`
-	BaseCommit       string   `json:"base_commit"`
-	CandidateCommit  string   `json:"candidate_commit"`
-	CandidateTree    string   `json:"candidate_tree"`
-	DiffSHA256       string   `json:"diff_sha256"`
-	ChangedFiles     []string `json:"changed_files"`
-	ChangedFileCount int      `json:"changed_file_count"`
-	Source           *struct {
-		SourceRoot            string   `json:"source_root"`
-		SourceCommit          string   `json:"source_commit"`
-		CandidateCommit       string   `json:"candidate_commit"`
-		CandidateTree         string   `json:"candidate_tree"`
-		SelectedPaths         []string `json:"selected_paths"`
-		SelectedIndexSHA256   string   `json:"selected_index_sha256"`
-		SourceInventorySHA256 string   `json:"source_inventory_sha256"`
-	} `json:"source_snapshot"`
+	ProjectRoot      string             `json:"project_root"`
+	BaseCommit       string             `json:"base_commit"`
+	CandidateCommit  string             `json:"candidate_commit"`
+	CandidateTree    string             `json:"candidate_tree"`
+	DiffSHA256       string             `json:"diff_sha256"`
+	RepairPlanSHA256 string             `json:"repair_plan_sha256"`
+	ChangedFiles     []string           `json:"changed_files"`
+	ChangedFileCount int                `json:"changed_file_count"`
+	Source           *bugSourceSnapshot `json:"source_snapshot"`
+}
+
+type bugSourceSnapshot struct {
+	ProjectRoot           string   `json:"project_root"`
+	SourceRoot            string   `json:"source_root"`
+	SourceCommit          string   `json:"source_commit"`
+	CandidateCommit       string   `json:"candidate_commit"`
+	CandidateTree         string   `json:"candidate_tree"`
+	SelectedPaths         []string `json:"selected_paths"`
+	SelectedIndexSHA256   string   `json:"selected_index_sha256"`
+	SourceInventorySHA256 string   `json:"source_inventory_sha256"`
+}
+
+func (s *bugSourceSnapshot) UnmarshalJSON(data []byte) error {
+	type snapshotFields bugSourceSnapshot
+	var value snapshotFields
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	*s = bugSourceSnapshot(value)
+	return nil
 }
 
 // verifyBugCandidate checks the reviewed tree against the current source, including
@@ -57,28 +75,42 @@ func verifyBugCandidate(ctx context.Context, root string, data []byte) error {
 	if scope.Source == nil {
 		return validateCleanBugCandidate(root, scope, run)
 	}
-	return validateBugSnapshot(root, scope, git, run)
+	return validateBugSnapshot(ctx, root, scope, git, run)
 }
 
-func validateBugCandidateManifest(scope bugCandidateScope, run func(...string) ([]byte, error)) error {
-	trim := func(b []byte) string { return strings.TrimSpace(string(b)) }
-	isHash := func(s string) bool {
-		if len(s) != 40 && len(s) != 64 {
-			return false
-		}
-		_, err := hex.DecodeString(s)
-		return err == nil
+type bugGitRunner func(...string) ([]byte, error)
+type bugGitWithEnv func([]string, ...string) ([]byte, error)
+
+func validateBugCandidateManifest(scope bugCandidateScope, run bugGitRunner) error {
+	if err := validateBugGitIdentity(scope, run); err != nil {
+		return err
 	}
-	if !isHash(scope.BaseCommit) || !isHash(scope.CandidateCommit) || !isHash(scope.CandidateTree) {
+	return validateBugDiffManifest(scope, run)
+}
+func validateBugGitIdentity(scope bugCandidateScope, run bugGitRunner) error {
+	if !validGitHash(scope.BaseCommit) || !validGitHash(scope.CandidateCommit) || !validGitHash(scope.CandidateTree) {
 		return fmt.Errorf("invalid candidate identity")
 	}
 	if _, err := run("cat-file", "-e", scope.CandidateCommit+"^{commit}"); err != nil {
 		return fmt.Errorf("candidate commit is invalid: %w", err)
 	}
+	if _, err := run("merge-base", "--is-ancestor", scope.BaseCommit, scope.CandidateCommit); err != nil {
+		return fmt.Errorf("review baseline is not a candidate ancestor: %w", err)
+	}
 	tree, err := run("rev-parse", scope.CandidateCommit+"^{tree}")
-	if err != nil || trim(tree) != scope.CandidateTree {
+	if err != nil || strings.TrimSpace(string(tree)) != scope.CandidateTree {
 		return fmt.Errorf("candidate tree mismatch")
 	}
+	return nil
+}
+func validGitHash(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil
+}
+func validateBugDiffManifest(scope bugCandidateScope, run bugGitRunner) error {
 	diff, err := run("diff", "--no-ext-diff", "--binary", scope.BaseCommit, scope.CandidateCommit)
 	if err != nil {
 		return err
@@ -87,6 +119,10 @@ func validateBugCandidateManifest(scope bugCandidateScope, run func(...string) (
 	if hex.EncodeToString(hash[:]) != scope.DiffSHA256 || len(diff) == 0 {
 		return fmt.Errorf("candidate diff mismatch")
 	}
+	return validateBugChangedFiles(scope, run)
+}
+
+func validateBugChangedFiles(scope bugCandidateScope, run bugGitRunner) error {
 	names, err := run("diff", "--name-only", "-z", scope.BaseCommit, scope.CandidateCommit)
 	if err != nil {
 		return err
@@ -107,26 +143,52 @@ func validateBugCandidateManifest(scope bugCandidateScope, run func(...string) (
 	}
 	return nil
 }
-
-func validateCleanBugCandidate(root string, scope bugCandidateScope, run func(...string) ([]byte, error)) error {
-	trim := func(b []byte) string { return strings.TrimSpace(string(b)) }
-	subject, err := run("log", "-1", "--format=%s", scope.CandidateCommit)
+func validateCleanBugCandidate(root string, scope bugCandidateScope, run bugGitRunner) error {
+	if err := requireNoSnapshotMarker(root, scope.CandidateCommit, run); err != nil {
+		return err
+	}
+	if err := sameBugProject(root, scope.ProjectRoot); err != nil {
+		return err
+	}
+	return validateCleanBugHead(scope, run)
+}
+func requireNoSnapshotMarker(root, commit string, run bugGitRunner) error {
+	marker, err := run("rev-parse", "--git-path", "shark-review-source.json")
 	if err != nil {
 		return err
 	}
-	if trim(subject) == "Shark isolated review snapshot v1" {
+	path := strings.TrimSpace(string(marker))
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("snapshot source metadata missing")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	subject, err := run("log", "-1", "--format=%s", commit)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(subject)) == "Shark isolated review snapshot v1" {
 		return fmt.Errorf("snapshot source metadata missing")
 	}
-	a, err := filepath.EvalSymlinks(root)
+	return nil
+}
+func sameBugProject(a, b string) error {
+	first, err := filepath.EvalSymlinks(a)
 	if err != nil {
 		return err
 	}
-	b, err := filepath.EvalSymlinks(scope.ProjectRoot)
-	if err != nil || a != b {
+	second, err := filepath.EvalSymlinks(b)
+	if err != nil || first != second {
 		return fmt.Errorf("review project mismatch")
 	}
+	return nil
+}
+func validateCleanBugHead(scope bugCandidateScope, run bugGitRunner) error {
 	head, err := run("rev-parse", "HEAD")
-	if err != nil || trim(head) != scope.CandidateCommit {
+	if err != nil || strings.TrimSpace(string(head)) != scope.CandidateCommit {
 		return fmt.Errorf("candidate commit is stale")
 	}
 	status, err := run("status", "--porcelain", "--untracked-files=all")
@@ -135,17 +197,19 @@ func validateCleanBugCandidate(root string, scope bugCandidateScope, run func(..
 	}
 	return nil
 }
-
-func validateBugSnapshot(root string, scope bugCandidateScope, git func([]string, ...string) ([]byte, error), run func(...string) ([]byte, error)) error {
-	source := scope.Source
-	trim := func(b []byte) string { return strings.TrimSpace(string(b)) }
-	a, err := filepath.EvalSymlinks(root)
-	if err != nil {
+func validateBugSnapshot(ctx context.Context, root string, scope bugCandidateScope, git bugGitWithEnv, run bugGitRunner) error {
+	if err := validateRetainedSnapshot(ctx, root, scope); err != nil {
 		return err
 	}
-	b, err := filepath.EvalSymlinks(source.SourceRoot)
-	if err != nil || a != b {
-		return fmt.Errorf("snapshot source mismatch")
+	if err := validateSnapshotSource(root, scope, run); err != nil {
+		return err
+	}
+	return reconstructSnapshotTree(scope, git)
+}
+func validateSnapshotSource(root string, scope bugCandidateScope, run bugGitRunner) error {
+	source := scope.Source
+	if err := sameBugProject(root, source.SourceRoot); err != nil {
+		return fmt.Errorf("snapshot source mismatch: %w", err)
 	}
 	if source.CandidateCommit != scope.CandidateCommit || source.CandidateTree != scope.CandidateTree || len(source.SelectedPaths) == 0 {
 		return fmt.Errorf("snapshot identity mismatch")
@@ -156,9 +220,12 @@ func validateBugSnapshot(root string, scope bugCandidateScope, git func([]string
 		}
 	}
 	head, err := run("rev-parse", "HEAD")
-	if err != nil || trim(head) != source.SourceCommit {
+	if err != nil || strings.TrimSpace(string(head)) != source.SourceCommit {
 		return fmt.Errorf("snapshot source commit changed")
 	}
+	return validateSnapshotInventory(root, source, run)
+}
+func validateSnapshotInventory(root string, source *bugSourceSnapshot, run bugGitRunner) error {
 	inventory, err := bugSourceInventory(root, run)
 	if err != nil {
 		return err
@@ -171,26 +238,105 @@ func validateBugSnapshot(root string, scope bugCandidateScope, git func([]string
 	if err != nil {
 		return err
 	}
-	stagedHash := sha256.Sum256(staged)
-	if hex.EncodeToString(stagedHash[:]) != source.SelectedIndexSHA256 {
+	hash := sha256.Sum256(staged)
+	if hex.EncodeToString(hash[:]) != source.SelectedIndexSHA256 {
 		return fmt.Errorf("source index changed")
 	}
+	return nil
+}
+func reconstructSnapshotTree(scope bugCandidateScope, git bugGitWithEnv) (resultErr error) {
 	temp, err := os.MkdirTemp("", "shark-review-index-")
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(temp) }()
+	defer func() {
+		if err := os.RemoveAll(temp); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("remove temporary review index: %w", err))
+		}
+	}()
 	env := append(os.Environ(), "GIT_INDEX_FILE="+filepath.Join(temp, "index"))
-	if _, err = git(env, "read-tree", source.SourceCommit); err != nil {
+	if _, err = git(env, "read-tree", scope.Source.SourceCommit); err != nil {
 		return err
 	}
-	args = append([]string{"--literal-pathspecs", "add", "-A", "--"}, source.SelectedPaths...)
+	args := append([]string{"--literal-pathspecs", "add", "-A", "--"}, scope.Source.SelectedPaths...)
 	if _, err = git(env, args...); err != nil {
 		return err
 	}
 	actual, err := git(env, "write-tree")
-	if err != nil || trim(actual) != scope.CandidateTree {
+	if err != nil || strings.TrimSpace(string(actual)) != scope.CandidateTree {
 		return fmt.Errorf("source candidate changed")
+	}
+	return nil
+}
+
+type snapshotGitRunner func(string, ...string) ([]byte, error)
+
+// validateRetainedSnapshot requires the reviewed snapshot to remain clean and available through QA.
+func validateRetainedSnapshot(ctx context.Context, sourceRoot string, scope bugCandidateScope) error {
+	run := func(root string, args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+		return cmd.Output()
+	}
+	if err := validateRetainedWorktree(scope, run); err != nil {
+		return err
+	}
+	if err := sameBugProject(scope.Source.ProjectRoot, scope.ProjectRoot); err != nil {
+		return fmt.Errorf("snapshot project metadata mismatch: %w", err)
+	}
+	if err := validateSnapshotRepository(sourceRoot, scope.ProjectRoot, run); err != nil {
+		return err
+	}
+	return validateSnapshotMarker(scope, run)
+}
+func validateRetainedWorktree(scope bugCandidateScope, run snapshotGitRunner) error {
+	head, err := run(scope.ProjectRoot, "rev-parse", "HEAD")
+	if err != nil || strings.TrimSpace(string(head)) != scope.CandidateCommit {
+		return fmt.Errorf("snapshot commit changed or unavailable")
+	}
+	tree, err := run(scope.ProjectRoot, "rev-parse", "HEAD^{tree}")
+	if err != nil || strings.TrimSpace(string(tree)) != scope.CandidateTree {
+		return fmt.Errorf("snapshot tree changed")
+	}
+	status, err := run(scope.ProjectRoot, "status", "--porcelain", "--untracked-files=all")
+	if err != nil || len(status) != 0 {
+		return fmt.Errorf("snapshot worktree changed")
+	}
+	return nil
+}
+func validateSnapshotRepository(source, snapshot string, run snapshotGitRunner) error {
+	common := func(root string) (string, error) {
+		path, err := run(root, "rev-parse", "--git-common-dir")
+		if err != nil {
+			return "", err
+		}
+		value := strings.TrimSpace(string(path))
+		if !filepath.IsAbs(value) {
+			value = filepath.Join(root, value)
+		}
+		return filepath.EvalSymlinks(value)
+	}
+	original, err := common(source)
+	if err != nil {
+		return err
+	}
+	retained, err := common(snapshot)
+	if err != nil || original != retained {
+		return fmt.Errorf("snapshot repository mismatch")
+	}
+	return nil
+}
+func validateSnapshotMarker(scope bugCandidateScope, run snapshotGitRunner) error {
+	gitDir, err := run(scope.ProjectRoot, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Join(strings.TrimSpace(string(gitDir)), "shark-review-source.json"))
+	if err != nil {
+		return fmt.Errorf("snapshot provenance marker: %w", err)
+	}
+	var marker bugSourceSnapshot
+	if err := json.Unmarshal(raw, &marker); err != nil || !reflect.DeepEqual(marker, *scope.Source) {
+		return fmt.Errorf("snapshot provenance marker mismatch")
 	}
 	return nil
 }
@@ -200,6 +346,7 @@ func bugSourceInventory(root string, git func(...string) ([]byte, error)) (strin
 	field := func(data []byte) {
 		var n [8]byte
 		binary.BigEndian.PutUint64(n[:], uint64(len(data)))
+		// hash.Hash.Write is documented never to return an error.
 		_, _ = h.Write(n[:])
 		_, _ = h.Write(data)
 	}
@@ -214,43 +361,75 @@ func bugSourceInventory(root string, git func(...string) ([]byte, error)) (strin
 	if err != nil {
 		return "", err
 	}
+	confined, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	// Closing a read-only directory handle cannot affect inventory integrity.
+	defer func() { _ = confined.Close() }()
 	for _, name := range bytes.Split(names, []byte{0}) {
 		if len(name) == 0 {
 			continue
 		}
 		field(name)
-		path := filepath.Join(root, string(name))
-		info, err := os.Lstat(path)
+		kind, content, err := bugSourceInventoryEntry(confined, string(name))
 		if err != nil {
 			return "", err
 		}
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(path)
-			if err != nil {
-				return "", err
-			}
-			field([]byte("link"))
-			field([]byte(target))
-		case info.Mode().IsRegular():
-			f, err := os.Open(path)
-			if err != nil {
-				return "", err
-			}
-			fileHash := sha256.New()
-			_, copyErr := io.Copy(fileHash, f)
-			closeErr := f.Close()
-			if copyErr != nil {
-				return "", copyErr
-			}
-			if closeErr != nil {
-				return "", closeErr
-			}
-			field([]byte("file"))
-			field(fileHash.Sum(nil))
-		default:
-			return "", fmt.Errorf("unsupported untracked file type")
-		}
+		field([]byte(kind))
+		field(content)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func bugSourceInventoryEntry(root *os.Root, name string) (string, []byte, error) {
+	info, err := root.Lstat(name)
+	if err != nil {
+		return "", nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return bugInventoryLink(root, name, info)
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("unsupported untracked file type")
+	}
+	file, err := bugOpenVerifiedInventoryFile(root, name, info)
+	if err != nil {
+		return "", nil, err
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return "", nil, copyErr
+	}
+	if closeErr != nil {
+		return "", nil, closeErr
+	}
+	return "file", hash.Sum(nil), nil
+}
+
+func bugOpenVerifiedInventoryFile(root *os.Root, name string, original os.FileInfo) (*os.File, error) {
+	file, err := root.OpenFile(name, os.O_RDONLY|bugPlanOpenFlags, 0)
+	if err != nil {
+		return nil, err
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(original, opened) {
+		_ = file.Close() // Read-only close does not affect the rejected entry.
+		return nil, fmt.Errorf("untracked file changed while opening")
+	}
+	return file, nil
+}
+
+func bugInventoryLink(root *os.Root, name string, original os.FileInfo) (string, []byte, error) {
+	target, err := root.Readlink(name)
+	if err != nil {
+		return "", nil, err
+	}
+	current, err := root.Lstat(name)
+	if err != nil || !os.SameFile(original, current) {
+		return "", nil, fmt.Errorf("untracked link changed while reading")
+	}
+	return "link", []byte(target), nil
 }

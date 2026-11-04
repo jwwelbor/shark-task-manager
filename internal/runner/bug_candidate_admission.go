@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -16,56 +17,77 @@ import (
 
 // readBugEvidence resolves one digest-bound, project-local regular file.
 func readBugEvidence(req gatepersist.Request, kind string) (workercontrol.EvidenceRef, []byte, error) {
+	ref, err := findBugEvidence(req, kind)
+	if err != nil {
+		return ref, nil, err
+	}
+	expected, err := validateBugEvidenceRef(ref)
+	if err != nil {
+		return ref, nil, err
+	}
+	root := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	data, err := readBoundedBugEvidence(root, ref.Pointer)
+	if err != nil {
+		return ref, nil, err
+	}
+	digest := sha256.Sum256(data)
+	if !strings.EqualFold(hex.EncodeToString(digest[:]), hex.EncodeToString(expected)) {
+		return ref, nil, fmt.Errorf("evidence digest is stale")
+	}
+	return ref, data, nil
+}
+func findBugEvidence(req gatepersist.Request, kind string) (workercontrol.EvidenceRef, error) {
 	envelope, err := workercontrol.Decode(req.EnvelopeJSON)
 	if err != nil {
-		return workercontrol.EvidenceRef{}, nil, err
+		return workercontrol.EvidenceRef{}, err
 	}
 	var found *workercontrol.EvidenceRef
 	for i := range envelope.Evidence {
 		if envelope.Evidence[i].Kind == kind {
 			if found != nil {
-				return workercontrol.EvidenceRef{}, nil, fmt.Errorf("exactly one %s reference is required", kind)
+				return workercontrol.EvidenceRef{}, fmt.Errorf("exactly one %s reference is required", kind)
 			}
 			found = &envelope.Evidence[i]
 		}
 	}
 	if found == nil {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("%s evidence is required", kind)
+		return workercontrol.EvidenceRef{}, fmt.Errorf("%s evidence is required", kind)
 	}
-	if !filepath.IsLocal(found.Pointer) || found.Pointer == "." {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("evidence path must be local to project")
+	return *found, nil
+}
+func validateBugEvidenceRef(ref workercontrol.EvidenceRef) ([]byte, error) {
+	if !filepath.IsLocal(ref.Pointer) || ref.Pointer == "." {
+		return nil, fmt.Errorf("evidence path must be local to project")
 	}
-	if !strings.HasPrefix(found.Summary, "sha256:") {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("evidence digest is required")
+	if !strings.HasPrefix(ref.Summary, "sha256:") {
+		return nil, fmt.Errorf("evidence digest is required")
 	}
-	expected, err := hex.DecodeString(strings.TrimPrefix(found.Summary, "sha256:"))
+	expected, err := hex.DecodeString(strings.TrimPrefix(ref.Summary, "sha256:"))
 	if err != nil || len(expected) != sha256.Size {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("invalid evidence digest")
+		return nil, fmt.Errorf("invalid evidence digest")
 	}
-	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	return expected, nil
+}
+func readBoundedBugEvidence(projectRoot, path string) ([]byte, error) {
 	root, err := os.OpenRoot(projectRoot)
 	if err != nil {
-		return workercontrol.EvidenceRef{}, nil, err
+		return nil, err
 	}
-	defer func() { _ = root.Close() }()
-	file, err := root.OpenFile(found.Pointer, os.O_RDONLY|bugPlanOpenFlags, 0)
+	defer func() { _ = root.Close() }() // Read-only handle; close does not affect verified bytes.
+	file, err := root.OpenFile(path, os.O_RDONLY|bugPlanOpenFlags, 0)
 	if err != nil {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("open evidence: %w", err)
+		return nil, fmt.Errorf("open evidence: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { _ = file.Close() }() // Read-only handle; close does not affect verified bytes.
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 2*1024*1024 {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("evidence must be a bounded regular file")
+		return nil, fmt.Errorf("evidence must be a bounded regular file")
 	}
 	data, err := io.ReadAll(io.LimitReader(file, 2*1024*1024+1))
 	if err != nil || len(data) > 2*1024*1024 {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("cannot read bounded evidence")
+		return nil, fmt.Errorf("cannot read bounded evidence")
 	}
-	digest := sha256.Sum256(data)
-	if !strings.EqualFold(hex.EncodeToString(digest[:]), hex.EncodeToString(expected)) {
-		return workercontrol.EvidenceRef{}, nil, fmt.Errorf("evidence digest is stale")
-	}
-	return *found, data, nil
+	return data, nil
 }
 
 // readBugReviewScope binds a gate result to the exact saved scope and verifies
@@ -74,6 +96,24 @@ func readBugReviewScope(ctx context.Context, req gatepersist.Request) (workercon
 	ref, data, err := readBugEvidence(req, "bug_review_scope")
 	if err != nil {
 		return ref, err
+	}
+	baseline, err := readBugBaseline(req)
+	if err != nil {
+		return ref, err
+	}
+	var scope bugCandidateScope
+	if err := json.Unmarshal(data, &scope); err != nil {
+		return ref, err
+	}
+	if scope.BaseCommit != baseline {
+		return ref, fmt.Errorf("review scope baseline differs from approved baseline")
+	}
+	planRef, _, err := readBugEvidence(req, "bug_repair_plan")
+	if err != nil {
+		return ref, err
+	}
+	if !strings.EqualFold("sha256:"+scope.RepairPlanSHA256, planRef.Summary) {
+		return ref, fmt.Errorf("review scope plan revision differs from approved plan")
 	}
 	root := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
 	if err := verifyBugCandidate(ctx, root, data); err != nil {

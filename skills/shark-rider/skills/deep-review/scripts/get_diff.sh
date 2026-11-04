@@ -31,13 +31,14 @@ fi
 base_commit=$(git rev-parse --verify "${REVIEW_BASE:-$(git merge-base "$base_branch" HEAD)}^{commit}")
 candidate_commit=$(git rev-parse HEAD)
 candidate_tree=$(git rev-parse 'HEAD^{tree}')
-if [ "$(git log -1 --format=%s)" = "Shark isolated review snapshot v1" ] && [ -z "${REVIEW_SOURCE_METADATA:-}" ]; then
+source_marker=$(git rev-parse --git-path shark-review-source.json)
+if { [ "$(git log -1 --format=%s)" = "Shark isolated review snapshot v1" ] || [ -f "$source_marker" ]; } && [ -z "${REVIEW_SOURCE_METADATA:-}" ]; then
   echo '{"error": "isolated snapshot requires REVIEW_SOURCE_METADATA"}' >&2
   exit 1
 fi
 diff_path=$(mktemp /tmp/code-review-diff-XXXXXX.txt)
 git diff --no-ext-diff --binary "$base_commit" "$candidate_commit" > "$diff_path"
-diff_sha256=$(sha256sum "$diff_path" | cut -d' ' -f1)
+diff_sha256=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$diff_path")
 
 if [ ! -s "$diff_path" ]; then
   echo '{"error": "Diff is empty — nothing to review. Is this branch ahead of '"$base_branch"'?"}' >&2
@@ -75,7 +76,12 @@ fi
 # dir at depth 1); fall back to a branch-named dir if nothing matches.
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
 branch_slug=$(printf '%s' "$branch" | tr '/' '-')
-review_root="${project_root}/docs/review"
+# Reports and sidecars are review artifacts, not candidate source. Store the
+# default under the common Git directory so persistence cannot dirty a clean
+# candidate even when a project has no review-directory ignore rule.
+git_common_dir=$(git rev-parse --git-common-dir)
+git_common_dir=$(cd "$git_common_dir" && pwd -P)
+review_root="${git_common_dir}/shark-review"
 review_date=$(date +%Y-%m-%d)
 
 review_match=""
@@ -116,6 +122,8 @@ CANDIDATE_TREE="$candidate_tree" \
 DIFF_SHA256="$diff_sha256" \
 REVIEW_OUTPUT_PATH="$review_output_path" \
 REVIEW_SOURCE_METADATA="${REVIEW_SOURCE_METADATA:-}" \
+REVIEW_SOURCE_MARKER="$source_marker" \
+REVIEW_PLAN_SHA256="${REVIEW_PLAN_SHA256:-}" \
 python3 - <<'PYEOF'
 import os, json, subprocess
 diff_path = os.environ["DIFF_PATH"]
@@ -137,9 +145,19 @@ scope = {
   "review_output_path": os.environ.get("REVIEW_OUTPUT_PATH") or None,
 }
 source_path = os.environ.get("REVIEW_SOURCE_METADATA")
+plan_sha256 = os.environ.get("REVIEW_PLAN_SHA256")
+if plan_sha256:
+  if len(plan_sha256) != 64 or any(c not in "0123456789abcdef" for c in plan_sha256):
+    raise ValueError("REVIEW_PLAN_SHA256 must be a lowercase SHA-256 digest")
+  scope["repair_plan_sha256"] = plan_sha256
 if source_path:
   with open(source_path, encoding="utf-8") as source_file:
     source = json.load(source_file)
+  marker_path = os.environ.get("REVIEW_SOURCE_MARKER")
+  if marker_path and os.path.isfile(marker_path):
+    with open(marker_path, encoding="utf-8") as marker_file:
+      if json.load(marker_file) != source:
+        raise ValueError("source snapshot marker does not match metadata")
   if source["candidate_commit"] != scope["candidate_commit"] or source["candidate_tree"] != scope["candidate_tree"] or os.path.realpath(source["project_root"]) != os.path.realpath(project_root):
     raise ValueError("source snapshot metadata does not match candidate")
   scope["source_snapshot"] = source

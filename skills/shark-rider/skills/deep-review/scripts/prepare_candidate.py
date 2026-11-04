@@ -70,6 +70,12 @@ def main():
                 'source_commit': head, 'candidate_commit': commit, 'candidate_tree': tree,
                 'selected_paths': args.paths, 'selected_index_sha256': hashlib.sha256(staged_diff).hexdigest(),
                 'source_inventory_sha256': inventory}
+    # A worktree-local marker survives an ordinary amend/reword of the
+    # synthetic commit; its subject alone is not durable provenance.
+    git_dir = Path(subprocess.run(['git', '-C', str(destination), 'rev-parse', '--absolute-git-dir'],
+                                  check=True, capture_output=True, text=True).stdout.strip())
+    with (git_dir / 'shark-review-source.json').open('x', encoding='utf-8') as marker:
+        json.dump(metadata, marker)
     with metadata_path.open('x', encoding='utf-8') as out:
         json.dump(metadata, out)
     print(json.dumps(metadata))

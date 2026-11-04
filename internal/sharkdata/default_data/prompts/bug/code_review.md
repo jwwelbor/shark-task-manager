@@ -5,7 +5,9 @@ Review bug {{.id}} against the accepted repair plan, research, coverage index an
 
 For a structured pass, retain the complete scope JSON produced by the deep-review capture in a project-relative ignored location such as `.shark/runs/`, and include exactly one outer evidence entry with `kind: bug_review_scope`, its project-relative `pointer`, and `summary: sha256:<hex digest>` of the retained scope bytes. The parent checks the scope and current source candidate before advancing. Keep the same scope artifact for QA.
 
-Also retain the generated deep-review report and include a digest-bound `bug_review_report` evidence reference in the same format. For a native or dispatched six-angle review, retain the actual six angle-results JSON and include a digest-bound `bug_review_angles` reference. A comparable alternate-model CLI review uses its report without angle results. An incomplete review cannot pass.
+Capture against the independently approved `bug_review_baseline` commit. Set `REVIEW_PLAN_SHA256` to the approved plan digest without its `sha256:` prefix; ensure the scope, every angle result, and the report carry that exact plan revision.
+
+Also retain the generated deep-review report and include a digest-bound `bug_review_report` evidence reference in the same format. Include the generated candidate-bound decisions JSON as a digest-bound `bug_review_decisions` reference. For a native or dispatched six-angle review, retain the actual six angle-results JSON and include a digest-bound `bug_review_angles` reference. A comparable alternate-model CLI review uses its report and decisions without angle results. Every blocker needs an explicit matching refutation with an evidence-based reason for a pass. An incomplete review cannot pass.
 Use review_plan for a valid plan whose approval is missing or stale; use needs_research for a causal contradiction, replan for a design omission, fail for a coding defect, and blocked for unavailable external evidence. Retain every finding; route to the earliest invalidated stage. For route_rework outcomes leave kickbacks empty.
 
 {{template "_code_review_process_body" .}}

@@ -46,11 +46,13 @@ class CaptureScopeTest(unittest.TestCase):
                 angles = evidence / 'angles.json'
                 identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
                 angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
+                decisions = evidence / 'decisions.json'
+                decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
                 writer = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'write-report',
                           '--body-file', str(body_path), '--review-output-path', str(report),
                           '--runner-mode', 'dispatched-six-angle', '--specialists-completed', '6',
                           '--consolidator-completed', 'true', '--base-commit', base,
-                          '--diff-path', scope['diff_path'], '--scope-file', str(scope_path), '--angle-results', str(angles), '--verdict', 'PASS']
+                          '--diff-path', scope['diff_path'], '--scope-file', str(scope_path), '--angle-results', str(angles), '--review-decisions', str(decisions), '--verdict', 'PASS']
                 no_angles = writer.copy()
                 index = no_angles.index('--angle-results')
                 del no_angles[index:index + 2]
@@ -68,7 +70,9 @@ class CaptureScopeTest(unittest.TestCase):
                 self.assertEqual(missing.returncode, 2)
                 self.assertEqual(json.loads(missing.stdout)['verdict'], 'INCOMPLETE')
                 for invalid_body in ('', 'VERDICT: PASS', 'Reviewed scope: all. Findings: blockers remain. VERDICT: FAIL',
-                                     'Reviewed scope: all files. Findings: incomplete coverage. VERDICT: PASS'):
+                                     'Reviewed scope: all files. Findings: incomplete coverage. VERDICT: PASS',
+                                     'Reviewed scope: all files and callers carefully. Findings: blockers remain and are not resolved. VERDICT: PASS',
+                                     'Reviewed scope: all files and callers carefully. Findings: file:1 blocker is NOT REFUTED. VERDICT: PASS'):
                     body_path.write_text(invalid_body)
                     invalid = subprocess.run(writer, capture_output=True, text=True)
                     self.assertEqual(invalid.returncode, 2, invalid_body)
@@ -77,6 +81,24 @@ class CaptureScopeTest(unittest.TestCase):
                 valid = subprocess.run(writer, capture_output=True, text=True)
                 self.assertEqual(valid.returncode, 0, valid.stderr)
                 self.assertIn(scope['candidate_tree'], report.read_text())
+                default_writer = writer.copy()
+                default_writer[default_writer.index('--review-output-path') + 1] = scope['review_output_path']
+                default = subprocess.run(default_writer, capture_output=True, text=True)
+                self.assertEqual(default.returncode, 0, default.stderr)
+                retained = json.loads(default.stdout)['retained_scope']
+                validate = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'validate-scope', '--scope-file', retained]
+                self.assertEqual(subprocess.run(validate, capture_output=True).returncode, 0)
+                self.assertEqual(git('status', '--porcelain'), '')
+                failed_decisions = {'candidate_identity': identity, 'findings': [{'file': 'change.txt', 'line': 1, 'severity': 'blocker', 'rule': 'BUG', 'summary': 'broken', 'diagnosis': 'wrong', 'disposition': 'open', 'reason': 'still reproducible'}]}
+                decisions.write_text(json.dumps(failed_decisions))
+                body_path.write_text('Reviewed scope: all files. Findings: a blocking bug remains. VERDICT: FAIL')
+                failed_writer = writer.copy()
+                failed_writer[failed_writer.index('--verdict') + 1] = 'FAIL'
+                failed = subprocess.run(failed_writer, capture_output=True, text=True)
+                self.assertEqual(failed.returncode, 0, failed.stderr)
+                self.assertTrue(Path(json.loads(failed.stdout)['retained_decisions']).is_file())
+                decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+                body_path.write_text('Reviewed scope: all candidate files. Findings: none. Detailed checks confirmed complete coverage. VERDICT: PASS')
                 partial = writer.copy()
                 partial[partial.index('6')] = '5'
                 incomplete = subprocess.run(partial, capture_output=True, text=True)
@@ -160,16 +182,30 @@ class CaptureScopeTest(unittest.TestCase):
             angles = evidence / 'angles.json'
             identity = {'commit': scope_data['candidate_commit'], 'tree': scope_data['candidate_tree'], 'diff_sha256': scope_data['diff_sha256']}
             angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope_data['changed_files'], 'findings': []} for name in 'abcdef'}))
+            decisions = evidence / 'decisions.json'
+            decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
             writer = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'write-report',
                       '--body-file', str(body), '--review-output-path', str(evidence / 'report.md'),
                       '--runner-mode', 'dispatched-six-angle', '--specialists-completed', '6',
                       '--consolidator-completed', 'true', '--base-commit', base,
-                      '--diff-path', scope_data['diff_path'], '--scope-file', str(scope_file), '--angle-results', str(angles), '--verdict', 'PASS']
+                      '--diff-path', scope_data['diff_path'], '--scope-file', str(scope_file), '--angle-results', str(angles), '--review-decisions', str(decisions), '--verdict', 'PASS']
             accepted = subprocess.run(writer, capture_output=True, text=True)
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
             retained_scope = json.loads(accepted.stdout)['retained_scope']
             validate = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'validate-scope', '--scope-file', retained_scope]
             self.assertEqual(subprocess.run(validate, capture_output=True).returncode, 0)
+            (destination / 'untracked').write_text('changed snapshot')
+            self.assertEqual(subprocess.run(validate, capture_output=True).returncode, 2)
+            (destination / 'untracked').unlink()
+            destination.rename(destination.with_name('snapshot-missing'))
+            self.assertEqual(subprocess.run(validate, capture_output=True).returncode, 2)
+            destination.with_name('snapshot-missing').rename(destination)
+            default_writer = writer.copy()
+            default_writer[default_writer.index('--review-output-path') + 1] = scope_data['review_output_path']
+            default = subprocess.run(default_writer, capture_output=True, text=True)
+            self.assertEqual(default.returncode, 0, default.stderr)
+            default_validate = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'validate-scope', '--scope-file', json.loads(default.stdout)['retained_scope']]
+            self.assertEqual(subprocess.run(default_validate, capture_output=True).returncode, 0)
             (root / 'scratch').write_text('changed unrelated scratch')
             changed_scratch = subprocess.run(validate, capture_output=True)
             self.assertEqual(changed_scratch.returncode, 2)
@@ -194,6 +230,10 @@ class CaptureScopeTest(unittest.TestCase):
             stale = subprocess.run(writer, capture_output=True, text=True)
             self.assertEqual(stale.returncode, 2)
             self.assertEqual(json.loads(stale.stdout)['verdict'], 'INCOMPLETE')
+            subprocess.run(['git', '-C', str(destination), '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '--amend', '-m', 'rewritten snapshot'], check=True, capture_output=True)
+            amended = subprocess.run(['bash', str(SCRIPT)], cwd=destination, capture_output=True, text=True, env={**os.environ, 'REVIEW_BASE': base})
+            self.assertNotEqual(amended.returncode, 0)
+            self.assertIn('requires REVIEW_SOURCE_METADATA', amended.stderr)
 
 
 if __name__ == '__main__':

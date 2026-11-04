@@ -60,7 +60,7 @@ For each surviving finding, assign:
 
 | Label | Criteria |
 |---|---|
-| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new complexity over threshold, broad catch-all without justification, ≥3 siblings with no shared base |
+| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new complexity over threshold, broad catch-all without justification, or a sibling pattern that violates the canonical craft rubric |
 | **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor DRY opportunity, broader-than-necessary but defensible change |
 | **Nit** | Stylistic preference, opinion-level, no standards citation |
 
@@ -84,6 +84,14 @@ Average ≤ 3 for any dimension → non-blocker triage. Average ≤ 2 → blocke
 ---
 
 ## Output: Markdown report
+
+Alongside the Markdown, return candidate-bound `decisions` JSON with
+`candidate_identity` and a `findings` array. Each entry records `file`,
+positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty
+`reason`. Every raw finding needs a matching entry; use `refuted` only when
+the evidence disproves that exact finding. A pass cannot retain an open
+blocker. The decisions are machine-checked evidence and do not replace the
+reviewer's explanation in the report.
 
 If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 non-blockers / 0 nits, write a compact saved report only. Do NOT emit the full section set for a clean pass.
 

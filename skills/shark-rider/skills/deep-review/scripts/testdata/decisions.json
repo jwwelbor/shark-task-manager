@@ -1,0 +1,493 @@
+{
+  "identity": {
+    "commit": "commit",
+    "tree": "tree",
+    "diff_sha256": "diff",
+    "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "files": [
+    "file"
+  ],
+  "cases": [
+    {
+      "name": "clean",
+      "raw_findings": [],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": []
+      },
+      "valid": true
+    },
+    {
+      "name": "missing",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": []
+      },
+      "valid": false
+    },
+    {
+      "name": "open",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "not refuted",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "unrelated",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "other",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "refuted",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "duplicate",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          },
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "invalid_line",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 0,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "negated",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "NOT REFUTED",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "wrong_plan",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "fractional_line",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 1.5,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "nonblock_missing",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": []
+      },
+      "valid": false
+    },
+    {
+      "name": "nonblock_open",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "nonblock_refuted",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "nonblock_triaged",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": true,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "blocker_triage",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "not refuted",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ]
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
+    }
+  ]
+}

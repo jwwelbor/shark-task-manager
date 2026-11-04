@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import shlex
 import stat
 import subprocess
 import sys
@@ -15,6 +16,7 @@ from adaptive_review import (  # noqa: E402
     cli_candidates,
     select_runner,
     valid_adversarial_output,
+    validate_review_decisions,
 )
 
 
@@ -40,6 +42,17 @@ def scope_fixture(root):
     return repo, scope, scope_file
 
 
+def review_packet(scope):
+    identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
+    return {'report': 'REVIEWED SCOPE: fixture files and coverage\nFINDINGS: none\nThe adversarial review is complete and evidence was checked.\nVERDICT: PASS',
+            'decisions': {'candidate_identity': identity, 'findings': []}}
+
+
+def fake_reviewer(path, packet):
+    path.write_text("#!/bin/sh\nprintf '%s\\n' " + shlex.quote(json.dumps(packet)) + "\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
 class AdaptiveReviewTests(unittest.TestCase):
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')
@@ -61,6 +74,19 @@ class AdaptiveReviewTests(unittest.TestCase):
         for bad in ('', 'VERDICT: PASS', 'authentication failed', 'REVIEWED SCOPE\nFINDINGS'):
             self.assertFalse(valid_adversarial_output(bad))
 
+    def test_review_decisions_require_explicit_refutation(self):
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd'}
+        blocker = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong'}
+        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
+        with self.assertRaises(ValueError):
+            validate_review_decisions(decisions, scope, [blocker], 'PASS')
+        decisions['findings'] = [{**blocker, 'disposition': 'open', 'reason': 'not refuted'}]
+        with self.assertRaises(ValueError):
+            validate_review_decisions(decisions, scope, [blocker], 'PASS')
+        decisions['findings'][0]['disposition'] = 'refuted'
+        decisions['findings'][0]['reason'] = 'evidence shows the caller cannot reach this branch'
+        validate_review_decisions(decisions, scope, [blocker], 'PASS')
+
     def test_cli_success_persists_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -68,8 +94,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             prompt = root / 'prompt.txt'
             prompt.write_text('review')
             fake = root / 'fake-reviewer'
-            fake.write_text("#!/bin/sh\nprintf '%s\\n' 'REVIEWED SCOPE: fixture files and coverage' 'FINDINGS: none' 'The adversarial review is complete and evidence was checked.' 'VERDICT: PASS'\n")
-            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+            fake_reviewer(fake, review_packet(scope))
             report = root / 'report.md'
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
@@ -84,6 +109,28 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertIn(scope['base_commit'], report.read_text())
             self.assertIn('Adversarial model:', report.read_text())
             self.assertIn('`codex`', report.read_text())
+
+    def test_cli_pass_with_open_blocker_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            packet = review_packet(scope)
+            packet['report'] = 'REVIEWED SCOPE: all files. FINDINGS: blockers remain despite a thorough check of all callers. VERDICT: PASS'
+            packet['decisions']['findings'] = [{'file': 'source', 'line': 1, 'severity': 'blocker', 'rule': 'BUG', 'summary': 'broken', 'diagnosis': 'wrong', 'disposition': 'open', 'reason': 'not refuted'}]
+            fake = root / 'reviewer'
+            fake_reviewer(fake, packet)
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'],
+                '--review-output-path', str(root / 'report.md'), '--host', 'claude',
+                '--codex-command', str(fake), '--claude-command', str(fake),
+                '--no-workflow-available', '--no-agent-dispatch-available',
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
 
     def test_cli_rejects_missing_scope_and_wrong_execution_root(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -143,14 +190,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             failed.write_text('#!/bin/sh\nexit 1\n')
             failed.chmod(failed.stat().st_mode | stat.S_IXUSR)
             successful = root / 'codex-reviewer'
-            successful.write_text(
-                "#!/bin/sh\nprintf '%s\\n' "
-                "'REVIEWED SCOPE: fixture files and coverage' "
-                "'FINDINGS: none' "
-                "'The comparable CLI review is complete and evidence was checked.' "
-                "'VERDICT: PASS'\n"
-            )
-            successful.chmod(successful.stat().st_mode | stat.S_IXUSR)
+            fake_reviewer(successful, review_packet(scope))
             report = root / 'report.md'
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',

@@ -76,6 +76,10 @@ revalidates candidate, diff and manifest and persists their identities. Pass
 `--requested-model` and `--effective-model` only when known; absent values are
 recorded as unknown.
 
+For a bug, set `REVIEW_BASE` to the independently approved `bug_review_baseline` commit and `REVIEW_PLAN_SHA256` to the 64 lowercase hex characters of the approved plan digest before capture. Every angle must include that digest as `candidate_identity.repair_plan_sha256`; supply the same scope field and `repair_context.plan_revision` (`sha256:<digest>`) to the native workflow. A report for a different plan revision or baseline cannot satisfy the gate.
+
+On Windows, snapshot inventory delegates its confined filesystem reads to the installed Shark binary; it must include the matching `review-source-inventory` helper. Set `SHARK_REVIEW_INVENTORY_BIN` to that binary when it is not the `shark` on PATH. The parent still owns review dispatch and transitions.
+
 ## Capture the review scope
 
 ```bash
@@ -117,7 +121,7 @@ requested effort (`low|medium|high|xhigh|max`). It runs all six angle prompts in
 consolidator. Only a valid result from all six angles, complete changed-file coverage, and a valid consolidator report may be recorded as complete. An exception, partial result, coverage gap, or malformed report is INCOMPLETE; persist actual counts, or `unknown` when the host did not return them, and never replace it with a CLI pass. The returned report is compact on a clean PASS and detailed only for findings or
 triage. Persist the returned body with `adaptive_review.py write-report` and:
 
-The native result contains `report` and `angle_results`; save the report body and the angle-results object separately, then pass the latter with `--angle-results` to `write-report`. For host dispatch, assemble the six returned objects under keys `a` through `f` and pass that file the same way. Do not substitute caller-supplied counts for these artifacts. Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
+The native result contains `report`, `angle_results`, and `decisions`; save these separately and pass the latter two with `--angle-results` and `--review-decisions` to `write-report`. For host dispatch, assemble the six returned objects under keys `a` through `f` and ask the consolidator for its candidate-bound decisions. Do not substitute caller-supplied counts for these artifacts. Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
 
 ```text
 runner_mode=canonical-six-angle
@@ -151,7 +155,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
    captured scope (`diff_path`, `base_commit`), the complete changed-file
    list, and all six specialist results. Require the consolidator to verify
-   coverage and return the required Markdown report and verdict.
+   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. Before a pass, every blocker needs disposition `refuted` and an evidence-based reason; a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
 5. Persist with `scripts/adaptive_review.py write-report`, passing the
    captured `base_commit` and `diff_path` and the consolidator's verdict. If
    all six specialist results and the consolidator are valid, use
@@ -167,10 +171,9 @@ Build one read-only adversarial prompt containing the diff path, complete change
 standards path, task context, and the following required output contract:
 
 ```text
-REVIEWED SCOPE: <files and coverage>
-FINDINGS: <table or explicit none>
-<evidence and corrections>
-VERDICT: PASS | PASS-with-triage | FAIL
+Return a JSON object containing `report` (the Markdown review, including
+scope, findings and verdict) and `decisions` (the same candidate-bound
+findings and disposition object required for six-angle consolidation).
 ```
 
 Select and run it with:
