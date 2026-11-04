@@ -3,7 +3,7 @@ After completing ALL work below, stop and hand control back to the parent loop. 
 
 Review bug E07-F01 against the accepted repair plan, research, coverage index and all unaccepted predecessor changes. Bind review evidence to the complete candidate and plan revision. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the approved plan content hash matches the current plan. Review the plan's single coverage index, which maps each obligation to its authoritative source, production caller or boundary, planned change, required assertions, and links to a separate mutable evidence record. Do not change the plan while reviewing its revision. Reference existing decisions; escalate conflicting authority to its owner. Keep all findings and route to the earliest invalidated stage. Diagnosis changes invalidate the plan and downstream evidence; material plan changes invalidate approval; candidate changes invalidate review and QA. Reuse unchanged valid evidence. Unavailable external evidence is blocked, not acceptance. For a structured success outcome, include exactly one outer `evidence` entry with `kind: bug_repair_plan`, `pointer` set to the project-relative plan file, and `summary` set to `sha256:<hex digest>` of the current plan bytes. Also include exactly one `bug_review_baseline` evidence entry whose `pointer` is the full commit hash of the review baseline declared in that plan. Independently confirm the baseline at plan review and carry the same value through development, review and QA; do not infer or substitute a later baseline. The parent validates these identities; it does not establish evidence quality by itself.
 
-For a structured pass, retain the complete scope JSON produced by the deep-review capture in a project-relative ignored location such as `.shark/runs/`, and include exactly one outer evidence entry with `kind: bug_review_scope`, its project-relative `pointer`, and `summary: sha256:<hex digest>` of the retained scope bytes. The parent checks the scope and current source candidate before advancing. Keep the same scope artifact for QA.
+For a structured pass, choose a new report path inside the Shark project, such as a unique directory under `.shark/runs/`, and retain the scope sidecar produced by the deep-review report writer there. Include exactly one outer evidence entry with `kind: bug_review_scope`, its project-relative `pointer`, and `summary: sha256:<hex digest>` of those exact retained scope bytes. The parent checks the report's scope digest and current source candidate before advancing. Keep the same scope artifact for QA.
 
 Capture against the independently approved `bug_review_baseline` commit. Set `REVIEW_PLAN_SHA256` to the approved plan digest without its `sha256:` prefix; ensure the scope, every angle result, and the report carry that exact plan revision.
 
@@ -359,7 +359,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 
 ## Loop-guard awareness
 
-If `prior_rejection_count >= 1` for this task at code review, **escalate to the user instead of issuing another rejection** — re-rejecting the same code on the same grounds is a loop. The host is responsible for halting the dispatch; the craft simply notes loop-guard state in the report.
+Use the canonical defect-class sweep to classify recurrence from the actual findings and evidence, then apply the project's configured retry and escalation limits. A raw prior rejection count alone does not establish a recurring defect. Preserve prior accepted dispositions unless new evidence invalidates them, and record the basis for any escalation.
 
 ## Tone
 
@@ -407,7 +407,9 @@ REVIEW OUTPUT POLICY (applies to the report below):
   - any finding -> one-line fail/triage summary plus report path
 
 
-PRODUCE code review report at `docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md`:
+PRODUCE code review report at `docs/review/E07/E07-F01/code-review-<timestamp>-E07-F01.md`.
+Include the actual deep-review report, retained scope and retained diff paths so
+later gates can follow the evidence; keep earlier reports.
 - If zero findings: compact PASS artifact only
   - Verdict: PASS
   - Scope reviewed: task spec, feature context, diff, and implementation surface

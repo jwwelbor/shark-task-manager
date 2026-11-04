@@ -1,0 +1,52 @@
+[
+  {
+    "name": "pass",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "conflicting-verdict",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS VERDICT: FAIL",
+    "valid": false
+  },
+  {
+    "name": "unresolved-blocker",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS Some blockers remain.",
+    "valid": false
+  },
+  {
+    "name": "incomplete-word",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS INCOMPLETE",
+    "valid": false
+  },
+  {
+    "name": "incomplete-substring",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS incompletely",
+    "valid": true
+  },
+  {
+    "name": "scope-substring",
+    "body": "Reviewed microscope: all candidate files and callers. Findings: none. Detailed inspection completed. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "findings-substring",
+    "body": "Reviewed scope: all candidate files and callers. unfindings: none. Detailed verification completed. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "short-unicode",
+    "body": "Scope Findings VERDICT: PASS 🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂",
+    "valid": false
+  },
+  {
+    "name": "unicode-adjacent-scope",
+    "body": "Reviewed 审scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "unicode-verdict-space",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
+    "valid": false
+  }
+]

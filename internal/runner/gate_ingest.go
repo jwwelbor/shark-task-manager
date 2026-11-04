@@ -49,7 +49,9 @@ type GateIngestRequest struct {
 
 	Coordinator *gatepersist.Coordinator
 
-	ProjectRoot  string
+	ProjectRoot string
+	// WorkingDir is selected by the parent dispatcher, never by worker output.
+	WorkingDir   string
 	RunID        string
 	EntityKey    string
 	EntityType   models.EntityType
@@ -145,6 +147,11 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 		return nil, fmt.Errorf("gate ingestion: resolve run directory: %w", err)
 	}
 
+	evidenceRoot, err := gateEvidenceRoot(ctx, req, runDir, role)
+	if err != nil {
+		return nil, fmt.Errorf("gate ingestion: resolve evidence root: %w", err)
+	}
+
 	evidenceJSON, err := marshalEvidence(env.Evidence)
 	if err != nil {
 		return nil, fmt.Errorf("gate ingestion: encode evidence: %w", err)
@@ -152,6 +159,7 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 
 	persisted, err := req.Coordinator.Persist(ctx, gatepersist.Request{
 		RunDir:              runDir,
+		EvidenceRoot:        evidenceRoot,
 		RunID:               req.RunID,
 		EntityKey:           req.EntityKey,
 		EntityType:          req.EntityType,

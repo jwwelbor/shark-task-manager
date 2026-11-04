@@ -41,6 +41,9 @@ type RunIdentity struct {
 	SourceStatus    string `json:"source_status"`
 	Gate            string `json:"gate"`
 	OperationDigest string `json:"operation_digest"`
+	// EvidenceRoot binds bug worktree evidence to the parent-observed root.
+	// Empty retains the historical parent-project location.
+	EvidenceRoot string `json:"evidence_root,omitempty"`
 }
 
 // Marshal serializes r to its canonical identity.json bytes.
@@ -133,6 +136,9 @@ func VerifyRunIdentity(rec *RunIdentity, want RunIdentity) error {
 	}
 	if rec.Gate != want.Gate {
 		return fmt.Errorf("gaterun: run identity gate mismatch: recorded %q, requested %q", rec.Gate, want.Gate)
+	}
+	if rec.EvidenceRoot != want.EvidenceRoot {
+		return fmt.Errorf("gaterun: run identity evidence_root mismatch")
 	}
 	if rec.OperationDigest != want.OperationDigest {
 		return fmt.Errorf("gaterun: run identity operation_digest mismatch: recorded %q, requested %q", rec.OperationDigest, want.OperationDigest)

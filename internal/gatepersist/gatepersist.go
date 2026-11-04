@@ -56,6 +56,8 @@ type Request struct {
 	// RunDir is the durable run directory (see gaterun.RunDir) this run's
 	// result.json/operation-state.json sidecars live under.
 	RunDir string
+	// EvidenceRoot is parent-observed; empty means the parent project root.
+	EvidenceRoot string
 	// RunID is the durable run identity (see gaterun.ValidateRunID).
 	RunID string
 

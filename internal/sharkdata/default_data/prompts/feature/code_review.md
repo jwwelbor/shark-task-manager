@@ -15,23 +15,16 @@ Run the host-installed `shark-rider/skills/deep-review/SKILL.md` multi-agent pro
 
 {{include: skills/quality/workflows/review-code.md}}
 
-OVERRIDE — loop-guard escalation for this gate: the included workflow's
-"Loop-guard awareness" section escalates on raw `prior_rejection_count >= 1`.
-For this feature-level gate, that raw round count is superseded by
-`skills/quality/workflows/defect-class-sweep.md`'s evidence-based recurrence
-classification: escalate to the user only when a finding is genuine
-recurrence per that workflow — the same fingerprint resurfacing after a
-recorded repair, or a new fingerprint sharing both the same `class_key` and
-scope membership in a previously completed sweep — never on round count
-alone. A new, non-recurring finding on a later round is ordinary rework, not
-a loop.
+RE-REVIEW ESCALATION: apply the evidence-based recurrence classification in
+`skills/quality/workflows/defect-class-sweep.md` and the configured retry limits.
+Do not infer recurrence from the review round count alone.
 
 READ:
 (1) Feature spec at {{.file_path}} for architecture decisions and acceptance criteria
 (2) Feature test-plan.md for all expected test cases, coverage requirements, and Caller-Path Contracts
 (3) CLAUDE.md for codebase standards and patterns
 (4) All task specs: `{{template "list_json" .}}` → read each task's file_path in sequence
-(5) Full feature diff: `git log --oneline -20` then `git diff $(git merge-base HEAD main)..HEAD`
+(5) The complete frozen feature scope and base-to-candidate diff captured by deep-review, including all unaccepted predecessor changes
 (6) Implementation code for all changed files
 (7) Parent interaction map and cross-epic maps if the feature spec declares
     I-## or X-## rows
@@ -66,7 +59,9 @@ PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
 
 {{template "_review_output_policy" .}}
 
-PRODUCE verification report to `{{.review_base}}code-review-<timestamp>-{{.id}}.md`:
+PRODUCE verification report to `{{.review_base}}code-review-<timestamp>-{{.id}}.md`.
+Record the actual deep-review report, retained scope and retained diff paths in
+this report so QA and approval can follow the evidence; keep earlier reports.
 - If zero findings: compact PASS artifact only
   - Verdict: PASS, and which parts ran (tier)
   - Scope reviewed: spec, test-plan, task set, diff, and implementation surface

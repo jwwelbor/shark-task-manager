@@ -7,10 +7,10 @@ READ:
 (4) Code review report from {{.review_base}}code-review-*-{{.id}}.md
 (5) Implementation code and existing test results
 (6) The complete frozen review manifest and base-to-candidate diff. Read the
-    review report's retained scope path and run the host deep-review runner's
-    `adaptive_review.py validate-scope --scope-file <retained-scope>` before
-    selecting tests. Verify the source and candidate identity match; a missing,
-    stale or invalid retained scope cannot satisfy QA.
+    report's retained scope, independently establish the reviewed project,
+    original source and, when nested, Shark project roots, and run the host
+    deep-review scope validator. A missing, stale or invalid scope cannot
+    satisfy QA; use its complete manifest and retained diff to select tests.
 
 SCOPED TEST RUN (single pass; do NOT run the full suite):
 

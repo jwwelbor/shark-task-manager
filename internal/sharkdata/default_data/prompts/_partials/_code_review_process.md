@@ -29,7 +29,9 @@ PROMPT-ONLY SCOPE:
 
 {{template "_review_output_policy" .}}
 
-PRODUCE code review report at `{{.review_base}}code-review-<timestamp>-{{.id}}.md`:
+PRODUCE code review report at `{{.review_base}}code-review-<timestamp>-{{.id}}.md`.
+Include the actual deep-review report, retained scope and retained diff paths so
+later gates can follow the evidence; keep earlier reports.
 - If zero findings: compact PASS artifact only
   - Verdict: PASS
   - Scope reviewed: task spec, feature context, diff, and implementation surface

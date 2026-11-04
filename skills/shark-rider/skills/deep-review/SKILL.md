@@ -71,7 +71,7 @@ revision when applicable. Reject stale or incomplete evidence. The scope must
 include every unaccepted predecessor change; obtain the accepted baseline from
 the plan rather than assuming the last commit. If capture cannot represent the
 full candidate, stop and report incomplete. Pass the captured JSON as
-`--scope-file` to `adaptive_review.py run-cli` or `write-report`; the writer
+`--scope-file`, the trusted reviewed-worktree `--project-root`, and the independently established original repository `--source-root` to `adaptive_review.py run-cli` or `write-report`; the writer
 revalidates candidate, diff and manifest and persists their identities. Pass
 `--requested-model` and `--effective-model` only when known; absent values are
 recorded as unknown.
@@ -84,20 +84,36 @@ On Windows, snapshot inventory delegates its confined filesystem reads to the in
 
 ```bash
 project_root=$(git rev-parse --show-toplevel)
+source_root="$project_root"  # Preserve this original root if reviewing a snapshot.
 skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
 REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 
-The capture requires a clean committed candidate. If relevant work is uncommitted,
+Capture treats untracked files under the designated Shark project's `.shark/runs/`
+as runtime artifacts; tracked changes there and all other source changes remain
+in scope. If the Shark project is nested below the Git root, set
+`REVIEW_SHARK_PROJECT_ROOT` to the independently established absolute Shark project
+root before capture, and pass that root as `--shark-project-root` to
+`prepare_candidate.py`, `run-cli`, `write-report`, and `validate-scope` as applicable.
+For an isolated snapshot, use the corresponding nested directory in the snapshot
+when capturing or validating it. Supply `--source-root "$source_root"` to
+`run-cli`, `write-report`, and `validate-scope`, deriving that original root
+from the parent context rather than the scope. For a normal committed review,
+source and reviewed roots are the same. A mismatched location fails validation.
+
+The capture requires a clean committed candidate apart from those runtime artifacts. If relevant work is uncommitted,
 the parent first enumerates every candidate path, including unaccepted predecessor
 changes and relevant untracked files, and prepares an isolated snapshot without
-altering the source worktree or index:
+altering the source worktree or index. An untracked plan outside the runtime
+namespace also requires a snapshot; select the actual candidate paths and retain
+the plan in the source inventory so later changes invalidate the review:
 
 ```bash
 python3 "$skill_dir/scripts/prepare_candidate.py" --project-root "$project_root" \
   --destination /absolute/new/review-worktree --metadata-file /absolute/new/snapshot.json \
   path/to/first-candidate path/to/second-candidate
 cd /absolute/new/review-worktree
+project_root=$(git rev-parse --show-toplevel)
 REVIEW_BASE="<accepted-baseline-commit>" REVIEW_SOURCE_METADATA=/absolute/new/snapshot.json \
   bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
@@ -182,7 +198,7 @@ Select and run it with:
 python3 "$skill_dir/scripts/adaptive_review.py" select --host "${DEEP_REVIEW_HOST:-unknown}"
 python3 "$skill_dir/scripts/adaptive_review.py" run-cli \
   --prompt-file /path/to/adversarial-prompt.txt \
-  --project-root "$project_root" --diff-path "$diff_path" --base-commit "$base_commit" \
+  --project-root "$project_root" --source-root "$source_root" --diff-path "$diff_path" --base-commit "$base_commit" \
   --review-output-path "$review_output_path" --scope-file /tmp/deep-review-scope.json --host "${DEEP_REVIEW_HOST:-unknown}"
 ```
 

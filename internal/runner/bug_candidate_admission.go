@@ -15,6 +15,13 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
+func bugEvidenceProject(req gatepersist.Request) string {
+	if req.EvidenceRoot != "" {
+		return req.EvidenceRoot
+	}
+	return filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+}
+
 // readBugEvidence resolves one digest-bound, project-local regular file.
 func readBugEvidence(req gatepersist.Request, kind string) (workercontrol.EvidenceRef, []byte, error) {
 	ref, err := findBugEvidence(req, kind)
@@ -25,7 +32,7 @@ func readBugEvidence(req gatepersist.Request, kind string) (workercontrol.Eviden
 	if err != nil {
 		return ref, nil, err
 	}
-	root := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	root := bugEvidenceProject(req)
 	data, err := readBoundedBugEvidence(root, ref.Pointer)
 	if err != nil {
 		return ref, nil, err
@@ -115,7 +122,7 @@ func readBugReviewScope(ctx context.Context, req gatepersist.Request) (workercon
 	if !strings.EqualFold("sha256:"+scope.RepairPlanSHA256, planRef.Summary) {
 		return ref, fmt.Errorf("review scope plan revision differs from approved plan")
 	}
-	root := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	root := bugEvidenceProject(req)
 	if err := verifyBugCandidate(ctx, root, data); err != nil {
 		return ref, fmt.Errorf("review candidate is stale or invalid: %w", err)
 	}

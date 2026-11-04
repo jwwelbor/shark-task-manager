@@ -3,27 +3,32 @@
 # Outputs JSON: { "diff_path": "...", "changed_files": [...], "changed_file_count": N, "diff_shortstat": "...", "project_root": "..." }
 set -euo pipefail
 
+git() { command git -c core.fsmonitor=false "$@"; }
+
 project_root=$(git rev-parse --show-toplevel)
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+runtime_project=$(PYTHONPATH="$script_dir${PYTHONPATH:+:$PYTHONPATH}" python3 -c 'import sys; from review_status import runtime_project; print(runtime_project(sys.argv[1], sys.argv[2]))' "$project_root" "${REVIEW_SHARK_PROJECT_ROOT:-$project_root}")
 
 # A committed candidate makes the tree identity and the manifest unambiguous.
 # Fail closed instead of silently omitting staged, unstaged or untracked files.
-if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+if ! git status --porcelain=v1 -z --untracked-files=all | python3 "$script_dir/review_status.py" "$runtime_project"; then
   echo '{"error": "Working tree is not clean; prepare an isolated snapshot of explicit candidate paths before review"}' >&2
   exit 1
 fi
 
-# Find base branch
+# Find a default base branch only when the caller did not supply one.
 base_branch=""
-for candidate in main master origin/main origin/master; do
-  if git rev-parse --verify "$candidate" &>/dev/null 2>&1; then
-    base_branch="$candidate"
-    break
+if [ -z "${REVIEW_BASE:-}" ]; then
+  for candidate in main master origin/main origin/master; do
+    if git rev-parse --verify "$candidate" &>/dev/null 2>&1; then
+      base_branch="$candidate"
+      break
+    fi
+  done
+  if [ -z "$base_branch" ]; then
+    echo '{"error": "Could not find base branch; set REVIEW_BASE to the accepted baseline"}' >&2
+    exit 1
   fi
-done
-
-if [ -z "$base_branch" ]; then
-  echo '{"error": "Could not find base branch (tried main, master, origin/main, origin/master)"}' >&2
-  exit 1
 fi
 
 # REVIEW_BASE is the accepted baseline when one is specified by the plan.
@@ -32,7 +37,7 @@ base_commit=$(git rev-parse --verify "${REVIEW_BASE:-$(git merge-base "$base_bra
 candidate_commit=$(git rev-parse HEAD)
 candidate_tree=$(git rev-parse 'HEAD^{tree}')
 source_marker=$(git rev-parse --git-path shark-review-source.json)
-if { [ "$(git log -1 --format=%s)" = "Shark isolated review snapshot v1" ] || [ -f "$source_marker" ]; } && [ -z "${REVIEW_SOURCE_METADATA:-}" ]; then
+if { [ "$(git log -1 --format=%s)" = "Shark isolated review snapshot v1" ] || [ -e "$source_marker" ] || [ -L "$source_marker" ]; } && [ -z "${REVIEW_SOURCE_METADATA:-}" ]; then
   echo '{"error": "isolated snapshot requires REVIEW_SOURCE_METADATA"}' >&2
   exit 1
 fi
@@ -109,10 +114,15 @@ else
   review_dir="${review_root}/${branch_slug}/code_review"
   review_label="$branch_slug"
 fi
-review_output_path="${review_dir}/${review_date}-${review_label}-overall-review.md"
+# Each capture owns a fresh directory, including detached HEAD and same-day
+# re-reviews. Existing reports and sidecars remain available for audit.
+mkdir -p "$review_dir"
+review_run_dir=$(mktemp -d "${review_dir}/${candidate_commit:0:12}-XXXXXX")
+review_output_path="${review_run_dir}/${review_date}-${review_label}-overall-review.md"
 
 DIFF_PATH="$diff_path" \
 PROJECT_ROOT="$project_root" \
+RUNTIME_PROJECT="$runtime_project" \
 CODING_STANDARDS_PATH="$coding_standards_path" \
 DIFF_SHORTSTAT="$diff_shortstat" \
 BRANCH="$branch" \
@@ -124,18 +134,22 @@ REVIEW_OUTPUT_PATH="$review_output_path" \
 REVIEW_SOURCE_METADATA="${REVIEW_SOURCE_METADATA:-}" \
 REVIEW_SOURCE_MARKER="$source_marker" \
 REVIEW_PLAN_SHA256="${REVIEW_PLAN_SHA256:-}" \
+REVIEW_SCRIPT_DIR="$script_dir" \
 python3 - <<'PYEOF'
-import os, json, subprocess
+import os, json, subprocess, sys
+sys.path.insert(0, os.environ["REVIEW_SCRIPT_DIR"])
+from safe_review_io import read_review_file
 diff_path = os.environ["DIFF_PATH"]
 project_root = os.environ["PROJECT_ROOT"]
 coding_standards_path = os.environ.get("CODING_STANDARDS_PATH", "")
-changed_files = [os.fsdecode(p) for p in subprocess.check_output(["git", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]]).split(b"\0") if p]
+changed_files = [os.fsdecode(p) for p in subprocess.check_output(["git", "-c", "core.fsmonitor=false", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]]).split(b"\0") if p]
 scope = {
   "diff_path": diff_path,
   "changed_files": changed_files,
   "changed_file_count": len(changed_files),
   "diff_shortstat": os.environ.get("DIFF_SHORTSTAT") or None,
   "project_root": project_root,
+  "runtime_project": os.environ["RUNTIME_PROJECT"],
   "coding_standards_path": coding_standards_path or None,
   "branch": os.environ.get("BRANCH") or None,
   "base_commit": os.environ.get("BASE_COMMIT") or None,
@@ -151,13 +165,11 @@ if plan_sha256:
     raise ValueError("REVIEW_PLAN_SHA256 must be a lowercase SHA-256 digest")
   scope["repair_plan_sha256"] = plan_sha256
 if source_path:
-  with open(source_path, encoding="utf-8") as source_file:
-    source = json.load(source_file)
+  source = json.loads(read_review_file(source_path, 2 * 1024 * 1024).decode("utf-8"))
   marker_path = os.environ.get("REVIEW_SOURCE_MARKER")
-  if marker_path and os.path.isfile(marker_path):
-    with open(marker_path, encoding="utf-8") as marker_file:
-      if json.load(marker_file) != source:
-        raise ValueError("source snapshot marker does not match metadata")
+  if marker_path and os.path.lexists(marker_path):
+    if json.loads(read_review_file(marker_path, 2 * 1024 * 1024).decode("utf-8")) != source:
+      raise ValueError("source snapshot marker does not match metadata")
   if source["candidate_commit"] != scope["candidate_commit"] or source["candidate_tree"] != scope["candidate_tree"] or os.path.realpath(source["project_root"]) != os.path.realpath(project_root):
     raise ValueError("source snapshot metadata does not match candidate")
   scope["source_snapshot"] = source

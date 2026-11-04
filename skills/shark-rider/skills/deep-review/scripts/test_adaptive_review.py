@@ -6,7 +6,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -17,7 +19,42 @@ from adaptive_review import (  # noqa: E402
     select_runner,
     valid_adversarial_output,
     validate_review_decisions,
+    run_bounded_reviewer,
 )
+
+
+class BoundedReviewerTest(unittest.TestCase):
+    def test_windows_fails_closed_before_launch(self):
+        with patch('adaptive_review.os.name', 'nt'), patch('adaptive_review.subprocess.Popen') as process:
+            with self.assertRaisesRegex(OSError, 'process-tree cleanup'):
+                run_bounded_reviewer(['reviewer'], None, 1)
+            process.assert_not_called()
+
+    @unittest.skipIf(os.name == 'nt', 'uses POSIX process groups')
+    def test_excess_output_is_bounded_and_rejected(self):
+        script = "import sys; sys.stdout.write('x' * (9 * 1024 * 1024)); sys.stdout.flush()"
+        result = run_bounded_reviewer([sys.executable, '-c', script], None, 5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLessEqual(len(result.stdout.encode()), 8 * 1024 * 1024)
+
+    @unittest.skipIf(os.name == 'nt', 'uses POSIX process groups')
+    def test_closed_output_pipes_do_not_bypass_timeout(self):
+        script = "import os,time; os.close(1); os.close(2); time.sleep(10)"
+        start = time.monotonic()
+        result = run_bounded_reviewer([sys.executable, '-c', script], None, 0.2)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLess(time.monotonic() - start, 3)
+
+    @unittest.skipIf(os.name == 'nt', 'uses POSIX process groups')
+    def test_parent_exit_with_child_holding_stderr_is_bounded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / 'child-survived'
+            child = "import time,pathlib; time.sleep(1); pathlib.Path(" + repr(str(marker)) + ").write_text('alive')"
+            parent = "import subprocess,sys; subprocess.Popen([sys.executable, '-c', " + repr(child) + "], stdout=subprocess.DEVNULL); print('parent exited')"
+            result = run_bounded_reviewer([sys.executable, '-c', parent], tmp, 0.2)
+            self.assertNotEqual(result.returncode, 0)
+            time.sleep(1.1)
+            self.assertFalse(marker.exists())
 
 
 def scope_fixture(root):
@@ -98,7 +135,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             report = root / 'report.md'
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
                 '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'claude',
                 '--codex-command', str(fake), '--timeout', '2', '--no-workflow-available', '--no-agent-dispatch-available',
             ], capture_output=True, text=True, check=False)
@@ -123,7 +160,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             fake_reviewer(fake, packet)
             result = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
                 '--scope-file', str(scope_file), '--base-commit', scope['base_commit'],
                 '--review-output-path', str(root / 'report.md'), '--host', 'claude',
                 '--codex-command', str(fake), '--claude-command', str(fake),
@@ -143,13 +180,15 @@ class AdaptiveReviewTests(unittest.TestCase):
             fake.write_text(f'#!/bin/sh\ntouch "{called}"\n')
             fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
             common = [sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                      '--prompt-file', str(prompt), '--diff-path', scope['diff_path'],
+                      '--prompt-file', str(prompt), '--source-root', str(repo), '--diff-path', scope['diff_path'],
                       '--base-commit', scope['base_commit'], '--review-output-path', str(root / 'report.md'),
                       '--host', 'claude', '--codex-command', str(fake),
                       '--no-workflow-available', '--no-agent-dispatch-available']
-            for extra in (['--project-root', str(repo)],
-                          ['--project-root', str(root), '--scope-file', str(scope_file)]):
-                result = subprocess.run(common + extra, capture_output=True, text=True)
+            for index, extra in enumerate((['--project-root', str(repo)],
+                                           ['--project-root', str(root), '--scope-file', str(scope_file)])):
+                invocation = common.copy()
+                invocation[invocation.index('--review-output-path') + 1] = str(root / f'report-{index}.md')
+                result = subprocess.run(invocation + extra, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
                 self.assertFalse(called.exists())
@@ -173,7 +212,7 @@ class AdaptiveReviewTests(unittest.TestCase):
                 report = root / f'{name}.md'
                 proc = subprocess.run([
                     sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                    '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                    '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
                     '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'claude',
                     '--codex-command', str(fake), '--timeout', '0.1', '--no-workflow-available', '--no-agent-dispatch-available',
                 ], capture_output=True, text=True, check=False)
@@ -194,7 +233,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             report = root / 'report.md'
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
                 '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'codex',
                 '--claude-command', str(failed), '--codex-command', str(successful), '--timeout', '2',
                 '--no-workflow-available', '--no-agent-dispatch-available',
@@ -214,7 +253,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             env = {**os.environ, 'PATH': '/nonexistent'}
             proc = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(repo), '--diff-path', scope['diff_path'],
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
                 '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'unknown',
                 '--no-workflow-available', '--no-agent-dispatch-available',
             ], env=env, capture_output=True, text=True, check=False)

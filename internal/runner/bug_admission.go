@@ -12,7 +12,7 @@ import (
 
 // BugGateAdmission checks the plan bytes and the declared review baseline.
 // Rework and parking remain available without this evidence.
-func BugGateAdmission(_ context.Context, req gatepersist.Request) error {
+func BugGateAdmission(ctx context.Context, req gatepersist.Request) error {
 	if req.EntityType != models.EntityTypeBug || req.Role != gateresult.RoleSuccess {
 		return nil
 	}
@@ -20,6 +20,9 @@ func BugGateAdmission(_ context.Context, req gatepersist.Request) error {
 	case "repair_plan", "plan_review", "development", "code_review", "qa":
 	default:
 		return nil
+	}
+	if err := verifyBugEvidenceRoot(ctx, req); err != nil {
+		return err
 	}
 	if _, _, err := readBugEvidence(req, "bug_repair_plan"); err != nil {
 		return fmt.Errorf("plan evidence: %w", err)

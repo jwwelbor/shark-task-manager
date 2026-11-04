@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 )
 
 var bugReviewVerdict = regexp.MustCompile(`(?i)\bVERDICT\s*:?\s*\*{0,2}\s*:?\s*(PASS(?:-WITH-TRIAGE)?|FAIL)\b`)
 var bugContradictoryBlocker = regexp.MustCompile(`\bnot\s+refuted\b|\bblockers?\s+remain\b|\bunresolved\s+blockers?\b`)
+var bugIncompleteReport = regexp.MustCompile(`(?i)\bINCOMPLETE\b`)
+var bugReviewScopeWord = regexp.MustCompile(`(?i)\b(scope|coverage)\b`)
+var bugReviewFindingsWord = regexp.MustCompile(`(?i)\b(findings|defects)\b`)
 
 type bugAngleFinding struct {
 	Severity  string `json:"severity"`
@@ -56,6 +60,9 @@ func verifyBugReviewEvidence(req gatepersist.Request) error {
 		return fmt.Errorf("review report header is missing")
 	}
 	if err := validateBugReviewHeader(header, scope); err != nil {
+		return err
+	}
+	if err := verifyReviewArtifactHash(header, "Retained scope", scopeData); err != nil {
 		return err
 	}
 	if err := validateBugReviewBody(header, body); err != nil {
@@ -110,7 +117,7 @@ func validateBugReviewHeader(header string, scope bugCandidateScope) error {
 	return nil
 }
 func validateBugReviewBody(header, body string) error {
-	if strings.Contains(strings.ToUpper(body), "INCOMPLETE") || len(strings.TrimSpace(body)) < 80 {
+	if !utf8.ValidString(body) || bugIncompleteReport.MatchString(body) || utf8.RuneCountInString(strings.TrimSpace(body)) < 80 {
 		return fmt.Errorf("review report is incomplete")
 	}
 	verdict := bugReviewVerdict.FindStringSubmatch(header)
@@ -131,7 +138,7 @@ func validateBugReviewBodyCoverage(body string) error {
 	if bugContradictoryBlocker.MatchString(checked) {
 		return fmt.Errorf("review report describes an unresolved blocker")
 	}
-	if !(strings.Contains(lower, "scope") || strings.Contains(lower, "coverage")) || !(strings.Contains(lower, "findings") || strings.Contains(lower, "defects")) {
+	if !bugReviewScopeWord.MatchString(body) || !bugReviewFindingsWord.MatchString(body) {
 		return fmt.Errorf("review report lacks scope or findings")
 	}
 	return nil

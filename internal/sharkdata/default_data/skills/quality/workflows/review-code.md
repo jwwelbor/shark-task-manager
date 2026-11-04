@@ -372,7 +372,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 
 ## Loop-guard awareness
 
-If `prior_rejection_count >= 1` for this task at code review, **escalate to the user instead of issuing another rejection** — re-rejecting the same code on the same grounds is a loop. The host is responsible for halting the dispatch; the craft simply notes loop-guard state in the report.
+Use the canonical defect-class sweep to classify recurrence from the actual findings and evidence, then apply the project's configured retry and escalation limits. A raw prior rejection count alone does not establish a recurring defect. Preserve prior accepted dispositions unless new evidence invalidates them, and record the basis for any escalation.
 
 ## Tone
 

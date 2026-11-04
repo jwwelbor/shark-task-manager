@@ -91,6 +91,7 @@ func TestCreateIdentity_RejectsRebindingOnDivergedReplayContext(t *testing.T) {
 		{"source_status", func(rec *RunIdentity) { rec.SourceStatus = "blocked" }},
 		{"gate", func(rec *RunIdentity) { rec.Gate = "code_review" }},
 		{"operation_digest", func(rec *RunIdentity) { rec.OperationDigest = "digest-xyz" }},
+		{"evidence_root", func(rec *RunIdentity) { rec.EvidenceRoot = "/other-worktree" }},
 	}
 	for _, f := range fields {
 		t.Run(f.name, func(t *testing.T) {
@@ -189,6 +190,7 @@ func TestVerifyRunIdentity_FailsClosedOnReplayContextMismatch(t *testing.T) {
 		{"source_status", func() RunIdentity { w := matching; w.SourceStatus = "blocked"; return w }()},
 		{"gate", func() RunIdentity { w := matching; w.Gate = "code_review"; return w }()},
 		{"operation_digest", func() RunIdentity { w := matching; w.OperationDigest = "digest-xyz"; return w }()},
+		{"evidence_root", func() RunIdentity { w := matching; w.EvidenceRoot = "/other-worktree"; return w }()},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

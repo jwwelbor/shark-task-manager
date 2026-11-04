@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	claimrepo "github.com/jwwelbor/shark-task-manager/internal/repository/claim"
@@ -53,154 +54,193 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 	build.Dir = root
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
-	project := t.TempDir()
-	dbPath := filepath.Join(project, "fixture.db")
-	run := func(program string, args ...string) []byte {
-		t.Helper()
-		cmd := exec.Command(program, args...)
-		cmd.Dir = project
-		output, e := cmd.CombinedOutput()
-		require.NoError(t, e, string(output))
-		return output
+	for _, useWorktree := range []bool{false, true} {
+		t.Run(fmt.Sprintf("worktree-%t", useWorktree), func(t *testing.T) {
+			project := t.TempDir()
+			dbPath := filepath.Join(project, "fixture.db")
+			run := func(program string, args ...string) []byte {
+				t.Helper()
+				cmd := exec.Command(program, args...)
+				cmd.Dir = project
+				output, e := cmd.CombinedOutput()
+				require.NoError(t, e, string(output))
+				return output
+			}
+			git := func(args ...string) string { t.Helper(); return strings.TrimSpace(string(run("git", args...))) }
+			shark := func(args ...string) []byte { t.Helper(); return run(binary, append(args, "--db", dbPath, "--json")...) }
+			git("init", "-b", "main")
+			git("config", "user.name", "Test")
+			git("config", "user.email", "test@example.invalid")
+			git("config", "commit.gpgsign", "false")
+			git("config", "core.hooksPath", t.TempDir())
+			require.NoError(t, os.WriteFile(filepath.Join(project, ".gitignore"), []byte(".sharkconfig.json\nfixture.db*\ndocs/\nshark-data/\n"), 0600))
+			require.NoError(t, os.WriteFile(filepath.Join(project, "app.txt"), []byte("base\n"), 0600))
+			git("add", ".gitignore", "app.txt")
+			git("commit", "-m", "baseline")
+			baseline := git("rev-parse", "HEAD")
+			shark("admin", "init", "--non-interactive")
+			// The portable Go helper and descriptor-relative Python inventory must
+			// compute the same bytes, including untracked content.
+			untracked := filepath.Join(project, "inventory.txt")
+			require.NoError(t, os.WriteFile(untracked, []byte("untracked fixture"), 0600))
+			inventory := func(force bool, relativeProject string) string {
+				t.Helper()
+				cmd := exec.Command("python3", "-c", "import source_inventory,sys; print(source_inventory.source_inventory(sys.argv[1], sys.argv[2]))", project, relativeProject)
+				cmd.Dir = project
+				cmd.Env = append(os.Environ(), "PYTHONPATH="+scripts)
+				if force {
+					cmd.Env = append(cmd.Env, "SHARK_REVIEW_INVENTORY_FORCE=1", "SHARK_REVIEW_INVENTORY_BIN="+binary)
+				}
+				data, err := cmd.CombinedOutput()
+				require.NoError(t, err, string(data))
+				return strings.TrimSpace(string(data))
+			}
+			expectedInventory, err := runner.ReviewSourceInventory(context.Background(), project)
+			require.NoError(t, err)
+			require.Equal(t, expectedInventory, inventory(true, "."))
+			if runtime.GOOS != "windows" {
+				require.Equal(t, expectedInventory, inventory(false, "."))
+			}
+			nestedRuntime := filepath.Join(project, "nested", ".shark", "runs", "run")
+			require.NoError(t, os.MkdirAll(nestedRuntime, 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(nestedRuntime, "result"), []byte("runtime"), 0600))
+			nestedInventory, err := runner.ReviewSourceInventoryForProject(context.Background(), project, "nested")
+			require.NoError(t, err)
+			require.Equal(t, nestedInventory, inventory(true, "nested"))
+			if runtime.GOOS != "windows" {
+				require.Equal(t, nestedInventory, inventory(false, "nested"))
+			}
+			require.NoError(t, os.RemoveAll(filepath.Join(project, "nested"))) // Entirely test-owned fixture.
+			// Exercise the same portable read path used on hosts without Python no-follow opens.
+			readCmd := exec.Command("python3", "-c", "import safe_review_io,sys; sys.stdout.buffer.write(safe_review_io.read_review_file(sys.argv[1], 64))", untracked)
+			readCmd.Dir = project
+			readCmd.Env = append(os.Environ(), "PYTHONPATH="+scripts, "SHARK_REVIEW_IO_FORCE=1", "SHARK_REVIEW_INVENTORY_BIN="+binary)
+			readOutput, err := readCmd.CombinedOutput()
+			require.NoError(t, err, string(readOutput))
+			require.Equal(t, []byte("untracked fixture"), readOutput)
+			require.NoError(t, os.Remove(untracked))
+			shark("admin", "install-shark-data")
+			workflowPath := filepath.Join(project, "shark-data", "workflow", "bug.yaml")
+			workflowData, err := os.ReadFile(workflowPath)
+			require.NoError(t, err)
+			beforeReview, reviewTail, ok := strings.Cut(string(workflowData), "  code_review:\n")
+			require.True(t, ok)
+			reviewBlock, afterReview, ok := strings.Cut(reviewTail, "  completed:\n")
+			require.True(t, ok)
+			require.Contains(t, reviewBlock, "      pass: qa")
+			require.Contains(t, reviewBlock, "      pass: success")
+			reviewBlock = strings.Replace(reviewBlock, "      pass: qa", "      approved: qa", 1)
+			reviewBlock = strings.Replace(reviewBlock, "      pass: success", "      approved: success", 1)
+			require.NoError(t, os.WriteFile(workflowPath, []byte(beforeReview+"  code_review:\n"+reviewBlock+"  completed:\n"+afterReview), 0600))
+			shark("bug", "create", "Admission integration")
+			shark("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
+			shark("claim", "B001", "--session", "fixture-session", "--by", "test")
+			planRel := "docs/plan/bugs/B001.repair-plan.md"
+			plan := []byte("# Plan\nBaseline: " + baseline + "\nPreserve cost and model behavior.\n")
+			require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
+			planHash := sha256.Sum256(plan)
+			refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", planHash)}, {"kind": "bug_review_baseline", "pointer": baseline}}
+			resultPath := filepath.Join(project, ".shark", "runs", "fixture-result", "fixture-result.json")
+			require.NoError(t, os.MkdirAll(filepath.Dir(resultPath), 0700))
+			writeEnvelope := func(path string, evidence []map[string]string, outcome string) {
+				t.Helper()
+				data, e := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": outcome, "evidence": evidence, "gate_result": map[string]any{"schema_version": 1, "summary": "fixture pass"}})
+				require.NoError(t, e)
+				require.NoError(t, os.WriteFile(path, data, 0600))
+			}
+			writeEnvelope(resultPath, refs, "pass")
+			next := shark("next", "B001")
+			require.Contains(t, string(next), "gate_result_v1")
+			shark("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-plan", "--session", "fixture-session")
+			shark("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-development", "--session", "fixture-session")
+			require.Contains(t, string(shark("next", "B001")), "approved")
+			require.NoError(t, os.WriteFile(filepath.Join(project, "app.txt"), []byte("fixed; cost and model preserved\n"), 0600))
+			git("add", "app.txt")
+			git("commit", "-m", "repair")
+			worker := project
+			if useWorktree {
+				worker = filepath.Join(t.TempDir(), "worker")
+				git("worktree", "add", "--detach", worker, "HEAD")
+				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(worker, planRel)), 0700))
+				require.NoError(t, os.WriteFile(filepath.Join(worker, planRel), plan, 0600))
+			}
+			runGate := func(args ...string) []byte {
+				t.Helper()
+				if useWorktree {
+					args = append(args, "--workdir", worker)
+				}
+				return shark(args...)
+			}
+			capture := exec.Command("bash", filepath.Join(scripts, "get_diff.sh"))
+			capture.Dir = worker
+			capture.Env = append(os.Environ(), "REVIEW_BASE="+baseline, fmt.Sprintf("REVIEW_PLAN_SHA256=%x", planHash))
+			scopeData, err := capture.Output()
+			require.NoError(t, err)
+			var scope struct {
+				CandidateCommit string   `json:"candidate_commit"`
+				CandidateTree   string   `json:"candidate_tree"`
+				DiffSHA256      string   `json:"diff_sha256"`
+				DiffPath        string   `json:"diff_path"`
+				ChangedFiles    []string `json:"changed_files"`
+			}
+			require.NoError(t, json.Unmarshal(scopeData, &scope))
+			fixtureDir := filepath.Join(worker, ".shark", "runs", "fixture")
+			require.NoError(t, os.MkdirAll(fixtureDir, 0700))
+			write := func(name string, data []byte) string {
+				t.Helper()
+				path := filepath.Join(fixtureDir, name)
+				require.NoError(t, os.WriteFile(path, data, 0600))
+				return path
+			}
+			scopePath := write("scope.json", scopeData)
+			identity := map[string]string{"commit": scope.CandidateCommit, "tree": scope.CandidateTree, "diff_sha256": scope.DiffSHA256, "repair_plan_sha256": fmt.Sprintf("%x", planHash)}
+			angles := map[string]any{}
+			for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
+				angles[name] = map[string]any{"candidate_identity": identity, "reviewed_files": scope.ChangedFiles, "findings": []any{}}
+			}
+			angleBytes, err := json.Marshal(angles)
+			require.NoError(t, err)
+			anglesPath := write("angles.json", angleBytes)
+			decisions, err := json.Marshal(map[string]any{"candidate_identity": identity, "findings": []any{}})
+			require.NoError(t, err)
+			decisionsPath := write("decisions.json", decisions)
+			bodyPath := write("body.md", []byte("Scope: reviewed all candidate files and callers. Findings: none. Cost and model behavior preserved. VERDICT: PASS\n"))
+			reportPath := filepath.Join(fixtureDir, "report.md")
+			run("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", worker, "--source-root", worker, "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "dispatched-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", baseline, "--diff-path", scope.DiffPath, "--scope-file", scopePath, "--angle-results", anglesPath, "--review-decisions", decisionsPath, "--verdict", "PASS")
+			for kind, path := range map[string]string{"bug_review_scope": reportPath + ".scope.json", "bug_review_report": reportPath, "bug_review_angles": anglesPath, "bug_review_decisions": reportPath + ".decisions.json"} {
+				data, e := os.ReadFile(path)
+				require.NoError(t, e)
+				rel, e := filepath.Rel(worker, path)
+				require.NoError(t, e)
+				hash := sha256.Sum256(data)
+				refs = append(refs, map[string]string{"kind": kind, "pointer": rel, "summary": fmt.Sprintf("sha256:%x", hash)})
+			}
+			writeEnvelope(resultPath, refs, "approved")
+			runGate("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-review", "--session", "fixture-session")
+			writeEnvelope(resultPath, refs, "pass")
+			require.NoError(t, os.WriteFile(filepath.Join(worker, "app.txt"), []byte("stale\n"), 0600))
+			staleArgs := []string{"run", "B001", "--apply-result", resultPath, "--run-id", "fixture-stale", "--session", "fixture-session", "--db", dbPath, "--json"}
+			if useWorktree {
+				staleArgs = append(staleArgs, "--workdir", worker)
+			}
+			stale := exec.Command(binary, staleArgs...)
+			stale.Dir = project
+			staleOutput, err := stale.CombinedOutput()
+			require.Error(t, err)
+			require.Contains(t, string(staleOutput), "candidate worktree changed")
+			require.NoError(t, os.WriteFile(filepath.Join(worker, "app.txt"), []byte("fixed; cost and model preserved\n"), 0600))
+			runGate("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-qa", "--session", "fixture-session")
+			var result struct {
+				Status string `json:"status"`
+			}
+			require.NoError(t, json.Unmarshal(shark("get", "B001"), &result))
+			require.Equal(t, "completed", result.Status)
+			history := string(shark("history", "B001"))
+			require.Contains(t, history, "run fixture-plan operation")
+			require.Contains(t, history, "outcome approved run fixture-review operation")
+			require.Contains(t, history, "run fixture-qa operation")
+		})
 	}
-	git := func(args ...string) string { t.Helper(); return strings.TrimSpace(string(run("git", args...))) }
-	shark := func(args ...string) []byte { t.Helper(); return run(binary, append(args, "--db", dbPath, "--json")...) }
-	git("init", "-b", "main")
-	git("config", "user.name", "Test")
-	git("config", "user.email", "test@example.invalid")
-	git("config", "commit.gpgsign", "false")
-	git("config", "core.hooksPath", t.TempDir())
-	require.NoError(t, os.WriteFile(filepath.Join(project, ".gitignore"), []byte(".shark/\n.sharkconfig.json\nfixture.db*\ndocs/\nshark-data/\n"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(project, "app.txt"), []byte("base\n"), 0600))
-	git("add", ".gitignore", "app.txt")
-	git("commit", "-m", "baseline")
-	baseline := git("rev-parse", "HEAD")
-	shark("admin", "init", "--non-interactive")
-	// The portable Go helper and descriptor-relative Python inventory must
-	// compute the same bytes, including untracked content.
-	untracked := filepath.Join(project, "inventory.txt")
-	require.NoError(t, os.WriteFile(untracked, []byte("untracked fixture"), 0600))
-	inventory := func(force bool) string {
-		t.Helper()
-		cmd := exec.Command("python3", "-c", "import source_inventory,sys; print(source_inventory.source_inventory(sys.argv[1]))", project)
-		cmd.Dir = project
-		cmd.Env = append(os.Environ(), "PYTHONPATH="+scripts)
-		if force {
-			cmd.Env = append(cmd.Env, "SHARK_REVIEW_INVENTORY_FORCE=1", "SHARK_REVIEW_INVENTORY_BIN="+binary)
-		}
-		data, err := cmd.CombinedOutput()
-		require.NoError(t, err, string(data))
-		return strings.TrimSpace(string(data))
-	}
-	expectedInventory, err := runner.ReviewSourceInventory(context.Background(), project)
-	require.NoError(t, err)
-	require.Equal(t, expectedInventory, inventory(true))
-	if runtime.GOOS != "windows" {
-		require.Equal(t, expectedInventory, inventory(false))
-	}
-	require.NoError(t, os.Remove(untracked))
-	shark("admin", "install-shark-data")
-	workflowPath := filepath.Join(project, "shark-data", "workflow", "bug.yaml")
-	workflowData, err := os.ReadFile(workflowPath)
-	require.NoError(t, err)
-	beforeReview, reviewTail, ok := strings.Cut(string(workflowData), "  code_review:\n")
-	require.True(t, ok)
-	reviewBlock, afterReview, ok := strings.Cut(reviewTail, "  completed:\n")
-	require.True(t, ok)
-	require.Contains(t, reviewBlock, "      pass: qa")
-	require.Contains(t, reviewBlock, "      pass: success")
-	reviewBlock = strings.Replace(reviewBlock, "      pass: qa", "      approved: qa", 1)
-	reviewBlock = strings.Replace(reviewBlock, "      pass: success", "      approved: success", 1)
-	require.NoError(t, os.WriteFile(workflowPath, []byte(beforeReview+"  code_review:\n"+reviewBlock+"  completed:\n"+afterReview), 0600))
-	shark("bug", "create", "Admission integration")
-	shark("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
-	shark("claim", "B001", "--session", "fixture-session", "--by", "test")
-	planRel := "docs/plan/bugs/B001.repair-plan.md"
-	plan := []byte("# Plan\nBaseline: " + baseline + "\nPreserve cost and model behavior.\n")
-	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
-	planHash := sha256.Sum256(plan)
-	refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", planHash)}, {"kind": "bug_review_baseline", "pointer": baseline}}
-	resultPath := filepath.Join(project, ".shark", "fixture-result.json")
-	require.NoError(t, os.MkdirAll(filepath.Dir(resultPath), 0700))
-	writeEnvelope := func(path string, evidence []map[string]string, outcome string) {
-		t.Helper()
-		data, e := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": outcome, "evidence": evidence, "gate_result": map[string]any{"schema_version": 1, "summary": "fixture pass"}})
-		require.NoError(t, e)
-		require.NoError(t, os.WriteFile(path, data, 0600))
-	}
-	writeEnvelope(resultPath, refs, "pass")
-	next := shark("next", "B001")
-	require.Contains(t, string(next), "gate_result_v1")
-	shark("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-plan", "--session", "fixture-session")
-	shark("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-development", "--session", "fixture-session")
-	require.Contains(t, string(shark("next", "B001")), "approved")
-	require.NoError(t, os.WriteFile(filepath.Join(project, "app.txt"), []byte("fixed; cost and model preserved\n"), 0600))
-	git("add", "app.txt")
-	git("commit", "-m", "repair")
-	capture := exec.Command("bash", filepath.Join(scripts, "get_diff.sh"))
-	capture.Dir = project
-	capture.Env = append(os.Environ(), "REVIEW_BASE="+baseline, fmt.Sprintf("REVIEW_PLAN_SHA256=%x", planHash))
-	scopeData, err := capture.Output()
-	require.NoError(t, err)
-	var scope struct {
-		CandidateCommit string   `json:"candidate_commit"`
-		CandidateTree   string   `json:"candidate_tree"`
-		DiffSHA256      string   `json:"diff_sha256"`
-		DiffPath        string   `json:"diff_path"`
-		ChangedFiles    []string `json:"changed_files"`
-	}
-	require.NoError(t, json.Unmarshal(scopeData, &scope))
-	fixtureDir := filepath.Join(project, ".shark", "fixture")
-	require.NoError(t, os.MkdirAll(fixtureDir, 0700))
-	write := func(name string, data []byte) string {
-		t.Helper()
-		path := filepath.Join(fixtureDir, name)
-		require.NoError(t, os.WriteFile(path, data, 0600))
-		return path
-	}
-	scopePath := write("scope.json", scopeData)
-	identity := map[string]string{"commit": scope.CandidateCommit, "tree": scope.CandidateTree, "diff_sha256": scope.DiffSHA256, "repair_plan_sha256": fmt.Sprintf("%x", planHash)}
-	angles := map[string]any{}
-	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
-		angles[name] = map[string]any{"candidate_identity": identity, "reviewed_files": scope.ChangedFiles, "findings": []any{}}
-	}
-	angleBytes, err := json.Marshal(angles)
-	require.NoError(t, err)
-	anglesPath := write("angles.json", angleBytes)
-	decisions, err := json.Marshal(map[string]any{"candidate_identity": identity, "findings": []any{}})
-	require.NoError(t, err)
-	decisionsPath := write("decisions.json", decisions)
-	bodyPath := write("body.md", []byte("Scope: reviewed all candidate files and callers. Findings: none. Cost and model behavior preserved. VERDICT: PASS\n"))
-	reportPath := filepath.Join(fixtureDir, "report.md")
-	run("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "dispatched-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", baseline, "--diff-path", scope.DiffPath, "--scope-file", scopePath, "--angle-results", anglesPath, "--review-decisions", decisionsPath, "--verdict", "PASS")
-	for kind, path := range map[string]string{"bug_review_scope": scopePath, "bug_review_report": reportPath, "bug_review_angles": anglesPath, "bug_review_decisions": reportPath + ".decisions.json"} {
-		data, e := os.ReadFile(path)
-		require.NoError(t, e)
-		rel, e := filepath.Rel(project, path)
-		require.NoError(t, e)
-		hash := sha256.Sum256(data)
-		refs = append(refs, map[string]string{"kind": kind, "pointer": rel, "summary": fmt.Sprintf("sha256:%x", hash)})
-	}
-	writeEnvelope(resultPath, refs, "approved")
-	shark("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-review", "--session", "fixture-session")
-	writeEnvelope(resultPath, refs, "pass")
-	require.NoError(t, os.WriteFile(filepath.Join(project, "app.txt"), []byte("stale\n"), 0600))
-	stale := exec.Command(binary, "run", "B001", "--apply-result", resultPath, "--run-id", "fixture-stale", "--session", "fixture-session", "--db", dbPath, "--json")
-	stale.Dir = project
-	staleOutput, err := stale.CombinedOutput()
-	require.Error(t, err)
-	require.Contains(t, string(staleOutput), "candidate worktree changed")
-	require.NoError(t, os.WriteFile(filepath.Join(project, "app.txt"), []byte("fixed; cost and model preserved\n"), 0600))
-	shark("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-qa", "--session", "fixture-session")
-	var result struct {
-		Status string `json:"status"`
-	}
-	require.NoError(t, json.Unmarshal(shark("get", "B001"), &result))
-	require.Equal(t, "completed", result.Status)
-	history := string(shark("history", "B001"))
-	require.Contains(t, history, "run fixture-plan operation")
-	require.Contains(t, history, "outcome approved run fixture-review operation")
-	require.Contains(t, history, "run fixture-qa operation")
 }
 
 // TestBugAdmissionReplayBindsActualHistory reproduces the competing-run
@@ -301,6 +341,22 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 
 	// A crash after this run's own database transition may retire even if the
 	// artifact later changes, because its exact transition is already durable.
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", project, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		data, e := cmd.CombinedOutput()
+		require.NoError(t, e, string(data))
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.invalid")
+	require.NoError(t, os.WriteFile(filepath.Join(project, "tracked"), []byte("base"), 0600))
+	git("add", "tracked")
+	git("commit", "-m", "base")
+	worker := filepath.Join(t.TempDir(), "worker")
+	other := filepath.Join(t.TempDir(), "other")
+	git("worktree", "add", "--detach", worker, "HEAD")
+	git("worktree", "add", "--detach", other, "HEAD")
 	shark("bug", "create", "Crash recovery")
 	shark("status", "set", "B002", "plan_review", "--force", "--reason", "fixture setup")
 	shark("claim", "B002", "--session", "fixture-session", "--by", "test")
@@ -309,15 +365,45 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	crashCoordinator.ClaimVerifier = claims
 	crashCoordinator.Admission = realAdmission
 	crashResult := makeEnvelope("plan-crash.md", "crash plan")
-	crashRequest := runner.GateIngestRequest{EnvelopeBytes: crashResult, Coordinator: crashCoordinator, ProjectRoot: project, RunID: "crash-run", EntityKey: "B002", EntityType: models.EntityTypeBug, SourceStatus: "plan_review", Gate: "plan_review", Session: gatepersist.Session{ID: "fixture-session"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": "development"}}
+	workerPlan := filepath.Join(worker, "docs", "plan", "bugs", "plan-crash.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(workerPlan), 0700))
+	require.NoError(t, os.WriteFile(workerPlan, []byte("crash plan"), 0600))
+	crashRequest := runner.GateIngestRequest{EnvelopeBytes: crashResult, Coordinator: crashCoordinator, ProjectRoot: project, WorkingDir: worker, RunID: "crash-run", EntityKey: "B002", EntityType: models.EntityTypeBug, SourceStatus: "plan_review", Gate: "plan_review", Session: gatepersist.Session{ID: "fixture-session"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": "development"}}
 	_, err = runner.IngestGateResult(ctx, crashRequest)
 	require.ErrorContains(t, err, "simulated crash after transition")
+	conflict := crashRequest
+	conflict.WorkingDir = other
+	_, err = runner.IngestGateResult(ctx, conflict)
+	require.ErrorContains(t, err, "evidence root conflicts")
+	require.NoError(t, os.Rename(worker, worker+"-missing"))
+	crashRequest.WorkingDir = "" // Replay uses its durable identity, even after removal.
 	crashCoordinator.Admission = func(context.Context, gatepersist.Request) error {
 		return errors.New("evidence changed after transition")
 	}
 	resumed, err := runner.IngestGateResult(ctx, crashRequest)
 	require.NoError(t, err)
 	require.True(t, resumed.TransitionApplied)
+
+	// Reconstruct a crash after create-once identity/result but before state.
+	require.NoError(t, os.Rename(worker+"-missing", worker))
+	shark("bug", "create", "Uninitialized replay")
+	shark("status", "set", "B003", "plan_review", "--force", "--reason", "fixture setup")
+	shark("claim", "B003", "--session", "fixture-session", "--by", "test")
+	uninitialized := makeEnvelope("plan-uninitialized.md", "uninitialized plan")
+	require.NoError(t, os.WriteFile(filepath.Join(worker, "docs", "plan", "bugs", "plan-uninitialized.md"), []byte("uninitialized plan"), 0600))
+	runDir, err := gaterun.RunDir(project, "uninitialized-run")
+	require.NoError(t, err)
+	digest, err := gaterun.ComputeOperationDigest("B003", "bug", "plan_review", "plan_review", uninitialized)
+	require.NoError(t, err)
+	_, err = gaterun.CreateIdentity(runDir, gaterun.RunIdentity{RunID: "uninitialized-run", EntityKey: "B003", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, EvidenceRoot: worker})
+	require.NoError(t, err)
+	_, err = gaterun.CreateResult(runDir, uninitialized)
+	require.NoError(t, err)
+	coordinator.Admission = realAdmission
+	uninitializedRequest := runner.GateIngestRequest{EnvelopeBytes: uninitialized, Coordinator: coordinator, ProjectRoot: project, RunID: "uninitialized-run", EntityKey: "B003", EntityType: models.EntityTypeBug, SourceStatus: "plan_review", Gate: "plan_review", Session: gatepersist.Session{ID: "fixture-session"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": "development"}}
+	recovered, err := runner.IngestGateResult(ctx, uninitializedRequest)
+	require.NoError(t, err)
+	require.True(t, recovered.TransitionApplied)
 }
 
 func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {

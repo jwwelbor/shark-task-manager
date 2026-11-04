@@ -19,6 +19,7 @@ import (
 
 type bugCandidateScope struct {
 	ProjectRoot      string             `json:"project_root"`
+	RuntimeProject   string             `json:"runtime_project"`
 	BaseCommit       string             `json:"base_commit"`
 	CandidateCommit  string             `json:"candidate_commit"`
 	CandidateTree    string             `json:"candidate_tree"`
@@ -32,6 +33,7 @@ type bugCandidateScope struct {
 type bugSourceSnapshot struct {
 	ProjectRoot           string   `json:"project_root"`
 	SourceRoot            string   `json:"source_root"`
+	RuntimeProject        string   `json:"runtime_project"`
 	SourceCommit          string   `json:"source_commit"`
 	CandidateCommit       string   `json:"candidate_commit"`
 	CandidateTree         string   `json:"candidate_tree"`
@@ -55,12 +57,23 @@ func (s *bugSourceSnapshot) UnmarshalJSON(data []byte) error {
 // verifyBugCandidate checks the reviewed tree against the current source, including
 // selected uncommitted files when the review used an isolated snapshot.
 func verifyBugCandidate(ctx context.Context, root string, data []byte) error {
+	gitProject, relativeProject, err := candidateRepository(ctx, root)
+	if err != nil {
+		return err
+	}
+	root = gitProject
 	var scope bugCandidateScope
 	if err := json.Unmarshal(data, &scope); err != nil {
 		return fmt.Errorf("decode review scope: %w", err)
 	}
+	if scope.RuntimeProject == "" { // Legacy captures used the repository root.
+		scope.RuntimeProject = "."
+	}
+	if scope.RuntimeProject != filepath.ToSlash(relativeProject) {
+		return fmt.Errorf("review Shark project location mismatch")
+	}
 	git := func(env []string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
 		cmd.Env = env
 		out, err := cmd.Output()
 		if err != nil {
@@ -76,6 +89,31 @@ func verifyBugCandidate(ctx context.Context, root string, data []byte) error {
 		return validateCleanBugCandidate(root, scope, run)
 	}
 	return validateBugSnapshot(ctx, root, scope, git, run)
+}
+
+func candidateRepository(ctx context.Context, root string) (string, string, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve repository path: %w", err)
+	}
+	gitRoot, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("find candidate repository: %w", err)
+	}
+	gitProject, err := filepath.EvalSymlinks(strings.TrimSpace(string(gitRoot)))
+	if err != nil {
+		return "", "", fmt.Errorf("resolve candidate repository: %w", err)
+	}
+	sharkProject, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Shark project: %w", err)
+	}
+	relativeProject, err := filepath.Rel(gitProject, sharkProject)
+	if err != nil {
+		return "", "", fmt.Errorf("find Shark project within repository: %w", err)
+	}
+
+	return gitProject, relativeProject, nil
 }
 
 type bugGitRunner func(...string) ([]byte, error)
@@ -161,7 +199,7 @@ func requireNoSnapshotMarker(root, commit string, run bugGitRunner) error {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(root, path)
 	}
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("snapshot source metadata missing")
 	} else if !os.IsNotExist(err) {
 		return err
@@ -186,12 +224,31 @@ func sameBugProject(a, b string) error {
 	}
 	return nil
 }
+func normalizedRuntimeProject(project string) string {
+	if project == "" {
+		return "."
+	}
+	return project
+}
+
+func cleanReviewStatus(runtimeProject string, run bugGitRunner) ([]byte, error) {
+	prefix, err := reviewRuntimePrefix(runtimeProject)
+	if err != nil {
+		return nil, err
+	}
+	data, err := run("status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil, err
+	}
+	return filterReviewStatus(data, prefix)
+}
+
 func validateCleanBugHead(scope bugCandidateScope, run bugGitRunner) error {
 	head, err := run("rev-parse", "HEAD")
 	if err != nil || strings.TrimSpace(string(head)) != scope.CandidateCommit {
 		return fmt.Errorf("candidate commit is stale")
 	}
-	status, err := run("status", "--porcelain", "--untracked-files=all")
+	status, err := cleanReviewStatus(scope.RuntimeProject, run)
 	if err != nil || len(status) != 0 {
 		return fmt.Errorf("candidate worktree changed")
 	}
@@ -211,13 +268,8 @@ func validateSnapshotSource(root string, scope bugCandidateScope, run bugGitRunn
 	if err := sameBugProject(root, source.SourceRoot); err != nil {
 		return fmt.Errorf("snapshot source mismatch: %w", err)
 	}
-	if source.CandidateCommit != scope.CandidateCommit || source.CandidateTree != scope.CandidateTree || len(source.SelectedPaths) == 0 {
-		return fmt.Errorf("snapshot identity mismatch")
-	}
-	for _, path := range source.SelectedPaths {
-		if !filepath.IsLocal(path) || path == "." {
-			return fmt.Errorf("invalid selected path")
-		}
+	if err := validateSnapshotSelection(scope); err != nil {
+		return err
 	}
 	head, err := run("rev-parse", "HEAD")
 	if err != nil || strings.TrimSpace(string(head)) != source.SourceCommit {
@@ -225,8 +277,25 @@ func validateSnapshotSource(root string, scope bugCandidateScope, run bugGitRunn
 	}
 	return validateSnapshotInventory(root, source, run)
 }
+func validateSnapshotSelection(scope bugCandidateScope) error {
+	source := scope.Source
+	if normalizedRuntimeProject(source.RuntimeProject) != scope.RuntimeProject || source.CandidateCommit != scope.CandidateCommit || source.CandidateTree != scope.CandidateTree || len(source.SelectedPaths) == 0 {
+		return fmt.Errorf("snapshot identity mismatch")
+	}
+	prefix, err := reviewRuntimePrefix(scope.RuntimeProject)
+	if err != nil {
+		return err
+	}
+	for _, path := range source.SelectedPaths {
+		if !filepath.IsLocal(path) || path == "." || selectionOverlapsRuntime(filepath.ToSlash(path), prefix) {
+			return fmt.Errorf("invalid selected path")
+		}
+	}
+	return nil
+}
+
 func validateSnapshotInventory(root string, source *bugSourceSnapshot, run bugGitRunner) error {
-	inventory, err := bugSourceInventory(root, run)
+	inventory, err := bugSourceInventory(root, normalizedRuntimeProject(source.RuntimeProject), run)
 	if err != nil {
 		return err
 	}
@@ -274,16 +343,16 @@ type snapshotGitRunner func(string, ...string) ([]byte, error)
 // validateRetainedSnapshot requires the reviewed snapshot to remain clean and available through QA.
 func validateRetainedSnapshot(ctx context.Context, sourceRoot string, scope bugCandidateScope) error {
 	run := func(root string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
 		return cmd.Output()
-	}
-	if err := validateRetainedWorktree(scope, run); err != nil {
-		return err
 	}
 	if err := sameBugProject(scope.Source.ProjectRoot, scope.ProjectRoot); err != nil {
 		return fmt.Errorf("snapshot project metadata mismatch: %w", err)
 	}
 	if err := validateSnapshotRepository(sourceRoot, scope.ProjectRoot, run); err != nil {
+		return err
+	}
+	if err := validateRetainedWorktree(scope, run); err != nil {
 		return err
 	}
 	return validateSnapshotMarker(scope, run)
@@ -297,7 +366,7 @@ func validateRetainedWorktree(scope bugCandidateScope, run snapshotGitRunner) er
 	if err != nil || strings.TrimSpace(string(tree)) != scope.CandidateTree {
 		return fmt.Errorf("snapshot tree changed")
 	}
-	status, err := run(scope.ProjectRoot, "status", "--porcelain", "--untracked-files=all")
+	status, err := cleanReviewStatus(scope.RuntimeProject, func(args ...string) ([]byte, error) { return run(scope.ProjectRoot, args...) })
 	if err != nil || len(status) != 0 {
 		return fmt.Errorf("snapshot worktree changed")
 	}
@@ -330,7 +399,7 @@ func validateSnapshotMarker(scope bugCandidateScope, run snapshotGitRunner) erro
 	if err != nil {
 		return err
 	}
-	raw, err := os.ReadFile(filepath.Join(strings.TrimSpace(string(gitDir)), "shark-review-source.json"))
+	raw, err := ReviewReadArtifact(filepath.Join(strings.TrimSpace(string(gitDir)), "shark-review-source.json"), 2*1024*1024)
 	if err != nil {
 		return fmt.Errorf("snapshot provenance marker: %w", err)
 	}
@@ -341,7 +410,7 @@ func validateSnapshotMarker(scope bugCandidateScope, run snapshotGitRunner) erro
 	return nil
 }
 
-func bugSourceInventory(root string, git func(...string) ([]byte, error)) (string, error) {
+func bugSourceInventory(root, runtimeProject string, git func(...string) ([]byte, error)) (string, error) {
 	h := sha256.New()
 	field := func(data []byte) {
 		var n [8]byte
@@ -350,7 +419,16 @@ func bugSourceInventory(root string, git func(...string) ([]byte, error)) (strin
 		_, _ = h.Write(n[:])
 		_, _ = h.Write(data)
 	}
-	for _, args := range [][]string{{"status", "--porcelain=v1", "-z", "--untracked-files=all"}, {"diff", "--no-ext-diff", "--binary"}, {"diff", "--no-ext-diff", "--cached", "--binary"}} {
+	prefix, err := reviewRuntimePrefix(runtimeProject)
+	if err != nil {
+		return "", err
+	}
+	status, err := cleanReviewStatus(runtimeProject, git)
+	if err != nil {
+		return "", err
+	}
+	field(status)
+	for _, args := range [][]string{{"diff", "--no-ext-diff", "--binary"}, {"diff", "--no-ext-diff", "--cached", "--binary"}} {
 		out, err := git(args...)
 		if err != nil {
 			return "", err
@@ -361,25 +439,32 @@ func bugSourceInventory(root string, git func(...string) ([]byte, error)) (strin
 	if err != nil {
 		return "", err
 	}
+	if err := hashUntrackedInventory(root, prefix, names, field); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func hashUntrackedInventory(root, prefix string, names []byte, field func([]byte)) error {
 	confined, err := os.OpenRoot(root)
 	if err != nil {
-		return "", err
+		return err
 	}
 	// Closing a read-only directory handle cannot affect inventory integrity.
 	defer func() { _ = confined.Close() }()
 	for _, name := range bytes.Split(names, []byte{0}) {
-		if len(name) == 0 {
+		if len(name) == 0 || strings.HasPrefix(string(name), prefix) {
 			continue
 		}
 		field(name)
 		kind, content, err := bugSourceInventoryEntry(confined, string(name))
 		if err != nil {
-			return "", err
+			return err
 		}
 		field([]byte(kind))
 		field(content)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return nil
 }
 
 func bugSourceInventoryEntry(root *os.Root, name string) (string, []byte, error) {
@@ -410,12 +495,17 @@ func bugSourceInventoryEntry(root *os.Root, name string) (string, []byte, error)
 }
 
 func bugOpenVerifiedInventoryFile(root *os.Root, name string, original os.FileInfo) (*os.File, error) {
-	file, err := root.OpenFile(name, os.O_RDONLY|bugPlanOpenFlags, 0)
+	file, err := root.OpenFile(name, os.O_RDONLY|bugInventoryOpenFlags, 0)
 	if err != nil {
 		return nil, err
 	}
 	opened, statErr := file.Stat()
 	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(original, opened) {
+		_ = file.Close() // Read-only close does not affect the rejected entry.
+		return nil, fmt.Errorf("untracked file changed while opening")
+	}
+	current, err := root.Lstat(name)
+	if err != nil || !current.Mode().IsRegular() || !os.SameFile(original, current) {
 		_ = file.Close() // Read-only close does not affect the rejected entry.
 		return nil, fmt.Errorf("untracked file changed while opening")
 	}

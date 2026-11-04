@@ -108,7 +108,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runDryRun, "dry-run", false, "Preview actions without dispatching agents or advancing status")
 	runCmd.Flags().BoolVar(&runVerbose, "verbose", false, "Show detailed stage progress")
 	runCmd.Flags().StringVar(&runWorkDir, "workdir", "", "Working directory override for agent processes")
-	runCmd.Flags().BoolVar(&runWorktree, "worktree", false, "Create an isolated git worktree for agent dispatch and clean up on completion")
+	runCmd.Flags().BoolVar(&runWorktree, "worktree", false, "Create an isolated git worktree for agent dispatch; bug worktrees are retained for evidence")
 	runCmd.Flags().String(
 		"harness",
 		"",
@@ -394,6 +394,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create worktree for %s: %w", normalizedKey, err)
 		}
 		defer func() {
+			if entityType == "bug" {
+				fmt.Fprintf(os.Stderr, "bug worktree retained for evidence and review: %s\n", worktreePath)
+				return
+			}
 			if removeErr := creator.RemoveWorktree(context.Background(), worktreePath); removeErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to remove worktree %s: %v\n", worktreePath, removeErr)
 			}

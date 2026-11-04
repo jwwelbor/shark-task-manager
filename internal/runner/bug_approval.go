@@ -72,11 +72,11 @@ func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gate
 	if !matchesBugApprovalHistory(entry, spec, meta) {
 		return fmt.Errorf("prior gate approval invalidated or not applied in history")
 	}
-	data, err := readBugApprovalResult(req, meta, spec.gate)
+	data, evidenceRoot, err := readBugApprovalResult(ctx, req, meta, spec.gate)
 	if err != nil {
 		return err
 	}
-	if err := compareBugApprovalEvidence(req, data, spec); err != nil {
+	if err := compareBugApprovalEvidence(req, data, evidenceRoot, spec); err != nil {
 		return err
 	}
 	return nil
@@ -124,38 +124,50 @@ func (n bugApprovalNote) matchesTransition(reason string) bool {
 	return reason == gatepersist.BoundTransitionReason(n.Gate, n.Outcome, n.RunID, n.Digest)
 }
 
-func readBugApprovalResult(req gatepersist.Request, meta bugApprovalNote, gate string) ([]byte, error) {
+func readBugApprovalResult(ctx context.Context, req gatepersist.Request, meta bugApprovalNote, gate string) ([]byte, string, error) {
 	root := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
 	dir, err := gaterun.RunDir(root, meta.RunID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve approval run: %w", err)
+		return nil, "", fmt.Errorf("resolve approval run: %w", err)
 	}
 	state, exists, err := gaterun.LoadOperationState(dir)
 	if err != nil || !exists {
-		return nil, fmt.Errorf("approval operation state unavailable")
+		return nil, "", fmt.Errorf("approval operation state unavailable")
 	}
 	if !matchesBugApprovalState(state, req, meta, gate) {
-		return nil, fmt.Errorf("approval operation is not a committed matching review")
+		return nil, "", fmt.Errorf("approval operation is not a committed matching review")
 	}
-	if err := verifyBugApprovalIdentity(dir, req, meta, gate); err != nil {
-		return nil, err
+	evidenceRoot, err := verifyBugApprovalIdentity(ctx, dir, req, meta, gate)
+	if err != nil {
+		return nil, "", err
 	}
-	return decodeBugApprovalResult(dir, req, meta, gate)
+	data, err := decodeBugApprovalResult(dir, req, meta, gate)
+	return data, evidenceRoot, err
 }
+
 func matchesBugApprovalState(state *gaterun.OperationState, req gatepersist.Request, meta bugApprovalNote, gate string) bool {
 	return state.AdmissionVersion == gatepersist.BoundAdmissionVersion && state.PersistenceState == gaterun.PersistenceStateTransitioned && state.EntityType == string(req.EntityType) && strings.EqualFold(state.EntityKey, req.EntityKey) && state.Gate == gate && state.SourceStatus == gate && state.OperationDigest == meta.Digest
 }
-func verifyBugApprovalIdentity(dir string, req gatepersist.Request, meta bugApprovalNote, gate string) error {
+func verifyBugApprovalIdentity(ctx context.Context, dir string, req gatepersist.Request, meta bugApprovalNote, gate string) (string, error) {
 	identity, exists, err := gaterun.ReadIdentity(dir)
 	if err != nil || !exists {
-		return fmt.Errorf("approval run identity unavailable")
+		return "", fmt.Errorf("approval run identity unavailable")
 	}
-	want := gaterun.RunIdentity{RunID: meta.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: gate, Gate: gate, OperationDigest: meta.Digest}
+	want := gaterun.RunIdentity{RunID: meta.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: gate, Gate: gate, OperationDigest: meta.Digest, EvidenceRoot: identity.EvidenceRoot}
 	if identity.RunID != meta.RunID || gaterun.VerifyRunIdentity(identity, want) != nil {
-		return fmt.Errorf("approval run identity mismatch")
+		return "", fmt.Errorf("approval run identity mismatch")
 	}
-	return nil
+	if identity.EvidenceRoot == "" {
+		return "", nil
+	}
+	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	verified, err := resolveBugEvidenceRoot(ctx, parent, identity.EvidenceRoot)
+	if err != nil || verified != identity.EvidenceRoot {
+		return "", fmt.Errorf("approval evidence root is unavailable or invalid")
+	}
+	return verified, nil
 }
+
 func decodeBugApprovalResult(dir string, req gatepersist.Request, meta bugApprovalNote, gate string) ([]byte, error) {
 	data, exists, err := gaterun.ReadResult(dir)
 	if err != nil || !exists {
@@ -176,7 +188,7 @@ func decodeBugApprovalResult(dir string, req gatepersist.Request, meta bugApprov
 	return data, nil
 }
 
-func compareBugApprovalEvidence(req gatepersist.Request, data []byte, spec bugPriorSpec) error {
+func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRoot string, spec bugPriorSpec) error {
 	current, err := workercontrol.Decode(req.EnvelopeJSON)
 	if err != nil {
 		return err
@@ -190,6 +202,7 @@ func compareBugApprovalEvidence(req gatepersist.Request, data []byte, spec bugPr
 	}
 	priorRequest := req
 	priorRequest.EnvelopeJSON = data
+	priorRequest.EvidenceRoot = evidenceRoot
 	if spec.gate == "plan_review" {
 		return compareBugBaselines(req, priorRequest)
 	}

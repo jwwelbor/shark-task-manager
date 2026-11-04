@@ -94,9 +94,15 @@ func (d *ClaudeDispatcher) Dispatch(ctx context.Context, input DispatchInput) (*
 
 // buildClaudeArgs constructs the argument slice for the claude CLI invocation.
 func buildClaudeArgs(input DispatchInput) []string {
+	format := "json"
+	if input.ResultContract == resultContractGateResultV1 {
+		// Gate ingestion expects the worker's complete envelope as stdout;
+		// Claude's JSON mode wraps that text in provider metadata.
+		format = "text"
+	}
 	args := []string{
 		"-p", input.Instruction,
-		"--output-format", "json",
+		"--output-format", format,
 	}
 
 	// Model override (REQ-F01-004)

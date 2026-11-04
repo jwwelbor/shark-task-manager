@@ -76,6 +76,9 @@ type DispatchInput struct {
 	// Instruction is the rendered instruction string from the template engine.
 	Instruction string
 
+	// ResultContract selects the parent-owned output transport for this stage.
+	ResultContract string
+
 	// WorkingDir is the working directory for the agent process. When empty, the
 	// agent inherits the run controller's working directory.
 	WorkingDir string

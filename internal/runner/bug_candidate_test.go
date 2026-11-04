@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
@@ -41,6 +42,8 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	git("commit", "-m", "unaccepted predecessor")
 	laterBase := strings.TrimSpace(git("rev-parse", "HEAD"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("candidate\n"), 0600))
+	plan := []byte("approved plan\n")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0600))
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	scripts := filepath.Join(filepath.Dir(file), "..", "..", "skills", "shark-rider", "skills", "deep-review", "scripts")
@@ -56,24 +59,48 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	scope, err := cmd.Output()
 	require.NoError(t, err)
 	require.NoError(t, verifyBugCandidate(context.Background(), root, scope))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), []byte("changed plan"), 0600))
+	require.ErrorContains(t, verifyBugCandidate(context.Background(), root, scope), "source change inventory changed")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0600))
+	runArtifacts := filepath.Join(root, ".shark", "runs", "new-run")
+	require.NoError(t, os.MkdirAll(runArtifacts, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(runArtifacts, "result.json"), []byte("new run"), 0600))
+	require.NoError(t, verifyBugCandidate(context.Background(), root, scope))
 	require.NoError(t, os.WriteFile(filepath.Join(snapshot, "untracked"), []byte("changed snapshot"), 0600))
 	require.ErrorContains(t, verifyBugCandidate(context.Background(), root, scope), "snapshot worktree changed")
 	require.NoError(t, os.Remove(filepath.Join(snapshot, "untracked")))
 	require.NoError(t, os.Rename(snapshot, snapshot+"-missing"))
-	require.ErrorContains(t, verifyBugCandidate(context.Background(), root, scope), "snapshot commit changed or unavailable")
+	require.Error(t, verifyBugCandidate(context.Background(), root, scope))
 	require.NoError(t, os.Rename(snapshot+"-missing", snapshot))
+	if runtime.GOOS != "windows" {
+		gitDirCmd := exec.Command("git", "-C", snapshot, "rev-parse", "--absolute-git-dir")
+		gitDir, err := gitDirCmd.Output()
+		require.NoError(t, err)
+		marker := filepath.Join(strings.TrimSpace(string(gitDir)), "shark-review-source.json")
+		require.NoError(t, os.Rename(marker, marker+".saved"))
+		fifo := exec.Command("mkfifo", marker)
+		require.NoError(t, fifo.Run())
+		done := make(chan error, 1)
+		go func() { done <- verifyBugCandidate(context.Background(), root, scope) }()
+		select {
+		case err := <-done:
+			require.ErrorContains(t, err, "snapshot provenance marker")
+		case <-time.After(time.Second):
+			require.FailNow(t, "snapshot marker read blocked on FIFO")
+		}
+		require.NoError(t, os.Remove(marker))
+		require.NoError(t, os.Rename(marker+".saved", marker))
+	}
 
 	// Drive the same scope through the production ingestion coordinator. Store
 	// test artifacts as ignored files so they do not alter the candidate.
 	exclude := filepath.Join(root, ".git", "info", "exclude")
 	f, err := os.OpenFile(exclude, os.O_APPEND|os.O_WRONLY, 0)
 	require.NoError(t, err)
-	_, err = f.WriteString("\n.shark/\nplan.md\n")
+	_, err = f.WriteString("\n.shark/\n")
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".shark"), 0700))
-	plan := []byte("approved plan\n")
-	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0600))
 	planHash := sha256.Sum256(plan)
 	bindPlan := func(data []byte) []byte {
 		var doc map[string]any
@@ -85,9 +112,7 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	}
 	scope = bindPlan(scope)
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "scope.json"), scope, 0600))
-	scopeHash := sha256.Sum256(scope)
 	planRef := fmt.Sprintf(`{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}`, planHash, base)
-	scopeRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/scope.json","summary":"sha256:%x"}`, scopeHash)
 	cmd = exec.Command("bash", filepath.Join(scripts, "get_diff.sh"))
 	cmd.Dir = snapshot
 	cmd.Env = append(os.Environ(), "REVIEW_BASE="+laterBase, "REVIEW_SOURCE_METADATA="+metadata)
@@ -135,11 +160,15 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	bodyPath := filepath.Join(root, ".shark", "body.md")
 	require.NoError(t, os.WriteFile(bodyPath, []byte(nativeResult.Report), 0600))
 	reportPath := filepath.Join(root, ".shark", "report.md")
-	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "canonical-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--angle-results", anglePath, "--review-decisions", decisionPath)
+	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "canonical-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--angle-results", anglePath, "--review-decisions", decisionPath)
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	reportBytes, err := os.ReadFile(reportPath)
 	require.NoError(t, err)
+	retainedScope, err := os.ReadFile(reportPath + ".scope.json")
+	require.NoError(t, err)
+	retainedScopeHash := sha256.Sum256(retainedScope)
+	scopeRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/report.md.scope.json","summary":"sha256:%x"}`, retainedScopeHash)
 	retainedDecisions, err := os.ReadFile(reportPath + ".decisions.json")
 	require.NoError(t, err)
 	decisionHash := sha256.Sum256(retainedDecisions)
@@ -161,14 +190,28 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0600))
 	// The comparable CLI path must also interoperate with the report writer.
 	cliReportPath := filepath.Join(root, ".shark", "cli-report.md")
-	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", decisionPath)
+	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", decisionPath)
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	cliReport, err := os.ReadFile(cliReportPath)
 	require.NoError(t, err)
 	cliHash := sha256.Sum256(cliReport)
 	cliRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/cli-report.md","summary":"sha256:%x"}`, cliHash)
-	require.NoError(t, verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(scopeRef + "," + cliRef + "," + decisionRef)}))
+	cliScope, err := os.ReadFile(cliReportPath + ".scope.json")
+	require.NoError(t, err)
+	cliScopeHash := sha256.Sum256(cliScope)
+	cliScopeRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/cli-report.md.scope.json","summary":"sha256:%x"}`, cliScopeHash)
+	require.NoError(t, verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + decisionRef)}))
+	var refreshed map[string]any
+	require.NoError(t, json.Unmarshal(retainedScope, &refreshed))
+	refreshed["source_snapshot"].(map[string]any)["source_inventory_sha256"] = strings.Repeat("0", 64)
+	refreshedBytes, err := json.Marshal(refreshed)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "refreshed-scope.json"), refreshedBytes, 0600))
+	refreshedHash := sha256.Sum256(refreshedBytes)
+	refreshedRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/refreshed-scope.json","summary":"sha256:%x"}`, refreshedHash)
+	err = verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "old-report"), EnvelopeJSON: envelope(refreshedRef + "," + reportRef + "," + anglesRef + "," + decisionRef)})
+	require.ErrorContains(t, err, "Retained scope digest does not match report")
 	prior := envelope(planRef)
 	dir, err := gaterun.RunDir(root, "approved-plan")
 	require.NoError(t, err)
@@ -236,4 +279,66 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	altered, err := json.Marshal(data)
 	require.NoError(t, err)
 	require.Error(t, verifyBugCandidate(context.Background(), root, altered))
+}
+
+func TestBugCandidateScopesNestedProjectRuntimeWithoutHidingSource(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.invalid")
+	project := filepath.Join(root, "nested")
+	runtimeDir := filepath.Join(project, ".shark", "runs")
+	require.NoError(t, os.MkdirAll(runtimeDir, 0700))
+	tracked := filepath.Join(runtimeDir, "tracked.txt")
+	require.NoError(t, os.WriteFile(tracked, []byte("base"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "app"), []byte("base"), 0600))
+	git("add", "app", "nested/.shark/runs/tracked.txt")
+	git("commit", "-m", "base")
+	base := git("rev-parse", "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "app"), []byte("candidate"), 0600))
+	git("commit", "-am", "candidate")
+	require.NoError(t, os.Mkdir(filepath.Join(runtimeDir, "run"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(runtimeDir, "run", "result.json"), []byte("runtime"), 0600))
+	_, file, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	script := filepath.Join(filepath.Dir(file), "..", "..", "skills", "shark-rider", "skills", "deep-review", "scripts", "get_diff.sh")
+	capture := exec.Command("bash", script)
+	capture.Dir = root
+	capture.Env = append(os.Environ(), "REVIEW_BASE="+base, "REVIEW_SHARK_PROJECT_ROOT="+project)
+	scope, err := capture.CombinedOutput()
+	require.NoError(t, err, string(scope))
+	require.NoError(t, verifyBugCandidate(context.Background(), project, scope))
+	scopeFile := filepath.Join(t.TempDir(), "scope.json")
+	require.NoError(t, os.WriteFile(scopeFile, scope, 0600))
+	validator := filepath.Join(filepath.Dir(script), "adaptive_review.py")
+	validate := func(sharkRoot string) error {
+		t.Helper()
+		cmd := exec.Command("python3", validator, "validate-scope", "--project-root", root, "--source-root", root, "--shark-project-root", sharkRoot, "--scope-file", scopeFile)
+		return cmd.Run()
+	}
+	require.NoError(t, validate(project))
+	require.Error(t, validate(root))
+	if runtime.GOOS != "windows" {
+		marker := filepath.Join(git("rev-parse", "--absolute-git-dir"), "shark-review-source.json")
+		require.NoError(t, os.Symlink("missing-marker", marker))
+		require.ErrorContains(t, verifyBugCandidate(context.Background(), project, scope), "snapshot source metadata missing")
+		require.Error(t, validate(project))
+		require.NoError(t, os.Remove(marker))
+	}
+	require.NoError(t, os.WriteFile(tracked, []byte("tracked change"), 0600))
+	require.Error(t, validate(project))
+	require.ErrorContains(t, verifyBugCandidate(context.Background(), project, scope), "candidate worktree changed")
+	require.NoError(t, os.WriteFile(tracked, []byte("base"), 0600))
+	otherRuntime := filepath.Join(root, ".shark", "runs")
+	require.NoError(t, os.MkdirAll(otherRuntime, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(otherRuntime, "other"), []byte("unrelated"), 0600))
+	require.ErrorContains(t, verifyBugCandidate(context.Background(), project, scope), "candidate worktree changed")
+	require.Error(t, validate(project))
 }

@@ -1065,6 +1065,13 @@ const (
 // defaulting to "legacy" on omission — T-E34-F05-005). Every caller in this
 // file goes through this one function, so a future contract value only
 // needs a case added here.
+func dispatchResultContract(stepInfo *services.NextStatusInfo) string {
+	if stepInfo == nil {
+		return ""
+	}
+	return stepInfo.ResultContract
+}
+
 func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
 	contract := resultContractLegacy
 	if stepInfo != nil && stepInfo.ResultContract != "" {
@@ -1194,6 +1201,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   c.gateIngest.Coordinator,
 		ProjectRoot:   opts.ProjectRoot,
+		WorkingDir:    opts.WorkingDir,
 		RunID:         gateStageRunID(opts.RunID, key, stageN),
 		EntityKey:     key,
 		EntityType:    models.EntityType(opts.EntityType),
@@ -1472,12 +1480,13 @@ func (c *RunController) handleSpawnAgent(
 	}
 
 	input := DispatchInput{
-		Instruction: assembledPrompt,
-		WorkingDir:  opts.WorkingDir,
-		EntityKey:   key,
-		Status:      currentStatus,
-		AgentType:   action.AgentType,
-		Model:       action.Model,
+		Instruction:    assembledPrompt,
+		ResultContract: dispatchResultContract(stepInfo),
+		WorkingDir:     opts.WorkingDir,
+		EntityKey:      key,
+		Status:         currentStatus,
+		AgentType:      action.AgentType,
+		Model:          action.Model,
 	}
 
 	if opts.DryRun {

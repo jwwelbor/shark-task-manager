@@ -89,3 +89,30 @@ func TestReviewDecisionConformanceFixtures(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewBodyDoesNotTreatSubstringAsIncomplete(t *testing.T) {
+	body := "Scope: all changed files and tests reviewed. Findings: zero defects; an incompletely documented prior attempt was resolved. VERDICT: PASS"
+	require.NoError(t, validateBugReviewBody("**Verdict:** PASS", body))
+	require.Error(t, validateBugReviewBody("**Verdict:** PASS", body+" VERDICT: FAIL"))
+	require.Error(t, validateBugReviewBody("**Verdict:** PASS", body+string([]byte{0xff})))
+}
+
+func TestReviewBodyConformanceFixtures(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	path := filepath.Join(filepath.Dir(file), "..", "..", "skills", "shark-rider", "skills", "deep-review", "scripts", "testdata", "report_bodies.json")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var cases []struct {
+		Name  string `json:"name"`
+		Body  string `json:"body"`
+		Valid bool   `json:"valid"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &cases))
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			err := validateBugReviewBody("**Verdict:** PASS", tc.Body)
+			require.Equal(t, tc.Valid, err == nil, "error: %v", err)
+		})
+	}
+}

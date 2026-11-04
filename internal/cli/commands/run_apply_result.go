@@ -142,6 +142,7 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		Transitioner: transitioner,
 		Coordinator:  coordinator,
 		ProjectRoot:  projectRoot,
+		WorkingDir:   runWorkDir,
 		RunID:        runApplyRunID,
 		EntityType:   entityType,
 		EntityKey:    entityKey,
@@ -174,6 +175,7 @@ type applyResultDeps struct {
 	Transitioner runner.EntityTransitioner
 	Coordinator  *gatepersist.Coordinator
 	ProjectRoot  string
+	WorkingDir   string
 	RunID        string
 	EntityType   string
 	EntityKey    string
@@ -225,6 +227,7 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   deps.Coordinator,
 		ProjectRoot:   deps.ProjectRoot,
+		WorkingDir:    deps.WorkingDir,
 		RunID:         deps.RunID,
 		EntityKey:     deps.EntityKey,
 		EntityType:    models.EntityType(deps.EntityType),
