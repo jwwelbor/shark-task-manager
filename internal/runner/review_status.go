@@ -72,6 +72,10 @@ func reviewRuntimeUntracked(name, prefix string, worktrees []string) bool {
 // reviewWorktreePrefixes filters only registered worktrees in this project's
 // reserved runtime directory; unrelated untracked content remains visible.
 func reviewWorktreePrefixes(root, project string, run bugGitRunner) ([]string, error) {
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
 	out, err := run("worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return nil, err

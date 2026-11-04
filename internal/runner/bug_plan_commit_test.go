@@ -84,6 +84,26 @@ func TestApprovedPlanProvenanceSurvivesWorktreeRemoval(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("unreviewed active edit"), 0600))
 	require.ErrorContains(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "changed without approval")
 	require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("older plan\n"), 0600))
+	require.NoError(t, os.Remove(filepath.Join(parent, path)))
+	require.ErrorContains(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "changed without approval")
+	require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("staged plan"), 0600))
+	cmd = exec.Command("git", "-C", parent, "add", path)
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NoError(t, os.WriteFile(filepath.Join(parent, path), plan, 0600))
+	require.ErrorContains(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "changed without approval")
+	cmd = exec.Command("git", "-C", parent, "reset", "--", path)
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("older plan\n"), 0600))
+	symlink := filepath.Join(t.TempDir(), "project-link")
+	if err := os.Symlink(parent, symlink); err == nil {
+		require.NoError(t, verifyBugPlanRef(context.Background(), symlink, "approved", commit))
+	}
+	moved := filepath.Join(t.TempDir(), "moved-project")
+	require.NoError(t, os.Rename(parent, moved))
+	movedDir := filepath.Join(moved, ".shark", "runs", "approved")
+	require.NoError(t, verifyBugPlanProvenance(context.Background(), moved, movedDir, envelope))
 }
 
 func TestCommittedBugPlanRespectsCheckoutLineEndings(t *testing.T) {
@@ -127,4 +147,36 @@ func TestCommittedBugPlanChoosesMatchingCheckout(t *testing.T) {
 		require.Equal(t, tc.plan, got)
 		require.Equal(t, tc.root, root)
 	}
+}
+
+func TestActiveCheckoutMayPredatePlanButNotDeleteIt(t *testing.T) {
+	parent := t.TempDir()
+	run := func(root string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	run(parent, "init")
+	run(parent, "config", "user.name", "Test")
+	run(parent, "config", "user.email", "test@example.invalid")
+	run(parent, "commit", "--allow-empty", "-m", "before plan")
+	worker := filepath.Join(t.TempDir(), "worker")
+	run(parent, "worktree", "add", "--detach", worker, "HEAD")
+	path := "docs/plan/plan.md"
+	plan := []byte("reviewed plan")
+	commitTestBugPlan(t, worker, path, plan)
+	dir, err := gaterun.RunDir(parent, "approved")
+	require.NoError(t, err)
+	hash := sha256.Sum256(plan)
+	envelope := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"%s","summary":"sha256:%x"}]}`, path, hash))
+	root, commit, blob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EvidenceRoot: worker, EnvelopeJSON: envelope})
+	require.NoError(t, err)
+	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved", EntityKey: "B001", EntityType: "bug", Gate: "plan_review", OperationDigest: "operation", PlanRoot: root, PlanCommit: commit, PlanBlob: blob})
+	require.NoError(t, err)
+	require.NoError(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "the parent predates the plan")
+	run(parent, "merge", "--ff-only", commit)
+	run(parent, "rm", path)
+	run(parent, "commit", "-m", "delete plan")
+	require.ErrorContains(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "changed without approval")
 }

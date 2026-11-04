@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,6 +36,20 @@ func TestRetainedBugWorktreeRequiresUnambiguousCheckout(t *testing.T) {
 	after, err := ReviewSourceInventory(context.Background(), root)
 	require.NoError(t, err)
 	require.Equal(t, before, after)
+	link := filepath.Join(t.TempDir(), "project-link")
+	if err := os.Symlink(root, link); err == nil {
+		linkedInventory, err := ReviewSourceInventory(context.Background(), link)
+		require.NoError(t, err)
+		require.Equal(t, after, linkedInventory)
+		_, file, _, ok := runtime.Caller(0)
+		require.True(t, ok)
+		scripts := filepath.Join(filepath.Dir(file), "..", "..", "skills", "shark-rider", "skills", "deep-review", "scripts")
+		cmd := exec.Command("python3", "-c", "import source_inventory,sys; print(source_inventory.source_inventory(sys.argv[1]))", link)
+		cmd.Env = append(os.Environ(), "PYTHONPATH="+scripts)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		require.Equal(t, linkedInventory, strings.TrimSpace(string(out)))
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(base, "unrelated.txt"), []byte("must remain visible"), 0600))
 	changed, err := ReviewSourceInventory(context.Background(), root)
 	require.NoError(t, err)

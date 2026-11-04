@@ -106,13 +106,21 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	return nil
 }
 
-func bugPlanRef(parent, runID string) string {
-	hash := sha256.Sum256([]byte(parent + "\x00" + runID))
-	return fmt.Sprintf("refs/shark/approved-plans/%x", hash)
+func bugPlanRef(ctx context.Context, parent, runID string) (string, error) {
+	_, project, err := candidateRepository(ctx, parent)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256([]byte(filepath.ToSlash(project) + "\x00" + runID))
+	return fmt.Sprintf("refs/shark/approved-plans/%x", hash), nil
 }
 
 func verifyBugPlanRef(ctx context.Context, parent, runID, commit string) error {
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", bugPlanRef(parent, runID))
+	ref, err := bugPlanRef(ctx, parent, runID)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", ref)
 	out, err := cmd.Output()
 	if err != nil || !strings.EqualFold(strings.TrimSpace(string(out)), commit) {
 		return fmt.Errorf("approved plan retention reference is unavailable or mismatched")
@@ -122,7 +130,10 @@ func verifyBugPlanRef(ctx context.Context, parent, runID, commit string) error {
 
 func retainBugPlanCommit(ctx context.Context, req gatepersist.Request) error {
 	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
-	ref := bugPlanRef(parent, req.RunID)
+	ref, err := bugPlanRef(ctx, parent, req.RunID)
+	if err != nil {
+		return err
+	}
 	zero := strings.Repeat("0", len(req.PlanCommit))
 	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "update-ref", ref, req.PlanCommit, zero)
 	if err := cmd.Run(); err != nil {
@@ -149,19 +160,39 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 	if err != nil {
 		return err
 	}
+	run := func(args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, "git", append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", current}, args...)...).Output()
+	}
+	_, relative, err := candidateRepository(ctx, current)
+	if err != nil {
+		return err
+	}
+	path := filepath.ToSlash(filepath.Join(relative, ref.Pointer))
 	plan, err := readBoundedBugEvidence(current, ref.Pointer, bugEvidenceLimit("bug_repair_plan"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if _, trackedErr := run("ls-files", "--error-unmatch", "--", ref.Pointer); trackedErr == nil {
+				return fmt.Errorf("active project plan changed without approval")
+			}
+			head, headErr := run("rev-parse", "--verify", "HEAD")
+			if headErr != nil {
+				return headErr
+			}
+			headPlan, headPlanErr := run("ls-tree", "--full-tree", "-z", strings.TrimSpace(string(head)), "--", path)
+			if headPlanErr != nil || len(headPlan) != 0 {
+				return fmt.Errorf("active project plan changed without approval")
+			}
+			base, baseErr := run("merge-base", strings.TrimSpace(string(head)), identity.PlanCommit)
+			if baseErr != nil {
+				return fmt.Errorf("active project plan changed without approval")
+			}
+			basePlan, basePlanErr := run("ls-tree", "--full-tree", "-z", strings.TrimSpace(string(base)), "--", path)
+			if basePlanErr != nil || len(basePlan) != 0 {
+				return fmt.Errorf("active project plan changed without approval")
+			}
 			return nil
 		}
 		return err
-	}
-	sum := sha256.Sum256(plan)
-	if bytes.Equal(sum[:], expected) {
-		return nil
-	}
-	run := func(args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", current}, args...)...).Output()
 	}
 	if _, err := run("ls-files", "--error-unmatch", "--", ref.Pointer); err != nil {
 		return fmt.Errorf("active project plan changed without approval")
@@ -169,6 +200,10 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 	status, err := run("status", "--porcelain=v1", "-z", "--", ref.Pointer)
 	if err != nil || len(status) != 0 {
 		return fmt.Errorf("active project plan changed without approval")
+	}
+	sum := sha256.Sum256(plan)
+	if bytes.Equal(sum[:], expected) {
+		return nil
 	}
 	head, err := run("rev-parse", "--verify", "HEAD")
 	if err != nil {
@@ -178,11 +213,6 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 	if err != nil {
 		return fmt.Errorf("active project plan changed without approval")
 	}
-	_, relative, err := candidateRepository(ctx, current)
-	if err != nil {
-		return err
-	}
-	path := filepath.ToSlash(filepath.Join(relative, ref.Pointer))
 	oldBlob, oldErr := run("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(base))+":"+path)
 	currentBlob, currentErr := run("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(head))+":"+path)
 	if oldErr != nil || currentErr != nil || !bytes.Equal(bytes.TrimSpace(oldBlob), bytes.TrimSpace(currentBlob)) {
