@@ -523,6 +523,9 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 	if !updated {
 		return nil, fmt.Errorf("failed to triage bug %s: %w", key, ErrAdvanceGuardStaleFromStatus)
 	}
+	if !strings.EqualFold(string(expectedStatus), string(bug.Status)) {
+		recordEntityHistory(ctx, s.entitySvc.historyRepo, models.EntityTypeBug, bug.ID, string(expectedStatus), string(bug.Status), false, EntityHistoryOpts{})
+	}
 	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bug.ID); err != nil {
 		return nil, err
 	}

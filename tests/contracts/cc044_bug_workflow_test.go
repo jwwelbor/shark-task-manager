@@ -151,6 +151,30 @@ func TestBugTriageCannotBypassConfiguredSuccessGate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out, &bug))
 	require.Equal(t, "plan_review", bug.Status)
 	require.Equal(t, "medium", bug.Severity)
+	workflowPath := filepath.Join(workflowDir, "bug.yaml")
+	data, err = os.ReadFile(workflowPath)
+	require.NoError(t, err)
+	before, tail, ok := strings.Cut(string(data), "  plan_review:\n")
+	require.True(t, ok)
+	block, after, ok := strings.Cut(tail, "  research:\n")
+	require.True(t, ok)
+	block = strings.Replace(block, "      pass: triaged", "      pass: development", 1)
+	block = strings.Replace(block, "      fail: repair_plan", "      fail: triaged", 1)
+	require.NoError(t, os.WriteFile(workflowPath, []byte(before+"  plan_review:\n"+block+"  research:\n"+after), 0600))
+	out, err = run("bug", "triage", "B001", "--severity=high")
+	require.NoError(t, err, string(out))
+	out, err = run("history", "B001")
+	require.NoError(t, err, string(out))
+	var history struct {
+		Entries []struct {
+			Old string `json:"old_status"`
+			New string `json:"new_status"`
+		} `json:"history"`
+	}
+	require.NoError(t, json.Unmarshal(out, &history))
+	require.NotEmpty(t, history.Entries)
+	require.Equal(t, "plan_review", history.Entries[0].Old)
+	require.Equal(t, "triaged", history.Entries[0].New)
 }
 
 func (f *failAfterRealTransition) Transition(ctx context.Context, typ models.EntityType, key, target, reason, agent string, guard gatepersist.TransitionGuard) (string, bool, error) {

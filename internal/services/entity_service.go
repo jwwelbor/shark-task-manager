@@ -281,6 +281,10 @@ func (s *EntityService) transitionStatus(
 			Transitioned: false,
 		}, nil
 	}
+	if entityType == models.EntityTypeBug && opts.GateAdmissionVerified &&
+		(opts.FromStatus == "" || !strings.EqualFold(resolvedCurrentStatus, s.workflowSvc.NormalizeStatus(opts.FromStatus))) {
+		return nil, ErrAdvanceGuardStaleFromStatus
+	}
 
 	// Steps 3-4: Validate and normalize. Pass the resolved target so a legacy
 	// alias passed as the target (e.g. "reported") validates against its

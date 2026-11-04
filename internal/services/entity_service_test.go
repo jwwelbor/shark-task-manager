@@ -119,6 +119,23 @@ func TestBugTransitionRejectsChangedSourceWithoutAdvanceGuard(t *testing.T) {
 	}
 }
 
+func TestAdmittedBugTransitionAcceptsSourceAlias(t *testing.T) {
+	repo := &mockEntityRepo{
+		getByKeyFn: func(context.Context, string) (models.Entity, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001"}, Status: "reported"}, nil
+		},
+		updateStatusIfCurrentFn: func(_ context.Context, _ int64, expected, target string) (bool, error) {
+			require.Equal(t, "reported", expected)
+			require.Equal(t, "research", target)
+			return true, nil
+		},
+	}
+	svc := NewEntityService(workflow.NewService(t.TempDir())).ForLevel("bug")
+	result, err := svc.TransitionStatus(context.Background(), repo, models.EntityTypeBug, "B001", "research", TransitionOptions{GateAdmissionVerified: true, FromStatus: "draft"}, SimpleTransitionFeatures(), nil)
+	require.NoError(t, err)
+	require.Equal(t, "reported", result.FromStatus)
+}
+
 // --- TransitionStatus Tests ---
 
 func TestEntityService_TransitionStatus_HappyPath(t *testing.T) {
