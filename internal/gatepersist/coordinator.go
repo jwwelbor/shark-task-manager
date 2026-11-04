@@ -232,15 +232,15 @@ func (c *Coordinator) admissionReplayApplied(ctx context.Context, req Request, s
 		return false, fmt.Errorf("gatepersist: admission read status: %w", err)
 	}
 	if state.PersistenceState == gaterun.PersistenceStateTransitioned {
-		if !strings.EqualFold(current, req.TargetStatus) {
+		if !c.sameStatus(req.EntityType, current, req.TargetStatus) {
 			return false, fmt.Errorf("gatepersist: admission replay target diverged")
 		}
 		return true, nil
 	}
-	if !strings.EqualFold(req.SourceStatus, req.TargetStatus) && strings.EqualFold(current, req.TargetStatus) {
+	if !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) && c.sameStatus(req.EntityType, current, req.TargetStatus) {
 		return true, c.requireBoundTransition(ctx, req, state)
 	}
-	if !strings.EqualFold(current, req.SourceStatus) {
+	if !c.sameStatus(req.EntityType, current, req.SourceStatus) {
 		return false, fmt.Errorf("gatepersist: admission replay source diverged")
 	}
 	return false, nil
@@ -361,6 +361,7 @@ func (c *Coordinator) reconcileAndApplyOperations(ctx context.Context, req Reque
 		kickbackEntities: kickbackEntityTypes,
 		ops:              ops,
 		operationDigest:  digest,
+		normalizeStatus:  c.normalizeHistoryStatus,
 	}
 	changed, err := gaterun.ReconcileCompletedSuboperations(ctx, rec, state)
 	if err != nil {
@@ -433,15 +434,15 @@ func (c *Coordinator) verifyPendingTransition(ctx context.Context, req Request, 
 	if err != nil {
 		return fmt.Errorf("gatepersist: verify source status before main transition: %w", err)
 	}
-	if !strings.EqualFold(current, req.SourceStatus) && !strings.EqualFold(current, req.TargetStatus) {
+	if !c.sameStatus(req.EntityType, current, req.SourceStatus) && !c.sameStatus(req.EntityType, current, req.TargetStatus) {
 		return fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
 	}
-	if c.Admission != nil && (strings.EqualFold(req.SourceStatus, req.TargetStatus) || strings.EqualFold(current, req.SourceStatus)) {
+	if c.Admission != nil && (c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) || c.sameStatus(req.EntityType, current, req.SourceStatus)) {
 		if err := c.Admission(ctx, req); err != nil {
 			return fmt.Errorf("gatepersist: admission rejected before transition: %w", err)
 		}
 	}
-	if strings.EqualFold(current, req.TargetStatus) && !strings.EqualFold(req.SourceStatus, req.TargetStatus) {
+	if c.sameStatus(req.EntityType, current, req.TargetStatus) && !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) {
 		return c.requireBoundTransition(ctx, req, state)
 	}
 	return nil
@@ -458,7 +459,7 @@ func (c *Coordinator) transitionWithProvenance(ctx context.Context, req Request,
 	}
 	result.FromStatus = from
 	result.Transitioned = transitioned
-	if !transitioned && !strings.EqualFold(req.SourceStatus, req.TargetStatus) {
+	if !transitioned && !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) {
 		return c.requireBoundTransition(ctx, req, state)
 	}
 	return nil
@@ -468,7 +469,7 @@ func (c *Coordinator) verifyAppliedTransition(ctx context.Context, req Request, 
 	if err != nil {
 		return fmt.Errorf("gatepersist: verify already-applied transition target: %w", err)
 	}
-	if !strings.EqualFold(current, req.TargetStatus) {
+	if !c.sameStatus(req.EntityType, current, req.TargetStatus) {
 		return fmt.Errorf("gatepersist: entity %s is recorded transition_applied to %q but is currently at %q; refusing to repeat or silently diverge from the recorded transition", req.EntityKey, req.TargetStatus, current)
 	}
 	result.FromStatus = state.SourceStatus

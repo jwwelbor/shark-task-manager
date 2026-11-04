@@ -112,6 +112,24 @@ func TestClaudeDispatcher_BasicCommand(t *testing.T) {
 	}
 }
 
+func TestClaudeGateTransportPreservesOtherEntityTranscripts(t *testing.T) {
+	for _, tc := range []struct{ entity, contract, format string }{
+		{"bug", resultContractGateResultV1, "text"},
+		{"bug", "legacy", "json"},
+		{"task", resultContractGateResultV1, "json"},
+		{"feature", resultContractGateResultV1, "json"},
+		{"change", resultContractGateResultV1, "json"},
+		{"tech_debt", resultContractGateResultV1, "json"},
+	} {
+		t.Run(tc.entity+"/"+tc.contract, func(t *testing.T) {
+			args := buildClaudeArgs(DispatchInput{EntityType: tc.entity, ResultContract: tc.contract})
+			if !containsConsecutive(args, "--output-format", tc.format) {
+				t.Fatalf("format = %v, want %s", args, tc.format)
+			}
+		})
+	}
+}
+
 func TestClaudeDispatcher_BasicCommand_InstructionWithNewlines(t *testing.T) {
 	var captured capturedCmd
 	d := newTestDispatcher(&captured)

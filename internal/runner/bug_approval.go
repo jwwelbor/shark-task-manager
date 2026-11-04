@@ -15,7 +15,13 @@ import (
 )
 
 // NewBugGateAdmission binds downstream evidence to completed prior gates.
-func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader) func(context.Context, gatepersist.Request) error {
+// Production supplies the parent workflow's bug-status normalizer; callers
+// without one retain canonical-only matching for existing integrations.
+func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize ...func(string) string) func(context.Context, gatepersist.Request) error {
+	status := func(value string) string { return value }
+	if len(normalize) > 0 && normalize[0] != nil {
+		status = normalize[0]
+	}
 	return func(ctx context.Context, req gatepersist.Request) error {
 		if err := BugGateAdmission(ctx, req); err != nil {
 			return err
@@ -23,11 +29,11 @@ func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.Histo
 		if req.EntityType != models.EntityTypeBug || req.Role != gateresult.RoleSuccess {
 			return nil
 		}
-		return admitBugDownstream(ctx, req, notes, history)
+		return admitBugDownstream(ctx, req, notes, history, status)
 	}
 }
 
-func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader) error {
+func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) error {
 	switch req.Gate {
 	case "development", "code_review", "qa":
 	default:
@@ -36,7 +42,7 @@ func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gate
 	if notes == nil || history == nil {
 		return fmt.Errorf("plan approval readers are required")
 	}
-	if err := verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"plan_review", "bug_repair_plan", "development"}); err != nil {
+	if err := verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"plan_review", "bug_repair_plan", "development"}, normalize); err != nil {
 		return err
 	}
 	if req.Gate == "development" {
@@ -48,7 +54,7 @@ func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gate
 	if req.Gate == "code_review" {
 		return verifyBugReviewEvidence(req)
 	}
-	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope", "qa"})
+	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope", "qa"}, normalize)
 }
 
 type bugApprovalNote struct {
@@ -60,8 +66,8 @@ type bugApprovalNote struct {
 }
 type bugPriorSpec struct{ gate, evidenceKind, target string }
 
-func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, spec bugPriorSpec) error {
-	entry, err := latestRelevantBugHistory(ctx, req, history, spec)
+func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, spec bugPriorSpec, normalize func(string) string) error {
+	entry, err := latestRelevantBugHistory(ctx, req, history, spec, normalize)
 	if err != nil {
 		return err
 	}
@@ -69,7 +75,7 @@ func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gate
 	if err != nil {
 		return err
 	}
-	if !matchesBugApprovalHistory(entry, spec, meta) {
+	if !matchesBugApprovalHistory(entry, spec, meta, normalize) {
 		return fmt.Errorf("prior gate approval invalidated or not applied in history")
 	}
 	data, evidenceRoot, err := readBugApprovalResult(ctx, req, meta, spec.gate)
@@ -241,35 +247,36 @@ func compareBugBaselines(current, prior gatepersist.Request) error {
 	return nil
 }
 
-func latestRelevantBugHistory(ctx context.Context, req gatepersist.Request, history gatepersist.HistoryReader, spec bugPriorSpec) (*models.EntityHistory, error) {
+func latestRelevantBugHistory(ctx context.Context, req gatepersist.Request, history gatepersist.HistoryReader, spec bugPriorSpec, normalize func(string) string) (*models.EntityHistory, error) {
 	entries, err := history.GetHistory(ctx, req.EntityType, req.EntityKey)
 	if err != nil {
 		return nil, fmt.Errorf("read bug rework history: %w", err)
 	}
 	var latest *models.EntityHistory
 	for _, entry := range entries {
-		if relevantBugHistory(entry, spec) && (latest == nil || entry.ID > latest.ID) {
+		if relevantBugHistory(entry, spec, normalize) && (latest == nil || entry.ID > latest.ID) {
 			latest = entry
 		}
 	}
 	return latest, nil
 }
-func relevantBugHistory(entry *models.EntityHistory, spec bugPriorSpec) bool {
+func relevantBugHistory(entry *models.EntityHistory, spec bugPriorSpec, normalize func(string) string) bool {
 	if entry == nil {
 		return false
 	}
-	switch entry.ToStatus {
+	target := strings.ToLower(normalize(entry.ToStatus))
+	switch target {
 	case "research", "repair_plan", "plan_review":
 		return true
 	}
-	if spec.gate == "code_review" && (entry.ToStatus == "development" || entry.ToStatus == "code_review") {
+	if spec.gate == "code_review" && (target == "development" || target == "code_review") {
 		return true
 	}
-	return entry.FromStatus != nil && *entry.FromStatus == spec.gate && entry.ToStatus == spec.target
+	return entry.FromStatus != nil && strings.EqualFold(normalize(*entry.FromStatus), spec.gate) && strings.EqualFold(target, spec.target)
 }
-func matchesBugApprovalHistory(entry *models.EntityHistory, spec bugPriorSpec, meta bugApprovalNote) bool {
+func matchesBugApprovalHistory(entry *models.EntityHistory, spec bugPriorSpec, meta bugApprovalNote, normalize func(string) string) bool {
 	if entry == nil || entry.Forced || entry.FromStatus == nil || entry.Notes == nil {
 		return false
 	}
-	return *entry.FromStatus == spec.gate && entry.ToStatus == spec.target && *entry.Notes == gatepersist.BoundTransitionReason(spec.gate, meta.Outcome, meta.RunID, meta.Digest)
+	return strings.EqualFold(normalize(*entry.FromStatus), spec.gate) && strings.EqualFold(normalize(entry.ToStatus), spec.target) && *entry.Notes == gatepersist.BoundTransitionReason(spec.gate, meta.Outcome, meta.RunID, meta.Digest)
 }

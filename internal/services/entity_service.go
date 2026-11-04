@@ -554,7 +554,7 @@ func (s *EntityService) validateTransitionEvidence(entityType models.EntityType,
 }
 
 func (s *EntityService) requiresBugGateAdmission(fromStatus, targetStatus string) bool {
-	if s.workflowSvc.GetResultContract(fromStatus) != "gate_result_v1" {
+	if s.workflowSvc.GetResultContract(fromStatus) != config.ResultContractGateResultV1 {
 		return false
 	}
 	roles := s.workflowSvc.GetOutcomeRoles(fromStatus)

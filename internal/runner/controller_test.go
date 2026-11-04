@@ -2026,7 +2026,7 @@ func TestRunController_DispatchInputConstruction(t *testing.T) {
 	}
 
 	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
-	opts := RunOptions{WorkingDir: "/tmp/myproject"}
+	opts := RunOptions{WorkingDir: "/tmp/myproject", EntityType: "task"}
 	_, err := ctrl.Run(context.Background(), "E07-F01-001", opts)
 	if err != nil {
 		t.Fatalf("Run() returned unexpected error: %v", err)
@@ -2037,6 +2037,9 @@ func TestRunController_DispatchInputConstruction(t *testing.T) {
 	}
 	if capturedInput.EntityKey != "E07-F01-001" {
 		t.Errorf("EntityKey: expected E07-F01-001, got %q", capturedInput.EntityKey)
+	}
+	if capturedInput.EntityType != "task" {
+		t.Errorf("EntityType: expected task, got %q", capturedInput.EntityType)
 	}
 	if capturedInput.Status != "in_development" {
 		t.Errorf("Status: expected in_development, got %q", capturedInput.Status)

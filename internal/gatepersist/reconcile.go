@@ -44,6 +44,14 @@ type reconciler struct {
 
 	ops             []operation
 	operationDigest string
+	normalizeStatus func(models.EntityType, string) string
+}
+
+func (r *reconciler) canonicalStatus(entityType models.EntityType, status string) string {
+	if r.normalizeStatus != nil {
+		return r.normalizeStatus(entityType, status)
+	}
+	return status
 }
 
 // CompletedSuboperationIDs implements gaterun.TargetRecordReader.
@@ -122,7 +130,7 @@ func (r *reconciler) CompletedSuboperationIDs(ctx context.Context, runID string)
 			// rejection of TD-178's gap): REQ-F-003 requires failing closed
 			// on a conflicting target status OR reason, not status alone.
 			wantDigest := op.contentDigest()
-			if !strings.EqualFold(h.ToStatus, op.kickback.TargetStatus) || gotDigest != wantDigest {
+			if !strings.EqualFold(r.canonicalStatus(entityType, h.ToStatus), r.canonicalStatus(entityType, op.kickback.TargetStatus)) || gotDigest != wantDigest {
 				return nil, &KickbackConflictError{EntityKey: entityKey}
 			}
 			completed = append(completed, subID)

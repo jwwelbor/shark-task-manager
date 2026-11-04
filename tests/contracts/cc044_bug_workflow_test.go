@@ -408,6 +408,12 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 		require.NoError(t, e, string(data))
 	}
 	shark("admin", "init", "--non-interactive")
+	shark("admin", "install-shark-data")
+	workflowPath := filepath.Join(project, "shark-data", "workflow", "bug.yaml")
+	workflowData, err := os.ReadFile(workflowPath)
+	require.NoError(t, err)
+	workflowData = []byte(strings.Replace(string(workflowData), "  plan_review:\n", "  plan_review:\n    aliases: [plan_review_old]\n", 1))
+	require.NoError(t, os.WriteFile(workflowPath, workflowData, 0600))
 	shark("bug", "create", "Replay provenance")
 	shark("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
 	shark("claim", "B001", "--session", "fixture-session", "--by", "test")
@@ -428,7 +434,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	claims := services.NewClaimService(claimrepo.NewRepository(storage), nil)
 	coordinator := gatepersist.NewCoordinator(notes, notes, history, gatepersist.NewWorkflowStatusValidator(flow), transition, transition, claims, transition)
 	coordinator.ClaimVerifier = claims
-	realAdmission := runner.NewBugGateAdmission(notes, history)
+	realAdmission := runner.NewBugGateAdmission(notes, history, flow.ForLevel("bug").NormalizeStatus)
 	calls := map[string]int{}
 	var callsMu sync.Mutex
 	entered, proceed := make(chan struct{}), make(chan struct{})
@@ -503,6 +509,8 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	git("worktree", "add", "--detach", other, "HEAD")
 	shark("bug", "create", "Crash recovery")
 	shark("status", "set", "B002", "plan_review", "--force", "--reason", "fixture setup")
+	_, err = sqlDB.ExecContext(ctx, "UPDATE bugs SET status = ? WHERE key = ?", "plan_review_old", "B002")
+	require.NoError(t, err)
 	shark("claim", "B002", "--session", "fixture-session", "--by", "test")
 	crashTransition := &failAfterRealTransition{delegate: transition, fail: true}
 	crashCoordinator := gatepersist.NewCoordinator(notes, notes, history, gatepersist.NewWorkflowStatusValidator(flow), crashTransition, transition, claims, transition)
@@ -581,9 +589,15 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	require.Contains(t, block, "      pass: success")
 	block = strings.Replace(block, "      pass: development", "      approved: development", 1)
 	block = strings.Replace(block, "      pass: success", "      approved: success", 1)
+	block = "    aliases: [plan_review_old]\n" + block
 	require.NoError(t, os.WriteFile(path, []byte(before+"  plan_review:\n"+block+"  research:\n"+after), 0600))
 	shark("bug", "create", "Custom success outcome")
 	shark("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
+	fixtureDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	_, err = fixtureDB.ExecContext(context.Background(), "UPDATE bugs SET status = ? WHERE key = ?", "plan_review_old", "B001")
+	require.NoError(t, err)
+	require.NoError(t, fixtureDB.Close())
 	shark("claim", "B001", "--session", "fixture-session", "--by", "test")
 	dispatch := shark("next", "B001")
 	require.Contains(t, string(dispatch), "approved")
@@ -610,4 +624,5 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	require.NoError(t, json.Unmarshal(shark("get", "B001"), &result))
 	require.Equal(t, "code_review", result.Status)
 	require.Contains(t, string(shark("history", "B001")), "outcome approved run custom-approval")
+	require.Contains(t, string(shark("history", "B001")), "plan_review_old")
 }

@@ -44,7 +44,7 @@ func (c *Coordinator) requireBoundTransition(ctx context.Context, req Request, s
 	}
 	latest := latestTransition(entries)
 	reason := BoundTransitionReason(req.Gate, req.OutcomeKey, req.RunID, state.OperationDigest)
-	if !matchesBoundTransition(latest, req, reason) {
+	if !matchesBoundTransition(latest, req, reason, c.normalizeHistoryStatus) {
 		return fmt.Errorf("gatepersist: target transition does not belong to this run")
 	}
 	return nil
@@ -60,9 +60,22 @@ func latestTransition(entries []*models.EntityHistory) *models.EntityHistory {
 	return latest
 }
 
-func matchesBoundTransition(entry *models.EntityHistory, req Request, reason string) bool {
+func (c *Coordinator) normalizeHistoryStatus(entityType models.EntityType, status string) string {
+	if normalizer, ok := c.Validator.(interface {
+		NormalizeStatus(models.EntityType, string) string
+	}); ok {
+		return normalizer.NormalizeStatus(entityType, status)
+	}
+	return status
+}
+
+func (c *Coordinator) sameStatus(entityType models.EntityType, a, b string) bool {
+	return strings.EqualFold(c.normalizeHistoryStatus(entityType, a), c.normalizeHistoryStatus(entityType, b))
+}
+
+func matchesBoundTransition(entry *models.EntityHistory, req Request, reason string, normalize func(models.EntityType, string) string) bool {
 	if entry == nil || entry.Forced || entry.FromStatus == nil || entry.Notes == nil {
 		return false
 	}
-	return strings.EqualFold(*entry.FromStatus, req.SourceStatus) && strings.EqualFold(entry.ToStatus, req.TargetStatus) && *entry.Notes == reason
+	return strings.EqualFold(normalize(req.EntityType, *entry.FromStatus), normalize(req.EntityType, req.SourceStatus)) && strings.EqualFold(normalize(req.EntityType, entry.ToStatus), normalize(req.EntityType, req.TargetStatus)) && *entry.Notes == reason
 }

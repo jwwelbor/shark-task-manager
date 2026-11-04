@@ -64,3 +64,53 @@ func TestBoundAdmissionAllowsItsOwnCrashAfterTransition(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.TransitionApplied)
 }
+
+type aliasStatusValidator struct{ *fakeStatusValidator }
+
+func (v aliasStatusValidator) NormalizeStatus(_ models.EntityType, status string) string {
+	if status == "plan_review_old" {
+		return "plan_review"
+	}
+	if status == "development_old" {
+		return "development"
+	}
+	return status
+}
+
+func TestBoundAdmissionReplayAcceptsConfiguredTargetAlias(t *testing.T) {
+	root := t.TempDir()
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeBug, "B001", "plan_review")
+	world.failTransitionTo["bug|B001|development_old"] = true
+	validator := aliasStatusValidator{newFakeStatusValidator().allow(models.EntityTypeBug, "plan_review", "development_old")}
+	coord := newTestCoordinator(world, validator)
+	req := bugAdmissionRequest(t, root, "target-alias-crash", "approved plan")
+	req.TargetStatus = "development_old"
+	coord.Admission = func(context.Context, Request) error { return nil }
+	_, err := coord.Persist(context.Background(), req)
+	require.Error(t, err)
+	// Real transitions store the normalized target even when config uses an alias.
+	world.setStatus(models.EntityTypeBug, "B001", "development")
+	world.history[historyKey(models.EntityTypeBug, "B001")][0].ToStatus = "development"
+	result, err := coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, result.TransitionApplied)
+}
+
+func TestBoundAdmissionReplayAcceptsRecordedSourceAlias(t *testing.T) {
+	root := t.TempDir()
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeBug, "B001", "plan_review")
+	world.failTransitionTo["bug|B001|development"] = true
+	validator := aliasStatusValidator{newFakeStatusValidator().allow(models.EntityTypeBug, "plan_review", "development")}
+	coord := newTestCoordinator(world, validator)
+	req := bugAdmissionRequest(t, root, "alias-crash", "approved plan")
+	coord.Admission = func(context.Context, Request) error { return nil }
+	_, err := coord.Persist(context.Background(), req)
+	require.Error(t, err)
+	fromAlias := "plan_review_old"
+	world.history[historyKey(models.EntityTypeBug, "B001")][0].FromStatus = &fromAlias
+	result, err := coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, result.TransitionApplied)
+}

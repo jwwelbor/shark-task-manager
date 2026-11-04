@@ -1484,6 +1484,7 @@ func (c *RunController) handleSpawnAgent(
 		ResultContract: dispatchResultContract(stepInfo),
 		WorkingDir:     opts.WorkingDir,
 		EntityKey:      key,
+		EntityType:     opts.EntityType,
 		Status:         currentStatus,
 		AgentType:      action.AgentType,
 		Model:          action.Model,

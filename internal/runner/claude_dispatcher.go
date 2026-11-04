@@ -95,9 +95,11 @@ func (d *ClaudeDispatcher) Dispatch(ctx context.Context, input DispatchInput) (*
 // buildClaudeArgs constructs the argument slice for the claude CLI invocation.
 func buildClaudeArgs(input DispatchInput) []string {
 	format := "json"
-	if input.ResultContract == resultContractGateResultV1 {
+	if input.EntityType == "bug" && input.ResultContract == resultContractGateResultV1 {
 		// Gate ingestion expects the worker's complete envelope as stdout;
-		// Claude's JSON mode wraps that text in provider metadata.
+		// Claude's JSON mode wraps that text in provider metadata. Restrict
+		// this transport choice to bug gates so existing transcript consumers
+		// of other entity types retain their provider envelope.
 		format = "text"
 	}
 	args := []string{
