@@ -58,15 +58,35 @@ session, this means falling back to `codex exec --sandbox read-only` when
 Claude CLI cannot complete the review. Record the CLI that actually produced
 the valid review in `adversarial_model` and preserve the fallback reason.
 
+## Integrated workflow review
+
+For a dispatched code-review gate, use the rendered prompt unchanged. Apply the
+portable craft criteria included from `skills/quality/workflows/review-code.md`
+as the canonical craft rubric alongside the angle assignments. The existing
+parent retains its lease, heartbeats, transitions and result ingestion; angle
+reviewers only supply evidence. Include requested and verified effective model
+identity separately, marking unknown identity explicitly. Bind the complete
+manifest, candidate tree and diff hash to every review and the accepted plan
+revision when applicable. Reject stale or incomplete evidence. The scope must
+include every unaccepted predecessor change; obtain the accepted baseline from
+the plan rather than assuming the last commit. If capture cannot represent the
+full candidate, stop and report incomplete. Pass the captured JSON as
+`--scope-file` to `adaptive_review.py run-cli` or `write-report`; the writer
+revalidates candidate, diff and manifest and persists their identities. Pass
+`--requested-model` and `--effective-model` only when known; absent values are
+recorded as unknown.
+
 ## Capture the review scope
 
 ```bash
 project_root=$(git rev-parse --show-toplevel)
 skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
-bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
+REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 
-Retain `diff_path`, `base_commit`, `changed_files`, `changed_file_count`, `diff_shortstat`,
+The capture requires a clean committed candidate and fails closed on staged, unstaged or untracked files. Set `REVIEW_BASE` to the accepted baseline when the plan specifies one; otherwise omit it to use the merge base.
+
+Retain `candidate_commit`, `candidate_tree`, `diff_sha256`, `diff_path`, `base_commit`, `changed_files`, `changed_file_count`, `diff_shortstat`,
 `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Review the complete
 changed-file list unless the user explicitly narrows scope.
 
@@ -140,7 +160,7 @@ python3 "$skill_dir/scripts/adaptive_review.py" select --host "${DEEP_REVIEW_HOS
 python3 "$skill_dir/scripts/adaptive_review.py" run-cli \
   --prompt-file /path/to/adversarial-prompt.txt \
   --project-root "$project_root" --diff-path "$diff_path" --base-commit "$base_commit" \
-  --review-output-path "$review_output_path" --host "${DEEP_REVIEW_HOST:-unknown}"
+  --review-output-path "$review_output_path" --scope-file /tmp/deep-review-scope.json --host "${DEEP_REVIEW_HOST:-unknown}"
 ```
 
 The runner tries the preferred opposite-host CLI first, then any installed

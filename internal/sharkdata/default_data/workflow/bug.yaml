@@ -23,7 +23,14 @@ steps:
     terminal: true
     prompt: bug/cancelled.md
   code_review:
-    phase: code_review
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      needs_research: route_rework
+      replan: route_rework
+      on_hold: hold
+      pass: success
+    phase: review
     color: magenta
     display_token: CRV
     description: Ready for code review of bug fix
@@ -34,10 +41,13 @@ steps:
     provider: anthropic
     model: opus
     skills: [quality]
-    prompt: _shared/code_review.md
+    prompt: bug/code_review.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
       fail: development
+      needs_research: research
+      replan: repair_plan
       on_hold: on_hold
       pass: qa
   completed:
@@ -52,6 +62,13 @@ steps:
     primary: true
     prompt: bug/completed.md
   development:
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      needs_research: route_rework
+      replan: route_rework
+      on_hold: hold
+      pass: success
     phase: development
     color: yellow
     display_token: RFD
@@ -64,9 +81,12 @@ steps:
     model: sonnet
     skills: [debugging, test-driven-development]
     prompt: bug/development.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
-      fail: draft
+      fail: development
+      needs_research: research
+      replan: repair_plan
       on_hold: on_hold
       pass: code_review
   draft:
@@ -97,6 +117,13 @@ steps:
     parking: true
     prompt: bug/on_hold.md
   qa:
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      needs_research: route_rework
+      replan: route_rework
+      on_hold: hold
+      pass: success
     phase: qa
     color: blue
     display_token: QA
@@ -108,14 +135,63 @@ steps:
     provider: anthropic
     model: sonnet
     skills: [quality]
-    prompt: _shared/qa.md
+    prompt: bug/qa.md
+    result_contract: gate_result_v1
     outcomes:
       blocked: blocked
       fail: development
+      needs_research: research
+      replan: repair_plan
       on_hold: on_hold
       pass: completed
+  repair_plan:
+    phase: planning
+    color: cyan
+    display_token: PLN
+    description: Prepare a reviewable bug repair plan
+    progress_weight: 0.07
+    responsibility: agent
+    is_planning: true
+    action: spawn_agent
+    agent: architect
+    provider: anthropic
+    model: sonnet
+    prompt: bug/repair_plan.md
+    outcomes:
+      blocked: blocked
+      fail: repair_plan
+      needs_research: research
+      on_hold: on_hold
+      pass: plan_review
+  plan_review:
+    phase: planning
+    color: magenta
+    display_token: PRV
+    description: Independently review the repair plan
+    progress_weight: 0.09
+    responsibility: agent
+    action: spawn_agent
+    agent: tech-lead
+    provider: anthropic
+    model: opus
+    prompt: bug/plan_review.md
+    result_contract: gate_result_v1
+    outcomes:
+      blocked: blocked
+      fail: repair_plan
+      needs_research: research
+      replan: repair_plan
+      on_hold: on_hold
+      pass: development
+    outcome_roles:
+      blocked: blocked
+      fail: route_rework
+      needs_research: route_rework
+      replan: route_rework
+      on_hold: hold
+      pass: success
   research:
-    phase: research
+    phase: planning
     color: purple
     display_token: RSR
     description: Ready for recipe-driven bug investigation
@@ -130,6 +206,6 @@ steps:
     prompt: bug/research.md
     outcomes:
       blocked: blocked
-      fail: draft
+      fail: research
       on_hold: on_hold
-      pass: development
+      pass: repair_plan

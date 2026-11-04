@@ -546,7 +546,9 @@ func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
 }
 
 // productCriticalPathGuardBaselineSHA256 records the SHA-256 of each of the
-// twelve wired prompts' content exactly as it existed before T-E34-F10-002
+// twelve wired prompts' content as of their latest intentional edits; the task
+// baseline was updated by CC-044 after its development-prompt change. Originally
+// the values recorded content exactly as it existed before T-E34-F10-002
 // added the guard invocation (captured from the pre-edit checked-in files).
 // TestTwelvePromptsAddGuardAsPureAddition reconstructs each file's
 // pre-invocation content by removing the single guard paragraph and
@@ -565,7 +567,7 @@ var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"feature/task_generation.md": "3bd98c3bab9d9233825d044d9889f810da99f2f41f692100718490b5e205a1cf",
 	"feature/task_review.md":     "a0e64b910dd76108bb6ca9380ed4660c4540384b8aa2c79cee4db7e19cfc9bac",
 	"feature/approval.md":        "b555814fcb69df48ce3d1b777c1ffafe37bf3eaaa770b9f8157f11b8e873f41a",
-	"task/development.md":        "7c6f658345c95bbf5f264b59150483d7617c6011a3107b80cee7f59955d7850b",
+	"task/development.md":        "ba49aa8d985615f5e07041a6eec728441a05035fab5ca628f4884f870c31a9bf",
 }
 
 // stripProductCriticalPathGuardParagraph removes the guard invocation's

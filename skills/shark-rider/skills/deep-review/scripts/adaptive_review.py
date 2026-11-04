@@ -10,6 +10,7 @@ complete the review, run-cli retries an installed comparable CLI.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -199,12 +200,55 @@ def _cli_argv(model: str, override: str | None, prompt: str) -> list[str]:
     return ["claude", "-p", prompt, "--permission-mode", "plan", "--output-format", "text"]
 
 
+def validate_scope(path: str, base_commit: str, diff_path: str) -> dict[str, object]:
+    """Validate the frozen manifest and candidate before accepting a review."""
+    scope = json.loads(Path(path).read_text(encoding="utf-8"))
+    root = scope["project_root"]
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=root, check=True,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+    candidate = git("rev-parse", "HEAD").decode().strip()
+    tree = git("rev-parse", "HEAD^{tree}").decode().strip()
+    if git("status", "--porcelain", "--untracked-files=all"):
+        raise ValueError("candidate worktree is dirty")
+    if candidate != scope["candidate_commit"] or tree != scope["candidate_tree"]:
+        raise ValueError("candidate changed since scope capture")
+    if base_commit != scope["base_commit"] or diff_path != scope["diff_path"]:
+        raise ValueError("review arguments do not match captured scope")
+    diff = Path(diff_path).read_bytes()
+    expected_diff = git("diff", "--binary", base_commit, candidate)
+    if diff != expected_diff or hashlib.sha256(diff).hexdigest() != scope["diff_sha256"]:
+        raise ValueError("diff changed since scope capture")
+    manifest = [os.fsdecode(p) for p in git("diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
+    if manifest != scope["changed_files"] or len(manifest) != scope["changed_file_count"]:
+        raise ValueError("scope manifest does not match candidate")
+    return scope
+
+
+def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | None:
+    if not args.scope_file:
+        return None
+    try:
+        scope = validate_scope(args.scope_file, args.base_commit, args.diff_path)
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+        metadata["runner_mode"] = "incomplete"
+        metadata["verdict"] = "INCOMPLETE"
+        metadata["fallback_reason"] = f"scope validation failed: {exc}"
+        return str(exc)
+    for key in ("candidate_commit", "candidate_tree", "diff_sha256", "changed_files"):
+        metadata[key] = scope[key]
+    return None
+
+
 def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
     fields = [
         f"**Generated:** {metadata['generated']} · **Tool:** `/deep-review` ({metadata['runner_mode']}) · **Branch:** `{branch}`",
         f"**Runner metadata:** `runner_mode={metadata['runner_mode']}` `specialists_completed={metadata['specialists_completed']}` `consolidator_completed={metadata['consolidator_completed']}`",
         f"**Adversarial model:** `{metadata.get('adversarial_model') or 'none'}` · **Fallback reason:** {metadata.get('fallback_reason') or 'none'}",
         f"**Base commit:** `{metadata['base_commit']}` · **Diff:** `{metadata['diff_path']}`",
+        f"**Candidate:** `{metadata.get('candidate_commit', 'unknown')}` · **Tree:** `{metadata.get('candidate_tree', 'unknown')}` · **Diff SHA-256:** `{metadata.get('diff_sha256', 'unknown')}`",
+        f"**Changed files:** {json.dumps(metadata.get('changed_files', 'unknown'), ensure_ascii=True)}",
+        f"**Requested model:** `{metadata.get('requested_model') or 'unknown'}` · **Verified effective model:** `{metadata.get('effective_model') or 'unknown'}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
     return "# Overall Code Review\n\n" + "\n".join(fields) + "\n\n---\n\n"
@@ -235,6 +279,13 @@ def run_cli(args: argparse.Namespace) -> int:
         "diff_path": args.diff_path,
         "verdict": "INCOMPLETE",
     }
+    base["requested_model"] = args.requested_model
+    base["effective_model"] = args.effective_model
+    scope_error = bind_scope(base, args)
+    if scope_error:
+        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
+        print(json.dumps({**base, "report_path": args.review_output_path}))
+        return 2
     if choice["runner_mode"] != "adversarial-cli":
         body = (
             "## Review status\n\n"
@@ -293,6 +344,11 @@ def run_cli(args: argparse.Namespace) -> int:
             "verdict": verdict,
         }
     )
+    scope_error = bind_scope(base, args)
+    if scope_error:
+        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
+        print(json.dumps({**base, "report_path": args.review_output_path}))
+        return 2
     persist_report(Path(args.review_output_path), output, base, args.branch)
     print(json.dumps({**base, "report_path": args.review_output_path, "exit_status": completed.returncode}))
     return 0
@@ -311,9 +367,21 @@ def write_report(args: argparse.Namespace) -> int:
         "diff_path": args.diff_path,
         "verdict": args.verdict,
     }
-    persist_report(Path(args.review_output_path), Path(args.body_file).read_text(encoding="utf-8"), metadata, args.branch)
+    metadata["requested_model"] = args.requested_model
+    metadata["effective_model"] = args.effective_model
+    scope_error = bind_scope(metadata, args)
+    incomplete_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"} and (args.specialists_completed != 6 or not args.consolidator_completed)
+    incomplete_cli = args.runner_mode == "adversarial-cli" and (args.specialists_completed != 0 or not args.consolidator_completed or not args.adversarial_model)
+    diagnostic = args.runner_mode in {"manual-diagnostic", "incomplete"}
+    if scope_error or incomplete_six or incomplete_cli or diagnostic:
+        if not diagnostic:
+            metadata["runner_mode"] = "incomplete"
+        metadata["verdict"] = "INCOMPLETE"
+        metadata["fallback_reason"] = metadata.get("fallback_reason") or "review evidence is incomplete or diagnostic"
+    body = Path(args.body_file).read_text(encoding="utf-8")
+    persist_report(Path(args.review_output_path), body, metadata, args.branch)
     print(json.dumps({**metadata, "report_path": args.review_output_path}))
-    return 0
+    return 2 if scope_error or incomplete_six or incomplete_cli or diagnostic else 0
 
 
 def parser() -> argparse.ArgumentParser:
@@ -332,6 +400,9 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--base-commit", required=True)
     run.add_argument("--review-output-path", required=True)
     run.add_argument("--branch", default="unknown")
+    run.add_argument("--scope-file")
+    run.add_argument("--requested-model")
+    run.add_argument("--effective-model")
     run.add_argument("--host", choices=["codex", "claude", "unknown"], default=None)
     run.add_argument("--timeout", type=float, default=600)
     run.add_argument("--workflow-available", action=argparse.BooleanOptionalAction, default=None)
@@ -350,6 +421,9 @@ def parser() -> argparse.ArgumentParser:
     write.add_argument("--diff-path", required=True)
     write.add_argument("--verdict", required=True)
     write.add_argument("--branch", default="unknown")
+    write.add_argument("--scope-file")
+    write.add_argument("--requested-model")
+    write.add_argument("--effective-model")
     return p
 
 

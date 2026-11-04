@@ -25,3 +25,7 @@ and state whether the repair extends an existing capability or creates new
 work. Add a Capability map only when related work is discovered or changed,
 with REUSE, EXTEND, NEW, or CONTRADICTS decisions. Return `pass` only after the
 one report is complete.
+
+Explain the causal failure, affected production callers and sibling risks, linked decisions, prior findings, preserved behavior and uncertainties. Unresolved causal work stays in research; unavailable external evidence is blocked. Brief evidence is appropriate for simple bugs; recurrent, uncertain, stateful, accounting and cross-boundary repairs require deeper analysis.
+
+End with `RECOMMENDED OUTCOME: pass` for a supported diagnosis, `RECOMMENDED OUTCOME: fail` for unresolved causal work, or `RECOMMENDED OUTCOME: blocked` for unavailable external evidence.

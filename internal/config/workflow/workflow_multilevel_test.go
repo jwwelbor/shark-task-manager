@@ -247,8 +247,8 @@ func TestGetWorkflowForLevel_BugWithNil(t *testing.T) {
 		t.Fatal("expected non-nil workflow for bug level with nil Bug")
 	}
 	// Should return default bug workflow with the research gate.
-	if len(wf.StatusFlow) != 9 {
-		t.Errorf("expected 9 statuses in default bug workflow, got %d", len(wf.StatusFlow))
+	if len(wf.StatusFlow) != 11 {
+		t.Errorf("expected 11 statuses in default bug workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["draft"]; !ok {
 		t.Error("expected 'draft' status in default bug workflow")
@@ -436,9 +436,9 @@ func TestGetWorkflowForLevel_BugChangeIsolation(t *testing.T) {
 	changeWf := m.GetWorkflowForLevel("change")
 	taskWf := m.GetWorkflowForLevel("task")
 
-	// Bug workflow should have 8 statuses
-	if len(bugWf.StatusFlow) != 9 {
-		t.Errorf("expected 9 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	// Bug workflow includes research and repair planning gates
+	if len(bugWf.StatusFlow) != 11 {
+		t.Errorf("expected 11 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
 	}
 
 	// Change workflow should have 8 statuses
@@ -640,8 +640,8 @@ func TestGetWorkflowForLevel_TechDebtIsolation(t *testing.T) {
 	}
 
 	// Bug workflow should include the research gate.
-	if len(bugWf.StatusFlow) != 9 {
-		t.Errorf("expected 9 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	if len(bugWf.StatusFlow) != 11 {
+		t.Errorf("expected 11 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
 	}
 
 	// Task workflow relies on feature-level research.

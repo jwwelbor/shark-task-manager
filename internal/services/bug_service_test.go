@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -1046,9 +1047,8 @@ func TestBugService_TransitionStatus_ResolvesLegacyAliasCurrentStatus(t *testing
 // TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus guards the
 // companion half of the alias-resolution fix: passing a legacy alias as the
 // TARGET status (not just the current status) must validate against its
-// canonical step. "development" -> "draft" is a real transition in bug.yaml
-// (development's "fail" outcome), so passing the legacy alias "reported"
-// (which resolves to "draft") as the target must succeed identically.
+// canonical step. A local workflow fixture permits development -> draft so
+// the test does not depend on the production rework route.
 func TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus(t *testing.T) {
 	ctx := context.Background()
 
@@ -1063,7 +1063,11 @@ func TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus(t *testing.
 		},
 	}
 
-	svc := newBugService(repo, nil, nil, nil)
+	cfg := config.DefaultBugWorkflow()
+	cfg.StatusFlow["development"] = append(cfg.StatusFlow["development"], "draft")
+	wf := workflow.NewServiceFromMultiLevel(&config.MultiLevelWorkflow{Bug: cfg})
+	entitySvc := NewEntityService(wf)
+	svc := NewBugService(repo, entitySvc, &mockBugEntityRepo{bugRepo: repo}, &bugLinkEpicRepo{}, &bugLinkFeatureRepo{}, &bugLinkTaskRepo{}, "", nil)
 
 	result, err := svc.TransitionStatus(ctx, "B001", "reported", TransitionOptions{})
 	if err != nil {

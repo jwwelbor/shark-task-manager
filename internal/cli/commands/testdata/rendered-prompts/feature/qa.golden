@@ -35,8 +35,8 @@ Based on what needs validation, invoke the appropriate workflow:
 ### Code Review
 **When**: Reviewing code implementation against requirements and standards
 **Invoke**: `workflows/review-code.md`
-**Inputs**: `task_spec_path`, `feature_prd_path`, `acceptance_criteria`, `changed_files`, `diff_summary`, `language`, `toolchain`, `coding_standards_path` (optional), `prior_rejection_count`, `codex_command`
-**Output**: `verdict` (`PASS | PASS-with-triage | FAIL`), `code_review_report`, `blockers`/`non_blockers_to_triage`/`nits`, `counter_factual_per_ac`, `production_caller_chains`, `codex_assessment_verbatim`
+**Inputs**: `task_spec_path`, `feature_prd_path`, `acceptance_criteria`, `changed_files`, `diff_summary`, `language`, `toolchain`, `coding_standards_path` (optional), `prior_rejection_count`, `review_evidence`
+**Output**: `verdict` (`PASS | PASS-with-triage | FAIL`), `code_review_report`, `blockers`/`non_blockers_to_triage`/`nits`, `counter_factual_per_ac`, `production_caller_chains`, `review_evidence`
 **Use case**: Assess code quality, PRD alignment, and engineering standards
 
 ### Test Planning (Shift-Left QA)

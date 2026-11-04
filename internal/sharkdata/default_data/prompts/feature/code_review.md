@@ -11,6 +11,8 @@ Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `
 
 RE-REVIEW ROUND (a prior code-review report matching {{.review_base}}code-review-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (Parts 1–4 below) over the feature surface, not only the previously-flagged area.
 
+Run the host-installed `shark-rider/skills/deep-review/SKILL.md` multi-agent procedure for this code-review gate, including its capability ladder and consolidation. The parent retains the entity lease and transitions; reviewers supply evidence only.
+
 {{include: skills/quality/workflows/review-code.md}}
 
 OVERRIDE — loop-guard escalation for this gate: the included workflow's
@@ -56,7 +58,7 @@ PART 3 — SCOPED TEST RUN (SIMPLE/STANDARD only):
 - Run the project's format + lint (from `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo)
 - Targeted unit tests: union changed files from the diff and task Scope sections, map to their test counterparts, run those plus any tests named in the test-plan ACs
 - Targeted integration tests only if the changeset crosses an integration seam (migration, endpoint, service contract, I-##/X-## contract)
-- DO NOT run the full integration suite or any codex red-team (UAT owns red-team)
+- DO NOT run the full integration suite or a separate spec-fidelity red-team (UAT owns that review); the independent craft review above still follows the host capability ladder.
 
 PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
 - For every TC in the test plan with a Caller-Path Contract (skip `internal — function under test is the production entrypoint`): locate the committed test, confirm it calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam, and mocks nothing on the forbidden list
