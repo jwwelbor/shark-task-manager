@@ -127,6 +127,7 @@ steps:
       needs_research: route_rework
       replan: route_rework
       review_plan: route_rework
+      review_code: route_rework
       on_hold: hold
       pass: success
     phase: qa
@@ -148,6 +149,7 @@ steps:
       needs_research: research
       replan: repair_plan
       review_plan: plan_review
+      review_code: code_review
       on_hold: on_hold
       pass: completed
   repair_plan:

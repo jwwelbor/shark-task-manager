@@ -60,7 +60,7 @@ the valid review in `adversarial_model` and preserve the fallback reason.
 
 ## Integrated workflow review
 
-For a dispatched code-review gate, use the rendered prompt unchanged. Apply the
+For a dispatched code-review gate, use the rendered prompt unchanged. For bug reviews, pass the accepted plan and revision, research, coverage evidence and prior findings as `repair_context`, together with `entity_type=bug`, to the native workflow; supply that same context to every host-dispatched angle and consolidator. Apply the
 portable craft criteria included from `skills/quality/workflows/review-code.md`
 as the canonical craft rubric alongside the angle assignments. The existing
 parent retains its lease, heartbeats, transitions and result ingestion; angle
@@ -114,10 +114,10 @@ changed-file list unless the user explicitly narrows scope.
 
 When `Workflow` is available, invoke `scripts/review_workflow.js` with the scope metadata and the
 requested effort (`low|medium|high|xhigh|max`). It runs all six angle prompts in parallel and the
-consolidator. Only a valid result from all six angles, complete changed-file coverage, and a valid consolidator report may be recorded as complete. An exception, partial result, coverage gap, or malformed report is INCOMPLETE; persist actual counts and never replace it with a CLI pass. The returned report is compact on a clean PASS and detailed only for findings or
+consolidator. Only a valid result from all six angles, complete changed-file coverage, and a valid consolidator report may be recorded as complete. An exception, partial result, coverage gap, or malformed report is INCOMPLETE; persist actual counts, or `unknown` when the host did not return them, and never replace it with a CLI pass. The returned report is compact on a clean PASS and detailed only for findings or
 triage. Persist the returned body with `adaptive_review.py write-report` and:
 
-Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
+The native result contains `report` and `angle_results`; save the report body and the angle-results object separately, then pass the latter with `--angle-results` to `write-report`. For host dispatch, assemble the six returned objects under keys `a` through `f` and pass that file the same way. Do not substitute caller-supplied counts for these artifacts. Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
 
 ```text
 runner_mode=canonical-six-angle
@@ -139,11 +139,11 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 2. Dispatch all six angle agents in one batch through the host subagent tool.
    Give every agent the complete captured scope, its one assigned angle
    prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
-   or PR comments; return the required JSON schema; list every file inspected.
+   or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
    Submit all six dispatches at once. The host may queue work when its
    concurrency limit is lower than six.
-3. Wait for all six results. If any result is missing, malformed, timed out,
-   or reports incomplete coverage, mark the review `incomplete` and skip to
+3. Wait for all six results. If any result is missing, malformed, timed out, has a mismatched candidate identity,
+   or does not list the entire changed-file manifest, mark the review `incomplete` and skip to
    step 5 to persist it. Do not replace a failed dispatched review with the
    CLI fallback; the comparable-CLI retry rule applies when Runner 3's
    preferred alternate CLI is unavailable, not when a six-angle dispatch is

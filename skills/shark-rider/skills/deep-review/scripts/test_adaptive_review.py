@@ -22,7 +22,7 @@ def scope_fixture(root):
     repo = root / 'repo'
     repo.mkdir()
     def git(*args):
-        return subprocess.run(['git', '-c', 'commit.gpgsign=false', *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(['git', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
     git('init', '-b', 'main')
     git('config', 'commit.gpgsign', 'false')
     git('config', 'user.name', 'Test')

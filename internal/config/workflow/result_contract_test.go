@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 )
 
@@ -251,7 +253,7 @@ func TestBugRepairRoutesClassifyReworkWithoutMisclassifyingForwardProgress(t *te
 		t.Run(tc.from+"_to_"+tc.to, func(t *testing.T) {
 			got, err := cfg.IsBackwardTransition(tc.from, tc.to)
 			if err != nil || got != tc.backward {
-				t.Fatalf("backward=%v err=%v, want %v", got, err, tc.backward)
+				require.FailNowf(t, "assertion failed", "backward=%v err=%v, want %v", got, err, tc.backward)
 			}
 		})
 	}

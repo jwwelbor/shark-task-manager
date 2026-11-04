@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -507,6 +509,7 @@ func TestBugReworkOutcomesUseDispatchedRoutesAndKeepParentLease(t *testing.T) {
 		{"development", "review_plan", "plan_review"},
 		{"code_review", "review_plan", "plan_review"},
 		{"qa", "review_plan", "plan_review"},
+		{"qa", "review_code", "code_review"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.stage+"/"+tc.outcome, func(t *testing.T) {
@@ -516,7 +519,7 @@ func TestBugReworkOutcomesUseDispatchedRoutesAndKeepParentLease(t *testing.T) {
 			bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: key}, Status: models.BugStatus(tc.stage)}
 			info := entitySvc.GetNextStatusForEntity(models.EntityTypeBug, key, bug, nil)
 			if info.ResultContract != "gate_result_v1" || info.Outcomes[tc.outcome] != tc.target || info.OutcomeRoles[tc.outcome] != gateresult.RoleRouteRework {
-				t.Fatalf("unexpected dispatch contract: %+v", info)
+				require.FailNowf(t, "assertion failed", "unexpected dispatch contract: %+v", info)
 			}
 			transition := &fakeParityTransition{status: map[string]string{key: tc.stage}}
 			lease := &trackingLeaseReleaser{}
@@ -528,7 +531,7 @@ func TestBugReworkOutcomesUseDispatchedRoutesAndKeepParentLease(t *testing.T) {
 				EntityType: "bug", EntityKey: key, SessionID: "parent-session", WorkflowSvc: fakeTerminalStatusChecker{},
 			}, envelope)
 			if err != nil || res.ToStatus != tc.target || lease.released {
-				t.Fatalf("result=%+v err=%v lease released=%v", res, err, lease.released)
+				require.FailNowf(t, "assertion failed", "result=%+v err=%v lease released=%v", res, err, lease.released)
 			}
 		})
 	}

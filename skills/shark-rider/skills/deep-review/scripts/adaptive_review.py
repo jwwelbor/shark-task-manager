@@ -26,6 +26,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from source_inventory import source_inventory
+
 
 VERDICT_RE = re.compile(r"\bVERDICT\s*:\s*(PASS(?:-with-triage)?|FAIL)\b", re.I)
 FINDINGS_RE = re.compile(r"\b(FINDINGS|FINDING[S]?\s+TABLE)\b", re.I)
@@ -217,13 +219,16 @@ def validate_scope(path: str, base_commit: str, diff_path: str) -> dict[str, obj
     if base_commit != scope["base_commit"] or diff_path != scope["diff_path"]:
         raise ValueError("review arguments do not match captured scope")
     diff = Path(diff_path).read_bytes()
-    expected_diff = git("diff", "--binary", base_commit, candidate)
+    expected_diff = git("diff", "--no-ext-diff", "--binary", base_commit, candidate)
     if diff != expected_diff or hashlib.sha256(diff).hexdigest() != scope["diff_sha256"]:
         raise ValueError("diff changed since scope capture")
     manifest = [os.fsdecode(p) for p in git("diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
     if manifest != scope["changed_files"] or len(manifest) != scope["changed_file_count"]:
         raise ValueError("scope manifest does not match candidate")
     source = scope.get("source_snapshot")
+    subject = git("log", "-1", "--format=%s", candidate).decode().strip()
+    if subject == "Shark isolated review snapshot v1" and not source:
+        raise ValueError("isolated snapshot lacks source metadata")
     if source:
         source_root = source["source_root"]
         if source["candidate_commit"] != candidate or source["candidate_tree"] != tree:
@@ -236,6 +241,11 @@ def validate_scope(path: str, base_commit: str, diff_path: str) -> dict[str, obj
         paths = source["selected_paths"]
         if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p and not Path(p).is_absolute() and '..' not in Path(p).parts and p != '.' for p in paths):
             raise ValueError("invalid source snapshot paths")
+        if source_inventory(source_root) != source["source_inventory_sha256"]:
+            raise ValueError("source change inventory changed; reassess candidate scope")
+        staged_diff = subprocess.run(["git", "-C", source_root, "--literal-pathspecs", "diff", "--no-ext-diff", "--cached", "--binary", source["source_commit"], "--", *paths], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+        if hashlib.sha256(staged_diff).hexdigest() != source["selected_index_sha256"]:
+            raise ValueError("source index changed since capture")
         with tempfile.TemporaryDirectory(prefix="review-verify-index-") as temp:
             env = dict(os.environ, GIT_INDEX_FILE=str(Path(temp) / "index"))
             source_git("read-tree", source["source_commit"], env=env)
@@ -246,6 +256,7 @@ def validate_scope(path: str, base_commit: str, diff_path: str) -> dict[str, obj
 
 
 def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | None:
+    metadata.pop("_scope", None)
     try:
         if not args.scope_file:
             raise ValueError("captured scope is required")
@@ -259,7 +270,43 @@ def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | N
         return str(exc)
     for key in ("candidate_commit", "candidate_tree", "diff_sha256", "changed_files"):
         metadata[key] = scope[key]
+    metadata["_scope"] = scope
     return None
+
+
+def validate_six_angles(path: str | None, scope: dict[str, object]) -> list[dict[str, object]]:
+    """Validate actual per-angle evidence before claiming six completed angles."""
+    if not path:
+        raise ValueError("six-angle results are required")
+    angles = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(angles, dict) or set(angles) != set("abcdef"):
+        raise ValueError("six distinct angle results are required")
+    expected = {"commit": scope["candidate_commit"], "tree": scope["candidate_tree"], "diff_sha256": scope["diff_sha256"]}
+    manifest = set(scope["changed_files"])
+    findings_all = []
+    for name, result in angles.items():
+        if not isinstance(result, dict) or result.get("candidate_identity") != expected:
+            raise ValueError(f"angle {name} has missing or mismatched candidate identity")
+        files = result.get("reviewed_files")
+        findings = result.get("findings")
+        if not isinstance(files, list) or not all(isinstance(item, str) for item in files) or set(files) != manifest or not isinstance(findings, list):
+            raise ValueError(f"angle {name} has incomplete coverage or malformed findings")
+        for finding in findings:
+            if not isinstance(finding, dict) or finding.get("severity") not in {"blocker", "non-blocker", "nit"} or not isinstance(finding.get("line"), int) or finding["line"] < 1 or not all(isinstance(finding.get(key), str) and finding[key] for key in ("file", "rule", "summary", "diagnosis")):
+                raise ValueError(f"angle {name} has malformed finding")
+            findings_all.append(finding)
+    return findings_all
+
+
+def valid_passing_report(body: str, verdict: str) -> bool:
+    """Reject empty, diagnostic, contradictory or structurally incomplete passes."""
+    if len(body.strip()) < 80 or re.search(r"\bINCOMPLETE\b", body, re.I):
+        return False
+    verdicts = re.findall(r"\bVERDICT\s*:?\s*\*{0,2}\s*:?\s*(PASS(?:-with-triage)?|FAIL)\b", body, re.I)
+    if not verdicts or any(v.upper() != verdict.upper() for v in verdicts):
+        return False
+    return bool(re.search(r"\b(scope|coverage)\b", body, re.I) and
+                re.search(r"\b(findings|defects)\b", body, re.I))
 
 
 def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
@@ -270,6 +317,7 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
         f"**Base commit:** `{metadata['base_commit']}` · **Diff:** `{metadata['diff_path']}`",
         f"**Candidate:** `{metadata.get('candidate_commit', 'unknown')}` · **Tree:** `{metadata.get('candidate_tree', 'unknown')}` · **Diff SHA-256:** `{metadata.get('diff_sha256', 'unknown')}`",
         f"**Changed files:** {json.dumps(metadata.get('changed_files', 'unknown'), ensure_ascii=True)}",
+        f"**Retained scope:** `{metadata.get('retained_scope') or 'unavailable'}` · **Angle results:** `{metadata.get('retained_angles') or 'unavailable'}`",
         f"**Requested model:** `{metadata.get('requested_model') or 'unknown'}` · **Verified effective model:** `{metadata.get('effective_model') or 'unknown'}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
@@ -278,6 +326,24 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
 
 def persist_report(path: Path, body: str, metadata: dict[str, object], branch: str = "unknown") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    angle_file = metadata.pop("_angle_results", None)
+    if angle_file:
+        retained_angles = Path(str(path) + ".angles.json")
+        if Path(angle_file).resolve() != retained_angles.resolve():
+            shutil.copyfile(angle_file, retained_angles)
+        metadata["retained_angles"] = str(retained_angles.resolve())
+    scope = metadata.pop("_scope", None)
+    if scope is not None:
+        # The original diff/scope can be temporary. Retain both next to the
+        # report so QA can revalidate the exact source and candidate later.
+        retained = dict(scope)
+        retained_diff = Path(str(path) + ".diff")
+        if Path(scope["diff_path"]).resolve() != retained_diff.resolve():
+            shutil.copyfile(scope["diff_path"], retained_diff)
+        retained["diff_path"] = str(retained_diff.resolve())
+        retained_scope = Path(str(path) + ".scope.json")
+        retained_scope.write_text(json.dumps(retained, indent=2) + "\n", encoding="utf-8")
+        metadata["retained_scope"] = str(retained_scope.resolve())
     path.write_text(_report_header(metadata, branch) + body.rstrip() + "\n", encoding="utf-8")
 
 
@@ -339,6 +405,10 @@ def run_cli(args: argparse.Namespace) -> int:
         if not valid_adversarial_output(candidate_output):
             failures.append(f"{model}: empty, malformed, or partial reviewer output")
             continue
+        candidate_verdict = VERDICT_RE.search(candidate_output).group(1).upper()
+        if candidate_verdict.startswith("PASS") and not valid_passing_report(candidate_output, candidate_verdict):
+            failures.append(f"{model}: incomplete or contradictory passing review")
+            continue
         output = candidate_output
         selected_model = model
         break
@@ -392,7 +462,15 @@ def write_report(args: argparse.Namespace) -> int:
     metadata["requested_model"] = args.requested_model
     metadata["effective_model"] = args.effective_model
     scope_error = bind_scope(metadata, args)
+    angle_findings = []
     incomplete_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"} and (args.specialists_completed != 6 or not args.consolidator_completed)
+    if args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"} and not scope_error and not incomplete_six:
+        try:
+            angle_findings = validate_six_angles(args.angle_results, metadata["_scope"])
+            metadata["_angle_results"] = args.angle_results
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            incomplete_six = True
+            metadata["fallback_reason"] = f"angle evidence invalid: {exc}"
     incomplete_cli = args.runner_mode == "adversarial-cli" and (args.specialists_completed != 0 or not args.consolidator_completed or not args.adversarial_model)
     diagnostic = args.runner_mode in {"manual-diagnostic", "incomplete"}
     if scope_error or incomplete_six or incomplete_cli or diagnostic:
@@ -401,14 +479,42 @@ def write_report(args: argparse.Namespace) -> int:
         metadata["verdict"] = "INCOMPLETE"
         metadata["fallback_reason"] = metadata.get("fallback_reason") or "review evidence is incomplete or diagnostic"
     body = Path(args.body_file).read_text(encoding="utf-8")
+    invalid_pass = args.verdict.upper() in {"PASS", "PASS-WITH-TRIAGE"} and not valid_passing_report(body, args.verdict)
+    if args.verdict.upper() in {"PASS", "PASS-WITH-TRIAGE"}:
+        for finding in angle_findings:
+            if finding["severity"] != "blocker":
+                continue
+            pos = body.find(f'{finding["file"]}:{finding["line"]}')
+            excerpt = body[max(0, pos - 150):pos + 1000] if pos >= 0 else ""
+            if pos < 0 or finding["summary"] not in excerpt or not re.search(r"\bREFUTED\b", excerpt, re.I):
+                invalid_pass = True
+                break
+    if invalid_pass:
+        metadata["runner_mode"] = "incomplete"
+        metadata["verdict"] = "INCOMPLETE"
+        metadata["fallback_reason"] = "report body is incomplete or contradicts the requested verdict"
     persist_report(Path(args.review_output_path), body, metadata, args.branch)
     print(json.dumps({**metadata, "report_path": args.review_output_path}))
-    return 2 if scope_error or incomplete_six or incomplete_cli or diagnostic else 0
+    return 2 if scope_error or incomplete_six or incomplete_cli or diagnostic or invalid_pass else 0
+
+
+def specialist_count(value: str) -> int | str:
+    if value == "unknown":
+        return value
+    try:
+        count = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected 0–6 or unknown") from exc
+    if count < 0 or count > 6:
+        raise argparse.ArgumentTypeError("expected 0–6 or unknown")
+    return count
 
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
+    validate = sub.add_parser("validate-scope")
+    validate.add_argument("--scope-file", required=True)
     select = sub.add_parser("select")
     select.add_argument("--workflow-available", action=argparse.BooleanOptionalAction, default=None)
     select.add_argument("--agent-dispatch-available", action=argparse.BooleanOptionalAction, default=None)
@@ -435,7 +541,7 @@ def parser() -> argparse.ArgumentParser:
     write.add_argument("--body-file", required=True)
     write.add_argument("--review-output-path", required=True)
     write.add_argument("--runner-mode", required=True, choices=["canonical-six-angle", "dispatched-six-angle", "adversarial-cli", "manual-diagnostic", "incomplete"])
-    write.add_argument("--specialists-completed", required=True, type=int)
+    write.add_argument("--specialists-completed", required=True, type=specialist_count)
     write.add_argument("--consolidator-completed", required=True, type=lambda value: value.lower() == "true")
     write.add_argument("--adversarial-model")
     write.add_argument("--fallback-reason")
@@ -444,6 +550,7 @@ def parser() -> argparse.ArgumentParser:
     write.add_argument("--verdict", required=True)
     write.add_argument("--branch", default="unknown")
     write.add_argument("--scope-file")
+    write.add_argument("--angle-results")
     write.add_argument("--requested-model")
     write.add_argument("--effective-model")
     return p
@@ -451,6 +558,15 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = parser().parse_args()
+    if args.command == "validate-scope":
+        try:
+            scope = json.loads(Path(args.scope_file).read_text(encoding="utf-8"))
+            validate_scope(args.scope_file, scope["base_commit"], scope["diff_path"])
+        except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as exc:
+            print(json.dumps({"valid": False, "error": str(exc)}))
+            return 2
+        print(json.dumps({"valid": True, "candidate_tree": scope["candidate_tree"], "diff_sha256": scope["diff_sha256"]}))
+        return 0
     if args.command == "select":
         caps = detect_capabilities(args.workflow_available, args.agent_dispatch_available, args.codex_command, args.claude_command)
         print(json.dumps({"capabilities": asdict(caps), **select_runner(caps, args.host)}))

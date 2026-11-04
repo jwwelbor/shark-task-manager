@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
@@ -344,16 +346,16 @@ func TestRunController_GateSameStageReworkStopsAndRetiresLease(t *testing.T) {
 	dispatchers := map[string]AgentDispatcher{"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
 		calls++
 		if calls > 1 {
-			t.Fatal("same-stage result dispatched twice")
+			require.FailNow(t, "same-stage result dispatched twice")
 		}
 		return &DispatchResult{ExitCode: 0, Stdout: envelope}, nil
 	}}}
 	ctrl, err := NewRunController(RunControllerDeps{Transitioner: shared, ActionSvc: actionSvc, WorkflowSvc: defaultWorkflowSvc(), Dispatchers: dispatchers, GateIngest: &GateIngestDeps{Coordinator: coordinator}})
 	if err != nil {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
 	result, err := ctrl.Run(context.Background(), key, RunOptions{ProjectRoot: t.TempDir(), RunID: "run-same-stage", SessionID: "sess-1", EntityType: "task"})
 	if err != nil || result.Outcome != "paused" || result.FinalStatus != "todo" || calls != 1 || !lease.released {
-		t.Fatalf("result=%+v error=%v dispatches=%d lease_released=%v", result, err, calls, lease.released)
+		require.FailNowf(t, "assertion failed", "result=%+v error=%v dispatches=%d lease_released=%v", result, err, calls, lease.released)
 	}
 }

@@ -1,5 +1,7 @@
 # Angle F: Standards Crosswalk + Coding Conventions
 
+Apply the canonical quality craft rubric for shared thresholds and severity when guidance conflicts.
+
 You are performing a standards and conventions review. You have been given:
 - A diff file path (DIFF_PATH)
 - A list of changed files (CHANGED_FILES)
@@ -11,11 +13,11 @@ Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES, 
 
 ## Citation discipline (MANDATORY)
 
-Every finding in this angle **must cite** the specific section of the project's standards document that is violated.
+Cite the specific standards section for each claimed standards violation. Independent security or correctness defects may be findings without a standards citation.
 
 Format: `{file:line} — {rule} — {standards-doc §X.Y "quoted clause"}`
 
-**No citation = the finding is opinion, not a standards violation.** If no standards section covers a finding, mark it "opinion-only" and downgrade to a nit. Do not fabricate citations.
+No citation means a claim is not a documented standards violation; assess independent security or correctness risk under the canonical rubric. Do not fabricate citations.
 
 ---
 
@@ -23,8 +25,8 @@ Format: `{file:line} — {rule} — {standards-doc §X.Y "quoted clause"}`
 
 Your context preamble includes `CODING_STANDARDS_PATH`. Use it:
 
-- If `CODING_STANDARDS_PATH` is set: **read that file now**. Every finding in this angle must cite a specific section from it. Format: `{file:line} — {rule} — {§X.Y "quoted clause"}`. No citation = opinion-only, downgrade to nit.
-- If `CODING_STANDARDS_PATH` is not set (null / "not found"): every standards violation downgrades to opinion-level (nit). Note this at the top of your findings. Do not fabricate a path or invent sections.
+- If `CODING_STANDARDS_PATH` is set: **read that file now**. Every claimed standards violation must cite a specific section from it. Format: `{file:line} — {rule} — {§X.Y "quoted clause"}`. No citation means no standards violation claim; assess independent risk under the canonical rubric.
+- If `CODING_STANDARDS_PATH` is not set (null / "not found"): do not claim a standards violation; assess independent risk under the canonical rubric. Note this at the top of your findings. Do not fabricate a path or invent sections.
 
 Do not re-search for the standards file — it was already located by `get_diff.sh`. Trust the value in your context.
 
@@ -83,6 +85,7 @@ Flag in changed code only (not pre-existing):
 
 ```json
 {
+  "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
@@ -99,4 +102,4 @@ Flag in changed code only (not pre-existing):
 }
 ```
 
-Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -2901,13 +2903,13 @@ func TestRunController_SameStageFailureStopsInsteadOfRedispatching(t *testing.T)
 	dispatchers := map[string]AgentDispatcher{"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
 		calls++
 		if calls > 1 {
-			t.Fatal("same-stage failure dispatched again")
+			require.FailNow(t, "same-stage failure dispatched again")
 		}
 		return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: fail"}, nil
 	}}}
 	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
 	result, err := ctrl.Run(context.Background(), "B001", RunOptions{EntityType: "bug"})
 	if err != nil || result.Outcome != "paused" || result.FinalStatus != "research" || calls != 1 {
-		t.Fatalf("same-stage result = %+v, err = %v, dispatches = %d", result, err, calls)
+		require.FailNowf(t, "assertion failed", "same-stage result = %+v, err = %v, dispatches = %d", result, err, calls)
 	}
 }

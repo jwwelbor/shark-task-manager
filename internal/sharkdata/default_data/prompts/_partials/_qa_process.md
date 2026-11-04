@@ -6,7 +6,11 @@ READ:
 (3) Applicable feature spec or accepted repair plan for intent
 (4) Code review report from {{.review_base}}code-review-*-{{.id}}.md
 (5) Implementation code and existing test results
-(6) The complete frozen review manifest and base-to-candidate diff; verify the current candidate identity and review evidence match before selecting tests
+(6) The complete frozen review manifest and base-to-candidate diff. Read the
+    review report's retained scope path and run the host deep-review runner's
+    `adaptive_review.py validate-scope --scope-file <retained-scope>` before
+    selecting tests. Verify the source and candidate identity match; a missing,
+    stale or invalid retained scope cannot satisfy QA.
 
 SCOPED TEST RUN (single pass; do NOT run the full suite):
 

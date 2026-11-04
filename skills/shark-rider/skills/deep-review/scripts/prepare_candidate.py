@@ -6,11 +6,14 @@ candidate paths, including relevant untracked files, and inspect the resulting
 base-to-candidate manifest before dispatching review.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+
+from source_inventory import source_inventory
 
 
 def main():
@@ -41,6 +44,18 @@ def main():
     if Path(git('rev-parse', '--show-toplevel')).resolve() != root:
         parser.error('project-root must be the repository root')
     head = git('rev-parse', 'HEAD')
+    # A single snapshot tree cannot represent two different versions of one
+    # selected file. Never silently discard either the staged or worktree one.
+    def changed_names(*options):
+        raw = subprocess.run(['git', '-C', str(root), '--literal-pathspecs', 'diff', *options, '--name-only', '-z', '--no-renames', '--', *args.paths], check=True, capture_output=True).stdout
+        return {os.fsdecode(path) for path in raw.split(b'\0') if path}
+    staged = changed_names('--cached')
+    unstaged = changed_names()
+    divergent = staged & unstaged
+    if divergent:
+        parser.error('selected paths have divergent staged and worktree versions: ' + ', '.join(sorted(divergent)))
+    inventory = source_inventory(root)
+    staged_diff = subprocess.run(['git', '-C', str(root), '--literal-pathspecs', 'diff', '--no-ext-diff', '--cached', '--binary', head, '--', *args.paths], check=True, capture_output=True).stdout
     with tempfile.TemporaryDirectory(prefix='review-index-') as temp:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(temp) / 'index'),
                    GIT_AUTHOR_NAME='Review Snapshot', GIT_AUTHOR_EMAIL='review-snapshot@localhost',
@@ -49,11 +64,12 @@ def main():
         git('--literal-pathspecs', 'add', '-A', '--', *args.paths, env=env)
         tree = git('write-tree', env=env)
         commit = git('-c', 'commit.gpgsign=false', 'commit-tree', tree, '-p', head,
-                     env=env, input='Isolated review snapshot\n')
+                     env=env, input='Shark isolated review snapshot v1\n')
     git('worktree', 'add', '--detach', str(destination), commit)
     metadata = {'project_root': str(destination), 'source_root': str(root),
                 'source_commit': head, 'candidate_commit': commit, 'candidate_tree': tree,
-                'selected_paths': args.paths}
+                'selected_paths': args.paths, 'selected_index_sha256': hashlib.sha256(staged_diff).hexdigest(),
+                'source_inventory_sha256': inventory}
     with metadata_path.open('x', encoding='utf-8') as out:
         json.dump(metadata, out)
     print(json.dumps(metadata))

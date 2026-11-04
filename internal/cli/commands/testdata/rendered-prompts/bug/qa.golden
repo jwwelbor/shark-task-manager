@@ -1,8 +1,10 @@
 
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
-Verify bug E07-F01 against its accepted plan, coverage index and reviewed candidate. Execute production-caller scenarios and boundary and preservation assertions; source review alone is insufficient. Confirm candidate and plan evidence are current. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the approved plan content hash matches the current plan. Review the plan's single coverage index, which maps each obligation to its authoritative source, production caller or boundary, planned change, required assertions, and links to a separate mutable evidence record. Do not change the plan while reviewing its revision. Reference existing decisions; escalate conflicting authority to its owner. Keep all findings and route to the earliest invalidated stage. Diagnosis changes invalidate the plan and downstream evidence; material plan changes invalidate approval; candidate changes invalidate review and QA. Reuse unchanged valid evidence. Unavailable external evidence is blocked, not acceptance.
-Use review_plan for a valid plan whose approval is missing or stale; use needs_research for causal contradictions, replan for plan defects, fail for implementation defects, and blocked for unavailable external evidence. Retain every finding and route to the earliest invalidated stage. For route_rework outcomes leave kickbacks empty.
+Verify bug E07-F01 against its accepted plan, coverage index and reviewed candidate. Execute production-caller scenarios and boundary and preservation assertions; source review alone is insufficient. Confirm candidate and plan evidence are current. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the approved plan content hash matches the current plan. Review the plan's single coverage index, which maps each obligation to its authoritative source, production caller or boundary, planned change, required assertions, and links to a separate mutable evidence record. Do not change the plan while reviewing its revision. Reference existing decisions; escalate conflicting authority to its owner. Keep all findings and route to the earliest invalidated stage. Diagnosis changes invalidate the plan and downstream evidence; material plan changes invalidate approval; candidate changes invalidate review and QA. Reuse unchanged valid evidence. Unavailable external evidence is blocked, not acceptance. For a structured success outcome, include exactly one outer `evidence` entry with `kind: bug_repair_plan`, `pointer` set to the project-relative plan file, and `summary` set to `sha256:<hex digest>` of the current plan bytes. The parent validates this identity; it does not establish approval or evidence quality by itself.
+
+For a structured pass, include the same outer `bug_review_scope` evidence reference used by the accepted code review, including its project-relative pointer and `sha256:<hex digest>` summary. The parent checks both the prior review receipt and whether that scope still matches the current source candidate.
+Use review_code when current code-review evidence is missing or stale but the plan and implementation remain valid; use review_plan for a valid plan whose approval is missing or stale; use needs_research for causal contradictions, replan for plan defects, fail for implementation defects, and blocked for unavailable external evidence. Retain every finding and route to the earliest invalidated stage. For route_rework outcomes leave kickbacks empty.
 
 
 # Quality Skill
@@ -103,7 +105,11 @@ READ:
 (3) Applicable feature spec or accepted repair plan for intent
 (4) Code review report from docs/review/E07/E07-F01/code-review-*-E07-F01.md
 (5) Implementation code and existing test results
-(6) The complete frozen review manifest and base-to-candidate diff; verify the current candidate identity and review evidence match before selecting tests
+(6) The complete frozen review manifest and base-to-candidate diff. Read the
+    review report's retained scope path and run the host deep-review runner's
+    `adaptive_review.py validate-scope --scope-file <retained-scope>` before
+    selecting tests. Verify the source and candidate identity match; a missing,
+    stale or invalid retained scope cannot satisfy QA.
 
 SCOPED TEST RUN (single pass; do NOT run the full suite):
 

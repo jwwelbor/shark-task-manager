@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -1881,26 +1883,52 @@ func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
 	svc := NewBugService(repo, NewEntityService(wf), &mockBugEntityRepo{bugRepo: repo}, &bugLinkEpicRepo{}, &bugLinkFeatureRepo{}, &bugLinkTaskRepo{}, "", nil)
 	ctx := context.Background()
 	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err == nil {
-		t.Fatal("missing report allowed research pass")
+		require.FailNow(t, "missing report allowed research pass")
 	}
 	reportPath := filepath.Join(root, "B001.research-report.md")
 	if err := os.WriteFile(reportPath, []byte("invalid report"), 0o644); err != nil {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
 	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err == nil {
-		t.Fatal("invalid report allowed research pass")
+		require.FailNow(t, "invalid report allowed research pass")
 	}
 	valid := "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n\n## Scope\nBug scope.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `B001.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `source.go`.\n\n## Findings\nCause found.\n\n## Decisions\nRepair the cause.\n\n## Sources\n- `source.go`\n"
 	if err := os.WriteFile(reportPath, []byte(valid), 0o644); err != nil {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
 	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err != nil {
-		t.Fatalf("valid report rejected: %v", err)
+		require.FailNowf(t, "assertion failed", "valid report rejected: %v", err)
 	}
 	if err := os.Remove(reportPath); err != nil {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
 	if _, err := svc.TransitionStatus(ctx, "B001", "blocked", TransitionOptions{}); err != nil {
-		t.Fatalf("recovery route should not require report: %v", err)
+		require.FailNowf(t, "assertion failed", "recovery route should not require report: %v", err)
+	}
+}
+
+func TestBugReworkTransitionRetainsReasonInHistory(t *testing.T) {
+	for _, target := range []string{"research", "repair_plan"} {
+		t.Run(target, func(t *testing.T) {
+			repo := &mockBugRepo{
+				getByKeyFn: func(context.Context, string) (*models.Bug, error) {
+					return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001"}, Status: "plan_review", Severity: models.BugSeverityHigh}, nil
+				},
+				updateStatusFn: func(context.Context, int64, models.BugStatus) error { return nil },
+			}
+			svc := newBugService(repo, nil, nil, nil)
+			history := &mockEntityHistoryRecorder{}
+			svc.entitySvc.SetHistoryRepo(history)
+			reason := "gate plan_review outcome rework"
+			result, err := svc.TransitionStatus(context.Background(), "B001", target, TransitionOptions{Reason: reason, Agent: "parent"})
+			require.NoError(t, err)
+			require.Equal(t, target, result.ToStatus)
+			require.Len(t, history.created, 1)
+			require.NotNil(t, history.created[0].FromStatus)
+			require.Equal(t, "plan_review", *history.created[0].FromStatus)
+			require.NotNil(t, history.created[0].Notes)
+			require.Equal(t, reason, *history.created[0].Notes)
+			require.Nil(t, history.created[0].RejectionReason, "bug transitions deliberately use simple history")
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package gatepersist
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,10 @@ type Coordinator struct {
 	// unchanged, and production wiring (internal/cli/commands.buildGateCoordinator)
 	// sets it explicitly.
 	ClaimVerifier ClaimVerifier
+
+	// Admission validates gate-specific evidence before durable writes. It is
+	// optional for existing contracts and runs under the parent run lock.
+	Admission func(context.Context, Request) error
 }
 
 // NewCoordinator constructs a Coordinator. Every dependency is required —
@@ -119,6 +124,10 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		return nil, err
 	}
 
+	if err := c.admitBeforeWrites(ctx, req); err != nil {
+		return nil, err
+	}
+
 	digest, kickbackEntityTypes, state, err := c.initializeRun(ctx, req)
 	if err != nil {
 		return nil, err
@@ -147,6 +156,69 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	}
 
 	return result, nil
+}
+
+// admitBeforeWrites revalidates new and not-yet-applied operations. A replay
+// that has already reached its target must be allowed to finish retirement even
+// if evidence has since changed, but only after verifying all durable identity
+// and result bytes. Persist will perform its normal reconciliation afterwards.
+func (c *Coordinator) admitBeforeWrites(ctx context.Context, req Request) error {
+	if c.Admission == nil {
+		return nil
+	}
+	state, exists, err := gaterun.LoadOperationState(req.RunDir)
+	if err != nil {
+		return fmt.Errorf("gatepersist: admission load state: %w", err)
+	}
+	if exists {
+		digest, err := gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
+		if err != nil {
+			return err
+		}
+		if err := gaterun.VerifyResumeIdentity(state, req.EntityKey, string(req.EntityType), req.SourceStatus, digest); err != nil {
+			return err
+		}
+		identity, found, err := gaterun.ReadIdentity(req.RunDir)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("gatepersist: admission replay identity missing")
+		}
+		want := gaterun.RunIdentity{RunID: req.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: req.SourceStatus, Gate: req.Gate, OperationDigest: digest}
+		if err := gaterun.VerifyRunIdentity(identity, want); err != nil {
+			return err
+		}
+		stored, found, err := gaterun.ReadResult(req.RunDir)
+		if err != nil {
+			return err
+		}
+		if !found || !bytes.Equal(stored, req.EnvelopeJSON) {
+			return fmt.Errorf("gatepersist: admission replay result mismatch")
+		}
+		if state.PersistenceState == gaterun.PersistenceStateTransitioned || state.PersistenceState == gaterun.PersistenceStateComplete {
+			current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
+			if err != nil {
+				return fmt.Errorf("gatepersist: admission read status: %w", err)
+			}
+			if state.PersistenceState == gaterun.PersistenceStateTransitioned {
+				if !strings.EqualFold(current, req.TargetStatus) {
+					return fmt.Errorf("gatepersist: admission replay target diverged")
+				}
+				return nil
+			}
+			if !strings.EqualFold(req.SourceStatus, req.TargetStatus) && strings.EqualFold(current, req.TargetStatus) {
+				return nil
+			}
+			if !strings.EqualFold(current, req.SourceStatus) {
+				return fmt.Errorf("gatepersist: admission replay source diverged")
+			}
+		}
+	}
+	if err := c.Admission(ctx, req); err != nil {
+		return fmt.Errorf("gatepersist: admission rejected: %w", err)
+	}
+	return nil
 }
 
 // acquireLock acquires the per-run lock guarding the whole Persist critical
@@ -324,6 +396,15 @@ func (c *Coordinator) applyGuardedTransition(ctx context.Context, req Request, s
 		}
 		if !strings.EqualFold(current, req.SourceStatus) && !strings.EqualFold(current, req.TargetStatus) {
 			return fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
+		}
+
+		// Evidence can change after preflight while notes are being persisted.
+		// Recheck before a new transition, but not in the crash window where
+		// the live entity already reached the recorded distinct target.
+		if c.Admission != nil && (strings.EqualFold(req.SourceStatus, req.TargetStatus) || strings.EqualFold(current, req.SourceStatus)) {
+			if err := c.Admission(ctx, req); err != nil {
+				return fmt.Errorf("gatepersist: admission rejected before transition: %w", err)
+			}
 		}
 
 		reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)

@@ -31,8 +31,12 @@ fi
 base_commit=$(git rev-parse --verify "${REVIEW_BASE:-$(git merge-base "$base_branch" HEAD)}^{commit}")
 candidate_commit=$(git rev-parse HEAD)
 candidate_tree=$(git rev-parse 'HEAD^{tree}')
+if [ "$(git log -1 --format=%s)" = "Shark isolated review snapshot v1" ] && [ -z "${REVIEW_SOURCE_METADATA:-}" ]; then
+  echo '{"error": "isolated snapshot requires REVIEW_SOURCE_METADATA"}' >&2
+  exit 1
+fi
 diff_path=$(mktemp /tmp/code-review-diff-XXXXXX.txt)
-git diff --binary "$base_commit" "$candidate_commit" > "$diff_path"
+git diff --no-ext-diff --binary "$base_commit" "$candidate_commit" > "$diff_path"
 diff_sha256=$(sha256sum "$diff_path" | cut -d' ' -f1)
 
 if [ ! -s "$diff_path" ]; then

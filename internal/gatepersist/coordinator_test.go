@@ -3,6 +3,7 @@ package gatepersist
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -930,4 +931,73 @@ func TestPersist_ClaimVerifier_MatchingLiveSessionSucceeds(t *testing.T) {
 	if !res.TransitionApplied {
 		t.Fatalf("expected the transition to still apply when the claim re-check passes")
 	}
+}
+
+func TestAdmissionRejectsBeforeDurableWrites(t *testing.T) {
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	req := baseRequest(t, newTestRunDir(t))
+	coord.Admission = func(context.Context, Request) error { return errors.New("stale evidence") }
+	_, err := coord.Persist(context.Background(), req)
+	require.ErrorContains(t, err, "stale evidence")
+	require.Empty(t, world.notes)
+	require.Empty(t, world.transitionCalls)
+	_, exists, err := gaterun.ReadIdentity(req.RunDir)
+	require.NoError(t, err)
+	require.False(t, exists, "rejected admission must precede immutable identity")
+}
+
+func TestAdmissionRechecksBeforeUnappliedTransition(t *testing.T) {
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	req := baseRequest(t, newTestRunDir(t))
+	calls := 0
+	coord.Admission = func(context.Context, Request) error {
+		calls++
+		if calls == 2 {
+			return errors.New("evidence changed")
+		}
+		return nil
+	}
+	_, err := coord.Persist(context.Background(), req)
+	require.ErrorContains(t, err, "evidence changed")
+	require.Equal(t, "in_review", world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)])
+	coord.Admission = func(context.Context, Request) error { return nil }
+	result, err := coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, result.TransitionApplied)
+}
+
+func TestAdmissionDoesNotRejudgeAppliedTransitionOnCrashReplay(t *testing.T) {
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	world.failTransitionTo[string(models.EntityTypeTask)+"|"+mainEntityKey+"|ready_for_qa"] = true
+	coord := newTestCoordinator(world, defaultValidator())
+	req := baseRequest(t, newTestRunDir(t))
+	coord.Admission = func(context.Context, Request) error { return nil }
+	_, err := coord.Persist(context.Background(), req)
+	require.Error(t, err)
+	require.Equal(t, "ready_for_qa", world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)])
+	coord.Admission = func(context.Context, Request) error { return errors.New("evidence changed after transition") }
+	result, err := coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, result.TransitionApplied)
+}
+
+func TestAdmissionReplayDoesNotBypassIdentityConflict(t *testing.T) {
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	req := baseRequest(t, newTestRunDir(t))
+	coord.Admission = func(context.Context, Request) error { return nil }
+	_, err := coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	changed := fixtureResult()
+	changed.Summary = "different result"
+	req.Result = changed
+	req.EnvelopeJSON = envelopeFor(changed)
+	_, err = coord.Persist(context.Background(), req)
+	require.Error(t, err, "matching live target must not authorize conflicting replay")
 }

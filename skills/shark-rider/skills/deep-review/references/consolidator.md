@@ -50,7 +50,7 @@ For each finding, read the actual source file around the flagged line and the di
 - **PLAUSIBLE** — realistic runtime risk; cannot rule it out from static reading alone
 - **REFUTED** — the code proves it factually impossible (e.g., the guard the finding says is missing is on line 5)
 
-Default to PLAUSIBLE for realistic runtime scenarios. Only REFUTE when the code makes it impossible. Discard all REFUTED findings.
+Default to PLAUSIBLE for realistic runtime scenarios. Only REFUTE when the code makes it impossible. For every REFUTED blocker, retain a concise refutation naming the exact `file:line`, original summary, and `REFUTED`, with evidence; this permits the host to check that no blocking finding was silently dropped.
 
 **Do NOT refute on current-caller-reachability grounds.** A missing guard on an *exported* / public function, or missing shape-validation at a deserialization / external-input boundary (`JSON.parse`, file import, request body), is **not** "impossible" merely because every *present* caller happens to pass a valid value — future callers are unconstrained and the boundary is real. Downgrade such findings to nit or non-blocker if impact is low, but keep them. REFUTE is reserved for findings the code makes *logically* impossible (the guard already exists, or the branch is unreachable by construction), not findings that merely have no triggering caller today.
 

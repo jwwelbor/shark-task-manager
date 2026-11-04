@@ -447,27 +447,8 @@ func (w *WorkflowConfig) IsBackwardTransition(fromStatus, toStatus string) (bool
 		return false, nil
 	}
 
-	// Explicit route-rework outcomes classify a distinct target as rework even
-	// when phases are equal or deliberately use non-ordering vocabulary such
-	// as research. If a target is also a success route, status alone is
-	// ambiguous; preserve the phase-based behavior instead of guessing.
-	if !strings.EqualFold(fromStatus, toStatus) {
-		if step, ok := w.GetStep(fromStatus); ok && step != nil {
-			rework, other := false, false
-			for outcome, target := range step.Outcomes {
-				if !strings.EqualFold(target, toStatus) {
-					continue
-				}
-				if step.OutcomeRoles[outcome] == "route_rework" {
-					rework = true
-				} else {
-					other = true
-				}
-			}
-			if rework && !other {
-				return true, nil
-			}
-		}
+	if w.isUnambiguousReworkRoute(fromStatus, toStatus) {
+		return true, nil
 	}
 
 	// Get phase orders
@@ -481,4 +462,27 @@ func (w *WorkflowConfig) IsBackwardTransition(fromStatus, toStatus string) (bool
 
 	// Backward if new phase order is less than current phase order
 	return toOrder < fromOrder, nil
+}
+
+// isUnambiguousReworkRoute uses configured semantics without guessing when
+// both success and rework outcomes lead to the same target.
+func (w *WorkflowConfig) isUnambiguousReworkRoute(fromStatus, toStatus string) bool {
+	if strings.EqualFold(fromStatus, toStatus) {
+		return false
+	}
+	step, ok := w.GetStep(fromStatus)
+	if !ok || step == nil {
+		return false
+	}
+	rework := false
+	for outcome, target := range step.Outcomes {
+		if !strings.EqualFold(target, toStatus) {
+			continue
+		}
+		if step.OutcomeRoles[outcome] != "route_rework" {
+			return false
+		}
+		rework = true
+	}
+	return rework
 }
