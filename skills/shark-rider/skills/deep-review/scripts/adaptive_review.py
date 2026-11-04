@@ -722,9 +722,12 @@ def _writer_metadata(args):
 
 
 def _writer_runner_state(args, metadata, scope_error, incomplete_six):
-    incomplete_cli = args.runner_mode == "adversarial-cli" and (args.specialists_completed != 0 or not args.consolidator_completed or not args.adversarial_model)
+    def meaningful(value):
+        return bool(value and str(value).strip().lower() not in {"", "none", "unknown"})
+    incomplete_cli = args.runner_mode == "adversarial-cli" and (args.specialists_completed != 0 or not args.consolidator_completed or not meaningful(args.adversarial_model) or not meaningful(args.fallback_reason))
+    incomplete_dispatched = args.runner_mode == "dispatched-six-angle" and not meaningful(args.fallback_reason)
     diagnostic = args.runner_mode in {"manual-diagnostic", "incomplete"}
-    incomplete = any((scope_error, incomplete_six, incomplete_cli, diagnostic))
+    incomplete = any((scope_error, incomplete_six, incomplete_cli, incomplete_dispatched, diagnostic))
     if incomplete:
         if not diagnostic:
             metadata["runner_mode"] = "incomplete"

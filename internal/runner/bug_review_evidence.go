@@ -17,6 +17,8 @@ var bugIncompleteReport = regexp.MustCompile(`(?i)\bINCOMPLETE\b`)
 var bugReviewScopeWord = regexp.MustCompile(`(?i)\b(scope|coverage)\b`)
 var bugReviewFindingsWord = regexp.MustCompile(`(?i)\b(findings|defects)\b`)
 var bugReviewHeaderField = regexp.MustCompile(`\*\*([^*\n]+):\*\*`)
+var bugCLIModel = regexp.MustCompile("\\*\\*Adversarial model:\\*\\*[ \\t]*`([^`\\r\\n]*)`")
+var bugCLIFallback = regexp.MustCompile(`\*\*Fallback reason:\*\*[ \t]*([^·\r\n]*)`)
 
 type bugAngleFinding struct {
 	Severity  string `json:"severity"`
@@ -176,6 +178,9 @@ func bugReviewRunnerIsSix(header string) (bool, error) {
 		if !strings.Contains(header, "`specialists_completed=6`") {
 			return false, fmt.Errorf("six-angle review is incomplete")
 		}
+		if strings.Contains(header, "`runner_mode=dispatched-six-angle`") && !validBugFallback(header) {
+			return false, fmt.Errorf("review runner is incomplete")
+		}
 		return true, nil
 	}
 	if !validBugCLIHeader(header) {
@@ -184,7 +189,24 @@ func bugReviewRunnerIsSix(header string) (bool, error) {
 	return false, nil
 }
 func validBugCLIHeader(header string) bool {
-	return strings.Contains(header, "`runner_mode=adversarial-cli`") && strings.Contains(header, "`specialists_completed=0`") && !strings.Contains(header, "**Adversarial model:** `none`") && strings.Contains(header, "**Adversarial model:** `")
+	if !strings.Contains(header, "`runner_mode=adversarial-cli`") || !strings.Contains(header, "`specialists_completed=0`") {
+		return false
+	}
+	model := bugCLIModel.FindStringSubmatch(header)
+	if len(model) != 2 {
+		return false
+	}
+	return meaningfulBugReviewMetadata(model[1]) && validBugFallback(header)
+}
+
+func validBugFallback(header string) bool {
+	reason := bugCLIFallback.FindStringSubmatch(header)
+	return len(reason) == 2 && meaningfulBugReviewMetadata(reason[1])
+}
+
+func meaningfulBugReviewMetadata(value string) bool {
+	value = strings.ToLower(strings.Trim(strings.TrimSpace(value), "`"))
+	return value != "" && value != "none" && value != "unknown"
 }
 
 func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {

@@ -159,7 +159,7 @@ class CaptureScopeTest(unittest.TestCase):
                 writer = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'write-report',
                           '--project-root', str(root), '--source-root', str(root), '--body-file', str(body_path), '--review-output-path', str(report),
                           '--runner-mode', 'dispatched-six-angle', '--specialists-completed', '6',
-                          '--consolidator-completed', 'true', '--base-commit', base,
+                          '--consolidator-completed', 'true', '--fallback-reason', 'native Workflow unavailable', '--base-commit', base,
                           '--diff-path', scope['diff_path'], '--scope-file', str(scope_path), '--angle-results', str(angles), '--review-decisions', str(decisions), '--verdict', 'PASS']
                 no_angles = writer.copy()
                 index = no_angles.index('--angle-results')
@@ -346,7 +346,7 @@ class CaptureScopeTest(unittest.TestCase):
             writer = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'write-report',
                       '--project-root', str(destination), '--source-root', str(root), '--body-file', str(body), '--review-output-path', str(evidence / 'report.md'),
                       '--runner-mode', 'dispatched-six-angle', '--specialists-completed', '6',
-                      '--consolidator-completed', 'true', '--base-commit', base,
+                      '--consolidator-completed', 'true', '--fallback-reason', 'native Workflow unavailable', '--base-commit', base,
                       '--diff-path', scope_data['diff_path'], '--scope-file', str(scope_file), '--angle-results', str(angles), '--review-decisions', str(decisions), '--verdict', 'PASS']
             accepted = run_writer(writer, capture_output=True, text=True)
             self.assertEqual(accepted.returncode, 0, accepted.stderr)

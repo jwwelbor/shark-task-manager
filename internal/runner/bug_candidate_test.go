@@ -213,6 +213,26 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		err := verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "conflicting"), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)})
 		require.Error(t, err, "conflicting header %d must fail closed", i)
 	}
+	dispatched := strings.Replace(string(reportBytes), "`runner_mode=canonical-six-angle`", "`runner_mode=dispatched-six-angle`", 1)
+	dispatched = strings.Replace(dispatched, "**Fallback reason:** none", "**Fallback reason:** native Workflow unavailable", 1)
+	for _, tc := range []struct {
+		name, content string
+		valid         bool
+	}{
+		{"dispatched", dispatched, true},
+		{"missing-fallback", strings.Replace(dispatched, "**Fallback reason:** native Workflow unavailable", "**Fallback reason:** none", 1), false},
+	} {
+		path := ".shark/" + tc.name + ".md"
+		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(tc.content), 0600))
+		hash := sha256.Sum256([]byte(tc.content))
+		ref := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, path, hash)
+		err := verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", tc.name), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)})
+		if tc.valid {
+			require.NoError(t, err)
+		} else {
+			require.ErrorContains(t, err, "review runner is incomplete")
+		}
+	}
 	upperRef := strings.Replace(planRef, base, strings.ToUpper(base), 1)
 	_, upperErr := readBugReviewScope(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "uppercase"), EnvelopeJSON: envelope(upperRef + "," + scopeRef)})
 	require.NoError(t, upperErr)
@@ -239,6 +259,21 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliScopeHash := sha256.Sum256(cliScope)
 	cliScopeRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/cli-report.md.scope.json","summary":"sha256:%x"}`, cliScopeHash)
 	require.NoError(t, verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + decisionRef)}))
+	for _, tc := range []struct{ old, replacement string }{
+		{"**Adversarial model:** `codex`", "**Adversarial model:** ``"},
+		{"**Adversarial model:** `codex`", "**Adversarial model:** `unknown`"},
+		{"**Fallback reason:** native and dispatched review unavailable", "**Fallback reason:** none"},
+		{"**Fallback reason:** native and dispatched review unavailable", "**Fallback reason:** "},
+	} {
+		mutated := []byte(strings.Replace(string(cliReport), tc.old, tc.replacement, 1))
+		require.NotEqual(t, string(cliReport), string(mutated))
+		require.NoError(t, os.WriteFile(cliReportPath, mutated, 0600))
+		mutatedHash := sha256.Sum256(mutated)
+		mutatedRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/cli-report.md","summary":"sha256:%x"}`, mutatedHash)
+		err := verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + mutatedRef + "," + decisionRef)})
+		require.ErrorContains(t, err, "review runner is incomplete")
+	}
+	require.NoError(t, os.WriteFile(cliReportPath, cliReport, 0600))
 	var refreshed map[string]any
 	require.NoError(t, json.Unmarshal(retainedScope, &refreshed))
 	refreshed["source_snapshot"].(map[string]any)["source_inventory_sha256"] = strings.Repeat("0", 64)

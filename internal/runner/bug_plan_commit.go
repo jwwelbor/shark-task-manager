@@ -106,17 +106,17 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	return nil
 }
 
-func bugPlanRef(ctx context.Context, parent, runID string) (string, error) {
+func bugPlanRef(ctx context.Context, parent, runID, commit string) (string, error) {
 	_, project, err := candidateRepository(ctx, parent)
 	if err != nil {
 		return "", err
 	}
-	hash := sha256.Sum256([]byte(filepath.ToSlash(project) + "\x00" + runID))
+	hash := sha256.Sum256([]byte(filepath.ToSlash(project) + "\x00" + runID + "\x00" + strings.ToLower(commit)))
 	return fmt.Sprintf("refs/shark/approved-plans/%x", hash), nil
 }
 
 func verifyBugPlanRef(ctx context.Context, parent, runID, commit string) error {
-	ref, err := bugPlanRef(ctx, parent, runID)
+	ref, err := bugPlanRef(ctx, parent, runID, commit)
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func verifyBugPlanRef(ctx context.Context, parent, runID, commit string) error {
 
 func retainBugPlanCommit(ctx context.Context, req gatepersist.Request) error {
 	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
-	ref, err := bugPlanRef(ctx, parent, req.RunID)
+	ref, err := bugPlanRef(ctx, parent, req.RunID, req.PlanCommit)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 	run := func(args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, "git", append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", current}, args...)...).Output()
 	}
-	_, relative, err := candidateRepository(ctx, current)
+	repository, relative, err := candidateRepository(ctx, current)
 	if err != nil {
 		return err
 	}
@@ -201,13 +201,24 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 	if err != nil || len(status) != 0 {
 		return fmt.Errorf("active project plan changed without approval")
 	}
-	sum := sha256.Sum256(plan)
-	if bytes.Equal(sum[:], expected) {
-		return nil
-	}
 	head, err := run("rev-parse", "--verify", "HEAD")
 	if err != nil {
 		return fmt.Errorf("active project plan changed without approval")
+	}
+	rootGit := func(args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", repository}, args...)...).Output()
+	}
+	headBlob, headErr := rootGit("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(head))+":"+path)
+	indexBlob, indexErr := rootGit("rev-parse", "--verify", "--end-of-options", ":"+path)
+	working := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", current, "hash-object", "--path", ref.Pointer, "--stdin")
+	working.Stdin = bytes.NewReader(plan)
+	workingBlob, workingErr := working.Output()
+	if headErr != nil || indexErr != nil || workingErr != nil || !bytes.Equal(bytes.TrimSpace(headBlob), bytes.TrimSpace(indexBlob)) || !bytes.Equal(bytes.TrimSpace(headBlob), bytes.TrimSpace(workingBlob)) {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	sum := sha256.Sum256(plan)
+	if bytes.Equal(sum[:], expected) {
+		return nil
 	}
 	base, err := run("merge-base", strings.TrimSpace(string(head)), identity.PlanCommit)
 	if err != nil {
@@ -234,7 +245,7 @@ func committedBugPlanAt(ctx context.Context, root string, ref workercontrol.Evid
 	if !bytes.Equal(hash[:], expected) {
 		return nil, fmt.Errorf("plan digest is stale")
 	}
-	_, relative, err := candidateRepository(ctx, root)
+	repository, relative, err := candidateRepository(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +270,12 @@ func committedBugPlanAt(ctx context.Context, root string, ref workercontrol.Evid
 	committed, err := run("rev-parse", "--verify", "--end-of-options", object)
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve committed plan")
+	}
+	indexPath := ":" + filepath.ToSlash(filepath.Join(relative, ref.Pointer))
+	index := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", repository, "rev-parse", "--verify", "--end-of-options", indexPath)
+	staged, err := index.Output()
+	if err != nil || !bytes.Equal(bytes.TrimSpace(staged), bytes.TrimSpace(committed)) {
+		return nil, fmt.Errorf("plan index differs from the current commit")
 	}
 	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--path", ref.Pointer, "--stdin")
 	cmd.Stdin = bytes.NewReader(plan)

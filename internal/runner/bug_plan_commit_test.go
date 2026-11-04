@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -23,6 +24,16 @@ func TestBugPlanMustBeCommittedAndNotIgnored(t *testing.T) {
 	req := gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "test"), EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"%s","summary":"sha256:%x"}]}`, path, hash))}
 	_, _, _, err := committedBugPlan(context.Background(), req)
 	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte("staged revision"), 0600))
+	stage := exec.Command("git", "-C", root, "add", "--", path)
+	out, err := stage.CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NoError(t, os.WriteFile(filepath.Join(root, path), plan, 0600))
+	_, _, _, err = committedBugPlan(context.Background(), req)
+	require.ErrorContains(t, err, "index differs")
+	reset := exec.Command("git", "-C", root, "reset", "--", path)
+	out, err = reset.CombinedOutput()
+	require.NoError(t, err, string(out))
 	require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte("unapproved edit"), 0600))
 	_, _, _, err = committedBugPlan(context.Background(), req)
 	require.Error(t, err)
@@ -84,6 +95,17 @@ func TestApprovedPlanProvenanceSurvivesWorktreeRemoval(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("unreviewed active edit"), 0600))
 	require.ErrorContains(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "changed without approval")
 	require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("older plan\n"), 0600))
+	for _, flag := range []string{"assume-unchanged", "skip-worktree"} {
+		cmd = exec.Command("git", "-C", parent, "update-index", "--"+flag, "--", path)
+		out, err = cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("hidden edit"), 0600))
+		require.ErrorContains(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "changed without approval")
+		cmd = exec.Command("git", "-C", parent, "update-index", "--no-"+flag, "--", path)
+		out, err = cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("older plan\n"), 0600))
+	}
 	require.NoError(t, os.Remove(filepath.Join(parent, path)))
 	require.ErrorContains(t, verifyCurrentBugPlan(context.Background(), parent, dir, envelope), "changed without approval")
 	require.NoError(t, os.WriteFile(filepath.Join(parent, path), []byte("staged plan"), 0600))
@@ -104,6 +126,30 @@ func TestApprovedPlanProvenanceSurvivesWorktreeRemoval(t *testing.T) {
 	require.NoError(t, os.Rename(parent, moved))
 	movedDir := filepath.Join(moved, ".shark", "runs", "approved")
 	require.NoError(t, verifyBugPlanProvenance(context.Background(), moved, movedDir, envelope))
+}
+
+func TestPlanRetentionDoesNotCollideAcrossLinkedProjects(t *testing.T) {
+	parent := t.TempDir()
+	path := "docs/plan/plan.md"
+	commitTestBugPlan(t, parent, path, []byte("first project plan"))
+	worker := filepath.Join(t.TempDir(), "worker")
+	cmd := exec.Command("git", "-C", parent, "worktree", "add", "--detach", worker, "HEAD")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	cmd = exec.Command("git", "-C", parent, "rev-parse", "HEAD")
+	first, err := cmd.Output()
+	require.NoError(t, err)
+	commitTestBugPlan(t, worker, path, []byte("second project plan"))
+	cmd = exec.Command("git", "-C", worker, "rev-parse", "HEAD")
+	second, err := cmd.Output()
+	require.NoError(t, err)
+	firstCommit, secondCommit := strings.TrimSpace(string(first)), strings.TrimSpace(string(second))
+	for _, tc := range []struct{ root, commit string }{{parent, firstCommit}, {worker, secondCommit}} {
+		dir, err := gaterun.RunDir(tc.root, "same-run")
+		require.NoError(t, err)
+		require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "same-run", PlanCommit: tc.commit}))
+		require.NoError(t, verifyBugPlanRef(context.Background(), tc.root, "same-run", tc.commit))
+	}
 }
 
 func TestCommittedBugPlanRespectsCheckoutLineEndings(t *testing.T) {

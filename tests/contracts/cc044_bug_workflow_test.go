@@ -408,7 +408,7 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 			decisionsPath := write("decisions.json", decisions)
 			bodyPath := write("body.md", []byte("Scope: reviewed all candidate files and callers. Findings: none. Cost and model behavior preserved. VERDICT: PASS\n"))
 			reportPath := filepath.Join(fixtureDir, "report.md")
-			run("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", worker, "--source-root", worker, "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "dispatched-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", baseline, "--diff-path", scope.DiffPath, "--scope-file", scopePath, "--angle-results", anglesPath, "--review-decisions", decisionsPath, "--verdict", "PASS")
+			run("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", worker, "--source-root", worker, "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "dispatched-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--fallback-reason", "native Workflow unavailable", "--base-commit", baseline, "--diff-path", scope.DiffPath, "--scope-file", scopePath, "--angle-results", anglesPath, "--review-decisions", decisionsPath, "--verdict", "PASS")
 			for kind, path := range map[string]string{"bug_review_scope": reportPath + ".scope.json", "bug_review_report": reportPath, "bug_review_angles": anglesPath, "bug_review_decisions": reportPath + ".decisions.json"} {
 				data, e := os.ReadFile(path)
 				require.NoError(t, e)
