@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -33,30 +35,72 @@ func committedBugPlan(ctx context.Context, req gatepersist.Request) (workercontr
 	if req.EvidenceRoot != "" {
 		roots = append(roots, filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir))))
 	}
-	var selected []byte
-	var selectedRoot string
+	if req.PlanRoot != "" {
+		roots = []string{req.PlanRoot}
+	}
 	var last error
 	for _, root := range roots {
 		plan, err := committedBugPlanAt(ctx, root, ref)
 		if err == nil {
-			if selected == nil {
-				selected = plan
-				selectedRoot, err = canonicalBugProject(root)
-				if err != nil {
-					return ref, nil, "", err
-				}
-			}
-			continue
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return ref, nil, "", fmt.Errorf("plan must be tracked, not ignored, and committed in each checkout containing it: %w", err)
+			canonical, err := canonicalBugProject(root)
+			return ref, plan, canonical, err
 		}
 		last = err
 	}
-	if selected != nil {
-		return ref, selected, selectedRoot, nil
-	}
 	return ref, nil, "", fmt.Errorf("plan must be tracked, not ignored, and committed in a selected checkout: %w", last)
+}
+
+func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope []byte) error {
+	identity, exists, err := gaterun.ReadIdentity(dir)
+	if err != nil || !exists || identity.PlanRoot == "" || identity.PlanCommit == "" || identity.PlanBlob == "" {
+		return fmt.Errorf("approved plan provenance is unavailable")
+	}
+	for _, hash := range []string{identity.PlanCommit, identity.PlanBlob} {
+		if len(hash) != 40 && len(hash) != 64 {
+			return fmt.Errorf("approved plan provenance contains an invalid Git object ID")
+		}
+		if _, err := hex.DecodeString(hash); err != nil {
+			return fmt.Errorf("approved plan provenance contains an invalid Git object ID")
+		}
+	}
+	ref, err := findBugEvidence(gatepersist.Request{EnvelopeJSON: envelope}, "bug_repair_plan")
+	if err != nil {
+		return err
+	}
+	_, relative, err := candidateRepository(ctx, parent)
+	if err != nil {
+		return err
+	}
+	commitType := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "cat-file", "-t", identity.PlanCommit)
+	kind, err := commitType.Output()
+	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
+		return fmt.Errorf("approved plan commit is unavailable")
+	}
+	commitID := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", identity.PlanCommit)
+	fullCommit, err := commitID.Output()
+	if err != nil || !strings.EqualFold(strings.TrimSpace(string(fullCommit)), identity.PlanCommit) {
+		return fmt.Errorf("approved plan commit identity is invalid")
+	}
+	object := identity.PlanCommit + ":" + filepath.ToSlash(filepath.Join(relative, ref.Pointer))
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", object)
+	blob, err := cmd.Output()
+	if err != nil || !strings.EqualFold(strings.TrimSpace(string(blob)), identity.PlanBlob) {
+		return fmt.Errorf("approved plan commit or blob is unavailable")
+	}
+	if _, err := os.Stat(identity.PlanRoot); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("inspect approved plan checkout: %w", err)
+	}
+	root, err := BugWorktreeProjectRoot(ctx, parent, identity.PlanRoot)
+	if err != nil || root != identity.PlanRoot {
+		return fmt.Errorf("approved plan checkout is invalid")
+	}
+	if _, err := committedBugPlanAt(ctx, root, ref); err != nil {
+		return fmt.Errorf("approved project plan changed: %w", err)
+	}
+	return nil
 }
 
 func committedBugPlanAt(ctx context.Context, root string, ref workercontrol.EvidenceRef) ([]byte, error) {
@@ -98,11 +142,46 @@ func committedBugPlanAt(ctx context.Context, root string, ref workercontrol.Evid
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve committed plan")
 	}
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--stdin")
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--path", ref.Pointer, "--stdin")
 	cmd.Stdin = bytes.NewReader(plan)
 	actual, err := cmd.Output()
 	if err != nil || !bytes.Equal(bytes.TrimSpace(actual), bytes.TrimSpace(committed)) {
 		return nil, fmt.Errorf("plan differs from the current commit")
 	}
 	return plan, nil
+}
+
+func bugPlanProvenance(ctx context.Context, req gatepersist.Request) (string, string, string, error) {
+	ref, plan, root, err := committedBugPlan(ctx, req)
+	if err != nil {
+		return "", "", "", err
+	}
+	_, relative, err := candidateRepository(ctx, root)
+	if err != nil {
+		return "", "", "", err
+	}
+	run := func(args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
+	}
+	commit, err := run("rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return "", "", "", err
+	}
+	object := strings.TrimSpace(string(commit)) + ":" + filepath.ToSlash(filepath.Join(relative, ref.Pointer))
+	blob, err := run("rev-parse", "--verify", "--end-of-options", object)
+	if err != nil {
+		return "", "", "", err
+	}
+	hash := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--path", ref.Pointer, "--stdin")
+	hash.Stdin = bytes.NewReader(plan)
+	actual, err := hash.Output()
+	if err != nil || !bytes.Equal(bytes.TrimSpace(actual), bytes.TrimSpace(blob)) {
+		return "", "", "", fmt.Errorf("committed plan changed while resolving provenance")
+	}
+	// Recheck after resolving the commit so a concurrent checkout change is
+	// rejected rather than recorded as evidence for different bytes.
+	if _, err := committedBugPlanAt(ctx, root, ref); err != nil {
+		return "", "", "", err
+	}
+	return root, strings.TrimSpace(string(commit)), strings.TrimSpace(string(blob)), nil
 }

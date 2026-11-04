@@ -212,7 +212,7 @@ func verifyAdmissionReplay(req Request, state *gaterun.OperationState) error {
 	if !found {
 		return fmt.Errorf("gatepersist: admission replay identity missing")
 	}
-	want := gaterun.RunIdentity{RunID: req.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: req.SourceStatus, Gate: req.Gate, OperationDigest: digest, EvidenceRoot: req.EvidenceRoot}
+	want := gaterun.RunIdentity{RunID: req.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: req.SourceStatus, Gate: req.Gate, OperationDigest: digest, EvidenceRoot: req.EvidenceRoot, PlanRoot: req.PlanRoot, PlanCommit: req.PlanCommit, PlanBlob: req.PlanBlob}
 	if identity.RunID != req.RunID {
 		return fmt.Errorf("gatepersist: admission replay run identity mismatch")
 	}
@@ -305,6 +305,9 @@ func (c *Coordinator) initializeRun(ctx context.Context, req Request) (digest st
 		Gate:            req.Gate,
 		OperationDigest: digest,
 		EvidenceRoot:    req.EvidenceRoot,
+		PlanRoot:        req.PlanRoot,
+		PlanCommit:      req.PlanCommit,
+		PlanBlob:        req.PlanBlob,
 	}); err != nil {
 		return "", nil, nil, fmt.Errorf("gatepersist: bind run identity: %w", err)
 	}

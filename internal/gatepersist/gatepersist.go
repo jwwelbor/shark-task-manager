@@ -58,6 +58,9 @@ type Request struct {
 	RunDir string
 	// EvidenceRoot is parent-observed; empty means the parent project root.
 	EvidenceRoot string
+	PlanRoot     string
+	PlanCommit   string
+	PlanBlob     string
 	// RunID is the durable run identity (see gaterun.ValidateRunID).
 	RunID string
 

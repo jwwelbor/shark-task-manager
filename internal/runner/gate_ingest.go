@@ -168,6 +168,24 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 	if err != nil {
 		return nil, fmt.Errorf("gate ingestion: resolve evidence root: %w", err)
 	}
+	var planRoot, planCommit, planBlob string
+	if req.EntityType == models.EntityTypeBug && req.Gate == "plan_review" && role == gateresult.RoleSuccess {
+		identity, exists, identityErr := gaterun.ReadIdentity(runDir)
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		if exists {
+			planRoot, planCommit, planBlob = identity.PlanRoot, identity.PlanCommit, identity.PlanBlob
+			if planRoot == "" || planCommit == "" || planBlob == "" {
+				return nil, fmt.Errorf("gate ingestion: approved plan provenance is missing from run identity")
+			}
+		} else {
+			planRoot, planCommit, planBlob, err = bugPlanProvenance(ctx, gatepersist.Request{RunDir: runDir, EvidenceRoot: evidenceRoot, EnvelopeJSON: req.EnvelopeBytes})
+			if err != nil {
+				return nil, fmt.Errorf("gate ingestion: resolve committed plan: %w", err)
+			}
+		}
+	}
 
 	evidenceJSON, err := marshalEvidence(env.Evidence)
 	if err != nil {
@@ -177,6 +195,9 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 	persisted, err := req.Coordinator.Persist(ctx, gatepersist.Request{
 		RunDir:              runDir,
 		EvidenceRoot:        evidenceRoot,
+		PlanRoot:            planRoot,
+		PlanCommit:          planCommit,
+		PlanBlob:            planBlob,
 		RunID:               req.RunID,
 		EntityKey:           req.EntityKey,
 		EntityType:          req.EntityType,

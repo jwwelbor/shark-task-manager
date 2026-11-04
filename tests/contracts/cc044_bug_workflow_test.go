@@ -611,7 +611,14 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	require.NoError(t, err)
 	digest, err := gaterun.ComputeOperationDigest("B003", "bug", "plan_review", "plan_review", uninitialized)
 	require.NoError(t, err)
-	_, err = gaterun.CreateIdentity(runDir, gaterun.RunIdentity{RunID: "uninitialized-run", EntityKey: "B003", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, EvidenceRoot: worker})
+	planGit := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", worker}, args...)...)
+		data, e := cmd.CombinedOutput()
+		require.NoError(t, e, string(data))
+		return strings.TrimSpace(string(data))
+	}
+	_, err = gaterun.CreateIdentity(runDir, gaterun.RunIdentity{RunID: "uninitialized-run", EntityKey: "B003", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, EvidenceRoot: worker, PlanRoot: worker, PlanCommit: planGit("rev-parse", "HEAD"), PlanBlob: planGit("rev-parse", "HEAD:docs/plan/bugs/plan-uninitialized.md")})
 	require.NoError(t, err)
 	_, err = gaterun.CreateResult(runDir, uninitialized)
 	require.NoError(t, err)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -400,6 +401,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 5: Determine working directory, creating a git worktree if requested.
+	if runWorktree && runWorkDir != "" {
+		return fmt.Errorf("--worktree and --workdir cannot be combined; select one worker working directory")
+	}
 	workingDir := runWorkDir
 	if runWorktree {
 		creator := runner.NewGitWorktreeCreator()
@@ -412,7 +416,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 			workingDir = worktreePath
 		}
 		if worktreePath == "" {
-			workingDir, worktreePath, err = setupWorktree(ctx, normalizedKey, creator)
+			if entityType == "bug" {
+				var branch string
+				worktreePath, branch = runner.WorktreePaths(filepath.Join(projectRoot, runner.DefaultWorktreeBaseDir), normalizedKey, time.Now())
+				err = creator.CreateWorktree(ctx, projectRoot, worktreePath, branch)
+				workingDir = worktreePath
+			} else {
+				workingDir, worktreePath, err = setupWorktree(ctx, normalizedKey, creator)
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("failed to create worktree for %s: %w", normalizedKey, err)

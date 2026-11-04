@@ -26,6 +26,10 @@ func PrepareBugApprovalSnapshot(ctx context.Context, req gatepersist.Request) er
 	if err != nil {
 		return fmt.Errorf("read approved plan: %w", err)
 	}
+	_, _, blob, err := bugPlanProvenance(ctx, req)
+	if err != nil || blob != req.PlanBlob {
+		return fmt.Errorf("approved plan commit binding changed before transition")
+	}
 	_, err = gaterun.CreateApprovedPlan(req.RunDir, plan)
 	return err
 }
@@ -133,15 +137,13 @@ func ApprovedBugPlan(ctx context.Context, projectRoot, key string, notes gateper
 	if !matchesBugApprovalHistory(entry, spec, meta, normalize) {
 		return ApprovedPlan{}, fmt.Errorf("prior gate approval invalidated or not applied in history")
 	}
-	data, evidenceRoot, err := readBugApprovalResult(ctx, req, meta, spec.gate)
+	data, _, err := readBugApprovalResult(ctx, req, meta, spec.gate)
 	if err != nil {
 		return ApprovedPlan{}, err
 	}
-	req.EnvelopeJSON = data
-	req.EvidenceRoot = evidenceRoot
-	ref, _, _, err := committedBugPlan(ctx, req)
+	ref, err := findBugEvidence(gatepersist.Request{EnvelopeJSON: data}, "bug_repair_plan")
 	if err != nil {
-		return ApprovedPlan{}, fmt.Errorf("approved project plan changed: %w", err)
+		return ApprovedPlan{}, err
 	}
 	dir, err := gaterun.RunDir(projectRoot, meta.RunID)
 	if err != nil {
@@ -303,6 +305,9 @@ func readBugApprovalResult(ctx context.Context, req gatepersist.Request, meta bu
 	data, err := decodeBugApprovalResult(dir, req, meta, gate)
 	if err == nil && gate == "plan_review" {
 		_, err = verifyApprovedBugPlan(dir, data)
+		if err == nil {
+			err = verifyBugPlanProvenance(ctx, filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir))), dir, data)
+		}
 	}
 	return data, evidenceRoot, err
 }
@@ -315,12 +320,15 @@ func verifyBugApprovalIdentity(ctx context.Context, dir string, req gatepersist.
 	if err != nil || !exists {
 		return "", fmt.Errorf("approval run identity unavailable")
 	}
-	want := gaterun.RunIdentity{RunID: meta.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: gate, Gate: gate, OperationDigest: meta.Digest, EvidenceRoot: identity.EvidenceRoot}
+	want := gaterun.RunIdentity{RunID: meta.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: gate, Gate: gate, OperationDigest: meta.Digest, EvidenceRoot: identity.EvidenceRoot, PlanRoot: identity.PlanRoot, PlanCommit: identity.PlanCommit, PlanBlob: identity.PlanBlob}
 	if identity.RunID != meta.RunID || gaterun.VerifyRunIdentity(identity, want) != nil {
 		return "", fmt.Errorf("approval run identity mismatch")
 	}
 	if identity.EvidenceRoot == "" {
 		return "", nil
+	}
+	if gate == "plan_review" {
+		return identity.EvidenceRoot, nil
 	}
 	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
 	verified, err := resolveBugEvidenceRoot(ctx, parent, identity.EvidenceRoot)

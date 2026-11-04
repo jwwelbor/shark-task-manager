@@ -55,7 +55,7 @@ func verifyEvidenceRootIdentity(req GateIngestRequest, identity *gaterun.RunIden
 	if err != nil {
 		return err
 	}
-	want := gaterun.RunIdentity{EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: req.SourceStatus, Gate: req.Gate, OperationDigest: digest, EvidenceRoot: identity.EvidenceRoot}
+	want := gaterun.RunIdentity{EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: req.SourceStatus, Gate: req.Gate, OperationDigest: digest, EvidenceRoot: identity.EvidenceRoot, PlanRoot: identity.PlanRoot, PlanCommit: identity.PlanCommit, PlanBlob: identity.PlanBlob}
 	if identity.RunID != req.RunID {
 		return fmt.Errorf("worker evidence run identity mismatch")
 	}

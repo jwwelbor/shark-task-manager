@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,4 +35,78 @@ func TestBugPlanMustBeCommittedAndNotIgnored(t *testing.T) {
 	req.EnvelopeJSON = []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"%s","summary":"sha256:%x"}]}`, untracked, hash))
 	_, _, _, err = committedBugPlan(context.Background(), req)
 	require.ErrorContains(t, err, "not tracked")
+}
+
+func TestApprovedPlanProvenanceSurvivesWorktreeRemoval(t *testing.T) {
+	parent := t.TempDir()
+	path := "docs/plan/plan.md"
+	commitTestBugPlan(t, parent, path, []byte("older plan\n"))
+	worker := filepath.Join(t.TempDir(), "worker")
+	cmd := exec.Command("git", "-C", parent, "worktree", "add", "--detach", worker, "HEAD")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	plan := []byte("approved worker plan\n")
+	commitTestBugPlan(t, worker, path, plan)
+	dir, err := gaterun.RunDir(parent, "approved")
+	require.NoError(t, err)
+	hash := sha256.Sum256(plan)
+	envelope := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"%s","summary":"sha256:%x"}]}`, path, hash))
+	req := gatepersist.Request{RunDir: dir, EvidenceRoot: worker, EnvelopeJSON: envelope}
+	root, commit, blob, err := bugPlanProvenance(context.Background(), req)
+	require.NoError(t, err)
+	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved", EntityKey: "B001", EntityType: "bug", Gate: "plan_review", OperationDigest: "operation", EvidenceRoot: worker, PlanRoot: root, PlanCommit: commit, PlanBlob: blob})
+	require.NoError(t, err)
+	_, err = gaterun.CreateApprovedPlan(dir, plan)
+	require.NoError(t, err)
+	require.NoError(t, verifyBugPlanProvenance(context.Background(), parent, dir, envelope))
+	require.NoError(t, os.WriteFile(filepath.Join(worker, path), []byte("unreviewed edit"), 0600))
+	require.ErrorContains(t, verifyBugPlanProvenance(context.Background(), parent, dir, envelope), "approved project plan changed")
+	require.NoError(t, os.WriteFile(filepath.Join(worker, path), plan, 0600))
+	cmd = exec.Command("git", "-C", parent, "worktree", "remove", worker)
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NoError(t, verifyBugPlanProvenance(context.Background(), parent, dir, envelope))
+}
+
+func TestCommittedBugPlanRespectsCheckoutLineEndings(t *testing.T) {
+	root := t.TempDir()
+	path := "docs/plan/plan.md"
+	plan := []byte("reviewed line\r\n")
+	commitTestBugPlan(t, root, path, plan)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitattributes"), []byte("*.md text eol=crlf\n"), 0600))
+	cmd := exec.Command("git", "-C", root, "add", ".gitattributes", path)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	cmd = exec.Command("git", "-C", root, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-m", "normalize plan")
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	hash := sha256.Sum256(plan)
+	req := gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "test"), EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"%s","summary":"sha256:%x"}]}`, path, hash))}
+	_, got, _, err := committedBugPlan(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, plan, got)
+}
+
+func TestCommittedBugPlanChoosesMatchingCheckout(t *testing.T) {
+	parent := t.TempDir()
+	path := "docs/plan/plan.md"
+	old := []byte("old committed plan\n")
+	commitTestBugPlan(t, parent, path, old)
+	worker := filepath.Join(t.TempDir(), "worker")
+	cmd := exec.Command("git", "-C", parent, "worktree", "add", "--detach", worker, "HEAD")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	newPlan := []byte("new committed plan\n")
+	commitTestBugPlan(t, worker, path, newPlan)
+	for _, tc := range []struct {
+		plan []byte
+		root string
+	}{{newPlan, worker}, {old, parent}} {
+		hash := sha256.Sum256(tc.plan)
+		req := gatepersist.Request{RunDir: filepath.Join(parent, ".shark", "runs", "test"), EvidenceRoot: worker, EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"%s","summary":"sha256:%x"}]}`, path, hash))}
+		_, got, root, err := committedBugPlan(context.Background(), req)
+		require.NoError(t, err)
+		require.Equal(t, tc.plan, got)
+		require.Equal(t, tc.root, root)
+	}
 }

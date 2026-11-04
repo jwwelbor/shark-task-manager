@@ -177,6 +177,9 @@ func validateBugEvidenceRoutes(w *WorkflowConfig) error {
 		if step == nil {
 			continue
 		}
+		if (bugEvidenceBearingGate(name) || strings.EqualFold(name, "research")) && name != strings.ToLower(name) {
+			return &WorkflowValidationError{Message: fmt.Sprintf("bug gate %q uses unsupported capitalization", name), Fix: "use the canonical lowercase gate name"}
+		}
 		if (strings.EqualFold(name, "research") || strings.EqualFold(step.Phase, "research")) && w.GetResultContract(name) == ResultContractLegacy {
 			if _, ok := step.Outcomes["pass"]; !ok {
 				return &WorkflowValidationError{Message: "legacy bug research has no pass outcome", Fix: "configure a pass outcome for the research success route"}

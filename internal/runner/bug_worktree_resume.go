@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -16,12 +17,17 @@ func RetainedBugWorktree(ctx context.Context, projectRoot, key string) (string, 
 		return "", fmt.Errorf("list retained bug worktrees: %w", err)
 	}
 	prefix := "branch refs/heads/shark-run-" + sanitizeKeyForPath(key) + "-"
+	projectRoot, err = canonicalBugProject(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	base := filepath.Join(projectRoot, DefaultWorktreeBaseDir)
 	var path string
 	var matches []string
 	for _, field := range strings.Split(string(out), "\x00") {
 		if strings.HasPrefix(field, "worktree ") {
 			path = strings.TrimPrefix(field, "worktree ")
-		} else if strings.HasPrefix(field, prefix) && path != "" {
+		} else if strings.HasPrefix(field, prefix) && path != "" && filepath.Clean(filepath.Dir(path)) == base {
 			matches = append(matches, path)
 		}
 	}

@@ -330,6 +330,9 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 		Gate:            nextInfo.CurrentStatus,
 		OperationDigest: digest,
 		EvidenceRoot:    identity.EvidenceRoot,
+		PlanRoot:        identity.PlanRoot,
+		PlanCommit:      identity.PlanCommit,
+		PlanBlob:        identity.PlanBlob,
 	}); err != nil {
 		return fmt.Errorf("resume identity mismatch for run_id %q: %w", runResumeID, err)
 	}

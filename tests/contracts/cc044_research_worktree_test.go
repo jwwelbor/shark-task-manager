@@ -121,6 +121,12 @@ func TestBugRejectsIncompatibleResearchAndRenamedGateBeforeAdvancement(t *testin
 	out, err = run("next", "B001")
 	require.Error(t, err)
 	require.Contains(t, string(out), "evidence gate")
+	upper := strings.Replace(string(data), "  plan_review:\n", "  PLAN_REVIEW:\n", 1)
+	require.NotEqual(t, string(data), upper)
+	require.NoError(t, os.WriteFile(path, []byte(upper), 0600))
+	out, err = run("next", "B001")
+	require.Error(t, err)
+	require.Contains(t, string(out), "unsupported capitalization")
 }
 
 func TestBugResearchRiderAdvanceUsesWorkerWorkdir(t *testing.T) {
@@ -158,6 +164,11 @@ func TestBugResearchRiderAdvanceUsesWorkerWorkdir(t *testing.T) {
 	git := exec.Command("git", "-C", project, "worktree", "add", "--detach", worker, "HEAD")
 	out, err = git.CombinedOutput()
 	require.NoError(t, err, string(out))
+	conflict := exec.Command(binary, "run", "B001", "--worktree", "--workdir", worker, "--db", db, "--json")
+	conflict.Dir = project
+	conflictOut, conflictErr := conflict.CombinedOutput()
+	require.Error(t, conflictErr)
+	require.Contains(t, string(conflictOut), "cannot be combined")
 	shark("next", "B001", "--workdir", worker)
 	foreign := t.TempDir()
 	bad := exec.Command(binary, "next", "B001", "--workdir", foreign, "--db", db, "--json")
