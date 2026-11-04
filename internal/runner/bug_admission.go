@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
@@ -43,5 +44,5 @@ func readBugBaseline(req gatepersist.Request) (string, error) {
 	if _, err := hex.DecodeString(baseline); err != nil {
 		return "", fmt.Errorf("invalid bug_review_baseline commit hash")
 	}
-	return baseline, nil
+	return strings.ToLower(baseline), nil
 }

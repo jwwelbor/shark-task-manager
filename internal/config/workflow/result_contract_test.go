@@ -251,7 +251,7 @@ func TestBugRepairRoutesClassifyReworkWithoutMisclassifyingForwardProgress(t *te
 	}
 	for _, tc := range cases {
 		t.Run(tc.from+"_to_"+tc.to, func(t *testing.T) {
-			got, err := cfg.IsBackwardTransition(tc.from, tc.to)
+			got, err := cfg.IsBugBackwardTransition(tc.from, tc.to)
 			if err != nil || got != tc.backward {
 				require.FailNowf(t, "assertion failed", "backward=%v err=%v, want %v", got, err, tc.backward)
 			}

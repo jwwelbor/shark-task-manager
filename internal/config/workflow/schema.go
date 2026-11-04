@@ -418,9 +418,7 @@ func getPhaseOrder(phase string) int {
 }
 
 // IsBackwardTransition determines if a transition from one status to another is backward
-// using explicit route_rework outcomes where unambiguous, then phase ordering.
-// A distinct target exclusively configured as route_rework is backward even
-// when its phase is the same or has no standard phase ordering.
+// using phase ordering.
 //
 // Returns:
 //   - (false, nil) for forward transitions or same phase
@@ -447,10 +445,6 @@ func (w *WorkflowConfig) IsBackwardTransition(fromStatus, toStatus string) (bool
 		return false, nil
 	}
 
-	if w.isUnambiguousReworkRoute(fromStatus, toStatus) {
-		return true, nil
-	}
-
 	// Get phase orders
 	fromOrder := getPhaseOrder(fromMeta.Phase)
 	toOrder := getPhaseOrder(toMeta.Phase)
@@ -462,6 +456,21 @@ func (w *WorkflowConfig) IsBackwardTransition(fromStatus, toStatus string) (bool
 
 	// Backward if new phase order is less than current phase order
 	return toOrder < fromOrder, nil
+}
+
+// IsBugBackwardTransition also recognizes a distinct bug route whose only
+// configured role is rework, even when phase ordering cannot classify it.
+func (w *WorkflowConfig) IsBugBackwardTransition(fromStatus, toStatus string) (bool, error) {
+	backward, err := w.IsBackwardTransition(fromStatus, toStatus)
+	if err != nil || backward {
+		return backward, err
+	}
+	from, _ := w.GetStatusMetadata(fromStatus)
+	to, _ := w.GetStatusMetadata(toStatus)
+	if from.Phase == "" || to.Phase == "" {
+		return false, nil
+	}
+	return w.isUnambiguousReworkRoute(fromStatus, toStatus), nil
 }
 
 // isUnambiguousReworkRoute uses configured semantics without guessing when

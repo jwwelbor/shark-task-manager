@@ -201,6 +201,31 @@ func TestBugRepository_Update(t *testing.T) {
 	}
 }
 
+func TestBugRepository_UpdateIfStatusPreservesConcurrentTransition(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := bugTestSetup(t)
+	defer cleanup()
+	bug := newTestBug("B922", "Original", "plan_review", models.BugSeverityMedium)
+	if err := repo.Create(ctx, bug); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpdateStatus(ctx, bug.ID, "repair_plan"); err != nil {
+		t.Fatal(err)
+	}
+	bug.Title = "Stale update"
+	updated, err := repo.UpdateIfStatus(ctx, bug, "plan_review")
+	if err != nil || updated {
+		t.Fatalf("stale update = %v, %v; want false, nil", updated, err)
+	}
+	got, err := repo.GetByKey(ctx, bug.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "repair_plan" || got.Title != "Original" {
+		t.Fatalf("concurrent state overwritten: status=%s title=%s", got.Status, got.Title)
+	}
+}
+
 func TestBugRepository_Update_NotFound(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := bugTestSetup(t)

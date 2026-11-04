@@ -33,6 +33,31 @@ type failAfterRealTransition struct {
 	fail     bool
 }
 
+func TestFeatureReworkPreservesExistingReasonPolicy(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = root
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "fixture.db")
+	shark := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", dbPath, "--json")...)
+		cmd.Dir = project
+		data, e := cmd.CombinedOutput()
+		require.NoError(t, e, string(data))
+	}
+	shark("admin", "init", "--non-interactive")
+	shark("epic", "create", "Review regression")
+	shark("feature", "create", "E01", "Planning regression")
+	shark("status", "set", "E01-F01", "test_planning", "--force", "--reason", "fixture setup")
+	shark("status", "set", "E01-F01", "specification")
+	shark("status", "set", "E01-F01", "research")
+}
+
 // TestBugSuccessRoutesRequireAdmission exercises both public status commands;
 // explicit force is used only to position each disposable fixture.
 func TestBugSuccessRoutesRequireAdmission(t *testing.T) {

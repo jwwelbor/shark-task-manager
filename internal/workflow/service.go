@@ -670,6 +670,9 @@ func (s *Service) IsBackwardTransition(fromStatus, toStatus string) (bool, error
 	if s.workflow == nil {
 		return false, nil
 	}
+	if s.level == LevelBug {
+		return s.workflow.IsBugBackwardTransition(fromStatus, toStatus)
+	}
 	return s.workflow.IsBackwardTransition(fromStatus, toStatus)
 }
 

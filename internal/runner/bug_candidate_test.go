@@ -199,6 +199,9 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	envelope := func(refs string) []byte {
 		return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"approved"}}`, refs))
 	}
+	upperRef := strings.Replace(planRef, base, strings.ToUpper(base), 1)
+	_, upperErr := readBugReviewScope(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "uppercase"), EnvelopeJSON: envelope(upperRef + "," + scopeRef)})
+	require.NoError(t, upperErr)
 	_, err = readBugReviewScope(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "narrow"), EnvelopeJSON: envelope(planRef + "," + narrowRef)})
 	require.ErrorContains(t, err, "baseline differs")
 	changedPlan := []byte("newly approved plan B\n")
