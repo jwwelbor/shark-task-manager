@@ -214,7 +214,7 @@ func (s *StatusService) getProjectSummary(ctx context.Context, epicKey string) (
 			COUNT(DISTINCT CASE WHEN t.status = 'todo' THEN t.id END) as todo_tasks,
 			COUNT(DISTINCT CASE WHEN t.status = 'in_progress' THEN t.id END) as in_progress_tasks,
 			COUNT(DISTINCT CASE WHEN t.status = 'ready_for_review' THEN t.id END) as ready_for_review_tasks,
-			COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END) as completed_tasks,
+			COUNT(DISTINCT CASE WHEN t.status IN ('completed', 'done') THEN t.id END) as completed_tasks,
 			COUNT(DISTINCT CASE WHEN t.status = 'blocked' THEN t.id END) as blocked_tasks
 		FROM epics e
 		LEFT JOIN features f ON e.id = f.epic_id
@@ -271,9 +271,9 @@ func (s *StatusService) getEpics(ctx context.Context, epicKey string) ([]*EpicSu
 		SELECT
 			e.id, e.key, e.title, e.status,
 			COUNT(DISTINCT f.id) as total_features,
-			SUM(CASE WHEN f.status = 'active' THEN 1 ELSE 0 END) as active_features,
+			COUNT(DISTINCT CASE WHEN f.status = 'active' THEN f.id END) as active_features,
 			COUNT(DISTINCT t.id) as total_tasks,
-			SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
+			COUNT(DISTINCT CASE WHEN t.status IN ('completed', 'done') THEN t.id END) as completed_tasks,
 			SUM(CASE WHEN t.status = 'blocked' THEN 1 ELSE 0 END) as blocked_tasks
 		FROM epics e
 		LEFT JOIN features f ON e.id = f.epic_id
