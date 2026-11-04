@@ -63,6 +63,21 @@ func getTaskCreateService() taskCreateServicer {
 	return cli.GetTaskService()
 }
 
+// taskUpdateServicer is the narrow interface consumed by runTaskUpdate.
+type taskUpdateServicer interface {
+	UpdateTask(ctx context.Context, key string, updates services.TaskUpdates) (*models.Task, error)
+}
+
+// taskUpdateSvcOverride is non-nil only during tests.
+var taskUpdateSvcOverride taskUpdateServicer
+
+func getTaskUpdateService() taskUpdateServicer {
+	if taskUpdateSvcOverride != nil {
+		return taskUpdateSvcOverride
+	}
+	return cli.GetTaskService()
+}
+
 // displayAutoUnblockedTasks shows which tasks were auto-unblocked after a status change.
 func displayAutoUnblockedTasks(unblockedKeys []string) {
 	if len(unblockedKeys) > 0 {
@@ -415,7 +430,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		updates.ClearSize = clearSize
 	}
 
-	svc := cli.GetTaskService()
+	svc := getTaskUpdateService()
 	task, err := svc.UpdateTask(cmd.Context(), taskKey, updates)
 	if err != nil {
 		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeTask, taskKey)
