@@ -34,16 +34,23 @@ func (d bugApprovalDocuments) ListRelatedDocumentsByKey(context.Context, string)
 func TestPrepareBugPlanApprovalRequiresLinkedDigestBoundReport(t *testing.T) {
 	root := t.TempDir()
 	plan := []byte("reviewed plan")
-	report := []byte("independent review")
-	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0600))
+	planHash := sha256.Sum256(plan)
+	report := []byte(fmt.Sprintf("plan_path: docs/plan/plan.md\nplan_sha256: sha256:%x\nindependent review\n", planHash))
+	commitTestBugPlan(t, root, "docs/plan/plan.md", plan)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "review.md"), report, 0600))
-	planHash, reportHash := sha256.Sum256(plan), sha256.Sum256(report)
+	reportHash := sha256.Sum256(report)
 	dir, err := gaterun.RunDir(root, "approval")
 	require.NoError(t, err)
 	req := gatepersist.Request{EntityType: models.EntityTypeBug, EntityKey: "B001", Gate: "plan_review", Role: gateresult.RoleSuccess, RunDir: dir,
-		EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"plan_review_report","pointer":"review.md","summary":"sha256:%x"}],"gate_result":{"schema_version":1,"summary":"approved"}}`, planHash, reportHash))}
+		EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"},{"kind":"plan_review_report","pointer":"review.md","summary":"sha256:%x"}],"gate_result":{"schema_version":1,"summary":"approved"}}`, planHash, reportHash))}
 	require.ErrorContains(t, PrepareBugPlanApproval(context.Background(), req, bugApprovalDocuments{}), "not linked")
 	linked := bugApprovalDocuments{items: []*models.Document{{FilePath: "review.md"}}}
+	staleReport := []byte("plan_path: docs/plan/old.md\nplan_sha256: sha256:0000000000000000000000000000000000000000000000000000000000000000\n")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "review.md"), staleReport, 0600))
+	staleHash := sha256.Sum256(staleReport)
+	staleReq := req
+	staleReq.EnvelopeJSON = []byte(strings.Replace(string(req.EnvelopeJSON), fmt.Sprintf("%x", reportHash), fmt.Sprintf("%x", staleHash), 1))
+	require.ErrorContains(t, PrepareBugPlanApproval(context.Background(), staleReq, linked), "identify exactly the approved plan")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "review.md"), []byte("changed"), 0600))
 	require.ErrorContains(t, PrepareBugPlanApproval(context.Background(), req, linked), "digest is stale")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "review.md"), report, 0600))
@@ -55,7 +62,7 @@ func TestPrepareBugPlanApprovalRequiresLinkedDigestBoundReport(t *testing.T) {
 }
 
 func validBugApprovalMode(mode string) bool {
-	return mode == "valid" || mode == "renamed" || mode == "later_incomplete" || mode == "digest_case" || mode == "source_changed"
+	return mode == "valid" || mode == "renamed" || mode == "later_incomplete" || mode == "digest_case"
 }
 
 func bugApprovalEnvelopeCase(mode string, hash [32]byte, envelope []byte) []byte {
@@ -86,10 +93,10 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			plan := []byte("plan v1\n")
-			require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0o600))
+			commitTestBugPlan(t, root, "docs/plan/plan.md", plan)
 			hash := sha256.Sum256(plan)
 			envelope := func(h [32]byte, outcome, baseline string) []byte {
-				return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"%s","evidence":[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}],"gate_result":{"schema_version":1,"summary":"approved"}}`, outcome, h, baseline))
+				return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"%s","evidence":[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}],"gate_result":{"schema_version":1,"summary":"approved"}}`, outcome, h, baseline))
 			}
 			priorOutcome := "pass"
 			if mode == "renamed" {
@@ -141,11 +148,11 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			}
 			if mode == "unapproved" {
 				plan = []byte("plan v2\n")
-				require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(root, "docs/plan/plan.md"), plan, 0o600))
 				hash = sha256.Sum256(plan)
 			}
 			if mode == "source_changed" {
-				require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), []byte("unreviewed edit"), 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(root, "docs/plan/plan.md"), []byte("unreviewed edit"), 0o600))
 			}
 			if mode == "baseline_changed" {
 				baseline = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

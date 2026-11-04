@@ -332,7 +332,7 @@ type RunControllerDeps struct {
 
 	// ApprovedBugPlan supplies the authoritative reviewed plan for downstream
 	// bug workers. Production wires it to the parent-owned approval records.
-	ApprovedBugPlan func(context.Context, string) ([]byte, error)
+	ApprovedBugPlan func(context.Context, string) (ApprovedPlan, error)
 
 	// ChildrenSvc lists dispatchable cascade children. Required when ActionCascade
 	// is reachable from this controller.
@@ -380,7 +380,7 @@ type RunController struct {
 	workflowSvc       *workflow.Service
 	dispatchers       map[string]AgentDispatcher
 	assembler         PromptAssembler
-	approvedBugPlan   func(context.Context, string) ([]byte, error)
+	approvedBugPlan   func(context.Context, string) (ApprovedPlan, error)
 	childrenSvc       CascadeChildrenService
 	runChild          CascadeChildRunner
 	questionResponses QuestionResponsePersister
@@ -1227,7 +1227,7 @@ func (c *RunController) ingestGateResultForDispatch(
 
 	// Confirm retirement when this invocation will stop: a terminal target or
 	// a same-stage result that cannot make progress without another invocation.
-	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) || strings.EqualFold(ingestResult.ToStatus, currentStatus) {
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) || (opts.EntityType == "bug" && strings.EqualFold(ingestResult.ToStatus, currentStatus)) {
 		retireReq := baseReq
 		retireReq.RetirementConfirmed = true
 		// RunConcluded: true — this IS the Run() loop's last dispatch for

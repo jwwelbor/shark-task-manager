@@ -32,20 +32,20 @@ func TestBugPlanAdmissionThroughGateIngestion(t *testing.T) {
 	git("commit", "--allow-empty", "-m", "baseline")
 	baseline := git("rev-parse", "HEAD")
 	plan := []byte("accepted plan revision\n")
-	require.NoError(t, os.WriteFile(filepath.Join(root, "plan.md"), plan, 0o600))
-	blob := git("hash-object", "-w", "plan.md")
+	commitTestBugPlan(t, root, "docs/plan/plan.md", plan)
+	blob := git("hash-object", "-w", "docs/plan/plan.md")
 	digest := sha256.Sum256(plan)
 	cases := []struct {
 		name, evidence string
 		allowed        bool
 	}{
 		{"missing", `[]`, false},
-		{"stale", `[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}]`, false},
+		{"stale", `[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}]`, false},
 		{"escaping", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"../plan.md","summary":"sha256:%x"}]`, digest), false},
-		{"missing baseline", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"}]`, digest), false},
-		{"unknown commit", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]`, digest), false},
-		{"blob is not a commit", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}]`, digest, blob), false},
-		{"current", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}]`, digest, baseline), true},
+		{"missing baseline", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"}]`, digest), false},
+		{"unknown commit", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]`, digest), false},
+		{"blob is not a commit", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}]`, digest, blob), false},
+		{"current", fmt.Sprintf(`[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}]`, digest, baseline), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestBugPlanAdmissionThroughGateIngestion(t *testing.T) {
 					if err := PrepareBugApprovalSnapshot(ctx, req); err != nil {
 						return err
 					}
-					return os.WriteFile(filepath.Join(root, "plan.md"), []byte("changed after snapshot"), 0o600)
+					return os.WriteFile(filepath.Join(root, "docs/plan/plan.md"), []byte("changed after snapshot"), 0o600)
 				}
 			}
 			envelope := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":%s,"gate_result":{"schema_version":1,"summary":"review complete"}}`, tc.evidence))
@@ -90,4 +90,33 @@ func TestBugAdmissionDoesNotBlockReworkOrOtherEntities(t *testing.T) {
 	} {
 		require.NoError(t, admit(context.Background(), req))
 	}
+}
+
+func TestBugPlanReviewRejectsAbbreviatedSHA256Commit(t *testing.T) {
+	root := t.TempDir()
+	init := exec.Command("git", "-C", root, "init", "--object-format=sha256")
+	if out, err := init.CombinedOutput(); err != nil {
+		t.Skipf("Git SHA-256 repositories unavailable: %s", out)
+	}
+	for _, args := range [][]string{{"config", "user.name", "Test"}, {"config", "user.email", "test@example.invalid"}} {
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	plan := []byte("reviewed plan")
+	commitTestBugPlan(t, root, "docs/plan/plan.md", plan)
+	cmd := exec.Command("git", "-C", root, "rev-parse", "HEAD")
+	full, err := cmd.Output()
+	require.NoError(t, err)
+	baseline := strings.TrimSpace(string(full))
+	require.Len(t, baseline, 64)
+	hash := sha256.Sum256(plan)
+	req := gatepersist.Request{EntityType: models.EntityTypeBug, Gate: "plan_review", Role: gateresult.RoleSuccess, RunDir: filepath.Join(root, ".shark", "runs", "r")}
+	makeEnvelope := func(commit string) []byte {
+		return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_repair_plan","pointer":"docs/plan/plan.md","summary":"sha256:%x"},{"kind":"bug_review_baseline","pointer":"%s"}]}`, hash, commit))
+	}
+	req.EnvelopeJSON = makeEnvelope(baseline[:40])
+	require.ErrorContains(t, BugGateAdmission(context.Background(), req), "full commit hash")
+	req.EnvelopeJSON = makeEnvelope(baseline)
+	require.NoError(t, BugGateAdmission(context.Background(), req))
 }

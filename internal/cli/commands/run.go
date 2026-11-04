@@ -404,7 +404,16 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if runWorktree {
 		creator := runner.NewGitWorktreeCreator()
 		var worktreePath string
-		workingDir, worktreePath, err = setupWorktree(ctx, normalizedKey, creator)
+		if entityType == "bug" {
+			worktreePath, err = runner.RetainedBugWorktree(ctx, projectRoot, normalizedKey)
+			if err != nil {
+				return err
+			}
+			workingDir = worktreePath
+		}
+		if worktreePath == "" {
+			workingDir, worktreePath, err = setupWorktree(ctx, normalizedKey, creator)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to create worktree for %s: %w", normalizedKey, err)
 		}
@@ -424,7 +433,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	if entityType == "bug" {
+	if entityType == "bug" && (workingDir != "" || workflowSvc.ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == config.ResultContractGateResultV1) {
 		if err := runner.ValidateBugWorkingDir(ctx, projectRoot, workingDir); err != nil {
 			return err
 		}

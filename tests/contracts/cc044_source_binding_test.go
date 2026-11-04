@@ -83,6 +83,7 @@ func TestBugGateRejectsSourceChangedAfterAdmission(t *testing.T) {
 	planRel := "docs/plan/bugs/B001.repair-plan.md"
 	plan := []byte("approved plan")
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
+	commitCC044Files(t, project, planRel)
 	digest := sha256.Sum256(plan)
 	payload, err := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", digest)}, {"kind": "bug_review_baseline", "pointer": baseline}}, "gate_result": map[string]any{"schema_version": 1, "summary": "approved plan"}})
 	require.NoError(t, err)

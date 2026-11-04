@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +65,62 @@ func TestBugResearchWorktreeUsesParentRecordsAndWorkerReport(t *testing.T) {
 	require.GreaterOrEqual(t, len(result.Stages), 2)
 	require.Equal(t, "research", result.Stages[0].Status)
 	require.Contains(t, string(shark("related-docs", "list", "--bug=B001")), "B001.research-report.md")
+	list := func() []byte {
+		t.Helper()
+		cmd := exec.Command("git", "-C", project, "worktree", "list", "--porcelain")
+		data, err := cmd.Output()
+		require.NoError(t, err)
+		return data
+	}
+	before := list()
+	shark("run", "B001", "--worktree")
+	require.Equal(t, before, list(), "resume must reuse the retained bug checkout")
+}
+
+func TestBugRejectsIncompatibleResearchAndRenamedGateBeforeAdvancement(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = repo
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	initCC044Baseline(t, project)
+	db := filepath.Join(project, "fixture.db")
+	run := func(args ...string) ([]byte, error) {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", db, "--json")...)
+		cmd.Dir = project
+		return cmd.CombinedOutput()
+	}
+	for _, args := range [][]string{{"admin", "init", "--non-interactive"}, {"admin", "install-shark-data"}, {"bug", "create", "Workflow guard"}, {"status", "set", "B001", "research", "--force", "--reason", "setup"}} {
+		out, err = run(args...)
+		require.NoError(t, err, string(out))
+	}
+	path := filepath.Join(project, "shark-data", "workflow", "bug.yaml")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	before, tail, ok := strings.Cut(string(data), "  research:\n")
+	require.True(t, ok)
+	changed := strings.Replace(tail, "      pass: repair_plan", "      approved: repair_plan", 1)
+	require.NotEqual(t, tail, changed)
+	require.NoError(t, os.WriteFile(path, []byte(before+"  research:\n"+changed), 0600))
+	out, err = run("status", "advance", "B001", "--outcome", "approved")
+	require.Error(t, err)
+	require.Contains(t, string(out), "legacy bug research has no pass")
+	status, err := run("get", "B001")
+	require.NoError(t, err)
+	var bug struct {
+		Status string `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal(status, &bug))
+	require.Equal(t, "research", bug.Status)
+	aliased := strings.Replace(string(data), "  plan_review:\n", "  bespoke_plan_review:\n    aliases: [plan_review]\n", 1)
+	require.NoError(t, os.WriteFile(path, []byte(aliased), 0600))
+	out, err = run("next", "B001")
+	require.Error(t, err)
+	require.Contains(t, string(out), "evidence gate")
 }
 
 func TestBugResearchRiderAdvanceUsesWorkerWorkdir(t *testing.T) {
@@ -88,6 +145,15 @@ func TestBugResearchRiderAdvanceUsesWorkerWorkdir(t *testing.T) {
 	shark("admin", "init", "--non-interactive")
 	shark("bug", "create", "Rider research")
 	shark("status", "set", "B001", "research", "--force", "--reason", "fixture setup")
+	nested := filepath.Join(project, "nested")
+	require.NoError(t, os.Mkdir(nested, 0700))
+	for _, action := range []string{"next", "run"} {
+		cmd := exec.Command(binary, action, "B001", "--db", db, "--json")
+		cmd.Dir = nested
+		output, err := cmd.CombinedOutput()
+		require.Error(t, err)
+		require.Contains(t, string(output), "corresponding Shark project root")
+	}
 	worker := filepath.Join(t.TempDir(), "worker")
 	git := exec.Command("git", "-C", project, "worktree", "add", "--detach", worker, "HEAD")
 	out, err = git.CombinedOutput()

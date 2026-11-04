@@ -75,16 +75,21 @@ func testBugWorktreeDispatch(t *testing.T, binary, relativeProject string) {
 	shark("related-docs", "add", "Plan review", "docs/review/plan-review.md", "--bug=B001")
 	shark("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
 	plan := []byte("fixture repair plan\n")
+	planRel := "docs/plan/bugs/B001.repair-plan.md"
+	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(project, planRel)), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
+	commitCC044Files(t, project, planRel)
 	hash := sha256.Sum256(plan)
-	reportHash := sha256.Sum256([]byte("review approved\n"))
+	report := fmt.Sprintf("plan_path: %s\nplan_sha256: sha256:%x\nreview approved\n", planRel, hash)
+	reportHash := sha256.Sum256([]byte(report))
 	approve, err := json.Marshal(map[string]any{
 		"kind": "final", "recommended_outcome": "pass",
-		"evidence":    []map[string]string{{"kind": "bug_repair_plan", "pointer": ".shark/runs/worker-fixture/plan.md", "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": baseline}, {"kind": "plan_review_report", "pointer": "docs/review/plan-review.md", "summary": fmt.Sprintf("sha256:%x", reportHash)}},
+		"evidence":    []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": baseline}, {"kind": "plan_review_report", "pointer": "docs/review/plan-review.md", "summary": fmt.Sprintf("sha256:%x", reportHash)}},
 		"gate_result": map[string]any{"schema_version": 1, "summary": "Fixture approval"},
 	})
 	require.NoError(t, err)
 	blocked := `{"kind":"final","recommended_outcome":"blocked","evidence":[],"gate_result":{"schema_version":1,"summary":"Fixture stops after approval","no_kickback_reason":"Fixture stops after approval"}}`
-	script := fmt.Sprintf("#!/bin/sh\nset -eu\nfound=0\nprompt=\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = -p ]; then shift; prompt=$1; fi\n  if [ \"$1\" = --output-format ]; then shift; [ \"$1\" = text ]; found=1; break; fi\n  shift\ndone\n[ \"$found\" = 1 ]\nplan=.shark/runs/worker-fixture/plan.md\nif [ -f \"$plan\" ]; then\n  case \"$prompt\" in *authoritative*approved*repair*plan*fixture*repair*plan*) ;; *) exit 23 ;; esac\n  printf '%%s\\n' '%s'\n  exit 0\nfi\nmkdir -p .shark/runs/worker-fixture docs/review\nprintf 'fixture repair plan\\n' > \"$plan\"\nprintf 'review approved\\n' > docs/review/plan-review.md\nprintf '%%s\\n' '%s'\n", blocked, approve)
+	script := fmt.Sprintf("#!/bin/sh\nset -eu\nfound=0\nprompt=\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = -p ]; then shift; prompt=$1; fi\n  if [ \"$1\" = --output-format ]; then shift; [ \"$1\" = text ]; found=1; break; fi\n  shift\ndone\n[ \"$found\" = 1 ]\nmarker=.shark/runs/worker-fixture/done\nif [ -f \"$marker\" ]; then\n  case \"$prompt\" in *authoritative*approved*repair*plan*fixture*repair*plan*) ;; *) exit 23 ;; esac\n  printf '%%s\\n' '%s'\n  exit 0\nfi\nmkdir -p .shark/runs/worker-fixture docs/review\ntouch \"$marker\"\nprintf '%%s' '%s' > docs/review/plan-review.md\nprintf '%%s\\n' '%s'\n", blocked, report, approve)
 	fakeDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "claude"), []byte(script), 0700))
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -117,7 +122,7 @@ func testBugWorktreeDispatch(t *testing.T, binary, relativeProject string) {
 	require.NoError(t, err)
 	require.True(t, exists)
 	require.NotEmpty(t, identity.EvidenceRoot)
-	retainedPlan, err := os.ReadFile(filepath.Join(identity.EvidenceRoot, ".shark", "runs", "worker-fixture", "plan.md"))
+	retainedPlan, err := os.ReadFile(filepath.Join(identity.EvidenceRoot, planRel))
 	require.NoError(t, err)
 	require.Equal(t, plan, retainedPlan)
 }

@@ -18,11 +18,11 @@ import (
 
 // PrepareBugApprovalSnapshot retains the hash-verified plan under the bound
 // plan-review run. Downstream consumers use these bytes as the approved plan.
-func PrepareBugApprovalSnapshot(_ context.Context, req gatepersist.Request) error {
+func PrepareBugApprovalSnapshot(ctx context.Context, req gatepersist.Request) error {
 	if req.EntityType != models.EntityTypeBug || req.Gate != "plan_review" || req.Role != gateresult.RoleSuccess {
 		return nil
 	}
-	_, plan, err := readBugEvidence(req, "bug_repair_plan")
+	_, plan, _, err := committedBugPlan(ctx, req)
 	if err != nil {
 		return fmt.Errorf("read approved plan: %w", err)
 	}
@@ -59,6 +59,20 @@ func ValidateBugPlanReviewReport(ctx context.Context, req gatepersist.Request, d
 	if len(report) == 0 {
 		return fmt.Errorf("plan review report is empty")
 	}
+	planRef, err := findBugEvidence(req, "bug_repair_plan")
+	if err != nil {
+		return err
+	}
+	fields := map[string][]string{}
+	for _, line := range strings.Split(string(report), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if ok && (strings.EqualFold(key, "plan_path") || strings.EqualFold(key, "plan_sha256")) {
+			fields[strings.ToLower(key)] = append(fields[strings.ToLower(key)], strings.TrimSpace(value))
+		}
+	}
+	if len(fields["plan_path"]) != 1 || len(fields["plan_sha256"]) != 1 || fields["plan_path"][0] != planRef.Pointer || !strings.EqualFold(fields["plan_sha256"][0], planRef.Summary) {
+		return fmt.Errorf("plan review report must identify exactly the approved plan path and sha256 digest")
+	}
 	linked, err := documents.ListRelatedDocumentsByKey(ctx, req.EntityKey)
 	if err != nil {
 		return fmt.Errorf("list plan review documents: %w", err)
@@ -94,9 +108,14 @@ func verifyApprovedBugPlan(dir string, envelope []byte) ([]byte, error) {
 
 // ApprovedBugPlan resolves the latest applied, uninvalidated plan approval and
 // returns the digest-verified snapshot for dispatch to downstream workers.
-func ApprovedBugPlan(ctx context.Context, projectRoot, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) ([]byte, error) {
+type ApprovedPlan struct {
+	Pointer string
+	Bytes   []byte
+}
+
+func ApprovedBugPlan(ctx context.Context, projectRoot, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) (ApprovedPlan, error) {
 	if notes == nil || history == nil {
-		return nil, fmt.Errorf("plan approval readers are required")
+		return ApprovedPlan{}, fmt.Errorf("plan approval readers are required")
 	}
 	if normalize == nil {
 		normalize = func(value string) string { return value }
@@ -105,30 +124,37 @@ func ApprovedBugPlan(ctx context.Context, projectRoot, key string, notes gateper
 	spec := bugPriorSpec{"plan_review", "bug_repair_plan", "development"}
 	entry, err := latestRelevantBugHistory(ctx, req, history, spec, normalize)
 	if err != nil {
-		return nil, err
+		return ApprovedPlan{}, err
 	}
 	meta, err := latestBugApproval(ctx, req, notes, spec.gate, entry)
 	if err != nil {
-		return nil, err
+		return ApprovedPlan{}, err
 	}
 	if !matchesBugApprovalHistory(entry, spec, meta, normalize) {
-		return nil, fmt.Errorf("prior gate approval invalidated or not applied in history")
+		return ApprovedPlan{}, fmt.Errorf("prior gate approval invalidated or not applied in history")
 	}
-	data, _, err := readBugApprovalResult(ctx, req, meta, spec.gate)
+	data, evidenceRoot, err := readBugApprovalResult(ctx, req, meta, spec.gate)
 	if err != nil {
-		return nil, err
+		return ApprovedPlan{}, err
+	}
+	req.EnvelopeJSON = data
+	req.EvidenceRoot = evidenceRoot
+	ref, _, _, err := committedBugPlan(ctx, req)
+	if err != nil {
+		return ApprovedPlan{}, fmt.Errorf("approved project plan changed: %w", err)
 	}
 	dir, err := gaterun.RunDir(projectRoot, meta.RunID)
 	if err != nil {
-		return nil, err
+		return ApprovedPlan{}, err
 	}
-	return verifyApprovedBugPlan(dir, data)
+	plan, err := verifyApprovedBugPlan(dir, data)
+	return ApprovedPlan{Pointer: ref.Pointer, Bytes: plan}, err
 }
 
 // AppendApprovedBugPlan places the approved bytes in the dispatched prompt.
-func AppendApprovedBugPlan(prompt string, plan []byte) string {
-	hash := sha256.Sum256(plan)
-	return fmt.Sprintf("%s\n\nThe following is the authoritative approved repair plan (sha256:%x). Use these exact bytes for the approved approach; a material change requires a new plan review.\n\n%s\n", prompt, hash, plan)
+func AppendApprovedBugPlan(prompt string, plan ApprovedPlan) string {
+	hash := sha256.Sum256(plan.Bytes)
+	return fmt.Sprintf("%s\n\nThe following is the authoritative approved repair plan at %s (sha256:%x). Use these exact bytes for the approved approach and carry that path and digest in your evidence; a material change requires a new plan review.\n\n%s\n", prompt, plan.Pointer, hash, plan.Bytes)
 }
 
 // BugNeedsApprovedPlan identifies worker stages downstream of plan approval.
@@ -295,11 +321,6 @@ func verifyBugApprovalIdentity(ctx context.Context, dir string, req gatepersist.
 	}
 	if identity.EvidenceRoot == "" {
 		return "", nil
-	}
-	if gate == "plan_review" {
-		// The retained, digest-bound snapshot is authoritative after approval;
-		// the original checkout need not remain available for later dispatch.
-		return identity.EvidenceRoot, nil
 	}
 	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
 	verified, err := resolveBugEvidenceRoot(ctx, parent, identity.EvidenceRoot)

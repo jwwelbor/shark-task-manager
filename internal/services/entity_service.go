@@ -543,6 +543,11 @@ func (s *EntityService) compensateAdvanceGuard(ctx context.Context, entityType m
 }
 
 func (s *EntityService) validateTransitionEvidence(entityType models.EntityType, key string, entity models.Entity, fromStatus, targetStatus string, opts TransitionOptions) error {
+	if entityType == models.EntityTypeBug && !opts.Force {
+		if err := config.ValidateBugEvidenceRoutes(s.workflowSvc.GetWorkflow()); err != nil {
+			return fmt.Errorf("invalid bug workflow: %w", err)
+		}
+	}
 	if entityType == models.EntityTypeBug && !opts.Force && !opts.GateAdmissionVerified && s.requiresBugGateAdmission(fromStatus, targetStatus) {
 		return fmt.Errorf("cannot advance bug %s from %s: a validated gate result is required; use shark run to submit it", key, fromStatus)
 	}

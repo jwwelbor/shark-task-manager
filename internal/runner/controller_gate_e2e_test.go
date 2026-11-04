@@ -359,3 +359,28 @@ func TestRunController_GateSameStageReworkStopsAndRetiresLease(t *testing.T) {
 		require.FailNowf(t, "assertion failed", "result=%+v error=%v dispatches=%d lease_released=%v", result, err, calls, lease.released)
 	}
 }
+
+func TestRunController_TaskStructuredSameStageRetryKeepsLease(t *testing.T) {
+	key := "E01-F01-001"
+	shared := &e2eGateTransitioner{status: map[string]string{key: "todo"}, resultContract: "gate_result_v1", outcomeRoles: map[string]gateresult.OutcomeRole{"fail": gateresult.RoleRouteRework}, outcomes: map[string]string{"fail": "todo"}, transitionErr: errAssertLegacyTransitionNotCalled}
+	lease := &fakeLeaseReleaser{}
+	coordinator := gatepersist.NewCoordinator(&fakeNoteWriter{}, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"todo": true}}, shared, shared, lease, shared)
+	envelope := `{"kind":"final","recommended_outcome":"fail","evidence":[],"gate_result":{"schema_version":1,"summary":"unresolved"}}`
+	calls := 0
+	actions := &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+		return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "work"}, nil
+	}}
+	dispatchers := map[string]AgentDispatcher{"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+		calls++
+		if calls == 2 {
+			require.False(t, lease.released, "the second worker must retain the parent lease")
+			return &DispatchResult{ExitCode: 1}, nil
+		}
+		return &DispatchResult{ExitCode: 0, Stdout: envelope}, nil
+	}}}
+	ctrl, err := NewRunController(RunControllerDeps{Transitioner: shared, ActionSvc: actions, WorkflowSvc: defaultWorkflowSvc(), Dispatchers: dispatchers, GateIngest: &GateIngestDeps{Coordinator: coordinator}})
+	require.NoError(t, err)
+	_, err = ctrl.Run(context.Background(), key, RunOptions{ProjectRoot: t.TempDir(), RunID: "run-task-same-stage", SessionID: "sess-1", EntityType: "task"})
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+}

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 
@@ -88,7 +89,11 @@ func BugWorktreeProjectRoot(ctx context.Context, parentProject, worktree string)
 // cause workers and the parent to interpret the same pointer differently.
 func ValidateBugWorkingDir(ctx context.Context, parentProject, workingDir string) error {
 	if workingDir == "" {
-		return nil
+		var err error
+		workingDir, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve inherited bug working directory: %w", err)
+		}
 	}
 	project, err := BugWorktreeProjectRoot(ctx, parentProject, workingDir)
 	if err != nil {

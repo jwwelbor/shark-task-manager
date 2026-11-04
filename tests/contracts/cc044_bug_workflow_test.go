@@ -49,6 +49,15 @@ func initCC044Baseline(t *testing.T, project string) string {
 	return git("rev-parse", "HEAD")
 }
 
+func commitCC044Files(t *testing.T, project string, paths ...string) {
+	t.Helper()
+	for _, args := range [][]string{append([]string{"add", "--"}, paths...), {"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-m", "record project plan"}} {
+		cmd := exec.Command("git", append([]string{"-C", project}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+}
+
 func TestFeatureReworkPreservesExistingReasonPolicy(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	require.NoError(t, err)
@@ -258,7 +267,7 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 			git("config", "user.email", "test@example.invalid")
 			git("config", "commit.gpgsign", "false")
 			git("config", "core.hooksPath", t.TempDir())
-			require.NoError(t, os.WriteFile(filepath.Join(project, ".gitignore"), []byte(".sharkconfig.json\nfixture.db*\ndocs/\nshark-data/\n"), 0600))
+			require.NoError(t, os.WriteFile(filepath.Join(project, ".gitignore"), []byte(".sharkconfig.json\nfixture.db*\ndocs/*\n!docs/plan/\ndocs/plan/*\n!docs/plan/bugs/\ndocs/plan/bugs/*\n!docs/plan/bugs/*.repair-plan.md\nshark-data/\n"), 0600))
 			require.NoError(t, os.WriteFile(filepath.Join(project, "app.txt"), []byte("base\n"), 0600))
 			git("add", ".gitignore", "app.txt")
 			git("commit", "-m", "baseline")
@@ -323,10 +332,11 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 			planRel := "docs/plan/bugs/B001.repair-plan.md"
 			plan := []byte("# Plan\nBaseline: " + baseline + "\nPreserve cost and model behavior.\n")
 			require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
+			commitCC044Files(t, project, planRel)
 			planHash := sha256.Sum256(plan)
 			refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", planHash)}, {"kind": "bug_review_baseline", "pointer": baseline}}
 			reportRel := "docs/review/B001.plan-review.md"
-			report := []byte("Independent review approved the plan.\n")
+			report := []byte(fmt.Sprintf("plan_path: %s\nplan_sha256: sha256:%x\nIndependent review approved the plan.\n", planRel, planHash))
 			require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(project, reportRel)), 0700))
 			require.NoError(t, os.WriteFile(filepath.Join(project, reportRel), report, 0600))
 			shark("related-docs", "add", "Plan review", reportRel, "--bug=B001")
@@ -509,6 +519,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 		t.Helper()
 		path := filepath.Join(project, "docs", "plan", "bugs", name)
 		require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+		commitCC044Files(t, project, filepath.ToSlash(filepath.Join("docs", "plan", "bugs", name)))
 		hash := sha256.Sum256([]byte(content))
 		data, e := json.Marshal(map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []map[string]string{{"kind": "bug_repair_plan", "pointer": filepath.ToSlash(filepath.Join("docs", "plan", "bugs", name)), "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": baseline}}, "gate_result": map[string]any{"schema_version": 1, "summary": content}})
 		require.NoError(t, e)
@@ -571,6 +582,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	workerPlan := filepath.Join(worker, "docs", "plan", "bugs", "plan-crash.md")
 	require.NoError(t, os.MkdirAll(filepath.Dir(workerPlan), 0700))
 	require.NoError(t, os.WriteFile(workerPlan, []byte("crash plan"), 0600))
+	commitCC044Files(t, worker, "docs/plan/bugs/plan-crash.md")
 	crashRequest := runner.GateIngestRequest{EnvelopeBytes: crashResult, Coordinator: crashCoordinator, ProjectRoot: project, WorkingDir: worker, RunID: "crash-run", EntityKey: "B002", EntityType: models.EntityTypeBug, SourceStatus: "plan_review", Gate: "plan_review", Session: gatepersist.Session{ID: "fixture-session"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": "development"}}
 	_, err = runner.IngestGateResult(ctx, crashRequest)
 	require.ErrorContains(t, err, "simulated crash after transition")
@@ -594,6 +606,7 @@ func TestBugAdmissionReplayBindsActualHistory(t *testing.T) {
 	shark("claim", "B003", "--session", "fixture-session", "--by", "test")
 	uninitialized := makeEnvelope("plan-uninitialized.md", "uninitialized plan")
 	require.NoError(t, os.WriteFile(filepath.Join(worker, "docs", "plan", "bugs", "plan-uninitialized.md"), []byte("uninitialized plan"), 0600))
+	commitCC044Files(t, worker, "docs/plan/bugs/plan-uninitialized.md")
 	runDir, err := gaterun.RunDir(project, "uninitialized-run")
 	require.NoError(t, err)
 	digest, err := gaterun.ComputeOperationDigest("B003", "bug", "plan_review", "plan_review", uninitialized)
@@ -657,10 +670,11 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	planRel := "docs/plan/bugs/B001.repair-plan.md"
 	plan := []byte("# Approved fixture plan\n")
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
+	commitCC044Files(t, project, planRel)
 	hash := sha256.Sum256(plan)
 	refs := []map[string]string{{"kind": "bug_repair_plan", "pointer": planRel, "summary": fmt.Sprintf("sha256:%x", hash)}, {"kind": "bug_review_baseline", "pointer": baseline}}
 	reportRel := "docs/review/B001.plan-review.md"
-	report := []byte("Independent review approved the plan.\n")
+	report := []byte(fmt.Sprintf("plan_path: %s\nplan_sha256: sha256:%x\nIndependent review approved the plan.\n", planRel, hash))
 	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(project, reportRel)), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(project, reportRel), report, 0600))
 	shark("related-docs", "add", "Plan review", reportRel, "--bug=B001")
@@ -676,6 +690,12 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	write("approved")
 	shark("run", "B001", "--apply-result", resultPath, "--run-id", "custom-approval", "--session", "fixture-session")
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), []byte("unreviewed edit\n"), 0600))
+	stale := exec.Command(binary, "next", "B001", "--db", dbPath, "--json")
+	stale.Dir = project
+	staleOutput, staleErr := stale.CombinedOutput()
+	require.Error(t, staleErr)
+	require.Contains(t, string(staleOutput), "approved project plan changed")
+	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), plan, 0600))
 	var downstream struct {
 		Prompt       string `json:"prompt"`
 		PromptSHA256 string `json:"prompt_sha256"`

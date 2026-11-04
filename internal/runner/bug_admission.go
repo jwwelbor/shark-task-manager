@@ -26,18 +26,8 @@ func BugGateAdmission(ctx context.Context, req gatepersist.Request) error {
 	if err := verifyBugEvidenceRoot(ctx, req); err != nil {
 		return err
 	}
-	if req.Gate == "repair_plan" || req.Gate == "plan_review" {
-		if _, _, err := readBugEvidence(req, "bug_repair_plan"); err != nil {
-			return fmt.Errorf("plan evidence: %w", err)
-		}
-	} else {
-		ref, err := findBugEvidence(req, "bug_repair_plan")
-		if err != nil {
-			return fmt.Errorf("plan evidence: %w", err)
-		}
-		if _, err := validateBugEvidenceRef(ref); err != nil {
-			return fmt.Errorf("plan evidence: %w", err)
-		}
+	if _, _, _, err := committedBugPlan(ctx, req); err != nil {
+		return fmt.Errorf("plan evidence: %w", err)
 	}
 	baseline, err := readBugBaseline(req)
 	if err != nil {
@@ -47,6 +37,10 @@ func BugGateAdmission(ctx context.Context, req gatepersist.Request) error {
 		out, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", bugEvidenceProject(req), "cat-file", "-t", baseline).Output()
 		if err != nil || strings.TrimSpace(string(out)) != "commit" {
 			return fmt.Errorf("bug_review_baseline %s is not a commit in the selected repository", baseline)
+		}
+		full, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", bugEvidenceProject(req), "rev-parse", "--verify", "--end-of-options", baseline).Output()
+		if err != nil || !strings.EqualFold(strings.TrimSpace(string(full)), baseline) {
+			return fmt.Errorf("bug_review_baseline must be the full commit hash for the selected repository")
 		}
 	}
 	return nil

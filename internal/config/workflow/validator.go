@@ -167,11 +167,17 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 // validateBugEvidenceRoutes rejects routes whose target alone cannot distinguish
 // an evidence-bearing success from rework. Same-role sharing is permitted.
 func validateBugEvidenceRoutes(w *WorkflowConfig) error {
+	for _, name := range []string{"repair_plan", "plan_review", "development", "code_review", "qa"} {
+		resolved := w.ResolveAlias(name)
+		if !strings.EqualFold(resolved, name) {
+			return &WorkflowValidationError{Message: fmt.Sprintf("bug evidence gate %q is renamed to %q", name, resolved), Fix: "retain the canonical gate name until renamed gate semantics are supported"}
+		}
+	}
 	for name, step := range w.Steps {
 		if step == nil {
 			continue
 		}
-		if strings.EqualFold(name, "research") && w.GetResultContract(name) == ResultContractLegacy {
+		if (strings.EqualFold(name, "research") || strings.EqualFold(step.Phase, "research")) && w.GetResultContract(name) == ResultContractLegacy {
 			if _, ok := step.Outcomes["pass"]; !ok {
 				return &WorkflowValidationError{Message: "legacy bug research has no pass outcome", Fix: "configure a pass outcome for the research success route"}
 			}

@@ -244,7 +244,7 @@ type nextAdapterCache struct {
 	surfaceForks    bool
 	questionBlocker questionBlockChecker
 	bugWorkflow     *configworkflow.WorkflowConfig
-	approvedBugPlan func(context.Context, string) ([]byte, error)
+	approvedBugPlan func(context.Context, string) (runner.ApprovedPlan, error)
 
 	// harnessResolver resolves harness identity per spec.md REQ-F-002's
 	// flag > claim > env > zero precedence (T-E34-F01-003/004). nil is a
@@ -578,7 +578,8 @@ func runNext(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if workdir != "" {
+	bugPlanWorkflow := entityType == "bug" && cli.GetWorkflowService().ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == configworkflow.ResultContractGateResultV1
+	if workdir != "" || bugPlanWorkflow {
 		if entityType != "bug" {
 			return fmt.Errorf("--workdir is only supported for bug dispatch")
 		}
