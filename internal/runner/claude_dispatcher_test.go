@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"os"
 	"os/exec"
 	"strconv"
@@ -123,9 +124,7 @@ func TestClaudeGateTransportPreservesOtherEntityTranscripts(t *testing.T) {
 	} {
 		t.Run(tc.entity+"/"+tc.contract, func(t *testing.T) {
 			args := buildClaudeArgs(DispatchInput{EntityType: tc.entity, ResultContract: tc.contract})
-			if !containsConsecutive(args, "--output-format", tc.format) {
-				t.Fatalf("format = %v, want %s", args, tc.format)
-			}
+			require.True(t, containsConsecutive(args, "--output-format", tc.format), "format = %v, want %s", args, tc.format)
 		})
 	}
 }

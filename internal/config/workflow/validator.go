@@ -95,19 +95,8 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 		return nil
 	}
 
-	// Start step is mandatory for route-based workflows (guide §6) and must
-	// point at a defined step.
-	if workflow.Start == "" {
-		return &WorkflowValidationError{
-			Message: "route-based workflow (steps:) is missing a start: step",
-			Fix:     "add a start: field naming the initial step (e.g. start: draft)",
-		}
-	}
-	if _, ok := workflow.GetStep(workflow.Start); !ok {
-		return &WorkflowValidationError{
-			Message: fmt.Sprintf("start step %q is not defined in steps", workflow.Start),
-			Fix:     fmt.Sprintf("add a %q step or point start: at an existing step", workflow.Start),
-		}
+	if err := validateRouteStart(workflow); err != nil {
+		return err
 	}
 
 	// Core outcomes present + outcome targets resolve to real steps (D7).
@@ -125,10 +114,8 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 			Fix:     "set result_contract to legacy or gate_result_v1, and for gate_result_v1 declare outcome_roles with exactly one supported role per configured outcome",
 		}
 	}
-	if level == "bug" {
-		if err := validateBugEvidenceRoutes(workflow); err != nil {
-			return err
-		}
+	if err := validateBugRouteForLevel(workflow, level); err != nil {
+		return err
 	}
 
 	// No old-status alias may be claimed by two steps.
@@ -164,6 +151,32 @@ func validateRouteBased(workflow *WorkflowConfig, level string) error {
 	return nil
 }
 
+func validateBugRouteForLevel(workflow *WorkflowConfig, level string) error {
+	if level != "bug" {
+		return nil
+	}
+	return validateBugEvidenceRoutes(workflow)
+}
+
+func validateRouteStart(workflow *WorkflowConfig) error {
+	// Start step is mandatory for route-based workflows (guide §6) and must
+	// point at a defined step.
+	if workflow.Start == "" {
+		return &WorkflowValidationError{
+			Message: "route-based workflow (steps:) is missing a start: step",
+			Fix:     "add a start: field naming the initial step (e.g. start: draft)",
+		}
+	}
+	if _, ok := workflow.GetStep(workflow.Start); !ok {
+		return &WorkflowValidationError{
+			Message: fmt.Sprintf("start step %q is not defined in steps", workflow.Start),
+			Fix:     fmt.Sprintf("add a %q step or point start: at an existing step", workflow.Start),
+		}
+	}
+
+	return nil
+}
+
 // validateBugEvidenceRoutes rejects routes whose target alone cannot distinguish
 // an evidence-bearing success from rework. Same-role sharing is permitted.
 func validateBugEvidenceRoutes(w *WorkflowConfig) error {
@@ -177,26 +190,37 @@ func validateBugEvidenceRoutes(w *WorkflowConfig) error {
 		if step == nil {
 			continue
 		}
-		if (bugEvidenceBearingGate(name) || strings.EqualFold(name, "research")) && name != strings.ToLower(name) {
-			return &WorkflowValidationError{Message: fmt.Sprintf("bug gate %q uses unsupported capitalization", name), Fix: "use the canonical lowercase gate name"}
+		if err := validateBugStepRoutes(w, name, step); err != nil {
+			return err
 		}
-		if (strings.EqualFold(name, "research") || strings.EqualFold(step.Phase, "research")) && w.GetResultContract(name) == ResultContractLegacy {
-			if _, ok := step.Outcomes["pass"]; !ok {
-				return &WorkflowValidationError{Message: "legacy bug research has no pass outcome", Fix: "configure a pass outcome for the research success route"}
-			}
+	}
+	return nil
+}
+
+func validateBugStepRoutes(w *WorkflowConfig, name string, step *Step) error {
+	if (bugEvidenceBearingGate(name) || strings.EqualFold(name, "research")) && name != strings.ToLower(name) {
+		return &WorkflowValidationError{Message: fmt.Sprintf("bug gate %q uses unsupported capitalization", name), Fix: "use the canonical lowercase gate name"}
+	}
+	if (strings.EqualFold(name, "research") || strings.EqualFold(step.Phase, "research")) && w.GetResultContract(name) == ResultContractLegacy {
+		if _, ok := step.Outcomes["pass"]; !ok {
+			return &WorkflowValidationError{Message: "legacy bug research has no pass outcome", Fix: "configure a pass outcome for the research success route"}
 		}
-		if w.GetResultContract(name) != ResultContractGateResultV1 || !bugEvidenceBearingGate(name) {
+	}
+	if w.GetResultContract(name) != ResultContractGateResultV1 || !bugEvidenceBearingGate(name) {
+		return nil
+	}
+	return rejectSharedBugTargets(w, name, step)
+}
+
+func rejectSharedBugTargets(w *WorkflowConfig, name string, step *Step) error {
+	for success, target := range step.Outcomes {
+		if step.OutcomeRoles[success] != "success" {
 			continue
 		}
-		for success, target := range step.Outcomes {
-			if step.OutcomeRoles[success] != "success" {
-				continue
-			}
-			for outcome, other := range step.Outcomes {
-				role := step.OutcomeRoles[outcome]
-				if (role == "route_rework" || role == "kickback_rework") && strings.EqualFold(w.ResolveAlias(target), w.ResolveAlias(other)) {
-					return &WorkflowValidationError{Message: fmt.Sprintf("bug step %q sends success %q and rework %q to the same target %q", name, success, outcome, target), Fix: "route success and rework to distinct targets"}
-				}
+		for outcome, other := range step.Outcomes {
+			role := step.OutcomeRoles[outcome]
+			if (role == "route_rework" || role == "kickback_rework") && strings.EqualFold(w.ResolveAlias(target), w.ResolveAlias(other)) {
+				return &WorkflowValidationError{Message: fmt.Sprintf("bug step %q sends success %q and rework %q to the same target %q", name, success, outcome, target), Fix: "route success and rework to distinct targets"}
 			}
 		}
 	}

@@ -2,7 +2,7 @@ package runner
 
 import (
 	"context"
-	"strings"
+	"github.com/stretchr/testify/require"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -163,9 +163,7 @@ func TestIngestGateResult_RejectsBugSuccessAndReworkSharingTarget(t *testing.T) 
 	req.OutcomeRoles["fail"] = gateresult.RoleRouteRework
 	req.Outcomes["fail"] = "IN_REVIEW"
 	_, err := IngestGateResult(context.Background(), req)
-	if err == nil || !strings.Contains(err.Error(), "share target") {
-		t.Fatalf("expected ambiguous bug route rejection, got %v", err)
-	}
+	require.ErrorContains(t, err, "share target")
 }
 
 func TestIngestGateResult_MalformedEnvelopeFailsClosed(t *testing.T) {

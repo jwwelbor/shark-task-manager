@@ -2,6 +2,7 @@ package gaterun
 
 import (
 	"encoding/json"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
@@ -102,24 +103,17 @@ func TestComputeOperationDigest_NoHTMLEscaping(t *testing.T) {
 func TestBoundOperationDigestBindsPlanProvenance(t *testing.T) {
 	env := json.RawMessage(`{"summary":"approved"}`)
 	base, err := ComputeOperationDigest("B001", "bug", "plan_review", "plan_review", env)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	plain, err := ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, "", "", "")
-	if err != nil || plain != base {
-		t.Fatalf("unbound digest changed: %s %v", plain, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, base, plain)
 	bound, err := ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, "/repo", "commit", "blob")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for _, fields := range [][3]string{{"/other", "commit", "blob"}, {"/repo", "other", "blob"}, {"/repo", "commit", "other"}} {
 		got, err := ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, fields[0], fields[1], fields[2])
-		if err != nil || got == bound {
-			t.Fatalf("provenance not bound: %v %v", fields, err)
-		}
+		require.NoError(t, err)
+		require.NotEqual(t, bound, got, "provenance: %v", fields)
 	}
-	if _, err := ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, "/repo", "", "blob"); err == nil {
-		t.Fatal("accepted partial provenance")
-	}
+	_, err = ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, "/repo", "", "blob")
+	require.Error(t, err)
 }

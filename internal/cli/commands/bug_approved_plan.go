@@ -21,7 +21,8 @@ func approvedPlanForBug(ctx context.Context, key, workingDir string) (runner.App
 	if err != nil {
 		return runner.ApprovedPlan{}, fmt.Errorf("read approved plan notes: %w", err)
 	}
-	return runner.ApprovedBugPlan(ctx, root, workingDir, key, notes, cli.GetEntityHistoryService(), cli.GetWorkflowService().ForLevel("bug").NormalizeStatus)
+	wf := cli.GetWorkflowService().ForLevel("bug")
+	return runner.ApprovedBugPlan(ctx, root, workingDir, key, notes, cli.GetEntityHistoryService(), wf.NormalizeStatus, runner.BugApprovalTargetResolver(wf))
 }
 
 func bugParentProjectInstructions(prompt string) (string, error) {

@@ -556,6 +556,38 @@ func harnessOverrideFromFlags(cmd *cobra.Command) (services.HarnessIdentity, err
 	return override, nil
 }
 
+func validateNextWorkdir(ctx context.Context, entityType, workdir string) error {
+	bugPlanWorkflow := entityType == "bug" && cli.GetWorkflowService().ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == configworkflow.ResultContractGateResultV1
+	if workdir != "" || bugPlanWorkflow {
+		if entityType != "bug" {
+			return fmt.Errorf("--workdir is only supported for bug dispatch")
+		}
+		root, err := cli.FindProjectRoot()
+		if err != nil {
+			return fmt.Errorf("locate parent project: %w", err)
+		}
+		if err := runner.ValidateBugWorkingDir(ctx, root, workdir); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeNextPrompt(cmd *cobra.Command, prompt string) error {
+	path, err := cmd.Flags().GetString("prompt-out")
+	if err != nil {
+		return fmt.Errorf("read --prompt-out flag: %w", err)
+	}
+	if path == "" {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(prompt), 0o644); err != nil {
+		return fmt.Errorf("failed to write --prompt-out file %q: %w", path, err)
+	}
+	return nil
+}
+
 func runNext(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
@@ -579,18 +611,8 @@ func runNext(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	bugPlanWorkflow := entityType == "bug" && cli.GetWorkflowService().ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == configworkflow.ResultContractGateResultV1
-	if workdir != "" || bugPlanWorkflow {
-		if entityType != "bug" {
-			return fmt.Errorf("--workdir is only supported for bug dispatch")
-		}
-		root, err := cli.FindProjectRoot()
-		if err != nil {
-			return fmt.Errorf("locate parent project: %w", err)
-		}
-		if err := runner.ValidateBugWorkingDir(ctx, root, workdir); err != nil {
-			return err
-		}
+	if err := validateNextWorkdir(ctx, entityType, workdir); err != nil {
+		return err
 	}
 
 	// Build a per-invocation adapter cache so cascade recursion doesn't
@@ -665,16 +687,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 	// trailing newline. Written before the JSON response is emitted so an
 	// unwritable target fails loudly (non-zero exit, no success output)
 	// instead of silently skipping the write (REQ-F-011/AC-013).
-	promptOutPath, err := cmd.Flags().GetString("prompt-out")
-	if err != nil {
+	if err := writeNextPrompt(cmd, resp.Prompt); err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("read --prompt-out flag: %w", err)
-	}
-	if promptOutPath != "" {
-		if writeErr := os.WriteFile(promptOutPath, []byte(resp.Prompt), 0o644); writeErr != nil {
-			span.SetStatus(codes.Error, writeErr.Error())
-			return fmt.Errorf("failed to write --prompt-out file %q: %w", promptOutPath, writeErr)
-		}
+		return err
 	}
 
 	span.SetAttributes(

@@ -22,9 +22,7 @@ func TestApprovedPlanIsCreateOnceAndRejectsSymlink(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, exists)
 	require.Equal(t, []byte("approved revision"), got)
-	if err := os.Remove(filepath.Join(dir, approvedPlanFileName)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Remove(filepath.Join(dir, approvedPlanFileName)))
 	target := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.WriteFile(target, []byte("external"), 0600))
 	if err := os.Symlink(target, filepath.Join(dir, approvedPlanFileName)); err != nil {

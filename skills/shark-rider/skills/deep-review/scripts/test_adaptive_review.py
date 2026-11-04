@@ -200,15 +200,25 @@ class AdaptiveReviewTests(unittest.TestCase):
     def test_cli_writer_requires_model_and_fallback_reason(self):
         for model, reason in [('', 'unavailable'), ('unknown', 'unavailable'), ('codex', ''), ('codex', 'none'), ('codex', '`unknown`'), ('codex', '` none `')]:
             args = argparse.Namespace(runner_mode='adversarial-cli', specialists_completed=0,
-                                      consolidator_completed=True, adversarial_model=model, fallback_reason=reason)
+                                      consolidator_completed=True, adversarial_model=model, fallback_reason=reason, verdict='PASS')
             metadata = {'runner_mode': args.runner_mode, 'verdict': 'PASS', 'fallback_reason': reason}
             self.assertTrue(adaptive_review._writer_runner_state(args, metadata, None, False))
             self.assertEqual(metadata['verdict'], 'INCOMPLETE')
         args = argparse.Namespace(runner_mode='dispatched-six-angle', specialists_completed=6,
-                                  consolidator_completed=True, adversarial_model=None, fallback_reason=None)
+                                  consolidator_completed=True, adversarial_model=None, fallback_reason=None, verdict='PASS')
         metadata = {'runner_mode': args.runner_mode, 'verdict': 'PASS', 'fallback_reason': None}
         self.assertTrue(adaptive_review._writer_runner_state(args, metadata, None, False))
         self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+
+    def test_writer_rejects_unsupported_verdict(self):
+        for verdict in ('BANANA', 'INCOMPLETE', ''):
+            args = argparse.Namespace(runner_mode='adversarial-cli', specialists_completed=0,
+                                      consolidator_completed=True, adversarial_model='codex',
+                                      fallback_reason='native review unavailable', verdict=verdict)
+            metadata = {'runner_mode': args.runner_mode, 'verdict': verdict, 'fallback_reason': args.fallback_reason}
+            self.assertTrue(adaptive_review._writer_runner_state(args, metadata, None, False))
+            self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+            self.assertEqual(metadata['runner_mode'], 'incomplete')
 
     def test_cli_rejects_scope_replacement_during_review(self):
         with tempfile.TemporaryDirectory() as tmp:

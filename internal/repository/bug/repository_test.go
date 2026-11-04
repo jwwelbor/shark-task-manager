@@ -2,6 +2,7 @@ package bug
 
 import (
 	"context"
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 
@@ -206,24 +207,16 @@ func TestBugRepository_UpdateIfStatusPreservesConcurrentTransition(t *testing.T)
 	repo, cleanup := bugTestSetup(t)
 	defer cleanup()
 	bug := newTestBug("B922", "Original", "plan_review", models.BugSeverityMedium)
-	if err := repo.Create(ctx, bug); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.UpdateStatus(ctx, bug.ID, "repair_plan"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, repo.Create(ctx, bug))
+	require.NoError(t, repo.UpdateStatus(ctx, bug.ID, "repair_plan"))
 	bug.Title = "Stale update"
 	updated, err := repo.UpdateIfStatus(ctx, bug, "plan_review")
-	if err != nil || updated {
-		t.Fatalf("stale update = %v, %v; want false, nil", updated, err)
-	}
+	require.NoError(t, err)
+	require.False(t, updated)
 	got, err := repo.GetByKey(ctx, bug.Key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != "repair_plan" || got.Title != "Original" {
-		t.Fatalf("concurrent state overwritten: status=%s title=%s", got.Status, got.Title)
-	}
+	require.NoError(t, err)
+	require.Equal(t, models.BugStatus("repair_plan"), got.Status)
+	require.Equal(t, "Original", got.Title)
 }
 
 func TestBugRepository_Update_NotFound(t *testing.T) {

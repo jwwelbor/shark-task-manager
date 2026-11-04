@@ -6,12 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/projectdocs"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -95,25 +94,7 @@ func bugEvidenceLimit(kind string) int64 {
 }
 
 func readBoundedBugEvidence(projectRoot, path string, limit int64) ([]byte, error) {
-	root, err := os.OpenRoot(projectRoot)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = root.Close() }() // Read-only handle; close does not affect verified bytes.
-	file, err := root.OpenFile(path, os.O_RDONLY|bugPlanOpenFlags, 0)
-	if err != nil {
-		return nil, fmt.Errorf("open evidence: %w", err)
-	}
-	defer func() { _ = file.Close() }() // Read-only handle; close does not affect verified bytes.
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
-		return nil, fmt.Errorf("evidence must be a bounded regular file")
-	}
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil || int64(len(data)) > limit {
-		return nil, fmt.Errorf("cannot read bounded evidence")
-	}
-	return data, nil
+	return projectdocs.ReadBounded(projectRoot, path, limit)
 }
 
 // readBugReviewScope binds a gate result to the exact saved scope and verifies

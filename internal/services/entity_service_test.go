@@ -100,7 +100,7 @@ func TestBugTransitionRejectsChangedSourceWithoutAdvanceGuard(t *testing.T) {
 					return snapshot, nil
 				},
 				updateStatusFn: func(context.Context, int64, string) error {
-					t.Fatal("unconditional status write bypasses source validation")
+					require.FailNow(t, "unconditional status write bypasses source validation")
 					return nil
 				},
 				updateStatusIfCurrentFn: func(_ context.Context, _ int64, expected, target string) (bool, error) {

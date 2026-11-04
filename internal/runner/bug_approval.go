@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // PrepareBugApprovalSnapshot retains the hash-verified plan under the bound
@@ -70,26 +71,23 @@ func ValidateBugPlanReviewReport(ctx context.Context, req gatepersist.Request, d
 	if err != nil {
 		return err
 	}
-	fields := map[string][]string{}
-	for _, line := range strings.Split(string(report), "\n") {
-		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if ok && (strings.EqualFold(key, "plan_path") || strings.EqualFold(key, "plan_sha256")) {
-			fields[strings.ToLower(key)] = append(fields[strings.ToLower(key)], strings.TrimSpace(value))
-		}
+	if err := validatePlanReviewFields(report, planRef); err != nil {
+		return err
 	}
-	if len(fields["plan_path"]) != 1 || len(fields["plan_sha256"]) != 1 || fields["plan_path"][0] != planRef.Pointer || !strings.EqualFold(fields["plan_sha256"][0], planRef.Summary) {
-		return fmt.Errorf("plan review report must identify exactly the approved plan path and sha256 digest")
-	}
-	linked, err := documents.ListRelatedDocumentsByKey(ctx, req.EntityKey)
+	return verifyLinkedPlanReview(ctx, documents, req.EntityKey, ref.Pointer)
+}
+
+func verifyLinkedPlanReview(ctx context.Context, documents BugDocumentReader, key, pointer string) error {
+	linked, err := documents.ListRelatedDocumentsByKey(ctx, key)
 	if err != nil {
 		return fmt.Errorf("list plan review documents: %w", err)
 	}
 	for _, doc := range linked {
-		if doc != nil && filepath.Clean(doc.FilePath) == filepath.Clean(ref.Pointer) {
+		if doc != nil && filepath.Clean(doc.FilePath) == filepath.Clean(pointer) {
 			return nil
 		}
 	}
-	return fmt.Errorf("plan review report %q is not linked to bug %s", ref.Pointer, req.EntityKey)
+	return fmt.Errorf("plan review report %q is not linked to bug %s", pointer, key)
 }
 
 func verifyApprovedBugPlan(dir string, envelope []byte) ([]byte, error) {
@@ -113,6 +111,20 @@ func verifyApprovedBugPlan(dir string, envelope []byte) ([]byte, error) {
 	return plan, nil
 }
 
+func validatePlanReviewFields(report []byte, planRef workercontrol.EvidenceRef) error {
+	fields := map[string][]string{}
+	for _, line := range strings.Split(string(report), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if ok && (strings.EqualFold(key, "plan_path") || strings.EqualFold(key, "plan_sha256")) {
+			fields[strings.ToLower(key)] = append(fields[strings.ToLower(key)], strings.TrimSpace(value))
+		}
+	}
+	if len(fields["plan_path"]) != 1 || len(fields["plan_sha256"]) != 1 || fields["plan_path"][0] != planRef.Pointer || !strings.EqualFold(fields["plan_sha256"][0], planRef.Summary) {
+		return fmt.Errorf("plan review report must identify exactly the approved plan path and sha256 digest")
+	}
+	return nil
+}
+
 // ApprovedBugPlan resolves the latest applied, uninvalidated plan approval and
 // returns the digest-verified snapshot for dispatch to downstream workers.
 type ApprovedPlan struct {
@@ -120,7 +132,7 @@ type ApprovedPlan struct {
 	Bytes   []byte
 }
 
-func ApprovedBugPlan(ctx context.Context, projectRoot, workingDir, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) (ApprovedPlan, error) {
+func ApprovedBugPlan(ctx context.Context, projectRoot, workingDir, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string, resolve bugSuccessTarget) (ApprovedPlan, error) {
 	if notes == nil || history == nil {
 		return ApprovedPlan{}, fmt.Errorf("plan approval readers are required")
 	}
@@ -128,7 +140,7 @@ func ApprovedBugPlan(ctx context.Context, projectRoot, workingDir, key string, n
 		normalize = func(value string) string { return value }
 	}
 	req := gatepersist.Request{EntityType: models.EntityTypeBug, EntityKey: key, RunDir: filepath.Join(projectRoot, ".shark", "runs", "dispatch")}
-	spec := bugPriorSpec{"plan_review", "bug_repair_plan", "development"}
+	spec := bugPriorSpec{"plan_review", "bug_repair_plan"}
 	entry, err := latestRelevantBugHistory(ctx, req, history, spec, normalize)
 	if err != nil {
 		return ApprovedPlan{}, err
@@ -137,18 +149,22 @@ func ApprovedBugPlan(ctx context.Context, projectRoot, workingDir, key string, n
 	if err != nil {
 		return ApprovedPlan{}, err
 	}
-	if !matchesBugApprovalHistory(entry, spec, meta, normalize) {
+	if !matchesBugApprovalHistory(entry, spec, meta, normalize, resolve) {
 		return ApprovedPlan{}, fmt.Errorf("prior gate approval invalidated or not applied in history")
 	}
 	data, _, err := readBugApprovalResult(ctx, req, meta, spec.gate)
 	if err != nil {
 		return ApprovedPlan{}, err
 	}
+	return resolveApprovedPlanSnapshot(ctx, projectRoot, workingDir, data, meta.RunID)
+}
+
+func resolveApprovedPlanSnapshot(ctx context.Context, projectRoot, workingDir string, data []byte, runID string) (ApprovedPlan, error) {
 	ref, err := findBugEvidence(gatepersist.Request{EnvelopeJSON: data}, "bug_repair_plan")
 	if err != nil {
 		return ApprovedPlan{}, err
 	}
-	dir, err := gaterun.RunDir(projectRoot, meta.RunID)
+	dir, err := gaterun.RunDir(projectRoot, runID)
 	if err != nil {
 		return ApprovedPlan{}, err
 	}
@@ -166,7 +182,6 @@ func ApprovedBugPlan(ctx context.Context, projectRoot, workingDir, key string, n
 	return ApprovedPlan{Pointer: ref.Pointer, Bytes: plan}, err
 }
 
-// AppendApprovedBugPlan places the approved bytes in the dispatched prompt.
 func AppendApprovedBugPlan(prompt string, plan ApprovedPlan) string {
 	hash := sha256.Sum256(plan.Bytes)
 	return fmt.Sprintf("%s\n\nThe following is the authoritative approved repair plan at %s (sha256:%x). Use these exact bytes for the approved approach and carry that path and digest in your evidence; a material change requires a new plan review.\n\n%s\n", prompt, plan.Pointer, hash, plan.Bytes)
@@ -185,11 +200,46 @@ func BugNeedsApprovedPlan(status string) bool {
 // NewBugGateAdmission binds downstream evidence to completed prior gates.
 // Production supplies the parent workflow's bug-status normalizer; callers
 // without one retain canonical-only matching for existing integrations.
+type bugSuccessTarget func(gate, outcome string) (string, bool)
+
+// BugApprovalTargetResolver resolves a success receipt against the live bug
+// workflow, including configured outcome names and intermediate destinations.
+func BugApprovalTargetResolver(wf *workflow.Service) bugSuccessTarget {
+	return func(gate, outcome string) (string, bool) {
+		target, ok := wf.GetOutcomes(gate)[outcome]
+		return target, ok && target != "" && wf.GetOutcomeRoles(gate)[outcome] == gateresult.RoleSuccess
+	}
+}
+
+func defaultBugSuccessTarget(gate, outcome string) (string, bool) {
+	if outcome == "" {
+		return "", false
+	}
+	switch gate {
+	case "plan_review":
+		return "development", true
+	case "code_review":
+		return "qa", true
+	default:
+		return "", false
+	}
+}
+
 func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize ...func(string) string) func(context.Context, gatepersist.Request) error {
 	status := func(value string) string { return value }
 	if len(normalize) > 0 && normalize[0] != nil {
 		status = normalize[0]
 	}
+	return newBugGateAdmission(notes, history, status, defaultBugSuccessTarget)
+}
+
+// NewBugGateAdmissionForWorkflow uses the configured success routes rather
+// than assuming canonical status names for prior approvals.
+func NewBugGateAdmissionForWorkflow(notes gatepersist.NoteReader, history gatepersist.HistoryReader, wf *workflow.Service) func(context.Context, gatepersist.Request) error {
+	return newBugGateAdmission(notes, history, wf.NormalizeStatus, BugApprovalTargetResolver(wf))
+}
+
+func newBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, status func(string) string, resolve bugSuccessTarget) func(context.Context, gatepersist.Request) error {
 	return func(ctx context.Context, req gatepersist.Request) error {
 		if err := BugGateAdmission(ctx, req); err != nil {
 			return err
@@ -197,11 +247,11 @@ func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.Histo
 		if req.EntityType != models.EntityTypeBug || req.Role != gateresult.RoleSuccess {
 			return nil
 		}
-		return admitBugDownstream(ctx, req, notes, history, status)
+		return admitBugDownstream(ctx, req, notes, history, status, resolve)
 	}
 }
 
-func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string) error {
+func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string, resolve bugSuccessTarget) error {
 	switch req.Gate {
 	case "development", "code_review", "qa":
 	default:
@@ -210,7 +260,7 @@ func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gate
 	if notes == nil || history == nil {
 		return fmt.Errorf("plan approval readers are required")
 	}
-	if err := verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"plan_review", "bug_repair_plan", "development"}, normalize); err != nil {
+	if err := verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"plan_review", "bug_repair_plan"}, normalize, resolve); err != nil {
 		return err
 	}
 	if req.Gate == "development" {
@@ -222,7 +272,7 @@ func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gate
 	if req.Gate == "code_review" {
 		return verifyBugReviewEvidence(req)
 	}
-	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope", "qa"}, normalize)
+	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope"}, normalize, resolve)
 }
 
 type bugApprovalNote struct {
@@ -232,9 +282,9 @@ type bugApprovalNote struct {
 	RunID   string `json:"run_id"`
 	Digest  string `json:"operation_digest"`
 }
-type bugPriorSpec struct{ gate, evidenceKind, target string }
+type bugPriorSpec struct{ gate, evidenceKind string }
 
-func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, spec bugPriorSpec, normalize func(string) string) error {
+func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, spec bugPriorSpec, normalize func(string) string, resolve bugSuccessTarget) error {
 	entry, err := latestRelevantBugHistory(ctx, req, history, spec, normalize)
 	if err != nil {
 		return err
@@ -243,7 +293,7 @@ func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gate
 	if err != nil {
 		return err
 	}
-	if !matchesBugApprovalHistory(entry, spec, meta, normalize) {
+	if !matchesBugApprovalHistory(entry, spec, meta, normalize, resolve) {
 		return fmt.Errorf("prior gate approval invalidated or not applied in history")
 	}
 	data, evidenceRoot, err := readBugApprovalResult(ctx, req, meta, spec.gate)
@@ -374,15 +424,22 @@ func decodeBugApprovalResult(dir string, req gatepersist.Request, meta bugApprov
 	if err != nil || digest != meta.Digest {
 		return nil, fmt.Errorf("approval result identity mismatch")
 	}
-	envelope, err := workercontrol.Decode(data)
-	if err != nil || envelope.Kind != workercontrol.KindFinal || envelope.RecommendedOutcome != meta.Outcome {
-		return nil, fmt.Errorf("approval result is invalid")
-	}
-	result, err := gateresult.Decode(envelope.GateResult)
-	if err != nil || gateresult.ValidateRole(gateresult.RoleSuccess, result, req.EntityKey) != nil {
-		return nil, fmt.Errorf("approval gate result is invalid")
+	if err := validateApprovalEnvelope(data, req.EntityKey, meta.Outcome); err != nil {
+		return nil, err
 	}
 	return data, nil
+}
+
+func validateApprovalEnvelope(data []byte, entityKey, outcome string) error {
+	envelope, err := workercontrol.Decode(data)
+	if err != nil || envelope.Kind != workercontrol.KindFinal || envelope.RecommendedOutcome != outcome {
+		return fmt.Errorf("approval result is invalid")
+	}
+	result, err := gateresult.Decode(envelope.GateResult)
+	if err != nil || gateresult.ValidateRole(gateresult.RoleSuccess, result, entityKey) != nil {
+		return fmt.Errorf("approval gate result is invalid")
+	}
+	return nil
 }
 
 func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRoot string, spec bugPriorSpec) error {
@@ -463,11 +520,15 @@ func relevantBugHistory(entry *models.EntityHistory, spec bugPriorSpec, normaliz
 	if spec.gate == "code_review" && (target == "development" || target == "code_review") {
 		return true
 	}
-	return entry.FromStatus != nil && strings.EqualFold(normalize(*entry.FromStatus), spec.gate) && strings.EqualFold(target, spec.target)
+	return entry.FromStatus != nil && strings.EqualFold(normalize(*entry.FromStatus), spec.gate)
 }
-func matchesBugApprovalHistory(entry *models.EntityHistory, spec bugPriorSpec, meta bugApprovalNote, normalize func(string) string) bool {
+func matchesBugApprovalHistory(entry *models.EntityHistory, spec bugPriorSpec, meta bugApprovalNote, normalize func(string) string, resolve bugSuccessTarget) bool {
 	if entry == nil || entry.Forced || entry.FromStatus == nil || entry.Notes == nil {
 		return false
 	}
-	return strings.EqualFold(normalize(*entry.FromStatus), spec.gate) && strings.EqualFold(normalize(entry.ToStatus), spec.target) && *entry.Notes == gatepersist.BoundTransitionReason(spec.gate, meta.Outcome, meta.RunID, meta.Digest)
+	if resolve == nil {
+		return false
+	}
+	target, ok := resolve(spec.gate, meta.Outcome)
+	return ok && strings.EqualFold(normalize(*entry.FromStatus), spec.gate) && strings.EqualFold(normalize(entry.ToStatus), normalize(target)) && *entry.Notes == gatepersist.BoundTransitionReason(spec.gate, meta.Outcome, meta.RunID, meta.Digest)
 }

@@ -143,11 +143,18 @@ func VerifyRunIdentity(rec *RunIdentity, want RunIdentity) error {
 	if rec.EvidenceRoot != want.EvidenceRoot {
 		return fmt.Errorf("gaterun: run identity evidence_root mismatch")
 	}
-	if rec.PlanRoot != want.PlanRoot || rec.PlanCommit != want.PlanCommit || rec.PlanBlob != want.PlanBlob {
-		return fmt.Errorf("gaterun: run identity plan provenance mismatch")
+	if err := verifyIdentityPlanProvenance(rec, want); err != nil {
+		return err
 	}
 	if rec.OperationDigest != want.OperationDigest {
 		return fmt.Errorf("gaterun: run identity operation_digest mismatch: recorded %q, requested %q", rec.OperationDigest, want.OperationDigest)
+	}
+	return nil
+}
+
+func verifyIdentityPlanProvenance(rec *RunIdentity, want RunIdentity) error {
+	if rec.PlanRoot != want.PlanRoot || rec.PlanCommit != want.PlanCommit || rec.PlanBlob != want.PlanBlob {
+		return fmt.Errorf("gaterun: run identity plan provenance mismatch")
 	}
 	return nil
 }

@@ -305,7 +305,11 @@ func validateSnapshotSelection(root string, scope bugCandidateScope, run bugGitR
 	if err != nil {
 		return err
 	}
-	for _, path := range source.SelectedPaths {
+	return validateSnapshotPaths(source.SelectedPaths, prefix, worktrees)
+}
+
+func validateSnapshotPaths(paths []string, prefix string, worktrees []string) error {
+	for _, path := range paths {
 		if !filepath.IsLocal(path) || path == "." || selectionOverlapsRuntime(filepath.ToSlash(path), prefix) {
 			return fmt.Errorf("invalid selected path")
 		}

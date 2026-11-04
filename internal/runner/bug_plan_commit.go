@@ -14,6 +14,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
+	"github.com/jwwelbor/shark-task-manager/internal/projectdocs"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -58,6 +59,13 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	if err := verifyBugPlanRef(ctx, parent, identity.RunID, identity.PlanCommit); err != nil {
 		return err
 	}
+	if err := verifyPlanGitObjects(ctx, parent, identity, envelope); err != nil {
+		return err
+	}
+	return verifyOriginalPlanCheckout(ctx, parent, identity, envelope)
+}
+
+func verifyPlanGitObjects(ctx context.Context, parent string, identity *gaterun.RunIdentity, envelope []byte) error {
 	for _, hash := range []string{identity.PlanCommit, identity.PlanBlob} {
 		if len(hash) != 40 && len(hash) != 64 {
 			return fmt.Errorf("approved plan provenance contains an invalid Git object ID")
@@ -74,15 +82,8 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	if err != nil {
 		return err
 	}
-	commitType := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "cat-file", "-t", identity.PlanCommit)
-	kind, err := commitType.Output()
-	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
-		return fmt.Errorf("approved plan commit is unavailable")
-	}
-	commitID := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", identity.PlanCommit)
-	fullCommit, err := commitID.Output()
-	if err != nil || !strings.EqualFold(strings.TrimSpace(string(fullCommit)), identity.PlanCommit) {
-		return fmt.Errorf("approved plan commit identity is invalid")
+	if err := verifyPlanCommitObject(ctx, parent, identity.PlanCommit); err != nil {
+		return err
 	}
 	object := identity.PlanCommit + ":" + filepath.ToSlash(filepath.Join(relative, ref.Pointer))
 	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", object)
@@ -90,6 +91,24 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	if err != nil || !strings.EqualFold(strings.TrimSpace(string(blob)), identity.PlanBlob) {
 		return fmt.Errorf("approved plan commit or blob is unavailable")
 	}
+	return nil
+}
+
+func verifyPlanCommitObject(ctx context.Context, parent, commit string) error {
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "cat-file", "-t", commit)
+	kind, err := cmd.Output()
+	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
+		return fmt.Errorf("approved plan commit is unavailable")
+	}
+	cmd = exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", commit)
+	full, err := cmd.Output()
+	if err != nil || !strings.EqualFold(strings.TrimSpace(string(full)), commit) {
+		return fmt.Errorf("approved plan commit identity is invalid")
+	}
+	return nil
+}
+
+func verifyOriginalPlanCheckout(ctx context.Context, parent string, identity *gaterun.RunIdentity, envelope []byte) error {
 	if _, err := os.Stat(identity.PlanRoot); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -99,6 +118,10 @@ func verifyBugPlanProvenance(ctx context.Context, parent, dir string, envelope [
 	root, err := BugWorktreeProjectRoot(ctx, parent, identity.PlanRoot)
 	if err != nil || root != identity.PlanRoot {
 		return fmt.Errorf("approved plan checkout is invalid")
+	}
+	ref, err := findBugEvidence(gatepersist.Request{EnvelopeJSON: envelope}, "bug_repair_plan")
+	if err != nil {
+		return err
 	}
 	if _, err := committedBugPlanAt(ctx, root, ref); err != nil {
 		return fmt.Errorf("approved project plan changed: %w", err)
@@ -169,67 +192,90 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 	}
 	path := filepath.ToSlash(filepath.Join(relative, ref.Pointer))
 	plan, err := readBoundedBugEvidence(current, ref.Pointer, bugEvidenceLimit("bug_repair_plan"))
+	if errors.Is(err, os.ErrNotExist) {
+		return verifyMissingCurrentPlan(run, ref.Pointer, path, identity.PlanCommit)
+	}
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			if _, trackedErr := run("ls-files", "--error-unmatch", "--", ref.Pointer); trackedErr == nil {
-				return fmt.Errorf("active project plan changed without approval")
-			}
-			head, headErr := run("rev-parse", "--verify", "HEAD")
-			if headErr != nil {
-				return headErr
-			}
-			headPlan, headPlanErr := run("ls-tree", "--full-tree", "-z", strings.TrimSpace(string(head)), "--", path)
-			if headPlanErr != nil || len(headPlan) != 0 {
-				return fmt.Errorf("active project plan changed without approval")
-			}
-			base, baseErr := run("merge-base", strings.TrimSpace(string(head)), identity.PlanCommit)
-			if baseErr != nil {
-				return fmt.Errorf("active project plan changed without approval")
-			}
-			basePlan, basePlanErr := run("ls-tree", "--full-tree", "-z", strings.TrimSpace(string(base)), "--", path)
-			if basePlanErr != nil || len(basePlan) != 0 {
-				return fmt.Errorf("active project plan changed without approval")
-			}
-			return nil
-		}
 		return err
 	}
-	if _, err := run("ls-files", "--error-unmatch", "--", ref.Pointer); err != nil {
-		return fmt.Errorf("active project plan changed without approval")
+	head, err := verifyCurrentPlanBlobs(ctx, current, repository, path, ref.Pointer, plan, run)
+	if err != nil {
+		return err
 	}
-	flags, err := run("ls-files", "-v", "-z", "--", ref.Pointer)
-	if err != nil || rejectHiddenIndexFlags(flags) != nil {
-		return fmt.Errorf("active project plan changed without approval: clear hidden Git index flags")
+	sum := sha256.Sum256(plan)
+	if bytes.Equal(sum[:], expected) {
+		return nil
 	}
-	status, err := run("status", "--porcelain=v1", "-z", "--", ref.Pointer)
-	if err != nil || len(status) != 0 {
+	return verifyOlderCurrentPlan(run, head, path, identity.PlanCommit)
+}
+
+func verifyMissingCurrentPlan(run bugGitRunner, pointer, path, approvedCommit string) error {
+	if _, err := run("ls-files", "--error-unmatch", "--", pointer); err == nil {
 		return fmt.Errorf("active project plan changed without approval")
 	}
 	head, err := run("rev-parse", "--verify", "HEAD")
 	if err != nil {
+		return err
+	}
+	headPlan, err := run("ls-tree", "--full-tree", "-z", strings.TrimSpace(string(head)), "--", path)
+	if err != nil || len(headPlan) != 0 {
 		return fmt.Errorf("active project plan changed without approval")
+	}
+	base, err := run("merge-base", strings.TrimSpace(string(head)), approvedCommit)
+	if err != nil {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	basePlan, err := run("ls-tree", "--full-tree", "-z", strings.TrimSpace(string(base)), "--", path)
+	if err != nil || len(basePlan) != 0 {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	return nil
+}
+
+func verifyCurrentPlanBlobs(ctx context.Context, current, repository, path, pointer string, plan []byte, run bugGitRunner) (string, error) {
+	if err := verifyCurrentPlanIndex(run, pointer); err != nil {
+		return "", err
+	}
+	head, err := run("rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("active project plan changed without approval")
 	}
 	rootGit := func(args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", repository}, args...)...).Output()
 	}
 	headBlob, headErr := rootGit("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(head))+":"+path)
 	indexBlob, indexErr := rootGit("rev-parse", "--verify", "--end-of-options", ":"+path)
-	working := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", current, "hash-object", "--path", ref.Pointer, "--stdin")
+	working := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", current, "hash-object", "--path", pointer, "--stdin")
 	working.Stdin = bytes.NewReader(plan)
 	workingBlob, workingErr := working.Output()
 	if headErr != nil || indexErr != nil || workingErr != nil || !bytes.Equal(bytes.TrimSpace(headBlob), bytes.TrimSpace(indexBlob)) || !bytes.Equal(bytes.TrimSpace(headBlob), bytes.TrimSpace(workingBlob)) {
+		return "", fmt.Errorf("active project plan changed without approval")
+	}
+	return strings.TrimSpace(string(head)), nil
+}
+
+func verifyCurrentPlanIndex(run bugGitRunner, pointer string) error {
+	if _, err := run("ls-files", "--error-unmatch", "--", pointer); err != nil {
 		return fmt.Errorf("active project plan changed without approval")
 	}
-	sum := sha256.Sum256(plan)
-	if bytes.Equal(sum[:], expected) {
-		return nil
+	flags, err := run("ls-files", "-v", "-z", "--", pointer)
+	if err != nil || rejectHiddenIndexFlags(flags) != nil {
+		return fmt.Errorf("active project plan changed without approval: clear hidden Git index flags")
 	}
-	base, err := run("merge-base", strings.TrimSpace(string(head)), identity.PlanCommit)
+	status, err := run("status", "--porcelain=v1", "-z", "--", pointer)
+	if err != nil || len(status) != 0 {
+		return fmt.Errorf("active project plan changed without approval")
+	}
+	return nil
+}
+
+func verifyOlderCurrentPlan(run bugGitRunner, head, path, approvedCommit string) error {
+	base, err := run("merge-base", head, approvedCommit)
 	if err != nil {
 		return fmt.Errorf("active project plan changed without approval")
 	}
 	oldBlob, oldErr := run("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(base))+":"+path)
-	currentBlob, currentErr := run("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(head))+":"+path)
+	currentBlob, currentErr := run("rev-parse", "--verify", "--end-of-options", head+":"+path)
 	if oldErr != nil || currentErr != nil || !bytes.Equal(bytes.TrimSpace(oldBlob), bytes.TrimSpace(currentBlob)) {
 		return fmt.Errorf("active project plan changed without approval")
 	}
@@ -249,65 +295,8 @@ func committedBugPlanAt(ctx context.Context, root string, ref workercontrol.Evid
 	if !bytes.Equal(hash[:], expected) {
 		return nil, fmt.Errorf("plan digest is stale")
 	}
-	repository, relative, err := candidateRepository(ctx, root)
-	if err != nil {
+	if err := projectdocs.VerifyCommitted(ctx, root, ref.Pointer, plan); err != nil {
 		return nil, err
-	}
-	run := func(args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "git", append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
-	}
-	if _, err := run("ls-files", "--error-unmatch", "--", ref.Pointer); err != nil {
-		return nil, fmt.Errorf("plan is not tracked")
-	}
-	flags, err := run("ls-files", "-v", "-z", "--", ref.Pointer)
-	if err != nil {
-		return nil, fmt.Errorf("cannot inspect plan index flags: %w", err)
-	}
-	if err := rejectHiddenIndexFlags(flags); err != nil {
-		return nil, err
-	}
-	err = exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "check-ignore", "--no-index", "-q", "--", ref.Pointer).Run()
-	if err == nil {
-		return nil, fmt.Errorf("plan is ignored")
-	}
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
-		return nil, fmt.Errorf("cannot check plan ignore status: %w", err)
-	}
-	object := "HEAD:" + filepath.ToSlash(filepath.Join(relative, ref.Pointer))
-	kind, err := run("cat-file", "-t", object)
-	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
-		return nil, fmt.Errorf("plan is not in the current commit")
-	}
-	committed, err := run("rev-parse", "--verify", "--end-of-options", object)
-	if err != nil {
-		return nil, fmt.Errorf("cannot resolve committed plan")
-	}
-	indexPath := ":" + filepath.ToSlash(filepath.Join(relative, ref.Pointer))
-	index := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", repository, "rev-parse", "--verify", "--end-of-options", indexPath)
-	staged, err := index.Output()
-	if err != nil || !bytes.Equal(bytes.TrimSpace(staged), bytes.TrimSpace(committed)) {
-		return nil, fmt.Errorf("plan index differs from the current commit")
-	}
-	indexEntry, err := run("ls-files", "--stage", "-z", "--", ref.Pointer)
-	if err != nil {
-		return nil, fmt.Errorf("cannot inspect plan index mode")
-	}
-	indexFields := strings.Fields(string(indexEntry))
-	gitTree := exec.CommandContext(ctx, "git", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", repository, "ls-tree", "--full-tree", "-z", "HEAD", "--", filepath.ToSlash(filepath.Join(relative, ref.Pointer)))
-	treeEntry, err := gitTree.Output()
-	treeFields := strings.Fields(string(treeEntry))
-	if err != nil || len(indexFields) < 3 || len(treeFields) < 3 || indexFields[2] != "0" || indexFields[0] != treeFields[0] || (treeFields[0] != "100644" && treeFields[0] != "100755") {
-		return nil, fmt.Errorf("plan mode differs from the current commit")
-	}
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--path", ref.Pointer, "--stdin")
-	cmd.Stdin = bytes.NewReader(plan)
-	actual, err := cmd.Output()
-	if err != nil || !bytes.Equal(bytes.TrimSpace(actual), bytes.TrimSpace(committed)) {
-		return nil, fmt.Errorf("plan differs from the current commit")
-	}
-	status, err := run("status", "--porcelain=v1", "-z", "--", ref.Pointer)
-	if err != nil || len(status) != 0 {
-		return nil, fmt.Errorf("plan differs from the current commit")
 	}
 	return plan, nil
 }

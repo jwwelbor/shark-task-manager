@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 
@@ -78,9 +79,8 @@ func TestReconcilerAcceptsCanonicalHistoryForKickbackAlias(t *testing.T) {
 	subID := kickback.suboperationID(digest)
 	reason := buildKickbackReason(kickback.kickback.Reason, subID, kickback.contentDigest(), runID)
 	world.setStatus(models.EntityTypeTask, kickback.kickback.EntityKey, "in_review")
-	if _, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickback.kickback.EntityKey, "blocked", reason, "agent", TransitionGuard{}); err != nil {
-		t.Fatal(err)
-	}
+	_, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickback.kickback.EntityKey, "blocked", reason, "agent", TransitionGuard{})
+	require.NoError(t, err)
 	rec := &reconciler{noteReader: world, historyReader: world, mainEntityType: models.EntityTypeTask, mainEntityKey: mainEntityKey,
 		kickbackEntities: map[string]models.EntityType{kickback.kickback.EntityKey: models.EntityTypeTask}, ops: ops, operationDigest: digest,
 		normalizeStatus: func(_ models.EntityType, status string) string {
@@ -90,9 +90,8 @@ func TestReconcilerAcceptsCanonicalHistoryForKickbackAlias(t *testing.T) {
 			return status
 		}}
 	ids, err := rec.CompletedSuboperationIDs(context.Background(), runID)
-	if err != nil || len(ids) != 1 || ids[0] != subID {
-		t.Fatalf("alias reconciliation = %v, %v; want %s", ids, err, subID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, []string{subID}, ids)
 }
 
 func TestReconciler_ConflictingKickbackHistoryFailsClosed(t *testing.T) {

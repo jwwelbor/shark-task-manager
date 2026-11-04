@@ -445,14 +445,9 @@ func (c *Coordinator) verifyPendingTransition(ctx context.Context, req Request, 
 	if !c.sameStatus(req.EntityType, current, req.SourceStatus) && !c.sameStatus(req.EntityType, current, req.TargetStatus) {
 		return fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
 	}
-	if c.Admission != nil && (c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) || c.sameStatus(req.EntityType, current, req.SourceStatus)) {
-		if err := c.Admission(ctx, req); err != nil {
-			return fmt.Errorf("gatepersist: admission rejected before transition: %w", err)
-		}
-	}
-	if c.BeforeTransition != nil && (c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) || c.sameStatus(req.EntityType, current, req.SourceStatus)) {
-		if err := c.BeforeTransition(ctx, req); err != nil {
-			return fmt.Errorf("gatepersist: prepare transition evidence: %w", err)
+	if c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) || c.sameStatus(req.EntityType, current, req.SourceStatus) {
+		if err := c.verifyTransitionEvidence(ctx, req); err != nil {
+			return err
 		}
 	}
 	if c.sameStatus(req.EntityType, current, req.TargetStatus) && !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) {
@@ -460,6 +455,20 @@ func (c *Coordinator) verifyPendingTransition(ctx context.Context, req Request, 
 	}
 	return nil
 }
+func (c *Coordinator) verifyTransitionEvidence(ctx context.Context, req Request) error {
+	if c.Admission != nil {
+		if err := c.Admission(ctx, req); err != nil {
+			return fmt.Errorf("gatepersist: admission rejected before transition: %w", err)
+		}
+	}
+	if c.BeforeTransition != nil {
+		if err := c.BeforeTransition(ctx, req); err != nil {
+			return fmt.Errorf("gatepersist: prepare transition evidence: %w", err)
+		}
+	}
+	return nil
+}
+
 func (c *Coordinator) transitionWithProvenance(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
 	reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
 	if state.AdmissionVersion == BoundAdmissionVersion {

@@ -274,3 +274,42 @@ func TestNonBugWorktreeAndWorkdirRetainsExistingBehavior(t *testing.T) {
 		require.NoError(t, err, string(out))
 	}
 }
+
+func TestBugResearchCLIRejectsUncommittedProjectReport(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = repo
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	project := t.TempDir()
+	initCC044Baseline(t, project)
+	db := filepath.Join(project, "fixture.db")
+	run := func(args ...string) ([]byte, error) {
+		t.Helper()
+		cmd := exec.Command(binary, append(args, "--db", db, "--json")...)
+		cmd.Dir = project
+		return cmd.CombinedOutput()
+	}
+	for _, args := range [][]string{{"admin", "init", "--non-interactive"}, {"bug", "create", "Research provenance"}, {"status", "set", "B001", "research", "--force", "--reason", "fixture setup"}} {
+		out, err = run(args...)
+		require.NoError(t, err, string(out))
+	}
+	relative := "docs/plan/bugs/B001.research-report.md"
+	report := "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n## Scope\nBug diagnosis.\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `app`.\n- [x] `affected_implementation_or_contract` — Evidence: `app`.\n## Findings\nThe cause is isolated.\n## Decisions\nRepair the existing boundary.\n## Sources\n- `app`\n"
+	require.NoError(t, os.WriteFile(filepath.Join(project, relative), []byte(report), 0600))
+	out, err = run("status", "advance", "B001", "--outcome", "pass")
+	require.Error(t, err, string(out))
+	require.Contains(t, string(out), "not tracked")
+	commitCC044Files(t, project, relative)
+	out, err = run("status", "advance", "B001", "--outcome", "pass")
+	require.NoError(t, err, string(out))
+	var bug struct {
+		Status string `json:"status"`
+	}
+	out, err = run("get", "B001")
+	require.NoError(t, err, string(out))
+	require.NoError(t, json.Unmarshal(out, &bug))
+	require.Equal(t, "repair_plan", bug.Status)
+}

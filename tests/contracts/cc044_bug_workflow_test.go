@@ -323,9 +323,10 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 			require.True(t, ok)
 			require.Contains(t, reviewBlock, "      pass: qa")
 			require.Contains(t, reviewBlock, "      pass: success")
-			reviewBlock = strings.Replace(reviewBlock, "      pass: qa", "      approved: qa", 1)
+			reviewBlock = strings.Replace(reviewBlock, "      pass: qa", "      approved: reviewed", 1)
 			reviewBlock = strings.Replace(reviewBlock, "      pass: success", "      approved: success", 1)
-			require.NoError(t, os.WriteFile(workflowPath, []byte(beforeReview+"  code_review:\n"+reviewBlock+"  completed:\n"+afterReview), 0600))
+			reviewed := "  reviewed:\n    phase: review\n    description: Custom review handoff\n    responsibility: none\n    action: advance_status\n    outcomes:\n      pass: qa\n"
+			require.NoError(t, os.WriteFile(workflowPath, []byte(beforeReview+reviewed+"  code_review:\n"+reviewBlock+"  completed:\n"+afterReview), 0600))
 			shark("bug", "create", "Admission integration")
 			shark("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
 			shark("claim", "B001", "--session", "fixture-session", "--by", "test")
@@ -419,6 +420,7 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 			}
 			writeEnvelope(resultPath, refs, "approved")
 			runGate("run", "B001", "--apply-result", resultPath, "--run-id", "fixture-review", "--session", "fixture-session")
+			shark("status", "advance", "B001", "--outcome", "pass", "--session", "fixture-session")
 			writeEnvelope(resultPath, refs, "pass")
 			require.NoError(t, os.WriteFile(filepath.Join(worker, "app.txt"), []byte("stale\n"), 0600))
 			staleArgs := []string{"run", "B001", "--apply-result", resultPath, "--run-id", "fixture-stale", "--session", "fixture-session", "--db", dbPath, "--json"}
@@ -660,10 +662,11 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, block, "      pass: development")
 	require.Contains(t, block, "      pass: success")
-	block = strings.Replace(block, "      pass: development", "      approved: development", 1)
+	block = strings.Replace(block, "      pass: development", "      approved: triaged", 1)
 	block = strings.Replace(block, "      pass: success", "      approved: success", 1)
 	block = "    aliases: [plan_review_old]\n" + block
-	require.NoError(t, os.WriteFile(path, []byte(before+"  plan_review:\n"+block+"  research:\n"+after), 0600))
+	triaged := "  triaged:\n    phase: development\n    description: Custom intermediate step\n    responsibility: none\n    action: advance_status\n    outcomes:\n      pass: development\n"
+	require.NoError(t, os.WriteFile(path, []byte(before+triaged+"  plan_review:\n"+block+"  research:\n"+after), 0600))
 	shark("bug", "create", "Custom success outcome")
 	shark("status", "set", "B001", "plan_review", "--force", "--reason", "fixture setup")
 	fixtureDB, err := db.InitDB(dbPath)
@@ -697,6 +700,7 @@ func TestBugPlanApprovalRespectsConfiguredSuccessOutcome(t *testing.T) {
 	}
 	write("approved")
 	shark("run", "B001", "--apply-result", resultPath, "--run-id", "custom-approval", "--session", "fixture-session")
+	shark("status", "advance", "B001", "--outcome", "pass", "--session", "fixture-session")
 	require.NoError(t, os.WriteFile(filepath.Join(project, planRel), []byte("unreviewed edit\n"), 0600))
 	stale := exec.Command(binary, "next", "B001", "--db", dbPath, "--json")
 	stale.Dir = project

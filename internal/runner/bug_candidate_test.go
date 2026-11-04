@@ -344,8 +344,16 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	reviewDigest, err := gaterun.ComputeOperationDigest("B001", "bug", "code_review", "code_review", envelope(planRef+","+scopeRef+","+reportRef+","+anglesRef+","+decisionRef))
 	require.NoError(t, err)
 	reviewFrom, reviewReason := "code_review", gatepersist.BoundTransitionReason("code_review", "pass", "reviewed", reviewDigest)
-	history.items = append(history.items, &models.EntityHistory{ID: 2, FromStatus: &reviewFrom, ToStatus: "qa", Notes: &reviewReason})
-	coord.Admission = NewBugGateAdmission(notes, history)
+	history.items = append(history.items, &models.EntityHistory{ID: 2, FromStatus: &reviewFrom, ToStatus: "reviewed", Notes: &reviewReason})
+	intermediate := "reviewed"
+	history.items = append(history.items, &models.EntityHistory{ID: 3, FromStatus: &intermediate, ToStatus: "qa"})
+	resolve := func(gate, outcome string) (string, bool) {
+		if gate == "code_review" && outcome == "pass" {
+			return "reviewed", true
+		}
+		return defaultBugSuccessTarget(gate, outcome)
+	}
+	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)
 	require.NoError(t, os.WriteFile(reportPath, []byte("changed report"), 0600))
 	require.Error(t, ingest("tampered-report", "qa", "resolved", envelope(planRef+","+scopeRef)))
 	require.NoError(t, os.WriteFile(reportPath, reportBytes, 0600))

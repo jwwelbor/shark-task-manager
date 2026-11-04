@@ -552,22 +552,27 @@ func (s *EntityService) validateTransitionEvidence(entityType models.EntityType,
 		return fmt.Errorf("cannot advance bug %s from %s: a validated gate result is required; use shark run to submit it", key, fromStatus)
 	}
 	if !opts.Force && s.requiresResearchEvidence(fromStatus, targetStatus) {
-		root := s.workflowSvc.ProjectRoot()
-		artifactRoot := root
-		if entityType == models.EntityTypeBug && opts.ResearchArtifactRoot != "" {
-			paths, err := research.ArtifactPaths(opts.ResearchArtifactRoot, entity)
-			if err != nil {
-				return err
-			}
-			if _, err := os.Stat(paths.Report); err == nil {
-				artifactRoot = opts.ResearchArtifactRoot
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("inspect worker research report: %w", err)
-			}
+		return s.validateResearchTransition(entityType, key, entity, opts)
+	}
+	return nil
+}
+
+func (s *EntityService) validateResearchTransition(entityType models.EntityType, key string, entity models.Entity, opts TransitionOptions) error {
+	root := s.workflowSvc.ProjectRoot()
+	artifactRoot := root
+	if entityType == models.EntityTypeBug && opts.ResearchArtifactRoot != "" {
+		paths, err := research.ArtifactPaths(opts.ResearchArtifactRoot, entity)
+		if err != nil {
+			return err
 		}
-		if err := research.ValidateEntityAt(root, artifactRoot, entity); err != nil {
-			return fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
+		if _, err := os.Stat(paths.Report); err == nil {
+			artifactRoot = opts.ResearchArtifactRoot
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect worker research report: %w", err)
 		}
+	}
+	if err := research.ValidateEntityAt(root, artifactRoot, entity); err != nil {
+		return fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
 	}
 	return nil
 }

@@ -65,7 +65,7 @@ func TestPrepareBugPlanApprovalRequiresLinkedDigestBoundReport(t *testing.T) {
 }
 
 func validBugApprovalMode(mode string) bool {
-	return mode == "valid" || mode == "renamed" || mode == "later_incomplete" || mode == "digest_case"
+	return mode == "valid" || mode == "renamed" || mode == "later_incomplete" || mode == "digest_case" || mode == "custom_target"
 }
 
 func bugApprovalEnvelopeCase(mode string, hash [32]byte, envelope []byte) []byte {
@@ -92,7 +92,7 @@ func (h bugApprovalHistory) GetHistory(context.Context, models.EntityType, strin
 }
 
 func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
-	for _, mode := range []string{"valid", "renamed", "later_incomplete", "digest_case", "source_changed", "snapshot_tampered", "snapshot_missing", "baseline_changed", "missing", "unapproved", "invalidated", "partial", "tampered", "provenance_tampered"} {
+	for _, mode := range []string{"valid", "custom_target", "wrong_target", "renamed", "later_incomplete", "digest_case", "source_changed", "snapshot_tampered", "snapshot_missing", "baseline_changed", "missing", "unapproved", "invalidated", "partial", "tampered", "provenance_tampered"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			plan := []byte("plan v1\n")
@@ -160,6 +160,14 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			}
 			from, reason := "plan_review", gatepersist.BoundTransitionReason("plan_review", priorOutcome, "approved-run", digest)
 			history := bugApprovalHistory{items: []*models.EntityHistory{{ID: 1, FromStatus: &from, ToStatus: "development", Notes: &reason}}}
+			if mode == "wrong_target" {
+				history.items[0].ToStatus = "blocked"
+			}
+			if mode == "custom_target" {
+				history.items[0].ToStatus = "triaged"
+				intermediate := "triaged"
+				history.items = append(history.items, &models.EntityHistory{ID: 2, FromStatus: &intermediate, ToStatus: "development"})
+			}
 			if mode == "invalidated" {
 				history.items = append(history.items, &models.EntityHistory{ID: 2, ToStatus: "research"})
 			}
@@ -178,6 +186,15 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			written := &fakeNoteWriter{}
 			coord := gatepersist.NewCoordinator(written, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"development": true, "code_review": true}}, status, status, &fakeLeaseReleaser{}, status)
 			coord.Admission = NewBugGateAdmission(notes, history)
+			if mode == "custom_target" {
+				resolve := func(gate, outcome string) (string, bool) {
+					if gate == "plan_review" && outcome == "pass" {
+						return "triaged", true
+					}
+					return defaultBugSuccessTarget(gate, outcome)
+				}
+				coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)
+			}
 			currentEnvelope := bugApprovalEnvelopeCase(mode, hash, envelope(hash, "pass", baseline))
 			result, err := IngestGateResult(context.Background(), GateIngestRequest{
 				EnvelopeBytes: currentEnvelope, Coordinator: coord, ProjectRoot: root, RunID: "current-run",

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1888,7 +1889,17 @@ func TestBugService_UpdateBug_NoSizeChange(t *testing.T) {
 
 func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
 	root := t.TempDir()
-	file := "B001.md"
+	file := "docs/plan/bugs/B001.md"
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.invalid")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "docs", "plan", "bugs"), 0700))
 	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test", FilePath: &file}, Status: "research", Severity: models.BugSeverityHigh}
 	repo := &mockBugRepo{getByKeyFn: func(context.Context, string) (*models.Bug, error) { return bug, nil }}
 	wf := workflow.NewService(root)
@@ -1897,7 +1908,7 @@ func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
 	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err == nil {
 		require.FailNow(t, "missing report allowed research pass")
 	}
-	reportPath := filepath.Join(root, "B001.research-report.md")
+	reportPath := filepath.Join(root, "docs", "plan", "bugs", "B001.research-report.md")
 	if err := os.WriteFile(reportPath, []byte("invalid report"), 0o644); err != nil {
 		require.NoError(t, err)
 	}
@@ -1908,9 +1919,27 @@ func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
 	if err := os.WriteFile(reportPath, []byte(valid), 0o644); err != nil {
 		require.NoError(t, err)
 	}
-	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err != nil {
-		require.FailNowf(t, "assertion failed", "valid report rejected: %v", err)
-	}
+	_, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "not tracked")
+	git("add", "--", "docs/plan/bugs/B001.research-report.md")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.Error(t, err, "staged report is not committed")
+	git("commit", "-m", "Record research")
+	require.NoError(t, os.WriteFile(reportPath, []byte(valid+"uncommitted change"), 0644))
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "differs from the current commit")
+	require.NoError(t, os.WriteFile(reportPath, []byte(valid), 0644))
+	git("update-index", "--assume-unchanged", "--", "docs/plan/bugs/B001.research-report.md")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "assume-unchanged")
+	git("update-index", "--no-assume-unchanged", "--", "docs/plan/bugs/B001.research-report.md")
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".git", "info", "exclude"), []byte("docs/plan/bugs/B001.research-report.md\n"), 0600))
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "ignored")
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".git", "info", "exclude"), nil, 0600))
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.NoError(t, err)
+
 	if err := os.Remove(reportPath); err != nil {
 		require.NoError(t, err)
 	}
