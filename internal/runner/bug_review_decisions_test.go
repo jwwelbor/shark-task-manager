@@ -132,6 +132,14 @@ func TestReportFindingBindsToItsDecision(t *testing.T) {
 	require.NoError(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
 	related.Disposition = "refuted"
 	require.Error(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
+	related.Disposition = "Triage"
+	require.Error(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
+	related.Disposition = "triage"
+	other.FindingID, other.Severity = "F-2", "nit"
+	multi := body + "\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage"
+	require.True(t, statusSafeBody("CURRENT_REVIEW_STATUS: COMPLETE\nScope and findings: complete. VERDICT: PASS-WITH-TRIAGE\n"+multi))
+	require.NoError(t, requireBugFindingDecisions(multi, map[bugFindingKey]bugReviewDecision{{File: "related"}: related, {File: "other"}: other}))
+	require.Error(t, requireBugFindingDecisions(body+"\n"+body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
 }
 
 func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {

@@ -454,7 +454,7 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
 
 
 def _status_safe_body(body: str) -> bool:
-    if re.search(r"\b(?:current|this|the)[ \t]+(?:current[ \t]+)?(?:review|report|assessment|inspection)[ \t]+(?:is[ \t]+|was[ \t]+|did[ \t]+|has[ \t]+|remains[ \t]+)*(?:not[ \t]+(?:finish|finished|complete|completed)|unfinished|did_not_finish)\b", body, re.I | re.ASCII):
+    if re.search(r"\b(?:current|this|the[ \t]+current)[ \t]+(?:review|report|assessment|inspection)[ \t]+(?:(?:is|was|did|has|remains)[ \t]+)*(?:(?:still[ \t]+)?unfinished|not[ \t]+(?:yet[ \t]+)?(?:finish|finished|complete|completed)|failed[ \t]+to[ \t]+finish|only[ \t]+partially[ \t]+complete|did_not_finish)\b", body, re.I | re.ASCII):
         return False
     lines = body.replace("\r\n", "\n").split("\n")
     historic = re.compile(r"HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*", re.I | re.ASCII)
@@ -466,7 +466,7 @@ def _status_safe_body(body: str) -> bool:
     special = [i for i, line in enumerate(lines) if historic.fullmatch(line) or finding.fullmatch(line)]
     if special and (len(current_fields) != 1 or any(line.strip() and not (historic.fullmatch(line) or finding.fullmatch(line)) for line in lines[special[0]:])):
         return False
-    if sum(bool(historic.fullmatch(line)) for line in lines) > 1 or sum(bool(finding.fullmatch(line)) for line in lines) > 1:
+    if sum(bool(historic.fullmatch(line)) for line in lines) > 1:
         return False
     return all(not re.search(r"\bINCOMPLETE\b", line, re.I | re.ASCII) or bool(finding.fullmatch(line)) for line in lines)
 
@@ -570,6 +570,8 @@ def _cli_prompt(args, scope):
 def _require_finding_decision(body, decisions):
     pattern = r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$"
     matches = re.findall(pattern, body, re.ASCII)
+    if len({match[0] for match in matches}) != len(matches):
+        raise ValueError("report finding IDs must be unique")
     for finding_id, severity, disposition in matches:
         related = [f for f in decisions["findings"] if f.get("finding_id") == finding_id]
         if len(related) != 1 or related[0].get("severity") != severity.lower() or related[0].get("disposition") != disposition.lower() or disposition.lower() == "refuted":

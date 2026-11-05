@@ -188,5 +188,30 @@
     "name": "current-natural-unfinished",
     "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: the current review did not finish.\nScope: all files. Findings: one. VERDICT: PASS-WITH-TRIAGE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage",
     "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-0",
+    "body": "Scope: all files reviewed. Findings: none. This review has not yet finished. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-1",
+    "body": "Scope: all files reviewed. Findings: none. This review is still unfinished. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-2",
+    "body": "Scope: all files reviewed. Findings: none. The current review failed to finish. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-3",
+    "body": "Scope: all files reviewed. Findings: none. This review is only partially complete. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "past-unfinished-prose",
+    "body": "Scope: all candidate files reviewed. Findings: none. In a prior attempt, the review was not complete. This review is complete. VERDICT: PASS",
+    "valid": true
   }
 ]

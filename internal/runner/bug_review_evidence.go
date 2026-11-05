@@ -108,16 +108,21 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 }
 
 func requireBugFindingDecisions(body string, decisions map[bugFindingKey]bugReviewDecision) error {
+	seen := make(map[string]bool)
 	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
 		marker := bugFindingDetail.FindStringSubmatch(line)
 		if marker == nil {
 			continue
 		}
+		if seen[marker[2]] {
+			return fmt.Errorf("report finding IDs must be unique")
+		}
+		seen[marker[2]] = true
 		matches := 0
 		for _, decision := range decisions {
 			if decision.FindingID == marker[2] {
 				matches++
-				if !strings.EqualFold(decision.Severity, marker[3]) || !strings.EqualFold(decision.Disposition, marker[4]) || strings.EqualFold(decision.Disposition, "refuted") {
+				if decision.Severity != strings.ToLower(marker[3]) || decision.Disposition != strings.ToLower(marker[4]) || decision.Disposition == "refuted" {
 					return fmt.Errorf("report finding decision does not match")
 				}
 			}
@@ -173,14 +178,14 @@ var bugCurrentField = regexp.MustCompile(`(?i)\bCURRENT_REVIEW_STATUS\b`)
 var bugHistoricalStatus = regexp.MustCompile(`(?i)^HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*$`)
 var bugFindingDetail = regexp.MustCompile(`(?i)^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$`)
 
-var bugExplicitUnfinished = regexp.MustCompile(`(?i)\b(current|this|the)[ \t]+(current[ \t]+)?(review|report|assessment|inspection)[ \t]+((is|was|did|has|remains)[ \t]+)*(not[ \t]+(finish|finished|complete|completed)|unfinished|did_not_finish)\b`)
+var bugExplicitUnfinished = regexp.MustCompile(`(?i)\b(current|this|the[ \t]+current)[ \t]+(review|report|assessment|inspection)[ \t]+((is|was|did|has|remains)[ \t]+)*((still[ \t]+)?unfinished|not[ \t]+(yet[ \t]+)?(finish|finished|complete|completed)|failed[ \t]+to[ \t]+finish|only[ \t]+partially[ \t]+complete|did_not_finish)\b`)
 
 func statusSafeBody(body string) bool {
 	if bugExplicitUnfinished.MatchString(body) {
 		return false
 	}
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
-	current, history, findings := 0, 0, 0
+	current, history := 0, 0
 	footer := false
 	for _, line := range lines {
 		if bugCurrentField.MatchString(line) {
@@ -193,9 +198,6 @@ func statusSafeBody(body string) bool {
 		if historical {
 			history++
 		}
-		if finding {
-			findings++
-		}
 		if historical || finding {
 			footer = true
 		} else if footer && strings.TrimSpace(line) != "" {
@@ -205,7 +207,7 @@ func statusSafeBody(body string) bool {
 			return false
 		}
 	}
-	return current <= 1 && history <= 1 && findings <= 1 && (!footer || current == 1)
+	return current <= 1 && history <= 1 && (!footer || current == 1)
 }
 func validateBugReviewBody(header, body string) error {
 	if !utf8.ValidString(body) || !statusSafeBody(body) || utf8.RuneCountInString(strings.TrimSpace(body)) < 80 {

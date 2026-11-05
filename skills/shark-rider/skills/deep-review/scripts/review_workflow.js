@@ -265,7 +265,7 @@ function validDecisionSet(value) {
 
 function validReport(body) {
   if (typeof body !== 'string' || Array.from(body.trim()).length < 80) return false
-  if (/\b(?:current|this|the)[ \t]+(?:current[ \t]+)?(?:review|report|assessment|inspection)[ \t]+(?:is[ \t]+|was[ \t]+|did[ \t]+|has[ \t]+|remains[ \t]+)*(?:not[ \t]+(?:finish|finished|complete|completed)|unfinished|did_not_finish)\b/i.test(body)) return false
+  if (/\b(?:current|this|the[ \t]+current)[ \t]+(?:review|report|assessment|inspection)[ \t]+(?:(?:is|was|did|has|remains)[ \t]+)*(?:(?:still[ \t]+)?unfinished|not[ \t]+(?:yet[ \t]+)?(?:finish|finished|complete|completed)|failed[ \t]+to[ \t]+finish|only[ \t]+partially[ \t]+complete|did_not_finish)\b/i.test(body)) return false
   const lines = body.replace(/\r\n/g, '\n').split('\n')
   const historical = /^HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*$/i
   const finding = /^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$/i
@@ -273,7 +273,7 @@ function validReport(body) {
   if (currentFields.length && (currentFields.length !== 1 || !/^CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*$/i.test(currentFields[0]))) return false
   const special = lines.flatMap((line, i) => historical.test(line) || finding.test(line) ? [i] : [])
   if (special.length && (currentFields.length !== 1 || lines.slice(special[0]).some(line => line.trim() && !historical.test(line) && !finding.test(line)))) return false
-  if (lines.filter(line => historical.test(line)).length > 1 || lines.filter(line => finding.test(line)).length > 1) return false
+  if (lines.filter(line => historical.test(line)).length > 1) return false
   if (lines.some(line => /\bINCOMPLETE\b/i.test(line) && !finding.test(line))) return false
   return /\b(scope|coverage)\b/i.test(body) && /\b(findings|defects)\b/i.test(body)
 }
@@ -307,8 +307,9 @@ function contradictoryReport(body, verdict) {
 function validConsolidation(body, value, raw) {
   if (!validReport(body) || !validDecisionSet(value)) return false
   const verdict = reportVerdict(body)
-  const marker = /^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$/im.exec(body)
-  if (marker) {
+  const markers = [...body.matchAll(/^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$/gim)]
+  if (new Set(markers.map(marker => marker[2])).size !== markers.length) return false
+  for (const marker of markers) {
     const related = value.findings.filter(f => f.finding_id === marker[2])
     if (verdict === 'PASS' || related.length !== 1 || related[0].severity !== marker[3].toLowerCase() || related[0].disposition !== marker[4].toLowerCase() || related[0].disposition === 'refuted') return false
   }

@@ -149,6 +149,15 @@ class AdaptiveReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'retained decision'):
             adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'refuted'}]})
         adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}]})
+        with self.assertRaisesRegex(ValueError, 'retained decision'):
+            adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'Triage'}]})
+        multi = body + '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-2 | nit | triage'
+        decisions = {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}, {'finding_id': 'F-2', 'severity': 'nit', 'disposition': 'triage'}]}
+        self.assertTrue(adaptive_review.valid_review_report(multi, 'PASS-WITH-TRIAGE'))
+        adaptive_review._require_finding_decision(multi, decisions)
+        with self.assertRaisesRegex(ValueError, 'unique'):
+            adaptive_review._require_finding_decision(body + '\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage', decisions)
+
 
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')
