@@ -32,8 +32,8 @@ const agent = async (prompt, options) => {
   }
   if (mode === 'context' && (!prompt.includes('plan-id') || !prompt.includes('CANDIDATE_TREE: tree'))) throw Error('missing consolidation context');
   if (mode === 'consolidator_error') throw Error('failed consolidation');
-  const report = mode === 'fixture' ? process.argv[3] : mode === 'short' ? 'VERDICT: PASS' : mode === 'conflict' ? 'Scope and coverage: all files and callers inspected. Findings: conflicting report. VERDICT: PASS then VERDICT: FAIL' : mode.startsWith('fail_') ? 'Reviewed scope: all candidate files. Findings: a blocking defect requires repair. **Verdict:** FAIL' : 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS';
-  const findings = ['open','refuted','fail_open'].includes(mode) ? [{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', disposition:mode === 'fail_open' ? 'open' : mode, reason:'evidence'}] : [];
+  const report = mode.startsWith('detail_') ? 'CURRENT_REVIEW_STATUS: COMPLETE\nScope: all files. Findings: validation issue retained. VERDICT: PASS-WITH-TRIAGE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage' : mode === 'fixture' ? process.argv[3] : mode === 'short' ? 'VERDICT: PASS' : mode === 'conflict' ? 'Scope and coverage: all files and callers inspected. Findings: conflicting report. VERDICT: PASS then VERDICT: FAIL' : mode.startsWith('fail_') ? 'Reviewed scope: all candidate files. Findings: a blocking defect requires repair. **Verdict:** FAIL' : 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS';
+  const findings = mode.startsWith('detail_') ? [{finding_id:mode === 'detail_match' ? 'F-1' : 'F-2', file:'file', line:1, severity:'non-blocker', rule:'RISK', summary:'validation issue', diagnosis:'missing input check', disposition:'triage', reason:'tracked'}] : ['open','refuted','fail_open'].includes(mode) ? [{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', disposition:mode === 'fail_open' ? 'open' : mode, reason:'evidence'}] : [];
   return {report, decisions:{candidate_identity:angle.candidate_identity, findings}};
 };
 run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'research-id', coverage:'coverage-id', prior_findings:[]}, changed_files:['file']}, () => {}, parallel, agent, () => {})
@@ -47,6 +47,10 @@ run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', cand
                 self.assertEqual(result['runner_mode'] == 'canonical-six-angle', fixture['valid'])
                 self.assertEqual(valid_review_report(fixture['body'], 'PASS'), fixture['valid'])
                 self.assertEqual(valid_adversarial_output(fixture['body']), fixture['valid'])
+        for mode, expected in [('detail_match', 'canonical-six-angle'), ('detail_unrelated', 'incomplete')]:
+            with self.subTest(mode=mode):
+                proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
+                self.assertEqual(json.loads(proc.stdout)['report']['runner_mode'], expected)
         for mode in ('missing', 'malformed', 'empty', 'identity', 'short', 'blocker', 'open', 'conflict', 'consolidator_error', 'refuted', 'complete', 'context', 'fail_missing', 'fail_open'):
             with self.subTest(mode=mode):
                 proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)

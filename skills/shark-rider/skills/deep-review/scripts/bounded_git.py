@@ -76,15 +76,18 @@ def run(argv, *, timeout=None, max_output_bytes=MAX_OUTPUT_BYTES, **kwargs):
                    for name, stream in (('stdout', proc.stdout), ('stderr', proc.stderr)) if stream is not None]
         deadline = time.monotonic() + timeout
         try:
-            if os.name == 'nt' and sys.version_info < (3, 12):
-                from windows_pipe import WindowsPipe
-                legacy_windows = WindowsPipe()
-            for stream in (proc.stdout, proc.stderr):
-                if stream is not None:
-                    if legacy_windows:
-                        legacy_windows.set_nonblocking(stream.fileno())
-                    else:
-                        os.set_blocking(stream.fileno(), False)
+            try:
+                if os.name == 'nt' and sys.version_info < (3, 12):
+                    from windows_pipe import WindowsPipe
+                    legacy_windows = WindowsPipe()
+                for stream in (proc.stdout, proc.stderr):
+                    if stream is not None:
+                        if legacy_windows:
+                            legacy_windows.set_nonblocking(stream.fileno())
+                        else:
+                            os.set_blocking(stream.fileno(), False)
+            except (AttributeError, ImportError) as exc:
+                raise OSError('nonblocking subprocess pipe support is unavailable') from exc
             for thread in threads:
                 thread.start()
             while proc.poll() is None or any(thread.is_alive() for thread in threads):

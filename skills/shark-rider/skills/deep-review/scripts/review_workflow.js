@@ -102,7 +102,7 @@ const CONSOLIDATION_SCHEMA = {
           type: 'object',
           properties: {
             file: {type: 'string'}, line: {type: 'integer'}, severity: {type: 'string'},
-            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, disposition: {type: 'string'}, reason: {type: 'string'},
+            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, disposition: {type: 'string'}, reason: {type: 'string'}, finding_id: {type: 'string'},
           },
           required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'disposition', 'reason'],
         }},
@@ -234,7 +234,7 @@ ${specContext}
 Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
 
 Read that file completely, then execute the consolidation and produce the compact-or-detailed markdown report it specifies.
-Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity and findings). Each decision must include file, positive integer line, severity, rule, summary, diagnosis, disposition, and a nonempty reason. Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
+Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity and findings). Each decision must include file, positive integer line, severity, rule, summary, diagnosis, disposition, and a nonempty reason. Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. If the report uses a FINDING_DETAIL footer, its F-number must match the retained decision's finding_id and its severity and disposition must match. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
 }
 const consolidatorPreamble = makeConsolidatorPreamble()
 
@@ -265,10 +265,11 @@ function validDecisionSet(value) {
 
 function validReport(body) {
   if (typeof body !== 'string' || Array.from(body.trim()).length < 80) return false
+  if (/\b(?:current|this|the)[ \t]+(?:current[ \t]+)?(?:review|report|assessment|inspection)[ \t]+(?:is[ \t]+|was[ \t]+|did[ \t]+|has[ \t]+|remains[ \t]+)*(?:not[ \t]+(?:finish|finished|complete|completed)|unfinished|did_not_finish)\b/i.test(body)) return false
   const lines = body.replace(/\r\n/g, '\n').split('\n')
   const historical = /^HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*$/i
-  const finding = /^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*$/i
-  const currentFields = lines.filter(line => /^CURRENT_REVIEW_STATUS\b/i.test(line.trimStart()))
+  const finding = /^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$/i
+  const currentFields = lines.filter(line => /\bCURRENT_REVIEW_STATUS\b/i.test(line))
   if (currentFields.length && (currentFields.length !== 1 || !/^CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*$/i.test(currentFields[0]))) return false
   const special = lines.flatMap((line, i) => historical.test(line) || finding.test(line) ? [i] : [])
   if (special.length && (currentFields.length !== 1 || lines.slice(special[0]).some(line => line.trim() && !historical.test(line) && !finding.test(line)))) return false
@@ -306,8 +307,11 @@ function contradictoryReport(body, verdict) {
 function validConsolidation(body, value, raw) {
   if (!validReport(body) || !validDecisionSet(value)) return false
   const verdict = reportVerdict(body)
-  const hasFinding = /^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*$/im.test(body)
-  if (hasFinding && (verdict === 'PASS' || !value.findings.some(f => f.disposition !== 'refuted'))) return false
+  const marker = /^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$/im.exec(body)
+  if (marker) {
+    const related = value.findings.filter(f => f.finding_id === marker[2])
+    if (verdict === 'PASS' || related.length !== 1 || related[0].severity !== marker[3].toLowerCase() || related[0].disposition !== marker[4].toLowerCase() || related[0].disposition === 'refuted') return false
+  }
   return verdict && !contradictoryReport(body, verdict) && passingDecisions(verdict, value.findings, raw)
 }
 

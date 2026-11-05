@@ -454,11 +454,13 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
 
 
 def _status_safe_body(body: str) -> bool:
+    if re.search(r"\b(?:current|this|the)[ \t]+(?:current[ \t]+)?(?:review|report|assessment|inspection)[ \t]+(?:is[ \t]+|was[ \t]+|did[ \t]+|has[ \t]+|remains[ \t]+)*(?:not[ \t]+(?:finish|finished|complete|completed)|unfinished|did_not_finish)\b", body, re.I | re.ASCII):
+        return False
     lines = body.replace("\r\n", "\n").split("\n")
     historic = re.compile(r"HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*", re.I | re.ASCII)
     current = re.compile(r"CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*", re.I | re.ASCII)
-    finding = re.compile(r"FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*", re.I | re.ASCII)
-    current_fields = [line for line in lines if re.match(r"CURRENT_REVIEW_STATUS\b", line.lstrip(" \t"), re.I | re.ASCII)]
+    finding = re.compile(r"FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*", re.I | re.ASCII)
+    current_fields = [line for line in lines if re.search(r"\bCURRENT_REVIEW_STATUS\b", line, re.I | re.ASCII)]
     if current_fields and (len(current_fields) != 1 or not current.fullmatch(current_fields[0])):
         return False
     special = [i for i, line in enumerate(lines) if historic.fullmatch(line) or finding.fullmatch(line)]
@@ -473,7 +475,7 @@ def valid_review_report(body: str, verdict: str) -> bool:
     """Reject empty, diagnostic, contradictory or structurally incomplete reports."""
     if len(body.strip()) < 80 or not _status_safe_body(body):
         return False
-    if verdict.upper() == "PASS" and re.search(r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*$", body, re.ASCII):
+    if verdict.upper() == "PASS" and re.search(r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$", body, re.ASCII):
         return False
     if verdict.upper().startswith("PASS"):
         normalized = body.lower().replace("no blockers remain", "").replace("no unresolved blockers", "")
@@ -561,13 +563,17 @@ def _cli_prompt(args, scope):
     prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity and findings). "
     prompt += "Each finding must have file, positive integer line, severity, rule, summary, diagnosis, disposition and a nonempty reason. "
     prompt += "Use disposition refuted only for a blocker conclusively disproved. Use an empty findings array only when none were found. "
+    prompt += "When a report uses a FINDING_DETAIL footer, its F-number must be the matching retained decision's finding_id, and its severity and disposition must match. "
     return prompt + "The exact candidate_identity is: " + json.dumps(_review_identity(scope))
 
 
 def _require_finding_decision(body, decisions):
-    if re.search(r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*$", body, re.ASCII):
-        if not any(f.get("disposition") != "refuted" for f in decisions["findings"]):
-            raise ValueError("report finding requires a retained decision")
+    pattern = r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$"
+    matches = re.findall(pattern, body, re.ASCII)
+    for finding_id, severity, disposition in matches:
+        related = [f for f in decisions["findings"] if f.get("finding_id") == finding_id]
+        if len(related) != 1 or related[0].get("severity") != severity.lower() or related[0].get("disposition") != disposition.lower() or disposition.lower() == "refuted":
+            raise ValueError("report finding requires its matching retained decision")
 
 
 def _parse_cli_packet(output, scope):

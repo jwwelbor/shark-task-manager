@@ -133,18 +133,22 @@ class AdaptiveReviewTests(unittest.TestCase):
         body = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
                 'FINDING_CONTEXT: application external input validation is deficient.\n'
                 'Scope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL\n'
-                'FINDING_DETAIL: INCOMPLETE VALIDATION')
+                'FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage')
         self.assertTrue(adaptive_review.valid_review_report(body, 'FAIL'))
         self.assertFalse(adaptive_review.valid_review_report(body + '\nThe current review is incomplete.', 'FAIL'))
 
     def test_report_finding_requires_a_retained_decision(self):
         body = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
                 'Scope: all candidate files reviewed. Findings: an issue needs triage. VERDICT: PASS-WITH-TRIAGE\n'
-                'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR')
+                'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-1 | non-blocker | triage')
         self.assertTrue(adaptive_review.valid_review_report(body, 'PASS-WITH-TRIAGE'))
         with self.assertRaisesRegex(ValueError, 'retained decision'):
             adaptive_review._require_finding_decision(body, {'findings': []})
-        adaptive_review._require_finding_decision(body, {'findings': [{'disposition': 'triage'}]})
+        with self.assertRaisesRegex(ValueError, 'retained decision'):
+            adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-2', 'severity': 'non-blocker', 'disposition': 'triage'}]})
+        with self.assertRaisesRegex(ValueError, 'retained decision'):
+            adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'refuted'}]})
+        adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}]})
 
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')

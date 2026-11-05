@@ -17,6 +17,7 @@ type bugFindingKey struct {
 	Diagnosis string
 }
 type bugReviewDecision struct {
+	FindingID   string `json:"finding_id"`
 	File        string `json:"file"`
 	Line        int    `json:"line"`
 	Severity    string `json:"severity"`

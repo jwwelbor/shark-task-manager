@@ -126,7 +126,7 @@
   },
   {
     "name": "structured-finding-incomplete",
-    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input validation is deficient. Scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE VALIDATION",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input validation is deficient. Scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage",
     "valid": false
   },
   {
@@ -156,7 +156,7 @@
   },
   {
     "name": "structured-product-behavior",
-    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input coverage is missing. Scope: all files. Findings: one accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input coverage is missing. Scope: all files. Findings: one accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-1 | non-blocker | triage",
     "valid": false
   },
   {
@@ -171,7 +171,22 @@
   },
   {
     "name": "finding-followed-by-prose",
-    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE VALIDATION\nThis review is too. Scope: all files. Findings: none. VERDICT: PASS",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\nThis review is too. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "markdown-status",
+    "body": "- CURRENT_REVIEW_STATUS: DID_NOT_FINISH\nScope: all candidate files reviewed. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "unicode-indented-status",
+    "body": "\u00a0CURRENT_REVIEW_STATUS: DID_NOT_FINISH\nScope: all candidate files reviewed. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-natural-unfinished",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: the current review did not finish.\nScope: all files. Findings: one. VERDICT: PASS-WITH-TRIAGE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage",
     "valid": false
   }
 ]

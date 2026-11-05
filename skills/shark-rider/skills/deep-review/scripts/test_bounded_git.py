@@ -55,6 +55,12 @@ class PortableCaptureTests(unittest.TestCase):
             with self.subTest(stream=stream), self.assertRaises(OutputLimitExceeded):
                 run([sys.executable, '-c', f"import sys; sys.{stream}.buffer.write(b'x' * 1000000)"], capture_output=True, max_output_bytes=1024, timeout=5)
 
+    @unittest.skipUnless(hasattr(os, "set_blocking"), "requires set_blocking for fault injection")
+    def test_missing_nonblocking_api_fails_closed(self):
+        with mock.patch('bounded_git.os.set_blocking', side_effect=AttributeError('unavailable')):
+            with self.assertRaisesRegex(OSError, 'nonblocking subprocess pipe support is unavailable'):
+                run([sys.executable, '-c', 'print("ok")'], capture_output=True)
+
     def test_bounded_capture_preserves_text_and_errors(self):
         result = run([sys.executable, '-c', "import sys; print('ok'); print('problem', file=sys.stderr)"], capture_output=True, text=True, max_output_bytes=1024)
         self.assertEqual(result.stdout, 'ok\n')

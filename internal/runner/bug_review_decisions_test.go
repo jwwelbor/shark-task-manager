@@ -118,8 +118,35 @@ func TestReviewBodyConformanceFixtures(t *testing.T) {
 }
 
 func TestFailedReviewMayDescribeIncompleteProductValidation(t *testing.T) {
-	body := "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: application external input validation is deficient.\nScope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL\nFINDING_DETAIL: INCOMPLETE VALIDATION"
+	body := "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: application external input validation is deficient.\nScope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage"
 	require.True(t, statusSafeBody(body))
 	require.False(t, statusSafeBody(body+"\nThe current review is incomplete."))
 	require.Error(t, validateBugReviewBody("**Verdict:** FAIL", body))
+}
+
+func TestReportFindingBindsToItsDecision(t *testing.T) {
+	body := "FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage"
+	other := bugReviewDecision{FindingID: "F-2", Severity: "non-blocker", Disposition: "triage"}
+	related := bugReviewDecision{FindingID: "F-1", Severity: "non-blocker", Disposition: "triage"}
+	require.Error(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "other"}: other}))
+	require.NoError(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
+	related.Disposition = "refuted"
+	require.Error(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
+}
+
+func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
+	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff"}
+	body := "FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage"
+	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "triage", "reason": "tracked"}}}
+	raw, err := json.Marshal(packet)
+	require.NoError(t, err)
+	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+	require.NoError(t, err)
+	require.Error(t, requireBugFindingDecisions(body, decisions))
+	packet["findings"] = []any{map[string]any{"finding_id": "F-1", "file": "app.go", "line": 2, "severity": "non-blocker", "rule": "INPUT", "summary": "validation", "diagnosis": "missing check", "disposition": "triage", "reason": "tracked"}}
+	raw, err = json.Marshal(packet)
+	require.NoError(t, err)
+	decisions, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+	require.NoError(t, err)
+	require.NoError(t, requireBugFindingDecisions(body, decisions))
 }
