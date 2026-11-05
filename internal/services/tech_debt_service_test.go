@@ -186,6 +186,7 @@ func TestTechDebtService_Create_Success(t *testing.T) {
 	}
 
 	svc := newTechDebtService(repo)
+	svc.projectRoot = t.TempDir()
 
 	td, _, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
 		Title:    "Refactor database layer",
@@ -356,6 +357,7 @@ func TestTechDebtService_Create_WithSize(t *testing.T) {
 	}
 
 	svc := newTechDebtService(repo)
+	svc.projectRoot = t.TempDir()
 	five := 5
 	td, _, err := svc.CreateTechDebt(ctx, CreateTechDebtInput{
 		Title:    "Refactor auth",
