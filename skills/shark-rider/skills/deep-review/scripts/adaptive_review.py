@@ -453,13 +453,20 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
     _check_raw_findings(raw_findings, by_key, verdict)
 
 
+FINDING_DETAIL_RE = re.compile(r"^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$", re.I | re.M | re.ASCII)
+
+
+def _report_finding_markers(body: str):
+    return FINDING_DETAIL_RE.findall(body.replace("\r\n", "\n"))
+
+
 def _status_safe_body(body: str) -> bool:
     if re.search(r"\b(?:current|this|the[ \t]+current)[ \t]+(?:review|report|assessment|inspection)[ \t]+(?:(?:is|was|did|has|remains)[ \t]+)*(?:(?:still[ \t]+)?unfinished|not[ \t]+(?:yet[ \t]+)?(?:finish|finished|complete|completed)|failed[ \t]+to[ \t]+finish|only[ \t]+partially[ \t]+complete|did_not_finish)\b", body, re.I | re.ASCII):
         return False
     lines = body.replace("\r\n", "\n").split("\n")
     historic = re.compile(r"HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*", re.I | re.ASCII)
     current = re.compile(r"CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*", re.I | re.ASCII)
-    finding = re.compile(r"FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*", re.I | re.ASCII)
+    finding = FINDING_DETAIL_RE
     current_fields = [line for line in lines if re.search(r"\bCURRENT_REVIEW_STATUS\b", line, re.I | re.ASCII)]
     if current_fields and (len(current_fields) != 1 or not current.fullmatch(current_fields[0])):
         return False
@@ -475,7 +482,7 @@ def valid_review_report(body: str, verdict: str) -> bool:
     """Reject empty, diagnostic, contradictory or structurally incomplete reports."""
     if len(body.strip()) < 80 or not _status_safe_body(body):
         return False
-    if verdict.upper() == "PASS" and re.search(r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$", body, re.ASCII):
+    if verdict.upper() == "PASS" and _report_finding_markers(body):
         return False
     if verdict.upper().startswith("PASS"):
         normalized = body.lower().replace("no blockers remain", "").replace("no unresolved blockers", "")
@@ -568,8 +575,7 @@ def _cli_prompt(args, scope):
 
 
 def _require_finding_decision(body, decisions):
-    pattern = r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$"
-    matches = re.findall(pattern, body, re.ASCII)
+    matches = _report_finding_markers(body)
     if len({match[0] for match in matches}) != len(matches):
         raise ValueError("report finding IDs must be unique")
     for finding_id, severity, disposition in matches:

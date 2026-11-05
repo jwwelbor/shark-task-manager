@@ -159,6 +159,30 @@ class AdaptiveReviewTests(unittest.TestCase):
             adaptive_review._require_finding_decision(body + '\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage', decisions)
 
 
+    def test_crlf_footer_requires_matching_decision_and_nonclean_verdict(self):
+        scope = {'candidate_commit': 'commit', 'candidate_tree': 'tree', 'diff_sha256': 'diff'}
+        identity = {'commit': 'commit', 'tree': 'tree', 'diff_sha256': 'diff'}
+        body = ('CURRENT_REVIEW_STATUS: COMPLETE\r\n'
+                'Scope: all candidate files reviewed. Findings: input defect. VERDICT: PASS\r\n'
+                'FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\r\n')
+        packet = {'report': body, 'decisions': {'candidate_identity': identity, 'findings': []}}
+        with self.assertRaises(ValueError):
+            adaptive_review._parse_cli_packet(json.dumps(packet), scope)
+        packet['report'] = body.replace('VERDICT: PASS', 'VERDICT: PASS-WITH-TRIAGE')
+        with self.assertRaises(ValueError):
+            adaptive_review._parse_cli_packet(json.dumps(packet), scope)
+        packet['decisions']['findings'] = [{'finding_id': 'F-1', 'file': 'app.go', 'line': 2,
+            'severity': 'non-blocker', 'rule': 'INPUT', 'summary': 'validation',
+            'diagnosis': 'missing check', 'disposition': 'triage', 'reason': 'tracked'}]
+        self.assertEqual(adaptive_review._parse_cli_packet(json.dumps(packet), scope)[0], packet['report'])
+        packet['report'] += 'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage\r\n'
+        with self.assertRaises(ValueError):
+            adaptive_review._parse_cli_packet(json.dumps(packet), scope)
+        packet['decisions']['findings'].append({'finding_id': 'F-2', 'file': 'other.go', 'line': 3,
+            'severity': 'nit', 'rule': 'STYLE', 'summary': 'other issue',
+            'diagnosis': 'incorrect label', 'disposition': 'triage', 'reason': 'tracked'})
+        self.assertEqual(adaptive_review._parse_cli_packet(json.dumps(packet), scope)[0], packet['report'])
+
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')
         self.assertEqual(select_runner(Capabilities(False, True, True, True))['runner_mode'], 'dispatched-six-angle')

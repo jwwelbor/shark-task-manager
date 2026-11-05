@@ -213,5 +213,10 @@
     "name": "past-unfinished-prose",
     "body": "Scope: all candidate files reviewed. Findings: none. In a prior attempt, the review was not complete. This review is complete. VERDICT: PASS",
     "valid": true
+  },
+  {
+    "name": "crlf-clean-pass-finding",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\r\nScope: all files reviewed. Findings: input validation defect. VERDICT: PASS\r\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\r\n",
+    "valid": false
   }
 ]
