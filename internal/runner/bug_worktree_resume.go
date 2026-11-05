@@ -3,15 +3,16 @@ package runner
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 )
 
 // RetainedBugWorktree finds the checkout previously created by shark run for
 // this bug. Ambiguity is surfaced rather than choosing a potentially stale plan.
 func RetainedBugWorktree(ctx context.Context, projectRoot, key string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", projectRoot, "worktree", "list", "--porcelain", "-z")
+	cmd := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", projectRoot, "worktree", "list", "--porcelain", "-z")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("list retained bug worktrees: %w", err)

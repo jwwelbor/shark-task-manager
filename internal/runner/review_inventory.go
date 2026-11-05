@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 )
 
 // ReviewSourceInventory computes the same confined source-change digest used
@@ -23,7 +24,7 @@ func ReviewSourceInventoryForProject(ctx context.Context, root, runtimeProject s
 		return "", fmt.Errorf("review inventory requires an absolute project root")
 	}
 	run := func(args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
+		cmd := gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
 		output, err := cmd.Output()
 		if err != nil {
 			return nil, fmt.Errorf("review inventory git %s: %w", args[0], err)

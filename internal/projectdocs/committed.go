@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 )
 
 type gitDoc struct {
@@ -15,7 +17,7 @@ type gitDoc struct {
 }
 
 func (d gitDoc) git(ctx context.Context, root string, args ...string) ([]byte, error) {
-	return gitCommand(ctx, append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
+	return gitutil.Command(ctx, append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
 }
 
 // VerifyCommitted checks that content is the selected checkout's tracked,
@@ -75,7 +77,7 @@ func (d gitDoc) checkTracked(ctx context.Context) error {
 	if err := ValidateIndexFlags(flags); err != nil {
 		return err
 	}
-	err = gitCommand(ctx, "-c", "core.fsmonitor=false", "-C", d.root, "check-ignore", "--no-index", "-q", "--", d.path).Run()
+	err = gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", d.root, "check-ignore", "--no-index", "-q", "--", d.path).Run()
 	if err == nil {
 		return fmt.Errorf("document is ignored")
 	}
@@ -140,7 +142,7 @@ func (d gitDoc) checkMode(ctx context.Context, path string) error {
 }
 
 func (d gitDoc) checkContent(ctx context.Context, content, committed []byte) error {
-	cmd := gitCommand(ctx, "-c", "core.fsmonitor=false", "-C", d.root, "hash-object", "--path", d.path, "--stdin")
+	cmd := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", d.root, "hash-object", "--path", d.path, "--stdin")
 	cmd.Stdin = bytes.NewReader(content)
 	actual, err := cmd.Output()
 	if err != nil || !bytes.Equal(bytes.TrimSpace(actual), bytes.TrimSpace(committed)) {

@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 )
 
 // WorktreeCreator abstracts git worktree creation and removal so that the run
@@ -29,7 +31,7 @@ type WorktreeCreator interface {
 // GitWorktreeCreator is the production implementation of WorktreeCreator that
 // executes real git commands via os/exec.
 type GitWorktreeCreator struct {
-	// cmdFactory creates an *exec.Cmd. Defaults to exec.CommandContext.
+	// cmdFactory creates an *exec.Cmd. Defaults to cancellation-safe Git.
 	// Tests may replace this to capture commands without execution.
 	cmdFactory func(ctx context.Context, name string, args ...string) *exec.Cmd
 }
@@ -37,15 +39,19 @@ type GitWorktreeCreator struct {
 // NewGitWorktreeCreator creates a GitWorktreeCreator using real git commands.
 func NewGitWorktreeCreator() *GitWorktreeCreator {
 	return &GitWorktreeCreator{
-		cmdFactory: exec.CommandContext,
+		cmdFactory: worktreeGitCommand,
 	}
+}
+
+func worktreeGitCommand(ctx context.Context, _ string, args ...string) *exec.Cmd {
+	return gitutil.Command(ctx, args...)
 }
 
 // CreateWorktree runs: git worktree add <path> -b <branch>
 func (g *GitWorktreeCreator) CreateWorktree(ctx context.Context, repoRoot, path, branch string) error {
 	factory := g.cmdFactory
 	if factory == nil {
-		factory = exec.CommandContext
+		factory = worktreeGitCommand
 	}
 
 	cmd := factory(ctx, "git", "worktree", "add", path, "-b", branch)
@@ -64,7 +70,7 @@ func (g *GitWorktreeCreator) CreateWorktree(ctx context.Context, repoRoot, path,
 func (g *GitWorktreeCreator) RemoveWorktree(ctx context.Context, path string) error {
 	factory := g.cmdFactory
 	if factory == nil {
-		factory = exec.CommandContext
+		factory = worktreeGitCommand
 	}
 
 	cmd := factory(ctx, "git", "worktree", "remove", "--force", path)

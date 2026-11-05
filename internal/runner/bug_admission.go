@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -57,11 +57,11 @@ func validateBugPlanEvidence(ctx context.Context, req gatepersist.Request) error
 }
 
 func validateBugBaselineCommit(ctx context.Context, req gatepersist.Request, baseline string) error {
-	out, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", bugEvidenceProject(req), "cat-file", "-t", baseline).Output()
+	out, err := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", bugEvidenceProject(req), "cat-file", "-t", baseline).Output()
 	if err != nil || strings.TrimSpace(string(out)) != "commit" {
 		return fmt.Errorf("bug_review_baseline %s is not a commit in the selected repository", baseline)
 	}
-	full, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", bugEvidenceProject(req), "rev-parse", "--verify", "--end-of-options", baseline).Output()
+	full, err := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", bugEvidenceProject(req), "rev-parse", "--verify", "--end-of-options", baseline).Output()
 	if err != nil || !strings.EqualFold(strings.TrimSpace(string(full)), baseline) {
 		return fmt.Errorf("bug_review_baseline must be the full commit hash for the selected repository")
 	}

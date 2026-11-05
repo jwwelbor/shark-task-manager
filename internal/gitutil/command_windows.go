@@ -1,6 +1,6 @@
 //go:build windows
 
-package projectdocs
+package gitutil
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// WaitDelay bounds pipe draining if a Git child inherits its output handles.
-func gitCommand(ctx context.Context, args ...string) *exec.Cmd {
+// Command bounds pipe draining if a Git child inherits its output handles.
+func Command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.WaitDelay = 500 * time.Millisecond
 	return cmd

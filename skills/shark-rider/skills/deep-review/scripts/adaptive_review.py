@@ -454,7 +454,7 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
 
 def valid_review_report(body: str, verdict: str) -> bool:
     """Reject empty, diagnostic, contradictory or structurally incomplete reports."""
-    historical = re.sub(r"\b(?:prior|previous|earlier|historical|superseded)(?:[ \t]+[A-Za-z0-9_-]+){0,4}[ \t]+incomplete\b", "", body, flags=re.I | re.ASCII)
+    historical = re.sub(r"\b(?:prior|previous|earlier|historical|superseded)[ \t]+(?:incomplete\b|(?:review|reviews|result|results|attempt|attempts|run|runs)(?:[ \t]+(?:was|were|had|been|did|not|pass|and|remained)){1,7}[ \t]+incomplete\b)", "", body, flags=re.I | re.ASCII)
     if len(body.strip()) < 80 or re.search(r"\bINCOMPLETE\b", historical, re.I | re.ASCII):
         return False
     if verdict.upper().startswith("PASS"):

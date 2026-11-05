@@ -63,5 +63,30 @@
     "name": "prior-and-current-incomplete",
     "body": "Reviewed scope: the previous review was incomplete. Current review is incomplete. Findings: none. VERDICT: PASS",
     "valid": false
+  },
+  {
+    "name": "mixed-previous-and-current",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous and current reviews are incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "previous-finds-current-incomplete",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review found current review incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "previous-but-current-incomplete",
+    "body": "Reviewed scope: all files and callers. Findings: none. Previous review but current is incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "longer-historical-incomplete",
+    "body": "Reviewed scope: all current files and callers. Findings: none. The previous review did not pass and was incomplete. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "historical-plus-current-incomplete",
+    "body": "Reviewed scope: the previous review was incomplete, but current review is incomplete. Findings: none. VERDICT: PASS",
+    "valid": false
   }
 ]

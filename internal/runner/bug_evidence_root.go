@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -122,7 +122,7 @@ func resolveBugEvidenceRoot(ctx context.Context, parentProject, workingDir strin
 		return "", err
 	}
 	run := func(root string, args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
+		return gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
 	}
 	if err := validateSnapshotRepository(parentRepo, workerRepo, run); err != nil {
 		return "", err

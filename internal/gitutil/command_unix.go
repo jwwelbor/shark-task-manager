@@ -1,6 +1,6 @@
 //go:build !windows
 
-package projectdocs
+package gitutil
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// gitCommand cancels the process group so clean-filter children cannot keep
+// Command cancels the process group so clean-filter children cannot keep
 // Git's output pipes open after the caller's deadline.
-func gitCommand(ctx context.Context, args ...string) *exec.Cmd {
+func Command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

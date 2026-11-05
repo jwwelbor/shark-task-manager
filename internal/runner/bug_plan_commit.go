@@ -8,12 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 	"github.com/jwwelbor/shark-task-manager/internal/projectdocs"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
@@ -86,7 +86,7 @@ func verifyPlanGitObjects(ctx context.Context, parent string, identity *gaterun.
 		return err
 	}
 	object := identity.PlanCommit + ":" + filepath.ToSlash(filepath.Join(relative, ref.Pointer))
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", object)
+	cmd := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", object)
 	blob, err := cmd.Output()
 	if err != nil || !strings.EqualFold(strings.TrimSpace(string(blob)), identity.PlanBlob) {
 		return fmt.Errorf("approved plan commit or blob is unavailable")
@@ -95,12 +95,12 @@ func verifyPlanGitObjects(ctx context.Context, parent string, identity *gaterun.
 }
 
 func verifyPlanCommitObject(ctx context.Context, parent, commit string) error {
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "cat-file", "-t", commit)
+	cmd := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", parent, "cat-file", "-t", commit)
 	kind, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
 		return fmt.Errorf("approved plan commit is unavailable")
 	}
-	cmd = exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", commit)
+	cmd = gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", commit)
 	full, err := cmd.Output()
 	if err != nil || !strings.EqualFold(strings.TrimSpace(string(full)), commit) {
 		return fmt.Errorf("approved plan commit identity is invalid")
@@ -143,7 +143,7 @@ func verifyBugPlanRef(ctx context.Context, parent, runID, commit string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", ref)
+	cmd := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", parent, "rev-parse", "--verify", "--end-of-options", ref)
 	out, err := cmd.Output()
 	if err != nil || !strings.EqualFold(strings.TrimSpace(string(out)), commit) {
 		return fmt.Errorf("approved plan retention reference is unavailable or mismatched")
@@ -158,7 +158,7 @@ func retainBugPlanCommit(ctx context.Context, req gatepersist.Request) error {
 		return err
 	}
 	zero := strings.Repeat("0", len(req.PlanCommit))
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", parent, "update-ref", ref, req.PlanCommit, zero)
+	cmd := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", parent, "update-ref", ref, req.PlanCommit, zero)
 	if err := cmd.Run(); err != nil {
 		if verifyErr := verifyBugPlanRef(ctx, parent, req.RunID, req.PlanCommit); verifyErr != nil {
 			return fmt.Errorf("retain approved plan commit: %w", verifyErr)
@@ -184,7 +184,7 @@ func verifyCurrentBugPlan(ctx context.Context, current, dir string, envelope []b
 		return err
 	}
 	run := func(args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "git", append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", current}, args...)...).Output()
+		return gitutil.Command(ctx, append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", current}, args...)...).Output()
 	}
 	repository, relative, err := candidateRepository(ctx, current)
 	if err != nil {
@@ -241,11 +241,11 @@ func verifyCurrentPlanBlobs(ctx context.Context, current, repository, path, poin
 		return "", fmt.Errorf("active project plan changed without approval")
 	}
 	rootGit := func(args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", repository}, args...)...).Output()
+		return gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", repository}, args...)...).Output()
 	}
 	headBlob, headErr := rootGit("rev-parse", "--verify", "--end-of-options", strings.TrimSpace(string(head))+":"+path)
 	indexBlob, indexErr := rootGit("rev-parse", "--verify", "--end-of-options", ":"+path)
-	working := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", current, "hash-object", "--path", pointer, "--stdin")
+	working := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", current, "hash-object", "--path", pointer, "--stdin")
 	working.Stdin = bytes.NewReader(plan)
 	workingBlob, workingErr := working.Output()
 	if headErr != nil || indexErr != nil || workingErr != nil || !bytes.Equal(bytes.TrimSpace(headBlob), bytes.TrimSpace(indexBlob)) || !bytes.Equal(bytes.TrimSpace(headBlob), bytes.TrimSpace(workingBlob)) {
@@ -311,7 +311,7 @@ func bugPlanProvenance(ctx context.Context, req gatepersist.Request) (string, st
 		return "", "", "", err
 	}
 	run := func(args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
+		return gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
 	}
 	commit, err := run("rev-parse", "--verify", "HEAD")
 	if err != nil {
@@ -322,7 +322,7 @@ func bugPlanProvenance(ctx context.Context, req gatepersist.Request) (string, st
 	if err != nil {
 		return "", "", "", err
 	}
-	hash := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--path", ref.Pointer, "--stdin")
+	hash := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", root, "hash-object", "--path", ref.Pointer, "--stdin")
 	hash.Stdin = bytes.NewReader(plan)
 	actual, err := hash.Output()
 	if err != nil || !bytes.Equal(bytes.TrimSpace(actual), bytes.TrimSpace(blob)) {

@@ -11,10 +11,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 )
 
 type bugCandidateScope struct {
@@ -73,7 +74,7 @@ func verifyBugCandidate(ctx context.Context, root string, data []byte) error {
 		return fmt.Errorf("review Shark project location mismatch")
 	}
 	git := func(env []string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
+		cmd := gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
 		cmd.Env = env
 		out, err := cmd.Output()
 		if err != nil {
@@ -96,7 +97,7 @@ func candidateRepository(ctx context.Context, root string) (string, string, erro
 	if err != nil {
 		return "", "", fmt.Errorf("resolve repository path: %w", err)
 	}
-	gitRoot, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", root, "rev-parse", "--show-toplevel").Output()
+	gitRoot, err := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", root, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return "", "", fmt.Errorf("find candidate repository: %w", err)
 	}
@@ -371,7 +372,7 @@ type snapshotGitRunner func(string, ...string) ([]byte, error)
 // validateRetainedSnapshot requires the reviewed snapshot to remain clean and available through QA.
 func validateRetainedSnapshot(ctx context.Context, sourceRoot string, scope bugCandidateScope) error {
 	run := func(root string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
+		cmd := gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", root}, args...)...)
 		return cmd.Output()
 	}
 	if err := sameBugProject(scope.Source.ProjectRoot, scope.ProjectRoot); err != nil {
