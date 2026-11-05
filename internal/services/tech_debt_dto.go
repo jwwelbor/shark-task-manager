@@ -12,7 +12,8 @@ type CreateTechDebtInput struct {
 	// FilePath overrides the default file path for the tech-debt markdown file.
 	// When nil, defaults to docs/plan/tech-debt/<key>.md.
 	FilePath *string `json:"file_path,omitempty"`
-	// Force allows overwriting an existing file at the target path.
+	// Force permits reusing an existing document only when its complete content
+	// exactly matches this request's generated document. It never overwrites.
 	Force bool `json:"force,omitempty"`
 	// Size is an optional canonical Fibonacci size value {1,2,3,5,8,13}.
 	// Nil means "no size set" (stores NULL). Use models.ParseSize to convert

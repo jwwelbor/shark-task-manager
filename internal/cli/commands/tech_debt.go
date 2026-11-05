@@ -212,7 +212,7 @@ func registerTdCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("path", "", "Alias for --file")
 	_ = cmd.Flags().MarkHidden("filename")
 	_ = cmd.Flags().MarkHidden("path")
-	cmd.Flags().Bool("force", false, "Overwrite existing file at target path")
+	cmd.Flags().Bool("force", false, "Reuse an existing file only when its content exactly matches; never overwrite")
 	cmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 	// Repeatable --tag flag. Tag must be registered in the vocabulary
 	// (see `shark tags list` / `shark tags add`).
