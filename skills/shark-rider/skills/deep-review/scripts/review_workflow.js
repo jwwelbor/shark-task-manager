@@ -265,17 +265,14 @@ function validDecisionSet(value) {
 
 function validReport(body) {
   if (typeof body !== 'string' || Array.from(body.trim()).length < 80) return false
-  if (/\bINCOMPLETE\b/i.test(body)) {
-    const lines = body.split(/\r?\n/)
-    if (lines.filter(line => /^CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*$/i.test(line)).length !== 1) return false
-    for (const line of lines) {
-      if (!/\bINCOMPLETE\b/i.test(line)) continue
-      if (/^HISTORICAL_REVIEW_STATUS:[ \t]*INCOMPLETE[ \t]*$/i.test(line)) continue
-      if (/^FINDING_DETAIL:[ \t]+/i.test(line) && !/\b(review|current|coverage)\b/i.test(line)) continue
-      return false
-    }
-    if (/\bcurrent\b[^.\n;]*\b(?:too|also|same)\b/i.test(body)) return false
-  }
+  const lines = body.replace(/\r\n/g, '\n').split('\n')
+  const historical = /^HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*$/i
+  const finding = /^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*$/i
+  const histories = lines.flatMap((line, index) => historical.test(line) ? [index] : [])
+  if (histories.length && (histories.length !== 1 || lines.slice(histories[0] + 1).some(line => line.trim()))) return false
+  const special = histories.length > 0 || lines.some(line => finding.test(line))
+  if (special && lines.filter(line => /^CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*$/i.test(line)).length !== 1) return false
+  if (lines.some(line => /\bINCOMPLETE\b/i.test(line) && !finding.test(line))) return false
   return /\b(scope|coverage)\b/i.test(body) && /\b(findings|defects)\b/i.test(body)
 }
 

@@ -131,7 +131,7 @@ class AdaptiveReviewTests(unittest.TestCase):
 
     def test_failed_report_can_describe_product_finding(self):
         body = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
-                'FINDING_DETAIL: application has incomplete validation of external input.\n'
+                'FINDING_DETAIL: INCOMPLETE VALIDATION\nFINDING_CONTEXT: application external input validation is deficient.\n'
                 'Scope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL')
         self.assertTrue(adaptive_review.valid_review_report(body, 'FAIL'))
         self.assertFalse(adaptive_review.valid_review_report(body + '\nThe current review is incomplete.', 'FAIL'))

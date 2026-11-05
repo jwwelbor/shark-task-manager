@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
+import threading
 import unittest
 from unittest import mock
 
@@ -12,8 +13,7 @@ import source_inventory
 from bounded_git import OutputLimitExceeded, run
 
 
-@unittest.skipIf(os.name == 'nt', 'Unix process groups required')
-class BoundedGitTests(unittest.TestCase):
+class PortableCaptureTests(unittest.TestCase):
     def test_output_limit_stops_noisy_command(self):
         for stream in ('stdout', 'stderr'):
             with self.subTest(stream=stream), self.assertRaises(OutputLimitExceeded):
@@ -23,6 +23,24 @@ class BoundedGitTests(unittest.TestCase):
         result = run([sys.executable, '-c', "import sys; print('ok'); print('problem', file=sys.stderr)"], capture_output=True, text=True, max_output_bytes=1024)
         self.assertEqual(result.stdout, 'ok\n')
         self.assertEqual(result.stderr, 'problem\n')
+
+
+@unittest.skipIf(os.name == 'nt', 'Unix process groups required')
+class BoundedGitTests(unittest.TestCase):
+    def test_capture_read_failure_reaches_inventory_caller(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(['git', '-C', tmp, 'init', '-b', 'main'], check=True, capture_output=True)
+            real_read = os.read
+            def fail_reader(fd, size):
+                if threading.current_thread().name == 'bounded-git-reader':
+                    raise OSError('injected capture read error')
+                return real_read(fd, size)
+            (Path(tmp) / 'dirty').write_text('untracked')
+            with mock.patch('bounded_git.os.read', side_effect=fail_reader):
+                with self.assertRaisesRegex(OSError, 'failed to read captured'):
+                    run(['git', '-C', tmp, 'status', '--porcelain'], check=True, capture_output=True)
+                with self.assertRaisesRegex(OSError, 'failed to read captured'):
+                    source_inventory.source_inventory(Path(tmp))
 
     def test_detached_filter_cannot_hold_captured_output_open(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -39,18 +57,22 @@ class BoundedGitTests(unittest.TestCase):
             git('config', 'filter.slow.clean', f'{sys.executable} filter.py')
             (root / '.gitattributes').write_text('source filter=slow\n')
             (root / 'source').write_text('edit')
-            started = time.monotonic()
-            try:
-                with self.assertRaises(subprocess.TimeoutExpired):
-                    run(['git', '-C', tmp, 'status', '--porcelain'], timeout=0.4, capture_output=True)
-                self.assertLess(time.monotonic() - started, 2)
-                self.assertTrue((root / 'detached.pid').exists())
-            finally:
-                if (root / 'detached.pid').exists():
+            for attempt in range(3):
+                with self.subTest(attempt=attempt):
+                    started = time.monotonic()
                     try:
-                        os.kill(int((root / 'detached.pid').read_text()), signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                        with self.assertRaises(subprocess.TimeoutExpired):
+                            run(['git', '-C', tmp, 'status', '--porcelain'], timeout=0.4, capture_output=True)
+                        self.assertLess(time.monotonic() - started, 2)
+                        self.assertTrue((root / 'detached.pid').exists())
+                        self.assertFalse(any(t.name == 'bounded-git-reader' for t in threading.enumerate()), 'capture reader survived timeout')
+                    finally:
+                        if (root / 'detached.pid').exists():
+                            try:
+                                os.kill(int((root / 'detached.pid').read_text()), signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                            (root / 'detached.pid').unlink()
 
     def test_forced_shark_inventory_respects_deadline(self):
         with tempfile.TemporaryDirectory() as tmp:

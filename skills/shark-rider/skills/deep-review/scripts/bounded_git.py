@@ -44,35 +44,56 @@ def run(argv, *, timeout=None, max_output_bytes=MAX_OUTPUT_BYTES, **kwargs):
         proc = subprocess.Popen(argv, **kwargs)
         output = {}
         exceeded = threading.Event()
+        stopping = threading.Event()
+        read_errors = []
         def read_pipe(name, stream):
             data = bytearray()
             try:
-                while True:
-                    chunk = os.read(stream.fileno(), 65536)
+                while not stopping.is_set():
+                    try:
+                        chunk = os.read(stream.fileno(), 65536)
+                    except BlockingIOError:
+                        stopping.wait(0.01)
+                        continue
                     if not chunk:
                         break
                     if len(data) + len(chunk) > max_output_bytes:
                         exceeded.set()
                         break
                     data.extend(chunk)
+            except OSError as exc:
+                read_errors.append(exc)
+                exceeded.set()
             finally:
                 output[name] = bytes(data)
-                stream.close()
-        threads = [threading.Thread(target=read_pipe, args=(name, stream), daemon=True)
+                try:
+                    stream.close()
+                except OSError as exc:
+                    read_errors.append(exc)
+                    exceeded.set()
+        threads = [threading.Thread(target=read_pipe, args=(name, stream), name='bounded-git-reader', daemon=True)
                    for name, stream in (('stdout', proc.stdout), ('stderr', proc.stderr)) if stream is not None]
-        for thread in threads:
-            thread.start()
         deadline = time.monotonic() + timeout
         try:
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    os.set_blocking(stream.fileno(), False)
+            for thread in threads:
+                thread.start()
             while proc.poll() is None or any(thread.is_alive() for thread in threads):
+                if read_errors:
+                    raise OSError('failed to read captured command output') from read_errors[0]
                 if exceeded.is_set():
                     raise OutputLimitExceeded(f'command output exceeds {max_output_bytes} bytes')
                 if time.monotonic() >= deadline:
                     raise subprocess.TimeoutExpired(argv, timeout)
                 exceeded.wait(min(0.02, max(0, deadline - time.monotonic())))
+            if read_errors:
+                raise OSError('failed to read captured command output') from read_errors[0]
             if exceeded.is_set():
                 raise OutputLimitExceeded(f'command output exceeds {max_output_bytes} bytes')
         except BaseException:
+            stopping.set()
             if os.name != 'nt':
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
@@ -84,6 +105,12 @@ def run(argv, *, timeout=None, max_output_bytes=MAX_OUTPUT_BYTES, **kwargs):
                 proc.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 pass
+            streams = [stream for stream in (proc.stdout, proc.stderr) if stream is not None]
+            for thread, stream in zip(threads, streams):
+                if thread.ident is not None:
+                    thread.join(timeout=0.2)
+                else:
+                    stream.close()
             raise
         if text_mode:
             encoding = kwargs.get('encoding') or getattr(proc, 'encoding', None) or 'utf-8'

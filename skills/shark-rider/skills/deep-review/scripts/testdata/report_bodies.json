@@ -121,12 +121,12 @@
   },
   {
     "name": "structured-previous-incomplete",
-    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nReviewed scope: all current candidate files and callers. Findings: none. VERDICT: PASS",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nReviewed scope: all current candidate files and callers. Findings: none. VERDICT: PASS\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH",
     "valid": true
   },
   {
     "name": "structured-finding-incomplete",
-    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: the application has incomplete validation of external data.\nReviewed scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE VALIDATION\nFINDING_CONTEXT: external input validation is deficient.\nReviewed scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS",
     "valid": true
   },
   {
@@ -142,6 +142,26 @@
   {
     "name": "structured-duplicate-status",
     "body": "CURRENT_REVIEW_STATUS: COMPLETE\nCURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nReviewed scope: all current files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "contradictory-finding-anaphora",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: The prior attempt was incomplete and so is this one.\nScope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "contradictory-history-anaphora",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nThis review is as well. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "structured-product-behavior",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR\nFINDING_CONTEXT: external input coverage is missing.\nScope: all files. Findings: one accepted for triage. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "structured-history-followed-by-ambiguous-current",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nThis review is as well. Scope: all files. Findings: none. VERDICT: PASS",
     "valid": false
   }
 ]

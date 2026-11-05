@@ -454,20 +454,17 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
 
 
 def _status_safe_body(body: str) -> bool:
-    if not re.search(r"\bINCOMPLETE\b", body, re.I | re.ASCII):
-        return True
     lines = body.replace("\r\n", "\n").split("\n")
-    if sum(bool(re.fullmatch(r"CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*", line, re.I | re.ASCII)) for line in lines) != 1:
+    historic = re.compile(r"HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*", re.I | re.ASCII)
+    current = re.compile(r"CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*", re.I | re.ASCII)
+    finding = re.compile(r"FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*", re.I | re.ASCII)
+    histories = [i for i, line in enumerate(lines) if historic.fullmatch(line)]
+    if histories and (len(histories) != 1 or any(line.strip() for line in lines[histories[0] + 1:])):
         return False
-    for line in lines:
-        if not re.search(r"\bINCOMPLETE\b", line, re.I | re.ASCII):
-            continue
-        if re.fullmatch(r"HISTORICAL_REVIEW_STATUS:[ \t]*INCOMPLETE[ \t]*", line, re.I | re.ASCII):
-            continue
-        if re.match(r"FINDING_DETAIL:[ \t]+", line, re.I | re.ASCII) and not re.search(r"\b(review|current|coverage)\b", line, re.I | re.ASCII):
-            continue
+    special = bool(histories) or any(finding.fullmatch(line) for line in lines)
+    if special and sum(bool(current.fullmatch(line)) for line in lines) != 1:
         return False
-    return not re.search(r"\bcurrent\b[^.\n;]*\b(?:too|also|same)\b", body, re.I | re.ASCII)
+    return all(not re.search(r"\bINCOMPLETE\b", line, re.I | re.ASCII) or bool(finding.fullmatch(line)) for line in lines)
 
 
 def valid_review_report(body: str, verdict: str) -> bool:
