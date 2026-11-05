@@ -1,4 +1,4 @@
-"""Run review Git commands with a deadline and Unix process-group cleanup."""
+"""Run review commands with a deadline and bounded captured output."""
 from contextlib import ExitStack
 import math
 import os
@@ -6,32 +6,35 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
+
+MAX_OUTPUT_BYTES = 128 * 1024 * 1024
 
 
-def run(argv, *, timeout=None, **kwargs):
+class OutputLimitExceeded(ValueError):
+    """A command exceeded the maximum captured output size."""
+
+
+def run(argv, *, timeout=None, max_output_bytes=MAX_OUTPUT_BYTES, **kwargs):
     timeout = float(os.environ.get('SHARK_REVIEW_GIT_TIMEOUT', '120')) if timeout is None else timeout
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('SHARK_REVIEW_GIT_TIMEOUT must be a positive finite number')
+    if not isinstance(max_output_bytes, int) or max_output_bytes <= 0:
+        raise ValueError('output limit must be a positive integer')
     check = kwargs.pop('check', False)
     input_data = kwargs.pop('input', None)
-    capture_output = kwargs.pop('capture_output', False)
-    if capture_output:
+    if kwargs.pop('capture_output', False):
         if 'stdout' in kwargs or 'stderr' in kwargs:
             raise ValueError('capture_output cannot be combined with stdout or stderr')
         kwargs['stdout'] = kwargs['stderr'] = subprocess.PIPE
     text_mode = bool(kwargs.get('text') or kwargs.get('universal_newlines') or kwargs.get('encoding') or kwargs.get('errors'))
     with ExitStack() as files:
-        def temporary_stream():
-            options = {'mode': 'w+t', 'encoding': kwargs.get('encoding'), 'errors': kwargs.get('errors')} if text_mode else {'mode': 'w+b'}
-            return files.enter_context(tempfile.TemporaryFile(**options))
-        outputs = {}
-        for name in ('stdout', 'stderr'):
-            if kwargs.get(name) == subprocess.PIPE:
-                outputs[name] = kwargs[name] = temporary_stream()
         if input_data is not None:
             if 'stdin' in kwargs:
                 raise ValueError('input cannot be combined with stdin')
-            stream = temporary_stream()
+            options = {'mode': 'w+t', 'encoding': kwargs.get('encoding'), 'errors': kwargs.get('errors')} if text_mode else {'mode': 'w+b'}
+            stream = files.enter_context(tempfile.TemporaryFile(**options))
             stream.write(input_data)
             stream.flush()
             stream.seek(0)
@@ -39,30 +42,57 @@ def run(argv, *, timeout=None, **kwargs):
         if os.name != 'nt':
             kwargs['start_new_session'] = True
         proc = subprocess.Popen(argv, **kwargs)
+        output = {}
+        exceeded = threading.Event()
+        def read_pipe(name, stream):
+            data = bytearray()
+            try:
+                while True:
+                    chunk = os.read(stream.fileno(), 65536)
+                    if not chunk:
+                        break
+                    if len(data) + len(chunk) > max_output_bytes:
+                        exceeded.set()
+                        break
+                    data.extend(chunk)
+            finally:
+                output[name] = bytes(data)
+                stream.close()
+        threads = [threading.Thread(target=read_pipe, args=(name, stream), daemon=True)
+                   for name, stream in (('stdout', proc.stdout), ('stderr', proc.stderr)) if stream is not None]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + timeout
         try:
-            proc.communicate(timeout=timeout)
+            while proc.poll() is None or any(thread.is_alive() for thread in threads):
+                if exceeded.is_set():
+                    raise OutputLimitExceeded(f'command output exceeds {max_output_bytes} bytes')
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(argv, timeout)
+                exceeded.wait(min(0.02, max(0, deadline - time.monotonic())))
+            if exceeded.is_set():
+                raise OutputLimitExceeded(f'command output exceeds {max_output_bytes} bytes')
         except BaseException:
             if os.name != 'nt':
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            else:
+            elif proc.poll() is None:
                 proc.kill()
             try:
                 proc.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 pass
             raise
-        values = {}
-        for name, stream in outputs.items():
-            stream.seek(0)
-            values[name] = stream.read()
-        result = subprocess.CompletedProcess(argv, proc.returncode, values.get('stdout'), values.get('stderr'))
+        if text_mode:
+            encoding = kwargs.get('encoding') or getattr(proc, 'encoding', None) or 'utf-8'
+            errors = kwargs.get('errors') or 'strict'
+            output = {key: value.decode(encoding, errors).replace('\r\n', '\n').replace('\r', '\n') for key, value in output.items()}
+        result = subprocess.CompletedProcess(argv, proc.returncode, output.get('stdout'), output.get('stderr'))
         if check:
             result.check_returncode()
         return result
-
 
 
 def main():
@@ -70,10 +100,12 @@ def main():
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, terminate)
     try:
-        result = run(['git', '-c', 'core.fsmonitor=false', *sys.argv[1:]])
+        result = run(['git', '-c', 'core.fsmonitor=false', *sys.argv[1:]], capture_output=True)
+        sys.stdout.buffer.write(result.stdout)
+        sys.stderr.buffer.write(result.stderr)
         return result.returncode
-    except (KeyboardInterrupt, subprocess.TimeoutExpired) as exc:
-        print(f'review Git command interrupted or timed out: {exc}', file=sys.stderr)
+    except (KeyboardInterrupt, subprocess.TimeoutExpired, OutputLimitExceeded) as exc:
+        print(f'review Git command interrupted, timed out, or exceeded its output limit: {exc}', file=sys.stderr)
         return 1
 
 

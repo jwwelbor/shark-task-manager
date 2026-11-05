@@ -9,11 +9,21 @@ import unittest
 from unittest import mock
 
 import source_inventory
-from bounded_git import run
+from bounded_git import OutputLimitExceeded, run
 
 
 @unittest.skipIf(os.name == 'nt', 'Unix process groups required')
 class BoundedGitTests(unittest.TestCase):
+    def test_output_limit_stops_noisy_command(self):
+        for stream in ('stdout', 'stderr'):
+            with self.subTest(stream=stream), self.assertRaises(OutputLimitExceeded):
+                run([sys.executable, '-c', f"import sys; sys.{stream}.buffer.write(b'x' * 1000000)"], capture_output=True, max_output_bytes=1024, timeout=5)
+
+    def test_bounded_capture_preserves_text_and_errors(self):
+        result = run([sys.executable, '-c', "import sys; print('ok'); print('problem', file=sys.stderr)"], capture_output=True, text=True, max_output_bytes=1024)
+        self.assertEqual(result.stdout, 'ok\n')
+        self.assertEqual(result.stderr, 'problem\n')
+
     def test_detached_filter_cannot_hold_captured_output_open(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

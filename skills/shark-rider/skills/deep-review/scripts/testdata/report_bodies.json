@@ -118,5 +118,30 @@
     "name": "historical-description-without-status-token",
     "body": "Reviewed scope: all current files and callers. Findings: none. The previous independent review did not finish; this review is complete. VERDICT: PASS",
     "valid": true
+  },
+  {
+    "name": "structured-previous-incomplete",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nReviewed scope: all current candidate files and callers. Findings: none. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "structured-finding-incomplete",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: the application has incomplete validation of external data.\nReviewed scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "structured-current-incomplete",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: current review is incomplete.\nReviewed scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "structured-history-current-too",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nCurrent review is too. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "structured-duplicate-status",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nCURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nReviewed scope: all current files. Findings: none. VERDICT: PASS",
+    "valid": false
   }
 ]

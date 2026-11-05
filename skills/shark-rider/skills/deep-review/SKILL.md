@@ -242,4 +242,4 @@ Read the angle prompts and consolidator only when that runner is selected:
 | `references/angle-f-standards.md` | Standards, security, error handling |
 | `references/consolidator.md` | Verification, triage, evidence-mode report |
 
-Review report bodies containing the word `INCOMPLETE` are rejected, including historical prose, because the status may refer to the current review. Describe a superseded attempt without that status token and link its original evidence. Review Git commands use a 120-second deadline by default; set `SHARK_REVIEW_GIT_TIMEOUT` to a positive number of seconds when the repository needs a different limit.
+When a report must use the word `INCOMPLETE` for a finding or prior attempt, include a separate `CURRENT_REVIEW_STATUS: COMPLETE` line and use `FINDING_DETAIL: ...` for a finding or the exact line `HISTORICAL_REVIEW_STATUS: INCOMPLETE` for a prior attempt. Other uses of the word are rejected; do not describe the current review as incomplete in a completed report. Review Git commands use a 120-second deadline by default; set `SHARK_REVIEW_GIT_TIMEOUT` to a positive number of seconds when the repository needs a different limit.

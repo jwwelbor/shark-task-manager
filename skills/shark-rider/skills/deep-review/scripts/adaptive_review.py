@@ -453,9 +453,26 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
     _check_raw_findings(raw_findings, by_key, verdict)
 
 
+def _status_safe_body(body: str) -> bool:
+    if not re.search(r"\bINCOMPLETE\b", body, re.I | re.ASCII):
+        return True
+    lines = body.replace("\r\n", "\n").split("\n")
+    if sum(bool(re.fullmatch(r"CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*", line, re.I | re.ASCII)) for line in lines) != 1:
+        return False
+    for line in lines:
+        if not re.search(r"\bINCOMPLETE\b", line, re.I | re.ASCII):
+            continue
+        if re.fullmatch(r"HISTORICAL_REVIEW_STATUS:[ \t]*INCOMPLETE[ \t]*", line, re.I | re.ASCII):
+            continue
+        if re.match(r"FINDING_DETAIL:[ \t]+", line, re.I | re.ASCII) and not re.search(r"\b(review|current|coverage)\b", line, re.I | re.ASCII):
+            continue
+        return False
+    return not re.search(r"\bcurrent\b[^.\n;]*\b(?:too|also|same)\b", body, re.I | re.ASCII)
+
+
 def valid_review_report(body: str, verdict: str) -> bool:
     """Reject empty, diagnostic, contradictory or structurally incomplete reports."""
-    if len(body.strip()) < 80 or re.search(r"\bINCOMPLETE\b", body, re.I | re.ASCII):
+    if len(body.strip()) < 80 or not _status_safe_body(body):
         return False
     if verdict.upper().startswith("PASS"):
         normalized = body.lower().replace("no blockers remain", "").replace("no unresolved blockers", "")

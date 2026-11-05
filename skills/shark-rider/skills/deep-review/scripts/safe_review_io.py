@@ -13,8 +13,10 @@ def _read_with_shark(path, limit):
     executable = os.environ.get('SHARK_REVIEW_INVENTORY_BIN', 'shark')
     try:
         data = run_bounded_git([executable, 'admin', 'review-read-artifact', str(path), str(limit)],
-                              check=True, capture_output=True).stdout
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                              check=True, capture_output=True, max_output_bytes=limit).stdout
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError('Shark review artifact read timed out') from exc
+    except (OSError, subprocess.CalledProcessError) as exc:
         raise ValueError('safe review reads require an up-to-date Shark binary') from exc
     if len(data) > limit:
         raise ValueError('review artifact exceeds size limit')

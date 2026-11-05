@@ -129,6 +129,13 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertEqual(json.loads(failed_io.stdout)['verdict'], 'INCOMPLETE')
             self.assertTrue(second_report.exists())
 
+    def test_failed_report_can_describe_product_finding(self):
+        body = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
+                'FINDING_DETAIL: application has incomplete validation of external input.\n'
+                'Scope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL')
+        self.assertTrue(adaptive_review.valid_review_report(body, 'FAIL'))
+        self.assertFalse(adaptive_review.valid_review_report(body + '\nThe current review is incomplete.', 'FAIL'))
+
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')
         self.assertEqual(select_runner(Capabilities(False, True, True, True))['runner_mode'], 'dispatched-six-angle')

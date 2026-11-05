@@ -142,8 +142,40 @@ func validateUniqueBugReviewHeader(header string) error {
 	}
 	return nil
 }
+
+var bugCurrentComplete = regexp.MustCompile(`(?i)^CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*$`)
+var bugHistoricalStatus = regexp.MustCompile(`(?i)^HISTORICAL_REVIEW_STATUS:[ \t]*INCOMPLETE[ \t]*$`)
+var bugFindingDetail = regexp.MustCompile(`(?i)^FINDING_DETAIL:[ \t]+`)
+var bugReviewTerms = regexp.MustCompile(`(?i)\b(review|current|coverage)\b`)
+var bugCurrentAlso = regexp.MustCompile(`(?i)\bcurrent\b[^.\n;]*\b(too|also|same)\b`)
+
+func statusSafeBody(body string) bool {
+	if !bugIncompleteReport.MatchString(body) {
+		return true
+	}
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	count := 0
+	for _, line := range lines {
+		if bugCurrentComplete.MatchString(line) {
+			count++
+		}
+	}
+	if count != 1 {
+		return false
+	}
+	for _, line := range lines {
+		if !bugIncompleteReport.MatchString(line) || bugHistoricalStatus.MatchString(line) {
+			continue
+		}
+		if bugFindingDetail.MatchString(line) && !bugReviewTerms.MatchString(line) {
+			continue
+		}
+		return false
+	}
+	return !bugCurrentAlso.MatchString(body)
+}
 func validateBugReviewBody(header, body string) error {
-	if !utf8.ValidString(body) || bugIncompleteReport.MatchString(body) || utf8.RuneCountInString(strings.TrimSpace(body)) < 80 {
+	if !utf8.ValidString(body) || !statusSafeBody(body) || utf8.RuneCountInString(strings.TrimSpace(body)) < 80 {
 		return fmt.Errorf("review report is incomplete")
 	}
 	verdict := bugReviewVerdict.FindStringSubmatch(header)
