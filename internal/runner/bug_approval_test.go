@@ -213,3 +213,14 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 		})
 	}
 }
+
+func TestBugApprovalRoutingFailsClosedWithoutWorkflow(t *testing.T) {
+	resolve := BugApprovalTargetResolver(nil)
+	target, ok := resolve("plan_review", "pass")
+	require.False(t, ok)
+	require.Empty(t, target)
+	admit := NewBugGateAdmissionForWorkflow(nil, nil, nil)
+	require.NotPanics(t, func() {
+		require.NoError(t, admit(context.Background(), gatepersist.Request{EntityType: models.EntityTypeTask}))
+	})
+}

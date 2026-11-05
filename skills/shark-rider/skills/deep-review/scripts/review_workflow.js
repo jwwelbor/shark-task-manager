@@ -264,7 +264,9 @@ function validDecisionSet(value) {
 }
 
 function validReport(body) {
-  if (typeof body !== 'string' || Array.from(body.trim()).length < 80 || /\bINCOMPLETE\b/i.test(body)) return false
+  if (typeof body !== 'string' || Array.from(body.trim()).length < 80) return false
+  const current = body.replace(/\b(?:prior|previous|earlier|historical|superseded)(?:[ \t]+[A-Za-z0-9_-]+){0,4}[ \t]+incomplete\b/gi, '')
+  if (/\bINCOMPLETE\b/i.test(current)) return false
   return /\b(scope|coverage)\b/i.test(body) && /\b(findings|defects)\b/i.test(body)
 }
 

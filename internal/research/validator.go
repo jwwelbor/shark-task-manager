@@ -3,7 +3,6 @@ package research
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +39,11 @@ func ValidateEntity(projectRoot string, entity models.Entity) error {
 // ValidateEntityAt uses the parent project's recipe catalog and resolves the
 // report in the selected project checkout.
 func ValidateEntityAt(projectRoot, artifactRoot string, entity models.Entity) error {
+	return ValidateEntityAtContext(context.Background(), projectRoot, artifactRoot, entity)
+}
+
+// ValidateEntityAtContext validates research evidence with caller cancellation.
+func ValidateEntityAtContext(ctx context.Context, projectRoot, artifactRoot string, entity models.Entity) error {
 	catalog, err := LoadCatalog(projectRoot)
 	if err != nil {
 		return err
@@ -48,7 +52,7 @@ func ValidateEntityAt(projectRoot, artifactRoot string, entity models.Entity) er
 	if err != nil {
 		return err
 	}
-	report, reportBody, err := readResearchArtifact(artifactRoot, paths.Report, entity.GetEntityType() == models.EntityTypeBug)
+	report, reportBody, err := readResearchArtifact(ctx, artifactRoot, paths.Report, entity.GetEntityType() == models.EntityTypeBug)
 	if err != nil {
 		return fmt.Errorf("research report: %w", err)
 	}
@@ -298,7 +302,7 @@ func capabilityMapHasDecision(body string) bool {
 	return false
 }
 
-func readResearchArtifact(root, path string, committed bool) (artifact, string, error) {
+func readResearchArtifact(ctx context.Context, root, path string, committed bool) (artifact, string, error) {
 	if !committed {
 		return readArtifact(path)
 	}
@@ -306,11 +310,11 @@ func readResearchArtifact(root, path string, committed bool) (artifact, string, 
 	if err != nil || !filepath.IsLocal(relative) {
 		return artifact{}, "", fmt.Errorf("research report is outside project")
 	}
-	data, err := projectdocs.ReadBounded(root, relative, math.MaxInt64-1)
+	data, err := projectdocs.ReadBounded(root, relative, projectdocs.MaxDocumentBytes)
 	if err != nil {
 		return artifact{}, "", err
 	}
-	if err := projectdocs.VerifyCommitted(context.Background(), root, relative, data); err != nil {
+	if err := projectdocs.VerifyCommitted(ctx, root, relative, data); err != nil {
 		return artifact{}, "", err
 	}
 	return parseArtifact(path, data)

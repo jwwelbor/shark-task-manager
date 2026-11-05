@@ -36,17 +36,32 @@
   },
   {
     "name": "short-unicode",
-    "body": "Scope Findings VERDICT: PASS 🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂",
+    "body": "Scope Findings VERDICT: PASS \ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42",
     "valid": false
   },
   {
     "name": "unicode-adjacent-scope",
-    "body": "Reviewed 审scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
+    "body": "Reviewed \u5ba1scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
     "valid": true
   },
   {
     "name": "unicode-verdict-space",
-    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT:\u00a0PASS",
+    "valid": false
+  },
+  {
+    "name": "prior-incomplete-review",
+    "body": "Reviewed scope: all current candidate files and callers. Findings: none. The previous review was incomplete. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "earlier-incomplete-review",
+    "body": "Reviewed scope: all current candidate files and callers. Findings: none. The earlier incomplete review is superseded. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "prior-and-current-incomplete",
+    "body": "Reviewed scope: the previous review was incomplete. Current review is incomplete. Findings: none. VERDICT: PASS",
     "valid": false
   }
 ]

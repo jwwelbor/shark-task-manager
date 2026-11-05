@@ -887,10 +887,8 @@ func resolveEntity(
 		return NextResponse{}, fmt.Errorf("failed to read status for %s: %w", normalizedKey, err)
 	}
 	currentStatus := nextInfo.CurrentStatus
-	if strategy.mode == nextResolutionMode && entityType == "bug" && cache.bugWorkflow != nil {
-		if err := configworkflow.ValidateBugEvidenceRoutes(cache.bugWorkflow); err != nil {
-			return NextResponse{}, fmt.Errorf("invalid bug workflow: %w", err)
-		}
+	if err := validateBugNextWorkflow(cache, strategy, entityType); err != nil {
+		return NextResponse{}, err
 	}
 
 	resp := NextResponse{
@@ -1070,18 +1068,9 @@ func resolveEntity(
 		return NextResponse{}, err
 	}
 	resp.Prompt = attached
-	if strategy.mode == nextResolutionMode && entityType == "bug" && cache.bugWorkflow != nil {
-		resp.Prompt, err = bugParentProjectInstructions(resp.Prompt)
-		if err != nil {
-			return NextResponse{}, fmt.Errorf("resolve parent project for %s: %w", normalizedKey, err)
-		}
-	}
-	if strategy.mode == nextResolutionMode && entityType == "bug" && cache.bugWorkflow != nil && cache.bugWorkflow.GetResultContract("plan_review") == configworkflow.ResultContractGateResultV1 && cache.approvedBugPlan != nil && runner.BugNeedsApprovedPlan(cache.bugWorkflow.ResolveAlias(currentStatus)) {
-		plan, planErr := cache.approvedBugPlan(ctx, normalizedKey, cache.bugWorkingDir)
-		if planErr != nil {
-			return NextResponse{}, fmt.Errorf("resolve approved plan for %s: %w", normalizedKey, planErr)
-		}
-		resp.Prompt = runner.AppendApprovedBugPlan(resp.Prompt, plan)
+	resp.Prompt, err = enrichBugNextPrompt(ctx, cache, strategy, entityType, normalizedKey, currentStatus, resp.Prompt)
+	if err != nil {
+		return NextResponse{}, err
 	}
 
 	// Hash the fully assembled prompt — post-assembly, including the
@@ -1095,6 +1084,34 @@ func resolveEntity(
 	resp.PromptBytes = len(resp.Prompt)
 
 	return resp, nil
+}
+
+func validateBugNextWorkflow(cache *nextAdapterCache, strategy entityResolutionStrategy, entityType string) error {
+	if strategy.mode != nextResolutionMode || entityType != "bug" || cache.bugWorkflow == nil {
+		return nil
+	}
+	if err := configworkflow.ValidateBugEvidenceRoutes(cache.bugWorkflow); err != nil {
+		return fmt.Errorf("invalid bug workflow: %w", err)
+	}
+	return nil
+}
+
+func enrichBugNextPrompt(ctx context.Context, cache *nextAdapterCache, strategy entityResolutionStrategy, entityType, key, status, prompt string) (string, error) {
+	if strategy.mode != nextResolutionMode || entityType != "bug" || cache.bugWorkflow == nil {
+		return prompt, nil
+	}
+	prompt, err := bugParentProjectInstructions(prompt)
+	if err != nil {
+		return "", fmt.Errorf("resolve parent project for %s: %w", key, err)
+	}
+	if cache.bugWorkflow.GetResultContract("plan_review") != configworkflow.ResultContractGateResultV1 || cache.approvedBugPlan == nil || !runner.BugNeedsApprovedPlan(cache.bugWorkflow.ResolveAlias(status)) {
+		return prompt, nil
+	}
+	plan, err := cache.approvedBugPlan(ctx, key, cache.bugWorkingDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve approved plan for %s: %w", key, err)
+	}
+	return runner.AppendApprovedBugPlan(prompt, plan), nil
 }
 
 // resolvedResultContract returns nextInfo's REQ-F-006 result_contract,

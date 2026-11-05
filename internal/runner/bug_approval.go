@@ -182,6 +182,7 @@ func resolveApprovedPlanSnapshot(ctx context.Context, projectRoot, workingDir st
 	return ApprovedPlan{Pointer: ref.Pointer, Bytes: plan}, err
 }
 
+// AppendApprovedBugPlan supplies the retained plan bytes to a downstream worker.
 func AppendApprovedBugPlan(prompt string, plan ApprovedPlan) string {
 	hash := sha256.Sum256(plan.Bytes)
 	return fmt.Sprintf("%s\n\nThe following is the authoritative approved repair plan at %s (sha256:%x). Use these exact bytes for the approved approach and carry that path and digest in your evidence; a material change requires a new plan review.\n\n%s\n", prompt, plan.Pointer, hash, plan.Bytes)
@@ -197,15 +198,15 @@ func BugNeedsApprovedPlan(status string) bool {
 	}
 }
 
-// NewBugGateAdmission binds downstream evidence to completed prior gates.
-// Production supplies the parent workflow's bug-status normalizer; callers
-// without one retain canonical-only matching for existing integrations.
 type bugSuccessTarget func(gate, outcome string) (string, bool)
 
 // BugApprovalTargetResolver resolves a success receipt against the live bug
 // workflow, including configured outcome names and intermediate destinations.
 func BugApprovalTargetResolver(wf *workflow.Service) bugSuccessTarget {
 	return func(gate, outcome string) (string, bool) {
+		if wf == nil {
+			return "", false
+		}
 		target, ok := wf.GetOutcomes(gate)[outcome]
 		return target, ok && target != "" && wf.GetOutcomeRoles(gate)[outcome] == gateresult.RoleSuccess
 	}
@@ -225,6 +226,7 @@ func defaultBugSuccessTarget(gate, outcome string) (string, bool) {
 	}
 }
 
+// NewBugGateAdmission binds downstream evidence using canonical status names.
 func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize ...func(string) string) func(context.Context, gatepersist.Request) error {
 	status := func(value string) string { return value }
 	if len(normalize) > 0 && normalize[0] != nil {
@@ -236,6 +238,9 @@ func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.Histo
 // NewBugGateAdmissionForWorkflow uses the configured success routes rather
 // than assuming canonical status names for prior approvals.
 func NewBugGateAdmissionForWorkflow(notes gatepersist.NoteReader, history gatepersist.HistoryReader, wf *workflow.Service) func(context.Context, gatepersist.Request) error {
+	if wf == nil {
+		return newBugGateAdmission(notes, history, func(value string) string { return value }, BugApprovalTargetResolver(nil))
+	}
 	return newBugGateAdmission(notes, history, wf.NormalizeStatus, BugApprovalTargetResolver(wf))
 }
 

@@ -1909,22 +1909,23 @@ func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
 		require.FailNow(t, "missing report allowed research pass")
 	}
 	reportPath := filepath.Join(root, "docs", "plan", "bugs", "B001.research-report.md")
-	if err := os.WriteFile(reportPath, []byte("invalid report"), 0o644); err != nil {
-		require.NoError(t, err)
-	}
-	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err == nil {
-		require.FailNow(t, "invalid report allowed research pass")
-	}
-	valid := "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n\n## Scope\nBug scope.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `B001.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `source.go`.\n\n## Findings\nCause found.\n\n## Decisions\nRepair the cause.\n\n## Sources\n- `source.go`\n"
-	if err := os.WriteFile(reportPath, []byte(valid), 0o644); err != nil {
-		require.NoError(t, err)
-	}
+	require.NoError(t, os.WriteFile(reportPath, []byte("invalid report"), 0644))
 	_, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
 	require.ErrorContains(t, err, "not tracked")
 	git("add", "--", "docs/plan/bugs/B001.research-report.md")
 	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
 	require.Error(t, err, "staged report is not committed")
-	git("commit", "-m", "Record research")
+	git("commit", "-m", "Record malformed research")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "missing YAML front matter")
+	valid := "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n\n## Scope\nBug scope.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `B001.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `source.go`.\n\n## Findings\nCause found.\n\n## Decisions\nRepair the cause.\n\n## Sources\n- `source.go`\n"
+	require.NoError(t, os.WriteFile(reportPath, []byte(valid), 0644))
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "differs from the current commit")
+	git("add", "--", "docs/plan/bugs/B001.research-report.md")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "index differs")
+	git("commit", "-m", "Record valid research")
 	require.NoError(t, os.WriteFile(reportPath, []byte(valid+"uncommitted change"), 0644))
 	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
 	require.ErrorContains(t, err, "differs from the current commit")
@@ -1937,6 +1938,10 @@ func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
 	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
 	require.ErrorContains(t, err, "ignored")
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".git", "info", "exclude"), nil, 0600))
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = svc.TransitionStatus(cancelled, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorIs(t, err, context.Canceled)
 	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
 	require.NoError(t, err)
 

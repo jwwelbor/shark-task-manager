@@ -61,7 +61,7 @@ func TestBugGateRejectsSourceChangedAfterAdmission(t *testing.T) {
 	shark("claim", "B001", "--session", "fixture-session", "--by", "test")
 	sqlDB, err := db.InitDB(dbPath)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	t.Cleanup(func() { _ = sqlDB.Close() }) // Test cleanup; verification completes before close.
 	storage := repository.NewDB(sqlDB)
 	bugRepo := repository.NewBugRepository(storage)
 	registry := services.NewEntityRegistry()

@@ -11,12 +11,11 @@ import (
 )
 
 type gitDoc struct {
-	ctx                        context.Context
 	root, repo, relative, path string
 }
 
-func (d gitDoc) git(root string, args ...string) ([]byte, error) {
-	return exec.CommandContext(d.ctx, "git", append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
+func (d gitDoc) git(ctx context.Context, root string, args ...string) ([]byte, error) {
+	return gitCommand(ctx, append([]string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", root}, args...)...).Output()
 }
 
 // VerifyCommitted checks that content is the selected checkout's tracked,
@@ -25,18 +24,28 @@ func VerifyCommitted(ctx context.Context, root, path string, content []byte) err
 	if !filepath.IsLocal(path) || !strings.HasPrefix(filepath.ToSlash(filepath.Clean(path)), "docs/plan/") {
 		return fmt.Errorf("document must be a project document under docs/plan")
 	}
-	d := gitDoc{ctx: ctx, root: root, path: path}
-	if err := d.locate(); err != nil {
-		return err
+	d := gitDoc{root: root, path: path}
+	if err := d.locate(ctx); err != nil {
+		return contextError(ctx, err)
 	}
-	if err := d.checkTracked(); err != nil {
-		return err
+	if err := d.checkTracked(ctx); err != nil {
+		return contextError(ctx, err)
 	}
-	return d.checkCommitted(content)
+	if err := d.checkCommitted(ctx, content); err != nil {
+		return contextError(ctx, err)
+	}
+	return nil
 }
 
-func (d *gitDoc) locate() error {
-	out, err := d.git(d.root, "rev-parse", "--show-toplevel")
+func contextError(ctx context.Context, fallback error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fallback
+}
+
+func (d *gitDoc) locate(ctx context.Context) error {
+	out, err := d.git(ctx, d.root, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return fmt.Errorf("find document repository: %w", err)
 	}
@@ -55,18 +64,18 @@ func (d *gitDoc) locate() error {
 	return nil
 }
 
-func (d gitDoc) checkTracked() error {
-	if _, err := d.git(d.root, "ls-files", "--error-unmatch", "--", d.path); err != nil {
+func (d gitDoc) checkTracked(ctx context.Context) error {
+	if _, err := d.git(ctx, d.root, "ls-files", "--error-unmatch", "--", d.path); err != nil {
 		return fmt.Errorf("document is not tracked")
 	}
-	flags, err := d.git(d.root, "ls-files", "-v", "-z", "--", d.path)
+	flags, err := d.git(ctx, d.root, "ls-files", "-v", "-z", "--", d.path)
 	if err != nil {
 		return fmt.Errorf("cannot inspect document index flags: %w", err)
 	}
 	if err := ValidateIndexFlags(flags); err != nil {
 		return err
 	}
-	err = exec.CommandContext(d.ctx, "git", "-c", "core.fsmonitor=false", "-C", d.root, "check-ignore", "--no-index", "-q", "--", d.path).Run()
+	err = gitCommand(ctx, "-c", "core.fsmonitor=false", "-C", d.root, "check-ignore", "--no-index", "-q", "--", d.path).Run()
 	if err == nil {
 		return fmt.Errorf("document is ignored")
 	}
@@ -96,33 +105,33 @@ func ValidateIndexFlags(data []byte) error {
 	return nil
 }
 
-func (d gitDoc) checkCommitted(content []byte) error {
+func (d gitDoc) checkCommitted(ctx context.Context, content []byte) error {
 	path := filepath.ToSlash(filepath.Join(d.relative, d.path))
 	object := "HEAD:" + path
-	kind, err := d.git(d.root, "cat-file", "-t", object)
+	kind, err := d.git(ctx, d.root, "cat-file", "-t", object)
 	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
 		return fmt.Errorf("document is not in the current commit")
 	}
-	committed, err := d.git(d.root, "rev-parse", "--verify", "--end-of-options", object)
+	committed, err := d.git(ctx, d.root, "rev-parse", "--verify", "--end-of-options", object)
 	if err != nil {
 		return fmt.Errorf("cannot resolve committed document")
 	}
-	staged, err := d.git(d.repo, "rev-parse", "--verify", "--end-of-options", ":"+path)
+	staged, err := d.git(ctx, d.repo, "rev-parse", "--verify", "--end-of-options", ":"+path)
 	if err != nil || !bytes.Equal(bytes.TrimSpace(staged), bytes.TrimSpace(committed)) {
 		return fmt.Errorf("document index differs from the current commit")
 	}
-	if err := d.checkMode(path); err != nil {
+	if err := d.checkMode(ctx, path); err != nil {
 		return err
 	}
-	return d.checkContent(content, committed)
+	return d.checkContent(ctx, content, committed)
 }
 
-func (d gitDoc) checkMode(path string) error {
-	index, err := d.git(d.root, "ls-files", "--stage", "-z", "--", d.path)
+func (d gitDoc) checkMode(ctx context.Context, path string) error {
+	index, err := d.git(ctx, d.root, "ls-files", "--stage", "-z", "--", d.path)
 	if err != nil {
 		return fmt.Errorf("cannot inspect document index mode")
 	}
-	tree, err := d.git(d.repo, "ls-tree", "--full-tree", "-z", "HEAD", "--", path)
+	tree, err := d.git(ctx, d.repo, "ls-tree", "--full-tree", "-z", "HEAD", "--", path)
 	i, t := strings.Fields(string(index)), strings.Fields(string(tree))
 	if err != nil || len(i) < 3 || len(t) < 3 || i[2] != "0" || i[0] != t[0] || (t[0] != "100644" && t[0] != "100755") {
 		return fmt.Errorf("document mode differs from the current commit")
@@ -130,14 +139,14 @@ func (d gitDoc) checkMode(path string) error {
 	return nil
 }
 
-func (d gitDoc) checkContent(content, committed []byte) error {
-	cmd := exec.CommandContext(d.ctx, "git", "-c", "core.fsmonitor=false", "-C", d.root, "hash-object", "--path", d.path, "--stdin")
+func (d gitDoc) checkContent(ctx context.Context, content, committed []byte) error {
+	cmd := gitCommand(ctx, "-c", "core.fsmonitor=false", "-C", d.root, "hash-object", "--path", d.path, "--stdin")
 	cmd.Stdin = bytes.NewReader(content)
 	actual, err := cmd.Output()
 	if err != nil || !bytes.Equal(bytes.TrimSpace(actual), bytes.TrimSpace(committed)) {
 		return fmt.Errorf("document differs from the current commit")
 	}
-	status, err := d.git(d.root, "status", "--porcelain=v1", "-z", "--", d.path)
+	status, err := d.git(ctx, d.root, "status", "--porcelain=v1", "-z", "--", d.path)
 	if err != nil || len(status) != 0 {
 		return fmt.Errorf("document differs from the current commit")
 	}

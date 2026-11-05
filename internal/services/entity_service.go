@@ -294,7 +294,7 @@ func (s *EntityService) transitionStatus(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateTransitionEvidence(entityType, key, entity, resolvedCurrentStatus, targetStatus, opts); err != nil {
+	if err := s.validateTransitionEvidence(ctx, entityType, key, entity, resolvedCurrentStatus, targetStatus, opts); err != nil {
 		return nil, err
 	}
 
@@ -542,7 +542,7 @@ func (s *EntityService) compensateAdvanceGuard(ctx context.Context, entityType m
 	}
 }
 
-func (s *EntityService) validateTransitionEvidence(entityType models.EntityType, key string, entity models.Entity, fromStatus, targetStatus string, opts TransitionOptions) error {
+func (s *EntityService) validateTransitionEvidence(ctx context.Context, entityType models.EntityType, key string, entity models.Entity, fromStatus, targetStatus string, opts TransitionOptions) error {
 	if entityType == models.EntityTypeBug && !opts.Force {
 		if err := config.ValidateBugEvidenceRoutes(s.workflowSvc.GetWorkflow()); err != nil {
 			return fmt.Errorf("invalid bug workflow: %w", err)
@@ -552,12 +552,12 @@ func (s *EntityService) validateTransitionEvidence(entityType models.EntityType,
 		return fmt.Errorf("cannot advance bug %s from %s: a validated gate result is required; use shark run to submit it", key, fromStatus)
 	}
 	if !opts.Force && s.requiresResearchEvidence(fromStatus, targetStatus) {
-		return s.validateResearchTransition(entityType, key, entity, opts)
+		return s.validateResearchTransition(ctx, entityType, key, entity, opts)
 	}
 	return nil
 }
 
-func (s *EntityService) validateResearchTransition(entityType models.EntityType, key string, entity models.Entity, opts TransitionOptions) error {
+func (s *EntityService) validateResearchTransition(ctx context.Context, entityType models.EntityType, key string, entity models.Entity, opts TransitionOptions) error {
 	root := s.workflowSvc.ProjectRoot()
 	artifactRoot := root
 	if entityType == models.EntityTypeBug && opts.ResearchArtifactRoot != "" {
@@ -571,7 +571,7 @@ func (s *EntityService) validateResearchTransition(entityType models.EntityType,
 			return fmt.Errorf("inspect worker research report: %w", err)
 		}
 	}
-	if err := research.ValidateEntityAt(root, artifactRoot, entity); err != nil {
+	if err := research.ValidateEntityAtContext(ctx, root, artifactRoot, entity); err != nil {
 		return fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
 	}
 	return nil

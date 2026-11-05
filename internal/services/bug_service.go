@@ -508,7 +508,7 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 	for _, t := range validTransitions {
 		if t == "triaged" {
 			from := s.workflowSvc.NormalizeStatus(string(expectedStatus))
-			if err := s.entitySvc.validateTransitionEvidence(models.EntityTypeBug, key, bug, from, t, TransitionOptions{}); err != nil {
+			if err := s.entitySvc.validateTransitionEvidence(ctx, models.EntityTypeBug, key, bug, from, t, TransitionOptions{}); err != nil {
 				return nil, err
 			}
 			bug.Status = "triaged"
