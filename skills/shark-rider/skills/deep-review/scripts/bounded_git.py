@@ -42,6 +42,7 @@ def run(argv, *, timeout=None, max_output_bytes=MAX_OUTPUT_BYTES, **kwargs):
         if os.name != 'nt':
             kwargs['start_new_session'] = True
         proc = subprocess.Popen(argv, **kwargs)
+        legacy_windows = None
         output = {}
         exceeded = threading.Event()
         stopping = threading.Event()
@@ -51,7 +52,7 @@ def run(argv, *, timeout=None, max_output_bytes=MAX_OUTPUT_BYTES, **kwargs):
             try:
                 while not stopping.is_set():
                     try:
-                        chunk = os.read(stream.fileno(), 65536)
+                        chunk = legacy_windows.read(stream.fileno(), 65536) if legacy_windows else os.read(stream.fileno(), 65536)
                     except BlockingIOError:
                         stopping.wait(0.01)
                         continue
@@ -61,23 +62,29 @@ def run(argv, *, timeout=None, max_output_bytes=MAX_OUTPUT_BYTES, **kwargs):
                         exceeded.set()
                         break
                     data.extend(chunk)
-            except OSError as exc:
+            except Exception as exc:
                 read_errors.append(exc)
                 exceeded.set()
             finally:
                 output[name] = bytes(data)
                 try:
                     stream.close()
-                except OSError as exc:
+                except Exception as exc:
                     read_errors.append(exc)
                     exceeded.set()
         threads = [threading.Thread(target=read_pipe, args=(name, stream), name='bounded-git-reader', daemon=True)
                    for name, stream in (('stdout', proc.stdout), ('stderr', proc.stderr)) if stream is not None]
         deadline = time.monotonic() + timeout
         try:
+            if os.name == 'nt' and sys.version_info < (3, 12):
+                from windows_pipe import WindowsPipe
+                legacy_windows = WindowsPipe()
             for stream in (proc.stdout, proc.stderr):
                 if stream is not None:
-                    os.set_blocking(stream.fileno(), False)
+                    if legacy_windows:
+                        legacy_windows.set_nonblocking(stream.fileno())
+                    else:
+                        os.set_blocking(stream.fileno(), False)
             for thread in threads:
                 thread.start()
             while proc.poll() is None or any(thread.is_alive() for thread in threads):
@@ -131,8 +138,8 @@ def main():
         sys.stdout.buffer.write(result.stdout)
         sys.stderr.buffer.write(result.stderr)
         return result.returncode
-    except (KeyboardInterrupt, subprocess.TimeoutExpired, OutputLimitExceeded) as exc:
-        print(f'review Git command interrupted, timed out, or exceeded its output limit: {exc}', file=sys.stderr)
+    except (KeyboardInterrupt, OSError, subprocess.TimeoutExpired, OutputLimitExceeded) as exc:
+        print(f'review Git command failed: {exc}', file=sys.stderr)
         return 1
 
 

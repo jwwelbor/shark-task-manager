@@ -126,8 +126,8 @@
   },
   {
     "name": "structured-finding-incomplete",
-    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE VALIDATION\nFINDING_CONTEXT: external input validation is deficient.\nReviewed scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS",
-    "valid": true
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input validation is deficient. Scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE VALIDATION",
+    "valid": false
   },
   {
     "name": "structured-current-incomplete",
@@ -156,12 +156,22 @@
   },
   {
     "name": "structured-product-behavior",
-    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR\nFINDING_CONTEXT: external input coverage is missing.\nScope: all files. Findings: one accepted for triage. VERDICT: PASS",
-    "valid": true
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input coverage is missing. Scope: all files. Findings: one accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR",
+    "valid": false
   },
   {
     "name": "structured-history-followed-by-ambiguous-current",
     "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nThis review is as well. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-explicit-unfinished",
+    "body": "CURRENT_REVIEW_STATUS: DID_NOT_FINISH\nScope: all candidate files reviewed. Findings: none recorded. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "finding-followed-by-prose",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE VALIDATION\nThis review is too. Scope: all files. Findings: none. VERDICT: PASS",
     "valid": false
   }
 ]

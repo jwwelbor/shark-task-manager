@@ -131,10 +131,20 @@ class AdaptiveReviewTests(unittest.TestCase):
 
     def test_failed_report_can_describe_product_finding(self):
         body = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
-                'FINDING_DETAIL: INCOMPLETE VALIDATION\nFINDING_CONTEXT: application external input validation is deficient.\n'
-                'Scope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL')
+                'FINDING_CONTEXT: application external input validation is deficient.\n'
+                'Scope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL\n'
+                'FINDING_DETAIL: INCOMPLETE VALIDATION')
         self.assertTrue(adaptive_review.valid_review_report(body, 'FAIL'))
         self.assertFalse(adaptive_review.valid_review_report(body + '\nThe current review is incomplete.', 'FAIL'))
+
+    def test_report_finding_requires_a_retained_decision(self):
+        body = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
+                'Scope: all candidate files reviewed. Findings: an issue needs triage. VERDICT: PASS-WITH-TRIAGE\n'
+                'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR')
+        self.assertTrue(adaptive_review.valid_review_report(body, 'PASS-WITH-TRIAGE'))
+        with self.assertRaisesRegex(ValueError, 'retained decision'):
+            adaptive_review._require_finding_decision(body, {'findings': []})
+        adaptive_review._require_finding_decision(body, {'findings': [{'disposition': 'triage'}]})
 
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')

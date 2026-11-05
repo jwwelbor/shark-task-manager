@@ -71,10 +71,10 @@ func verifyBugReviewEvidence(req gatepersist.Request) error {
 	if err := validateBugReviewBody(header, body); err != nil {
 		return err
 	}
-	return validateBugReviewArtifacts(req, scope, header)
+	return validateBugReviewArtifacts(req, scope, header, body)
 }
 
-func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope, header string) error {
+func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope, header, body string) error {
 	_, decisionData, err := readBugEvidence(req, "bug_review_decisions")
 	if err != nil {
 		return err
@@ -86,6 +86,24 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 	decisions, err := validateBugReviewDecisions(decisionData, scope, verdict)
 	if err != nil {
 		return err
+	}
+	hasFinding := false
+	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		if bugFindingDetail.MatchString(line) {
+			hasFinding = true
+		}
+	}
+	if hasFinding {
+		retained := false
+		for _, decision := range decisions {
+			if decision.Disposition != "refuted" {
+				retained = true
+				break
+			}
+		}
+		if !retained {
+			return fmt.Errorf("report finding requires a retained decision")
+		}
 	}
 	six, err := bugReviewRunnerIsSix(header)
 	if err != nil {
@@ -144,30 +162,38 @@ func validateUniqueBugReviewHeader(header string) error {
 }
 
 var bugCurrentComplete = regexp.MustCompile(`(?i)^CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*$`)
+var bugCurrentField = regexp.MustCompile(`(?i)^CURRENT_REVIEW_STATUS\b`)
 var bugHistoricalStatus = regexp.MustCompile(`(?i)^HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*$`)
 var bugFindingDetail = regexp.MustCompile(`(?i)^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*$`)
 
 func statusSafeBody(body string) bool {
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
-	current, special, history := 0, false, false
+	current, history, findings := 0, 0, 0
+	footer := false
 	for _, line := range lines {
-		if history && strings.TrimSpace(line) != "" {
+		if bugCurrentField.MatchString(strings.TrimLeft(line, " \t")) {
+			current++
+			if !bugCurrentComplete.MatchString(line) {
+				return false
+			}
+		}
+		historical, finding := bugHistoricalStatus.MatchString(line), bugFindingDetail.MatchString(line)
+		if historical {
+			history++
+		}
+		if finding {
+			findings++
+		}
+		if historical || finding {
+			footer = true
+		} else if footer && strings.TrimSpace(line) != "" {
 			return false
 		}
-		if bugHistoricalStatus.MatchString(line) {
-			history = true
-		}
-		if bugCurrentComplete.MatchString(line) {
-			current++
-		}
-		if bugHistoricalStatus.MatchString(line) || bugFindingDetail.MatchString(line) {
-			special = true
-		}
-		if bugIncompleteReport.MatchString(line) && !bugFindingDetail.MatchString(line) {
+		if bugIncompleteReport.MatchString(line) && !finding {
 			return false
 		}
 	}
-	return !special || current == 1
+	return current <= 1 && history <= 1 && findings <= 1 && (!footer || current == 1)
 }
 func validateBugReviewBody(header, body string) error {
 	if !utf8.ValidString(body) || !statusSafeBody(body) || utf8.RuneCountInString(strings.TrimSpace(body)) < 80 {
@@ -177,6 +203,13 @@ func validateBugReviewBody(header, body string) error {
 	verdicts := bugReviewVerdict.FindAllStringSubmatch(body, -1)
 	if len(verdict) == 0 || len(verdicts) == 0 {
 		return fmt.Errorf("review verdict is missing")
+	}
+	if strings.EqualFold(verdict[1], "PASS") {
+		for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+			if bugFindingDetail.MatchString(line) {
+				return fmt.Errorf("clean review pass contains a finding")
+			}
+		}
 	}
 	for _, v := range verdicts {
 		if !strings.EqualFold(v[1], verdict[1]) || strings.EqualFold(v[1], "FAIL") {

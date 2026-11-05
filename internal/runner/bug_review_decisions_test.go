@@ -118,7 +118,7 @@ func TestReviewBodyConformanceFixtures(t *testing.T) {
 }
 
 func TestFailedReviewMayDescribeIncompleteProductValidation(t *testing.T) {
-	body := "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE VALIDATION\nFINDING_CONTEXT: application external input validation is deficient.\nScope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL"
+	body := "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: application external input validation is deficient.\nScope: all candidate files reviewed. Findings: validation bug. VERDICT: FAIL\nFINDING_DETAIL: INCOMPLETE VALIDATION"
 	require.True(t, statusSafeBody(body))
 	require.False(t, statusSafeBody(body+"\nThe current review is incomplete."))
 	require.Error(t, validateBugReviewBody("**Verdict:** FAIL", body))

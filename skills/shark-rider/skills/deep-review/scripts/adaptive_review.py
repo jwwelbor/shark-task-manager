@@ -458,11 +458,13 @@ def _status_safe_body(body: str) -> bool:
     historic = re.compile(r"HISTORICAL_REVIEW_STATUS:[ \t]*DID_NOT_FINISH[ \t]*", re.I | re.ASCII)
     current = re.compile(r"CURRENT_REVIEW_STATUS:[ \t]*COMPLETE[ \t]*", re.I | re.ASCII)
     finding = re.compile(r"FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*", re.I | re.ASCII)
-    histories = [i for i, line in enumerate(lines) if historic.fullmatch(line)]
-    if histories and (len(histories) != 1 or any(line.strip() for line in lines[histories[0] + 1:])):
+    current_fields = [line for line in lines if re.match(r"CURRENT_REVIEW_STATUS\b", line.lstrip(" \t"), re.I | re.ASCII)]
+    if current_fields and (len(current_fields) != 1 or not current.fullmatch(current_fields[0])):
         return False
-    special = bool(histories) or any(finding.fullmatch(line) for line in lines)
-    if special and sum(bool(current.fullmatch(line)) for line in lines) != 1:
+    special = [i for i, line in enumerate(lines) if historic.fullmatch(line) or finding.fullmatch(line)]
+    if special and (len(current_fields) != 1 or any(line.strip() and not (historic.fullmatch(line) or finding.fullmatch(line)) for line in lines[special[0]:])):
+        return False
+    if sum(bool(historic.fullmatch(line)) for line in lines) > 1 or sum(bool(finding.fullmatch(line)) for line in lines) > 1:
         return False
     return all(not re.search(r"\bINCOMPLETE\b", line, re.I | re.ASCII) or bool(finding.fullmatch(line)) for line in lines)
 
@@ -470,6 +472,8 @@ def _status_safe_body(body: str) -> bool:
 def valid_review_report(body: str, verdict: str) -> bool:
     """Reject empty, diagnostic, contradictory or structurally incomplete reports."""
     if len(body.strip()) < 80 or not _status_safe_body(body):
+        return False
+    if verdict.upper() == "PASS" and re.search(r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*$", body, re.ASCII):
         return False
     if verdict.upper().startswith("PASS"):
         normalized = body.lower().replace("no blockers remain", "").replace("no unresolved blockers", "")
@@ -560,6 +564,12 @@ def _cli_prompt(args, scope):
     return prompt + "The exact candidate_identity is: " + json.dumps(_review_identity(scope))
 
 
+def _require_finding_decision(body, decisions):
+    if re.search(r"(?im)^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*$", body, re.ASCII):
+        if not any(f.get("disposition") != "refuted" for f in decisions["findings"]):
+            raise ValueError("report finding requires a retained decision")
+
+
 def _parse_cli_packet(output, scope):
     packet = json.loads(output.strip())
     report, decisions = packet["report"], packet["decisions"]
@@ -567,6 +577,7 @@ def _parse_cli_packet(output, scope):
         raise ValueError("malformed report")
     verdict = VERDICT_RE.search(report).group(1).upper()
     validate_review_decisions(decisions, scope, [], verdict)
+    _require_finding_decision(report, decisions)
     if not valid_review_report(report, verdict):
         raise ValueError("incomplete or contradictory report")
     return report, decisions
@@ -719,6 +730,7 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
             raise ValueError("completed review requires candidate-bound decisions")
         decisions = json.loads(read_review_file(args.review_decisions, 32 * 1024 * 1024).decode("utf-8"))
         validate_review_decisions(decisions, metadata["_scope"], findings, args.verdict)
+        _require_finding_decision(body, decisions)
         metadata["_decisions"] = decisions
     except (OSError, ValueError, KeyError, TypeError):
         if passing:

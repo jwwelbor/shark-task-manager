@@ -1,4 +1,7 @@
 import os
+import ctypes
+import importlib
+import types
 import signal
 import sys
 from pathlib import Path
@@ -11,6 +14,39 @@ from unittest import mock
 
 import source_inventory
 from bounded_git import OutputLimitExceeded, run
+
+
+class LegacyWindowsPipeTests(unittest.TestCase):
+    def test_win32_pipe_result_mapping(self):
+        class Function:
+            def __init__(self, fn):
+                self.fn = fn
+            def __call__(self, *args):
+                return self.fn(*args)
+        state = {'error': 0, 'data': b'abc'}
+        def read(handle, buffer, size, count, overlapped):
+            if state['error']:
+                return 0
+            ctypes.memmove(buffer, state['data'], len(state['data']))
+            count._obj.value = len(state['data'])
+            return 1
+        kernel = types.SimpleNamespace(SetNamedPipeHandleState=Function(lambda *args: 1), ReadFile=Function(read))
+        fake_msvcrt = types.SimpleNamespace(get_osfhandle=lambda fd: fd)
+        with mock.patch.dict(sys.modules, {'msvcrt': fake_msvcrt}), \
+             mock.patch.object(ctypes, 'WinDLL', create=True, return_value=kernel), \
+             mock.patch.object(ctypes, 'get_last_error', create=True, side_effect=lambda: state['error']):
+            sys.modules.pop('windows_pipe', None)
+            try:
+                pipe = importlib.import_module('windows_pipe').WindowsPipe()
+                pipe.set_nonblocking(4)
+                self.assertEqual(pipe.read(4, 16), b'abc')
+                state['error'] = 232
+                with self.assertRaises(BlockingIOError):
+                    pipe.read(4, 16)
+                state['error'] = 109
+                self.assertEqual(pipe.read(4, 16), b'')
+            finally:
+                sys.modules.pop('windows_pipe', None)
 
 
 class PortableCaptureTests(unittest.TestCase):
@@ -31,16 +67,17 @@ class BoundedGitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             subprocess.run(['git', '-C', tmp, 'init', '-b', 'main'], check=True, capture_output=True)
             real_read = os.read
-            def fail_reader(fd, size):
-                if threading.current_thread().name == 'bounded-git-reader':
-                    raise OSError('injected capture read error')
-                return real_read(fd, size)
             (Path(tmp) / 'dirty').write_text('untracked')
-            with mock.patch('bounded_git.os.read', side_effect=fail_reader):
-                with self.assertRaisesRegex(OSError, 'failed to read captured'):
-                    run(['git', '-C', tmp, 'status', '--porcelain'], check=True, capture_output=True)
-                with self.assertRaisesRegex(OSError, 'failed to read captured'):
-                    source_inventory.source_inventory(Path(tmp))
+            for failure in (OSError, ValueError):
+                def fail_reader(fd, size):
+                    if threading.current_thread().name == 'bounded-git-reader':
+                        raise failure('injected capture read error')
+                    return real_read(fd, size)
+                with self.subTest(failure=failure), mock.patch('bounded_git.os.read', side_effect=fail_reader):
+                    with self.assertRaisesRegex(OSError, 'failed to read captured'):
+                        run(['git', '-C', tmp, 'status', '--porcelain'], check=True, capture_output=True)
+                    with self.assertRaisesRegex(OSError, 'failed to read captured'):
+                        source_inventory.source_inventory(Path(tmp))
 
     def test_detached_filter_cannot_hold_captured_output_open(self):
         with tempfile.TemporaryDirectory() as tmp:
