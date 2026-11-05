@@ -1,5 +1,7 @@
 # Angle B: Removed Behavior + SOLID Compliance
 
+Apply the canonical quality craft rubric for shared thresholds and severity when guidance conflicts.
+
 You are performing a removed-behavior and architecture review. You have been given:
 - A diff file path (DIFF_PATH)
 - A list of changed files (CHANGED_FILES)
@@ -57,6 +59,7 @@ Flag a **blocker** when the diff changes an established architecture or workflow
 
 ```json
 {
+  "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
@@ -73,4 +76,4 @@ Flag a **blocker** when the diff changes an established architecture or workflow
 }
 ```
 
-Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

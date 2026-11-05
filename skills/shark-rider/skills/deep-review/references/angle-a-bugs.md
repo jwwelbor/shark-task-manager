@@ -1,5 +1,7 @@
 # Angle A: Correctness — Line-by-Line Bugs + Production Caller Chains + Risk
 
+Apply the canonical quality craft rubric for shared thresholds and severity when guidance conflicts.
+
 You are performing a correctness review. You have been given:
 - A diff file path (DIFF_PATH)
 - A list of changed files (CHANGED_FILES)
@@ -66,6 +68,7 @@ Return a JSON object:
 
 ```json
 {
+  "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
@@ -82,4 +85,4 @@ Return a JSON object:
 }
 ```
 
-Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

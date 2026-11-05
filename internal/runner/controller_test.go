@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -2024,7 +2026,7 @@ func TestRunController_DispatchInputConstruction(t *testing.T) {
 	}
 
 	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
-	opts := RunOptions{WorkingDir: "/tmp/myproject"}
+	opts := RunOptions{WorkingDir: "/tmp/myproject", EntityType: "task"}
 	_, err := ctrl.Run(context.Background(), "E07-F01-001", opts)
 	if err != nil {
 		t.Fatalf("Run() returned unexpected error: %v", err)
@@ -2035,6 +2037,9 @@ func TestRunController_DispatchInputConstruction(t *testing.T) {
 	}
 	if capturedInput.EntityKey != "E07-F01-001" {
 		t.Errorf("EntityKey: expected E07-F01-001, got %q", capturedInput.EntityKey)
+	}
+	if capturedInput.EntityType != "task" {
+		t.Errorf("EntityType: expected task, got %q", capturedInput.EntityType)
 	}
 	if capturedInput.Status != "in_development" {
 		t.Errorf("Status: expected in_development, got %q", capturedInput.Status)
@@ -2883,4 +2888,61 @@ func TestRunController_CascadeAction_IntegrationGuardSuccessAllowsDispatch(t *te
 	if result.Outcome != "completed" {
 		t.Errorf("expected Outcome=completed, got %s (error=%q)", result.Outcome, result.Error)
 	}
+}
+
+func TestRunController_SameStageFailureStopsInsteadOfRedispatching(t *testing.T) {
+	calls := 0
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			return &services.NextStatusInfo{CurrentStatus: "research", Outcomes: map[string]string{"fail": "research"}, AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "research"}}}}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actionSvc := &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+		return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "research"}, nil
+	}}
+	dispatchers := map[string]AgentDispatcher{"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+		calls++
+		if calls > 1 {
+			require.FailNow(t, "same-stage failure dispatched again")
+		}
+		return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: fail"}, nil
+	}}}
+	ctrl := makeController(t, transitioner, actionSvc, dispatchers)
+	result, err := ctrl.Run(context.Background(), "B001", RunOptions{EntityType: "bug"})
+	if err != nil || result.Outcome != "paused" || result.FinalStatus != "research" || calls != 1 {
+		require.FailNowf(t, "assertion failed", "same-stage result = %+v, err = %v, dispatches = %d", result, err, calls)
+	}
+}
+
+func TestRunController_TaskSameStageReworkRetainsRetryBehavior(t *testing.T) {
+	current, calls := "development", 0
+	transitioner := &MockTransitioner{
+		GetNextStatusFunc: func(context.Context, string) (*services.NextStatusInfo, error) {
+			if current == "completed" {
+				return &services.NextStatusInfo{CurrentStatus: current, IsTerminal: true}, nil
+			}
+			return &services.NextStatusInfo{CurrentStatus: current, Outcomes: map[string]string{"fail": "development", "pass": "completed"}, AvailableTransitions: []services.TransitionInfoWithAction{{TransitionInfo: workflow.TransitionInfo{TargetStatus: "completed"}}, {TransitionInfo: workflow.TransitionInfo{TargetStatus: "development"}}}}, nil
+		},
+		TransitionStatusFunc: func(_ context.Context, _ string, target string, _ services.TransitionOptions) (*services.TransitionResult, error) {
+			current = target
+			return &services.TransitionResult{ToStatus: target}, nil
+		},
+	}
+	actions := &MockActionService{GetStatusActionPopulatedFunc: func(context.Context, string, map[string]string) (*config.PopulatedAction, error) {
+		return &config.PopulatedAction{Action: config.ActionSpawnAgent, Provider: "anthropic", Instruction: "task"}, nil
+	}}
+	dispatchers := map[string]AgentDispatcher{"anthropic": &MockDispatcher{DispatchFunc: func(context.Context, DispatchInput) (*DispatchResult, error) {
+		calls++
+		if calls == 1 {
+			return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: fail"}, nil
+		}
+		return &DispatchResult{ExitCode: 0, Stdout: "RECOMMENDED OUTCOME: pass"}, nil
+	}}}
+	result, err := makeController(t, transitioner, actions, dispatchers).Run(context.Background(), "T-E01-F01-001", RunOptions{EntityType: "task"})
+	require.NoError(t, err)
+	require.Equal(t, "completed", result.Outcome)
+	require.Equal(t, 2, calls)
 }

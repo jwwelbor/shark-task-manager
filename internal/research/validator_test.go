@@ -1,12 +1,14 @@
 package research
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/projectdocs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -230,3 +232,16 @@ func researchEntities() []models.Entity {
 }
 
 func stringPtr(value string) *string { return &value }
+
+func TestBugResearchRejectsOversizedReportBeforeReading(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "docs", "plan", "bugs")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	path := filepath.Join(dir, "B001.research-report.md")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Truncate(projectdocs.MaxDocumentBytes+1))
+	require.NoError(t, file.Close())
+	_, _, err = readResearchArtifact(context.Background(), root, path, true)
+	require.ErrorContains(t, err, "bounded regular file")
+}

@@ -9,7 +9,12 @@ READ:
 (2) Feature test-plan.md for all test cases and expected coverage
 (3) Code review report from {{.review_base}}code-review-*-{{.id}}.md for scope of changes
 (4) All task specs: `{{template "list_json" .}}` → collect every task's Scope file list
-(5) `git diff $(git merge-base HEAD main)..HEAD` to derive all touched paths
+(5) The deep-review report and retained scope referenced by the code-review report.
+    Independently establish the reviewed project, original source and, when
+    nested, Shark project roots. Run the host deep-review scope validator using
+    those roots and the retained scope. A missing, stale or invalid scope cannot
+    satisfy QA; use its complete manifest
+    and retained base-to-candidate diff to derive all touched paths.
 (6) Parent interaction map and spec.md "Cross-feature interactions" section if present
 (7) Parent {{.epic_id}}-cross-epic-map.md,
     docs/product/cross-epic-integration-map.md, and spec.md
@@ -24,7 +29,7 @@ SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
 1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
 
 2. **Targeted unit tests:**
-   - Union all changed source files from git diff AND from all task Scope sections
+   - Union all changed source files from the retained review manifest AND from all task Scope sections
    - Map each to its test counterpart(s) using the project's test layout (see `docs/architecture/file-system.md` / `tech-stack.md`)
    - Add any tests explicitly named in the feature test-plan ACs
    - Run only those with the project's test runner

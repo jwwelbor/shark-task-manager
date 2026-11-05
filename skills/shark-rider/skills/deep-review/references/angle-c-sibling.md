@@ -1,5 +1,7 @@
 # Angle C: Cross-File Tracer + Structural Sibling Check
 
+Apply the canonical quality craft rubric for shared thresholds and severity when guidance conflicts.
+
 You are performing a cross-file contract and structural review. You have been given:
 - A diff file path (DIFF_PATH)
 - A list of changed files (CHANGED_FILES)
@@ -48,10 +50,9 @@ When the diff introduces such a class:
 
 3. Compare implementations: do ≥3 siblings have near-identical method bodies, constructor patterns, or error handling?
 
-**Severity rules:**
-- **BLOCKER**: ≥3 siblings implement the same protocol with near-identical method bodies but **no** shared base class. This is the most expensive technical debt pattern — every future change requires N parallel edits.
-- **Non-blocker (triage)**: ≥3 siblings with a shared base exist, but the new class in this diff skips the base without justification.
-- **Non-blocker (triage)**: 2 siblings with identical implementations — not yet worth a base class, but flag for monitoring.
+Apply the canonical craft rubric's severity rules to the duplication and its
+production impact. Report shared-base usage and sibling counts as evidence;
+counts alone do not decide severity.
 
 Include a sibling inventory table in your findings when this check triggers:
 
@@ -80,6 +81,7 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
 
 ```json
 {
+  "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
@@ -96,4 +98,4 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
 }
 ```
 
-Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

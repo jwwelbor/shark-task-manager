@@ -41,6 +41,12 @@ type RunIdentity struct {
 	SourceStatus    string `json:"source_status"`
 	Gate            string `json:"gate"`
 	OperationDigest string `json:"operation_digest"`
+	// EvidenceRoot binds bug worktree evidence to the parent-observed root.
+	// Empty retains the historical parent-project location.
+	EvidenceRoot string `json:"evidence_root,omitempty"`
+	PlanRoot     string `json:"plan_root,omitempty"`
+	PlanCommit   string `json:"plan_commit,omitempty"`
+	PlanBlob     string `json:"plan_blob,omitempty"`
 }
 
 // Marshal serializes r to its canonical identity.json bytes.
@@ -134,8 +140,21 @@ func VerifyRunIdentity(rec *RunIdentity, want RunIdentity) error {
 	if rec.Gate != want.Gate {
 		return fmt.Errorf("gaterun: run identity gate mismatch: recorded %q, requested %q", rec.Gate, want.Gate)
 	}
+	if rec.EvidenceRoot != want.EvidenceRoot {
+		return fmt.Errorf("gaterun: run identity evidence_root mismatch")
+	}
+	if err := verifyIdentityPlanProvenance(rec, want); err != nil {
+		return err
+	}
 	if rec.OperationDigest != want.OperationDigest {
 		return fmt.Errorf("gaterun: run identity operation_digest mismatch: recorded %q, requested %q", rec.OperationDigest, want.OperationDigest)
+	}
+	return nil
+}
+
+func verifyIdentityPlanProvenance(rec *RunIdentity, want RunIdentity) error {
+	if rec.PlanRoot != want.PlanRoot || rec.PlanCommit != want.PlanCommit || rec.PlanBlob != want.PlanBlob {
+		return fmt.Errorf("gaterun: run identity plan provenance mismatch")
 	}
 	return nil
 }

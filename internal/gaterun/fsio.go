@@ -20,7 +20,8 @@ const (
 	// UAT-3-1 fix): it is created before result.json ever becomes durable, so
 	// any run directory that has a result.json also, by construction, already
 	// has its owning entity/run identity durably and immutably bound.
-	identityFileName = "identity.json"
+	identityFileName     = "identity.json"
+	approvedPlanFileName = "approved-plan.md"
 )
 
 // Every exported function below re-derives a fresh no-follow-verified run
@@ -154,6 +155,21 @@ func CreateResult(dir string, data []byte) (created bool, err error) {
 		return false, fmt.Errorf("gaterun: result data must not be empty")
 	}
 	return createOnceSidecar(dir, resultFileName, ".result-", data)
+}
+
+// CreateApprovedPlan retains the exact plan revision approved by this run.
+// Its contents are create-once and protected by the same run-directory and
+// replay rules as the result sidecar.
+func CreateApprovedPlan(dir string, data []byte) (bool, error) {
+	if len(data) == 0 {
+		return false, fmt.Errorf("gaterun: approved plan must not be empty")
+	}
+	return createOnceSidecar(dir, approvedPlanFileName, ".approved-plan-", data)
+}
+
+// ReadApprovedPlan reads the retained plan using the run sidecar protections.
+func ReadApprovedPlan(dir string) ([]byte, bool, error) {
+	return readOnceSidecar(dir, approvedPlanFileName)
 }
 
 // createOnceSidecar implements the shared create-once, no-replace,

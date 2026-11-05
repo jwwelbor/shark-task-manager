@@ -319,7 +319,7 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 	// the durably bound identity.json BEFORE the coordinator is built or
 	// called, so any drift on source status, gate, or digest fails closed
 	// with zero coordinator side effects.
-	digest, err := gaterun.ComputeOperationDigest(entityKey, entityType, nextInfo.CurrentStatus, nextInfo.CurrentStatus, decision.Result)
+	digest, err := gaterun.ComputeBoundOperationDigest(entityKey, entityType, nextInfo.CurrentStatus, nextInfo.CurrentStatus, decision.Result, identity.PlanRoot, identity.PlanCommit, identity.PlanBlob)
 	if err != nil {
 		return fmt.Errorf("compute operation digest for run_id %q: %w", runResumeID, err)
 	}
@@ -329,6 +329,10 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 		SourceStatus:    nextInfo.CurrentStatus,
 		Gate:            nextInfo.CurrentStatus,
 		OperationDigest: digest,
+		EvidenceRoot:    identity.EvidenceRoot,
+		PlanRoot:        identity.PlanRoot,
+		PlanCommit:      identity.PlanCommit,
+		PlanBlob:        identity.PlanBlob,
 	}); err != nil {
 		return fmt.Errorf("resume identity mismatch for run_id %q: %w", runResumeID, err)
 	}

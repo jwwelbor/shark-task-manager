@@ -5,10 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -54,6 +58,10 @@ func (m *mockBugRepo) Update(ctx context.Context, bug *models.Bug) error {
 		return m.updateFn(ctx, bug)
 	}
 	return nil
+}
+
+func (m *mockBugRepo) UpdateIfStatus(ctx context.Context, bug *models.Bug, _ models.BugStatus) (bool, error) {
+	return true, m.Update(ctx, bug)
 }
 
 func (m *mockBugRepo) Delete(ctx context.Context, id int64) error {
@@ -216,9 +224,11 @@ func newBugWorkflowSvc() *workflow.Service {
 // mockBugEntityRepo is a minimal EntityRepository adapter for bug tests.
 type mockBugEntityRepo struct {
 	bugRepo *mockBugRepo
+	key     string
 }
 
 func (m *mockBugEntityRepo) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	m.key = key
 	return m.bugRepo.GetByKey(ctx, key)
 }
 
@@ -231,7 +241,13 @@ func (m *mockBugEntityRepo) UpdateStatus(ctx context.Context, id int64, status s
 }
 
 func (m *mockBugEntityRepo) UpdateStatusIfCurrent(ctx context.Context, id int64, expectedCurrentStatus, newStatus string) (bool, error) {
-	bug, err := m.bugRepo.GetByID(ctx, id)
+	var bug *models.Bug
+	var err error
+	if m.bugRepo.getByIDFn != nil {
+		bug, err = m.bugRepo.GetByID(ctx, id)
+	} else {
+		bug, err = m.bugRepo.GetByKey(ctx, m.key)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -1046,9 +1062,8 @@ func TestBugService_TransitionStatus_ResolvesLegacyAliasCurrentStatus(t *testing
 // TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus guards the
 // companion half of the alias-resolution fix: passing a legacy alias as the
 // TARGET status (not just the current status) must validate against its
-// canonical step. "development" -> "draft" is a real transition in bug.yaml
-// (development's "fail" outcome), so passing the legacy alias "reported"
-// (which resolves to "draft") as the target must succeed identically.
+// canonical step. A local workflow fixture permits development -> draft so
+// the test does not depend on the production rework route.
 func TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus(t *testing.T) {
 	ctx := context.Background()
 
@@ -1063,7 +1078,11 @@ func TestBugService_TransitionStatus_ResolvesLegacyAliasTargetStatus(t *testing.
 		},
 	}
 
-	svc := newBugService(repo, nil, nil, nil)
+	cfg := config.DefaultBugWorkflow()
+	cfg.StatusFlow["development"] = append(cfg.StatusFlow["development"], "draft")
+	wf := workflow.NewServiceFromMultiLevel(&config.MultiLevelWorkflow{Bug: cfg})
+	entitySvc := NewEntityService(wf)
+	svc := NewBugService(repo, entitySvc, &mockBugEntityRepo{bugRepo: repo}, &bugLinkEpicRepo{}, &bugLinkFeatureRepo{}, &bugLinkTaskRepo{}, "", nil)
 
 	result, err := svc.TransitionStatus(ctx, "B001", "reported", TransitionOptions{})
 	if err != nil {
@@ -1865,5 +1884,97 @@ func TestBugService_UpdateBug_NoSizeChange(t *testing.T) {
 	}
 	if *capturedBug.Size != 3 {
 		t.Errorf("expected capturedBug.Size=3 (unchanged), got %d", *capturedBug.Size)
+	}
+}
+
+func TestBugResearchPassRequiresValidatedReport(t *testing.T) {
+	root := t.TempDir()
+	file := "docs/plan/bugs/B001.md"
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.invalid")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "docs", "plan", "bugs"), 0700))
+	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test", FilePath: &file}, Status: "research", Severity: models.BugSeverityHigh}
+	repo := &mockBugRepo{getByKeyFn: func(context.Context, string) (*models.Bug, error) { return bug, nil }}
+	wf := workflow.NewService(root)
+	svc := NewBugService(repo, NewEntityService(wf), &mockBugEntityRepo{bugRepo: repo}, &bugLinkEpicRepo{}, &bugLinkFeatureRepo{}, &bugLinkTaskRepo{}, "", nil)
+	ctx := context.Background()
+	if _, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{}); err == nil {
+		require.FailNow(t, "missing report allowed research pass")
+	}
+	reportPath := filepath.Join(root, "docs", "plan", "bugs", "B001.research-report.md")
+	require.NoError(t, os.WriteFile(reportPath, []byte("invalid report"), 0644))
+	_, err := svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "not tracked")
+	git("add", "--", "docs/plan/bugs/B001.research-report.md")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.Error(t, err, "staged report is not committed")
+	git("commit", "-m", "Record malformed research")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "missing YAML front matter")
+	valid := "---\nresearch_schema: 2\nrigor: simple\ncategories: [backend]\nrelated_work: false\n---\n# Research report\n\n## Scope\nBug scope.\n\n## Research checklist\n- [x] `scope_vocabulary` — Evidence: `B001.md`.\n- [x] `affected_implementation_or_contract` — Evidence: `source.go`.\n\n## Findings\nCause found.\n\n## Decisions\nRepair the cause.\n\n## Sources\n- `source.go`\n"
+	require.NoError(t, os.WriteFile(reportPath, []byte(valid), 0644))
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "differs from the current commit")
+	git("add", "--", "docs/plan/bugs/B001.research-report.md")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "index differs")
+	git("commit", "-m", "Record valid research")
+	require.NoError(t, os.WriteFile(reportPath, []byte(valid+"uncommitted change"), 0644))
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "differs from the current commit")
+	require.NoError(t, os.WriteFile(reportPath, []byte(valid), 0644))
+	git("update-index", "--assume-unchanged", "--", "docs/plan/bugs/B001.research-report.md")
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "assume-unchanged")
+	git("update-index", "--no-assume-unchanged", "--", "docs/plan/bugs/B001.research-report.md")
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".git", "info", "exclude"), []byte("docs/plan/bugs/B001.research-report.md\n"), 0600))
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorContains(t, err, "ignored")
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".git", "info", "exclude"), nil, 0600))
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = svc.TransitionStatus(cancelled, "B001", "repair_plan", TransitionOptions{})
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = svc.TransitionStatus(ctx, "B001", "repair_plan", TransitionOptions{})
+	require.NoError(t, err)
+
+	if err := os.Remove(reportPath); err != nil {
+		require.NoError(t, err)
+	}
+	if _, err := svc.TransitionStatus(ctx, "B001", "blocked", TransitionOptions{}); err != nil {
+		require.FailNowf(t, "assertion failed", "recovery route should not require report: %v", err)
+	}
+}
+
+func TestBugReworkTransitionRetainsReasonInHistory(t *testing.T) {
+	for _, target := range []string{"research", "repair_plan"} {
+		t.Run(target, func(t *testing.T) {
+			repo := &mockBugRepo{
+				getByKeyFn: func(context.Context, string) (*models.Bug, error) {
+					return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001"}, Status: "plan_review", Severity: models.BugSeverityHigh}, nil
+				},
+				updateStatusFn: func(context.Context, int64, models.BugStatus) error { return nil },
+			}
+			svc := newBugService(repo, nil, nil, nil)
+			history := &mockEntityHistoryRecorder{}
+			svc.entitySvc.SetHistoryRepo(history)
+			reason := "gate plan_review outcome rework"
+			result, err := svc.TransitionStatus(context.Background(), "B001", target, TransitionOptions{Reason: reason, Agent: "parent"})
+			require.NoError(t, err)
+			require.Equal(t, target, result.ToStatus)
+			require.Len(t, history.created, 1)
+			require.NotNil(t, history.created[0].FromStatus)
+			require.Equal(t, "plan_review", *history.created[0].FromStatus)
+			require.NotNil(t, history.created[0].Notes)
+			require.Equal(t, reason, *history.created[0].Notes)
+			require.Nil(t, history.created[0].RejectionReason, "bug transitions deliberately use simple history")
+		})
 	}
 }

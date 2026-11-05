@@ -114,6 +114,8 @@ var LoadMultiLevelWorkflowOrDefault = workflow.LoadMultiLevelWorkflowOrDefault
 
 // ValidateWorkflow validates workflow configuration for correctness.
 var ValidateWorkflow = workflow.ValidateWorkflow
+var ValidateWorkflowForLevel = workflow.ValidateWorkflowForLevel
+var ValidateBugEvidenceRoutes = workflow.ValidateBugEvidenceRoutes
 
 // ValidateWorkflowFiles validates supported workflow configuration sources.
 var ValidateWorkflowFiles = workflow.ValidateWorkflowFiles

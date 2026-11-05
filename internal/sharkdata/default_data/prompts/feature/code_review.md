@@ -11,25 +11,20 @@ Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `
 
 RE-REVIEW ROUND (a prior code-review report matching {{.review_base}}code-review-*-{{.id}}.md exists)? Run the full three-part procedure from `skills/quality/workflows/defect-class-sweep.md`'s "Full-class re-verification" section — verify the named fixes, re-run the full enumeration over the declared search scope, and re-run this gate's full checks (Parts 1–4 below) over the feature surface, not only the previously-flagged area.
 
+Run the host-installed `shark-rider/skills/deep-review/SKILL.md` multi-agent procedure for this code-review gate, including its capability ladder and consolidation. The parent retains the entity lease and transitions; reviewers supply evidence only.
+
 {{include: skills/quality/workflows/review-code.md}}
 
-OVERRIDE — loop-guard escalation for this gate: the included workflow's
-"Loop-guard awareness" section escalates on raw `prior_rejection_count >= 1`.
-For this feature-level gate, that raw round count is superseded by
-`skills/quality/workflows/defect-class-sweep.md`'s evidence-based recurrence
-classification: escalate to the user only when a finding is genuine
-recurrence per that workflow — the same fingerprint resurfacing after a
-recorded repair, or a new fingerprint sharing both the same `class_key` and
-scope membership in a previously completed sweep — never on round count
-alone. A new, non-recurring finding on a later round is ordinary rework, not
-a loop.
+RE-REVIEW ESCALATION: apply the evidence-based recurrence classification in
+`skills/quality/workflows/defect-class-sweep.md` and the configured retry limits.
+Do not infer recurrence from the review round count alone.
 
 READ:
 (1) Feature spec at {{.file_path}} for architecture decisions and acceptance criteria
 (2) Feature test-plan.md for all expected test cases, coverage requirements, and Caller-Path Contracts
 (3) CLAUDE.md for codebase standards and patterns
 (4) All task specs: `{{template "list_json" .}}` → read each task's file_path in sequence
-(5) Full feature diff: `git log --oneline -20` then `git diff $(git merge-base HEAD main)..HEAD`
+(5) The complete frozen feature scope and base-to-candidate diff captured by deep-review, including all unaccepted predecessor changes
 (6) Implementation code for all changed files
 (7) Parent interaction map and cross-epic maps if the feature spec declares
     I-## or X-## rows
@@ -56,7 +51,7 @@ PART 3 — SCOPED TEST RUN (SIMPLE/STANDARD only):
 - Run the project's format + lint (from `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo)
 - Targeted unit tests: union changed files from the diff and task Scope sections, map to their test counterparts, run those plus any tests named in the test-plan ACs
 - Targeted integration tests only if the changeset crosses an integration seam (migration, endpoint, service contract, I-##/X-## contract)
-- DO NOT run the full integration suite or any codex red-team (UAT owns red-team)
+- DO NOT run the full integration suite or a separate spec-fidelity red-team (UAT owns that review); the independent craft review above still follows the host capability ladder.
 
 PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
 - For every TC in the test plan with a Caller-Path Contract (skip `internal — function under test is the production entrypoint`): locate the committed test, confirm it calls the declared entrypoint with the production argument shape, mocks no higher than the declared seam, and mocks nothing on the forbidden list
@@ -64,7 +59,9 @@ PART 4 — CALLER-PATH CONTRACT COMPLIANCE (SIMPLE/STANDARD only):
 
 {{template "_review_output_policy" .}}
 
-PRODUCE verification report to `{{.review_base}}code-review-<timestamp>-{{.id}}.md`:
+PRODUCE verification report to `{{.review_base}}code-review-<timestamp>-{{.id}}.md`.
+Record the actual deep-review report, retained scope and retained diff paths in
+this report so QA and approval can follow the evidence; keep earlier reports.
 - If zero findings: compact PASS artifact only
   - Verdict: PASS, and which parts ran (tier)
   - Scope reviewed: spec, test-plan, task set, diff, and implementation surface

@@ -1,11 +1,14 @@
 package research
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/projectdocs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -30,15 +33,26 @@ type artifact struct {
 // presence, front matter, selected recipe/tier/categories, checked modules,
 // and source evidence only; it deliberately does not evaluate prose quality.
 func ValidateEntity(projectRoot string, entity models.Entity) error {
+	return ValidateEntityAt(projectRoot, projectRoot, entity)
+}
+
+// ValidateEntityAt uses the parent project's recipe catalog and resolves the
+// report in the selected project checkout.
+func ValidateEntityAt(projectRoot, artifactRoot string, entity models.Entity) error {
+	return ValidateEntityAtContext(context.Background(), projectRoot, artifactRoot, entity)
+}
+
+// ValidateEntityAtContext validates research evidence with caller cancellation.
+func ValidateEntityAtContext(ctx context.Context, projectRoot, artifactRoot string, entity models.Entity) error {
 	catalog, err := LoadCatalog(projectRoot)
 	if err != nil {
 		return err
 	}
-	paths, err := ArtifactPaths(projectRoot, entity)
+	paths, err := ArtifactPaths(artifactRoot, entity)
 	if err != nil {
 		return err
 	}
-	report, reportBody, err := readArtifact(paths.Report)
+	report, reportBody, err := readResearchArtifact(ctx, artifactRoot, paths.Report, entity.GetEntityType() == models.EntityTypeBug)
 	if err != nil {
 		return fmt.Errorf("research report: %w", err)
 	}
@@ -288,11 +302,33 @@ func capabilityMapHasDecision(body string) bool {
 	return false
 }
 
+func readResearchArtifact(ctx context.Context, root, path string, committed bool) (artifact, string, error) {
+	if !committed {
+		return readArtifact(path)
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil || !filepath.IsLocal(relative) {
+		return artifact{}, "", fmt.Errorf("research report is outside project")
+	}
+	data, err := projectdocs.ReadBounded(root, relative, projectdocs.MaxDocumentBytes)
+	if err != nil {
+		return artifact{}, "", err
+	}
+	if err := projectdocs.VerifyCommitted(ctx, root, relative, data); err != nil {
+		return artifact{}, "", err
+	}
+	return parseArtifact(path, data)
+}
+
 func readArtifact(path string) (artifact, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return artifact{}, "", fmt.Errorf("read %s: %w", path, err)
 	}
+	return parseArtifact(path, data)
+}
+
+func parseArtifact(path string, data []byte) (artifact, string, error) {
 	text := string(data)
 	if !strings.HasPrefix(text, "---\n") && !strings.HasPrefix(text, "---\r\n") {
 		return artifact{}, "", fmt.Errorf("%s is missing YAML front matter", path)

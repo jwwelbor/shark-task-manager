@@ -89,6 +89,53 @@ func newTestEntityService(t *testing.T) *EntityService {
 	return NewEntityService(wfSvc).ForLevel(workflow.LevelEpic)
 }
 
+func TestBugTransitionRejectsChangedSourceWithoutAdvanceGuard(t *testing.T) {
+	for _, tc := range []struct{ target, concurrent string }{{"development", "plan_review"}, {"repair_plan", "research"}} {
+		t.Run(tc.concurrent, func(t *testing.T) {
+			live := "qa"
+			repo := &mockEntityRepo{
+				getByKeyFn: func(context.Context, string) (models.Entity, error) {
+					snapshot := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001"}, Status: models.BugStatus(live)}
+					live = tc.concurrent // another valid QA rework route wins first
+					return snapshot, nil
+				},
+				updateStatusFn: func(context.Context, int64, string) error {
+					require.FailNow(t, "unconditional status write bypasses source validation")
+					return nil
+				},
+				updateStatusIfCurrentFn: func(_ context.Context, _ int64, expected, target string) (bool, error) {
+					if live != expected {
+						return false, nil
+					}
+					live = target
+					return true, nil
+				},
+			}
+			svc := NewEntityService(workflow.NewService(t.TempDir())).ForLevel("bug")
+			_, err := svc.TransitionStatus(context.Background(), repo, models.EntityTypeBug, "B001", tc.target, TransitionOptions{}, SimpleTransitionFeatures(), nil)
+			require.ErrorIs(t, err, ErrAdvanceGuardStaleFromStatus)
+			require.Equal(t, tc.concurrent, live)
+		})
+	}
+}
+
+func TestAdmittedBugTransitionAcceptsSourceAlias(t *testing.T) {
+	repo := &mockEntityRepo{
+		getByKeyFn: func(context.Context, string) (models.Entity, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001"}, Status: "reported"}, nil
+		},
+		updateStatusIfCurrentFn: func(_ context.Context, _ int64, expected, target string) (bool, error) {
+			require.Equal(t, "reported", expected)
+			require.Equal(t, "research", target)
+			return true, nil
+		},
+	}
+	svc := NewEntityService(workflow.NewService(t.TempDir())).ForLevel("bug")
+	result, err := svc.TransitionStatus(context.Background(), repo, models.EntityTypeBug, "B001", "research", TransitionOptions{GateAdmissionVerified: true, FromStatus: "draft"}, SimpleTransitionFeatures(), nil)
+	require.NoError(t, err)
+	require.Equal(t, "reported", result.FromStatus)
+}
+
 // --- TransitionStatus Tests ---
 
 func TestEntityService_TransitionStatus_HappyPath(t *testing.T) {

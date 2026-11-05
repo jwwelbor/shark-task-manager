@@ -330,6 +330,10 @@ type RunControllerDeps struct {
 	// host-facing prompt. Optional; nil preserves the legacy instruction passthrough.
 	PromptAssembler PromptAssembler
 
+	// ApprovedBugPlan supplies the authoritative reviewed plan for downstream
+	// bug workers. Production wires it to the parent-owned approval records.
+	ApprovedBugPlan func(context.Context, string, string) (ApprovedPlan, error)
+
 	// ChildrenSvc lists dispatchable cascade children. Required when ActionCascade
 	// is reachable from this controller.
 	ChildrenSvc CascadeChildrenService
@@ -376,6 +380,7 @@ type RunController struct {
 	workflowSvc       *workflow.Service
 	dispatchers       map[string]AgentDispatcher
 	assembler         PromptAssembler
+	approvedBugPlan   func(context.Context, string, string) (ApprovedPlan, error)
 	childrenSvc       CascadeChildrenService
 	runChild          CascadeChildRunner
 	questionResponses QuestionResponsePersister
@@ -415,6 +420,7 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 		workflowSvc:       deps.WorkflowSvc,
 		dispatchers:       deps.Dispatchers,
 		assembler:         assembler,
+		approvedBugPlan:   deps.ApprovedBugPlan,
 		childrenSvc:       deps.ChildrenSvc,
 		runChild:          deps.RunChild,
 		questionResponses: deps.QuestionResponses,
@@ -654,6 +660,14 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		}
 
 		if outcome.done {
+			return result, nil
+		}
+		// A bug worker that routes to its own status has not advanced.
+		// Stop this invocation rather than repeatedly dispatching without progress.
+		if opts.EntityType == "bug" && (action.Action == config.ActionSpawnAgent || action.Action == config.ActionCheckOrResume) && strings.EqualFold(c.workflowSvc.ForLevel("bug").NormalizeStatus(outcome.nextStatus), c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus)) {
+			result.FinalStatus = currentStatus
+			result.Outcome = "paused"
+			result.TotalDuration = time.Since(startTime)
 			return result, nil
 		}
 		currentStatus = outcome.nextStatus
@@ -1057,6 +1071,13 @@ const (
 // defaulting to "legacy" on omission — T-E34-F05-005). Every caller in this
 // file goes through this one function, so a future contract value only
 // needs a case added here.
+func dispatchResultContract(stepInfo *services.NextStatusInfo) string {
+	if stepInfo == nil {
+		return ""
+	}
+	return stepInfo.ResultContract
+}
+
 func resultContractFor(stepInfo *services.NextStatusInfo) (string, error) {
 	contract := resultContractLegacy
 	if stepInfo != nil && stepInfo.ResultContract != "" {
@@ -1186,6 +1207,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   c.gateIngest.Coordinator,
 		ProjectRoot:   opts.ProjectRoot,
+		WorkingDir:    opts.WorkingDir,
 		RunID:         gateStageRunID(opts.RunID, key, stageN),
 		EntityKey:     key,
 		EntityType:    models.EntityType(opts.EntityType),
@@ -1203,11 +1225,9 @@ func (c *RunController) ingestGateResultForDispatch(
 		return "", nil, err
 	}
 
-	// Only confirm retirement (and release the lease) when the resolved
-	// target status is terminal — i.e. only when the Run() loop is about to
-	// stop dispatching this entity in this invocation, not merely because
-	// this one gate stage finished.
-	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) {
+	// Confirm retirement when this invocation will stop: a terminal target or
+	// a same-stage result that cannot make progress without another invocation.
+	if c.workflowSvc.ForLevel(opts.EntityType).IsTerminalStatus(ingestResult.ToStatus) || (opts.EntityType == "bug" && strings.EqualFold(c.workflowSvc.ForLevel("bug").NormalizeStatus(ingestResult.ToStatus), c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus))) {
 		retireReq := baseReq
 		retireReq.RetirementConfirmed = true
 		// RunConcluded: true — this IS the Run() loop's last dispatch for
@@ -1464,14 +1484,24 @@ func (c *RunController) handleSpawnAgent(
 		})
 		return stageOutcome{done: true}
 	}
+	if opts.EntityType == "bug" && c.workflowSvc.ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == config.ResultContractGateResultV1 && BugNeedsApprovedPlan(c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus)) && c.approvedBugPlan != nil {
+		plan, planErr := c.approvedBugPlan(ctx, key, opts.WorkingDir)
+		if planErr != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{EntityKey: key, Status: currentStatus, Phase: "approved_plan", Error: planErr.Error(), RunID: opts.RunID})
+			return stageOutcome{done: true}
+		}
+		assembledPrompt = AppendApprovedBugPlan(assembledPrompt, plan)
+	}
 
 	input := DispatchInput{
-		Instruction: assembledPrompt,
-		WorkingDir:  opts.WorkingDir,
-		EntityKey:   key,
-		Status:      currentStatus,
-		AgentType:   action.AgentType,
-		Model:       action.Model,
+		Instruction:    assembledPrompt,
+		ResultContract: dispatchResultContract(stepInfo),
+		WorkingDir:     opts.WorkingDir,
+		EntityKey:      key,
+		EntityType:     opts.EntityType,
+		Status:         currentStatus,
+		AgentType:      action.AgentType,
+		Model:          action.Model,
 	}
 
 	if opts.DryRun {
@@ -1749,7 +1779,15 @@ func (c *RunController) handleSpawnAgent(
 			TranscriptPath: relPath,
 		})
 
-		transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo))
+		transitionOpts := guardedTransitionOptions(opts, currentStatus, targetStatus, nextInfo)
+		if opts.EntityType == "bug" && c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus) == "research" && opts.WorkingDir != "" {
+			transitionOpts.ResearchArtifactRoot, err = BugWorktreeProjectRoot(ctx, opts.ProjectRoot, opts.WorkingDir)
+			if err != nil {
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{EntityKey: key, Status: currentStatus, Phase: "research_evidence_root", Error: err.Error(), RunID: opts.RunID})
+				return stageOutcome{done: true}
+			}
+		}
+		transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, transitionOpts)
 		if err != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 				EntityKey: key,

@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -49,7 +50,9 @@ type GateIngestRequest struct {
 
 	Coordinator *gatepersist.Coordinator
 
-	ProjectRoot  string
+	ProjectRoot string
+	// WorkingDir is selected by the parent dispatcher, never by worker output.
+	WorkingDir   string
 	RunID        string
 	EntityKey    string
 	EntityType   models.EntityType
@@ -134,15 +137,54 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 	if err := gateresult.ValidateRole(role, result, req.EntityKey); err != nil {
 		return nil, fmt.Errorf("gate ingestion: validate gate_result against outcome role %q: %w", role, err)
 	}
+	if req.EntityType == models.EntityTypeBug && req.Gate == "plan_review" && role == gateresult.RoleSuccess && req.Coordinator.BeforeTransition == nil {
+		return nil, fmt.Errorf("gate ingestion: bug plan approval requires snapshot preparation")
+	}
 
 	targetStatus, ok := req.Outcomes[env.RecommendedOutcome]
 	if !ok {
 		return nil, fmt.Errorf("gate ingestion: recommended_outcome %q has no configured target status", env.RecommendedOutcome)
 	}
+	if req.EntityType == models.EntityTypeBug && bugEvidenceGate(req.Gate) {
+		for success, target := range req.Outcomes {
+			if req.OutcomeRoles[success] != gateresult.RoleSuccess {
+				continue
+			}
+			for outcome, other := range req.Outcomes {
+				role := req.OutcomeRoles[outcome]
+				if (role == gateresult.RoleRouteRework || role == gateresult.RoleKickbackRework) && strings.EqualFold(target, other) {
+					return nil, fmt.Errorf("gate ingestion: bug success and rework outcomes share target %q", target)
+				}
+			}
+		}
+	}
 
 	runDir, err := gaterun.RunDir(req.ProjectRoot, req.RunID)
 	if err != nil {
 		return nil, fmt.Errorf("gate ingestion: resolve run directory: %w", err)
+	}
+
+	evidenceRoot, err := gateEvidenceRoot(ctx, req, runDir, role)
+	if err != nil {
+		return nil, fmt.Errorf("gate ingestion: resolve evidence root: %w", err)
+	}
+	var planRoot, planCommit, planBlob string
+	if req.EntityType == models.EntityTypeBug && req.Gate == "plan_review" && role == gateresult.RoleSuccess {
+		identity, exists, identityErr := gaterun.ReadIdentity(runDir)
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		if exists {
+			planRoot, planCommit, planBlob = identity.PlanRoot, identity.PlanCommit, identity.PlanBlob
+			if planRoot == "" || planCommit == "" || planBlob == "" {
+				return nil, fmt.Errorf("gate ingestion: approved plan provenance is missing from run identity")
+			}
+		} else {
+			planRoot, planCommit, planBlob, err = bugPlanProvenance(ctx, gatepersist.Request{RunDir: runDir, EvidenceRoot: evidenceRoot, EnvelopeJSON: req.EnvelopeBytes})
+			if err != nil {
+				return nil, fmt.Errorf("gate ingestion: resolve committed plan: %w", err)
+			}
+		}
 	}
 
 	evidenceJSON, err := marshalEvidence(env.Evidence)
@@ -152,6 +194,10 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 
 	persisted, err := req.Coordinator.Persist(ctx, gatepersist.Request{
 		RunDir:              runDir,
+		EvidenceRoot:        evidenceRoot,
+		PlanRoot:            planRoot,
+		PlanCommit:          planCommit,
+		PlanBlob:            planBlob,
 		RunID:               req.RunID,
 		EntityKey:           req.EntityKey,
 		EntityType:          req.EntityType,

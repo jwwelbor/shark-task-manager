@@ -13,7 +13,6 @@ inputs:
   - complexity_thresholds: {cyclomatic, file_lines, function_lines} (optional — defaults: 10 / 500 / 50)
   - prior_rejection_count: int — how many times this task has been at code review before (for loop-guard awareness)
   - code_review_report_path: absolute path where the structured report should be written
-  - codex_command: pre-rendered codex exec command for the craft red-team
 outputs:
   - verdict: "PASS" | "PASS-with-triage" | "FAIL"
   - code_review_report: structured markdown written to code_review_report_path
@@ -22,9 +21,8 @@ outputs:
   - nits: list of {file_line, rule, note} — no action needed
   - counter_factual_per_ac: list of {ac_id, covering_test, rationale_or_blocker_flag}
   - production_caller_chains: list of {service_contract, entrypoint, chain, arg_shape}
-  - codex_assessment_verbatim: string — full codex output preserved
-  - codex_disagreements: list of {finding, codex_severity, claude_severity, resolution}
-  - downgrade_justifications: list of {codex_finding, downgrade_reason} — must use the verbatim downgrade-discipline sentence
+  - review_evidence: runner metadata, complete scope and consolidated findings
+  - downgrade_justifications: reasons for any downgraded blocker
   - rubric_scores_per_file: list of {file, readability, maintainability, performance, testability, standards, notes}
 ---
 
@@ -203,40 +201,25 @@ Identify and flag:
 
 For each: severity, evidence, and a concrete mitigation.
 
-### Step 10: Codex red-team on the diff (MANDATORY)
+### Step 10: Independent multi-angle review
 
-Claude reviewing Claude is a monoculture. Run `codex_command` to red-team the diff from a different model's perspective, applied at craft-review focus (DRY, idiom, complexity, standards, design) rather than spec fidelity.
+Use the host's independent multi-angle review procedure and its capability ladder. The host
+runs native Workflow, or six dispatched angle reviewers and a consolidator,
+or a validated comparable CLI only when dispatch is unavailable. A failed or
+partial six-angle run is INCOMPLETE and cannot be replaced by a single CLI
+pass. Manual diagnostics are not an unattended pass. Do not launch a separate
+nested Codex craft review. Angle reviewers produce evidence only; the parent
+retains the lease, heartbeats, transitions and result ingestion.
 
-The codex prompt (assembled by the caller) should instruct codex to:
-
-1. **DRY / reuse** — for each new utility/helper/abstraction, search the codebase for existing equivalents; list every duplication with file:line and a diff-ready refactor.
-2. **SOLID violations** — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion.
-3. **Standards crosswalk** — cite the EXACT section of `coding_standards_path` and quote the clause; no citation = downgrade to opinion-only nit; no fabricated citations.
-4. **Idiomatic patterns** — language-specific community-standard alternatives.
-5. **Complexity hotspots** — distinguish new complexity (blocker if egregious) from pre-existing (non-blocker triage).
-6. **Tests design** — coverage gaps per AC, missing boundary/negative cases, mock-discipline issues.
-7. **Risk hotspots** — coupling, performance, security boundaries, concurrency, I/O.
-
-Codex output should be enumerative within each category — multiple non-blocker DRY findings beat one summary.
-
-**Timeout**: at least 580 seconds — five-minute budgets kill codex runs mid-investigation, and a retry after truncation just burns a second full run. Prefer one long run over two truncated ones. If it times out at the long budget, retry once. After two failures, log `"Codex craft review: FAILED — [error]"` as a non-blocking note (don't skip CR because of codex failure, but document it).
-
-**Merge codex findings into your own:**
-
-- Codex blockers + your blockers = the rejection set.
-- Codex non-blockers + your non-blockers = `non_blockers_to_triage` (deduplicate by `file:line + rule`).
-- Codex nits go into `nits`.
-- If codex disagreed with your verdict (e.g., codex says FAIL where you said PASS), do not silently override — record the disagreement in `codex_disagreements` and pick the more conservative verdict.
-
-#### Downgrade discipline
-
-If you downgrade a codex blocker to non-blocker or nit, you MUST in the report answer this sentence verbatim:
-
-> *"This finding is non-load-bearing because it does not mask a test bug, a wiring gap, or a regressed AC, for the following reason: [reason]."*
-
-"Greenfield project", "codex over-flags", and "we'll catch it in QA" are not sufficient justifications on their own — they are not a reason, they are a vibe. A real example that bit: codex flagged a broad `except Exception` as blocker; tech-lead downgraded citing greenfield; UAT re-promoted it because the swallow was hiding an `AsyncMock`-not-`MagicMock` test bug. Treat downgrade as a positive claim that has to be defended, not a default position.
-
-Return downgrades in `downgrade_justifications`. Include codex's response verbatim in `codex_assessment_verbatim`.
+Freeze the complete scope, including unaccepted predecessor changes. Bind the
+review to the candidate tree, diff hash and manifest. Bind the accepted plan
+revision when applicable; bug repair reviews require it.
+Record runner mode, completed specialists, consolidation, actual reviewer model,
+fallback reason, base commit and diff path. Record requested and verified
+effective execution identity separately; explicitly mark unknown identity.
+If scope or candidate changes, obtain fresh evidence. Preserve disagreements;
+justify any downgraded blocker with evidence that it does not mask a test bug,
+wiring gap or regressed obligation. Incomplete evidence cannot pass.
 
 ### Step 11: Quality rubric (0-5 per dimension)
 
@@ -311,9 +294,9 @@ If no standards doc covers a finding, mark "opinion-only" and downgrade severity
 
 Short list, one per category that applies.
 
-### G2. Codex red-team
+### G2. Independent review evidence
 
-`codex_assessment_verbatim` from Step 10. Note any disagreements between codex's verdict and your own (`codex_disagreements`), with rationale for the final call. Include any `downgrade_justifications` here.
+Record the Step 10 metadata, scope, findings, disagreements and downgrade justifications.
 
 ### H. Production caller chains
 
@@ -348,7 +331,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - **Service-contract change without a complete production caller-chain trace** (Step 5).
 - **An AC whose only covering test passes against an empty/buggy implementation** (Step 8.5 counter-factual fails for a critical AC).
 - **New `except Exception` (or other catch-all: bare `except:`, `catch (Throwable)`, `} catch {}`) introduced by the diff without a stated diagnose-layer justification per the project's error-handling standard.
-- **A codex blocker downgraded without the Step 10 downgrade-discipline justification.**
+- **A review blocker downgraded without the Step 10 evidence-based justification.**
 
 ### Do **NOT** block for:
 
@@ -373,10 +356,10 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - [ ] Reuse search was actually performed (cite at least one grep result, even if "no duplicates found").
 - [ ] Standards crosswalk cites real sections from real docs (no fabricated citations).
 - [ ] Quality rubric scores are justified with evidence, not vibes.
-- [ ] **Codex red-team ran and findings are incorporated** (or codex failure is documented).
+- [ ] **Independent review completed and findings are incorporated**; incomplete evidence cannot pass.
 - [ ] **For each service-contract change in the diff, `production_caller_chains` names entrypoint → call chain → leaf** (Step 5).
 - [ ] **`counter_factual_per_ac` has one entry per AC** (Step 8.5) — flag missing coverage as blocker on critical ACs.
-- [ ] **If any codex finding was downgraded, `downgrade_justifications` contains the downgrade-discipline justification verbatim** (Step 10).
+- [ ] **Any downgraded blocker has an evidence-based justification** (Step 10).
 - [ ] Verdict matches findings: PASS only if zero findings of any severity; PASS-with-triage if no blockers; FAIL otherwise.
 - [ ] Report file exists at `code_review_report_path`.
 
@@ -390,7 +373,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 
 ## Loop-guard awareness
 
-If `prior_rejection_count >= 1` for this task at code review, **escalate to the user instead of issuing another rejection** — re-rejecting the same code on the same grounds is a loop. The host is responsible for halting the dispatch; the craft simply notes loop-guard state in the report.
+Use the canonical defect-class sweep to classify recurrence from the actual findings and evidence, then apply the project's configured retry and escalation limits. A raw prior rejection count alone does not establish a recurring defect. Preserve prior accepted dispositions unless new evidence invalidates them, and record the basis for any escalation.
 
 ## Tone
 

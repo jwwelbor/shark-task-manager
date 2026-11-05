@@ -1,12 +1,16 @@
 {{define "_qa_process_body"}}{{include: skills/quality/SKILL.md}}
 
 READ:
-(1) Task spec at {{.file_path}} for acceptance criteria and **Scope file list**
-(2) Feature test-plan.md for test cases mapped to this task
-(3) Feature spec.md for feature-level intent
+(1) Entity specification at {{.file_path}} for acceptance criteria and scope
+(2) Applicable feature test plan or accepted repair coverage index for test cases
+(3) Applicable feature spec or accepted repair plan for intent
 (4) Code review report from {{.review_base}}code-review-*-{{.id}}.md
 (5) Implementation code and existing test results
-(6) `git diff` of the task's changes to derive the actual touched paths
+(6) The complete frozen review manifest and base-to-candidate diff. Read the
+    report's retained scope, independently establish the reviewed project,
+    original source and, when nested, Shark project roots, and run the host
+    deep-review scope validator. A missing, stale or invalid scope cannot
+    satisfy QA; use its complete manifest and retained diff to select tests.
 
 SCOPED TEST RUN (single pass; do NOT run the full suite):
 
@@ -15,9 +19,9 @@ The full integration suite may have pre-existing failures unrelated to any singl
 1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
 
 2. **Targeted unit tests (always run):**
-   - Identify changed source files from `git diff` AND from the task's Scope section
+   - Identify changed source files from the reviewed manifest AND from the entity scope
    - Map each changed source file to its test counterparts using the project's test layout (see `docs/architecture/file-system.md` / `tech-stack.md`)
-   - Add any tests explicitly named in the task's Test Cases / Acceptance Criteria
+   - Add any tests explicitly named in the entity test cases and acceptance criteria
    - Run only those with the project's test runner
 
 3. **Targeted integration tests (run only if the change crosses an integration seam):**
@@ -40,8 +44,8 @@ The full integration suite may have pre-existing failures unrelated to any singl
 
 VALIDATE:
 - Quality gates pass (fmt, lint)
-- All targeted tests pass (zero failures introduced by this task)
-- Acceptance criteria from the feature test plan are exercised by the tests you ran (cite test names)
+- All targeted tests pass (zero failures introduced by this change)
+- Acceptance criteria from the applicable test plan or coverage index are exercised by the tests you ran (cite test names)
 - Edge cases identified in the test plan are covered
 - No regressions in the targeted scope
 
@@ -54,14 +58,14 @@ DO NOT RUN:
 PRODUCE QA report at `{{.review_base}}qa-<timestamp>-{{.id}}.md`:
 - If zero findings: compact PASS artifact only
   - Verdict: PASS
-  - Scope reviewed: task scope, touched paths, feature context, and targeted test surface
+  - Scope reviewed: entity scope, touched paths, applicable context, and targeted test surface
   - Checks run: format/lint/tests summarized, not pasted
   - AC count reviewed
   - Duration if known
   - `0 defects found`
 - If any failed command/test, missing AC proof, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report
   - Verdict: PASS or FAIL
-  - Test scope rationale: which paths you ran and why (cite touched files from `git diff`)
+  - Test scope rationale: which paths you ran and why (cite touched files from the reviewed manifest)
   - Test results summary (counts, durations)
   - AC verification status — name the test that proves each AC
   - Edge cases tested

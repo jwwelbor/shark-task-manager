@@ -3,7 +3,8 @@
 
 Fix bug {{.id}}: "{{.title}}".
 
-Check for existing fix: review git diff and test files. If fix exists with regression test and quality gate passes, advance immediately.
+Read the research report, accepted repair plan and approval, authoritative decisions, prior findings, affected production callers and coverage index before evaluating any existing fix. Existing code must satisfy the same obligations and exit gate as new work. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the parent-supplied approved snapshot and digest; a clean older checkout may retain an earlier plan, while a new material plan change requires review. Maintain current evidence in the separately linked evidence record without editing the approved plan. The plan contains the single coverage index: obligation, authoritative source, production caller or boundary, planned change, required assertions, and links to a separate mutable evidence record. {{template "_bug_repair_contract" .}}
+Apply `skills/quality/workflows/defect-class-sweep.md` (if the bundle is not extracted, read it with `shark skill get quality workflows/defect-class-sweep.md`) to rejection defect classes, preserving valid dispositions and existing retry policy.
 
 ---
 
@@ -35,3 +36,9 @@ EXIT GATE:
 - Regression test proves the bug is fixed
 - Quality gate passes
 - No unrelated changes
+
+DECISION: pass only when the accepted plan and coverage obligations are verified. Use review_plan for a valid plan whose approval is missing or stale; use needs_research for changed diagnosis, replan for a material approach change, fail for implementation rework, and blocked for unavailable external evidence. For route_rework outcomes leave kickbacks empty, keep the summary concise, and retain findings in the structured findings and narrative report. The parent owns transitions.
+
+The fail outcome's role is `route_rework`.
+
+{{template "_gate_result_directive" .}}

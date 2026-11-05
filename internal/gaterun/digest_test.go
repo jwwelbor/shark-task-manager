@@ -2,6 +2,7 @@ package gaterun
 
 import (
 	"encoding/json"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
@@ -97,4 +98,22 @@ func TestComputeOperationDigest_NoHTMLEscaping(t *testing.T) {
 	if d == "" {
 		t.Fatal("empty digest")
 	}
+}
+
+func TestBoundOperationDigestBindsPlanProvenance(t *testing.T) {
+	env := json.RawMessage(`{"summary":"approved"}`)
+	base, err := ComputeOperationDigest("B001", "bug", "plan_review", "plan_review", env)
+	require.NoError(t, err)
+	plain, err := ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, "", "", "")
+	require.NoError(t, err)
+	require.Equal(t, base, plain)
+	bound, err := ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, "/repo", "commit", "blob")
+	require.NoError(t, err)
+	for _, fields := range [][3]string{{"/other", "commit", "blob"}, {"/repo", "other", "blob"}, {"/repo", "commit", "other"}} {
+		got, err := ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, fields[0], fields[1], fields[2])
+		require.NoError(t, err)
+		require.NotEqual(t, bound, got, "provenance: %v", fields)
+	}
+	_, err = ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", env, "/repo", "", "blob")
+	require.Error(t, err)
 }

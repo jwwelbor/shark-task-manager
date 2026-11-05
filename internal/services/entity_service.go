@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/research"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -280,6 +282,10 @@ func (s *EntityService) transitionStatus(
 			Transitioned: false,
 		}, nil
 	}
+	if entityType == models.EntityTypeBug && opts.GateAdmissionVerified &&
+		(opts.FromStatus == "" || !strings.EqualFold(resolvedCurrentStatus, s.workflowSvc.NormalizeStatus(opts.FromStatus))) {
+		return nil, ErrAdvanceGuardStaleFromStatus
+	}
 
 	// Steps 3-4: Validate and normalize. Pass the resolved target so a legacy
 	// alias passed as the target (e.g. "reported") validates against its
@@ -288,14 +294,8 @@ func (s *EntityService) transitionStatus(
 	if err != nil {
 		return nil, err
 	}
-
-	// A research step may only take its pass route after the selected recipe's
-	// structural evidence contract is complete. Failure and parking routes stay
-	// available for recovery and escalation.
-	if !opts.Force && s.requiresResearchEvidence(resolvedCurrentStatus, targetStatus) {
-		if err := research.ValidateEntity(s.workflowSvc.ProjectRoot(), entity); err != nil {
-			return nil, fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
-		}
+	if err := s.validateTransitionEvidence(ctx, entityType, key, entity, resolvedCurrentStatus, targetStatus, opts); err != nil {
+		return nil, err
 	}
 
 	// Step 5: Enforce reason for forced transitions
@@ -397,11 +397,10 @@ func (s *EntityService) updateTransitionStatus(
 	opts TransitionOptions,
 ) error {
 	if !s.shouldUseAdvanceGuard(opts) {
-		// A terminal reopen is authorized from an observed source status. Even
-		// when the optional replay ledger is disabled, preserve that narrow
-		// authorization boundary with a conditional update so a concurrent
-		// non-terminal transition cannot inherit its forced route bypass.
-		if opts.ForceTerminalReopen {
+		// Preserve the observed source for terminal reopens and unforced bug
+		// transitions even without the optional replay ledger. Otherwise a
+		// concurrent transition can invalidate the evidence checks above.
+		if opts.ForceTerminalReopen || (entityType == models.EntityTypeBug && !opts.Force) {
 			updated, err := repo.UpdateStatusIfCurrent(ctx, entityID, currentStatus, targetStatus)
 			if err != nil {
 				return fmt.Errorf("failed to update %s status: %w", entityType, err)
@@ -541,6 +540,54 @@ func (s *EntityService) compensateAdvanceGuard(ctx context.Context, entityType m
 	if err := s.advanceGuardRepo.DeleteConsumed(ctx, string(entityType), entityID, opts.SessionID, currentStatus, opts.Outcome); err != nil {
 		slog.Warn("failed to compensate advance guard consumption after failed status update", "entity_type", entityType, "entity_id", entityID, "error", err)
 	}
+}
+
+func (s *EntityService) validateTransitionEvidence(ctx context.Context, entityType models.EntityType, key string, entity models.Entity, fromStatus, targetStatus string, opts TransitionOptions) error {
+	if entityType == models.EntityTypeBug && !opts.Force {
+		if err := config.ValidateBugEvidenceRoutes(s.workflowSvc.GetWorkflow()); err != nil {
+			return fmt.Errorf("invalid bug workflow: %w", err)
+		}
+	}
+	if entityType == models.EntityTypeBug && !opts.Force && !opts.GateAdmissionVerified && s.requiresBugGateAdmission(fromStatus, targetStatus) {
+		return fmt.Errorf("cannot advance bug %s from %s: a validated gate result is required; use shark run to submit it", key, fromStatus)
+	}
+	if !opts.Force && s.requiresResearchEvidence(fromStatus, targetStatus) {
+		return s.validateResearchTransition(ctx, entityType, key, entity, opts)
+	}
+	return nil
+}
+
+func (s *EntityService) validateResearchTransition(ctx context.Context, entityType models.EntityType, key string, entity models.Entity, opts TransitionOptions) error {
+	root := s.workflowSvc.ProjectRoot()
+	artifactRoot := root
+	if entityType == models.EntityTypeBug && opts.ResearchArtifactRoot != "" {
+		paths, err := research.ArtifactPaths(opts.ResearchArtifactRoot, entity)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(paths.Report); err == nil {
+			artifactRoot = opts.ResearchArtifactRoot
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect worker research report: %w", err)
+		}
+	}
+	if err := research.ValidateEntityAtContext(ctx, root, artifactRoot, entity); err != nil {
+		return fmt.Errorf("cannot advance %s %s from research: %w", entityType, key, err)
+	}
+	return nil
+}
+
+func (s *EntityService) requiresBugGateAdmission(fromStatus, targetStatus string) bool {
+	if s.workflowSvc.GetResultContract(fromStatus) != config.ResultContractGateResultV1 {
+		return false
+	}
+	roles := s.workflowSvc.GetOutcomeRoles(fromStatus)
+	for outcome, target := range s.workflowSvc.GetOutcomes(fromStatus) {
+		if roles[outcome] == gateresult.RoleSuccess && strings.EqualFold(target, targetStatus) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *EntityService) requiresResearchEvidence(fromStatus, targetStatus string) bool {

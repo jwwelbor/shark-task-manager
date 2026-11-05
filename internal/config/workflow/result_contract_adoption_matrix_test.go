@@ -12,6 +12,7 @@ import (
 // candidate feature). Until that step exists, this test asserts the 12
 // entries that do.
 var canonicalAdoptionMatrix = map[string][]string{
+	"bug":      {"repair_plan", "plan_review", "development", "code_review", "qa"},
 	"epic":     {"feature_review"},
 	"feature":  {"specification", "test_planning", "task_review", "code_review", "qa", "approval"},
 	"techDebt": {"triaged", "in_progress"},
@@ -29,6 +30,7 @@ func TestCanonicalAdoptionMatrix_ResolvesGateResultV1(t *testing.T) {
 	}
 
 	slots := map[string]*WorkflowConfig{
+		"bug":      mlw.Bug,
 		"epic":     mlw.Epic,
 		"feature":  mlw.Feature,
 		"techDebt": mlw.TechDebt,
@@ -61,6 +63,9 @@ func TestCanonicalAdoptionMatrix_ResolvesGateResultV1(t *testing.T) {
 		}
 	}
 
+	if errs := mlw.Bug.ValidateResultContracts(); len(errs) != 0 {
+		t.Errorf("bug workflow result_contract validation failed: %v", errs)
+	}
 	if errs := mlw.Epic.ValidateResultContracts(); len(errs) != 0 {
 		t.Errorf("epic workflow result_contract validation failed: %v", errs)
 	}

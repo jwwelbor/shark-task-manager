@@ -2,6 +2,7 @@ package bug
 
 import (
 	"context"
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 
@@ -199,6 +200,23 @@ func TestBugRepository_Update(t *testing.T) {
 	if updated.Severity != models.BugSeverityCritical {
 		t.Errorf("Update() severity = %q, want %q", updated.Severity, models.BugSeverityCritical)
 	}
+}
+
+func TestBugRepository_UpdateIfStatusPreservesConcurrentTransition(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := bugTestSetup(t)
+	defer cleanup()
+	bug := newTestBug("B922", "Original", "plan_review", models.BugSeverityMedium)
+	require.NoError(t, repo.Create(ctx, bug))
+	require.NoError(t, repo.UpdateStatus(ctx, bug.ID, "repair_plan"))
+	bug.Title = "Stale update"
+	updated, err := repo.UpdateIfStatus(ctx, bug, "plan_review")
+	require.NoError(t, err)
+	require.False(t, updated)
+	got, err := repo.GetByKey(ctx, bug.Key)
+	require.NoError(t, err)
+	require.Equal(t, models.BugStatus("repair_plan"), got.Status)
+	require.Equal(t, "Original", got.Title)
 }
 
 func TestBugRepository_Update_NotFound(t *testing.T) {

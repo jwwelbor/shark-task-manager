@@ -243,6 +243,9 @@ type nextAdapterCache struct {
 	actionSvcRoot   action.ActionService
 	surfaceForks    bool
 	questionBlocker questionBlockChecker
+	bugWorkflow     *configworkflow.WorkflowConfig
+	approvedBugPlan func(context.Context, string, string) (runner.ApprovedPlan, error)
+	bugWorkingDir   string
 
 	// harnessResolver resolves harness identity per spec.md REQ-F-002's
 	// flag > claim > env > zero precedence (T-E34-F01-003/004). nil is a
@@ -270,6 +273,8 @@ func newNextAdapterCache(ctx context.Context) (*nextAdapterCache, error) {
 		entries:         make(map[string]*nextAdapters),
 		actionSvcRoot:   root,
 		questionBlocker: cli.GetQuestionBlocker(),
+		bugWorkflow:     cli.GetWorkflowService().ForLevel("bug").GetWorkflow(),
+		approvedBugPlan: approvedPlanForBug,
 		harnessResolver: cli.GetHarnessResolver(),
 	}, nil
 }
@@ -490,6 +495,7 @@ Errors:
 		"",
 		"Write the exact UTF-8 prompt bytes to <path> (no trailing newline); fails loudly if the target is unwritable",
 	)
+	cmd.Flags().String("workdir", "", "Validate the intended worker working directory for bug dispatch")
 	cmd.Flags().String(
 		"harness",
 		"",
@@ -550,6 +556,38 @@ func harnessOverrideFromFlags(cmd *cobra.Command) (services.HarnessIdentity, err
 	return override, nil
 }
 
+func validateNextWorkdir(ctx context.Context, entityType, workdir string) error {
+	bugPlanWorkflow := entityType == "bug" && cli.GetWorkflowService().ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == configworkflow.ResultContractGateResultV1
+	if workdir != "" || bugPlanWorkflow {
+		if entityType != "bug" {
+			return fmt.Errorf("--workdir is only supported for bug dispatch")
+		}
+		root, err := cli.FindProjectRoot()
+		if err != nil {
+			return fmt.Errorf("locate parent project: %w", err)
+		}
+		if err := runner.ValidateBugWorkingDir(ctx, root, workdir); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeNextPrompt(cmd *cobra.Command, prompt string) error {
+	path, err := cmd.Flags().GetString("prompt-out")
+	if err != nil {
+		return fmt.Errorf("read --prompt-out flag: %w", err)
+	}
+	if path == "" {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(prompt), 0o644); err != nil {
+		return fmt.Errorf("failed to write --prompt-out file %q: %w", path, err)
+	}
+	return nil
+}
+
 func runNext(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
@@ -569,6 +607,13 @@ func runNext(cmd *cobra.Command, args []string) error {
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("invalid entity key %q: %w", args[0], err)
 	}
+	workdir, err := cmd.Flags().GetString("workdir")
+	if err != nil {
+		return err
+	}
+	if err := validateNextWorkdir(ctx, entityType, workdir); err != nil {
+		return err
+	}
 
 	// Build a per-invocation adapter cache so cascade recursion doesn't
 	// rebuild the same transitioner / placeholder generator / action service
@@ -581,6 +626,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 	}
 
 	adapters.surfaceForks = !resolveSequentialDispatch(cmd)
+	adapters.bugWorkingDir = workdir
 
 	harnessOverride, err := harnessOverrideFromFlags(cmd)
 	if err != nil {
@@ -641,16 +687,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 	// trailing newline. Written before the JSON response is emitted so an
 	// unwritable target fails loudly (non-zero exit, no success output)
 	// instead of silently skipping the write (REQ-F-011/AC-013).
-	promptOutPath, err := cmd.Flags().GetString("prompt-out")
-	if err != nil {
+	if err := writeNextPrompt(cmd, resp.Prompt); err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("read --prompt-out flag: %w", err)
-	}
-	if promptOutPath != "" {
-		if writeErr := os.WriteFile(promptOutPath, []byte(resp.Prompt), 0o644); writeErr != nil {
-			span.SetStatus(codes.Error, writeErr.Error())
-			return fmt.Errorf("failed to write --prompt-out file %q: %w", promptOutPath, writeErr)
-		}
+		return err
 	}
 
 	span.SetAttributes(
@@ -848,6 +887,9 @@ func resolveEntity(
 		return NextResponse{}, fmt.Errorf("failed to read status for %s: %w", normalizedKey, err)
 	}
 	currentStatus := nextInfo.CurrentStatus
+	if err := validateBugNextWorkflow(cache, strategy, entityType); err != nil {
+		return NextResponse{}, err
+	}
 
 	resp := NextResponse{
 		EntityKey:      normalizedKey,
@@ -1026,6 +1068,10 @@ func resolveEntity(
 		return NextResponse{}, err
 	}
 	resp.Prompt = attached
+	resp.Prompt, err = enrichBugNextPrompt(ctx, cache, strategy, entityType, normalizedKey, currentStatus, resp.Prompt)
+	if err != nil {
+		return NextResponse{}, err
+	}
 
 	// Hash the fully assembled prompt — post-assembly, including the
 	// ownership preamble and agent body (D-004) — so PromptSHA256/PromptBytes
@@ -1033,11 +1079,39 @@ func resolveEntity(
 	// writes. Computed once here; runNext's OTel span attribute and the
 	// --prompt-out write both reuse resp.Prompt/resp.PromptBytes rather than
 	// re-hashing or re-measuring (REQ-NF-007).
-	sum := sha256.Sum256([]byte(attached))
+	sum := sha256.Sum256([]byte(resp.Prompt))
 	resp.PromptSHA256 = hex.EncodeToString(sum[:])
-	resp.PromptBytes = len(attached)
+	resp.PromptBytes = len(resp.Prompt)
 
 	return resp, nil
+}
+
+func validateBugNextWorkflow(cache *nextAdapterCache, strategy entityResolutionStrategy, entityType string) error {
+	if strategy.mode != nextResolutionMode || entityType != "bug" || cache.bugWorkflow == nil {
+		return nil
+	}
+	if err := configworkflow.ValidateBugEvidenceRoutes(cache.bugWorkflow); err != nil {
+		return fmt.Errorf("invalid bug workflow: %w", err)
+	}
+	return nil
+}
+
+func enrichBugNextPrompt(ctx context.Context, cache *nextAdapterCache, strategy entityResolutionStrategy, entityType, key, status, prompt string) (string, error) {
+	if strategy.mode != nextResolutionMode || entityType != "bug" || cache.bugWorkflow == nil {
+		return prompt, nil
+	}
+	prompt, err := bugParentProjectInstructions(prompt)
+	if err != nil {
+		return "", fmt.Errorf("resolve parent project for %s: %w", key, err)
+	}
+	if cache.bugWorkflow.GetResultContract("plan_review") != configworkflow.ResultContractGateResultV1 || cache.approvedBugPlan == nil || !runner.BugNeedsApprovedPlan(cache.bugWorkflow.ResolveAlias(status)) {
+		return prompt, nil
+	}
+	plan, err := cache.approvedBugPlan(ctx, key, cache.bugWorkingDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve approved plan for %s: %w", key, err)
+	}
+	return runner.AppendApprovedBugPlan(prompt, plan), nil
 }
 
 // resolvedResultContract returns nextInfo's REQ-F-006 result_contract,

@@ -71,6 +71,7 @@ task_reviews/
 qa_reports/
 feature_reviews/
 docs/review/
+docs/reviews/
 
 test-results/
 

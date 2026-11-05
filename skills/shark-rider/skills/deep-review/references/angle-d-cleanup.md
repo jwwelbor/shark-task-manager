@@ -1,5 +1,7 @@
 # Angle D: Reuse, Complexity, Idioms, Altitude
 
+Apply the canonical quality craft rubric for shared thresholds and severity when guidance conflicts.
+
 You are performing a cleanup and quality review. You have been given:
 - A diff file path (DIFF_PATH)
 - A list of changed files (CHANGED_FILES)
@@ -23,7 +25,7 @@ For each new utility, helper, or abstraction the diff introduces, check whether 
 - Document the existing symbol with its `file:line`
 - Show a diff-ready refactor demonstrating how the new code would call it
 
-Severity: blocker if a major reimplementation (>10 lines of equivalent logic); non-blocker if a small parallel utility.
+Assess reuse severity using the canonical quality craft rubric.
 
 ## Part 2: Complexity & size hotspots
 
@@ -40,14 +42,7 @@ npx eslint CHANGED_FILES --rule 'complexity: ["error", 10]' --no-eslintrc 2>/dev
 gocyclo -over 10 CHANGED_FILES 2>/dev/null
 ```
 
-Flag using these thresholds (defaults if project doesn't specify):
-- Cyclomatic complexity > 10
-- File > 500 lines
-- Function > 50 lines
-- Nesting depth ≥ 4
-
-**Pre-existing complexity** above threshold → non-blocker (triage), unless this diff substantially expanded it.
-**New complexity** above threshold → blocker.
+Apply the thresholds, guide status and severity rules in the canonical quality craft rubric. File and function size are guides requiring judgment, not automatic blockers.
 
 ## Part 3: Idiomatic language patterns
 
@@ -86,6 +81,7 @@ Name the simpler form explicitly.
 
 ```json
 {
+  "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
@@ -104,4 +100,4 @@ Name the simpler form explicitly.
 
 Correctness bugs always outrank cleanup — focus on genuine issues with concrete cost, not style preferences.
 
-Return `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

@@ -29,13 +29,19 @@ skills or Shark specialist agents from the host filesystem. Treat
 `response.agent_type`, `response.provider`, and `response.model` as Shark
 metadata for logging/provenance and host adapter selection only.
 
+When dispatching a bug in a selected working directory, pass that actual
+directory to `shark next {KEY} --workdir "$WORKDIR" --json` before spawning
+the worker. Shark checks that it is the corresponding project root in the
+parent repository or a linked worktree.
+
 ## Ownership model
 
 The parent loop owns the lease and every status transition. Per spawned step:
 
 1. Parent claims `response.entity_key`.
 2. Parent spawns a host-safe worker with `response.prompt`.
-3. Worker reports its result in its final response — no Shark commands. The
+3. Worker reports its result in its final response; it may register related
+   documents but never changes Shark lifecycle state. The
    result is an outcome plus optional parent-loop directives (see "When the
    worker returns"). The outcome may be **any outcome key defined for the
    current step** (`shark status transitions <key> --json`), not just
@@ -324,8 +330,12 @@ already validates and persists for the core runner. Instead:
    and nested `gate_result` against the step's `outcome_roles`, persists
    notes/kickbacks/impacts, and applies the transition — fail closed (no
    transition) on any validation error.
-4. Release the lease with the ingested outcome, then return to Step 1 with
-   the original `{KEY}`.
+   If a bug worker used a selected working directory, include the same
+   `--workdir "$WORKDIR"` in the `shark run --apply-result` call so evidence
+   is resolved in the selected checkout.
+4. Release the lease with the ingested outcome. For a bug, if the resulting
+   status equals the dispatched status, stop this invocation and report the
+   unresolved stage. Otherwise return to Step 1 with the original `{KEY}`.
 
 A step whose `result_contract` is absent or `legacy` is unaffected — continue
 with the directive parsing below exactly as before.
@@ -385,6 +395,9 @@ the workflow prompts emit, apply them in this order, then advance:
    or coerce a valid semantic outcome to `pass` or `fail`. Include
    `--session`/`--from-status` when `.sharkconfig.json` enables `advance_guard`
    (see the route-based workflow guide, §2).
+   For bug research dispatched in a linked worktree, include `--workdir`
+   with the worker's actual working directory so Shark validates the report
+   in that checkout using the parent project's research policy.
 6. **Release the lease, always**, stamping the outcome on the work session:
    ```bash
    shark release {response.entity_key} --session "$SID" --outcome <key>
@@ -394,7 +407,9 @@ the workflow prompts emit, apply them in this order, then advance:
    termination" above. Releasing the Shark lease retires the entity's
    workflow state; it does not stop the host process. Skipping this is how
    a worker outlives its assigned dispatch and keeps acting unsupervised.
-8. Return to Step 1 with the original `{KEY}`.
+8. For a bug, if the resulting status equals the dispatched status, stop this
+   invocation and report the unresolved stage. Otherwise return to Step 1 with
+   the original `{KEY}`.
 
 If the worker fails or throws, still release the lease, terminate its host
 session, record a blocker note if possible, and surface the failure before

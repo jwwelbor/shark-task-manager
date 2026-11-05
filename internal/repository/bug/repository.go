@@ -127,8 +127,24 @@ func (r *BugRepository) GetByID(ctx context.Context, id int64) (*models.Bug, err
 
 // Update updates an existing bug record.
 func (r *BugRepository) Update(ctx context.Context, bug *models.Bug) error {
+	updated, err := r.update(ctx, bug, nil)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("bug not found with id %d: %w", bug.ID, repoerr.ErrNotFound)
+	}
+	return nil
+}
+
+// UpdateIfStatus atomically saves the bug only while its observed status is current.
+func (r *BugRepository) UpdateIfStatus(ctx context.Context, bug *models.Bug, expected models.BugStatus) (bool, error) {
+	return r.update(ctx, bug, &expected)
+}
+
+func (r *BugRepository) update(ctx context.Context, bug *models.Bug, expected *models.BugStatus) (bool, error) {
 	if err := bug.Validate(); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
+		return false, fmt.Errorf("validation failed: %w", err)
 	}
 
 	query := `
@@ -139,7 +155,7 @@ func (r *BugRepository) Update(ctx context.Context, bug *models.Bug) error {
 		WHERE id = ?
 	`
 
-	result, err := r.db.ExecContext(ctx, query,
+	args := []any{
 		bug.Title,
 		bug.Slug,
 		bug.Description,
@@ -151,21 +167,21 @@ func (r *BugRepository) Update(ctx context.Context, bug *models.Bug) error {
 		bug.FilePath,
 		bug.Size,
 		bug.ID,
-	)
+	}
+	if expected != nil {
+		query += " AND lower(status) = lower(?)"
+		args = append(args, *expected)
+	}
+	result, err := r.db.ExecContext(ctx, query, args...)
 	if err != nil {
-		return fmt.Errorf("failed to update bug: %w", err)
+		return false, fmt.Errorf("failed to update bug: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return false, fmt.Errorf("failed to get rows affected: %w", err)
 	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("bug not found with id %d: %w", bug.ID, repoerr.ErrNotFound)
-	}
-
-	return nil
+	return rowsAffected > 0, nil
 }
 
 // Delete deletes a bug by its database ID.

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -108,7 +109,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runDryRun, "dry-run", false, "Preview actions without dispatching agents or advancing status")
 	runCmd.Flags().BoolVar(&runVerbose, "verbose", false, "Show detailed stage progress")
 	runCmd.Flags().StringVar(&runWorkDir, "workdir", "", "Working directory override for agent processes")
-	runCmd.Flags().BoolVar(&runWorktree, "worktree", false, "Create an isolated git worktree for agent dispatch and clean up on completion")
+	runCmd.Flags().BoolVar(&runWorktree, "worktree", false, "Create an isolated git worktree for agent dispatch; bug worktrees are retained for evidence")
 	runCmd.Flags().String(
 		"harness",
 		"",
@@ -167,6 +168,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// touched.
 	if runResumeID != "" {
 		return runResumeRun(ctx, entityType, normalizedKey)
+	}
+	if entityType == "bug" {
+		if err := config.ValidateBugEvidenceRoutes(cli.GetWorkflowService().ForLevel("bug").GetWorkflow()); err != nil {
+			return fmt.Errorf("invalid bug workflow: %w", err)
+		}
 	}
 
 	// T-E34-F05-004: --apply-result is Rider's initial-ingestion surface. It
@@ -318,13 +324,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 		childActionSvc := narrowActionServiceForEntity(actionSvcRoot, childType)
 
 		childController, err := runner.NewRunController(runner.RunControllerDeps{
-			Transitioner: childTransitioner,
-			Placeholders: childPlaceholderGen,
-			ActionSvc:    childActionSvc,
-			WorkflowSvc:  workflowSvc,
-			Dispatchers:  dispatchers,
+			Transitioner:    childTransitioner,
+			Placeholders:    childPlaceholderGen,
+			ActionSvc:       childActionSvc,
+			WorkflowSvc:     workflowSvc,
+			Dispatchers:     dispatchers,
+			ApprovedBugPlan: approvedPlanForBug,
 			PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
-				return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+				prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+				if err == nil && childType == "bug" {
+					return bugParentProjectInstructions(prompt)
+				}
+				return prompt, err
 			}),
 			ChildrenSvc:       childrenSvc,
 			RunChild:          runChild,
@@ -384,31 +395,75 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return childResult, nil
 	}
 
+	projectRoot, err := cli.FindProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to locate project root: %w", err)
+	}
+
 	// Step 5: Determine working directory, creating a git worktree if requested.
+	if entityType == "bug" && runWorktree && runWorkDir != "" {
+		return fmt.Errorf("--worktree and --workdir cannot be combined; select one worker working directory")
+	}
 	workingDir := runWorkDir
 	if runWorktree {
 		creator := runner.NewGitWorktreeCreator()
 		var worktreePath string
-		workingDir, worktreePath, err = setupWorktree(ctx, normalizedKey, creator)
+		if entityType == "bug" {
+			worktreePath, err = runner.RetainedBugWorktree(ctx, projectRoot, normalizedKey)
+			if err != nil {
+				return err
+			}
+			workingDir = worktreePath
+		}
+		if worktreePath == "" {
+			if entityType == "bug" {
+				var branch string
+				worktreePath, branch = runner.WorktreePaths(filepath.Join(projectRoot, runner.DefaultWorktreeBaseDir), normalizedKey, time.Now())
+				err = creator.CreateWorktree(ctx, projectRoot, worktreePath, branch)
+				workingDir = worktreePath
+			} else {
+				workingDir, worktreePath, err = setupWorktree(ctx, normalizedKey, creator)
+			}
+		}
 		if err != nil {
 			return fmt.Errorf("failed to create worktree for %s: %w", normalizedKey, err)
 		}
 		defer func() {
+			if entityType == "bug" {
+				fmt.Fprintf(os.Stderr, "bug worktree retained for evidence and review: %s\n", worktreePath)
+				return
+			}
 			if removeErr := creator.RemoveWorktree(context.Background(), worktreePath); removeErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to remove worktree %s: %v\n", worktreePath, removeErr)
 			}
 		}()
+		if entityType == "bug" {
+			workingDir, err = runner.BugWorktreeProjectRoot(ctx, projectRoot, worktreePath)
+			if err != nil {
+				return fmt.Errorf("locate bug project in retained worktree %s: %w", worktreePath, err)
+			}
+		}
+	}
+	if entityType == "bug" && (workingDir != "" || workflowSvc.ForLevel("bug").GetWorkflow().GetResultContract("plan_review") == config.ResultContractGateResultV1) {
+		if err := runner.ValidateBugWorkingDir(ctx, projectRoot, workingDir); err != nil {
+			return err
+		}
 	}
 
 	// Step 6: Construct and run the controller.
 	controller, err := runner.NewRunController(runner.RunControllerDeps{
-		Transitioner: transitioner,
-		Placeholders: placeholderGen,
-		ActionSvc:    actionSvc,
-		WorkflowSvc:  workflowSvc,
-		Dispatchers:  dispatchers,
+		Transitioner:    transitioner,
+		Placeholders:    placeholderGen,
+		ActionSvc:       actionSvc,
+		WorkflowSvc:     workflowSvc,
+		Dispatchers:     dispatchers,
+		ApprovedBugPlan: approvedPlanForBug,
 		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
-			return assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+			prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+			if err == nil && entityType == "bug" {
+				return bugParentProjectInstructions(prompt)
+			}
+			return prompt, err
 		}),
 		ChildrenSvc:       childrenSvc,
 		RunChild:          runChild,
@@ -420,11 +475,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create run controller: %w", err)
-	}
-
-	projectRoot, err := cli.FindProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to locate project root: %w", err)
 	}
 
 	var runSessionID string

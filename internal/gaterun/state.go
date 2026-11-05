@@ -63,6 +63,10 @@ type OperationState struct {
 	SourceStatus    string `json:"source_status"`
 	Gate            string `json:"gate"`
 	OperationDigest string `json:"operation_digest"`
+	// AdmissionVersion records the transition-provenance contract in force
+	// when a pending operation first passed evidence admission. Older sidecars
+	// omit it and retain their existing replay behavior.
+	AdmissionVersion int `json:"admission_version,omitempty"`
 
 	PersistenceState PersistenceState `json:"persistence_state"`
 	// CompletedSuboperationIDs holds every suboperation ID (see

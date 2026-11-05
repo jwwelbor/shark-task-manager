@@ -1,6 +1,7 @@
 package gatepersist
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,15 @@ type Coordinator struct {
 	// unchanged, and production wiring (internal/cli/commands.buildGateCoordinator)
 	// sets it explicitly.
 	ClaimVerifier ClaimVerifier
+
+	// Admission validates gate-specific evidence before durable writes. It is
+	// optional for existing contracts and runs under the parent run lock.
+	Admission func(context.Context, Request) error
+
+	// BeforeTransition can retain admission evidence under the already-bound
+	// run identity immediately before a pending transition. It must be
+	// idempotent and must not mutate workflow state.
+	BeforeTransition func(context.Context, Request) error
 }
 
 // NewCoordinator constructs a Coordinator. Every dependency is required —
@@ -109,17 +119,7 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 		}
 	}()
 
-	// UAT round-2 Finding 1: re-verify the claim/lease session INSIDE the
-	// per-run lock's critical section, immediately before any write below
-	// (CreateResult, note/kickback writes, the guarded transition) — closing
-	// the TOCTOU window between run.go's one-time verifyClaimSession check
-	// and these actual mutating calls. See ClaimVerifier's doc comment for
-	// why a nil ClaimVerifier skips this (back-compat for existing callers).
-	if err := c.verifyClaimSession(ctx, req); err != nil {
-		return nil, err
-	}
-
-	digest, kickbackEntityTypes, state, err := c.initializeRun(ctx, req)
+	digest, kickbackEntityTypes, state, err := c.prepareAdmittedRun(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +149,108 @@ func (c *Coordinator) Persist(ctx context.Context, req Request) (*Result, error)
 	return result, nil
 }
 
+// prepareAdmittedRun keeps claim and evidence checks under the run lock and
+// before the first coordinator-owned durable write.
+func (c *Coordinator) prepareAdmittedRun(ctx context.Context, req Request) (string, map[string]models.EntityType, *gaterun.OperationState, error) {
+	if err := c.verifyClaimSession(ctx, req); err != nil {
+		return "", nil, nil, err
+	}
+	if err := c.admitBeforeWrites(ctx, req); err != nil {
+		return "", nil, nil, err
+	}
+	digest, kickbacks, state, err := c.initializeRun(ctx, req)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if err := c.markBoundAdmission(req, state); err != nil {
+		return "", nil, nil, err
+	}
+	return digest, kickbacks, state, nil
+}
+
+// admitBeforeWrites revalidates new and not-yet-applied operations. A replay
+// that has already reached its target must be allowed to finish retirement even
+// if evidence has since changed, but only after verifying all durable identity
+// and result bytes. Persist will perform its normal reconciliation afterwards.
+func (c *Coordinator) admitBeforeWrites(ctx context.Context, req Request) error {
+	if c.Admission == nil {
+		return nil
+	}
+	state, exists, err := gaterun.LoadOperationState(req.RunDir)
+	if err != nil {
+		return fmt.Errorf("gatepersist: admission load state: %w", err)
+	}
+	if exists {
+		if err := verifyAdmissionReplay(req, state); err != nil {
+			return err
+		}
+		applied, err := c.admissionReplayApplied(ctx, req, state)
+		if err != nil {
+			return err
+		}
+		if applied {
+			return nil
+		}
+	}
+	if err := c.Admission(ctx, req); err != nil {
+		return fmt.Errorf("gatepersist: admission rejected: %w", err)
+	}
+	return nil
+}
+func verifyAdmissionReplay(req Request, state *gaterun.OperationState) error {
+	digest, err := gaterun.ComputeBoundOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON, req.PlanRoot, req.PlanCommit, req.PlanBlob)
+	if err != nil {
+		return err
+	}
+	if err := gaterun.VerifyResumeIdentity(state, req.EntityKey, string(req.EntityType), req.SourceStatus, digest); err != nil {
+		return err
+	}
+	identity, found, err := gaterun.ReadIdentity(req.RunDir)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("gatepersist: admission replay identity missing")
+	}
+	want := gaterun.RunIdentity{RunID: req.RunID, EntityKey: req.EntityKey, EntityType: string(req.EntityType), SourceStatus: req.SourceStatus, Gate: req.Gate, OperationDigest: digest, EvidenceRoot: req.EvidenceRoot, PlanRoot: req.PlanRoot, PlanCommit: req.PlanCommit, PlanBlob: req.PlanBlob}
+	if identity.RunID != req.RunID {
+		return fmt.Errorf("gatepersist: admission replay run identity mismatch")
+	}
+	if err := gaterun.VerifyRunIdentity(identity, want); err != nil {
+		return err
+	}
+	stored, found, err := gaterun.ReadResult(req.RunDir)
+	if err != nil {
+		return err
+	}
+	if !found || !bytes.Equal(stored, req.EnvelopeJSON) {
+		return fmt.Errorf("gatepersist: admission replay result mismatch")
+	}
+	return nil
+}
+func (c *Coordinator) admissionReplayApplied(ctx context.Context, req Request, state *gaterun.OperationState) (bool, error) {
+	if state.PersistenceState != gaterun.PersistenceStateTransitioned && state.PersistenceState != gaterun.PersistenceStateComplete {
+		return false, nil
+	}
+	current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
+	if err != nil {
+		return false, fmt.Errorf("gatepersist: admission read status: %w", err)
+	}
+	if state.PersistenceState == gaterun.PersistenceStateTransitioned {
+		if !c.sameStatus(req.EntityType, current, req.TargetStatus) {
+			return false, fmt.Errorf("gatepersist: admission replay target diverged")
+		}
+		return true, nil
+	}
+	if !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) && c.sameStatus(req.EntityType, current, req.TargetStatus) {
+		return true, c.requireBoundTransition(ctx, req, state)
+	}
+	if !c.sameStatus(req.EntityType, current, req.SourceStatus) {
+		return false, fmt.Errorf("gatepersist: admission replay source diverged")
+	}
+	return false, nil
+}
+
 // acquireLock acquires the per-run lock guarding the whole Persist critical
 // section, applying Request.LockTimeout (or gaterun.DefaultLockTimeout when
 // unset).
@@ -175,7 +277,7 @@ func (c *Coordinator) initializeRun(ctx context.Context, req Request) (digest st
 	// later pass to NewOperationState/VerifyResumeIdentity are always the
 	// SAME computed value for the same call. This is one computation reused
 	// twice, not two independent digest computations that could drift.
-	digest, err = gaterun.ComputeOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON)
+	digest, err = gaterun.ComputeBoundOperationDigest(req.EntityKey, string(req.EntityType), req.SourceStatus, req.Gate, req.EnvelopeJSON, req.PlanRoot, req.PlanCommit, req.PlanBlob)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
 	}
@@ -202,6 +304,10 @@ func (c *Coordinator) initializeRun(ctx context.Context, req Request) (digest st
 		SourceStatus:    req.SourceStatus,
 		Gate:            req.Gate,
 		OperationDigest: digest,
+		EvidenceRoot:    req.EvidenceRoot,
+		PlanRoot:        req.PlanRoot,
+		PlanCommit:      req.PlanCommit,
+		PlanBlob:        req.PlanBlob,
 	}); err != nil {
 		return "", nil, nil, fmt.Errorf("gatepersist: bind run identity: %w", err)
 	}
@@ -263,6 +369,7 @@ func (c *Coordinator) reconcileAndApplyOperations(ctx context.Context, req Reque
 		kickbackEntities: kickbackEntityTypes,
 		ops:              ops,
 		operationDigest:  digest,
+		normalizeStatus:  c.normalizeHistoryStatus,
 	}
 	changed, err := gaterun.ReconcileCompletedSuboperations(ctx, rec, state)
 	if err != nil {
@@ -309,52 +416,85 @@ func (c *Coordinator) reconcileAndApplyOperations(ctx context.Context, req Reque
 func (c *Coordinator) applyGuardedTransition(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
 	switch state.PersistenceState {
 	case gaterun.PersistenceStateComplete:
-		// F-3: verify the entity is still where this run left it before
-		// transitioning "exactly once from the recorded source" (REQ-F-002).
-		// Accept either SourceStatus (the normal case) or TargetStatus
-		// (a resumed call landing in the window between Transition
-		// returning below and MarkTransitionApplied's state.Save — the
-		// transition already applied, the sidecar just hasn't caught up
-		// yet) and fail closed on anything else, mirroring the
-		// PersistenceStateTransitioned verification below rather than
-		// trusting Transitioner's own idempotency to stand in for it.
-		current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
-		if err != nil {
-			return fmt.Errorf("gatepersist: verify source status before main transition: %w", err)
-		}
-		if !strings.EqualFold(current, req.SourceStatus) && !strings.EqualFold(current, req.TargetStatus) {
-			return fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
-		}
-
-		reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
-		guard := TransitionGuard{
-			SessionID:  req.Session.ID,
-			FromStatus: req.SourceStatus,
-			Outcome:    req.OutcomeKey,
-		}
-		fromStatus, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent, guard)
-		if err != nil {
-			return fmt.Errorf("gatepersist: apply main transition: %w", err)
-		}
-		result.FromStatus = fromStatus
-		result.Transitioned = transitioned
-
-		if err := state.MarkTransitionApplied(); err != nil {
+		return c.applyPendingTransition(ctx, req, state, result)
+	case gaterun.PersistenceStateTransitioned:
+		return c.verifyAppliedTransition(ctx, req, state, result)
+	}
+	return nil
+}
+func (c *Coordinator) applyPendingTransition(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
+	if err := c.verifyPendingTransition(ctx, req, state); err != nil {
+		return err
+	}
+	if err := c.transitionWithProvenance(ctx, req, state, result); err != nil {
+		return err
+	}
+	if err := state.MarkTransitionApplied(); err != nil {
+		return err
+	}
+	if err := state.Save(req.RunDir); err != nil {
+		return fmt.Errorf("gatepersist: save operation state after transition applied: %w", err)
+	}
+	return nil
+}
+func (c *Coordinator) verifyPendingTransition(ctx context.Context, req Request, state *gaterun.OperationState) error {
+	current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
+	if err != nil {
+		return fmt.Errorf("gatepersist: verify source status before main transition: %w", err)
+	}
+	if !c.sameStatus(req.EntityType, current, req.SourceStatus) && !c.sameStatus(req.EntityType, current, req.TargetStatus) {
+		return fmt.Errorf("gatepersist: entity %s is recorded at source status %q but is currently at %q; refusing to transition from an unrecorded source", req.EntityKey, req.SourceStatus, current)
+	}
+	if c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) || c.sameStatus(req.EntityType, current, req.SourceStatus) {
+		if err := c.verifyTransitionEvidence(ctx, req); err != nil {
 			return err
 		}
-		if err := state.Save(req.RunDir); err != nil {
-			return fmt.Errorf("gatepersist: save operation state after transition applied: %w", err)
-		}
-	case gaterun.PersistenceStateTransitioned:
-		current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
-		if err != nil {
-			return fmt.Errorf("gatepersist: verify already-applied transition target: %w", err)
-		}
-		if !strings.EqualFold(current, req.TargetStatus) {
-			return fmt.Errorf("gatepersist: entity %s is recorded transition_applied to %q but is currently at %q; refusing to repeat or silently diverge from the recorded transition", req.EntityKey, req.TargetStatus, current)
-		}
-		result.FromStatus = state.SourceStatus
 	}
+	if c.sameStatus(req.EntityType, current, req.TargetStatus) && !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) {
+		return c.requireBoundTransition(ctx, req, state)
+	}
+	return nil
+}
+func (c *Coordinator) verifyTransitionEvidence(ctx context.Context, req Request) error {
+	if c.Admission != nil {
+		if err := c.Admission(ctx, req); err != nil {
+			return fmt.Errorf("gatepersist: admission rejected before transition: %w", err)
+		}
+	}
+	if c.BeforeTransition != nil {
+		if err := c.BeforeTransition(ctx, req); err != nil {
+			return fmt.Errorf("gatepersist: prepare transition evidence: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c *Coordinator) transitionWithProvenance(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
+	reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
+	if state.AdmissionVersion == BoundAdmissionVersion {
+		reason = BoundTransitionReason(req.Gate, req.OutcomeKey, req.RunID, state.OperationDigest)
+	}
+	guard := TransitionGuard{SessionID: req.Session.ID, FromStatus: req.SourceStatus, Outcome: req.OutcomeKey, AdmissionVerified: c.Admission != nil}
+	from, transitioned, err := c.Transition.Transition(ctx, req.EntityType, req.EntityKey, req.TargetStatus, reason, req.Session.Agent, guard)
+	if err != nil {
+		return fmt.Errorf("gatepersist: apply main transition: %w", err)
+	}
+	result.FromStatus = from
+	result.Transitioned = transitioned
+	if !transitioned && !c.sameStatus(req.EntityType, req.SourceStatus, req.TargetStatus) {
+		return c.requireBoundTransition(ctx, req, state)
+	}
+	return nil
+}
+func (c *Coordinator) verifyAppliedTransition(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
+	current, err := c.Status.CurrentStatus(ctx, req.EntityType, req.EntityKey)
+	if err != nil {
+		return fmt.Errorf("gatepersist: verify already-applied transition target: %w", err)
+	}
+	if !c.sameStatus(req.EntityType, current, req.TargetStatus) {
+		return fmt.Errorf("gatepersist: entity %s is recorded transition_applied to %q but is currently at %q; refusing to repeat or silently diverge from the recorded transition", req.EntityKey, req.TargetStatus, current)
+	}
+	result.FromStatus = state.SourceStatus
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 
@@ -66,6 +67,31 @@ func TestReconciler_MergesDurableNoteAndHistoryRecords(t *testing.T) {
 	if !found[summaryOp.suboperationID(digest)] || !found[subID] {
 		t.Fatalf("expected both the summary and kickback suboperation IDs, got %v", ids)
 	}
+}
+
+func TestReconcilerAcceptsCanonicalHistoryForKickbackAlias(t *testing.T) {
+	world := newFakeWorld()
+	result := fixtureResult()
+	result.Kickbacks[0].TargetStatus = "old_blocked"
+	ops := buildOperations(result, "summary")
+	kickback := ops[len(ops)-1]
+	digest, runID := "digest-alias", "run-alias"
+	subID := kickback.suboperationID(digest)
+	reason := buildKickbackReason(kickback.kickback.Reason, subID, kickback.contentDigest(), runID)
+	world.setStatus(models.EntityTypeTask, kickback.kickback.EntityKey, "in_review")
+	_, _, err := world.Transition(context.Background(), models.EntityTypeTask, kickback.kickback.EntityKey, "blocked", reason, "agent", TransitionGuard{})
+	require.NoError(t, err)
+	rec := &reconciler{noteReader: world, historyReader: world, mainEntityType: models.EntityTypeTask, mainEntityKey: mainEntityKey,
+		kickbackEntities: map[string]models.EntityType{kickback.kickback.EntityKey: models.EntityTypeTask}, ops: ops, operationDigest: digest,
+		normalizeStatus: func(_ models.EntityType, status string) string {
+			if status == "old_blocked" {
+				return "blocked"
+			}
+			return status
+		}}
+	ids, err := rec.CompletedSuboperationIDs(context.Background(), runID)
+	require.NoError(t, err)
+	require.Equal(t, []string{subID}, ids)
 }
 
 func TestReconciler_ConflictingKickbackHistoryFailsClosed(t *testing.T) {

@@ -43,6 +43,11 @@ func TestGateResultV1PromptRoleMatchesWorkflowOutcomeRole(t *testing.T) {
 		step string
 		tmpl string
 	}{
+		{"bug repair_plan", configworkflow.DefaultBugWorkflow(), "repair_plan", "bug/repair_plan.md"},
+		{"bug plan_review", configworkflow.DefaultBugWorkflow(), "plan_review", "bug/plan_review.md"},
+		{"bug development", configworkflow.DefaultBugWorkflow(), "development", "bug/development.md"},
+		{"bug code_review", configworkflow.DefaultBugWorkflow(), "code_review", "bug/code_review.md"},
+		{"bug qa", configworkflow.DefaultBugWorkflow(), "qa", "bug/qa.md"},
 		{"feature approval", configworkflow.DefaultFeatureWorkflow(), "approval", "feature/approval.md"},
 		{"feature code_review", configworkflow.DefaultFeatureWorkflow(), "code_review", "feature/code_review.md"},
 		{"feature qa", configworkflow.DefaultFeatureWorkflow(), "qa", "feature/qa.md"},
@@ -90,8 +95,7 @@ func TestGateResultV1PromptRoleMatchesWorkflowOutcomeRole(t *testing.T) {
 
 	// Coverage guard: the case table above is a hand-maintained enumeration
 	// of every gate_result_v1 step across the four workflows that adopt it
-	// (epic, feature, change, tech_debt — bug intentionally stays legacy,
-	// per E34-F05's documented design decision). Without this check, adding
+	// (epic, feature, change, tech_debt and bug). Without this check, adding
 	// a NEW gate_result_v1 step with a contradictory prompt would silently
 	// skip this test entirely rather than fail it — the same defect class,
 	// recurring in an uncovered place. The table has one fewer entry than
@@ -102,6 +106,7 @@ func TestGateResultV1PromptRoleMatchesWorkflowOutcomeRole(t *testing.T) {
 	var gotCovered int
 	var uncovered []string
 	configs := map[string]*configworkflow.WorkflowConfig{
+		"bug":       configworkflow.DefaultBugWorkflow(),
 		"epic":      configworkflow.DefaultEpicWorkflow(),
 		"feature":   configworkflow.DefaultFeatureWorkflow(),
 		"change":    configworkflow.DefaultChangeCardWorkflow(),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"os"
 	"os/exec"
 	"strconv"
@@ -109,6 +110,22 @@ func TestClaudeDispatcher_BasicCommand(t *testing.T) {
 	// Verify --output-format json is present
 	if !containsConsecutive(captured.args, "--output-format", "json") {
 		t.Errorf("args must contain '--output-format json', got %v", captured.args)
+	}
+}
+
+func TestClaudeGateTransportPreservesOtherEntityTranscripts(t *testing.T) {
+	for _, tc := range []struct{ entity, contract, format string }{
+		{"bug", resultContractGateResultV1, "text"},
+		{"bug", "legacy", "json"},
+		{"task", resultContractGateResultV1, "json"},
+		{"feature", resultContractGateResultV1, "json"},
+		{"change", resultContractGateResultV1, "json"},
+		{"tech_debt", resultContractGateResultV1, "json"},
+	} {
+		t.Run(tc.entity+"/"+tc.contract, func(t *testing.T) {
+			args := buildClaudeArgs(DispatchInput{EntityType: tc.entity, ResultContract: tc.contract})
+			require.True(t, containsConsecutive(args, "--output-format", tc.format), "format = %v, want %s", args, tc.format)
+		})
 	}
 }
 

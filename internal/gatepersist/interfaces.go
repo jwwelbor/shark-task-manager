@@ -55,6 +55,7 @@ type TransitionGuard struct {
 	FromStatus          string
 	Outcome             string
 	ForceTerminalReopen bool
+	AdmissionVerified   bool
 }
 
 // Transitioner applies a workflow status transition to one entity, recording

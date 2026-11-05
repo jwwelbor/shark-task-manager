@@ -46,6 +46,11 @@ func (v *WorkflowStatusValidator) IsValidStatus(entityType models.EntityType, st
 	return v.workflowSvc.ForLevel(string(entityType)).IsValidStatus(status)
 }
 
+// NormalizeStatus resolves aliases using the same workflow as transition validation.
+func (v *WorkflowStatusValidator) NormalizeStatus(entityType models.EntityType, status string) string {
+	return v.workflowSvc.ForLevel(string(entityType)).NormalizeStatus(status)
+}
+
 // EntityServiceTransitioner adapts *services.EntityService plus a
 // *services.EntityRegistry (for per-entity-type repository lookup) into
 // Transitioner. It always applies the transition with
@@ -143,14 +148,15 @@ func (t *EntityServiceTransitioner) Transition(ctx context.Context, entityType m
 	forceTerminalReopen := guard.ForceTerminalReopen && t.workflowSvc.ForLevel(string(entityType)).IsTerminalStatus(guard.FromStatus)
 	result, err := scoped.TransitionStatus(ctx, repo, entityType, entityKey, targetStatus,
 		services.TransitionOptions{
-			Force:               forceTerminalReopen,
-			ForceTerminalReopen: forceTerminalReopen,
-			Reason:              reason,
-			Agent:               agent,
-			SessionID:           guard.SessionID,
-			FromStatus:          guard.FromStatus,
-			Outcome:             guard.Outcome,
-			GuardAdvance:        true,
+			Force:                 forceTerminalReopen,
+			ForceTerminalReopen:   forceTerminalReopen,
+			GateAdmissionVerified: guard.AdmissionVerified,
+			Reason:                reason,
+			Agent:                 agent,
+			SessionID:             guard.SessionID,
+			FromStatus:            guard.FromStatus,
+			Outcome:               guard.Outcome,
+			GuardAdvance:          true,
 		},
 		services.SimpleTransitionFeatures(),
 		nil,

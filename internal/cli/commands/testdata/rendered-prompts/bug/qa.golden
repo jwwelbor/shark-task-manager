@@ -1,0 +1,231 @@
+
+After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
+
+Verify bug E07-F01 against its accepted plan, coverage index and reviewed candidate. Execute production-caller scenarios and boundary and preservation assertions; source review alone is insufficient. Confirm candidate and plan evidence are current. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the parent-supplied approved snapshot and digest; a clean older checkout may retain an earlier plan, while a new material plan change requires review. Review the plan's single coverage index, which maps each obligation to its authoritative source, production caller or boundary, planned change, required assertions, and links to a separate mutable evidence record. Do not change the plan while reviewing its revision. Reference existing decisions; escalate conflicting authority to its owner. Keep all findings and route to the earliest invalidated stage. Diagnosis changes invalidate the plan and downstream evidence; material plan changes invalidate approval; candidate changes invalidate review and QA. Reuse unchanged valid evidence. Unavailable external evidence is blocked, not acceptance. For a structured success outcome, include exactly one outer `evidence` entry with `kind: bug_repair_plan`, `pointer` set to the project-relative plan file, and `summary` set to `sha256:<hex digest>` of the plan revision. During repair planning and plan review use the committed project document; downstream use the approved snapshot and its original path and digest supplied by the parent. A proposed material change requires a new plan revision and independent review. Also include exactly one `bug_review_baseline` evidence entry whose `pointer` is the full commit hash of the review baseline declared in that plan. Independently confirm the baseline at plan review and carry the same value through development, review and QA; do not infer or substitute a later baseline. The parent validates these identities; it does not establish evidence quality by itself.
+
+For a structured pass, include the same outer `bug_review_scope` evidence reference used by the accepted code review, including its project-relative pointer and `sha256:<hex digest>` summary. The parent checks both the prior review receipt and whether that scope still matches the current source candidate.
+Use review_code when current code-review evidence is missing or stale but the plan and implementation remain valid; use review_plan for a valid plan whose approval is missing or stale; use needs_research for causal contradictions, replan for plan defects, fail for implementation defects, and blocked for unavailable external evidence. Retain every finding and route to the earliest invalidated stage. For route_rework outcomes leave kickbacks empty.
+
+
+# Quality Skill
+
+This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
+
+## Outcome contract
+
+Every quality response includes one semantic `outcome`: `pass`, `fail`, or
+`blocked`. `pass` and `fail` describe a completed validation decision; `blocked`
+means required evidence, environment access, or authority is unavailable. The
+host, not this craft skill, maps the outcome to workflow state.
+
+## Workflow Selection
+
+Based on what needs validation, invoke the appropriate workflow:
+
+### Design Document Validation
+**When**: Validating feature design documentation before task generation
+**Invoke**: `workflows/validate-design.md`
+**Inputs**: `feature_prd_path`, `design_doc_paths` (expected design docs), `epic_prd_path` (optional), `interaction_map_path` (optional), `tasks_dir_path` (confirms tasks not yet generated)
+**Output**: `validation_report`, `gaps` (`{doc_type, missing_section, severity}`), `prd_completeness_issues`, `verdict` (`PASS | PASS_WITH_WARNINGS | FAIL`)
+**Use case**: Ensure all required design docs exist and are complete
+
+### Task Readiness Validation
+**When**: Validating tasks are complete and ready for implementation
+**Invoke**: `workflows/validate-tasks.md`
+**Inputs**: `task_specs` (`{task_id, spec_path, ac_list, depends_on, assigned_agent, estimated_time}`), `feature_prd_path`, `design_doc_paths`, `interaction_map_path` (optional), `tasks_index_path`
+**Output**: `validation_report`, `blockers`/`warnings` (`{task_id, issue_type, description}`), `dependency_graph`, `integration_coverage`, `verdict` (`READY | READY_WITH_WARNINGS | NOT_READY`)
+**Use case**: Verify tasks are properly structured and sequenced
+
+### Code Review
+**When**: Reviewing code implementation against requirements and standards
+**Invoke**: `workflows/review-code.md`
+**Inputs**: `task_spec_path`, `feature_prd_path`, `acceptance_criteria`, `changed_files`, `diff_summary`, `language`, `toolchain`, `coding_standards_path` (optional), `prior_rejection_count`, `review_evidence`
+**Output**: `verdict` (`PASS | PASS-with-triage | FAIL`), `code_review_report`, `blockers`/`non_blockers_to_triage`/`nits`, `counter_factual_per_ac`, `production_caller_chains`, `review_evidence`
+**Use case**: Assess code quality, PRD alignment, and engineering standards
+
+### Test Planning (Shift-Left QA)
+**When**: Reviewing task specifications BEFORE development begins
+**Invoke**: `workflows/test-planning.md`
+**Inputs**: `task_spec_path`, `feature_prd_path`, `ac_list`, `impl_signals` (optional), `is_first_task_in_feature` (gates the Step 4.5 coverage check), `sibling_task_specs` (when first task), `codex_command`
+**Output**: `test_plan_doc`, `tc_list` (`{tc_id, ac_id, scenario, technique, iso_characteristics, ...}`), `cross_feature_contract_tests`, `drift_findings`, `codex_verdict` (`PASS | CONCERNS | FAIL`), `verdict` (`APPROVED | NEEDS_REFINEMENT`)
+**Use case**: Compare task spec against feature PRD for drift, write test plan that becomes the developer's source of truth. This is the quality gate between planning and development.
+
+### QA Testing (Post-Development)
+**When**: Validating implementation after code review
+**Invoke**: `workflows/qa-testing.md`
+**Inputs**: `task_spec_path`, `feature_prd_path`, `test_plan_path` (optional), `impl_paths`, `test_paths`, `acceptance_criteria`, `has_frontend` (gates `dev_server_command`)
+**Output**: `verdict` (`PASS | FAIL`), `qa_report`, `exploratory_findings`, `bugs` (`{severity, summary, reproduction, expected, actual, fix_location}`), `wiring_coverage`
+**Use case**: Validate implementation against pre-written test plan and acceptance criteria
+
+### Defect-Class Sweep
+**When**: A code-review, QA, or approval kickback; a UAT/red-team re-review round after a prior rejection; or a development/rework pass on a task carrying a rejection section or a kickback reason naming a defect class
+**Invoke**: `workflows/defect-class-sweep.md`
+**Inputs**: `finding` (the point-instance finding that triggered the sweep), `touched_module_paths` (default search scope), `repair_record` (prior fix/disposition history for this class, if any), `decision_sources` (prior designs/decisions to search — feature/epic notes, tech-debt records, prior review-finding notes, spec/standards docs), `calling_gate` (`code_review | approval | uat_redteam | qa | development`, drives which rubric re-runs during full-class re-verification) — this workflow's contract is richer than the other entries above; see the file's own frontmatter for the authoritative shape.
+**Output**: an I-03 `DefectClassSweep` record — `class_key`, `class_statement`, `search_scope`, `prior_designs`, `searched_count`/`matching_count`/`fixed_count`/`dispositioned_count`/`open_count`, `instances[]` (`fingerprint`, `site_pointer`, `disposition`, `evidence`), `guard` (`kind`, `implementation_pointer`, `counterfactual_pointer`, `status`), and `status` (`open`|`complete`) — nested in the calling gate's `GateResult.remediation_sweeps` array. A severity conflict does not close inside this record: it routes to the outer `GateResult.Finding.disposition = severity_conflict` (with `disposition_pointer`) instead.
+**Use case**: Generalize one finding into a defect class, enumerate every sibling instance across the declared search scope in one pass, and require a verified guard before the class closes
+
+## Quality Resources
+
+All workflows reference these quality criteria files:
+
+- `context/design-validation-criteria.md` - Design document requirements
+- `context/task-validation-criteria.md` - Task completeness checks
+- `context/review-rubric.md` - Code review standards
+- `context/quality-gates.md` - General quality standards
+
+## Usage Pattern
+
+Commands and agents reference this skill using:
+
+```markdown
+## Your Process
+1. Analyze what needs validation
+2. Invoke quality skill: quality/workflows/validate-{type}.md
+3. Apply criteria from quality/context/{criteria-name}.md
+4. Generate validation report with actionable feedback
+```
+
+## Quality Standards
+
+All validation activities must:
+- Be objective and measurable
+- Provide clear pass/fail criteria
+- Include actionable feedback for failures
+- Reference specific standards and requirements
+- Generate consistent, structured reports
+
+---
+
+*For detailed usage instructions, see [README.md](./README.md)*
+
+
+READ:
+(1) Entity specification at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria and scope
+(2) Applicable feature test plan or accepted repair coverage index for test cases
+(3) Applicable feature spec or accepted repair plan for intent
+(4) Code review report from docs/review/E07/E07-F01/code-review-*-E07-F01.md
+(5) Implementation code and existing test results
+(6) The complete frozen review manifest and base-to-candidate diff. Read the
+    report's retained scope, independently establish the reviewed project,
+    original source and, when nested, Shark project roots, and run the host
+    deep-review scope validator. A missing, stale or invalid scope cannot
+    satisfy QA; use its complete manifest and retained diff to select tests.
+
+SCOPED TEST RUN (single pass; do NOT run the full suite):
+
+The full integration suite may have pre-existing failures unrelated to any single task. Running it adds significant wall time and produces noise that obscures real regressions. Instead:
+
+1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
+
+2. **Targeted unit tests (always run):**
+   - Identify changed source files from the reviewed manifest AND from the entity scope
+   - Map each changed source file to its test counterparts using the project's test layout (see `docs/architecture/file-system.md` / `tech-stack.md`)
+   - Add any tests explicitly named in the entity test cases and acceptance criteria
+   - Run only those with the project's test runner
+
+3. **Targeted integration tests (run only if the change crosses an integration seam):**
+   - DB migration / schema change → corresponding integration tests and any test using the changed table
+   - API endpoint change → integration tests for that route
+   - Service contract change consumed by another service → tests for the consumer
+   - If the change is purely intra-service or doc/comment-only, **skip integration tests entirely**
+
+4. **Sanity unit-suite spot-check (only if changes are broad):**
+   - For changes touching a shared module / interface used by many consumers, run the project's full unit suite once (using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo)
+   - For localized changes (single service / single API route / doc-only), skip this — the targeted run above is sufficient.
+
+5. **Prompt-only bundle checks:**
+   - For embedded prompt, skill, template, or documentation-only changes, use
+     the shipped renderer to verify changed templates and includes resolve.
+   - Verify newly documented local bundle or project-file references exist.
+   - Treat policy wording as a manual specification-review concern. Do not
+     require wording mutations, decision tables, or caller-path contracts
+     unless the change modifies deterministic runtime behavior.
+
+VALIDATE:
+- Quality gates pass (fmt, lint)
+- All targeted tests pass (zero failures introduced by this change)
+- Acceptance criteria from the applicable test plan or coverage index are exercised by the tests you ran (cite test names)
+- Edge cases identified in the test plan are covered
+- No regressions in the targeted scope
+
+DO NOT RUN:
+- Full integration suite (too slow for per-task QA; may have pre-existing failures)
+- Codex red-team (UAT owns red-team; running it here is redundant)
+
+REVIEW OUTPUT POLICY (applies to the report below):
+- If there are zero findings of any kind, write a compact success artifact instead of a full narrative report.
+- Compact success artifact must include: verdict; exact scope reviewed; commands/tests/checks run (summarized, not raw logs); counts or totals reviewed; duration if known; explicit line `0 defects found`.
+- Do NOT echo full checklists, full coverage matrices, or raw command logs in a zero-finding artifact.
+- Summarize command output. Include raw log paths only when failures or findings exist.
+- If there is ANY blocker, rejection, failed command/test, broken contract, missing coverage, non-blocking observation, or other finding, write the full detailed report with file paths, evidence, affected AC/TC/CONTRACT/I-##/X-## IDs, defect-class statements where the prompt asks for them, and concrete fix guidance.
+- If this prompt uses review-finding notes, emit them only when findings exist.
+- Console output stays terse:
+  - zero-finding PASS/APPROVED -> one-line summary plus report path
+  - any finding -> one-line fail/triage summary plus report path
+
+
+PRODUCE QA report at `docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md`:
+- If zero findings: compact PASS artifact only
+  - Verdict: PASS
+  - Scope reviewed: entity scope, touched paths, applicable context, and targeted test surface
+  - Checks run: format/lint/tests summarized, not pasted
+  - AC count reviewed
+  - Duration if known
+  - `0 defects found`
+- If any failed command/test, missing AC proof, regression, pre-existing failure in scope, or non-blocking observation exists: full detailed report
+  - Verdict: PASS or FAIL
+  - Test scope rationale: which paths you ran and why (cite touched files from the reviewed manifest)
+  - Test results summary (counts, durations)
+  - AC verification status — name the test that proves each AC
+  - Edge cases tested
+  - Any pre-existing failures encountered in the targeted scope (explicitly identified, not silently ignored)
+
+
+The fail outcome's role is `route_rework`. Return pass only when all checks and complete current evidence pass; otherwise choose the earliest invalidated stage as above. The parent applies the outcome.
+
+FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
+Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOTE: <text>` line, or a bare `<entity-id> -> <status> --reason "<why>"` kickback line — those are the legacy free-form directive grammar and this step does not use it. Instead, the ENTIRE trimmed final response must be exactly one worker-control envelope (`kind: final`), with a nested `gate_result` payload:
+
+```
+{
+  "kind": "final",
+  "recommended_outcome": "<the outcome key you are recommending, e.g. pass or fail>",
+  "evidence": [],
+  "gate_result": {
+    "schema_version": 1,
+    "summary": "<one paragraph: verdict and why>",
+    "findings": [ ... ],
+    "kickbacks": [ ... ],
+    "no_kickback_reason": "<only when required — see below>"
+  }
+}
+```
+
+The nested `gate_result` shape is validated and typed in `internal/gateresult`
+(see its doc comment for the full field list — `findings[]`,
+`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
+not restate it. Two rules this step's outcomes commonly need:
+
+- Whether `kickbacks` must be empty or non-empty for a given outcome depends
+  on that outcome's configured semantic role (`outcome_roles`, visible via
+  `shark get E07-F01 --json` or `shark next E07-F01 --json` ->
+  `result_contract`/`outcome_roles`), not on this prompt's own text:
+  - role `success` (typically `pass`): zero `kickbacks`, and no `findings`
+    left with `disposition: open` or `severity_conflict`.
+  - role `kickback_rework` (a per-item rework outcome): at least one
+    `kickbacks` entry (`entity_key`, `target_status`, `reason`) — one per
+    item that must reopen, replacing the legacy
+    `<entity-id> -> <status> --reason "<why>"` line format.
+  - role `route_rework` (this step's own main entity re-routes as a whole):
+    zero `kickbacks` — the configured route itself is the rework path; do
+    not also emit per-item kickbacks for this role.
+  - roles `blocked`/`hold`/`cancelled`: either at least one kickback or a
+    non-empty `no_kickback_reason` explaining why none applies.
+- A blocking finding you are reporting (not fixing) must carry
+  `disposition: open` (or `severity_conflict` when reviewers disagree);
+  every other GateResult field constraint is enforced the same way
+  regardless of which role this outcome carries.
+
+Write your full narrative report to the file this step already directs
+(unchanged); the envelope's `summary` is a compact verdict statement, not a
+duplicate of that report.

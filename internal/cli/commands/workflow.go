@@ -202,7 +202,7 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 			source = "custom"
 		}
 
-		validationErr := config.ValidateWorkflow(lvl.resolved)
+		validationErr := config.ValidateWorkflowForLevel(lvl.resolved, lvl.name)
 
 		transitionCount := 0
 		for _, transitions := range lvl.resolved.StatusFlow {

@@ -3,7 +3,9 @@ After completing ALL work below, stop and hand control back to the parent loop. 
 
 Research bug E07-F01: "Sample feature for golden test" using the v2 universal recipe catalog.
 Write only `E07-F01.research-report.md` beside docs/plan/E07/E07-F01/E07-F01.md and register it
-as a related document. Front matter must include only `research_schema: 2`,
+as a related document. Commit the research document in `docs/plan` in its
+project checkout and register it against the parent Shark project's bug record.
+Front matter must include only `research_schema: 2`,
 `rigor`, a `categories` list drawn only from the recipe's category vocabulary
 (e.g. `frontend`, `backend`, `api`, `data`, `workflow_operations`,
 `documentation` — never a module ID), and a boolean `related_work` (`true` or
@@ -25,3 +27,7 @@ and state whether the repair extends an existing capability or creates new
 work. Add a Capability map only when related work is discovered or changed,
 with REUSE, EXTEND, NEW, or CONTRADICTS decisions. Return `pass` only after the
 one report is complete.
+
+Explain the causal failure, affected production callers and sibling risks, linked decisions, prior findings, preserved behavior and uncertainties. Unresolved causal work stays in research; unavailable external evidence is blocked. Brief evidence is appropriate for simple bugs; recurrent, uncertain, stateful, accounting and cross-boundary repairs require deeper analysis.
+
+End with `RECOMMENDED OUTCOME: pass` for a supported diagnosis, `RECOMMENDED OUTCOME: fail` for unresolved causal work, or `RECOMMENDED OUTCOME: blocked` for unavailable external evidence.

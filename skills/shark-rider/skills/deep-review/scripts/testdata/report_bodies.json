@@ -1,0 +1,222 @@
+[
+  {
+    "name": "pass",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "conflicting-verdict",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS VERDICT: FAIL",
+    "valid": false
+  },
+  {
+    "name": "unresolved-blocker",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS Some blockers remain.",
+    "valid": false
+  },
+  {
+    "name": "incomplete-word",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS INCOMPLETE",
+    "valid": false
+  },
+  {
+    "name": "incomplete-substring",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS incompletely",
+    "valid": true
+  },
+  {
+    "name": "scope-substring",
+    "body": "Reviewed microscope: all candidate files and callers. Findings: none. Detailed inspection completed. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "findings-substring",
+    "body": "Reviewed scope: all candidate files and callers. unfindings: none. Detailed verification completed. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "short-unicode",
+    "body": "Scope Findings VERDICT: PASS \ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42",
+    "valid": false
+  },
+  {
+    "name": "unicode-adjacent-scope",
+    "body": "Reviewed \u5ba1scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "unicode-verdict-space",
+    "body": "Reviewed scope: all candidate files and callers. Findings: none. Detailed verification completed. VERDICT:\u00a0PASS",
+    "valid": false
+  },
+  {
+    "name": "prior-incomplete-review",
+    "body": "Reviewed scope: all current candidate files and callers. Findings: none. The previous review was incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "earlier-incomplete-review",
+    "body": "Reviewed scope: all current candidate files and callers. Findings: none. The earlier incomplete review is superseded. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "prior-and-current-incomplete",
+    "body": "Reviewed scope: the previous review was incomplete. Current review is incomplete. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "mixed-previous-and-current",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous and current reviews are incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "previous-finds-current-incomplete",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review found current review incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "previous-but-current-incomplete",
+    "body": "Reviewed scope: all files and callers. Findings: none. Previous review but current is incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "longer-historical-incomplete",
+    "body": "Reviewed scope: all current files and callers. Findings: none. The previous review did not pass and was incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "historical-plus-current-incomplete",
+    "body": "Reviewed scope: the previous review was incomplete, but current review is incomplete. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-0",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review was incomplete and so is the current review. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-1",
+    "body": "Reviewed scope: all files and callers. Findings: none. The current and previous review were incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-2",
+    "body": "Reviewed scope: all files and callers. Findings: none. previous review and incomplete current review require rework. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-3",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review was incomplete; current one too. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-4",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review was incomplete. The current one is too. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "historical-description-without-status-token",
+    "body": "Reviewed scope: all current files and callers. Findings: none. The previous independent review did not finish; this review is complete. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "structured-previous-incomplete",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nReviewed scope: all current candidate files and callers. Findings: none. VERDICT: PASS\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH",
+    "valid": true
+  },
+  {
+    "name": "structured-finding-incomplete",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input validation is deficient. Scope: all files. Findings: details recorded and accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage",
+    "valid": false
+  },
+  {
+    "name": "structured-current-incomplete",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: current review is incomplete.\nReviewed scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "structured-history-current-too",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nCurrent review is too. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "structured-duplicate-status",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nCURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nReviewed scope: all current files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "contradictory-finding-anaphora",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: The prior attempt was incomplete and so is this one.\nScope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "contradictory-history-anaphora",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: INCOMPLETE\nThis review is as well. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "structured-product-behavior",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: external input coverage is missing. Scope: all files. Findings: one accepted for triage. VERDICT: PASS\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-1 | non-blocker | triage",
+    "valid": false
+  },
+  {
+    "name": "structured-history-followed-by-ambiguous-current",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nThis review is as well. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-explicit-unfinished",
+    "body": "CURRENT_REVIEW_STATUS: DID_NOT_FINISH\nScope: all candidate files reviewed. Findings: none recorded. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "finding-followed-by-prose",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\nThis review is too. Scope: all files. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "markdown-status",
+    "body": "- CURRENT_REVIEW_STATUS: DID_NOT_FINISH\nScope: all candidate files reviewed. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "unicode-indented-status",
+    "body": "\u00a0CURRENT_REVIEW_STATUS: DID_NOT_FINISH\nScope: all candidate files reviewed. Findings: none. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-natural-unfinished",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\nFINDING_CONTEXT: the current review did not finish.\nScope: all files. Findings: one. VERDICT: PASS-WITH-TRIAGE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage",
+    "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-0",
+    "body": "Scope: all files reviewed. Findings: none. This review has not yet finished. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-1",
+    "body": "Scope: all files reviewed. Findings: none. This review is still unfinished. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-2",
+    "body": "Scope: all files reviewed. Findings: none. The current review failed to finish. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "current-unfinished-phrase-3",
+    "body": "Scope: all files reviewed. Findings: none. This review is only partially complete. Detailed checks were described. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "past-unfinished-prose",
+    "body": "Scope: all candidate files reviewed. Findings: none. In a prior attempt, the review was not complete. This review is complete. VERDICT: PASS",
+    "valid": true
+  },
+  {
+    "name": "crlf-clean-pass-finding",
+    "body": "CURRENT_REVIEW_STATUS: COMPLETE\r\nScope: all files reviewed. Findings: input validation defect. VERDICT: PASS\r\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\r\n",
+    "valid": false
+  }
+]

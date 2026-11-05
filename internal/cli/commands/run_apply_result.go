@@ -142,6 +142,7 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 		Transitioner: transitioner,
 		Coordinator:  coordinator,
 		ProjectRoot:  projectRoot,
+		WorkingDir:   runWorkDir,
 		RunID:        runApplyRunID,
 		EntityType:   entityType,
 		EntityKey:    entityKey,
@@ -174,6 +175,7 @@ type applyResultDeps struct {
 	Transitioner runner.EntityTransitioner
 	Coordinator  *gatepersist.Coordinator
 	ProjectRoot  string
+	WorkingDir   string
 	RunID        string
 	EntityType   string
 	EntityKey    string
@@ -225,6 +227,7 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		EnvelopeBytes: envelopeBytes,
 		Coordinator:   deps.Coordinator,
 		ProjectRoot:   deps.ProjectRoot,
+		WorkingDir:    deps.WorkingDir,
 		RunID:         deps.RunID,
 		EntityKey:     deps.EntityKey,
 		EntityType:    models.EntityType(deps.EntityType),
@@ -313,5 +316,21 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	// even built) and Persist's actual writes. See
 	// gatepersist.ClaimVerifier's doc comment.
 	coordinator.ClaimVerifier = claimSvc
+	admit := runner.NewBugGateAdmissionForWorkflow(noteSvc, history, workflowSvc.ForLevel("bug"))
+	coordinator.Admission = func(ctx context.Context, req gatepersist.Request) error {
+		if err := admit(ctx, req); err != nil {
+			return err
+		}
+		if req.EntityType != models.EntityTypeBug || req.Gate != "plan_review" || req.Role != gateresult.RoleSuccess {
+			return nil
+		}
+		return runner.ValidateBugPlanReviewReport(ctx, req, cli.GetBugService())
+	}
+	coordinator.BeforeTransition = func(ctx context.Context, req gatepersist.Request) error {
+		if req.EntityType != models.EntityTypeBug || req.Gate != "plan_review" || req.Role != gateresult.RoleSuccess {
+			return nil
+		}
+		return runner.PrepareBugPlanApproval(ctx, req, cli.GetBugService())
+	}
 	return coordinator, nil
 }

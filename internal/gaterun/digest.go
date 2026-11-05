@@ -40,6 +40,27 @@ func ComputeOperationDigest(entityKey, entityType, sourceStatus, gate string, en
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// ComputeBoundOperationDigest additionally binds parent-selected plan
+// provenance when present. Existing non-plan operations retain their digest.
+func ComputeBoundOperationDigest(entityKey, entityType, sourceStatus, gate string, envelope json.RawMessage, planRoot, planCommit, planBlob string) (string, error) {
+	base, err := ComputeOperationDigest(entityKey, entityType, sourceStatus, gate, envelope)
+	if err != nil {
+		return "", err
+	}
+	if planRoot == "" && planCommit == "" && planBlob == "" {
+		return base, nil
+	}
+	if planRoot == "" || planCommit == "" || planBlob == "" {
+		return "", fmt.Errorf("gaterun: incomplete plan provenance")
+	}
+	payload, err := canonicalJSON(map[string]interface{}{"operation_digest": base, "plan_root": planRoot, "plan_commit": planCommit, "plan_blob": planBlob})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // canonicalJSON encodes v deterministically: encoding/json already sorts
 // map[string]interface{} keys lexicographically on marshal, and preserves
 // array/slice order verbatim, so the only extra care needed is disabling

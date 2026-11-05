@@ -58,15 +58,75 @@ session, this means falling back to `codex exec --sandbox read-only` when
 Claude CLI cannot complete the review. Record the CLI that actually produced
 the valid review in `adversarial_model` and preserve the fallback reason.
 
+## Integrated workflow review
+
+For a dispatched code-review gate, use the rendered prompt unchanged. For bug reviews, pass the accepted plan and revision, research, coverage evidence and prior findings as `repair_context`, together with `entity_type=bug`, to the native workflow; supply that same context to every host-dispatched angle and consolidator. Apply the
+portable craft criteria included from `skills/quality/workflows/review-code.md`
+as the canonical craft rubric alongside the angle assignments. The existing
+parent retains its lease, heartbeats, transitions and result ingestion; angle
+reviewers only supply evidence. Include requested and verified effective model
+identity separately, marking unknown identity explicitly. Bind the complete
+manifest, candidate tree and diff hash to every review and the accepted plan
+revision when applicable. Reject stale or incomplete evidence. The scope must
+include every unaccepted predecessor change; obtain the accepted baseline from
+the plan rather than assuming the last commit. If capture cannot represent the
+full candidate, stop and report incomplete. Pass the captured JSON as
+`--scope-file`, the trusted reviewed-worktree `--project-root`, and the independently established original repository `--source-root` to `adaptive_review.py run-cli` or `write-report`; the writer
+revalidates candidate, diff and manifest and persists their identities. Pass
+`--requested-model` and `--effective-model` only when known; absent values are
+recorded as unknown.
+
+For a bug, set `REVIEW_BASE` to the independently approved `bug_review_baseline` commit and `REVIEW_PLAN_SHA256` to the 64 lowercase hex characters of the approved plan digest before capture. Every angle must include that digest as `candidate_identity.repair_plan_sha256`; supply the same scope field and `repair_context.plan_revision` (`sha256:<digest>`) to the native workflow. A report for a different plan revision or baseline cannot satisfy the gate.
+
+On Windows, snapshot inventory delegates its confined filesystem reads to the installed Shark binary; it must include the matching `review-source-inventory` helper. Set `SHARK_REVIEW_INVENTORY_BIN` to that binary when it is not the `shark` on PATH. The parent still owns review dispatch and transitions.
+
 ## Capture the review scope
 
 ```bash
 project_root=$(git rev-parse --show-toplevel)
+source_root="$project_root"  # Preserve this original root if reviewing a snapshot.
 skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
-bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
+REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 
-Retain `diff_path`, `base_commit`, `changed_files`, `changed_file_count`, `diff_shortstat`,
+Capture treats untracked files under the designated Shark project's `.shark/runs/`
+as runtime artifacts; tracked changes there and all other source changes remain
+in scope. If the Shark project is nested below the Git root, set
+`REVIEW_SHARK_PROJECT_ROOT` to the independently established absolute Shark project
+root before capture, and pass that root as `--shark-project-root` to
+`prepare_candidate.py`, `run-cli`, `write-report`, and `validate-scope` as applicable.
+For an isolated snapshot, use the corresponding nested directory in the snapshot
+when capturing or validating it. Supply `--source-root "$source_root"` to
+`run-cli`, `write-report`, and `validate-scope`, deriving that original root
+from the parent context rather than the scope. For a normal committed review,
+source and reviewed roots are the same. A mismatched location fails validation.
+
+The capture requires a clean committed candidate apart from those runtime artifacts. If relevant work is uncommitted,
+the parent first enumerates every candidate path, including unaccepted predecessor
+changes and relevant untracked files, and prepares an isolated snapshot without
+altering the source worktree or index. An untracked plan outside the runtime
+namespace also requires a snapshot; select the actual candidate paths and retain
+the plan in the source inventory so later changes invalidate the review:
+
+```bash
+python3 "$skill_dir/scripts/prepare_candidate.py" --project-root "$project_root" \
+  --destination /absolute/new/review-worktree --metadata-file /absolute/new/snapshot.json \
+  path/to/first-candidate path/to/second-candidate
+cd /absolute/new/review-worktree
+project_root=$(git rev-parse --show-toplevel)
+REVIEW_BASE="<accepted-baseline-commit>" REVIEW_SOURCE_METADATA=/absolute/new/snapshot.json \
+  bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
+```
+
+Select paths explicitly; do not include unrelated work. Inspect the full diff and
+manifest to ensure no relevant work was omitted and no unrelated work included.
+The scope validator rechecks selected source files and source HEAD before accepting
+the report. Retain the isolated worktree and snapshot metadata for review and QA;
+never modify or clean the original worktree as part of capture. If a complete
+snapshot cannot be prepared, report INCOMPLETE. Set `REVIEW_BASE` to the accepted
+baseline when specified; otherwise omit it to use the merge base.
+
+Retain `candidate_commit`, `candidate_tree`, `diff_sha256`, `diff_path`, `base_commit`, `changed_files`, `changed_file_count`, `diff_shortstat`,
 `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Review the complete
 changed-file list unless the user explicitly narrows scope.
 
@@ -74,10 +134,10 @@ changed-file list unless the user explicitly narrows scope.
 
 When `Workflow` is available, invoke `scripts/review_workflow.js` with the scope metadata and the
 requested effort (`low|medium|high|xhigh|max`). It runs all six angle prompts in parallel and the
-consolidator. The returned report is compact on a clean PASS and detailed only for findings or
+consolidator. Only a valid result from all six angles, complete changed-file coverage, and a valid consolidator report may be recorded as complete. An exception, partial result, coverage gap, or malformed report is INCOMPLETE; persist actual counts, or `unknown` when the host did not return them, and never replace it with a CLI pass. The returned report is compact on a clean PASS and detailed only for findings or
 triage. Persist the returned body with `adaptive_review.py write-report` and:
 
-Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
+The native result contains `report`, `angle_results`, and `decisions`; save these separately and pass the latter two with `--angle-results` and `--review-decisions` to `write-report`. For host dispatch, assemble the six returned objects under keys `a` through `f` and ask the consolidator for its candidate-bound decisions. Do not substitute caller-supplied counts for these artifacts. Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
 
 ```text
 runner_mode=canonical-six-angle
@@ -96,14 +156,16 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 
 1. Read `references/angle-a-bugs.md` through
    `references/angle-f-standards.md` and `references/consolidator.md`.
-2. Dispatch all six angle agents in one batch through the host subagent tool.
+2. Dispatch all six angle agents through the host subagent tool, using the
+   available parallel capacity. If the host cannot queue all six at once,
+   dispatch the remaining angles as slots become available.
    Give every agent the complete captured scope, its one assigned angle
-   prompt, and these constraints: read-only work; no edits, commits, pushes,
-   or PR comments; return the required JSON schema; list every file inspected.
-   Submit all six dispatches at once. The host may queue work when its
-   concurrency limit is lower than six.
-3. Wait for all six results. If any result is missing, malformed, timed out,
-   or reports incomplete coverage, mark the review `incomplete` and skip to
+   prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
+   or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
+   Keep the same frozen candidate and scope for every angle, regardless of
+   scheduling; do not consolidate until all six results have arrived.
+3. Wait for all six results. If any result is missing, malformed, timed out, has a mismatched candidate identity,
+   or does not list the entire changed-file manifest, mark the review `incomplete` and skip to
    step 5 to persist it. Do not replace a failed dispatched review with the
    CLI fallback; the comparable-CLI retry rule applies when Runner 3's
    preferred alternate CLI is unavailable, not when a six-angle dispatch is
@@ -111,7 +173,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
    captured scope (`diff_path`, `base_commit`), the complete changed-file
    list, and all six specialist results. Require the consolidator to verify
-   coverage and return the required Markdown report and verdict.
+   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; retain and route any downgraded finding through the triage decision tree. A downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
 5. Persist with `scripts/adaptive_review.py write-report`, passing the
    captured `base_commit` and `diff_path` and the consolidator's verdict. If
    all six specialist results and the consolidator are valid, use
@@ -127,10 +189,9 @@ Build one read-only adversarial prompt containing the diff path, complete change
 standards path, task context, and the following required output contract:
 
 ```text
-REVIEWED SCOPE: <files and coverage>
-FINDINGS: <table or explicit none>
-<evidence and corrections>
-VERDICT: PASS | PASS-with-triage | FAIL
+Return a JSON object containing `report` (the Markdown review, including
+scope, findings and verdict) and `decisions` (the same candidate-bound
+findings and disposition object required for six-angle consolidation).
 ```
 
 Select and run it with:
@@ -139,8 +200,8 @@ Select and run it with:
 python3 "$skill_dir/scripts/adaptive_review.py" select --host "${DEEP_REVIEW_HOST:-unknown}"
 python3 "$skill_dir/scripts/adaptive_review.py" run-cli \
   --prompt-file /path/to/adversarial-prompt.txt \
-  --project-root "$project_root" --diff-path "$diff_path" --base-commit "$base_commit" \
-  --review-output-path "$review_output_path" --host "${DEEP_REVIEW_HOST:-unknown}"
+  --project-root "$project_root" --source-root "$source_root" --diff-path "$diff_path" --base-commit "$base_commit" \
+  --review-output-path "$review_output_path" --scope-file /tmp/deep-review-scope.json --host "${DEEP_REVIEW_HOST:-unknown}"
 ```
 
 The runner tries the preferred opposite-host CLI first, then any installed
@@ -180,3 +241,5 @@ Read the angle prompts and consolidator only when that runner is selected:
 | `references/angle-e-tests.md` | Tests and counter-factuals |
 | `references/angle-f-standards.md` | Standards, security, error handling |
 | `references/consolidator.md` | Verification, triage, evidence-mode report |
+
+In a completed report, a product finding may use either exact line `FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage` or `FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-1 | non-blocker | triage`; describe its context on another line. For an earlier attempt use `HISTORICAL_REVIEW_STATUS: DID_NOT_FINISH`. Put these special fields in a contiguous footer after all prose, with no prose following them. Each finding field must use a unique F-number and reference exactly one retained decision with the same `finding_id`, severity and disposition; use unique IDs such as `F-1`. Either special field requires exactly one `CURRENT_REVIEW_STATUS: COMPLETE` line. Other uses of the word `INCOMPLETE` are rejected to prevent ambiguous current-review claims. The status checks cannot establish the meaning of arbitrary prose; the consolidator remains responsible for substantive consistency. Review Git commands use a 120-second deadline by default; set `SHARK_REVIEW_GIT_TIMEOUT` to a positive number of seconds when the repository needs a different limit.
