@@ -95,6 +95,40 @@ def fake_reviewer(path, packet):
 
 
 class AdaptiveReviewTests(unittest.TestCase):
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_scope_timeout_produces_structured_failure_and_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            fake_bin = root / 'bin'
+            fake_bin.mkdir()
+            git = fake_bin / 'git'
+            git.write_text('#!/bin/sh\nsleep 3\n')
+            git.chmod(0o700)
+            env = {**os.environ, 'PATH': str(fake_bin) + os.pathsep + os.environ['PATH'], 'SHARK_REVIEW_GIT_TIMEOUT': '0.2'}
+            script = str(HERE / 'adaptive_review.py')
+            validate = subprocess.run([sys.executable, script, 'validate-scope', '--scope-file', str(scope_file), '--project-root', str(repo), '--source-root', str(repo)], env=env, capture_output=True, text=True)
+            self.assertEqual(validate.returncode, 2, validate.stderr)
+            self.assertFalse(json.loads(validate.stdout)['valid'])
+            body = root / 'body'
+            body.write_text('Reviewed scope: all files and callers. Findings: none. Detailed verification completed. VERDICT: PASS')
+            report = root / 'report.md'
+            writer = subprocess.run([sys.executable, script, 'write-report', '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo), '--review-output-path', str(report), '--runner-mode', 'adversarial-cli', '--specialists-completed', '0', '--consolidator-completed', 'true', '--fallback-reason', 'native unavailable', '--adversarial-model', 'codex', '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'], '--verdict', 'PASS', '--scope-file', str(scope_file)], env=env, capture_output=True, text=True)
+            self.assertEqual(writer.returncode, 2, writer.stderr)
+            self.assertEqual(json.loads(writer.stdout)['verdict'], 'INCOMPLETE')
+            self.assertTrue(report.exists())
+            fake_shark = fake_bin / 'shark'
+            fake_shark.write_text('#!/bin/sh\nsleep 3\n')
+            fake_shark.chmod(0o700)
+            env.update({'SHARK_REVIEW_IO_FORCE': '1', 'SHARK_REVIEW_INVENTORY_BIN': str(fake_shark)})
+            second_report = root / 'io-timeout-report.md'
+            args = writer.args[:]
+            args[args.index('--review-output-path') + 1] = str(second_report)
+            failed_io = subprocess.run(args, env=env, capture_output=True, text=True)
+            self.assertEqual(failed_io.returncode, 2, failed_io.stderr)
+            self.assertEqual(json.loads(failed_io.stdout)['verdict'], 'INCOMPLETE')
+            self.assertTrue(second_report.exists())
+
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')
         self.assertEqual(select_runner(Capabilities(False, True, True, True))['runner_mode'], 'dispatched-six-angle')

@@ -72,6 +72,8 @@ func TestCommandCancellationRetiresFilterDescendant(t *testing.T) {
 	_, err := Command(ctx, "-C", root, "status", "--porcelain").Output()
 	require.Error(t, err)
 	require.FileExists(t, started)
-	time.Sleep(2200 * time.Millisecond)
-	require.NoFileExists(t, leaked, "cancelled filter descendant continued running")
+	require.Never(t, func() bool {
+		_, err := os.Stat(leaked)
+		return !os.IsNotExist(err)
+	}, 2200*time.Millisecond, 20*time.Millisecond, "cancelled filter descendant continued running")
 }

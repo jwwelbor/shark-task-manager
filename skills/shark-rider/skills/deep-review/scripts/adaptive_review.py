@@ -346,7 +346,7 @@ def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | N
         scope = json.loads(read_review_file(args.scope_file, 32 * 1024 * 1024).decode("utf-8"))
         captured = {}
         validate_scope(scope, args.base_commit, args.diff_path, args.project_root, args.source_root, args.shark_project_root, captured)
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         metadata["runner_mode"] = "incomplete"
         metadata["verdict"] = "INCOMPLETE"
         metadata["fallback_reason"] = f"scope validation failed: {exc}"
@@ -618,7 +618,15 @@ def run_cli(args: argparse.Namespace) -> int:
     scope = base["_scope"]
     preferred = str(choice["adversarial_model"])
     candidates = cli_candidates(caps, args.host, preferred)
-    output, selected_decisions, selected_model, failures = _try_cli_candidates(args, candidates, _cli_prompt(args, scope), scope)
+    try:
+        prompt = _cli_prompt(args, scope)
+    except (OSError, ValueError, UnicodeError) as exc:
+        base["runner_mode"] = "incomplete"
+        base["fallback_reason"] = f"review prompt unavailable: {exc}"
+        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
+        print(json.dumps({**base, "report_path": args.review_output_path}))
+        return 2
+    output, selected_decisions, selected_model, failures = _try_cli_candidates(args, candidates, prompt, scope)
 
     if not output:
         base["adversarial_model"] = None
@@ -755,7 +763,14 @@ def write_report(args: argparse.Namespace) -> int:
     scope_error = bind_scope(metadata, args)
     angle_findings, incomplete_six = _writer_angles(args, metadata, scope_error)
     incomplete = _writer_runner_state(args, metadata, scope_error, incomplete_six)
-    body = read_review_file(args.body_file, 32 * 1024 * 1024).decode("utf-8")
+    try:
+        body = read_review_file(args.body_file, 32 * 1024 * 1024).decode("utf-8")
+    except (OSError, ValueError, UnicodeError) as exc:
+        metadata["runner_mode"] = "incomplete"
+        metadata["verdict"] = "INCOMPLETE"
+        metadata["fallback_reason"] = f"review body unavailable: {exc}"
+        _finish_written_report(args, metadata, "**INCOMPLETE** — " + metadata["fallback_reason"], scope_error, False)
+        return 2
     invalid = any(_writer_decisions(args, metadata, scope_error, angle_findings, body))
     _finish_written_report(args, metadata, body, scope_error, invalid)
     return 2 if incomplete or invalid else 0
@@ -834,7 +849,7 @@ def main() -> int:
         try:
             scope = json.loads(read_review_file(args.scope_file, 32 * 1024 * 1024).decode("utf-8"))
             validate_scope(scope, scope["base_commit"], scope["diff_path"], args.project_root, args.source_root, args.shark_project_root)
-        except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as exc:
+        except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             print(json.dumps({"valid": False, "error": str(exc)}))
             return 2
         print(json.dumps({"valid": True, "candidate_tree": scope["candidate_tree"], "diff_sha256": scope["diff_sha256"]}))

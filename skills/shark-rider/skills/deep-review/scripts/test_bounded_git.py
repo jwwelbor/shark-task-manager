@@ -1,4 +1,6 @@
 import os
+import signal
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -7,10 +9,48 @@ import unittest
 from unittest import mock
 
 import source_inventory
+from bounded_git import run
 
 
 @unittest.skipIf(os.name == 'nt', 'Unix process groups required')
 class BoundedGitTests(unittest.TestCase):
+    def test_detached_filter_cannot_hold_captured_output_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args):
+                subprocess.run(['git', '-C', tmp, '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', *args], check=True, capture_output=True)
+            git('init', '-b', 'main')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            (root / 'source').write_text('base')
+            git('add', 'source')
+            git('commit', '-m', 'base')
+            (root / 'filter.py').write_text("import subprocess,sys,time\nchild=subprocess.Popen([sys.executable,'-c','import time; time.sleep(10)'], start_new_session=True)\nopen('detached.pid','w').write(str(child.pid))\ntime.sleep(10)\n")
+            git('config', 'filter.slow.clean', f'{sys.executable} filter.py')
+            (root / '.gitattributes').write_text('source filter=slow\n')
+            (root / 'source').write_text('edit')
+            started = time.monotonic()
+            try:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    run(['git', '-C', tmp, 'status', '--porcelain'], timeout=0.4, capture_output=True)
+                self.assertLess(time.monotonic() - started, 2)
+                self.assertTrue((root / 'detached.pid').exists())
+            finally:
+                if (root / 'detached.pid').exists():
+                    try:
+                        os.kill(int((root / 'detached.pid').read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+    def test_forced_shark_inventory_respects_deadline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            executable = Path(tmp) / 'shark'
+            executable.write_text('#!/bin/sh\nsleep 3\n')
+            executable.chmod(0o700)
+            with mock.patch.dict(os.environ, {'SHARK_REVIEW_INVENTORY_FORCE': '1', 'SHARK_REVIEW_INVENTORY_BIN': str(executable), 'SHARK_REVIEW_GIT_TIMEOUT': '0.2'}):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    source_inventory.source_inventory(Path(tmp))
+
     def test_inventory_timeout_retires_clean_filter(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

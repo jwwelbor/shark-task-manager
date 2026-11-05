@@ -4,15 +4,17 @@ from pathlib import Path
 import stat
 import subprocess
 
+from bounded_git import run as run_bounded_git
+
 MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
 
 
 def _read_with_shark(path, limit):
     executable = os.environ.get('SHARK_REVIEW_INVENTORY_BIN', 'shark')
     try:
-        data = subprocess.run([executable, 'admin', 'review-read-artifact', str(path), str(limit)],
+        data = run_bounded_git([executable, 'admin', 'review-read-artifact', str(path), str(limit)],
                               check=True, capture_output=True).stdout
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise ValueError('safe review reads require an up-to-date Shark binary') from exc
     if len(data) > limit:
         raise ValueError('review artifact exceeds size limit')

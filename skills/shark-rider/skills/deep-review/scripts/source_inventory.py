@@ -67,7 +67,7 @@ def source_inventory(root, runtime_project="."):
     if os.name == 'nt' or os.environ.get('SHARK_REVIEW_INVENTORY_FORCE') == '1':
         executable = os.environ.get('SHARK_REVIEW_INVENTORY_BIN', 'shark')
         try:
-            result = subprocess.run([executable, 'admin', 'review-source-inventory', str(root.resolve(strict=True)), runtime_project],
+            result = run_bounded_git([executable, 'admin', 'review-source-inventory', str(root.resolve(strict=True)), runtime_project],
                                     check=True, capture_output=True, text=True).stdout.strip()
         except (OSError, subprocess.CalledProcessError) as exc:
             raise ValueError('confined inventory requires an up-to-date Shark binary; set SHARK_REVIEW_INVENTORY_BIN if needed') from exc
