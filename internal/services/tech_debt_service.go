@@ -108,7 +108,7 @@ func (s *TechDebtService) CreateTechDebt(ctx context.Context, input CreateTechDe
 		return nil, false, err
 	}
 	if err := s.repo.Create(ctx, td); err != nil {
-		return nil, false, fmt.Errorf("failed to create tech-debt: %w; document retained at %q; retry the unchanged request with --force", err, *td.FilePath)
+		return nil, false, fmt.Errorf("failed to create tech-debt %s: %w; document retained at %q; check whether %s was persisted before retrying, because a blind retry can create a second item", td.Key, err, *td.FilePath, td.Key)
 	}
 
 	// Attach tags after insert so td.ID is valid. On failure the row and

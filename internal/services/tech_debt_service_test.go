@@ -14,6 +14,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/techdebt"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockTechDebtRepo implements TechDebtRepository for testing.
@@ -277,23 +279,15 @@ slug: retry-debt
 
 func writeTechDebtFixture(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatalf("create fixture directory: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755), "create fixture directory")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644), "write fixture")
 }
 
 func assertTechDebtDocument(t *testing.T, path, want string) {
 	t.Helper()
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read document: %v", err)
-	}
-	if string(got) != want {
-		t.Errorf("document at %q = %q, want %q", path, got, want)
-	}
+	require.NoError(t, err, "read document")
+	assert.Equal(t, want, string(got), "document at %q", path)
 }
 
 func TestTechDebtService_Create_CollisionsPreserveDocumentsWithoutPersisting(t *testing.T) {
@@ -320,12 +314,12 @@ func TestTechDebtService_Create_CollisionsPreserveDocumentsWithoutPersisting(t *
 				Title: tc.title, Category: models.TechDebtCategoryArchitecture,
 				Severity: models.TechDebtSeverityHigh, Force: tc.force,
 			})
-			if err == nil || !strings.Contains(err.Error(), "collision") {
-				t.Fatalf("CreateTechDebt() error = %v, want collision", err)
-			}
-			if created != nil || linked || createCalls != 0 || deleteCalls != 0 {
-				t.Errorf("collision returned created=%v linked=%v, create/delete=%d/%d", created, linked, createCalls, deleteCalls)
-			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "collision")
+			assert.Nil(t, created)
+			assert.False(t, linked)
+			assert.Zero(t, createCalls)
+			assert.Zero(t, deleteCalls)
 			assertTechDebtDocument(t, path, tc.original)
 		})
 	}
@@ -336,13 +330,9 @@ func TestTechDebtService_Create_ForceReusesExactDocumentWithoutWriting(t *testin
 	path := filepath.Join(root, "docs", "plan", "tech-debt", "TD-001.md")
 	writeTechDebtFixture(t, path, b112Placeholder)
 	oldTime := time.Unix(100, 0)
-	if err := os.Chtimes(path, oldTime, oldTime); err != nil {
-		t.Fatalf("set fixture timestamp: %v", err)
-	}
+	require.NoError(t, os.Chtimes(path, oldTime, oldTime), "set fixture timestamp")
 	before, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat fixture: %v", err)
-	}
+	require.NoError(t, err, "stat fixture")
 	createCalls := 0
 	svc := newTechDebtService(&mockTechDebtRepo{
 		createFn: func(_ context.Context, td *models.TechDebt) error {
@@ -356,19 +346,15 @@ func TestTechDebtService_Create_ForceReusesExactDocumentWithoutWriting(t *testin
 		Title: "Retry debt", Category: models.TechDebtCategoryArchitecture,
 		Severity: models.TechDebtSeverityHigh, Force: true,
 	})
-	if err != nil {
-		t.Fatalf("CreateTechDebt() error = %v", err)
-	}
-	if created == nil || created.ID != 17 || !linked || createCalls != 1 {
-		t.Fatalf("exact reuse returned created=%v linked=%v createCalls=%d", created, linked, createCalls)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	assert.Equal(t, int64(17), created.ID)
+	assert.True(t, linked)
+	assert.Equal(t, 1, createCalls)
 	after, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat reused document: %v", err)
-	}
-	if !os.SameFile(before, after) || !after.ModTime().Equal(oldTime) {
-		t.Error("exact-match reuse rewrote or replaced the existing document")
-	}
+	require.NoError(t, err, "stat reused document")
+	assert.True(t, os.SameFile(before, after), "exact-match reuse replaced the existing document")
+	assert.True(t, after.ModTime().Equal(oldTime), "exact-match reuse rewrote the existing document")
 	assertTechDebtDocument(t, path, b112Placeholder)
 }
 
@@ -393,9 +379,8 @@ func TestTechDebtService_Create_WritesCompleteDocumentBeforePersistingPath(t *te
 			svc := newTechDebtService(&mockTechDebtRepo{
 				createFn: func(_ context.Context, td *models.TechDebt) error {
 					createCalls++
-					if td.FilePath == nil || *td.FilePath != path {
-						t.Errorf("persisted path = %v, want %q", td.FilePath, path)
-					}
+					require.NotNil(t, td.FilePath)
+					assert.Equal(t, path, *td.FilePath)
 					assertTechDebtDocument(t, fullPath, b112Placeholder)
 					return nil
 				},
@@ -405,9 +390,10 @@ func TestTechDebtService_Create_WritesCompleteDocumentBeforePersistingPath(t *te
 				Title: "Retry debt", Category: models.TechDebtCategoryArchitecture,
 				Severity: models.TechDebtSeverityHigh, FilePath: inputPath,
 			})
-			if err != nil || created == nil || linked || createCalls != 1 {
-				t.Fatalf("create returned created=%v linked=%v calls=%d error=%v", created, linked, createCalls, err)
-			}
+			require.NoError(t, err)
+			require.NotNil(t, created)
+			assert.False(t, linked)
+			assert.Equal(t, 1, createCalls)
 			assertTechDebtDocument(t, fullPath, b112Placeholder)
 		})
 	}
@@ -428,16 +414,11 @@ func TestTechDebtService_Create_InvalidModelDoesNotCreateDocument(t *testing.T) 
 		Title: "Retry debt", Category: models.TechDebtCategoryArchitecture,
 		Severity: models.TechDebtSeverityHigh, Size: &invalidSize,
 	})
-	if err == nil {
-		t.Fatal("invalid model was accepted")
-	}
-	if createCalls != 0 {
-		t.Errorf("invalid model reached repository Create %d times", createCalls)
-	}
+	require.Error(t, err, "invalid model must be rejected")
+	assert.Zero(t, createCalls, "invalid model must not reach repository Create")
 	path := filepath.Join(root, "docs", "plan", "tech-debt", "TD-001.md")
-	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
-		t.Errorf("invalid input created a document at %q: stat error=%v", path, statErr)
-	}
+	_, statErr := os.Stat(path)
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "invalid input must not create a document at %q", path)
 }
 
 func TestTechDebtService_Create_ForceRequiresMatchingCompleteBody(t *testing.T) {
@@ -457,11 +438,13 @@ func TestTechDebtService_Create_ForceRequiresMatchingCompleteBody(t *testing.T) 
 				Severity: models.TechDebtSeverityHigh, Body: body, Force: true,
 			})
 			if body == "SAVED-CONTENT" {
-				if err != nil || !linked || createCalls != 1 {
-					t.Errorf("matching body returned linked=%v createCalls=%d error=%v", linked, createCalls, err)
-				}
-			} else if err == nil || linked || createCalls != 0 {
-				t.Errorf("different body returned linked=%v createCalls=%d error=%v", linked, createCalls, err)
+				require.NoError(t, err)
+				assert.True(t, linked)
+				assert.Equal(t, 1, createCalls)
+			} else {
+				require.Error(t, err)
+				assert.False(t, linked)
+				assert.Zero(t, createCalls)
 			}
 			assertTechDebtDocument(t, path, original)
 		})
@@ -483,22 +466,63 @@ func TestTechDebtService_Create_WriteFailureDoesNotCreateOrDeleteRecord(t *testi
 		Title: "Retry debt", Category: models.TechDebtCategoryArchitecture,
 		Severity: models.TechDebtSeverityHigh, FilePath: &path,
 	})
-	if err == nil || !strings.Contains(err.Error(), path) {
-		t.Fatalf("write error = %v, want failed path %q", err, path)
-	}
-	if createCalls != 0 || deleteCalls != 0 {
-		t.Errorf("write failure called create/delete %d/%d times", createCalls, deleteCalls)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Zero(t, createCalls)
+	assert.Zero(t, deleteCalls)
 	assertTechDebtDocument(t, blocker, "PRESERVE-PARENT-FILE")
 }
 
-func TestTechDebtService_Create_CanceledInsertRetainsDocumentForExactRetry(t *testing.T) {
+func TestTechDebtService_Create_CommittedInsertErrorRequiresPersistenceCheckBeforeRetry(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "docs", "plan", "tech-debt", "TD-001.md")
+	insertErr := errors.New("last insert ID unavailable after commit")
+	nextKey := "TD-001"
+	createCalls, deleteCalls := 0, 0
+	svc := newTechDebtService(&mockTechDebtRepo{
+		generateNextKeyFn: func(context.Context) (string, error) { return nextKey, nil },
+		createFn: func(_ context.Context, td *models.TechDebt) error {
+			createCalls++
+			assert.Equal(t, "TD-001", td.Key)
+			// The insert committed even though the repository could not report success.
+			// Re-entering create would now allocate a different key.
+			nextKey = "TD-002"
+			return insertErr
+		},
+		deleteFn: func(context.Context, int64) error { deleteCalls++; return nil },
+	})
+	svc.projectRoot = root
+	created, linked, err := svc.CreateTechDebt(context.Background(), CreateTechDebtInput{
+		Title: "Retry debt", Category: models.TechDebtCategoryArchitecture,
+		Severity: models.TechDebtSeverityHigh,
+	})
+	require.ErrorIs(t, err, insertErr)
+	assert.Nil(t, created)
+	assert.False(t, linked)
+	assert.Contains(t, err.Error(), "TD-001")
+	assert.Contains(t, err.Error(), "docs/plan/tech-debt/TD-001.md")
+	assert.Contains(t, err.Error(), "check whether TD-001 was persisted before retrying")
+	assert.Contains(t, err.Error(), "a blind retry can create a second item")
+	assert.NotContains(t, err.Error(), "retry the unchanged request with --force")
+	assert.Equal(t, "TD-002", nextKey)
+	assert.Equal(t, 1, createCalls)
+	assert.Zero(t, deleteCalls)
+	assertTechDebtDocument(t, path, b112Placeholder)
+}
+
+func TestTechDebtService_Create_UncommittedInsertRetainsDocumentForVerifiedExactRetry(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "docs", "plan", "tech-debt", "TD-001.md")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	createCalls, deleteCalls := 0, 0
+	createCalls, deleteCalls, persistedRows := 0, 0, 0
 	svc := newTechDebtService(&mockTechDebtRepo{
+		generateNextKeyFn: func(context.Context) (string, error) {
+			if persistedRows == 0 {
+				return "TD-001", nil
+			}
+			return "TD-002", nil
+		},
 		createFn: func(ctx context.Context, td *models.TechDebt) error {
 			createCalls++
 			assertTechDebtDocument(t, path, b112Placeholder)
@@ -507,6 +531,7 @@ func TestTechDebtService_Create_CanceledInsertRetainsDocumentForExactRetry(t *te
 				return ctx.Err()
 			}
 			td.ID = 23
+			persistedRows++
 			return nil
 		},
 		deleteFn: func(context.Context, int64) error { deleteCalls++; return fmt.Errorf("deletion unavailable") },
@@ -517,18 +542,22 @@ func TestTechDebtService_Create_CanceledInsertRetainsDocumentForExactRetry(t *te
 		Severity: models.TechDebtSeverityHigh,
 	}
 	_, _, err := svc.CreateTechDebt(ctx, input)
-	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "docs/plan/tech-debt/TD-001.md") || !strings.Contains(err.Error(), "--force") {
-		t.Fatalf("insert error = %v, want cancellation and retained-path retry guidance", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Contains(t, err.Error(), "docs/plan/tech-debt/TD-001.md")
+	assert.Contains(t, err.Error(), "check whether TD-001 was persisted before retrying")
+	// This mock confirms that no row persisted and the next key remains TD-001.
+	// Only after that verification is exact-content reuse a safe retry.
+	require.Zero(t, persistedRows)
 	assertTechDebtDocument(t, path, b112Placeholder)
 	input.Force = true
 	created, linked, err := svc.CreateTechDebt(context.Background(), input)
-	if err != nil || created == nil || created.ID != 23 || !linked {
-		t.Fatalf("retry returned created=%v linked=%v error=%v", created, linked, err)
-	}
-	if createCalls != 2 || deleteCalls != 0 {
-		t.Errorf("recovery called create/delete %d/%d times, want 2/0", createCalls, deleteCalls)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	assert.Equal(t, int64(23), created.ID)
+	assert.True(t, linked)
+	assert.Equal(t, 2, createCalls)
+	assert.Zero(t, deleteCalls)
+	assert.Equal(t, 1, persistedRows)
 	assertTechDebtDocument(t, path, b112Placeholder)
 }
 
@@ -552,9 +581,8 @@ func TestTechDebtService_Create_ConcurrentCollisionPersistsOnlyDocumentOwner(t *
 		},
 		createFn: func(_ context.Context, td *models.TechDebt) error {
 			got, err := os.ReadFile(path)
-			if err != nil || string(got) != expected[td.Title] {
-				t.Errorf("insert for %q preceded its complete document: bytes=%q error=%v", td.Title, got, err)
-			}
+			assert.NoError(t, err, "read complete document before insert")
+			assert.Equal(t, expected[td.Title], string(got), "insert for %q must follow its complete document", td.Title)
 			created <- td.Title
 			return nil
 		},
@@ -579,9 +607,9 @@ func TestTechDebtService_Create_ConcurrentCollisionPersistsOnlyDocumentOwner(t *
 			successes++
 		}
 	}
-	if successes != 1 || len(created) != 1 || len(deleted) != 0 {
-		t.Fatalf("race successes/create/delete = %d/%d/%d, want 1/1/0", successes, len(created), len(deleted))
-	}
+	require.Equal(t, 1, successes)
+	require.Len(t, created, 1)
+	assert.Empty(t, deleted)
 	assertTechDebtDocument(t, path, expected[<-created])
 }
 
@@ -593,9 +621,7 @@ func TestTechDebtService_Create_ContentKeepsSingleFrontmatterBlock(t *testing.T)
 		Title: "Body debt", Category: models.TechDebtCategoryArchitecture,
 		Severity: models.TechDebtSeverityMedium, Body: "CUSTOM-CONTENT-BODY\n\n",
 	})
-	if err != nil {
-		t.Fatalf("CreateTechDebt() error = %v", err)
-	}
+	require.NoError(t, err)
 	assertTechDebtDocument(t, filepath.Join(root, "docs", "plan", "tech-debt", "TD-001.md"),
 		"---\ntech_debt_key: TD-001\ntitle: Body debt\ncategory: architecture\nseverity: medium\nslug: body-debt\n---\nCUSTOM-CONTENT-BODY\n")
 }
