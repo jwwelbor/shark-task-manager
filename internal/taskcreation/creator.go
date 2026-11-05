@@ -387,8 +387,8 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 
 	// 9. Commit transaction
 	if err := tx.Commit(); err != nil {
-		// Try to delete the file only if we created it
-		if !fileExists {
+		// A preflight absence does not prove ownership: the writer may have linked a raced-in file.
+		if writeResult != nil && writeResult.Written {
 			os.Remove(fullFilePath)
 		}
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
