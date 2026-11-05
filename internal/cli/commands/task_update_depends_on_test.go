@@ -21,9 +21,11 @@ package commands
 //     clear; flag present with keys -> set the JSON-encoded list.
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -172,6 +174,78 @@ func TestTaskUpdate_DependsOnFlag_Absent_NoMutation(t *testing.T) {
 		t.Error("expected ClearDependsOn=false when --depends-on absent")
 	}
 }
+
+// TestRunTaskUpdate_DependsOnFlag_DispatchesToService exercises the production
+// command handler through its service call. Parser-only tests could pass while
+// runTaskUpdate still discarded the parsed dependency fields before persistence.
+func TestRunTaskUpdate_DependsOnFlag_DispatchesToService(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		wantJSON  string
+		wantClear bool
+	}{
+		{
+			name:     "set dependencies",
+			args:     []string{"E07-F01-001", "--depends-on=E07-F01-002,E07-F01-003"},
+			wantJSON: `["T-E07-F01-002","T-E07-F01-003"]`,
+		},
+		{
+			name:      "clear dependencies",
+			args:      []string{"E07-F01-001", "--depends-on="},
+			wantClear: true,
+		},
+		{
+			name: "leave dependencies unchanged when absent",
+			args: []string{"E07-F01-001"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &taskUpdateCaptureService{}
+			previous := taskUpdateSvcOverride
+			taskUpdateSvcOverride = service
+			t.Cleanup(func() { taskUpdateSvcOverride = previous })
+
+			cmd := &cobra.Command{
+				Use:           "update <task-key>",
+				Args:          cobra.ExactArgs(1),
+				RunE:          runTaskUpdate,
+				SilenceErrors: true,
+				SilenceUsage:  true,
+			}
+			registerUpdateFlags(cmd)
+			cmd.SetArgs(tc.args)
+
+			require.NoError(t, cmd.Execute())
+			require.Equal(t, 1, service.calls, "production handler must call UpdateTask")
+			assert.Equal(t, "T-E07-F01-001", service.key, "short task key must be normalized before dispatch")
+			assert.Equal(t, tc.wantClear, service.updates.ClearDependsOn)
+			if tc.wantJSON == "" {
+				assert.Nil(t, service.updates.DependsOn)
+			} else {
+				require.NotNil(t, service.updates.DependsOn)
+				assert.Equal(t, tc.wantJSON, *service.updates.DependsOn)
+			}
+		})
+	}
+}
+
+type taskUpdateCaptureService struct {
+	calls   int
+	key     string
+	updates services.TaskUpdates
+}
+
+func (s *taskUpdateCaptureService) UpdateTask(_ context.Context, key string, updates services.TaskUpdates) (*models.Task, error) {
+	s.calls++
+	s.key = key
+	s.updates = updates
+	return &models.Task{BaseEntity: models.BaseEntity{Key: key}}, nil
+}
+
+var _ taskUpdateServicer = (*taskUpdateCaptureService)(nil)
 
 // TestUnifiedTaskUpdate_DependsOnFlag_ThreeWayDispatch verifies the unified
 // command's string-typed flag reaches the same parser contract as `task

@@ -461,6 +461,17 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 	require.NotNil(t, got.ExecutionOrder)
 	assert.Equal(t, 1, *got.ExecutionOrder, "execution_order should be unchanged after a rejected update")
 
+	// Seed a stored dependency so the explicit-clear check verifies the legacy
+	// JSON value changes from non-empty to NULL, not just relationship cleanup.
+	persistedDeps := `["T-E93-F01-002"]`
+	task.DependsOn = &persistedDeps
+	task.ExecutionOrder = &order1
+	require.NoError(t, taskRepo.Update(ctx, task), "seed a persisted dependency before explicit clear")
+	got, err = taskRepo.GetByKey(ctx, "T-E93-F01-001")
+	require.NoError(t, err)
+	require.NotNil(t, got.DependsOn)
+	assert.Equal(t, persistedDeps, *got.DependsOn, "test setup must persist a non-empty dependency")
+
 	// TD-066: a link-created relationship is also a dependency gate. An
 	// explicit clear must delete it atomically with the legacy JSON clear,
 	// rather than leaving a hidden entity_relationships blocker behind.
@@ -470,8 +481,10 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 	require.NoError(t, err)
 
 	// Clearing DependsOn must still succeed (nil/empty deps are a no-op for
-	// ValidateTaskDependencies), and it must remove the relationship gate.
+	// ValidateTaskDependencies), and it must clear both persisted dependency
+	// representations.
 	task.DependsOn = nil
+	task.ExecutionOrder = &newOrder
 	require.NoError(t, taskRepo.UpdateClearingDependencies(ctx, task, true),
 		"explicit dependency clear must succeed when depends_on is nil")
 	var relationshipCount int
@@ -484,6 +497,7 @@ func TestTaskRepository_UpdateNoResequence_ValidatesDependencies(t *testing.T) {
 
 	got, err = taskRepo.GetByKey(ctx, "T-E93-F01-001")
 	require.NoError(t, err)
+	assert.Nil(t, got.DependsOn, "explicit clear must remove the stored legacy JSON dependency")
 	require.NotNil(t, got.ExecutionOrder)
 	assert.Equal(t, 2, *got.ExecutionOrder, "execution_order should update once depends_on is valid (nil)")
 
