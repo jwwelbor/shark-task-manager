@@ -15,19 +15,21 @@ import (
 // Git can start filters that inherit its pipes; runner callers must use the
 // shared cancellation-aware command, not a plain os/exec Git command.
 func TestRunnerGitCallsUseCancellationAwareCommand(t *testing.T) {
-	files, err := parser.ParseDir(token.NewFileSet(), ".", func(info os.FileInfo) bool {
-		return !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
+	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
-	for _, pkg := range files {
-		for name, file := range pkg.Files {
-			ast.Inspect(file, func(node ast.Node) bool {
-				if method := plainGitExec(node); method != "" {
-					t.Errorf("%s uses plain exec.%s for Git; use gitutil.Command", name, method)
-				}
-				return true
-			})
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
+		file, parseErr := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		require.NoError(t, parseErr)
+		ast.Inspect(file, func(node ast.Node) bool {
+			if method := plainGitExec(node); method != "" {
+				t.Errorf("%s uses plain exec.%s for Git; use gitutil.Command", name, method)
+			}
+			return true
+		})
 	}
 }
 
