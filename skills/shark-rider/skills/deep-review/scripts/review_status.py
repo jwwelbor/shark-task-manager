@@ -1,6 +1,8 @@
 """Filter untracked Shark runtime files while retaining every tracked change."""
 import os
 import subprocess
+
+from bounded_git import run as run_bounded_git
 from pathlib import Path, PurePosixPath
 import sys
 
@@ -38,7 +40,7 @@ def validate_index_flags(data):
 def registered_worktrees(repo_root, project_relative):
     root = Path(repo_root).resolve(strict=True)
     base = root / project_relative / '.shark-run-worktrees'
-    raw = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'worktree', 'list', '--porcelain', '-z'],
+    raw = run_bounded_git(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'worktree', 'list', '--porcelain', '-z'],
                          check=True, capture_output=True).stdout
     result = []
     for field in raw.split(b'\0'):
@@ -94,9 +96,9 @@ def filter_status(status, prefix, worktrees=()):
 def main():
     if len(sys.argv) != 2:
         raise ValueError('expected the relative Shark project path')
-    root = subprocess.run(['git', '-c', 'core.fsmonitor=false', 'rev-parse', '--show-toplevel'],
+    root = run_bounded_git(['git', '-c', 'core.fsmonitor=false', 'rev-parse', '--show-toplevel'],
                           check=True, capture_output=True).stdout.decode().strip()
-    flags = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', root, 'ls-files', '-v', '-z'],
+    flags = run_bounded_git(['git', '-c', 'core.fsmonitor=false', '-C', root, 'ls-files', '-v', '-z'],
                            check=True, capture_output=True).stdout
     validate_index_flags(flags)
     return 1 if filter_status(sys.stdin.buffer.read(), runtime_prefix(sys.argv[1]), registered_worktrees(root, sys.argv[1])) else 0

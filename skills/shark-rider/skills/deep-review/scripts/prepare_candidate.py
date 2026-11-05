@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+from bounded_git import run as run_bounded_git
 import tempfile
 
 from source_inventory import source_inventory
@@ -50,7 +51,7 @@ def main():
     args = parser.parse_args()
     root, destination, metadata_path = _validate_paths(args, parser)
     def git(*argv, env=None, input=None):
-        return subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), *argv], env=env, input=input,
+        return run_bounded_git(['git', '-c', 'core.fsmonitor=false', '-C', str(root), *argv], env=env, input=input,
                               text=True, check=True, capture_output=True).stdout.strip()
     if Path(git('rev-parse', '--show-toplevel')).resolve() != root:
         parser.error('project-root must be the repository root')
@@ -63,7 +64,7 @@ def main():
     # A single snapshot tree cannot represent two different versions of one
     # selected file. Never silently discard either the staged or worktree one.
     def changed_names(*options):
-        raw = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), '--literal-pathspecs', 'diff', *options, '--name-only', '-z', '--no-renames', '--', *args.paths], check=True, capture_output=True).stdout
+        raw = run_bounded_git(['git', '-c', 'core.fsmonitor=false', '-C', str(root), '--literal-pathspecs', 'diff', *options, '--name-only', '-z', '--no-renames', '--', *args.paths], check=True, capture_output=True).stdout
         return {os.fsdecode(path) for path in raw.split(b'\0') if path}
     staged = changed_names('--cached')
     unstaged = changed_names()
@@ -71,7 +72,7 @@ def main():
     if divergent:
         parser.error('selected paths have divergent staged and worktree versions: ' + ', '.join(sorted(divergent)))
     inventory = source_inventory(root, project)
-    staged_diff = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), '--literal-pathspecs', 'diff', '--no-ext-diff', '--cached', '--binary', head, '--', *args.paths], check=True, capture_output=True).stdout
+    staged_diff = run_bounded_git(['git', '-c', 'core.fsmonitor=false', '-C', str(root), '--literal-pathspecs', 'diff', '--no-ext-diff', '--cached', '--binary', head, '--', *args.paths], check=True, capture_output=True).stdout
     with tempfile.TemporaryDirectory(prefix='review-index-') as temp:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(temp) / 'index'),
                    GIT_AUTHOR_NAME='Review Snapshot', GIT_AUTHOR_EMAIL='review-snapshot@localhost',
@@ -88,7 +89,7 @@ def main():
                 'source_inventory_sha256': inventory}
     # A worktree-local marker survives an ordinary amend/reword of the
     # synthetic commit; its subject alone is not durable provenance.
-    git_dir = Path(subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(destination), 'rev-parse', '--absolute-git-dir'],
+    git_dir = Path(run_bounded_git(['git', '-c', 'core.fsmonitor=false', '-C', str(destination), 'rev-parse', '--absolute-git-dir'],
                                   check=True, capture_output=True, text=True).stdout.strip())
     with (git_dir / 'shark-review-source.json').open('x', encoding='utf-8') as marker:
         json.dump(metadata, marker)

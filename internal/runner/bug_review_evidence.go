@@ -14,7 +14,6 @@ import (
 var bugReviewVerdict = regexp.MustCompile(`(?i)\bVERDICT\s*:?\s*\*{0,2}\s*:?\s*(PASS(?:-WITH-TRIAGE)?|FAIL)\b`)
 var bugContradictoryBlocker = regexp.MustCompile(`\bnot\s+refuted\b|\bblockers?\s+remain\b|\bunresolved\s+blockers?\b`)
 var bugIncompleteReport = regexp.MustCompile(`(?i)\bINCOMPLETE\b`)
-var bugHistoricalIncomplete = regexp.MustCompile(`(?i)\b(?:prior|previous|earlier|historical|superseded)[ \t]+(?:incomplete\b|(?:review|reviews|result|results|attempt|attempts|run|runs)(?:[ \t]+(?:was|were|had|been|did|not|pass|and|remained)){1,7}[ \t]+incomplete\b)`)
 var bugReviewScopeWord = regexp.MustCompile(`(?i)\b(scope|coverage)\b`)
 var bugReviewFindingsWord = regexp.MustCompile(`(?i)\b(findings|defects)\b`)
 var bugReviewHeaderField = regexp.MustCompile(`\*\*([^*\n]+):\*\*`)
@@ -144,7 +143,7 @@ func validateUniqueBugReviewHeader(header string) error {
 	return nil
 }
 func validateBugReviewBody(header, body string) error {
-	if !utf8.ValidString(body) || bugIncompleteReport.MatchString(bugHistoricalIncomplete.ReplaceAllString(body, "")) || utf8.RuneCountInString(strings.TrimSpace(body)) < 80 {
+	if !utf8.ValidString(body) || bugIncompleteReport.MatchString(body) || utf8.RuneCountInString(strings.TrimSpace(body)) < 80 {
 		return fmt.Errorf("review report is incomplete")
 	}
 	verdict := bugReviewVerdict.FindStringSubmatch(header)

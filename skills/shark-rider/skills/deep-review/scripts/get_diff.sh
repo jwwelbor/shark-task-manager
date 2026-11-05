@@ -3,10 +3,10 @@
 # Outputs JSON: { "diff_path": "...", "changed_files": [...], "changed_file_count": N, "diff_shortstat": "...", "project_root": "..." }
 set -euo pipefail
 
-git() { command git -c core.fsmonitor=false "$@"; }
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+git() { python3 "$script_dir/bounded_git.py" "$@"; }
 
 project_root=$(git rev-parse --show-toplevel)
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 runtime_project=$(PYTHONPATH="$script_dir${PYTHONPATH:+:$PYTHONPATH}" python3 -c 'import sys; from review_status import runtime_project; print(runtime_project(sys.argv[1], sys.argv[2]))' "$project_root" "${REVIEW_SHARK_PROJECT_ROOT:-$project_root}")
 
 # A committed candidate makes the tree identity and the manifest unambiguous.
@@ -139,10 +139,11 @@ python3 - <<'PYEOF'
 import os, json, subprocess, sys
 sys.path.insert(0, os.environ["REVIEW_SCRIPT_DIR"])
 from safe_review_io import read_review_file
+from bounded_git import run as run_bounded_git
 diff_path = os.environ["DIFF_PATH"]
 project_root = os.environ["PROJECT_ROOT"]
 coding_standards_path = os.environ.get("CODING_STANDARDS_PATH", "")
-changed_files = [os.fsdecode(p) for p in subprocess.check_output(["git", "-c", "core.fsmonitor=false", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]]).split(b"\0") if p]
+changed_files = [os.fsdecode(p) for p in run_bounded_git(["git", "-c", "core.fsmonitor=false", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]], check=True, capture_output=True).stdout.split(b"\0") if p]
 scope = {
   "diff_path": diff_path,
   "changed_files": changed_files,

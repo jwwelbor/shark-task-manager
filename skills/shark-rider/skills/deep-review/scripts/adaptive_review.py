@@ -19,6 +19,7 @@ import signal
 import shlex
 import shutil
 import subprocess
+from bounded_git import run as run_bounded_git
 import sys
 import tempfile
 import time
@@ -206,7 +207,7 @@ def _cli_argv(model: str, override: str | None, prompt: str) -> list[str]:
 
 
 def _scope_git(root, *args, env=None):
-    return subprocess.run(["git", "-c", "core.fsmonitor=false", "-C", str(root), *args],
+    return run_bounded_git(["git", "-c", "core.fsmonitor=false", "-C", str(root), *args],
                           env=env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
 
 
@@ -454,8 +455,7 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
 
 def valid_review_report(body: str, verdict: str) -> bool:
     """Reject empty, diagnostic, contradictory or structurally incomplete reports."""
-    historical = re.sub(r"\b(?:prior|previous|earlier|historical|superseded)[ \t]+(?:incomplete\b|(?:review|reviews|result|results|attempt|attempts|run|runs)(?:[ \t]+(?:was|were|had|been|did|not|pass|and|remained)){1,7}[ \t]+incomplete\b)", "", body, flags=re.I | re.ASCII)
-    if len(body.strip()) < 80 or re.search(r"\bINCOMPLETE\b", historical, re.I | re.ASCII):
+    if len(body.strip()) < 80 or re.search(r"\bINCOMPLETE\b", body, re.I | re.ASCII):
         return False
     if verdict.upper().startswith("PASS"):
         normalized = body.lower().replace("no blockers remain", "").replace("no unresolved blockers", "")

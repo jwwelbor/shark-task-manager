@@ -265,8 +265,7 @@ function validDecisionSet(value) {
 
 function validReport(body) {
   if (typeof body !== 'string' || Array.from(body.trim()).length < 80) return false
-  const current = body.replace(/\b(?:prior|previous|earlier|historical|superseded)[ \t]+(?:incomplete\b|(?:review|reviews|result|results|attempt|attempts|run|runs)(?:[ \t]+(?:was|were|had|been|did|not|pass|and|remained)){1,7}[ \t]+incomplete\b)/gi, '')
-  if (/\bINCOMPLETE\b/i.test(current)) return false
+  if (/\bINCOMPLETE\b/i.test(body)) return false
   return /\b(scope|coverage)\b/i.test(body) && /\b(findings|defects)\b/i.test(body)
 }
 

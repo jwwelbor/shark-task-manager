@@ -52,12 +52,12 @@
   {
     "name": "prior-incomplete-review",
     "body": "Reviewed scope: all current candidate files and callers. Findings: none. The previous review was incomplete. VERDICT: PASS",
-    "valid": true
+    "valid": false
   },
   {
     "name": "earlier-incomplete-review",
     "body": "Reviewed scope: all current candidate files and callers. Findings: none. The earlier incomplete review is superseded. VERDICT: PASS",
-    "valid": true
+    "valid": false
   },
   {
     "name": "prior-and-current-incomplete",
@@ -82,11 +82,41 @@
   {
     "name": "longer-historical-incomplete",
     "body": "Reviewed scope: all current files and callers. Findings: none. The previous review did not pass and was incomplete. VERDICT: PASS",
-    "valid": true
+    "valid": false
   },
   {
     "name": "historical-plus-current-incomplete",
     "body": "Reviewed scope: the previous review was incomplete, but current review is incomplete. Findings: none. VERDICT: PASS",
     "valid": false
+  },
+  {
+    "name": "shared-historical-status-0",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review was incomplete and so is the current review. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-1",
+    "body": "Reviewed scope: all files and callers. Findings: none. The current and previous review were incomplete. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-2",
+    "body": "Reviewed scope: all files and callers. Findings: none. previous review and incomplete current review require rework. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-3",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review was incomplete; current one too. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "shared-historical-status-4",
+    "body": "Reviewed scope: all files and callers. Findings: none. The previous review was incomplete. The current one is too. VERDICT: PASS",
+    "valid": false
+  },
+  {
+    "name": "historical-description-without-status-token",
+    "body": "Reviewed scope: all current files and callers. Findings: none. The previous independent review did not finish; this review is complete. VERDICT: PASS",
+    "valid": true
   }
 ]

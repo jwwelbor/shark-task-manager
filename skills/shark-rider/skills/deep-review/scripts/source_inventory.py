@@ -5,6 +5,8 @@ from pathlib import Path
 import stat
 import subprocess
 
+from bounded_git import run as run_bounded_git
+
 from review_status import filter_status, registered_worktrees, runtime_prefix, runtime_untracked, validate_index_flags
 
 
@@ -77,7 +79,7 @@ def source_inventory(root, runtime_project="."):
 
 def _python_inventory(root, runtime_project):
     def git(*args):
-        return subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), *args], check=True, capture_output=True).stdout
+        return run_bounded_git(['git', '-c', 'core.fsmonitor=false', '-C', str(root), *args], check=True, capture_output=True).stdout
     digest = hashlib.sha256()
     def field(data):
         digest.update(len(data).to_bytes(8, 'big'))
