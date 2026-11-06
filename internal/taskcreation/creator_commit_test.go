@@ -79,6 +79,24 @@ func TestCreatorCreateTaskCommitFileOwnership(t *testing.T) {
 	}
 }
 
+func TestCreatorCreateTaskWriterFailureRollsBackTaskAndHistory(t *testing.T) {
+	ctx := context.Background()
+	tc := creatorCommitTestCase{name: "writer_failure", fileState: creatorCommitFileStateCreated}
+	fixture := newCreatorCommitFixture(t, tc, ctx)
+	fixture.creator.SetAfterCreateHook(func(_ context.Context, _ *sql.Tx, _ *models.Task) error {
+		return os.Mkdir(fixture.target, 0755)
+	})
+
+	result, err := fixture.creator.CreateTask(ctx, fixture.input)
+
+	require.ErrorIs(t, err, os.ErrInvalid)
+	assert.Nil(t, result)
+	assertCreatorCommitRows(t, ctx, fixture.raw, true)
+	info, statErr := os.Lstat(fixture.target)
+	require.NoError(t, statErr, "writer failure cleanup must preserve the directory that appeared after preflight")
+	assert.True(t, info.IsDir())
+}
+
 func TestCreatorRejectsCustomFileSymlink(t *testing.T) {
 	ctx := context.Background()
 	fixture := newCreatorCommitFixture(t, creatorCommitTestCase{fileState: creatorCommitFileStateCreated}, ctx)
@@ -222,11 +240,12 @@ func assertCreatorCommitRows(t *testing.T, ctx context.Context, raw *sql.DB, fai
 }
 
 func assertCreatorCommitFile(t *testing.T, tc creatorCommitTestCase, target string, original []byte) {
-	content, err := os.ReadFile(target)
 	if tc.fileState == creatorCommitFileStateCreated {
+		_, err := os.Lstat(target)
 		assert.True(t, errors.Is(err, os.ErrNotExist), "newly created file must be removed after failed commit: %v", err)
 		return
 	}
+	content, err := os.ReadFile(target)
 	require.NoError(t, err, "foreign document must survive")
 	assert.Equal(t, original, content)
 }

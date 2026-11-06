@@ -73,6 +73,7 @@ type fileWriterIOHooks struct {
 	rename func(string, string) error
 	write  func(*os.File, []byte) (int, error)
 	sync   func(*os.File) error
+	close  func(*os.File) error
 	link   func(string, string) error
 }
 
@@ -290,7 +291,11 @@ func (w *EntityFileWriter) stageEntityFile(dir string, data []byte) (string, os.
 	}
 
 	fileInfo, writeErr := w.writeAndSyncStagedFile(file, data)
-	closeErr := file.Close()
+	closeFile := file.Close
+	if w.ioHooks != nil && w.ioHooks.close != nil {
+		closeFile = func() error { return w.ioHooks.close(file) }
+	}
+	closeErr := closeFile()
 	if closeErr != nil {
 		closeErr = fmt.Errorf("failed to close staged file: %w", closeErr)
 	}

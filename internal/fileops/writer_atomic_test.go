@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -100,6 +101,30 @@ func TestAtomicPublicationPreservesRacedInFile(t *testing.T) {
 	assert.Equal(t, "raced-in.md", entries[0].Name())
 }
 
+func TestAtomicWriteLinksExistingTargetWithoutChangingOriginalContent(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetPath := filepath.Join(tmpDir, "existing.md")
+	originalContent := []byte("original document bytes\x00\xff")
+	replacementContent := []byte("new content must not replace an existing file")
+	require.NoError(t, os.WriteFile(targetPath, originalContent, 0644))
+
+	result, err := NewEntityFileWriter().WriteEntityFile(WriteOptions{
+		Content:         replacementContent,
+		ProjectRoot:     tmpDir,
+		FilePath:        "existing.md",
+		UseAtomicWrite:  true,
+		CreateIfMissing: true,
+		EntityType:      "task",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Linked)
+	assert.False(t, result.Written)
+	actualContent, err := os.ReadFile(targetPath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, actualContent, "linking an existing regular file must preserve its original bytes")
+}
+
 func TestRenameNoReplacePreservesExistingTarget(t *testing.T) {
 	root := t.TempDir()
 	stagedPath := filepath.Join(root, "staged.md")
@@ -121,6 +146,69 @@ func TestRenameNoReplacePreservesExistingTarget(t *testing.T) {
 	actualStaged, readErr := os.ReadFile(stagedPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, stagedContent, actualStaged, "a rejected rename must preserve its staged source")
+}
+
+func TestRenameNoReplacePublishesStagedFile(t *testing.T) {
+	if !supportsNativeNoReplaceOnCurrentOS() {
+		t.Skip("native no-replace rename is not implemented for this GOOS")
+	}
+	root := t.TempDir()
+	stagedPath := filepath.Join(root, "staged.md")
+	targetPath := filepath.Join(root, "target.md")
+	stagedContent := []byte("published by native no-replace rename")
+	require.NoError(t, os.WriteFile(stagedPath, stagedContent, 0600))
+
+	err := renameNoReplace(stagedPath, targetPath)
+	require.NoError(t, err)
+
+	actualTarget, readErr := os.ReadFile(targetPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, stagedContent, actualTarget)
+	_, statErr := os.Lstat(stagedPath)
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "native publication must move the staged file without using the link fallback")
+}
+
+func TestAtomicPublicationUsesNativeNoReplaceBeforeLinkFallback(t *testing.T) {
+	if !supportsNativeNoReplaceOnCurrentOS() {
+		t.Skip("native no-replace rename is not implemented for this GOOS")
+	}
+	root := t.TempDir()
+	targetPath := filepath.Join(root, "entity.md")
+	content := []byte("published by the native no-replace operation")
+	linkCalled := false
+	writer := NewEntityFileWriter()
+	writer.ioHooks = &fileWriterIOHooks{
+		link: func(string, string) error {
+			linkCalled = true
+			return errors.New("link fallback must not run when native publication succeeds")
+		},
+	}
+
+	result, err := writer.WriteEntityFile(WriteOptions{
+		Content:         content,
+		ProjectRoot:     root,
+		FilePath:        "entity.md",
+		EntityType:      "task",
+		UseAtomicWrite:  true,
+		CreateIfMissing: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Written)
+	assert.False(t, result.Linked)
+	assert.False(t, linkCalled, "successful native publication must not use the hard-link fallback")
+	actualContent, readErr := os.ReadFile(targetPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, content, actualContent)
+	targetInfo, statErr := os.Stat(targetPath)
+	require.NoError(t, statErr)
+	require.NotNil(t, result.CreatedFileInfo)
+	assert.True(t, os.SameFile(result.CreatedFileInfo, targetInfo))
+}
+
+func supportsNativeNoReplaceOnCurrentOS() bool {
+	return runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 }
 
 func TestAtomicPublicationFailureDoesNotLeaveTarget(t *testing.T) {
@@ -348,8 +436,40 @@ func TestSyncFailureDoesNotLeaveTarget(t *testing.T) {
 	assert.Empty(t, entries)
 }
 
+func TestCloseFailureDoesNotLeaveTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetPath := filepath.Join(tmpDir, "close-failure.md")
+	closeErr := errors.New("injected close failure")
+	writer := NewEntityFileWriter()
+	writer.ioHooks = &fileWriterIOHooks{
+		close: func(file *os.File) error {
+			if err := file.Close(); err != nil {
+				return err
+			}
+			return closeErr
+		},
+	}
+
+	result, err := writer.WriteEntityFile(WriteOptions{
+		Content:         []byte("staged content"),
+		ProjectRoot:     tmpDir,
+		FilePath:        "close-failure.md",
+		UseAtomicWrite:  true,
+		CreateIfMissing: true,
+		EntityType:      "task",
+	})
+
+	require.ErrorIs(t, err, closeErr)
+	assert.Nil(t, result)
+	_, statErr := os.Lstat(targetPath)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+	entries, readDirErr := os.ReadDir(tmpDir)
+	require.NoError(t, readDirErr)
+	assert.Empty(t, entries, "a close failure must remove its staged sibling")
+}
+
 func TestStagingFailuresPreserveRacedInTarget(t *testing.T) {
-	for _, failurePoint := range []string{"write", "sync"} {
+	for _, failurePoint := range []string{"write", "sync", "close"} {
 		t.Run(failurePoint, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			targetPath := filepath.Join(tmpDir, "raced-in.md")
@@ -369,9 +489,19 @@ func TestStagingFailuresPreserveRacedInTarget(t *testing.T) {
 					return n, writeErr
 				}
 			} else {
-				writer.ioHooks.sync = func(*os.File) error {
-					createConcurrentTarget()
-					return writeErr
+				if failurePoint == "sync" {
+					writer.ioHooks.sync = func(*os.File) error {
+						createConcurrentTarget()
+						return writeErr
+					}
+				} else {
+					writer.ioHooks.close = func(file *os.File) error {
+						if err := file.Close(); err != nil {
+							return err
+						}
+						createConcurrentTarget()
+						return writeErr
+					}
 				}
 			}
 
@@ -421,6 +551,7 @@ func TestAtomicPublicationFallsBackWhenRenameUnsupported(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, usedLink)
 	require.True(t, result.Written)
+	assert.False(t, result.Linked)
 	content, err := os.ReadFile(filepath.Join(root, "entity.md"))
 	require.NoError(t, err)
 	require.Equal(t, "complete", string(content))
@@ -431,6 +562,42 @@ func TestAtomicPublicationFallsBackWhenRenameUnsupported(t *testing.T) {
 	entries, err := os.ReadDir(root)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
+}
+
+func TestAtomicPublicationPreservesRacedInFileDuringLinkFallback(t *testing.T) {
+	root := t.TempDir()
+	targetPath := filepath.Join(root, "raced-in.md")
+	concurrentContent := []byte("created by the concurrent writer\x00\xff")
+	writer := NewEntityFileWriter()
+	writer.ioHooks = &fileWriterIOHooks{
+		rename: func(string, string) error { return ErrRenameUnsupported },
+		link: func(stagedPath, destinationPath string) error {
+			require.NoError(t, os.WriteFile(destinationPath, concurrentContent, 0644))
+			return os.Link(stagedPath, destinationPath)
+		},
+	}
+
+	result, err := writer.WriteEntityFile(WriteOptions{
+		Content:         []byte("content from this writer"),
+		ProjectRoot:     root,
+		FilePath:        "raced-in.md",
+		UseAtomicWrite:  true,
+		CreateIfMissing: true,
+		EntityType:      "task",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Written)
+	assert.True(t, result.Linked)
+	assert.Nil(t, result.CreatedFileInfo)
+	actualContent, err := os.ReadFile(targetPath)
+	require.NoError(t, err)
+	assert.Equal(t, concurrentContent, actualContent)
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "fallback collision must remove only the staged sibling")
+	assert.Equal(t, "raced-in.md", entries[0].Name())
 }
 
 func TestAtomicPublicationFailsClosedWhenBothMethodsUnsupported(t *testing.T) {
