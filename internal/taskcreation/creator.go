@@ -417,6 +417,7 @@ func removeCreatedTaskFile(path string, createdFileInfo os.FileInfo) {
 	}
 	currentFileInfo, statErr := os.Lstat(path)
 	if errors.Is(statErr, os.ErrNotExist) {
+		slog.Warn("task file is missing after transaction commit failure", "path", path)
 		return
 	}
 	if statErr != nil {

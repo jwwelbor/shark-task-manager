@@ -1,9 +1,11 @@
 package taskcreation
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -247,4 +249,22 @@ func TestRemoveCreatedTaskFilePreservesReplacement(t *testing.T) {
 	content, err := os.ReadFile(target)
 	require.NoError(t, err)
 	assert.Equal(t, replacement, content)
+}
+
+func TestRemoveCreatedTaskFileWarnsWhenPathIsMissing(t *testing.T) {
+	projectRoot := t.TempDir()
+	target := filepath.Join(projectRoot, "task.md")
+	require.NoError(t, os.WriteFile(target, []byte("created task"), 0644))
+	createdFileInfo, err := os.Stat(target)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(target))
+
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	removeCreatedTaskFile(target, createdFileInfo)
+
+	assert.Contains(t, logs.String(), "task file is missing after transaction commit failure")
 }
