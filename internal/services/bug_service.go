@@ -213,17 +213,14 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 		return nil, false, fmt.Errorf("failed to create bug: %w", err)
 	}
 
-	// Attach tags after insert so bug.ID is valid. Not wrapped in a
-	// transaction — on failure the row is persisted with zero tags and
-	// the user retries via `shark bug update --tag=...`.
-	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeBug, bug.ID, input.Tags); err != nil {
-		return nil, false, err
-	}
-	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bug.ID); err != nil {
-		return nil, false, err
+	// Force retains the existing best-effort write behavior and side-effect order.
+	if input.Force {
+		if err := s.attachTagsAndIndex(ctx, bug.ID, input.Tags); err != nil {
+			return nil, false, err
+		}
 	}
 
-	// Generate and write markdown file (best-effort)
+	// Generate and write markdown before attaching tags or indexing.
 	content := s.generateMarkdown(bug)
 	if input.Body != "" {
 		content = fileops.ReplaceBodyAfterFrontmatter(content, input.Body)
@@ -237,13 +234,30 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 		UseAtomicWrite: !input.Force,
 		Force:          input.Force,
 	})
-	if writeErr != nil {
-		// Log warning but don't fail -- DB record is the source of truth
+	if writeErr != nil && input.Force {
 		slog.Warn("failed to write bug file", "path", filePath, "error", writeErr)
+	} else if writeErr != nil {
+		return nil, false, rollbackPublication(ctx, s.repo.Delete, bug.ID, "bug", "bug row", writeErr)
+	}
+
+	// Attach tags after insert so bug.ID is valid. Not wrapped in a
+	// transaction — on failure the row is persisted with zero tags and
+	// the user retries via `shark bug update --tag=...`.
+	if !input.Force {
+		if err := s.attachTagsAndIndex(ctx, bug.ID, input.Tags); err != nil {
+			return nil, false, err
+		}
 	}
 
 	fileWasLinked := writeResult != nil && writeResult.Linked
 	return bug, fileWasLinked, nil
+}
+
+func (s *BugService) attachTagsAndIndex(ctx context.Context, bugID int64, tags []string) error {
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeBug, bugID, tags); err != nil {
+		return err
+	}
+	return indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeBug, bugID)
 }
 
 // generateMarkdown produces a markdown document for a newly created bug.

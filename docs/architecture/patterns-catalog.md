@@ -207,12 +207,12 @@ result, err := writer.WriteEntityFile(fileops.WriteOptions{
     ProjectRoot:    projectRoot,
     FilePath:       filePath,
     EntityType:     "task",
-    UseAtomicWrite: true,   // O_EXCL flag prevents race conditions
+    UseAtomicWrite: true,   // staged file is published without replacing a raced-in path
     Force:          false,  // Don't overwrite existing
 })
 ```
 
-**Features**: Atomic writes via `O_EXCL`, auto directory creation, existing file linking, 87.1% test coverage.
+**Features**: Atomic writes via same-directory staging and native no-replace rename with a hard-link fallback, auto directory creation, existing file linking, 87.1% test coverage.
 
 ---
 

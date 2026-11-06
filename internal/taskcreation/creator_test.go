@@ -412,6 +412,28 @@ func TestCreator_FileExistsAssignsFile(t *testing.T) {
 	renderer := templates.NewRenderer(loader)
 	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, nil)
 
+	// A directory at a custom task path is not an existing task document.
+	existingDirectoryPath := filepath.Join(tempDir, "docs", "existing-directory.md")
+	err = os.Mkdir(existingDirectoryPath, 0755)
+	require.NoError(t, err)
+	_, err = creator.CreateTask(ctx, CreateTaskInput{
+		EpicKey:    "E98",
+		FeatureKey: "F98",
+		Title:      "Test Task incorrectly linked to directory",
+		AgentType:  "general",
+		Priority:   5,
+		Filename:   "docs/existing-directory.md",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, os.ErrInvalid)
+	info, err := os.Stat(existingDirectoryPath)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir(), "task creation must preserve the existing directory")
+	var createdTaskCount int
+	err = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE key LIKE 'T-E98-%'").Scan(&createdTaskCount)
+	require.NoError(t, err)
+	assert.Zero(t, createdTaskCount, "a directory must not be committed as a task file")
+
 	// Act: Create a task with custom filename pointing to existing file (no --create flag)
 	input := CreateTaskInput{
 		EpicKey:    "E98",

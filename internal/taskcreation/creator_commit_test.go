@@ -3,6 +3,7 @@ package taskcreation
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,11 +14,21 @@ import (
 	testdb "github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+)
+
+type creatorCommitFileState string
+
+const (
+	creatorCommitFileStateRaced    creatorCommitFileState = "raced"
+	creatorCommitFileStateExisting creatorCommitFileState = "existing"
+	creatorCommitFileStateCreated  creatorCommitFileState = "created"
 )
 
 type creatorCommitTestCase struct {
 	name        string
-	fileState   string
+	fileState   creatorCommitFileState
 	defaultPath bool
 	failCommit  bool
 }
@@ -45,14 +56,14 @@ type creatorCommitRepositories struct {
 // at Commit, after the writer has created or linked the file.
 func TestCreatorCreateTaskCommitFileOwnership(t *testing.T) {
 	cases := []creatorCommitTestCase{
-		{"custom_raced_commit_failure", "raced", false, true},
-		{"default_raced_commit_failure", "raced", true, true},
-		{"custom_existing_commit_failure", "existing", false, true},
-		{"default_existing_commit_failure", "existing", true, true},
-		{"custom_created_commit_failure", "created", false, true},
-		{"default_created_commit_failure", "created", true, true},
-		{"custom_raced_commit_success", "raced", false, false},
-		{"default_raced_commit_success", "raced", true, false},
+		{"custom_raced_commit_failure", creatorCommitFileStateRaced, false, true},
+		{"default_raced_commit_failure", creatorCommitFileStateRaced, true, true},
+		{"custom_existing_commit_failure", creatorCommitFileStateExisting, false, true},
+		{"default_existing_commit_failure", creatorCommitFileStateExisting, true, true},
+		{"custom_created_commit_failure", creatorCommitFileStateCreated, false, true},
+		{"default_created_commit_failure", creatorCommitFileStateCreated, true, true},
+		{"custom_raced_commit_success", creatorCommitFileStateRaced, false, false},
+		{"default_raced_commit_success", creatorCommitFileStateRaced, true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,6 +77,29 @@ func TestCreatorCreateTaskCommitFileOwnership(t *testing.T) {
 	}
 }
 
+func TestCreatorRejectsCustomFileSymlink(t *testing.T) {
+	ctx := context.Background()
+	fixture := newCreatorCommitFixture(t, creatorCommitTestCase{fileState: creatorCommitFileStateCreated}, ctx)
+	referentPath := filepath.Join(filepath.Dir(fixture.target), "existing.md")
+	original := []byte("existing document must remain unchanged")
+	require.NoError(t, os.WriteFile(referentPath, original, 0644))
+	if err := os.Symlink(referentPath, fixture.target); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	result, err := fixture.creator.CreateTask(ctx, fixture.input)
+
+	require.ErrorIs(t, err, os.ErrInvalid)
+	assert.Nil(t, result, "a symlink must not be committed as a linked task file")
+	assertCreatorCommitRows(t, ctx, fixture.raw, true)
+	linkTarget, err := os.Readlink(fixture.target)
+	require.NoError(t, err)
+	assert.Equal(t, referentPath, linkTarget)
+	actual, err := os.ReadFile(referentPath)
+	require.NoError(t, err)
+	assert.Equal(t, original, actual)
+}
+
 func newCreatorCommitFixture(t *testing.T, tc creatorCommitTestCase, ctx context.Context) creatorCommitFixture {
 	repos := newCreatorCommitRepositories(t, ctx)
 	projectRoot := t.TempDir()
@@ -74,9 +108,9 @@ func newCreatorCommitFixture(t *testing.T, tc creatorCommitTestCase, ctx context
 		NewValidator(repos.epic, repos.feature, repos.task), templates.NewRenderer(templates.NewLoader("")),
 		repos.task, repos.history, repos.epic, repos.feature, projectRoot, nil)
 	creator.SetAfterCreateHook(func(ctx context.Context, tx *sql.Tx, task *models.Task) error {
-		if tc.fileState == "raced" {
+		if tc.fileState == creatorCommitFileStateRaced {
 			_, statErr := os.Stat(target)
-			require.True(t, os.IsNotExist(statErr), "target must still be absent after preflight")
+			require.True(t, errors.Is(statErr, os.ErrNotExist), "target must still be absent after preflight: %v", statErr)
 			require.NoError(t, os.WriteFile(target, original, 0644))
 		}
 		if tc.failCommit {
@@ -145,7 +179,7 @@ func prepareCreatorCommitFile(t *testing.T, projectRoot string, tc creatorCommit
 	target := filepath.Join(projectRoot, relativePath)
 	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0755))
 	original := []byte("FOREIGN-WRITER\nexact bytes\x00\xff\n")
-	if tc.fileState == "existing" {
+	if tc.fileState == creatorCommitFileStateExisting {
 		require.NoError(t, os.WriteFile(target, original, 0644))
 	}
 	return relativePath, target, original
@@ -155,7 +189,9 @@ func assertCreatorCommitResult(
 	t *testing.T, tc creatorCommitTestCase, result *CreateTaskResult, err error, relativePath string,
 ) {
 	if tc.failCommit {
-		require.ErrorContains(t, err, "failed to commit transaction")
+		var sqliteErr *sqlite.Error
+		require.ErrorAs(t, err, &sqliteErr)
+		assert.Equal(t, sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY, sqliteErr.Code())
 		require.Nil(t, result)
 		return
 	}
@@ -185,10 +221,30 @@ func assertCreatorCommitRows(t *testing.T, ctx context.Context, raw *sql.DB, fai
 
 func assertCreatorCommitFile(t *testing.T, tc creatorCommitTestCase, target string, original []byte) {
 	content, err := os.ReadFile(target)
-	if tc.fileState == "created" {
-		assert.True(t, os.IsNotExist(err), "newly created file must be removed after failed commit: %v", err)
+	if tc.fileState == creatorCommitFileStateCreated {
+		assert.True(t, errors.Is(err, os.ErrNotExist), "newly created file must be removed after failed commit: %v", err)
 		return
 	}
 	require.NoError(t, err, "foreign document must survive")
 	assert.Equal(t, original, content)
+}
+
+func TestRemoveCreatedTaskFilePreservesReplacement(t *testing.T) {
+	projectRoot := t.TempDir()
+	target := filepath.Join(projectRoot, "task.md")
+	replacementPath := filepath.Join(projectRoot, "replacement.md")
+	original := []byte("created by this invocation")
+	replacement := []byte("published by a concurrent writer")
+	require.NoError(t, os.WriteFile(target, original, 0644))
+	createdFileInfo, err := os.Stat(target)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(replacementPath, replacement, 0644))
+	require.NoError(t, os.Remove(target))
+	require.NoError(t, os.Rename(replacementPath, target))
+
+	removeCreatedTaskFile(target, createdFileInfo)
+
+	content, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Equal(t, replacement, content)
 }

@@ -186,7 +186,10 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		fullFilePath = absPath
 
 		// Check if file exists
-		if _, statErr := os.Stat(fullFilePath); statErr == nil {
+		if info, statErr := os.Lstat(fullFilePath); statErr == nil {
+			if !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("file '%s' is not a regular file: %w", relPath, os.ErrInvalid)
+			}
 			fileExists = true
 		} else if os.IsNotExist(statErr) {
 			// File doesn't exist - check if Create flag is set
@@ -389,7 +392,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	if err := tx.Commit(); err != nil {
 		// A preflight absence does not prove ownership: the writer may have linked a raced-in file.
 		if writeResult != nil && writeResult.Written {
-			os.Remove(fullFilePath)
+			removeCreatedTaskFile(fullFilePath, writeResult.CreatedFileInfo)
 		}
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -402,6 +405,39 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		FilePath:      filePath,
 		FileWasLinked: fileWasLinked,
 	}, nil
+}
+
+// removeCreatedTaskFile best-effort compensates for a task file created by a
+// transaction that failed to commit. The identity check and removal are not
+// atomic; this assumes cooperating task creators use no-replace publication.
+func removeCreatedTaskFile(path string, createdFileInfo os.FileInfo) {
+	if createdFileInfo == nil {
+		slog.Warn("cannot verify task file ownership after transaction commit failure", "path", path)
+		return
+	}
+	currentFileInfo, statErr := os.Lstat(path)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return
+	}
+	if statErr != nil {
+		slog.Warn("failed to verify task file ownership after transaction commit failure",
+			"path", path,
+			"error", statErr,
+		)
+		return
+	}
+	if !os.SameFile(createdFileInfo, currentFileInfo) {
+		slog.Warn("preserving task file after transaction commit failure because the path was replaced",
+			"path", path,
+		)
+		return
+	}
+	if cleanupErr := os.Remove(path); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+		slog.Warn("failed to remove task file after transaction commit failure",
+			"path", path,
+			"error", cleanupErr,
+		)
+	}
 }
 
 // resolveTaskCustomKey normalizes a caller-supplied task key and ensures it
