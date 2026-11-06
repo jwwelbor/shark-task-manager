@@ -580,7 +580,7 @@ func TestResolvePathsEdgeCases(t *testing.T) {
 	result, err := writer.WriteEntityFile(WriteOptions{
 		Content:     []byte("content"),
 		ProjectRoot: tmpDir,
-		FilePath:    tmpDir + "/test.md", // Absolute path within project
+		FilePath:    filepath.Join(tmpDir, "test.md"), // Absolute path within project
 		EntityType:  "epic",
 	})
 
