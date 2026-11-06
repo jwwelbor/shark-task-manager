@@ -348,6 +348,55 @@ func TestSyncFailureDoesNotLeaveTarget(t *testing.T) {
 	assert.Empty(t, entries)
 }
 
+func TestStagingFailuresPreserveRacedInTarget(t *testing.T) {
+	for _, failurePoint := range []string{"write", "sync"} {
+		t.Run(failurePoint, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			targetPath := filepath.Join(tmpDir, "raced-in.md")
+			concurrentContent := []byte("created by the concurrent writer")
+			writeErr := errors.New("injected " + failurePoint + " failure")
+			writer := NewEntityFileWriter()
+			writer.ioHooks = &fileWriterIOHooks{}
+
+			createConcurrentTarget := func() {
+				require.NoError(t, os.WriteFile(targetPath, concurrentContent, 0644))
+			}
+			if failurePoint == "write" {
+				writer.ioHooks.write = func(file *os.File, content []byte) (int, error) {
+					createConcurrentTarget()
+					n, err := file.Write(content[:4])
+					require.NoError(t, err)
+					return n, writeErr
+				}
+			} else {
+				writer.ioHooks.sync = func(*os.File) error {
+					createConcurrentTarget()
+					return writeErr
+				}
+			}
+
+			result, err := writer.WriteEntityFile(WriteOptions{
+				Content:         []byte("staged content"),
+				ProjectRoot:     tmpDir,
+				FilePath:        "raced-in.md",
+				UseAtomicWrite:  true,
+				CreateIfMissing: true,
+				EntityType:      "task",
+			})
+
+			require.ErrorIs(t, err, writeErr)
+			assert.Nil(t, result)
+			actualContent, readErr := os.ReadFile(targetPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, concurrentContent, actualContent)
+			entries, readDirErr := os.ReadDir(tmpDir)
+			require.NoError(t, readDirErr)
+			require.Len(t, entries, 1, "failed staging must remove only its staged sibling")
+			assert.Equal(t, "raced-in.md", entries[0].Name())
+		})
+	}
+}
+
 func TestAtomicPublicationSucceedsWithoutHardLinks(t *testing.T) {
 	root := t.TempDir()
 	writer := NewEntityFileWriter()
