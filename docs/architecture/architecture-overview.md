@@ -164,7 +164,7 @@ docs/plan/
 - **Sync direction**: Filesystem → Database (unidirectional)
 - **Status**: Database-only (never synced from files)
 - **Templates**: Rendered via `internal/templates/` using Go `text/template`
-- **Atomic writes**: `internal/fileops/` uses `O_EXCL` flag for race protection
+- **Atomic writes**: `internal/fileops/` stages complete files and publishes them with a native no-replace rename, with a hard-link fallback
 
 ## Configuration System
 

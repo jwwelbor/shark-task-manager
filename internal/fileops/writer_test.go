@@ -3,6 +3,7 @@ package fileops
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -64,28 +65,37 @@ func TestLinkExistingFile(t *testing.T) {
 	assert.Equal(t, originalContent, actualContent)
 }
 
-// TestAtomicWrite tests that atomic writes use O_EXCL flag
-func TestAtomicWrite(t *testing.T) {
-	tmpDir := t.TempDir()
-	content := []byte("atomic content")
+func TestWriteExistingDirectoryReturnsErrorWithoutRemovingIt(t *testing.T) {
+	tests := []struct {
+		name           string
+		force          bool
+		useAtomicWrite bool
+	}{
+		{name: "atomic_link", force: false, useAtomicWrite: true},
+		{name: "atomic_force", force: true, useAtomicWrite: true},
+	}
 
-	writer := NewEntityFileWriter()
-	result, err := writer.WriteEntityFile(WriteOptions{
-		Content:         content,
-		ProjectRoot:     tmpDir,
-		FilePath:        "atomic.md",
-		EntityType:      "task",
-		UseAtomicWrite:  true,
-		CreateIfMissing: true, // Required for tasks
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			targetPath := filepath.Join(tmpDir, "existing-directory.md")
+			require.NoError(t, os.Mkdir(targetPath, 0755))
 
-	require.NoError(t, err)
-	assert.True(t, result.Written)
+			_, err := NewEntityFileWriter().WriteEntityFile(WriteOptions{
+				Content:        []byte("task content"),
+				ProjectRoot:    tmpDir,
+				FilePath:       "existing-directory.md",
+				EntityType:     "task",
+				Force:          tt.force,
+				UseAtomicWrite: tt.useAtomicWrite,
+			})
 
-	// Verify file was created
-	actualContent, err := os.ReadFile(filepath.Join(tmpDir, "atomic.md"))
-	require.NoError(t, err)
-	assert.Equal(t, content, actualContent)
+			require.Error(t, err)
+			info, statErr := os.Stat(targetPath)
+			require.NoError(t, statErr)
+			assert.True(t, info.IsDir(), "an existing directory must not be linked or removed as an entity file")
+		})
+	}
 }
 
 // TestNonAtomicWrite tests simple write without O_EXCL
@@ -255,8 +265,16 @@ func TestVerboseLoggingForExistingFile(t *testing.T) {
 // NEGATIVE TEST CASES
 // ============================================
 
+func skipIfUnixPermissionBitsUnsupported(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission-bit fault injection is not meaningful on windows")
+	}
+}
+
 // TestPermissionDenied tests writing to a protected directory
 func TestPermissionDenied(t *testing.T) {
+	skipIfUnixPermissionBitsUnsupported(t)
 	if os.Getuid() == 0 {
 		t.Skip("Skipping permission test when running as root")
 	}
@@ -476,7 +494,7 @@ func TestCreateIfMissingForNonTaskEntities(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAtomicWriteFailsWhenFileExists tests O_EXCL behavior
+// TestAtomicWriteFailsWhenFileExists tests no-replace publication behavior.
 func TestAtomicWriteFailsWhenFileExists(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "atomic-exists.md")
@@ -502,8 +520,9 @@ func TestAtomicWriteFailsWhenFileExists(t *testing.T) {
 	assert.True(t, result.Written)
 }
 
-// TestWriteFileExclusiveError tests writeFileExclusive error handling
+// TestWriteFileExclusiveError tests staged file creation error handling.
 func TestWriteFileExclusiveError(t *testing.T) {
+	skipIfUnixPermissionBitsUnsupported(t)
 	if os.Getuid() == 0 {
 		t.Skip("Skipping permission test when running as root")
 	}
@@ -529,6 +548,7 @@ func TestWriteFileExclusiveError(t *testing.T) {
 
 // TestNonAtomicWriteError tests non-atomic write error handling
 func TestNonAtomicWriteError(t *testing.T) {
+	skipIfUnixPermissionBitsUnsupported(t)
 	if os.Getuid() == 0 {
 		t.Skip("Skipping permission test when running as root")
 	}
@@ -560,7 +580,7 @@ func TestResolvePathsEdgeCases(t *testing.T) {
 	result, err := writer.WriteEntityFile(WriteOptions{
 		Content:     []byte("content"),
 		ProjectRoot: tmpDir,
-		FilePath:    tmpDir + "/test.md", // Absolute path within project
+		FilePath:    filepath.Join(tmpDir, "test.md"), // Absolute path within project
 		EntityType:  "epic",
 	})
 
@@ -590,4 +610,33 @@ func TestSyncFailure(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(tmpDir, "sync-test.md"))
 	require.NoError(t, err)
 	assert.Equal(t, []byte("content"), data)
+}
+
+func TestNonAtomicExistingPathCompatibility(t *testing.T) {
+	for _, kind := range []string{"symlink", "directory"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			target := filepath.Join(root, "existing.md")
+			if kind == "symlink" {
+				referent := filepath.Join(root, "referent.md")
+				require.NoError(t, os.WriteFile(referent, []byte("original"), 0644))
+				if err := os.Symlink(referent, target); err != nil {
+					t.Skipf("symlink creation is unavailable: %v", err)
+				}
+			} else {
+				require.NoError(t, os.Mkdir(target, 0755))
+			}
+			result, err := NewEntityFileWriter().WriteEntityFile(WriteOptions{
+				Content: []byte("new"), ProjectRoot: root, FilePath: "existing.md", EntityType: "epic",
+			})
+			require.NoError(t, err)
+			require.True(t, result.Linked)
+			require.False(t, result.Written)
+			if kind == "symlink" {
+				content, readErr := os.ReadFile(target)
+				require.NoError(t, readErr)
+				require.Equal(t, "original", string(content))
+			}
+		})
+	}
 }

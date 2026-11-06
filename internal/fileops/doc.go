@@ -34,8 +34,13 @@
 //
 // # Atomic Writes
 //
-// When UseAtomicWrite is true, files are created with the O_EXCL flag,
-// preventing race conditions when multiple processes try to create the same file.
+// When UseAtomicWrite is true, the complete file is staged in the target
+// directory and published with a native no-replace rename, with a hard-link fallback. A concurrently created
+// target is preserved, and write or sync failures do not expose a partial file.
+// Task creation uses the returned file identity for best-effort compensation if
+// its database transaction fails. That ownership check and removal are not
+// atomic; the cleanup guarantee assumes cooperating task creators use
+// no-replace publication.
 //
 // # Task-Specific Behavior
 //

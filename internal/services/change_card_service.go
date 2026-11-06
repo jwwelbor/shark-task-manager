@@ -193,14 +193,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 		return nil, false, fmt.Errorf("failed to create change-card: %w", err)
 	}
 
-	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeChange, card.ID, input.Tags); err != nil {
-		return nil, false, err
-	}
-	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeChange, card.ID); err != nil {
-		return nil, false, err
-	}
-
-	// Generate and write markdown file (best-effort)
+	// Generate and write markdown before attaching tags or indexing.
 	content := s.generateMarkdown(card)
 	if input.Body != "" {
 		content = fileops.ReplaceBodyAfterFrontmatter(content, input.Body)
@@ -214,8 +207,14 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 		UseAtomicWrite: true,
 	})
 	if writeErr != nil {
-		// Log warning but don't fail -- DB record is the source of truth
-		slog.Warn("failed to write change-card file", "path", filePath, "error", writeErr)
+		return nil, false, rollbackPublication(ctx, s.repo.Delete, card.ID, "change-card", "row", writeErr)
+	}
+
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeChange, card.ID, input.Tags); err != nil {
+		return nil, false, err
+	}
+	if err := indexEntityIfConfigured(ctx, s.searchIndexer, models.EntityTypeChange, card.ID); err != nil {
+		return nil, false, err
 	}
 
 	fileWasLinked := writeResult != nil && writeResult.Linked

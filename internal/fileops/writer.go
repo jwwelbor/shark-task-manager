@@ -2,7 +2,12 @@
 package fileops
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -32,8 +37,8 @@ type WriteOptions struct {
 	// EntityType is used for logging (e.g., "epic", "feature", "task")
 	EntityType string
 
-	// UseAtomicWrite enables O_EXCL flag for exclusive creation
-	// Prevents race conditions when multiple processes try to create same file
+	// UseAtomicWrite stages and syncs a complete file before publishing it
+	// without replacing a file created concurrently.
 	UseAtomicWrite bool
 
 	// Logger is an optional function for verbose output
@@ -54,11 +59,22 @@ type WriteResult struct {
 
 	// RelativePath is the path relative to ProjectRoot
 	RelativePath string
+
+	// CreatedFileInfo identifies the file created by this write, when available
+	CreatedFileInfo os.FileInfo
 }
 
 // EntityFileWriter handles file writing operations for epics, features, and tasks
 type EntityFileWriter struct {
-	// Optional configuration can be stored here if needed
+	ioHooks *fileWriterIOHooks
+}
+
+type fileWriterIOHooks struct {
+	rename func(string, string) error
+	write  func(*os.File, []byte) (int, error)
+	sync   func(*os.File) error
+	close  func(*os.File) error
+	link   func(string, string) error
 }
 
 // NewEntityFileWriter creates a new file writer instance
@@ -86,7 +102,7 @@ func (w *EntityFileWriter) WriteEntityFile(opts WriteOptions) (*WriteResult, err
 	}
 
 	// 3. Check if file exists
-	fileExists, statErr := w.checkFileExists(absPath)
+	fileExists, statErr := w.checkFileExists(absPath, opts.UseAtomicWrite)
 	if statErr != nil {
 		// Permission denied or other stat error
 		return nil, fmt.Errorf("failed to check file status for %s: %w", relPath, statErr)
@@ -126,10 +142,20 @@ func (w *EntityFileWriter) WriteEntityFile(opts WriteOptions) (*WriteResult, err
 
 	// 7. Write file
 	if opts.UseAtomicWrite {
-		// Atomic write with O_EXCL flag (race-condition safe)
-		if err := w.writeFileExclusive(absPath, opts.Content); err != nil {
+		// Stage the complete file, then publish it without replacing a raced-in path.
+		fileInfo, linked, err := w.writeFileExclusive(absPath, opts.Content)
+		if err != nil {
 			return nil, fmt.Errorf("failed to write %s file: %w", opts.EntityType, err)
 		}
+		if linked {
+			if opts.Verbose && opts.Logger != nil {
+				opts.Logger(fmt.Sprintf("File already exists, linking to existing %s file: %s",
+					opts.EntityType, absPath))
+			}
+			result.Linked = true
+			return result, nil
+		}
+		result.CreatedFileInfo = fileInfo
 	} else {
 		// Simple write (backward compatible with epic/feature behavior)
 		if err := os.WriteFile(absPath, opts.Content, 0644); err != nil {
@@ -169,9 +195,16 @@ func (w *EntityFileWriter) resolvePaths(filePath, projectRoot string) (absPath, 
 // Returns (true, nil) if file exists
 // Returns (false, nil) if file doesn't exist
 // Returns (false, error) for permission errors or other issues
-func (w *EntityFileWriter) checkFileExists(path string) (bool, error) {
-	_, err := os.Stat(path)
+func (w *EntityFileWriter) checkFileExists(path string, atomic bool) (bool, error) {
+	stat := os.Stat
+	if atomic {
+		stat = os.Lstat
+	}
+	info, err := stat(path)
 	if err == nil {
+		if atomic && !info.Mode().IsRegular() {
+			return false, fmt.Errorf("existing path is not a regular file: %w", os.ErrInvalid)
+		}
 		return true, nil
 	}
 	if os.IsNotExist(err) {
@@ -187,26 +220,150 @@ func (w *EntityFileWriter) ensureParentDir(filePath string) error {
 	return os.MkdirAll(parentDir, 0755)
 }
 
-// writeFileExclusive writes a file atomically with O_EXCL flag
-// Fails if the file already exists (prevents race conditions)
-func (w *EntityFileWriter) writeFileExclusive(path string, data []byte) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+// writeFileExclusive stages a complete file beside the target and publishes it
+// without replacing a path created concurrently.
+func (w *EntityFileWriter) writeFileExclusive(path string, data []byte) (os.FileInfo, bool, error) {
+	tempPath, fileInfo, err := w.stageEntityFile(filepath.Dir(path), data)
 	if err != nil {
-		if os.IsExist(err) {
-			return fmt.Errorf("file already exists: %s", path)
+		return nil, false, err
+	}
+
+	rename := renameNoReplace
+	if w.ioHooks != nil && w.ioHooks.rename != nil {
+		rename = w.ioHooks.rename
+	}
+	err = rename(tempPath, path)
+	if err == nil {
+		return fileInfo, false, nil
+	}
+	if !errors.Is(err, ErrRenameUnsupported) {
+		return w.handlePublicationError(tempPath, path, err)
+	}
+	link := os.Link
+	if w.ioHooks != nil && w.ioHooks.link != nil {
+		link = w.ioHooks.link
+	}
+	if err := link(tempPath, path); err != nil {
+		return w.handlePublicationError(tempPath, path, err)
+	}
+
+	if err := removeStagedFile(tempPath); err != nil {
+		slog.Warn("failed to remove staged entity file after publication", "path", tempPath, "error", err)
+	}
+
+	return fileInfo, false, nil
+}
+
+// ErrRenameUnsupported indicates native no-replace publication is unavailable for this operation or filesystem.
+var ErrRenameUnsupported = errors.New("native no-replace rename unsupported")
+
+func (w *EntityFileWriter) handlePublicationError(tempPath, path string, err error) (os.FileInfo, bool, error) {
+	cleanupErr := removeStagedFile(tempPath)
+	if errors.Is(err, os.ErrExist) {
+		if verifyErr := w.verifyExistingTarget(path); verifyErr != nil {
+			return nil, false, errors.Join(verifyErr, cleanupErr)
 		}
-		return fmt.Errorf("failed to create file: %w", err)
+		if cleanupErr != nil {
+			slog.Warn("failed to remove staged entity file after concurrent publication", "path", tempPath, "error", cleanupErr)
+		}
+		return nil, true, nil
 	}
-	defer file.Close()
+	return nil, false, errors.Join(fmt.Errorf("failed to publish staged file: %w", err), cleanupErr)
+}
 
-	if _, err := file.Write(data); err != nil {
-		return fmt.Errorf("failed to write data: %w", err)
+func (w *EntityFileWriter) verifyExistingTarget(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("failed to verify existing target: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("concurrently published target is not a regular file: %w", os.ErrInvalid)
+	}
+	return nil
+}
+
+const stagedFileNameAttempts = 10
+
+func (w *EntityFileWriter) stageEntityFile(dir string, data []byte) (string, os.FileInfo, error) {
+	file, tempPath, err := openStagedFile(dir)
+	if err != nil {
+		return "", nil, err
 	}
 
-	// Sync to disk for durability
-	if err := file.Sync(); err != nil {
-		return fmt.Errorf("failed to sync file: %w", err)
+	fileInfo, writeErr := w.writeAndSyncStagedFile(file, data)
+	closeFile := file.Close
+	if w.ioHooks != nil && w.ioHooks.close != nil {
+		closeFile = func() error { return w.ioHooks.close(file) }
+	}
+	closeErr := closeFile()
+	if closeErr != nil {
+		closeErr = fmt.Errorf("failed to close staged file: %w", closeErr)
+	}
+	if stageErr := errors.Join(writeErr, closeErr); stageErr != nil {
+		if cleanupErr := removeStagedFile(tempPath); cleanupErr != nil {
+			stageErr = errors.Join(stageErr, fmt.Errorf("failed to remove staged file: %w", cleanupErr))
+		}
+		return "", nil, stageErr
 	}
 
+	return tempPath, fileInfo, nil
+}
+
+func openStagedFile(dir string) (*os.File, string, error) {
+	for range stagedFileNameAttempts {
+		token := make([]byte, 16)
+		if _, err := rand.Read(token); err != nil {
+			return nil, "", fmt.Errorf("failed to generate staged file name: %w", err)
+		}
+
+		path := filepath.Join(dir, ".shark-entity-file-"+hex.EncodeToString(token))
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+		if err == nil {
+			return file, path, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, "", fmt.Errorf("failed to create staged file: %w", err)
+		}
+	}
+
+	return nil, "", fmt.Errorf("failed to create staged file after %d name collisions", stagedFileNameAttempts)
+}
+
+func (w *EntityFileWriter) writeAndSyncStagedFile(file *os.File, data []byte) (os.FileInfo, error) {
+	var written int
+	var err error
+	if w.ioHooks != nil && w.ioHooks.write != nil {
+		written, err = w.ioHooks.write(file, data)
+	} else {
+		written, err = file.Write(data)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to write data: %w", err)
+	}
+	if written != len(data) {
+		return nil, fmt.Errorf("failed to write data: %w", io.ErrShortWrite)
+	}
+
+	// Sync to disk for durability before publishing the staged file.
+	if w.ioHooks != nil && w.ioHooks.sync != nil {
+		err = w.ioHooks.sync(file)
+	} else {
+		err = file.Sync()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync file: %w", err)
+	}
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat staged file: %w", err)
+	}
+	return fileInfo, nil
+}
+
+func removeStagedFile(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }

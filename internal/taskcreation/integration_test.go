@@ -5,10 +5,9 @@ package taskcreation
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"fmt"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -17,6 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// createTaskCreationFeature supplies the document path required by task creation.
+func createTaskCreationFeature(t *testing.T, db *repository.DB, epicID int64, key string) *models.Feature {
+	t.Helper()
+	feature := createTestFeature(t, db, epicID, key)
+	filePath := fmt.Sprintf("docs/plan/%s/%s/feature.md", strings.SplitN(key, "-", 2)[0], key)
+	require.NoError(t, repository.NewFeatureRepository(db).UpdateFilePath(context.Background(), key, &filePath))
+	feature.FilePath = &filePath
+	return feature
+}
+
 // TestTaskCreation_EndToEnd tests the complete workflow
 func TestTaskCreation_EndToEnd(t *testing.T) {
 	db, cleanup := setupTestDB(t)
@@ -24,7 +33,7 @@ func TestTaskCreation_EndToEnd(t *testing.T) {
 
 	// Setup test data
 	epic := createTestEpic(t, db, "E01")
-	feature := createTestFeature(t, db, epic.ID, "E01-F01")
+	feature := createTaskCreationFeature(t, db, epic.ID, "E01-F01")
 
 	// Create components
 	taskRepo := repository.NewTaskRepository(db)
@@ -37,9 +46,6 @@ func TestTaskCreation_EndToEnd(t *testing.T) {
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
 	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
-
-	// Create temporary directory for test files
-	tempDir := t.TempDir()
 
 	// Create task
 	input := CreateTaskInput{
@@ -59,7 +65,7 @@ func TestTaskCreation_EndToEnd(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, "T-E01-F01-001", result.Task.Key)
 	assert.Equal(t, "Test Task", result.Task.Title)
-	assert.Equal(t, models.TaskStatus("todo"), result.Task.Status)
+	assert.Equal(t, models.TaskStatus("draft"), result.Task.Status)
 	assert.NotEmpty(t, result.FilePath)
 
 	// Verify database record
@@ -75,7 +81,7 @@ func TestTaskCreation_WithDependencies(t *testing.T) {
 
 	// Setup test data
 	epic := createTestEpic(t, db, "E01")
-	feature := createTestFeature(t, db, epic.ID, "E01-F02")
+	feature := createTaskCreationFeature(t, db, epic.ID, "E01-F02")
 	depTask := createTestTask(t, db, feature.ID, "T-E01-F02-001", "Dependency Task")
 
 	// Create components
@@ -115,7 +121,7 @@ func TestTaskCreation_SequentialKeys(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E02")
-	feature := createTestFeature(t, db, epic.ID, "E02-F01")
+	createTaskCreationFeature(t, db, epic.ID, "E02-F01")
 
 	// Create components
 	taskRepo := repository.NewTaskRepository(db)
@@ -152,7 +158,7 @@ func TestTaskCreation_AllAgentTypes(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E03")
-	feature := createTestFeature(t, db, epic.ID, "E03-F01")
+	createTaskCreationFeature(t, db, epic.ID, "E03-F01")
 
 	// Create components
 	taskRepo := repository.NewTaskRepository(db)
@@ -190,7 +196,7 @@ func TestTaskCreation_ValidationErrors(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E04")
-	createTestFeature(t, db, epic.ID, "E04-F01")
+	createTaskCreationFeature(t, db, epic.ID, "E04-F01")
 
 	// Create components
 	taskRepo := repository.NewTaskRepository(db)
@@ -232,15 +238,15 @@ func TestTaskCreation_ValidationErrors(t *testing.T) {
 			expectedErr: "feature E04-F99 does not exist",
 		},
 		{
-			name: "Invalid agent type",
+			name: "Whitespace-only agent type",
 			input: CreateTaskInput{
 				EpicKey:    "E04",
 				FeatureKey: "F01",
 				Title:      "Test",
-				AgentType:  "invalid",
+				AgentType:  "   ",
 				Priority:   5,
 			},
-			expectedErr: "invalid agent type",
+			expectedErr: "agent type cannot be empty or whitespace-only",
 		},
 		{
 			name: "Invalid priority low",
@@ -294,7 +300,7 @@ func TestTaskCreation_FileGeneration(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E05")
-	feature := createTestFeature(t, db, epic.ID, "E05-F01")
+	createTaskCreationFeature(t, db, epic.ID, "E05-F01")
 
 	// Create components
 	taskRepo := repository.NewTaskRepository(db)
@@ -334,7 +340,7 @@ func TestTaskCreation_HistoryRecord(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E06")
-	feature := createTestFeature(t, db, epic.ID, "E06-F01")
+	createTaskCreationFeature(t, db, epic.ID, "E06-F01")
 
 	// Create components
 	taskRepo := repository.NewTaskRepository(db)
@@ -364,6 +370,6 @@ func TestTaskCreation_HistoryRecord(t *testing.T) {
 	history, err := historyRepo.ListByTask(context.Background(), result.Task.ID)
 	require.NoError(t, err)
 	assert.Len(t, history, 1)
-	assert.Equal(t, "", history[0].OldStatus)
-	assert.Equal(t, "todo", history[0].NewStatus)
+	assert.Nil(t, history[0].OldStatus)
+	assert.Equal(t, "draft", history[0].NewStatus)
 }

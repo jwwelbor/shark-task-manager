@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -342,6 +343,9 @@ func TestOverrideStatusAt_SymlinkHandling(t *testing.T) {
 // rather than aborting the whole walk and discarding rows already collected
 // for sibling paths.
 func TestOverrideStatusAt_UnreadableSubdirectoryDegradesPerEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission-bit fault injection is not meaningful on windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("skipping permission test when running as root")
 	}
