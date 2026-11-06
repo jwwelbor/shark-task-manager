@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -78,6 +79,9 @@ func TestEditService_WriteFile_EmptyContent(t *testing.T) {
 
 // TC-F07-003: EditService.WriteFile — permission denied returns error
 func TestEditService_WriteFile_PermissionDenied(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission-bit fault injection is not meaningful on windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission checks are not enforced")
 	}

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -633,6 +634,9 @@ func TestRunSharkUpgrade_FreshInit_IgnoresGitkeepScaffold(t *testing.T) {
 // TestRunSharkUpgrade_OverridesDirSymlinkLoop_TriggersStatusAtFailureFallback,
 // which still drives OverrideStatusAt to a real error via a different route.
 func TestRunSharkUpgrade_ChmoddedOverrideSubdir_DegradesToBaselineUnknownRow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission-bit fault injection is not meaningful on windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("permission-based fixture requires a non-root user")
 	}

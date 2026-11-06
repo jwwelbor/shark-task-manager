@@ -3,6 +3,7 @@ package fileops
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -264,8 +265,16 @@ func TestVerboseLoggingForExistingFile(t *testing.T) {
 // NEGATIVE TEST CASES
 // ============================================
 
+func skipIfUnixPermissionBitsUnsupported(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission-bit fault injection is not meaningful on windows")
+	}
+}
+
 // TestPermissionDenied tests writing to a protected directory
 func TestPermissionDenied(t *testing.T) {
+	skipIfUnixPermissionBitsUnsupported(t)
 	if os.Getuid() == 0 {
 		t.Skip("Skipping permission test when running as root")
 	}
@@ -513,6 +522,7 @@ func TestAtomicWriteFailsWhenFileExists(t *testing.T) {
 
 // TestWriteFileExclusiveError tests staged file creation error handling.
 func TestWriteFileExclusiveError(t *testing.T) {
+	skipIfUnixPermissionBitsUnsupported(t)
 	if os.Getuid() == 0 {
 		t.Skip("Skipping permission test when running as root")
 	}
@@ -538,6 +548,7 @@ func TestWriteFileExclusiveError(t *testing.T) {
 
 // TestNonAtomicWriteError tests non-atomic write error handling
 func TestNonAtomicWriteError(t *testing.T) {
+	skipIfUnixPermissionBitsUnsupported(t)
 	if os.Getuid() == 0 {
 		t.Skip("Skipping permission test when running as root")
 	}

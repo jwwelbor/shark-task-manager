@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -1195,6 +1196,9 @@ func TestLoadWorkflowFile_ArrayInsteadOfObject(t *testing.T) {
 // TestLoadWorkflowFile_PermissionDenied verifies that a permission-denied error
 // is returned (not silently ignored like file-not-found).
 func TestLoadWorkflowFile_PermissionDenied(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission-bit fault injection is not meaningful on windows")
+	}
 	// Skip on environments where we can't test permissions (e.g., running as root)
 	if os.Getuid() == 0 {
 		t.Skip("skipping permission test when running as root")
