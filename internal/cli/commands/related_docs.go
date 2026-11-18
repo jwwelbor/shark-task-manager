@@ -3,9 +3,11 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -226,6 +228,11 @@ func resolveRelatedDocsSelection(cmd *cobra.Command, positional []string) (strin
 		entityType := DetectEntityType(key)
 		for _, selector := range relatedDocsSelectors {
 			if selector.entityType == entityType {
+				if selector.label == "tech-debt" {
+					if err := validateRelatedDocsTechDebtKey(key); err != nil {
+						return "", "", err
+					}
+				}
 				return selector.label, key, nil
 			}
 		}
@@ -234,7 +241,30 @@ func resolveRelatedDocsSelection(cmd *cobra.Command, positional []string) (strin
 	if key == "" {
 		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, --question, or --tech-debt must specify an entity key")
 	}
+	if kind == "tech-debt" {
+		if err := validateRelatedDocsTechDebtKey(key); err != nil {
+			return "", "", err
+		}
+	}
 	return kind, key, nil
+}
+
+func validateRelatedDocsTechDebtKey(key string) error {
+	parts := strings.SplitN(strings.TrimSpace(key), "-", 3)
+	if len(parts) < 2 || models.ValidateTechDebtKey(strings.ToUpper(parts[0]+"-"+parts[1])) != nil {
+		return invalidRelatedDocsTechDebtKey(key)
+	}
+	if len(parts) == 3 {
+		slug := strings.ToLower(parts[2])
+		if slug == "" || utils.GenerateSlug(slug) != slug {
+			return invalidRelatedDocsTechDebtKey(key)
+		}
+	}
+	return nil
+}
+
+func invalidRelatedDocsTechDebtKey(key string) error {
+	return fmt.Errorf("invalid tech-debt key %q: expected TD-### or TD-###-<slug>", key)
 }
 
 func runRelatedDocsListList(cmd *cobra.Command, args []string) error {

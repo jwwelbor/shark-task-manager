@@ -84,6 +84,7 @@ func TestB079ResearchCLIRejectsInvalidMutationSelectors(t *testing.T) {
 		}{
 			{"missing", nil},
 			{"conflicting", []string{"--bug=B001", "--tech-debt=TD-001"}},
+			{"empty", []string{"--bug="}},
 			{"empty_with_valid", []string{"--bug=", "--tech-debt=TD-001"}},
 		} {
 			t.Run(mutation[0]+"_"+selectors.name, func(t *testing.T) {
@@ -176,6 +177,47 @@ func TestB079ResearchCLIUsesCatalogSelectedByConfig(t *testing.T) {
 	}
 }
 
+func TestB079ResearchCLIResolvesNestedConfigBundleFromProjectRoot(t *testing.T) {
+	c := newB079ResearchCLI(t)
+	configPath := filepath.Join(c.dir, "configs", "profiles", "alternate.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0700))
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"shark_data_path":"nested-bundle"}`), 0600))
+	location := filepath.Join(c.dir, "nested-bundle", "research")
+	require.NoError(t, os.MkdirAll(location, 0700))
+	const content = "version: project-root\n"
+	require.NoError(t, os.WriteFile(filepath.Join(location, "recipes.yaml"), []byte(content), 0600))
+
+	out := c.success(t, "data", "get", "research/recipes.yaml", "--config", filepath.Join("configs", "profiles", "alternate.json"))
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(out, &got))
+	require.Equal(t, content, got["content"])
+	require.Equal(t, "disk", got["source"])
+}
+
+func TestB079ResearchCLIRejectsMalformedTechDebtSelectorBeforeService(t *testing.T) {
+	c := newB079ResearchCLI(t)
+	for _, selector := range []string{"TD-1", "TD-001-"} {
+		t.Run(selector, func(t *testing.T) {
+			message := c.rejection(t, "related-docs", "list", "--tech-debt="+selector)
+			require.Contains(t, message, "invalid tech-debt key")
+			require.NoFileExists(t, c.dbPath, "invalid key should be rejected before service lookup")
+		})
+	}
+}
+
+func TestB079ResearchCLIResolvesSluggedTechDebtSelector(t *testing.T) {
+	c := newB079ResearchCLI(t)
+	c.success(t, "td", "create", "Slug Lookup")
+	const sluggedKey = "TD-001-slug-lookup"
+	c.success(t, "related-docs", "add", "Slugged report", "docs/slugged.md", "--tech-debt="+sluggedKey)
+	var documents []models.Document
+	require.NoError(t, json.Unmarshal(c.success(t, "related-docs", "list", "--tech-debt="+sluggedKey), &documents))
+	require.Len(t, documents, 1)
+	require.Equal(t, "docs/slugged.md", documents[0].FilePath)
+	c.success(t, "related-docs", "delete", "Slugged report", "--tech-debt="+sluggedKey)
+	require.Empty(t, c.reportPaths(t, "TD-001"))
+}
+
 type b079RelatedDocsRoute struct {
 	name, selector, key, linkedTo, entityType string
 	entityID                                  int64
@@ -203,7 +245,6 @@ func TestB079RelatedDocsMissingEntityReturnsServiceError(t *testing.T) {
 
 func seedB079RelatedDocsEntities(t *testing.T, c researchCLI) []b079RelatedDocsRoute {
 	t.Helper()
-	ctx := context.Background()
 	rawDB, err := db.InitDB(c.dbPath)
 	require.NoError(t, err)
 	defer func() {
@@ -212,7 +253,13 @@ func seedB079RelatedDocsEntities(t *testing.T, c researchCLI) []b079RelatedDocsR
 		}
 	}()
 	repoDB := repository.NewDB(rawDB)
+	routes := seedB079EpicFeatureTaskRoutes(t, repoDB)
+	return append(routes, seedB079BugChangeQuestionRoutes(t, repoDB)...)
+}
 
+func seedB079EpicFeatureTaskRoutes(t *testing.T, repoDB *repository.DB) []b079RelatedDocsRoute {
+	t.Helper()
+	ctx := context.Background()
 	epic := &models.Epic{
 		BaseEntity: models.BaseEntity{Key: "E90", Title: "Related docs test epic"},
 		Status:     models.EpicStatusActive,
@@ -232,6 +279,16 @@ func seedB079RelatedDocsEntities(t *testing.T, c researchCLI) []b079RelatedDocsR
 		Priority:   5,
 	}
 	require.NoError(t, repository.NewTaskRepository(repoDB).Create(ctx, task))
+	return []b079RelatedDocsRoute{
+		{name: "epic", selector: "epic", key: epic.Key, linkedTo: "epic", entityType: string(models.EntityTypeEpic), entityID: epic.ID},
+		{name: "feature", selector: "feature", key: feature.Key, linkedTo: "feature", entityType: string(models.EntityTypeFeature), entityID: feature.ID},
+		{name: "task", selector: "task", key: task.Key, linkedTo: "task", entityType: string(models.EntityTypeTask), entityID: task.ID},
+	}
+}
+
+func seedB079BugChangeQuestionRoutes(t *testing.T, repoDB *repository.DB) []b079RelatedDocsRoute {
+	t.Helper()
+	ctx := context.Background()
 	bug := &models.Bug{
 		BaseEntity: models.BaseEntity{Key: "B901", Title: "Related docs test bug"},
 		Status:     models.BugStatus("identified"),
@@ -251,11 +308,7 @@ func seedB079RelatedDocsEntities(t *testing.T, c researchCLI) []b079RelatedDocsR
 		Requester:  "related-docs-test",
 	}
 	require.NoError(t, repository.NewQuestionRepository(repoDB).Create(ctx, question))
-
 	return []b079RelatedDocsRoute{
-		{name: "epic", selector: "epic", key: epic.Key, linkedTo: "epic", entityType: string(models.EntityTypeEpic), entityID: epic.ID},
-		{name: "feature", selector: "feature", key: feature.Key, linkedTo: "feature", entityType: string(models.EntityTypeFeature), entityID: feature.ID},
-		{name: "task", selector: "task", key: task.Key, linkedTo: "task", entityType: string(models.EntityTypeTask), entityID: task.ID},
 		{name: "bug", selector: "bug", key: bug.Key, linkedTo: "bug", entityType: string(models.EntityTypeBug), entityID: bug.ID},
 		{name: "change-card", selector: "change", key: change.Key, linkedTo: "change-card", entityType: string(models.EntityTypeChange), entityID: change.ID},
 		{name: "question", selector: "question", key: question.Key, linkedTo: "question", entityType: string(models.EntityTypeQuestion), entityID: question.ID},

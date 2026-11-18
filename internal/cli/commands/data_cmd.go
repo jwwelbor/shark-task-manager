@@ -44,11 +44,15 @@ func runDataGet(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported data resource %q; supported resource: %s", resourcePath, research.CatalogResourcePath)
 	}
 
+	projectRoot, err := cli.FindProjectRoot()
+	if err != nil {
+		return fmt.Errorf("locate project root: %w", err)
+	}
 	configPath, err := cli.GetConfigPath()
 	if err != nil {
 		return fmt.Errorf("locate project configuration: %w", err)
 	}
-	content, source, err := research.ReadCatalogFromConfig(configPath)
+	content, source, err := research.ReadCatalogFromConfig(configPath, projectRoot)
 	if err != nil {
 		return err
 	}
