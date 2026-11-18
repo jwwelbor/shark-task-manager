@@ -2576,6 +2576,15 @@ def main(argv):
                 request = dict(response)
                 request["session_id"] = session
                 request["runner_id"] = os.environ.get("LIFECYCLE_RUNNER_ID", args["run_id"])
+                routing_identity = {
+                    "profile_id": os.environ.get("E40_ROUTING_PROFILE_ID") or None,
+                    "profile_schema_version": os.environ.get("E40_ROUTING_PROFILE_VERSION") or None,
+                    "profile_digest": os.environ.get("E40_ROUTING_PROFILE_DIGEST") or None,
+                    "profile_source_digest": os.environ.get("E40_ROUTING_PROFILE_SOURCE_DIGEST") or None,
+                    "routing_digest": os.environ.get("E40_ROUTING_DIGEST") or None,
+                }
+                if routing_identity["routing_digest"]:
+                    request["routing_identity"] = routing_identity
                 request["allowed_outcomes"] = allowed_outcomes(scratch, response)
                 worker_result, heartbeats = adapter_result(
                     adapter, request, scratch, args["mode"], shark, timing, fixture_root,

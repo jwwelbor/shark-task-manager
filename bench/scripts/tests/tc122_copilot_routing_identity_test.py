@@ -9,8 +9,10 @@ Covers:
 """
 
 import copy
+import json
 import re
 import shutil
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -28,10 +30,12 @@ from bench.scripts.lib.e40_benchmark import (
     apply_routing_profile,
     load_routing_profile,
     load_yaml,
+    path_digest,
     validate_routing_profile_schema,
     workflow_routing_identity,
     write_yaml,
 )
+import bench.scripts.lib.e40_benchmark as e40_benchmark
 HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SCRATCH_BASE = REPO_ROOT / "dev-artifacts"
 
@@ -370,6 +374,178 @@ def test_apply_routing_profile_to_workflow(scratch_dir):
     assert id_balanced["model_digest"] != id_variant["model_digest"]
     assert id_balanced["effort_digest"] != id_variant["effort_digest"]
     assert id_balanced["routing_digest"] != id_variant["routing_digest"]
+
+
+def test_b083_profile_rejects_missing_live_stage_before_mutation(scratch_dir):
+    profile = load_routing_profile(DEFAULT_PROFILES_DIR / "copilot-balanced.yaml")
+    del profile["routes"]["review"]
+    workflow_dir = create_sample_workflow_bundle(
+        scratch_dir, provider="claude", model="claude-sonnet-4", effort="low"
+    )
+    before = {p.name: p.read_bytes() for p in workflow_dir.glob("*.yaml")}
+
+    with pytest.raises(OperatorError, match="omits live workflow stage.*review"):
+        apply_routing_profile(profile, workflow_dir)
+
+    assert {p.name: p.read_bytes() for p in workflow_dir.glob("*.yaml")} == before
+
+
+def test_b083_profile_identity_uses_effective_routes_and_preserves_source(scratch_dir):
+    workflow_dir = create_sample_workflow_bundle(
+        scratch_dir, provider="claude", model="claude-sonnet-4", effort="low"
+    )
+    source_bytes = {p.name: p.read_bytes() for p in workflow_dir.glob("*.yaml")}
+    original = workflow_routing_identity(workflow_dir)
+    profile_path = DEFAULT_PROFILES_DIR / "copilot-balanced.yaml"
+    identity_builder = getattr(e40_benchmark, "routing_profile_identity", None)
+    assert callable(identity_builder), "B083 requires identity from a run-scoped profile overlay"
+
+    effective = identity_builder(profile_path, workflow_dir)
+
+    assert effective["source_workflow_digest"] == path_digest(workflow_dir, "test workflow")
+    assert effective["provider_routing"]["routing_digest"] != original["routing_digest"]
+    assert effective["provider_routing"]["model_digest"] != original["model_digest"]
+    assert effective["profile_id"] == "copilot-balanced"
+    assert {p.name: p.read_bytes() for p in workflow_dir.glob("*.yaml")} == source_bytes
+
+
+def test_b083_codex_catalogs_are_separate_and_do_not_claim_runtime_access():
+    validator = getattr(e40_benchmark, "validate_codex_catalogs", None)
+    assert callable(validator), "B083 requires a separately reported catalog validator"
+    cli_catalog = {"models": ["gpt-5.5"]}
+    with pytest.raises(OperatorError, match="same-account model catalog is unavailable"):
+        validator("gpt-5.5", cli_catalog, None)
+    with pytest.raises(OperatorError, match="does not contain pinned model"):
+        validator(
+            "gpt-5.5",
+            cli_catalog,
+            {
+                "schema_version": "1.0",
+                "same_account": True,
+                "retrieved_at": e40_benchmark.utc_now(),
+                "models": ["gpt-5.4"],
+            },
+        )
+    result = validator(
+        "gpt-5.5",
+        cli_catalog,
+        {
+            "schema_version": "1.0",
+            "same_account": True,
+            "retrieved_at": e40_benchmark.utc_now(),
+            "models": ["gpt-5.5"],
+        },
+    )
+    assert result == {
+        "cli_compatibility": "catalog_match",
+        "account_catalog_presence": "catalog_match",
+        "runtime_access": "unverified",
+    }
+
+
+def test_b083_codex_catalogs_reject_stale_or_malformed_account_evidence():
+    validator = getattr(e40_benchmark, "validate_codex_catalogs", None)
+    assert callable(validator), "B083 requires a separately reported catalog validator"
+    cli_catalog = {"models": ["gpt-5.5"]}
+    stale = {
+        "schema_version": "1.0",
+        "same_account": True,
+        "retrieved_at": "2020-01-01T00:00:00Z",
+        "models": ["gpt-5.5"],
+    }
+    with pytest.raises(OperatorError, match="same-account model catalog is stale"):
+        validator("gpt-5.5", cli_catalog, stale)
+    malformed = {"schema_version": "1.0", "same_account": True, "models": []}
+    with pytest.raises(OperatorError, match="malformed or unproven"):
+        validator("gpt-5.5", cli_catalog, malformed)
+
+
+def test_b083_route_materializer_cli_applies_profile_to_run_copy(scratch_dir):
+    script = REPO_ROOT / "bench" / "scripts" / "materialize-routing-profile.py"
+    assert script.is_file(), "B083 requires a production route materialization entrypoint"
+    source = create_sample_workflow_bundle(
+        scratch_dir, provider="claude", model="claude-sonnet-4", effort="low"
+    )
+    before = {p.name: p.read_bytes() for p in source.glob("*.yaml")}
+    run_copy = scratch_dir / "run-scoped-workflow"
+    shutil.copytree(source, run_copy)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--workflow-root",
+            str(run_copy),
+            "--profile",
+            str(DEFAULT_PROFILES_DIR / "copilot-balanced.yaml"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["profile_id"] == "copilot-balanced"
+    assert result["profile_schema_version"] == "1.0"
+    assert result["effective_routes"]["development"] == {
+        "provider": "copilot",
+        "model": "claude-sonnet-5",
+        "effort": "high",
+    }
+    assert result["provider_routing"] == workflow_routing_identity(run_copy)
+    assert {p.name: p.read_bytes() for p in source.glob("*.yaml")} == before
+
+
+def test_b083_route_materializer_records_codex_catalog_failure_before_apply(scratch_dir):
+    script = REPO_ROOT / "bench" / "scripts" / "materialize-routing-profile.py"
+    assert script.is_file(), "B083 requires a production route materialization entrypoint"
+    source = create_sample_workflow_bundle(scratch_dir)
+    run_copy = scratch_dir / "codex-run-workflow"
+    shutil.copytree(source, run_copy)
+    profile = {
+        "schema_version": "1.0",
+        "profile_id": "codex-test",
+        "description": "offline catalog fail-closed fixture",
+        "provider": "codex",
+        "routes": {
+            stage: {"model": "gpt-5.5", "effort": "high"}
+            for stage in ("development", "review", "discovery", "specification", "qa")
+        },
+    }
+    profile_path = scratch_dir / "codex-profile.yaml"
+    write_yaml(profile_path, profile)
+    before = {p.name: p.read_bytes() for p in run_copy.glob("*.yaml")}
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--workflow-root",
+            str(run_copy),
+            "--profile",
+            str(profile_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    result = json.loads(completed.stdout)
+    assert result["resolution"] == "failed"
+    assert result["cause_class"] == "route_defect"
+    assert "CLI compatibility catalog is unavailable" in result["reason"]
+    assert result["dispatch_count"] == 0
+    assert result["requested_routes"] == [
+        {
+            "stage": stage,
+            "provider": "codex",
+            "model": "gpt-5.5",
+            "effort": "high",
+        }
+        for stage in sorted(("development", "review", "discovery", "specification", "qa"))
+    ]
+    assert {p.name: p.read_bytes() for p in run_copy.glob("*.yaml")} == before
 
 
 def test_workflow_routing_identity_error_cases(scratch_dir):

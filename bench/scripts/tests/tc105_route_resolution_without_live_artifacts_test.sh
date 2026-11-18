@@ -133,6 +133,32 @@ OPERATOR_ROOT="$WORKDIR/operator"
 "$OPERATOR" setup --out "$OPERATOR_ROOT" >"$WORKDIR/setup.out" 2>"$WORKDIR/setup.err" \
 	|| fail "real 'e40-benchmark.sh setup' failed: $(cat "$WORKDIR/setup.err")"
 
+# Keep TC-13/14 focused on the route-resolution ledger contract. This
+# temporary scratch fixture uses Anthropic routes so B083's separate
+# fail-closed Codex catalog check does not replace the statuses under test.
+python3 - "$OPERATOR_ROOT/scratch-template/shark-data/workflow" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+root = Path(sys.argv[1])
+for path in sorted((*root.rglob("*.yaml"), *root.rglob("*.yml"))):
+    document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    changed = False
+    for step in (document.get("steps") or {}).values():
+        if not isinstance(step, dict) or step.get("action") != "spawn_agent":
+            continue
+        if step.get("provider") in {"codex", "openai"} or not step.get("provider"):
+            step["provider"] = "anthropic"
+            step["model"] = "haiku"
+            changed = True
+        elif not step.get("model"):
+            step["model"] = "haiku"
+            changed = True
+    if changed:
+        path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+PY
+
 STUB_CALLS="$WORKDIR/stub-calls.log"
 : >"$STUB_CALLS"
 cat >"$OPERATOR_ROOT/scratch-template/shark" <<STUB
@@ -266,7 +292,7 @@ bug = records.get("py-bug-due-date-boundary")
 if bug is None:
     raise SystemExit("resolution-ledger.jsonl has no record for py-bug-due-date-boundary")
 if bug["resolution"] != "resolved" or bug["cause_class"] is not None:
-    raise SystemExit(f"expected py-bug-due-date-boundary resolved/null, got {bug['resolution']!r}/{bug['cause_class']!r}")
+    raise SystemExit(f"expected py-bug-due-date-boundary resolved/null, got {bug['resolution']!r}/{bug['cause_class']!r}: {bug.get('reason')!r}")
 if bug["dispatch_count"] != 1 or bug["stage_count"] != 1:
     raise SystemExit(f"expected exactly 1 dispatch/1 stage for py-bug-due-date-boundary, got {bug!r}")
 stage = bug["stages"][0]
@@ -504,6 +530,30 @@ REAL_BINARY_ROOT="$WORKDIR/operator-real-binary"
 "$OPERATOR" setup --out "$REAL_BINARY_ROOT" --scenario-index "$REAL_INDEX_DIR/scenarios.yaml" \
 	>"$WORKDIR/real-binary-setup.out" 2>"$WORKDIR/real-binary-setup.err" \
 	|| fail "real 'e40-benchmark.sh setup' (real-binary regression) failed: $(cat "$WORKDIR/real-binary-setup.err")"
+# Keep the real-binary route-resolution regression independent of B083's
+# Codex catalog boundary and require explicit routes for every live stage.
+python3 - "$REAL_BINARY_ROOT/scratch-template/shark-data/workflow" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+root = Path(sys.argv[1])
+for path in sorted((*root.rglob("*.yaml"), *root.rglob("*.yml"))):
+    document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    changed = False
+    for step in (document.get("steps") or {}).values():
+        if not isinstance(step, dict) or step.get("action") != "spawn_agent":
+            continue
+        if step.get("provider") in {"codex", "openai"} or not step.get("provider"):
+            step["provider"] = "anthropic"
+            step["model"] = "haiku"
+            changed = True
+        elif not step.get("model"):
+            step["model"] = "haiku"
+            changed = True
+    if changed:
+        path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+PY
 # Unlike the TC-13/14 stubbed scaffold above, the scratch `shark` under
 # $REAL_BINARY_ROOT is never substituted -- `setup` copies the real
 # bench-built `bin/shark` verbatim (cmd_setup, e40_benchmark.py) -- so this

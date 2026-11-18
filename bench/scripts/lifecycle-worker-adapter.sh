@@ -143,7 +143,78 @@ def load_request(path):
 
 
 def command_for(args, request):
-    if args.provider_command:
+    if request["provider"] in {"openai", "codex"}:
+        model = request.get("model")
+        if not isinstance(model, str) or not model.strip():
+            raise AdapterError("codex provider requires a non-empty model")
+        effort = request.get("effort")
+        normalized_effort = (
+            effort.lower()
+            if isinstance(effort, str) and effort and effort != "unavailable"
+            else None
+        )
+        if normalized_effort and normalized_effort not in {
+            "none", "minimal", "low", "medium", "high", "xhigh", "max"
+        }:
+            raise AdapterError(f"codex provider has an unsupported reasoning effort: {effort!r}")
+
+        raw = os.environ.get("LIFECYCLE_PROVIDER_COMMAND")
+        if raw:
+            try:
+                command = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise AdapterError(f"LIFECYCLE_PROVIDER_COMMAND is not a JSON argv array: {exc}") from exc
+            if not isinstance(command, list) or not command or not all(isinstance(item, str) and item for item in command):
+                raise AdapterError("LIFECYCLE_PROVIDER_COMMAND must be a non-empty JSON string array")
+            model_values = []
+            config_values = {"model": [], "model_provider": [], "model_reasoning_effort": []}
+            index = 0
+            while index < len(command):
+                item = command[index]
+                if item in {"-m", "--model"}:
+                    model_values.append(command[index + 1] if index + 1 < len(command) else "")
+                    index += 2
+                    continue
+                if item.startswith("--model="):
+                    model_values.append(item.split("=", 1)[1])
+                elif item.startswith("-m"):
+                    model_values.append(item[2:])
+                if item in {"-c", "--config"}:
+                    config = command[index + 1] if index + 1 < len(command) else ""
+                    index += 2
+                elif item.startswith("--config="):
+                    config = item.split("=", 1)[1]
+                    index += 1
+                elif item.startswith("-c"):
+                    config = item[2:]
+                    index += 1
+                else:
+                    index += 1
+                    continue
+                key, separator, _ = config.partition("=")
+                if separator and key.strip() in config_values:
+                    config_values[key.strip()].append(config)
+            expected_effort = (
+                f'model_reasoning_effort="{normalized_effort}"'
+                if normalized_effort
+                else None
+            )
+            effort_values = config_values["model_reasoning_effort"]
+            if (
+                model_values != [model]
+                or config_values["model"]
+                or config_values["model_provider"]
+                or effort_values != ([expected_effort] if expected_effort else [])
+                or "--oss" in command
+            ):
+                raise AdapterError("configured command cannot preserve the pinned Codex route")
+            return command
+
+        executable = args.provider_command or "codex"
+        command = [executable, "exec", "--json", "-m", model]
+        if normalized_effort:
+            command.extend(["-c", f'model_reasoning_effort="{normalized_effort}"'])
+    elif args.provider_command:
         command = [args.provider_command]
     else:
         raw = os.environ.get("LIFECYCLE_PROVIDER_COMMAND")
@@ -172,8 +243,6 @@ def command_for(args, request):
             effort = request.get("effort")
             if isinstance(effort, str) and effort and effort != "unavailable":
                 command.extend(["--effort", effort])
-        elif request["provider"] in {"openai", "codex"}:
-            command = ["codex", "exec", "--json"]
         elif request["provider"] in {"copilot", "github-copilot", "github_copilot", "github"}:
             model = request.get("model")
             if not isinstance(model, str) or not model:
@@ -225,6 +294,15 @@ def provider_environment(request, session_id, prompt_digest, prompt_bytes):
         "LIFECYCLE_PROMPT_SHA256": prompt_digest,
         "LIFECYCLE_PROMPT_BYTES": str(prompt_bytes),
     }
+    routing_identity = request.get("routing_identity")
+    if isinstance(routing_identity, dict):
+        metadata.update({
+            "LIFECYCLE_ROUTING_DIGEST": routing_identity.get("routing_digest") or "",
+            "LIFECYCLE_ROUTING_PROFILE_ID": routing_identity.get("profile_id") or "",
+            "LIFECYCLE_ROUTING_PROFILE_VERSION": routing_identity.get("profile_schema_version") or "",
+            "LIFECYCLE_ROUTING_PROFILE_DIGEST": routing_identity.get("profile_digest") or "",
+            "LIFECYCLE_ROUTING_PROFILE_SOURCE_DIGEST": routing_identity.get("profile_source_digest") or "",
+        })
     environment.update(metadata)
     return environment
 

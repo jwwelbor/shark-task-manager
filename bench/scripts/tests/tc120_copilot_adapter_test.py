@@ -4,6 +4,7 @@ Covers AC-F13-01, AC-F13-02, and AC-F13-12 (TC-F13-01, TC-F13-02, TC-F13-12).
 """
 
 import argparse
+import json
 import os
 import re
 from pathlib import Path
@@ -29,6 +30,7 @@ command_for = _adapter["command_for"]
 decode_envelope = _adapter["decode_envelope"]
 provider_measurements = _adapter["provider_measurements"]
 AdapterError = _adapter["AdapterError"]
+provider_environment = _adapter["provider_environment"]
 
 
 def make_args(provider_command=None):
@@ -78,6 +80,89 @@ def test_copilot_missing_model_raises_adapter_error():
 
     with pytest.raises(AdapterError, match="copilot provider requires a non-empty model"):
         command_for(args, {"provider": "copilot"})
+
+
+# ---------------------------------------------------------------------------
+# B083: E40 pins the Codex model and reasoning effort at the adapter boundary.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("model", ["gpt-5.4", "gpt-5.5"])
+def test_b083_codex_command_preserves_model_and_effort(model):
+    request = {"provider": "openai", "model": model, "effort": "high"}
+    cmd = command_for(make_args(), request)
+
+    assert cmd[:3] == ["codex", "exec", "--json"]
+    assert cmd[cmd.index("-m") + 1] == model
+    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="high"'
+
+
+def test_b083_codex_executable_override_preserves_model_and_effort():
+    request = {"provider": "codex", "model": "gpt-5.5", "effort": "xhigh"}
+    cmd = command_for(make_args("/custom/codex"), request)
+
+    assert cmd[:2] == ["/custom/codex", "exec"]
+    assert cmd[cmd.index("-m") + 1] == "gpt-5.5"
+    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="xhigh"'
+
+
+def test_b083_codex_opaque_command_override_rejects_unbound_route(monkeypatch):
+    monkeypatch.setenv("LIFECYCLE_PROVIDER_COMMAND", '["/custom/wrapper"]')
+
+    with pytest.raises(AdapterError, match="cannot preserve the pinned Codex route"):
+        command_for(make_args(), {"provider": "codex", "model": "gpt-5.5", "effort": "high"})
+
+
+@pytest.mark.parametrize(
+    "extra_route_flags",
+    [
+        ["--model=gpt-5.4"],
+        ["-c", 'model="gpt-5.4"'],
+        ["--config", 'model_reasoning_effort="low"'],
+        ["--config", 'model_provider="other"'],
+    ],
+)
+def test_b083_codex_command_override_rejects_alternate_route_syntax(monkeypatch, extra_route_flags):
+    command = [
+        "codex",
+        "exec",
+        "--json",
+        "-m",
+        "gpt-5.5",
+        "-c",
+        'model_reasoning_effort="high"',
+        *extra_route_flags,
+    ]
+    monkeypatch.setenv("LIFECYCLE_PROVIDER_COMMAND", json.dumps(command))
+
+    with pytest.raises(AdapterError, match="cannot preserve the pinned Codex route"):
+        command_for(
+            make_args(),
+            {"provider": "codex", "model": "gpt-5.5", "effort": "high"},
+        )
+
+
+def test_b083_route_identity_reaches_provider_environment():
+    request = {
+        "entity_key": "TASK-1",
+        "entity_type": "task",
+        "provider": "codex",
+        "model": "gpt-5.5",
+        "effort": "high",
+        "routing_identity": {
+            "profile_id": "codex-test",
+            "profile_schema_version": "1.0",
+            "profile_digest": "a" * 64,
+            "profile_source_digest": "b" * 64,
+            "routing_digest": "c" * 64,
+        },
+    }
+
+    environment = provider_environment(request, "session-1", "d" * 64, 1)
+
+    assert environment["LIFECYCLE_ROUTING_DIGEST"] == "c" * 64
+    assert environment["LIFECYCLE_ROUTING_PROFILE_ID"] == "codex-test"
+    assert environment["LIFECYCLE_ROUTING_PROFILE_VERSION"] == "1.0"
+    assert environment["LIFECYCLE_ROUTING_PROFILE_DIGEST"] == "a" * 64
+    assert environment["LIFECYCLE_ROUTING_PROFILE_SOURCE_DIGEST"] == "b" * 64
 
 
 # ---------------------------------------------------------------------------
