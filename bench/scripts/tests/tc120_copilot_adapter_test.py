@@ -199,6 +199,20 @@ def test_b083_route_identity_reaches_provider_environment():
     assert environment["LIFECYCLE_ROUTING_PROFILE_SOURCE_DIGEST"] == "b" * 64
 
 
+@pytest.mark.parametrize("invalid_value", [["unexpected"], {"unexpected": True}, 7, True])
+def test_b083_route_identity_rejects_non_string_environment_fields(invalid_value):
+    request = {
+        "entity_key": "TASK-1",
+        "entity_type": "task",
+        "provider": "codex",
+        "model": "gpt-5.5",
+        "routing_identity": {"routing_digest": invalid_value},
+    }
+
+    with pytest.raises(AdapterError, match="routing_identity.routing_digest must be a string or null"):
+        provider_environment(request, "session-1", "d" * 64, 1)
+
+
 # ---------------------------------------------------------------------------
 # TC-F13-02: Model pinned & reasoning effort mapping (AC-F13-02)
 # ---------------------------------------------------------------------------

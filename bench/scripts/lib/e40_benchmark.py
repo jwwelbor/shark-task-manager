@@ -432,9 +432,36 @@ def apply_validated_routing_profile(
     workflow_dir: Path,
 ) -> list[Path]:
     """Apply profile routes after coverage and catalog validation succeeded."""
+    errors = validate_routing_profile_schema(profile)
+    if errors:
+        raise OperatorError(
+            f"cannot apply invalid routing profile: {'; '.join(errors)}"
+        )
     profile_routes = profile["routes"]
+    if not isinstance(effective_routes, dict):
+        raise OperatorError("validated routes must be a mapping")
+    missing = sorted(set(effective_routes) - set(profile_routes))
+    if missing:
+        raise OperatorError(
+            "validated routes must be present in the selected profile: "
+            + ", ".join(missing)
+        )
+    provider = str(profile["provider"]).lower()
+    for stage, route in effective_routes.items():
+        if not isinstance(route, dict):
+            raise OperatorError(f"validated route for {stage!r} must be a mapping")
+        expected = profile_routes[stage]
+        expected_effort = str(expected.get("effort") or UNAVAILABLE).lower()
+        if route != {
+            "provider": provider,
+            "model": expected["model"],
+            "effort": expected_effort,
+        }:
+            raise OperatorError(
+                f"validated route for {stage!r} does not match the selected profile"
+            )
 
-    modified_paths: list[Path] = []
+    pending_writes: list[tuple[Path, dict[str, Any]]] = []
 
     for path in workflow_yaml_paths(workflow_dir):
         document = load_yaml(path, "workflow file")
@@ -469,8 +496,12 @@ def apply_validated_routing_profile(
                     modified = True
 
         if modified:
-            write_yaml(path, document)
-            modified_paths.append(path)
+            pending_writes.append((path, document))
+
+    modified_paths: list[Path] = []
+    for path, document in pending_writes:
+        write_yaml(path, document)
+        modified_paths.append(path)
 
     return modified_paths
 
@@ -4038,6 +4069,52 @@ def identity_profile(
     return identity
 
 
+def snapshot_routing_profile(
+    config: dict[str, Any],
+    config_base: Path,
+    run_root: Path,
+    run_descriptor: int,
+) -> dict[str, Any]:
+    """Pin the selected routing profile inside the immutable benchmark run."""
+    raw_profile_path = config.get("routing_profile")
+    if raw_profile_path is None:
+        return config
+    if not isinstance(raw_profile_path, str) or not raw_profile_path.strip():
+        raise OperatorError("routing_profile must be a profile file path when configured")
+
+    source_path = resolve_path(raw_profile_path, config_base)
+    snapshot_name = "routing-profile.snapshot.yaml"
+    try:
+        os.stat(snapshot_name, dir_fd=run_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        source_bytes = load_bytes_no_follow(source_path, "selected routing profile")
+        atomic_write_at(
+            run_descriptor,
+            snapshot_name,
+            source_bytes,
+            label="immutable routing profile snapshot",
+            overwrite=False,
+        )
+    try:
+        os.chmod(snapshot_name, 0o400, dir_fd=run_descriptor, follow_symlinks=False)
+    except OSError as exc:
+        raise OperatorError(f"cannot protect immutable routing profile snapshot: {exc}") from exc
+    snapshot_bytes = load_bytes_at(
+        run_descriptor,
+        snapshot_name,
+        "immutable routing profile snapshot",
+    )
+
+    snapshot_path = run_root / snapshot_name
+    if path_digest(snapshot_path, "immutable routing profile snapshot") != hashlib.sha256(
+        snapshot_bytes
+    ).hexdigest():
+        raise OperatorError("immutable routing profile snapshot changed while reading")
+    run_config = dict(config)
+    run_config["routing_profile"] = str(snapshot_path)
+    return run_config
+
+
 def read_lock_owner(lock_descriptor: int) -> str:
     try:
         descriptor = os.open(
@@ -4543,7 +4620,10 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
     ensure_real_directory(run_root, "operator run root")
     lock = acquire_lock(run_root)
     try:
-        identity = identity_profile(config, config_base, matrix, resources)
+        run_config = snapshot_routing_profile(
+            config, config_base, run_root, lock.root_descriptor
+        )
+        identity = identity_profile(run_config, config_base, matrix, resources)
         change_axes = profile.get("change_axes") or []
         if not isinstance(change_axes, list) or any(
             axis not in CHANGE_AXES for axis in change_axes
@@ -4610,7 +4690,7 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
             "pilot-batch-policy.yaml" if run_mode == "pilot" else "batch-policy.yaml"
         )
         materialize_batch_policy(
-            config,
+            run_config,
             config_base,
             matrix,
             batch_path,
@@ -4652,7 +4732,7 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
         process = run_process(
             command,
             cwd=REPO_ROOT,
-            env=execution_environment(config, config_base),
+            env=execution_environment(run_config, config_base),
             pass_fds=(lock.root_descriptor,),
         )
         assert_directory_fd_matches_path(

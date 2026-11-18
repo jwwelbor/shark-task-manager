@@ -323,14 +323,22 @@ def provider_environment(request, session_id, prompt_digest, prompt_bytes):
         "LIFECYCLE_PROMPT_BYTES": str(prompt_bytes),
     }
     routing_identity = request.get("routing_identity")
+    if routing_identity is not None and not isinstance(routing_identity, dict):
+        raise AdapterError("routing_identity must be an object or null")
     if isinstance(routing_identity, dict):
-        metadata.update({
-            "LIFECYCLE_ROUTING_DIGEST": routing_identity.get("routing_digest") or "",
-            "LIFECYCLE_ROUTING_PROFILE_ID": routing_identity.get("profile_id") or "",
-            "LIFECYCLE_ROUTING_PROFILE_VERSION": routing_identity.get("profile_schema_version") or "",
-            "LIFECYCLE_ROUTING_PROFILE_DIGEST": routing_identity.get("profile_digest") or "",
-            "LIFECYCLE_ROUTING_PROFILE_SOURCE_DIGEST": routing_identity.get("profile_source_digest") or "",
-        })
+        for source, target in (
+            ("routing_digest", "LIFECYCLE_ROUTING_DIGEST"),
+            ("profile_id", "LIFECYCLE_ROUTING_PROFILE_ID"),
+            ("profile_schema_version", "LIFECYCLE_ROUTING_PROFILE_VERSION"),
+            ("profile_digest", "LIFECYCLE_ROUTING_PROFILE_DIGEST"),
+            ("profile_source_digest", "LIFECYCLE_ROUTING_PROFILE_SOURCE_DIGEST"),
+        ):
+            value = routing_identity.get(source)
+            if value is not None and not isinstance(value, str):
+                raise AdapterError(
+                    f"routing_identity.{source} must be a string or null"
+                )
+            metadata[target] = value or ""
     environment.update(metadata)
     return environment
 

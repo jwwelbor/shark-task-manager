@@ -428,14 +428,89 @@ def test_b083_selected_profile_supplies_routes_missing_from_source_workflow(scra
         account_catalog=account_catalog,
     )
 
-    assert result["effective_routes"]["development"] == {
-        "provider": "codex",
-        "model": "gpt-5.5",
-        "effort": "high",
+    expected_routes = {
+        stage: {"provider": "codex", "model": "gpt-5.5", "effort": "high"}
+        for stage in ("development", "review", "discovery", "specification", "qa")
     }
-    updated_task = load_yaml(task_path, "task workflow")
-    assert updated_task["steps"]["development"]["provider"] == "codex"
-    assert updated_task["steps"]["development"]["model"] == "gpt-5.5"
+    assert result["effective_routes"] == expected_routes
+
+    materialized_routes = {}
+    for workflow_path in workflow_dir.glob("*.yaml"):
+        workflow = load_yaml(workflow_path, "materialized workflow")
+        for stage, step in workflow["steps"].items():
+            if isinstance(step, dict) and step.get("action") == "spawn_agent":
+                materialized_routes[stage] = {
+                    key: step[key] for key in ("provider", "model", "effort")
+                }
+    assert materialized_routes == expected_routes
+
+
+def test_b083_codex_profile_rejects_claude_model_before_materialization(scratch_dir, monkeypatch):
+    workflow_dir = create_sample_workflow_bundle(
+        scratch_dir, provider="claude", model="claude-sonnet-4", effort="low"
+    )
+    profile = {
+        "schema_version": "1.0",
+        "profile_id": "codex-incompatible-model",
+        "description": "Codex must reject a Claude model before route materialization.",
+        "provider": "codex",
+        "routes": {
+            stage: {"model": "claude-sonnet-5", "effort": "high"}
+            for stage in ("development", "review", "discovery", "specification", "qa")
+        },
+    }
+    cli_catalog = {"models": ["gpt-5.5"]}
+    account_catalog = {
+        "schema_version": "1.0",
+        "same_account": True,
+        "retrieved_at": e40_benchmark.utc_now(),
+        "models": ["claude-sonnet-5"],
+    }
+    before = {path.name: path.read_bytes() for path in workflow_dir.glob("*.yaml")}
+    materializer_calls = []
+
+    def record_materialization(*args, **kwargs):
+        materializer_calls.append((args, kwargs))
+
+    monkeypatch.setattr(e40_benchmark, "apply_validated_routing_profile", record_materialization)
+    with pytest.raises(OperatorError, match="CLI compatibility catalog does not contain pinned model 'claude-sonnet-5'"):
+        apply_selected_routing_profile(
+            profile,
+            workflow_dir,
+            cli_catalog=cli_catalog,
+            account_catalog=account_catalog,
+        )
+
+    assert materializer_calls == []
+    assert {path.name: path.read_bytes() for path in workflow_dir.glob("*.yaml")} == before
+
+
+def test_b083_validated_profile_rejects_bad_route_map_before_any_workflow_write(scratch_dir):
+    workflow_dir = create_sample_workflow_bundle(
+        scratch_dir, provider="claude", model="claude-sonnet-4", effort="low"
+    )
+    profile = {
+        "schema_version": "1.0",
+        "profile_id": "partial-profile",
+        "description": "A direct validated-helper call must not partially write files.",
+        "provider": "copilot",
+        "routes": {
+            stage: {"model": "gemini-3.8-flash", "effort": "high"}
+            for stage in ("discovery", "specification", "qa")
+        },
+    }
+    effective_routes = {
+        stage: {"provider": "copilot", "model": "gemini-3.8-flash", "effort": "high"}
+        for stage in ("development", "review", "discovery", "specification", "qa")
+    }
+    before = {path.name: path.read_bytes() for path in workflow_dir.glob("*.yaml")}
+
+    with pytest.raises(OperatorError, match="validated routes must be present in the selected profile"):
+        e40_benchmark.apply_validated_routing_profile(
+            profile, effective_routes, workflow_dir
+        )
+
+    assert {path.name: path.read_bytes() for path in workflow_dir.glob("*.yaml")} == before
 
 
 def test_b083_selected_profile_validates_route_coverage_once(scratch_dir, monkeypatch):
