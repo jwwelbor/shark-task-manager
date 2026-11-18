@@ -114,7 +114,7 @@ Parse the JSON response:
 | `response.prompt_bytes` | Byte length of `response.prompt`, computed alongside `prompt_sha256` |
 | `response.agent_type` | Shark persona metadata, not a native host subagent name |
 | `response.provider` | Provider metadata, e.g. `anthropic`, `openai`, `codex` |
-| `response.model` | Model to dispatch the worker with (e.g. `sonnet`, `opus`, `haiku`, `fable`) when `response.provider` is `anthropic` |
+| `response.model` | Requested model for `response.provider`, regardless of provider |
 | `response.effort` | Optional reasoning-effort override for the worker (`low`, `medium`, `high`, `xhigh`) |
 | `response.resolved_via` | Optional parent keys traversed by cascade resolution |
 | `response.error` | Error detail when action is `error` or pause carries a warning |
@@ -151,31 +151,40 @@ contradict work.
 
 ### Route attestation pre-flight (B077)
 
-Before claiming the entity or starting a worker, verify that the selected host
-adapter can map the exact requested provider/model to an explicit host model
-selector and can independently report the worker's effective provider/model
-identity. The requested route, Shark persona (`response.agent_type`), host
-worker class, and reasoning effort (`response.effort`) are separate values.
-Do not infer the model from `response.agent_type`, host worker class, or
-`response.effort`, and never use the parent's model as an implicit fallback.
+Before claiming the entity or starting a worker, the parent/adapter must verify
+that the selected host adapter can map the exact requested provider/model to
+an explicit host model selector and can independently observe the launched
+worker's effective provider/model identity. The requested route, Shark persona
+(`response.agent_type`), host worker class, and reasoning effort
+(`response.effort`) are separate values. Do not infer the model from
+`response.agent_type`, host worker class, or `response.effort`, and do not use
+the parent's model as an implicit fallback.
 
-When `response.provider` is `codex` on a native Codex host, the route is currently
-unverified: the Codex provider reference documents Codex CLI only, not native
-host spawning, its model-selection mapping, or effective identity evidence.
-Codex CLI evidence does not attest a native host launch. Until a host-specific
-reference captures both an explicit model-selection mapping and effective
-provider/model identity tied to that worker, mark the route `unverified`, do
-not spawn, and return a bounded `blocked_external` result that identifies the
-requested provider/model and the missing evidence. Do not substitute the
-parent's model or silently switch to the Codex CLI adapter.
+If pre-flight classifies the route as `unsupported` or `unverified`, the
+parent/adapter issues a bounded parent/adapter pre-dispatch rejection that
+records the requested provider/model and the capability or identity evidence
+gap. This rejection has no worker control envelope or worker result, creates
+no claim, and causes no status advance; the parent stops and reports the
+rejection. `blocked_external` is reserved for a dispatched worker's control
+envelope. Do not turn a pre-dispatch rejection into that worker result.
+
+On a native Codex host, the route remains `unverified`: the Codex provider
+reference documents Codex CLI only and does not establish native host model
+selection or effective provider/model identity for a native host worker.
+Codex CLI evidence does not attest a native host launch. Keep the route blocked
+before claim and spawn until host-specific evidence establishes both an
+explicit selector and independently observable identity for that worker. Do
+not silently switch to the Codex CLI adapter.
 
 For any route with captured support, pass the requested model through its
-documented host selector. Correlate the returned `worker_id` with host session
-metadata and report requested and effective identity separately using the
-fields in `context/host-adapter-contract.md`. Missing or mismatched effective
-identity invalidates the route: stop the worker when supported, do not accept
-its result, and do not advance the entity. Keep `response.prompt` byte-for-byte
-unchanged throughout this check.
+documented host selector. Correlate host evidence through `worker_id` and,
+when needed, a distinct `host_session_id`; `session_id` remains only the
+parent's Shark claim ID. Apply the phase/status field and evidence rules in
+`context/host-adapter-contract.md`. A post-dispatch `unverified` or `mismatch`
+route rejects the worker result, stops the worker when supported, and does not
+advance the entity. A `verified` route permits its worker result to continue
+through the existing control-envelope path. Keep `response.prompt`
+byte-for-byte unchanged throughout this check.
 
 Claim the concrete entity returned by Shark:
 
@@ -207,10 +216,12 @@ responsibility.
 
 Spawn the host worker using a host-safe adapter:
 
-- Claude Code Agent tool: select `subagent_type` by `response.effort` —
+### Claude Code Agent tool adapter
+
+- Select the Agent tool's `subagent_type` by `response.effort` —
   `low`/`medium`/`high`/`xhigh` → `shark-worker-<effort>`; absent,
   unrecognized, or not defined in this project → `general-purpose`
-- Model: when `response.provider` is `anthropic` and `response.model` is
+- For model selection, when `response.provider` is `anthropic` and `response.model` is
   non-empty, pass it as the Agent tool's `model` parameter (accepts
   `sonnet`/`opus`/`haiku`/`fable`, or a full model name). `subagent_type`
   only controls reasoning effort — `model` is what actually selects the
@@ -218,6 +229,9 @@ Spawn the host worker using a host-safe adapter:
   routing covers it. Omit `model` when `response.model` is empty. Do not pass
   a non-Claude value (e.g. `codex`) as the Agent tool's `model` — that param
   only accepts Claude models.
+
+### Host-neutral handoff and lifecycle
+
 - Prompt: exactly `response.prompt`
 - Metadata to record/pass through if the host supports it: `response.agent_type`,
   `response.provider`, `response.model`

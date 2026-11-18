@@ -18,6 +18,12 @@ before relying on any claim below.
 
 ## Unsupported Operations
 
+- **Native host spawn/model selection** — This reference covers Codex CLI
+  only. It does not establish native host model selection or independently
+  observable effective provider/model identity for a native host worker. Keep
+  a native host route `unverified` until host-specific evidence documents both
+  an explicit selector for the requested route and worker-correlated effective
+  identity. Codex CLI evidence below does not attest native host behavior.
 - **Live follow-up (same still-running worker)** — No captured Codex CLI operation delivers a prompt to a `codex exec` worker while its original invocation remains in flight. `codex exec resume` is only valid after that invocation exits, so a live consultation must use the bounded-replacement fallback rather than attempting resume. **Evidence:** none captured — `codex exec resume --help` documents resuming a previous recorded session, while `codex exec --help` exposes no live-message/follow-up operation.
 - **Interrupt (stop a live in-flight run)** — No flag or subcommand stops a running `codex exec`/`codex` process short of OS-level process signaling; that is not a Codex-specific command and is out of scope for this reference. **Evidence:** none captured — absent from the full `codex --help` command list (`exec, review, login, logout, mcp, plugin, mcp-server, app-server, remote-control, completion, update, doctor, sandbox, debug, apply, resume, archive, delete, unarchive, fork, cloud, exec-server, features, help`) and absent from `codex exec --help`'s option list, both captured 2026-08-03.
 - **List (live in-flight workers)** — `codex resume --all` / `codex fork --all` enumerate previously *recorded* sessions (an on-disk history), not currently-running processes; no command was found that lists live Codex workers. **Evidence:** none captured — `codex resume --help`/`codex fork --help` (captured 2026-08-03) describe `--all` as "Show all sessions (disables cwd filtering...)" against the recorded-session picker, not a live-process list, and no separate list-active-workers surface exists in the top-level `codex --help` command list.

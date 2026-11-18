@@ -55,32 +55,64 @@ adds no second envelope shape:
 | `evidence` | Bounded evidence references; never the rendered prompt or a transcript |
 | `gate_result` | Present on `kind: final` only when the dispatched step's `result_contract` (from `shark next <key> --json`) is `gate_result_v1` — the I-02 GateResult v1 nested payload; see `context/worker-control-schema.yaml`'s `example_final_gate_result` |
 
-## Host route attestation (ephemeral dispatch result)
+## Host route attestation (ephemeral adapter metadata)
 
-The adapter reports route attestation alongside its worker result; it does not
-change the `shark next` request or add fields to the worker control envelope.
-Keep the Shark persona (`agent_type`), host worker class, provider/model, and
-reasoning effort as distinct values:
+The parent/adapter evaluates route attestation before claim and spawn, then
+records post-dispatch identity separately when a supported route launches. It
+does not change the `shark next` request or add fields to the worker control
+envelope. A pre-dispatch rejection is parent/adapter metadata, not a worker
+control envelope or worker result; route attestation itself is not a worker
+control envelope. Keep the Shark persona (`agent_type`), host
+worker class, provider/model, and reasoning effort as distinct values:
 
 | Field | Meaning |
 |---|---|
-| `route_status` | `verified`, `unsupported`, `unverified`, or `mismatch` |
+| `route_status` | `verified`, `unsupported`, `unverified`, or `mismatch`, with phase-specific semantics below |
 | `requested_provider` | Exact `provider` value from `shark next <key> --json` |
 | `requested_model` | Exact `model` value from `shark next <key> --json`, including empty when none was requested |
 | `host_worker_class` | Native host execution class selected by the adapter; never the Shark persona or model |
 | `effort` | Exact requested reasoning-effort setting, kept separate from provider/model selection |
 | `effective_provider` | Provider independently observed for this worker; absent unless verified |
 | `effective_model` | Model independently observed for this worker; absent unless verified |
-| `worker_id` / `session_id` | Provider identity used to correlate the launch request with host session metadata |
+| `worker_id` | Provider-assigned worker identity used to correlate the launch request with host session metadata |
+| `host_session_id` | Optional, distinctly named host session identity when the host exposes it or it is needed for correlation |
 | `evidence_ref` | Bounded reference to the captured host capability and identity evidence; never a prompt or transcript |
 
-An effective identity is verified only when it is independently read from host
-session metadata correlated to that `worker_id` or `session_id`. Never copy the
-requested values into effective fields to imply verification. A missing model
-selector mapping or effective identity is `unsupported` or `unverified`; a
-mismatch is `mismatch`. All three outcomes reject the route and the worker
-result. The route attestation is an ephemeral dispatch result and does not
-expand the durable provenance fields above.
+`session_id` is exclusively the parent's Shark claim/session ID from
+`shark claim ... --field session_id`; it is not a provider or host identity.
+Never use `session_id` as host identity or correlation. Correlate host evidence
+through `worker_id` and, when needed, the distinct `host_session_id`. Never
+copy requested values into effective fields to imply verification. `effort`
+is the exact requested value when present and remains separate from route
+selection.
+
+Route attestation is ephemeral adapter metadata and does not expand the
+durable provenance fields above. The phase/status matrix is normative. Every
+row's `evidence_ref` is a bounded reference to host capability evidence or a
+specific evidence gap; it never points to a prompt or transcript. For
+preflight rows, the optional `effort` field is present only when the dispatch
+requested an effort override.
+
+### Phase/status matrix
+
+| Phase | route_status | Required fields | Forbidden fields | Evidence | Launch disposition |
+|---|---|---|---|---|---|
+| preflight | unsupported | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `evidence_ref` | `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | Evidence proves no explicit host model selector exists for this exact requested provider/model route. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
+| preflight | unverified | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `evidence_ref` | `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | A bounded reference shows the selector mapping or effective-identity capability is missing or inconclusive for this route. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
+| post-dispatch | verified | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | An explicit model-selector mapping plus worker-correlated observed provider and model match the request. | Launch permitted after preflight; a worker result may enter its existing envelope path. |
+| post-dispatch | unverified | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `worker_id`, `evidence_ref` | `effective_provider`, `effective_model` | The selector was used but worker-correlated observation is missing or inconclusive; do not infer effective fields. | Reject the worker result, stop the worker when supported, and do not advance. |
+| post-dispatch | mismatch | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | Worker-correlated observed provider and model differ from the request. | Reject the worker result, stop the worker when supported, and do not advance. |
+
+`unsupported` means capability evidence establishes that the exact requested
+route has no usable host selector. `unverified` means required selector or
+effective-identity evidence is absent or inconclusive. Both preflight states
+reject before claim or spawn; neither has a worker control envelope/result,
+claim, or status advance. A post-dispatch `unverified` state records the
+launched worker identity but has no independently observed effective fields.
+`mismatch` requires an independently observed provider and model that differ
+from the request. Only `verified` permits the worker result to continue
+through the existing control-envelope path. The Shark worker envelope schema
+remains unchanged.
 
 ## Lease lifetime during external execution (B075)
 
