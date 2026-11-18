@@ -142,140 +142,168 @@ def load_request(path):
     return request, prompt_bytes, prompt_digest, declared_bytes, session_id
 
 
+def _parse_provider_command(raw):
+    try:
+        command = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AdapterError(f"LIFECYCLE_PROVIDER_COMMAND is not a JSON argv array: {exc}") from exc
+    if not isinstance(command, list) or not command or not all(
+        isinstance(item, str) and item for item in command
+    ):
+        raise AdapterError("LIFECYCLE_PROVIDER_COMMAND must be a non-empty JSON string array")
+    return command
+
+
+def _codex_route_flags(command):
+    model_values = []
+    config_values = {"model": [], "model_provider": [], "model_reasoning_effort": []}
+    index = 0
+    while index < len(command):
+        item = command[index]
+        if item in {"-m", "--model"}:
+            model_values.append(command[index + 1] if index + 1 < len(command) else "")
+            index += 2
+            continue
+        if item.startswith("--model="):
+            model_values.append(item.split("=", 1)[1])
+        elif item.startswith("-m"):
+            model_values.append(item[2:])
+
+        if item in {"-c", "--config"}:
+            config = command[index + 1] if index + 1 < len(command) else ""
+            index += 2
+        elif item.startswith("--config="):
+            config = item.split("=", 1)[1]
+            index += 1
+        elif item.startswith("-c"):
+            config = item[2:]
+            index += 1
+        else:
+            index += 1
+            continue
+        key, separator, _ = config.partition("=")
+        if separator and key.strip() in config_values:
+            config_values[key.strip()].append(config)
+    return model_values, config_values
+
+
+def _validate_codex_command_route(command, model, normalized_effort):
+    model_values, config_values = _codex_route_flags(command)
+    expected_effort = (
+        f'model_reasoning_effort="{normalized_effort}"'
+        if normalized_effort
+        else None
+    )
+    effort_values = config_values["model_reasoning_effort"]
+    if (
+        model_values != [model]
+        or config_values["model"]
+        or config_values["model_provider"]
+        or effort_values != ([expected_effort] if expected_effort else [])
+        or "--oss" in command
+    ):
+        raise AdapterError("configured command cannot preserve the pinned Codex route")
+
+
+def _codex_command_for(args, request):
+    model = request.get("model")
+    if not isinstance(model, str) or not model.strip():
+        raise AdapterError("codex provider requires a non-empty model")
+    effort = request.get("effort")
+    normalized_effort = (
+        effort.lower()
+        if isinstance(effort, str) and effort and effort != "unavailable"
+        else None
+    )
+    supported_efforts = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+    if normalized_effort and normalized_effort not in supported_efforts:
+        raise AdapterError(f"codex provider has an unsupported reasoning effort: {effort!r}")
+
+    raw = os.environ.get("LIFECYCLE_PROVIDER_COMMAND")
+    if raw:
+        command = _parse_provider_command(raw)
+        _validate_codex_command_route(command, model, normalized_effort)
+        return command
+
+    command = [args.provider_command or "codex", "exec", "--json", "-m", model]
+    if normalized_effort:
+        command.extend(["-c", f'model_reasoning_effort="{normalized_effort}"'])
+    return command
+
+
+def _claude_command_for(request):
+    control_schema = json.loads(json.dumps(CONTROL_SCHEMA))
+    outcomes = request.get("allowed_outcomes")
+    if isinstance(outcomes, list) and outcomes and all(
+        isinstance(item, str) and item for item in outcomes
+    ):
+        control_schema["properties"]["recommended_outcome"]["enum"] = sorted(set(outcomes))
+    command = [
+        "claude",
+        "--print",
+        "--output-format",
+        "json",
+        "--model",
+        request["model"],
+        "--json-schema",
+        json.dumps(control_schema, sort_keys=True, separators=(",", ":")),
+    ]
+    effort = request.get("effort")
+    if isinstance(effort, str) and effort and effort != "unavailable":
+        command.extend(["--effort", effort])
+    return command
+
+
+def _copilot_command_for(request):
+    model = request.get("model")
+    if not isinstance(model, str) or not model:
+        raise AdapterError("copilot provider requires a non-empty model")
+    command = [
+        "copilot",
+        "--output-format",
+        "json",
+        "--stream",
+        "off",
+        "--model",
+        model,
+        "--disallow-temp-dir",
+        "--no-custom-instructions",
+        "--no-ask-user",
+        "--allow-all-tools",
+        "--disable-builtin-mcps",
+        "--no-color",
+    ]
+    scratch_root = os.environ.get("LIFECYCLE_SCRATCH_ROOT") or request.get("scratch_root")
+    if scratch_root:
+        command.extend(["-C", str(scratch_root)])
+    effort = request.get("effort")
+    supported_efforts = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+    if isinstance(effort, str) and effort and effort != "unavailable":
+        normalized_effort = effort.lower()
+        if normalized_effort in supported_efforts:
+            command.extend(["--reasoning-effort", normalized_effort])
+    return command
+
+
+def _non_codex_command_for(args, request):
+    if args.provider_command:
+        return [args.provider_command]
+    raw = os.environ.get("LIFECYCLE_PROVIDER_COMMAND")
+    if raw:
+        return _parse_provider_command(raw)
+    if request["provider"] in {"anthropic", "claude", "claude-code"}:
+        return _claude_command_for(request)
+    if request["provider"] in {"copilot", "github-copilot", "github_copilot", "github"}:
+        return _copilot_command_for(request)
+    raise AdapterError(
+        "no provider command configured; use --provider-command or LIFECYCLE_PROVIDER_COMMAND"
+    )
+
+
 def command_for(args, request):
     if request["provider"] in {"openai", "codex"}:
-        model = request.get("model")
-        if not isinstance(model, str) or not model.strip():
-            raise AdapterError("codex provider requires a non-empty model")
-        effort = request.get("effort")
-        normalized_effort = (
-            effort.lower()
-            if isinstance(effort, str) and effort and effort != "unavailable"
-            else None
-        )
-        if normalized_effort and normalized_effort not in {
-            "none", "minimal", "low", "medium", "high", "xhigh", "max"
-        }:
-            raise AdapterError(f"codex provider has an unsupported reasoning effort: {effort!r}")
-
-        raw = os.environ.get("LIFECYCLE_PROVIDER_COMMAND")
-        if raw:
-            try:
-                command = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                raise AdapterError(f"LIFECYCLE_PROVIDER_COMMAND is not a JSON argv array: {exc}") from exc
-            if not isinstance(command, list) or not command or not all(isinstance(item, str) and item for item in command):
-                raise AdapterError("LIFECYCLE_PROVIDER_COMMAND must be a non-empty JSON string array")
-            model_values = []
-            config_values = {"model": [], "model_provider": [], "model_reasoning_effort": []}
-            index = 0
-            while index < len(command):
-                item = command[index]
-                if item in {"-m", "--model"}:
-                    model_values.append(command[index + 1] if index + 1 < len(command) else "")
-                    index += 2
-                    continue
-                if item.startswith("--model="):
-                    model_values.append(item.split("=", 1)[1])
-                elif item.startswith("-m"):
-                    model_values.append(item[2:])
-                if item in {"-c", "--config"}:
-                    config = command[index + 1] if index + 1 < len(command) else ""
-                    index += 2
-                elif item.startswith("--config="):
-                    config = item.split("=", 1)[1]
-                    index += 1
-                elif item.startswith("-c"):
-                    config = item[2:]
-                    index += 1
-                else:
-                    index += 1
-                    continue
-                key, separator, _ = config.partition("=")
-                if separator and key.strip() in config_values:
-                    config_values[key.strip()].append(config)
-            expected_effort = (
-                f'model_reasoning_effort="{normalized_effort}"'
-                if normalized_effort
-                else None
-            )
-            effort_values = config_values["model_reasoning_effort"]
-            if (
-                model_values != [model]
-                or config_values["model"]
-                or config_values["model_provider"]
-                or effort_values != ([expected_effort] if expected_effort else [])
-                or "--oss" in command
-            ):
-                raise AdapterError("configured command cannot preserve the pinned Codex route")
-            return command
-
-        executable = args.provider_command or "codex"
-        command = [executable, "exec", "--json", "-m", model]
-        if normalized_effort:
-            command.extend(["-c", f'model_reasoning_effort="{normalized_effort}"'])
-    elif args.provider_command:
-        command = [args.provider_command]
-    else:
-        raw = os.environ.get("LIFECYCLE_PROVIDER_COMMAND")
-        if raw:
-            try:
-                command = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                raise AdapterError(f"LIFECYCLE_PROVIDER_COMMAND is not a JSON argv array: {exc}") from exc
-            if not isinstance(command, list) or not command or not all(isinstance(item, str) and item for item in command):
-                raise AdapterError("LIFECYCLE_PROVIDER_COMMAND must be a non-empty JSON string array")
-        elif request["provider"] in {"anthropic", "claude", "claude-code"}:
-            control_schema = json.loads(json.dumps(CONTROL_SCHEMA))
-            outcomes = request.get("allowed_outcomes")
-            if isinstance(outcomes, list) and outcomes and all(isinstance(item, str) and item for item in outcomes):
-                control_schema["properties"]["recommended_outcome"]["enum"] = sorted(set(outcomes))
-            command = [
-                "claude",
-                "--print",
-                "--output-format",
-                "json",
-                "--model",
-                request["model"],
-                "--json-schema",
-                json.dumps(control_schema, sort_keys=True, separators=(",", ":")),
-            ]
-            effort = request.get("effort")
-            if isinstance(effort, str) and effort and effort != "unavailable":
-                command.extend(["--effort", effort])
-        elif request["provider"] in {"copilot", "github-copilot", "github_copilot", "github"}:
-            model = request.get("model")
-            if not isinstance(model, str) or not model:
-                raise AdapterError("copilot provider requires a non-empty model")
-            copilot_bin = args.provider_command or "copilot"
-            command = [
-                copilot_bin,
-                "--output-format",
-                "json",
-                "--stream",
-                "off",
-                "--model",
-                model,
-                "--disallow-temp-dir",
-                "--no-custom-instructions",
-                "--no-ask-user",
-                "--allow-all-tools",
-                "--disable-builtin-mcps",
-                "--no-color",
-            ]
-            scratch_root = os.environ.get("LIFECYCLE_SCRATCH_ROOT") or request.get("scratch_root")
-            if scratch_root:
-                command.extend(["-C", str(scratch_root)])
-            effort = request.get("effort")
-            if isinstance(effort, str) and effort and effort != "unavailable":
-                effort_normalized = effort.lower()
-                if effort_normalized in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
-                    command.extend(["--reasoning-effort", effort_normalized])
-        else:
-            raise AdapterError(
-                "no provider command configured; use --provider-command or LIFECYCLE_PROVIDER_COMMAND"
-            )
-    return command
+        return _codex_command_for(args, request)
+    return _non_codex_command_for(args, request)
 
 
 def provider_environment(request, session_id, prompt_digest, prompt_bytes):

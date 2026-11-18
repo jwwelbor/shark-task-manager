@@ -14,9 +14,11 @@ from bench.scripts.lib.e40_benchmark import (
     OperatorError,
     apply_selected_routing_profile,
     live_workflow_routes,
+    live_workflow_stages,
     load_routing_profile,
     path_digest,
     validate_codex_catalogs,
+    validate_routing_profile_schema,
     workflow_routing_identity,
 )
 
@@ -32,16 +34,22 @@ def main() -> int:
         if args.profile:
             profile_path = Path(args.profile)
             profile = load_routing_profile(profile_path)
-            current_routes = live_workflow_routes(workflow_root)
-            profile_routes = profile.get("routes") or {}
+            errors = validate_routing_profile_schema(profile)
+            if errors:
+                raise OperatorError(
+                    f"cannot select invalid routing profile: {'; '.join(errors)}"
+                )
+            live_stages = live_workflow_stages(workflow_root)
+            profile_routes = profile["routes"]
             requested_routes = [
                 {
                     "stage": stage,
-                    "provider": str(profile.get("provider") or current_routes[stage]["provider"]),
-                    "model": str((profile_routes.get(stage) or {}).get("model") or current_routes[stage]["model"]),
-                    "effort": str((profile_routes.get(stage) or {}).get("effort") or current_routes[stage]["effort"]),
+                    "provider": profile["provider"],
+                    "model": profile_routes[stage]["model"],
+                    "effort": profile_routes[stage].get("effort") or "unavailable",
                 }
-                for stage in sorted(current_routes)
+                for stage in sorted(live_stages)
+                if stage in profile_routes
             ]
             result = apply_selected_routing_profile(profile, workflow_root)
             result["profile_path"] = str(profile_path.resolve())

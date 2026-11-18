@@ -264,9 +264,8 @@ def validate_routing_profile_schema(
     return errors
 
 
-def live_workflow_routes(workflow_dir: Path) -> dict[str, dict[str, str]]:
-    """Return explicit route tuples for every live spawn_agent stage."""
-    routes: dict[str, dict[str, str]] = {}
+def workflow_yaml_paths(workflow_dir: Path) -> list[Path]:
+    """Return the YAML files that define one workflow file or bundle."""
     paths = (
         [workflow_dir]
         if workflow_dir.is_file()
@@ -274,7 +273,29 @@ def live_workflow_routes(workflow_dir: Path) -> dict[str, dict[str, str]]:
     )
     if not paths:
         raise OperatorError(f"workflow bundle has no YAML files: {workflow_dir}")
-    for path in paths:
+    return paths
+
+
+def live_workflow_stages(workflow_dir: Path) -> set[str]:
+    """Return live spawn_agent stage names without requiring source routes."""
+    stages: set[str] = set()
+    for path in workflow_yaml_paths(workflow_dir):
+        document = load_yaml(path, "workflow file")
+        steps = document.get("steps") or {}
+        if not isinstance(steps, dict):
+            raise OperatorError(f"workflow has no steps mapping: {path}")
+        for name, step in steps.items():
+            if isinstance(step, dict) and step.get("action") == "spawn_agent":
+                stages.add(str(name))
+    if not stages:
+        raise OperatorError(f"workflow bundle contains no live spawn_agent stages: {workflow_dir}")
+    return stages
+
+
+def live_workflow_routes(workflow_dir: Path) -> dict[str, dict[str, str]]:
+    """Return explicit route tuples for every live spawn_agent stage."""
+    routes: dict[str, dict[str, str]] = {}
+    for path in workflow_yaml_paths(workflow_dir):
         document = load_yaml(path, "workflow file")
         steps = document.get("steps") or {}
         if not isinstance(steps, dict):
@@ -335,8 +356,12 @@ def validate_codex_catalogs(
         )
     except ValueError as exc:
         raise OperatorError("route_defect: same-account model catalog timestamp is malformed") from exc
+    if retrieved_at.tzinfo is None or retrieved_at.utcoffset() is None:
+        raise OperatorError(
+            "route_defect: same-account model catalog timestamp must include a timezone"
+        )
     age_seconds = (datetime.now(timezone.utc) - retrieved_at).total_seconds()
-    if retrieved_at.tzinfo is None or age_seconds < 0 or age_seconds > 3600:
+    if age_seconds < 0 or age_seconds > 3600:
         raise OperatorError("route_defect: same-account model catalog is stale")
     if model not in account_models:
         raise OperatorError(
@@ -355,24 +380,25 @@ def validate_profile_coverage(
     *,
     cli_catalog: dict[str, Any] | None = None,
     account_catalog: dict[str, Any] | None = None,
+    validate_catalogs: bool = True,
 ) -> dict[str, dict[str, str]]:
     errors = validate_routing_profile_schema(profile)
     if errors:
         raise OperatorError(f"cannot select invalid routing profile: {'; '.join(errors)}")
-    live = live_workflow_routes(workflow_dir)
+    live_stages = live_workflow_stages(workflow_dir)
     profile_routes = profile["routes"]
-    missing = sorted(set(live) - set(profile_routes))
+    missing = sorted(live_stages - set(profile_routes))
     if missing:
         raise OperatorError(
             "route_defect: routing profile omits live workflow stage(s): " + ", ".join(missing)
         )
     provider = str(profile["provider"]).lower()
     effective: dict[str, dict[str, str]] = {}
-    for stage in sorted(live):
+    for stage in sorted(live_stages):
         route = profile_routes[stage]
         model = str(route["model"])
         effort = str(route.get("effort") or UNAVAILABLE).lower()
-        if provider in {"codex", "openai"}:
+        if validate_catalogs and provider in {"codex", "openai"}:
             validate_codex_catalogs(model, cli_catalog, account_catalog)
         effective[stage] = {"provider": provider, "model": model, "effort": effort}
     return effective
@@ -389,23 +415,28 @@ def apply_routing_profile(
     Updates steps matching route keys with the profile's provider, model, and effort.
     Returns the list of modified file paths.
     """
-    validate_profile_coverage(
+    effective_routes = validate_profile_coverage(
         profile,
         workflow_dir,
         cli_catalog=cli_catalog,
         account_catalog=account_catalog,
     )
-    routes = profile.get("routes") or {}
-    provider = profile.get("provider")
-
-    paths = (
-        [workflow_dir]
-        if workflow_dir.is_file()
-        else sorted((*workflow_dir.rglob("*.yaml"), *workflow_dir.rglob("*.yml")))
+    return apply_validated_routing_profile(
+        profile, effective_routes, workflow_dir
     )
+
+
+def apply_validated_routing_profile(
+    profile: dict[str, Any],
+    effective_routes: dict[str, dict[str, str]],
+    workflow_dir: Path,
+) -> list[Path]:
+    """Apply profile routes after coverage and catalog validation succeeded."""
+    profile_routes = profile["routes"]
+
     modified_paths: list[Path] = []
 
-    for path in paths:
+    for path in workflow_yaml_paths(workflow_dir):
         document = load_yaml(path, "workflow file")
         modified = False
 
@@ -413,13 +444,11 @@ def apply_routing_profile(
         steps = document.get("steps")
         if isinstance(steps, dict):
             for step_name, step_data in steps.items():
-                if isinstance(step_data, dict) and step_name in routes:
-                    route = routes[step_name]
-                    if provider:
-                        step_data["provider"] = provider
-                    if "model" in route:
-                        step_data["model"] = route["model"]
-                    if "effort" in route:
+                if isinstance(step_data, dict) and step_name in effective_routes:
+                    route = effective_routes[step_name]
+                    step_data["provider"] = route["provider"]
+                    step_data["model"] = route["model"]
+                    if "effort" in profile_routes[step_name]:
                         step_data["effort"] = route["effort"]
                     else:
                         step_data.pop("effort", None)
@@ -429,13 +458,11 @@ def apply_routing_profile(
         status_meta = document.get("status_metadata")
         if isinstance(status_meta, dict):
             for step_name, step_data in status_meta.items():
-                if isinstance(step_data, dict) and step_name in routes:
-                    route = routes[step_name]
-                    if provider:
-                        step_data["provider"] = provider
-                    if "model" in route:
-                        step_data["model"] = route["model"]
-                    if "effort" in route:
+                if isinstance(step_data, dict) and step_name in effective_routes:
+                    route = effective_routes[step_name]
+                    step_data["provider"] = route["provider"]
+                    step_data["model"] = route["model"]
+                    if "effort" in profile_routes[step_name]:
                         step_data["effort"] = route["effort"]
                     else:
                         step_data.pop("effort", None)
@@ -454,19 +481,16 @@ def apply_selected_routing_profile(
     *,
     cli_catalog: dict[str, Any] | None = None,
     account_catalog: dict[str, Any] | None = None,
+    validate_catalogs: bool = True,
 ) -> dict[str, Any]:
     effective_routes = validate_profile_coverage(
         profile,
         workflow_dir,
         cli_catalog=cli_catalog,
         account_catalog=account_catalog,
+        validate_catalogs=validate_catalogs,
     )
-    apply_routing_profile(
-        profile,
-        workflow_dir,
-        cli_catalog=cli_catalog,
-        account_catalog=account_catalog,
-    )
+    apply_validated_routing_profile(profile, effective_routes, workflow_dir)
     return {
         "profile_id": profile["profile_id"],
         "profile_schema_version": profile["schema_version"],
@@ -483,8 +507,14 @@ def routing_profile_identity(
     *,
     cli_catalog: dict[str, Any] | None = None,
     account_catalog: dict[str, Any] | None = None,
+    validate_catalogs: bool = True,
 ) -> dict[str, Any]:
-    """Compute route identity from a temporary, run-scoped profile overlay."""
+    """Compute route identity from a temporary, run-scoped profile overlay.
+
+    Catalog validation is optional because route identity describes the pinned
+    route, while route preflight separately decides whether that route is
+    currently resolvable for dispatch.
+    """
     source_workflow_digest = path_digest(workflow_dir, "source workflow bundle")
     profile = load_routing_profile(profile_path)
     profile_source_digest = path_digest(profile_path, "routing profile")
@@ -496,6 +526,7 @@ def routing_profile_identity(
             effective_workflow,
             cli_catalog=cli_catalog,
             account_catalog=account_catalog,
+            validate_catalogs=validate_catalogs,
         )
     return {
         "profile_id": effective["profile_id"],
@@ -507,6 +538,9 @@ def routing_profile_identity(
         "effective_routes": effective["effective_routes"],
         "source_workflow_digest": source_workflow_digest,
         "provider_routing": effective["provider_routing"],
+        "catalog_validation": (
+            "validated_when_required" if validate_catalogs else "not_performed"
+        ),
     }
 
 
@@ -3949,7 +3983,9 @@ def identity_profile(
         if not isinstance(raw_routing_profile, str) or not raw_routing_profile.strip():
             raise OperatorError("routing_profile must be a profile file path when configured")
         routing_profile = routing_profile_identity(
-            resolve_path(raw_routing_profile, config_base), workflow_root
+            resolve_path(raw_routing_profile, config_base),
+            workflow_root,
+            validate_catalogs=False,
         )
     effective_provider_routing = (
         routing_profile["provider_routing"]

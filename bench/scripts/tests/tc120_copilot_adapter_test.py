@@ -115,9 +115,18 @@ def test_b083_codex_opaque_command_override_rejects_unbound_route(monkeypatch):
     "extra_route_flags",
     [
         ["--model=gpt-5.4"],
+        ["--model=gpt-5.5"],
+        ["--model", "gpt-5.4"],
+        ["-m", "gpt-5.4"],
+        ["-mgpt-5.4"],
         ["-c", 'model="gpt-5.4"'],
+        ['-cmodel="gpt-5.4"'],
+        ["--config=model_reasoning_effort=low"],
         ["--config", 'model_reasoning_effort="low"'],
         ["--config", 'model_provider="other"'],
+        ["--config=model_provider=other"],
+        ['-cmodel_reasoning_effort="low"'],
+        ["--oss"],
     ],
 )
 def test_b083_codex_command_override_rejects_alternate_route_syntax(monkeypatch, extra_route_flags):
@@ -138,6 +147,31 @@ def test_b083_codex_command_override_rejects_alternate_route_syntax(monkeypatch,
             make_args(),
             {"provider": "codex", "model": "gpt-5.5", "effort": "high"},
         )
+
+
+def test_b083_codex_route_flag_parser_collects_repeated_override_forms():
+    parser = _adapter.get("_codex_route_flags")
+    assert callable(parser), "B083 route override parsing should be isolated from command construction"
+
+    models, configs = parser(
+        [
+            "codex",
+            "exec",
+            "-m",
+            "gpt-5.5",
+            "--model=gpt-5.4",
+            "-c",
+            'model_provider="other"',
+            "--config=model_reasoning_effort=low",
+        ]
+    )
+
+    assert models == ["gpt-5.5", "gpt-5.4"]
+    assert configs == {
+        "model": [],
+        "model_provider": ['model_provider="other"'],
+        "model_reasoning_effort": ["model_reasoning_effort=low"],
+    }
 
 
 def test_b083_route_identity_reaches_provider_environment():

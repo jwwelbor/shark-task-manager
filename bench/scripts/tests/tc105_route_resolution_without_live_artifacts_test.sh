@@ -346,6 +346,69 @@ echo "TC-105(TC-13: real resolve-route stage record carries all 7 required field
 echo "TC-105(TC-14 case A: a real dispatch-seam failure classifies as resolution=failed, cause_class=route_defect) PASS"
 echo "TC-105(TC-14 residual class: a caller-path/output-contract failure (exit 0, non-JSON) classifies as resolution=failed, cause_class=null -- never route_defect) PASS"
 
+# B083/F8 regression: unavailable same-account Codex catalog evidence is
+# retained as a route_defect, while preflight still writes a structured result
+# with the pinned route identity.
+PREFLIGHT_CODEX_CONFIG="$OPERATOR_ROOT/b083-catalog-preflight.yaml"
+PREFLIGHT_CODEX_PROFILE="$OPERATOR_ROOT/b083-codex-profile.yaml"
+python3 - "$OPERATOR_ROOT/e40-demo.yaml" "$PREFLIGHT_CODEX_CONFIG" \
+	"$OPERATOR_ROOT/scratch-template/shark-data/workflow" "$PREFLIGHT_CODEX_PROFILE" <<'PY'
+import sys
+from pathlib import Path
+import yaml
+
+source_config, target_config, workflow_root, profile_path = sys.argv[1:]
+with open(source_config, encoding="utf-8") as stream:
+    config = yaml.safe_load(stream)
+stages = set()
+for path in sorted((*Path(workflow_root).rglob("*.yaml"), *Path(workflow_root).rglob("*.yml"))):
+    document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for name, step in (document.get("steps") or {}).items():
+        if isinstance(step, dict) and step.get("action") == "spawn_agent":
+            stages.add(name)
+profile = {
+    "schema_version": "1.0",
+    "profile_id": "b083-preflight-codex",
+    "description": "Deterministic route-defect fixture for preflight identity.",
+    "provider": "codex",
+    "routes": {stage: {"model": "gpt-5.5", "effort": "high"} for stage in sorted(stages)},
+}
+Path(profile_path).write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+config["routing_profile"] = profile_path
+config["profile"]["name"] = "b083-catalog-preflight"
+Path(target_config).write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+PY
+
+set +e
+"$OPERATOR" preflight --config "$PREFLIGHT_CODEX_CONFIG" --scenario py-bug-due-date-boundary --reps 1 \
+	>"$WORKDIR/preflight-codex.out" 2>"$WORKDIR/preflight-codex.err"
+preflight_codex_rc=$?
+set -e
+[[ "$preflight_codex_rc" -eq 1 ]] \
+	|| fail "Codex catalog preflight exited $preflight_codex_rc, want blocked exit 1: $(cat "$WORKDIR/preflight-codex.err")"
+PREFLIGHT_CODEX_RESULT="$OPERATOR_ROOT/preflight/b083-catalog-preflight/preflight-result.json"
+[[ -f "$PREFLIGHT_CODEX_RESULT" ]] \
+	|| fail "Codex catalog route defect masked structured preflight-result.json: $(cat "$WORKDIR/preflight-codex.err")"
+python3 - "$PREFLIGHT_CODEX_RESULT" <<'PY'
+import json
+import sys
+
+result = json.load(open(sys.argv[1], encoding="utf-8"))
+if result["status"] != "blocked":
+    raise SystemExit(f"expected blocked preflight, got {result['status']!r}")
+routing = result["planned_identity"]["routing_profile"]
+if routing["catalog_validation"] != "not_performed":
+    raise SystemExit(f"identity must not claim dispatch catalog validation: {routing!r}")
+if routing["effective_routes"]["development"] != {
+    "provider": "codex", "model": "gpt-5.5", "effort": "high"
+}:
+    raise SystemExit(f"pinned route missing from planned identity: {routing['effective_routes']!r}")
+records = result["resolution_ledger"]
+if not any(record["resolution"] == "failed" and record["cause_class"] == "route_defect" for record in records):
+    raise SystemExit(f"preflight lost the same-account catalog route blocker: {records!r}")
+PY
+echo "TC-105(B083/F8: failed catalog route retains structured preflight result and explicit planned identity) PASS"
+
 # ===========================================================================
 # TC-14 (artifact_deferred half): a feature-family scenario whose replay
 # bundle is absent resolves the route successfully -- AC-F11-14: "does not
