@@ -13,7 +13,6 @@ import (
 // shared across all entity types (Task, Feature, Epic, Bug, ChangeCard, TechDebt).
 type EntityDocumentRepository interface {
 	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
 }
 
 // EntityDocumentLinkRepository defines the polymorphic document linking interface.
@@ -63,7 +62,7 @@ type EntityDocumentService struct {
 // NewEntityDocumentService creates a new EntityDocumentService.
 //
 // Parameters:
-//   - writableRepo: repository supporting CreateOrGet and GetByTitle operations
+//   - writableRepo: repository supporting CreateOrGet
 //   - linkRepo: polymorphic repository for Link/Unlink/ListForEntity operations
 //   - entityLookupFn: function to resolve an entity key to (entityID, entityType)
 func NewEntityDocumentService(
@@ -127,13 +126,24 @@ func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityK
 	entityID := entity.GetID()
 	entityType := entity.GetEntityType()
 
-	doc, err := s.writableRepo.GetByTitle(ctx, title)
+	docs, err := s.linkRepo.ListForEntity(ctx, entityType, entityID)
 	if err != nil {
-		// Document doesn't exist -- idempotent, treat as success
+		return fmt.Errorf("find document %q on %s %s: %w", title, entityType, entityKey, err)
+	}
+	var match *models.Document
+	for _, doc := range docs {
+		if doc.Title != title {
+			continue
+		}
+		if match != nil {
+			return fmt.Errorf("ambiguous document title %q on %s %s", title, entityType, entityKey)
+		}
+		match = doc
+	}
+	if match == nil {
 		return nil
 	}
-
-	if err := s.linkRepo.Unlink(ctx, entityType, entityID, doc.ID); err != nil {
+	if err := s.linkRepo.Unlink(ctx, entityType, entityID, match.ID); err != nil {
 		return fmt.Errorf("failed to unlink document from %s %s: %w", entityType, entityKey, err)
 	}
 

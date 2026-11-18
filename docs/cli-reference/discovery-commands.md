@@ -217,7 +217,7 @@ shark related-docs list TD-001 --json
 
 ### `shark related-docs delete`
 
-Remove a document link from an epic, feature, task, bug, change-card, question, or tech-debt item. The document itself is not deleted from the database, only the link is removed. Delete is idempotent -- it succeeds even if the document is not linked to the parent.
+Remove a document link from an epic, feature, task, bug, change-card, question, or tech-debt item. Shark looks for the title among the selected entity’s links. A unique match removes the link and preserves the document. A missing link succeeds on retry. If multiple linked documents share the title, Shark returns an ambiguity error and keeps all links.
 
 **Usage:**
 

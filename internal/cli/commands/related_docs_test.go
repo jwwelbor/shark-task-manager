@@ -117,42 +117,6 @@ func TestRelatedDocsAddMissingParent(t *testing.T) {
 	}
 }
 
-// TestRelatedDocsAddNoParent tests error when no parent flag provided
-func TestRelatedDocsAddNoParent(t *testing.T) {
-	mockDocRepo := NewMockDocumentRepository()
-	mockEpicRepo := NewMockEpicRepository()
-	mockFeatureRepo := NewMockFeatureRepository()
-	mockTaskRepo := NewMockTaskRepository()
-
-	cmd := createRelatedDocsAddCmd(mockDocRepo, mockEpicRepo, mockFeatureRepo, mockTaskRepo)
-	cmd.SetArgs([]string{"Doc", "docs/doc.md"})
-
-	err := cmd.Execute()
-	// Usage() returns nil, so we expect error
-	if err != nil {
-		t.Error("Expected success on usage() call")
-	}
-}
-
-// TestRelatedDocsAddMultipleParents tests error when multiple parent flags provided
-func TestRelatedDocsAddMultipleParents(t *testing.T) {
-	mockDocRepo := NewMockDocumentRepository()
-	mockEpicRepo := NewMockEpicRepository()
-	mockFeatureRepo := NewMockFeatureRepository()
-	mockTaskRepo := NewMockTaskRepository()
-
-	mockEpicRepo.AddEpic(&models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}})
-	mockFeatureRepo.AddFeature(&models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", Title: "Feature"}})
-
-	cmd := createRelatedDocsAddCmd(mockDocRepo, mockEpicRepo, mockFeatureRepo, mockTaskRepo)
-	cmd.SetArgs([]string{"Doc", "docs/doc.md", "--epic=E01", "--feature=E01-F01"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Error("Expected success on usage() call")
-	}
-}
-
 // TestRelatedDocsDeleteEpic tests deleting a document from an epic
 func TestRelatedDocsDeleteEpic(t *testing.T) {
 	mockDocRepo := NewMockDocumentRepository()
@@ -289,10 +253,10 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 		{name: "feature", args: []string{"E01-F01"}, wantType: "feature", wantKey: "E01-F01"},
 		{name: "task", args: []string{"T-E01-F01-001"}, wantType: "task", wantKey: "T-E01-F01-001"},
 		{name: "bug", args: []string{"B072"}, wantType: "bug", wantKey: "B072"},
-		{name: "change", args: []string{"CC-001"}, wantType: "change", wantKey: "CC-001"},
+		{name: "change", args: []string{"CC-001"}, wantType: "change-card", wantKey: "CC-001"},
 		{name: "question", args: []string{"Q001"}, wantType: "question", wantKey: "Q001"},
-		{name: "tech debt", args: []string{"TD-595"}, wantType: "tech_debt", wantKey: "TD-595"},
-		{name: "tech debt explicit", techDebt: "TD-595", wantType: "tech_debt", wantKey: "TD-595"},
+		{name: "tech debt", args: []string{"TD-595"}, wantType: "tech-debt", wantKey: "TD-595"},
+		{name: "tech debt explicit", techDebt: "TD-595", wantType: "tech-debt", wantKey: "TD-595"},
 		{name: "unsupported entity", args: []string{"TD001"}, wantErr: "cannot infer a supported entity type"},
 		{name: "multiple positional keys", args: []string{"E01", "E02"}, wantErr: "at most one positional entity key"},
 		{name: "positional and explicit selector", args: []string{"B072"}, bug: "B073", wantErr: "cannot combine positional entity key"},
@@ -302,7 +266,17 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entityType, key, err := resolveRelatedDocsListSelection(tt.args, "", "", "", tt.bug, "", "", tt.techDebt)
+			cmd := &cobra.Command{}
+			for _, selector := range relatedDocsSelectors {
+				cmd.Flags().String(selector.flag, "", selector.usage)
+			}
+			if tt.bug != "" {
+				require.NoError(t, cmd.Flags().Set("bug", tt.bug))
+			}
+			if tt.techDebt != "" {
+				require.NoError(t, cmd.Flags().Set("tech-debt", tt.techDebt))
+			}
+			entityType, key, err := resolveRelatedDocsSelection(cmd, tt.args)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
@@ -310,7 +284,7 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("resolveRelatedDocsListSelection returned error: %v", err)
+				t.Fatalf("resolveRelatedDocsSelection returned error: %v", err)
 			}
 			if entityType != tt.wantType || key != tt.wantKey {
 				t.Fatalf("selection = (%q, %q), want (%q, %q)", entityType, key, tt.wantType, tt.wantKey)
@@ -327,9 +301,28 @@ func TestRelatedDocsTechDebtSelectorsAreAvailable(t *testing.T) {
 	}
 }
 
+type mockRelatedDocService struct {
+	LinkDocumentFunc              func(ctx context.Context, key, title, path string) error
+	UnlinkDocumentFunc            func(ctx context.Context, key, title string) error
+	ListRelatedDocumentsByKeyFunc func(ctx context.Context, key string) ([]*models.Document, error)
+}
+
+func (m *mockRelatedDocService) LinkDocument(ctx context.Context, key, title, path string) error {
+	return m.LinkDocumentFunc(ctx, key, title, path)
+}
+
+func (m *mockRelatedDocService) UnlinkDocument(ctx context.Context, key, title string) error {
+	return m.UnlinkDocumentFunc(ctx, key, title)
+}
+
+func (m *mockRelatedDocService) ListRelatedDocumentsByKey(ctx context.Context, key string) ([]*models.Document, error) {
+	return m.ListRelatedDocumentsByKeyFunc(ctx, key)
+}
+
 func TestRelatedDocsTechDebtAddDeleteAndListUseTechDebtService(t *testing.T) {
 	var linkedKey, linkedTitle, linkedPath string
-	mock := &MockTechDebtService{
+	var unlinked bool
+	mock := &mockRelatedDocService{
 		LinkDocumentFunc: func(_ context.Context, key, title, path string) error {
 			linkedKey, linkedTitle, linkedPath = key, title, path
 			return nil
@@ -338,6 +331,7 @@ func TestRelatedDocsTechDebtAddDeleteAndListUseTechDebtService(t *testing.T) {
 			if key != "TD-595" || title != "Research report" {
 				t.Fatalf("UnlinkDocument(%q, %q), want TD-595 and Research report", key, title)
 			}
+			unlinked = true
 			return nil
 		},
 		ListRelatedDocumentsByKeyFunc: func(_ context.Context, key string) ([]*models.Document, error) {
@@ -347,8 +341,9 @@ func TestRelatedDocsTechDebtAddDeleteAndListUseTechDebtService(t *testing.T) {
 			return []*models.Document{{Title: "Research report", FilePath: "docs/plan/tech-debt/TD-595.research-report.md"}}, nil
 		},
 	}
-	restore := injectMockTdSvc(t, mock)
-	t.Cleanup(restore)
+	original := techDebtDocService
+	techDebtDocService = func() relatedDocService { return mock }
+	t.Cleanup(func() { techDebtDocService = original })
 	t.Cleanup(func() {
 		for _, flag := range []struct {
 			cmd   *cobra.Command
@@ -363,6 +358,7 @@ func TestRelatedDocsTechDebtAddDeleteAndListUseTechDebtService(t *testing.T) {
 			if err := flag.cmd.Flags().Set(flag.name, flag.value); err != nil {
 				t.Errorf("reset %s flag: %v", flag.name, err)
 			}
+			flag.cmd.Flags().Lookup(flag.name).Changed = false
 		}
 	})
 	require.NoError(t, relatedDocsAddCmd.Flags().Set("tech-debt", "TD-595"))
@@ -392,6 +388,7 @@ func TestRelatedDocsTechDebtAddDeleteAndListUseTechDebtService(t *testing.T) {
 	})
 	require.NoError(t, deleteErr)
 	assert.Contains(t, string(deleteOut), "Document unlinked from tech-debt TD-595")
+	assert.True(t, unlinked)
 }
 
 // TestRelatedDocsListJSON tests JSON output

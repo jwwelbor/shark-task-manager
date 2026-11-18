@@ -63,10 +63,10 @@ type Paths struct {
 	Report string
 }
 
-// ReadCatalog returns the raw catalog content and its source. The embedded
+// ReadCatalogFromConfig reads the raw catalog relative to the selected configuration file. The embedded
 // fallback keeps default workflows usable before shark-data is installed.
-func ReadCatalog(projectRoot string) ([]byte, CatalogSource, error) {
-	data, source, found, err := readCatalogFromDisk(projectRoot)
+func ReadCatalogFromConfig(configPath string) ([]byte, CatalogSource, error) {
+	data, source, found, err := readCatalogFromDisk(configPath)
 	if err != nil {
 		return nil, "", err
 	}
@@ -83,7 +83,7 @@ func ReadCatalog(projectRoot string) ([]byte, CatalogSource, error) {
 // LoadCatalog loads a project materialization when present and otherwise uses
 // the embedded catalog.
 func LoadCatalog(projectRoot string) (*Catalog, error) {
-	data, _, err := ReadCatalog(projectRoot)
+	data, _, err := ReadCatalogFromConfig(filepath.Join(projectRoot, ".sharkconfig.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -98,12 +98,12 @@ func LoadCatalog(projectRoot string) (*Catalog, error) {
 	return &catalog, nil
 }
 
-func readCatalogFromDisk(projectRoot string) ([]byte, CatalogSource, bool, error) {
-	configBytes, err := os.ReadFile(filepath.Join(projectRoot, ".sharkconfig.json"))
+func readCatalogFromDisk(configPath string) ([]byte, CatalogSource, bool, error) {
+	configBytes, err := os.ReadFile(configPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, "", false, fmt.Errorf("read .sharkconfig.json: %w", err)
+		return nil, "", false, fmt.Errorf("read %s: %w", configPath, err)
 	}
-	dataRoot, err := config.ResolveSharkDataRoot(projectRoot, configBytes)
+	dataRoot, err := config.ResolveSharkDataRoot(filepath.Dir(configPath), configBytes)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("resolve shark data root: %w", err)
 	}
