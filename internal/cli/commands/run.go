@@ -31,6 +31,16 @@ var (
 	runSession  string
 )
 
+func dispatchPromptAssembler(entityType string) runner.PromptAssembler {
+	return runner.PromptAssemblerFunc(func(_ context.Context, input runner.PromptAssemblyInput) (string, error) {
+		prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
+		if err == nil && entityType == "bug" {
+			return bugParentProjectInstructions(prompt)
+		}
+		return prompt, err
+	})
+}
+
 type runClaimServicer interface {
 	Claim(ctx context.Context, in services.ClaimInput) (*models.EntityClaim, error)
 	Release(ctx context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error)
@@ -324,19 +334,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 		childActionSvc := narrowActionServiceForEntity(actionSvcRoot, childType)
 
 		childController, err := runner.NewRunController(runner.RunControllerDeps{
-			Transitioner:    childTransitioner,
-			Placeholders:    childPlaceholderGen,
-			ActionSvc:       childActionSvc,
-			WorkflowSvc:     workflowSvc,
-			Dispatchers:     dispatchers,
-			ApprovedBugPlan: approvedPlanForBug,
-			PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
-				prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
-				if err == nil && childType == "bug" {
-					return bugParentProjectInstructions(prompt)
-				}
-				return prompt, err
-			}),
+			Transitioner:      childTransitioner,
+			Placeholders:      childPlaceholderGen,
+			ActionSvc:         childActionSvc,
+			WorkflowSvc:       workflowSvc,
+			Dispatchers:       dispatchers,
+			ApprovedBugPlan:   approvedPlanForBug,
+			PromptAssembler:   dispatchPromptAssembler(childType),
 			ChildrenSvc:       childrenSvc,
 			RunChild:          runChild,
 			QuestionResponses: buildQuestionResponsePersister(childType),
@@ -452,19 +456,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Step 6: Construct and run the controller.
 	controller, err := runner.NewRunController(runner.RunControllerDeps{
-		Transitioner:    transitioner,
-		Placeholders:    placeholderGen,
-		ActionSvc:       actionSvc,
-		WorkflowSvc:     workflowSvc,
-		Dispatchers:     dispatchers,
-		ApprovedBugPlan: approvedPlanForBug,
-		PromptAssembler: runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
-			prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
-			if err == nil && entityType == "bug" {
-				return bugParentProjectInstructions(prompt)
-			}
-			return prompt, err
-		}),
+		Transitioner:      transitioner,
+		Placeholders:      placeholderGen,
+		ActionSvc:         actionSvc,
+		WorkflowSvc:       workflowSvc,
+		Dispatchers:       dispatchers,
+		ApprovedBugPlan:   approvedPlanForBug,
+		PromptAssembler:   dispatchPromptAssembler(entityType),
 		ChildrenSvc:       childrenSvc,
 		RunChild:          runChild,
 		QuestionResponses: buildQuestionResponsePersister(entityType),
