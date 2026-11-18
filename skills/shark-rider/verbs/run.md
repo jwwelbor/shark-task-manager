@@ -149,6 +149,34 @@ contradict work.
 > only because a subsequent worker happened to run `ps -ef` and noticed.
 > No corruption resulted that time, but it was luck, not a guarantee.
 
+### Route attestation pre-flight (B077)
+
+Before claiming the entity or starting a worker, verify that the selected host
+adapter can map the exact requested provider/model to an explicit host model
+selector and can independently report the worker's effective provider/model
+identity. The requested route, Shark persona (`response.agent_type`), host
+worker class, and reasoning effort (`response.effort`) are separate values.
+Do not infer the model from `response.agent_type`, host worker class, or
+`response.effort`, and never use the parent's model as an implicit fallback.
+
+When `response.provider` is `codex` on a native Codex host, the route is currently
+unverified: the Codex provider reference documents Codex CLI only, not native
+host spawning, its model-selection mapping, or effective identity evidence.
+Codex CLI evidence does not attest a native host launch. Until a host-specific
+reference captures both an explicit model-selection mapping and effective
+provider/model identity tied to that worker, mark the route `unverified`, do
+not spawn, and return a bounded `blocked_external` result that identifies the
+requested provider/model and the missing evidence. Do not substitute the
+parent's model or silently switch to the Codex CLI adapter.
+
+For any route with captured support, pass the requested model through its
+documented host selector. Correlate the returned `worker_id` with host session
+metadata and report requested and effective identity separately using the
+fields in `context/host-adapter-contract.md`. Missing or mismatched effective
+identity invalidates the route: stop the worker when supported, do not accept
+its result, and do not advance the entity. Keep `response.prompt` byte-for-byte
+unchanged throughout this check.
+
 Claim the concrete entity returned by Shark:
 
 ```bash

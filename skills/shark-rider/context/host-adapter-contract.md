@@ -55,6 +55,33 @@ adds no second envelope shape:
 | `evidence` | Bounded evidence references; never the rendered prompt or a transcript |
 | `gate_result` | Present on `kind: final` only when the dispatched step's `result_contract` (from `shark next <key> --json`) is `gate_result_v1` — the I-02 GateResult v1 nested payload; see `context/worker-control-schema.yaml`'s `example_final_gate_result` |
 
+## Host route attestation (ephemeral dispatch result)
+
+The adapter reports route attestation alongside its worker result; it does not
+change the `shark next` request or add fields to the worker control envelope.
+Keep the Shark persona (`agent_type`), host worker class, provider/model, and
+reasoning effort as distinct values:
+
+| Field | Meaning |
+|---|---|
+| `route_status` | `verified`, `unsupported`, `unverified`, or `mismatch` |
+| `requested_provider` | Exact `provider` value from `shark next <key> --json` |
+| `requested_model` | Exact `model` value from `shark next <key> --json`, including empty when none was requested |
+| `host_worker_class` | Native host execution class selected by the adapter; never the Shark persona or model |
+| `effort` | Exact requested reasoning-effort setting, kept separate from provider/model selection |
+| `effective_provider` | Provider independently observed for this worker; absent unless verified |
+| `effective_model` | Model independently observed for this worker; absent unless verified |
+| `worker_id` / `session_id` | Provider identity used to correlate the launch request with host session metadata |
+| `evidence_ref` | Bounded reference to the captured host capability and identity evidence; never a prompt or transcript |
+
+An effective identity is verified only when it is independently read from host
+session metadata correlated to that `worker_id` or `session_id`. Never copy the
+requested values into effective fields to imply verification. A missing model
+selector mapping or effective identity is `unsupported` or `unverified`; a
+mismatch is `mismatch`. All three outcomes reject the route and the worker
+result. The route attestation is an ephemeral dispatch result and does not
+expand the durable provenance fields above.
+
 ## Lease lifetime during external execution (B075)
 
 The parent owns the lease for the complete external execution lifecycle: from
