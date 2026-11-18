@@ -3,9 +3,15 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -382,6 +388,196 @@ func TestRelatedDocsTechDebtAddDeleteAndListUseTechDebtService(t *testing.T) {
 	require.NoError(t, deleteErr)
 	assert.Contains(t, string(deleteOut), "Document unlinked from tech-debt TD-595")
 	assert.True(t, unlinked)
+}
+
+func TestRelatedDocsProductionHandlersRouteSupportedEntityServices(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "related-docs.db")
+	rawDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	repoDB := repository.NewDB(rawDB)
+
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E90", Title: "Related docs test epic"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	require.NoError(t, repository.NewEpicRepository(repoDB).Create(ctx, epic))
+
+	feature := &models.Feature{
+		BaseEntity: models.BaseEntity{Key: "E90-F01", Title: "Related docs test feature"},
+		EpicID:     epic.ID,
+		Status:     models.FeatureStatusDraft,
+	}
+	require.NoError(t, repository.NewFeatureRepository(repoDB).Create(ctx, feature))
+
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{Key: "T-E90-F01-001", Title: "Related docs test task"},
+		FeatureID:  feature.ID,
+		Status:     models.TaskStatus("todo"),
+		Priority:   5,
+	}
+	require.NoError(t, repository.NewTaskRepository(repoDB).Create(ctx, task))
+
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{Key: "B901", Title: "Related docs test bug"},
+		Status:     models.BugStatus("identified"),
+		Severity:   models.BugSeverityMedium,
+	}
+	require.NoError(t, repository.NewBugRepository(repoDB).Create(ctx, bug))
+
+	change := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{Key: "CC-901", Title: "Related docs test change"},
+		Status:     models.ChangeCardStatus("proposed"),
+		Priority:   1,
+	}
+	require.NoError(t, repository.NewChangeCardRepository(repoDB).Create(ctx, change))
+
+	question := &models.Question{
+		BaseEntity: models.BaseEntity{Key: "Q901", Title: "Related docs test question"},
+		Status:     models.QuestionStatusDraft,
+		Summary:    "Question to verify related-document routing",
+		Requester:  "related-docs-test",
+	}
+	require.NoError(t, repository.NewQuestionRepository(repoDB).Create(ctx, question))
+	require.NoError(t, rawDB.Close())
+	configureRelatedDocsHandlerDB(t, dbPath)
+
+	tests := []struct {
+		name, selector, key, entityType string
+		entityID                        int64
+	}{
+		{name: "epic", selector: "epic", key: epic.Key, entityType: string(models.EntityTypeEpic), entityID: epic.ID},
+		{name: "feature", selector: "feature", key: feature.Key, entityType: string(models.EntityTypeFeature), entityID: feature.ID},
+		{name: "task", selector: "task", key: task.Key, entityType: string(models.EntityTypeTask), entityID: task.ID},
+		{name: "bug", selector: "bug", key: bug.Key, entityType: string(models.EntityTypeBug), entityID: bug.ID},
+		{name: "change-card", selector: "change", key: change.Key, entityType: string(models.EntityTypeChange), entityID: change.ID},
+		{name: "question", selector: "question", key: question.Key, entityType: string(models.EntityTypeQuestion), entityID: question.ID},
+	}
+
+	globalDB, err := cli.GetDB(ctx)
+	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			title := "B079 route " + tt.name
+			path := "docs/b079-route-" + tt.name + ".md"
+			addCmd := newRelatedDocsHandlerCommand(t, tt.selector, tt.key)
+			var addErr error
+			addOut := captureOutput(t, func() {
+				addErr = runRelatedDocsAdd(addCmd, []string{title, path})
+			})
+			require.NoError(t, addErr)
+			assert.Contains(t, string(addOut), "Document linked to "+tt.name+" "+tt.key)
+
+			var actualType string
+			var actualEntityID int64
+			var documentID int64
+			require.NoError(t, globalDB.QueryRowContext(ctx, `
+				SELECT ed.entity_type, ed.entity_id, ed.document_id
+				FROM entity_documents ed
+				JOIN documents d ON d.id = ed.document_id
+				WHERE d.title = ? AND d.file_path = ?`, title, path).
+				Scan(&actualType, &actualEntityID, &documentID))
+			assert.Equal(t, tt.entityType, actualType)
+			assert.Equal(t, tt.entityID, actualEntityID)
+
+			listCmd := newRelatedDocsHandlerCommand(t, tt.selector, tt.key)
+			var listErr error
+			listOut := captureOutput(t, func() {
+				listErr = runRelatedDocsListList(listCmd, nil)
+			})
+			require.NoError(t, listErr)
+			assert.Contains(t, string(listOut), path)
+
+			deleteCmd := newRelatedDocsHandlerCommand(t, tt.selector, tt.key)
+			var deleteErr error
+			deleteOut := captureOutput(t, func() {
+				deleteErr = runRelatedDocsDelete(deleteCmd, []string{title})
+			})
+			require.NoError(t, deleteErr)
+			assert.Contains(t, string(deleteOut), "Document unlinked from "+tt.name+" "+tt.key)
+
+			var remaining int
+			require.NoError(t, globalDB.QueryRowContext(ctx,
+				"SELECT COUNT(*) FROM entity_documents WHERE entity_type = ? AND entity_id = ? AND document_id = ?",
+				tt.entityType, tt.entityID, documentID).Scan(&remaining))
+			assert.Zero(t, remaining)
+		})
+	}
+}
+
+func TestRelatedDocsProductionHandlerReturnsEntityServiceError(t *testing.T) {
+	setupRelatedDocsHandlerDB(t)
+	cmd := newRelatedDocsHandlerCommand(t, "bug", "B999")
+	var addErr error
+	addOut := captureOutput(t, func() {
+		addErr = runRelatedDocsAdd(cmd, []string{"Missing bug document", "docs/missing-bug.md"})
+	})
+	require.Error(t, addErr)
+	assert.ErrorContains(t, addErr, "link document to bug B999")
+	assert.NotContains(t, string(addOut), "Document linked")
+}
+
+func setupRelatedDocsHandlerDB(t *testing.T) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "related-docs-error.db")
+	rawDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, rawDB.Close())
+	configureRelatedDocsHandlerDB(t, dbPath)
+}
+
+func configureRelatedDocsHandlerDB(t *testing.T, dbPath string) {
+	t.Helper()
+	configPath := filepath.Join(filepath.Dir(dbPath), ".sharkconfig.json")
+	require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+	originalConfigFile := cli.GlobalConfig.ConfigFile
+	originalDBPath := cli.GlobalConfig.DBPath
+	originalJSON := cli.GlobalConfig.JSON
+	configFlag := cli.RootCmd.PersistentFlags().Lookup("config")
+	dbFlag := cli.RootCmd.PersistentFlags().Lookup("db")
+	originalConfigChanged := configFlag != nil && configFlag.Changed
+	originalDBChanged := dbFlag != nil && dbFlag.Changed
+	cli.GlobalConfig.ConfigFile = configPath
+	cli.GlobalConfig.DBPath = dbPath
+	cli.GlobalConfig.JSON = false
+	require.NoError(t, cli.RootCmd.PersistentFlags().Set("config", configPath))
+	require.NoError(t, cli.RootCmd.PersistentFlags().Set("db", dbPath))
+	cli.ResetDB()
+	cli.ResetServices()
+	cli.ResetWorkflowService()
+	config.ClearWorkflowCache()
+	t.Cleanup(func() {
+		cli.ResetDB()
+		cli.ResetServices()
+		cli.ResetWorkflowService()
+		cli.GlobalConfig.ConfigFile = originalConfigFile
+		cli.GlobalConfig.DBPath = originalDBPath
+		cli.GlobalConfig.JSON = originalJSON
+		require.NoError(t, cli.RootCmd.PersistentFlags().Set("config", originalConfigFile))
+		require.NoError(t, cli.RootCmd.PersistentFlags().Set("db", originalDBPath))
+		if configFlag != nil {
+			configFlag.Changed = originalConfigChanged
+		}
+		if dbFlag != nil {
+			dbFlag.Changed = originalDBChanged
+		}
+		config.ClearWorkflowCache()
+	})
+}
+
+func newRelatedDocsHandlerCommand(t *testing.T, selector, key string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	for _, flag := range relatedDocsSelectors {
+		cmd.Flags().String(flag.flag, "", flag.usage)
+	}
+	cmd.Flags().Bool("json", false, "Output JSON")
+	if selector != "" {
+		require.NoError(t, cmd.Flags().Set(selector, key))
+	}
+	return cmd
 }
 
 // TestRelatedDocsListJSON tests JSON output

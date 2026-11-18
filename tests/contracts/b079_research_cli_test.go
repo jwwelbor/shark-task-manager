@@ -61,15 +61,19 @@ func (c researchCLI) reportPaths(t *testing.T, key string) []string {
 	return paths
 }
 
-func TestB079ResearchCLI(t *testing.T) {
-	binary := buildSharkTC008(t)
-	project := func(t *testing.T) researchCLI {
-		t.Helper()
-		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, ".sharkconfig.json"), []byte("{}"), 0600))
-		return researchCLI{binary: binary, dir: dir, dbPath: filepath.Join(dir, "fixture.db")}
+func newB079ResearchCLI(t *testing.T) researchCLI {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".sharkconfig.json"), []byte("{}"), 0600))
+	return researchCLI{
+		binary: buildSharkTC008(t),
+		dir:    dir,
+		dbPath: filepath.Join(dir, "fixture.db"),
 	}
+}
 
+func TestB079ResearchCLIRejectsInvalidMutationSelectors(t *testing.T) {
+	c := newB079ResearchCLI(t)
 	for _, mutation := range [][]string{{"add", "Report", "docs/report.md"}, {"delete", "Report"}} {
 		for _, selectors := range []struct {
 			name string
@@ -79,8 +83,7 @@ func TestB079ResearchCLI(t *testing.T) {
 			{"conflicting", []string{"--bug=B001", "--tech-debt=TD-001"}},
 			{"empty_with_valid", []string{"--bug=", "--tech-debt=TD-001"}},
 		} {
-			t.Run(mutation[0]+"_"+selectors.name+"_selector", func(t *testing.T) {
-				c := project(t)
+			t.Run(mutation[0]+"_"+selectors.name, func(t *testing.T) {
 				args := append([]string{"related-docs"}, mutation...)
 				message := c.rejection(t, append(args, selectors.args...)...)
 				require.Contains(t, message, "one of")
@@ -88,82 +91,84 @@ func TestB079ResearchCLI(t *testing.T) {
 			})
 		}
 	}
+}
 
+func TestB079ResearchCLIUnlinksTitleWithinSelectedEntity(t *testing.T) {
+	c := newB079ResearchCLI(t)
 	const title = "Research Report"
-	t.Run("unlink resolves the title on the selected item", func(t *testing.T) {
-		c := project(t)
-		c.success(t, "td", "create", "First item")
-		c.success(t, "td", "create", "Second item")
-		c.success(t, "related-docs", "add", title, "docs/first.md", "--tech-debt=TD-001")
-		c.success(t, "related-docs", "add", title, "docs/second.md", "--tech-debt=TD-002")
-		require.Equal(t, []string{"docs/second.md"}, c.reportPaths(t, "TD-002"))
-		for i := 0; i < 2; i++ {
-			c.success(t, "related-docs", "delete", title, "--tech-debt=TD-002")
-			require.Empty(t, c.reportPaths(t, "TD-002"))
-			require.Equal(t, []string{"docs/first.md"}, c.reportPaths(t, "TD-001"))
-		}
-	})
+	c.success(t, "td", "create", "First item")
+	c.success(t, "td", "create", "Second item")
+	c.success(t, "related-docs", "add", title, "docs/first.md", "--tech-debt=TD-001")
+	c.success(t, "related-docs", "add", title, "docs/second.md", "--tech-debt=TD-002")
+	require.Equal(t, []string{"docs/second.md"}, c.reportPaths(t, "TD-002"))
+	for i := 0; i < 2; i++ {
+		c.success(t, "related-docs", "delete", title, "--tech-debt=TD-002")
+		require.Empty(t, c.reportPaths(t, "TD-002"))
+		require.Equal(t, []string{"docs/first.md"}, c.reportPaths(t, "TD-001"))
+	}
+}
 
-	t.Run("ambiguous title preserves both links", func(t *testing.T) {
-		c := project(t)
-		c.success(t, "td", "create", "Two reports")
-		paths := []string{"docs/a.md", "docs/b.md"}
-		for _, path := range paths {
-			c.success(t, "related-docs", "add", title, path, "--tech-debt=TD-001")
-		}
-		require.Contains(t, c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-001"), "ambiguous")
-		require.ElementsMatch(t, paths, c.reportPaths(t, "TD-001"))
-	})
+func TestB079ResearchCLIRejectsAmbiguousTitleWithoutRemovingLinks(t *testing.T) {
+	c := newB079ResearchCLI(t)
+	const title = "Research Report"
+	c.success(t, "td", "create", "Two reports")
+	paths := []string{"docs/a.md", "docs/b.md"}
+	for _, path := range paths {
+		c.success(t, "related-docs", "add", title, path, "--tech-debt=TD-001")
+	}
+	require.Contains(t, c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-001"), "ambiguous")
+	require.ElementsMatch(t, paths, c.reportPaths(t, "TD-001"))
+}
 
-	t.Run("unlink and list surface storage failures", func(t *testing.T) {
-		c := project(t)
-		c.success(t, "td", "create", "Storage failures")
-		c.success(t, "related-docs", "add", title, "docs/report.md", "--tech-debt=TD-001")
-		db, err := sql.Open("sqlite", c.dbPath)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, db.Close()) })
-		_, err = db.Exec("CREATE TRIGGER refuse_unlink BEFORE DELETE ON entity_documents BEGIN SELECT RAISE(ABORT, 'fixture unlink failure'); END")
-		require.NoError(t, err)
-		t.Run("write failure", func(t *testing.T) {
-			msg := c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-001")
-			require.Contains(t, msg, "fixture unlink failure")
-			require.Contains(t, msg, "TD-001")
-			require.Equal(t, []string{"docs/report.md"}, c.reportPaths(t, "TD-001"))
-		})
-		t.Run("missing item", func(t *testing.T) {
-			require.Contains(t, c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-999"), "TD-999")
-		})
-		_, err = db.Exec("ALTER TABLE documents RENAME COLUMN title TO unavailable_title")
-		require.NoError(t, err)
-		t.Run("lookup failure", func(t *testing.T) {
-			msg := c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-001")
-			require.Contains(t, msg, "TD-001")
-			require.Contains(t, msg, "column")
-		})
-		t.Run("list failure", func(t *testing.T) {
-			msg := c.rejection(t, "related-docs", "list", "TD-001")
-			require.Contains(t, msg, "list documents for tech-debt TD-001")
-			require.Contains(t, msg, "column")
-		})
+func TestB079ResearchCLIPropagatesStorageFailures(t *testing.T) {
+	c := newB079ResearchCLI(t)
+	const title = "Research Report"
+	c.success(t, "td", "create", "Storage failures")
+	c.success(t, "related-docs", "add", title, "docs/report.md", "--tech-debt=TD-001")
+	db, err := sql.Open("sqlite", c.dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec("CREATE TRIGGER refuse_unlink BEFORE DELETE ON entity_documents BEGIN SELECT RAISE(ABORT, 'fixture unlink failure'); END")
+	require.NoError(t, err)
+	t.Run("write failure", func(t *testing.T) {
+		msg := c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-001")
+		require.Contains(t, msg, "fixture unlink failure")
+		require.Contains(t, msg, "TD-001")
+		require.Equal(t, []string{"docs/report.md"}, c.reportPaths(t, "TD-001"))
 	})
+	t.Run("missing item", func(t *testing.T) {
+		require.Contains(t, c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-999"), "TD-999")
+	})
+	_, err = db.Exec("ALTER TABLE documents RENAME COLUMN title TO unavailable_title")
+	require.NoError(t, err)
+	t.Run("lookup failure", func(t *testing.T) {
+		msg := c.rejection(t, "related-docs", "delete", title, "--tech-debt=TD-001")
+		require.Contains(t, msg, "TD-001")
+		require.Contains(t, msg, "column")
+	})
+	t.Run("list failure", func(t *testing.T) {
+		msg := c.rejection(t, "related-docs", "list", "TD-001")
+		require.Contains(t, msg, "list documents for tech-debt TD-001")
+		require.Contains(t, msg, "column")
+	})
+}
 
-	t.Run("catalog follows the selected config", func(t *testing.T) {
-		c := project(t)
-		for _, fixture := range []struct {
-			config, bundle, location, content, source string
-		}{
-			{".sharkconfig.json", "default", "research", "version: default\n", "disk"},
-			{"alternate.json", "alternate", "overrides/research", "version: alternate\n", "override"},
-		} {
-			require.NoError(t, os.WriteFile(filepath.Join(c.dir, fixture.config), []byte(`{"shark_data_path":"`+fixture.bundle+`"}`), 0600))
-			location := filepath.Join(c.dir, fixture.bundle, fixture.location)
-			require.NoError(t, os.MkdirAll(location, 0700))
-			require.NoError(t, os.WriteFile(filepath.Join(location, "recipes.yaml"), []byte(fixture.content), 0600))
-			out := c.success(t, "data", "get", "research/recipes.yaml", "--config", fixture.config)
-			var got map[string]string
-			require.NoError(t, json.Unmarshal(out, &got))
-			require.Equal(t, fixture.content, got["content"])
-			require.Equal(t, fixture.source, got["source"])
-		}
-	})
+func TestB079ResearchCLIUsesCatalogSelectedByConfig(t *testing.T) {
+	c := newB079ResearchCLI(t)
+	for _, fixture := range []struct {
+		config, bundle, location, content, source string
+	}{
+		{".sharkconfig.json", "default", "research", "version: default\n", "disk"},
+		{"alternate.json", "alternate", "overrides/research", "version: alternate\n", "override"},
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(c.dir, fixture.config), []byte(`{"shark_data_path":"`+fixture.bundle+`"}`), 0600))
+		location := filepath.Join(c.dir, fixture.bundle, fixture.location)
+		require.NoError(t, os.MkdirAll(location, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(location, "recipes.yaml"), []byte(fixture.content), 0600))
+		out := c.success(t, "data", "get", "research/recipes.yaml", "--config", fixture.config)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(out, &got))
+		require.Equal(t, fixture.content, got["content"])
+		require.Equal(t, fixture.source, got["source"])
+	}
 }
