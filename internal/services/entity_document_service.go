@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -9,11 +10,14 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
+// ErrAmbiguousDocumentTitle indicates that more than one linked document on
+// the selected entity has the requested title.
+var ErrAmbiguousDocumentTitle = errors.New("document title is ambiguous for selected entity")
+
 // EntityDocumentRepository defines the minimal interface for document operations
 // shared across all entity types (Task, Feature, Epic, Bug, ChangeCard).
 type EntityDocumentRepository interface {
 	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
 }
 
 // EntityDocumentLinkRepository defines the polymorphic document linking interface.
@@ -63,7 +67,7 @@ type EntityDocumentService struct {
 // NewEntityDocumentService creates a new EntityDocumentService.
 //
 // Parameters:
-//   - writableRepo: repository supporting CreateOrGet and GetByTitle operations
+//   - writableRepo: repository supporting CreateOrGet document operations
 //   - linkRepo: polymorphic repository for Link/Unlink/ListForEntity operations
 //   - entityLookupFn: function to resolve an entity key to (entityID, entityType)
 func NewEntityDocumentService(
@@ -143,7 +147,7 @@ func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityK
 		return nil
 	}
 	if len(matchingDocs) > 1 {
-		return fmt.Errorf("document title %q is ambiguous for %s %s: %d linked documents have that title", title, entityType, entityKey, len(matchingDocs))
+		return fmt.Errorf("%w: %q for %s %s (%d linked documents)", ErrAmbiguousDocumentTitle, title, entityType, entityKey, len(matchingDocs))
 	}
 
 	if err := s.linkRepo.Unlink(ctx, entityType, entityID, matchingDocs[0].ID); err != nil {

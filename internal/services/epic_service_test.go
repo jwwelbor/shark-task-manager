@@ -2235,7 +2235,6 @@ func TestEpicService_CascadeStatusToFeaturesAndTasks_RepoError(t *testing.T) {
 // mockEpicDocRepo implements EntityDocumentRepository for epic-service doc tests.
 type mockEpicDocRepo struct {
 	createOrGetFn func(ctx context.Context, title, filePath string) (*models.Document, error)
-	getByTitleFn  func(ctx context.Context, title string) (*models.Document, error)
 }
 
 func (m *mockEpicDocRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
@@ -2243,13 +2242,6 @@ func (m *mockEpicDocRepo) CreateOrGet(ctx context.Context, title, filePath strin
 		return m.createOrGetFn(ctx, title, filePath)
 	}
 	return nil, fmt.Errorf("CreateOrGet not implemented")
-}
-
-func (m *mockEpicDocRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
-	if m.getByTitleFn != nil {
-		return m.getByTitleFn(ctx, title)
-	}
-	return nil, fmt.Errorf("GetByTitle not implemented")
 }
 
 // mockEpicLinkRepo implements EntityDocumentLinkRepository for epic-service doc tests.
@@ -2436,14 +2428,7 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicDocRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			if title != "Design Doc" {
-				t.Errorf("expected title 'Design Doc', got %q", title)
-			}
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
+	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{
 		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
 			return []*models.Document{{ID: 42, Title: "Design Doc"}}, nil
@@ -2514,11 +2499,7 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicDocRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return nil, fmt.Errorf("document not found")
-		},
-	}
+	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{
 		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
 			return []*models.Document{}, nil
@@ -2543,11 +2524,7 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicDocRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
+	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{
 		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
 			return []*models.Document{{ID: 42, Title: "Design Doc"}}, nil

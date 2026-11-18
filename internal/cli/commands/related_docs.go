@@ -161,55 +161,55 @@ func printDocLinked(title, path, entityType, parentKey string, docID int64) erro
 // runRelatedDocsDelete handles deleting a document link
 func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	title := args[0]
-	epic, _ := cmd.Flags().GetString("epic")
-	feature, _ := cmd.Flags().GetString("feature")
-	task, _ := cmd.Flags().GetString("task")
-	bug, _ := cmd.Flags().GetString("bug")
-	change, _ := cmd.Flags().GetString("change")
-	question, _ := cmd.Flags().GetString("question")
-	ctx := cmd.Context()
-
-	if epic != "" {
-		if err := cli.GetEpicService().UnlinkDocument(ctx, epic, title); err != nil {
-			return fmt.Errorf("failed to unlink document from epic %s: %w", epic, err)
+	for _, selector := range []struct{ flag, entityType string }{
+		{flag: "epic", entityType: "epic"},
+		{flag: "feature", entityType: "feature"},
+		{flag: "task", entityType: "task"},
+		{flag: "bug", entityType: "bug"},
+		{flag: "change", entityType: "change-card"},
+		{flag: "question", entityType: "question"},
+	} {
+		key, _ := cmd.Flags().GetString(selector.flag)
+		if key == "" {
+			continue
 		}
-		return printDocUnlinked(title, "epic", epic)
-	}
-	if feature != "" {
-		if err := cli.GetFeatureService().UnlinkDocument(ctx, feature, title); err != nil {
-			return fmt.Errorf("failed to unlink document from feature %s: %w", feature, err)
+		if err := unlinkRelatedDocument(cmd.Context(), selector.entityType, key, title); err != nil {
+			return err
 		}
-		return printDocUnlinked(title, "feature", feature)
-	}
-	if task != "" {
-		if err := cli.GetTaskServiceWithDocs().UnlinkDocument(ctx, task, title); err != nil {
-			return fmt.Errorf("failed to unlink document from task %s: %w", task, err)
-		}
-		return printDocUnlinked(title, "task", task)
-	}
-	if bug != "" {
-		if err := cli.GetBugService().UnlinkDocument(ctx, bug, title); err != nil {
-			return fmt.Errorf("failed to unlink document from bug %s: %w", bug, err)
-		}
-		return printDocUnlinked(title, "bug", bug)
-	}
-	if change != "" {
-		if err := cli.GetChangeCardService().UnlinkDocument(ctx, change, title); err != nil {
-			return fmt.Errorf("failed to unlink document from change-card %s: %w", change, err)
-		}
-		return printDocUnlinked(title, "change-card", change)
-	}
-	if question != "" {
-		if err := cli.GetQuestionDocumentService(ctx).UnlinkDocumentByKey(ctx, question, title); err != nil {
-			return fmt.Errorf("unlink document from question %s: %w", question, err)
-		}
-		return printDocUnlinked(title, "question", question)
+		return printDocUnlinked(title, selector.entityType, key)
 	}
 
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{"status": "unlinked", "title": title})
 	}
 	return nil
+}
+
+func unlinkRelatedDocument(ctx context.Context, entityType, entityKey, title string) error {
+	var err error
+	switch entityType {
+	case "epic":
+		err = cli.GetEpicService().UnlinkDocument(ctx, entityKey, title)
+	case "feature":
+		err = cli.GetFeatureService().UnlinkDocument(ctx, entityKey, title)
+	case "task":
+		err = cli.GetTaskServiceWithDocs().UnlinkDocument(ctx, entityKey, title)
+	case "bug":
+		err = cli.GetBugService().UnlinkDocument(ctx, entityKey, title)
+	case "change-card":
+		err = cli.GetChangeCardService().UnlinkDocument(ctx, entityKey, title)
+	case "question":
+		err = cli.GetQuestionDocumentService(ctx).UnlinkDocumentByKey(ctx, entityKey, title)
+	default:
+		return fmt.Errorf("unsupported related-docs entity type %q", entityType)
+	}
+	if err == nil {
+		return nil
+	}
+	if entityType == "question" {
+		return fmt.Errorf("unlink document from question %s: %w", entityKey, err)
+	}
+	return fmt.Errorf("failed to unlink document from %s %s: %w", entityType, entityKey, err)
 }
 
 // printDocUnlinked outputs the result of unlinking a document.
