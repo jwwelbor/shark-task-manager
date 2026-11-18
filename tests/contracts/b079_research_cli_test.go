@@ -210,6 +210,7 @@ func TestB079ResearchCLIResolvesSluggedTechDebtSelector(t *testing.T) {
 	c.success(t, "td", "create", "Slug Lookup")
 	const sluggedKey = "TD-001-slug-lookup"
 	c.success(t, "related-docs", "add", "Slugged report", "docs/slugged.md", "--tech-debt="+sluggedKey)
+	require.Equal(t, []string{"docs/slugged.md"}, c.reportPaths(t, sluggedKey))
 	var documents []models.Document
 	require.NoError(t, json.Unmarshal(c.success(t, "related-docs", "list", "--tech-debt="+sluggedKey), &documents))
 	require.Len(t, documents, 1)

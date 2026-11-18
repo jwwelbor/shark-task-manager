@@ -207,36 +207,56 @@ func resolveRelatedDocsSelection(cmd *cobra.Command, positional []string) (strin
 	if len(positional) > 1 {
 		return "", "", fmt.Errorf("related-docs list accepts at most one positional entity key")
 	}
+	if len(positional) == 1 {
+		if hasRelatedDocsSelector(cmd) {
+			return "", "", fmt.Errorf("cannot combine positional entity key %q with an explicit entity-type flag", positional[0])
+		}
+		return resolveRelatedDocsPositionalSelection(positional[0])
+	}
+	return resolveRelatedDocsExplicitSelection(cmd)
+}
 
+func hasRelatedDocsSelector(cmd *cobra.Command) bool {
+	for _, selector := range relatedDocsSelectors {
+		if cmd.Flags().Changed(selector.flag) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveRelatedDocsPositionalSelection(rawKey string) (string, string, error) {
+	key := NormalizeKey(rawKey)
+	if strings.HasPrefix(key, "TD-") {
+		if err := validateRelatedDocsTechDebtKey(key); err != nil {
+			return "", "", err
+		}
+		return "tech-debt", key, nil
+	}
+	entityType := DetectEntityType(key)
+	for _, selector := range relatedDocsSelectors {
+		if selector.entityType == entityType {
+			return selector.label, key, nil
+		}
+	}
+	return "", "", fmt.Errorf("cannot infer a supported entity type from key %q", key)
+}
+
+func resolveRelatedDocsExplicitSelection(cmd *cobra.Command) (string, string, error) {
 	var kind, key string
 	for _, selector := range relatedDocsSelectors {
 		if !cmd.Flags().Changed(selector.flag) {
 			continue
 		}
-		if len(positional) == 1 {
-			return "", "", fmt.Errorf("cannot combine positional entity key %q with an explicit entity-type flag", positional[0])
-		}
 		if kind != "" {
 			return "", "", fmt.Errorf("exactly one of the entity-type flags must be specified")
 		}
 		kind = selector.label
-		// Changed confirms the flag exists, and init registers every selector as a string.
-		key, _ = cmd.Flags().GetString(selector.flag)
-	}
-	if len(positional) == 1 {
-		key = NormalizeKey(positional[0])
-		entityType := DetectEntityType(key)
-		for _, selector := range relatedDocsSelectors {
-			if selector.entityType == entityType {
-				if selector.label == "tech-debt" {
-					if err := validateRelatedDocsTechDebtKey(key); err != nil {
-						return "", "", err
-					}
-				}
-				return selector.label, key, nil
-			}
+		var err error
+		key, err = cmd.Flags().GetString(selector.flag)
+		if err != nil {
+			return "", "", fmt.Errorf("read --%s selector: %w", selector.flag, err)
 		}
-		return "", "", fmt.Errorf("cannot infer a supported entity type from key %q", key)
 	}
 	if key == "" {
 		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, --question, or --tech-debt must specify an entity key")
