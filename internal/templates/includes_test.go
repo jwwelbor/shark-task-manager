@@ -557,7 +557,7 @@ func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
 // (test-plan.md TC-003, spec.md AC-3/REQ-NF-001).
 var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"sprint/planning.md":         "f27d56ae7e922347d611389a6d5797fa39402b4887e41bb1dc815a10799d4248",
-	"sprint/active.md":           "86752cf41ecdc68c08063e392616b149f5ffdf5e42c6e7db18426f673898b5c4",
+	"sprint/active.md":           "8b7a4bf3795e2036902a4966d78333d19c9cf3eb70af6466fed9c7776647b67e",
 	"sprint/closing.md":          "94f8057747fae8ffa85b95fab0cf86146c8f8298e285322737c5457f4f9e3a59",
 	"epic/assessment.md":         "6e9c5516db6e8c415000795fbbdbe2c48a5acebb4e8c493f77f00ae724ee27fb",
 	"epic/decomposition.md":      "76a7558c41c97ed3fd9eba3dc6671799da58c3e0a94ff340f7c308f166704131",

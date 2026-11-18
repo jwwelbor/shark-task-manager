@@ -82,6 +82,64 @@ func TestRunSprintWorkflowRequiresGoalReviewBeforeEveryClose(t *testing.T) {
 	}
 }
 
+func TestRunSprintWorkflowVerifiesTerminalityBeforeTreatingEmptySelectionAsDrained(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range runSprintWorkflowPaths(root) {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		source := string(content)
+		branchStart := strings.Index(source, "if NEXT_ENTITY is null or empty")
+		if branchStart == -1 {
+			t.Fatalf("%s: empty-selector branch is missing", path)
+		}
+		branchEndOffset := strings.Index(source[branchStart:], "ENTITY_KEY = NEXT_ENTITY.key")
+		if branchEndOffset == -1 {
+			t.Fatalf("%s: empty-selector branch does not return to normal dispatch", path)
+		}
+		emptyBranch := source[branchStart : branchStart+branchEndOffset]
+
+		for _, required := range []string{
+			"shark sprint backlog {SPRINT_KEY} --view=ordered --all --json",
+			"omit AGENT_FILTER",
+			"configured terminal status",
+			"AGENT_FILTER is set",
+			"role-filtered slice",
+			"nonterminal assignments remain",
+			"TERMINALITY_UNVERIFIED = true",
+			"if UNFINISHED is not empty:",
+			"LOOP_OUTCOME = \"paused\"",
+			"LOOP_OUTCOME = \"drained\"",
+		} {
+			if !strings.Contains(emptyBranch, required) {
+				t.Errorf("%s: empty-selector branch must include %q before it can be considered drained", path, required)
+			}
+		}
+
+		pausedAt := strings.Index(emptyBranch, "LOOP_OUTCOME = \"paused\"")
+		drainedAt := strings.Index(emptyBranch, "LOOP_OUTCOME = \"drained\"")
+		unfinishedAt := strings.Index(emptyBranch, "if UNFINISHED is not empty:")
+		unverifiedAt := strings.Index(emptyBranch, "TERMINALITY_UNVERIFIED = true")
+		if pausedAt != -1 && drainedAt != -1 && pausedAt > drainedAt {
+			t.Errorf("%s: unfinished or unverifiable assignments must pause before the all-terminal drained branch", path)
+		}
+		if unfinishedAt != -1 && drainedAt != -1 && unfinishedAt > drainedAt {
+			t.Errorf("%s: the all-terminal drained branch must follow the unfinished-assignment check", path)
+		}
+		if unverifiedAt != -1 && drainedAt != -1 && unverifiedAt > drainedAt {
+			t.Errorf("%s: unresolved assignment terminality must be handled before the drained branch", path)
+		}
+		if strings.Contains(emptyBranch, "break  # backlog drained") {
+			t.Errorf("%s: an empty selector result must not directly mark the backlog drained", path)
+		}
+	}
+}
+
 func TestRunSprintWorkflowCopiesStayIdentical(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {
