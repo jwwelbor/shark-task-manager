@@ -259,6 +259,7 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("list documents for %s %s: %w", kind, key, err)
 	}
+	// The related-docs list command always registers json as a bool flag.
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	return printRelatedDocs(docs, jsonOutput || cli.GlobalConfig.JSON)
 }
