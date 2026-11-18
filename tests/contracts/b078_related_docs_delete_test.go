@@ -2,10 +2,12 @@ package contracts
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -15,6 +17,17 @@ import (
 )
 
 func TestB078RelatedDocsDeleteReturnsUnlinkFailureForExistingTaskLink(t *testing.T) {
+	cli, sqlDB, targetTask, otherTask := newB078RelatedDocsDeleteFixture(t)
+	const title = "S010 current continuation"
+	seedB078DuplicateTitleTaskLinks(t, sqlDB, targetTask, otherTask, title)
+	installB078UnlinkFailureTrigger(t, sqlDB)
+	requireB078UnlinkFailure(t, cli, title, targetTask, otherTask)
+	dropB078UnlinkFailureTrigger(t, sqlDB)
+	requireB078SuccessfulUnlink(t, cli, title, targetTask, otherTask)
+}
+
+func newB078RelatedDocsDeleteFixture(t *testing.T) (b078CLI, *sql.DB, *models.Task, *models.Task) {
+	t.Helper()
 	projectDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".sharkconfig.json"), []byte("{}"), 0600))
 	dbPath := filepath.Join(projectDir, "shark-tasks.db")
@@ -23,7 +36,6 @@ func TestB078RelatedDocsDeleteReturnsUnlinkFailureForExistingTaskLink(t *testing
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	repoDB := repository.NewDB(sqlDB)
 	ctx := context.Background()
-
 	epic := &models.Epic{
 		BaseEntity: models.BaseEntity{Key: "E10", Title: "B078 related docs test"},
 		Status:     models.EpicStatusActive,
@@ -36,49 +48,69 @@ func TestB078RelatedDocsDeleteReturnsUnlinkFailureForExistingTaskLink(t *testing
 		Status:     models.FeatureStatusDraft,
 	}
 	require.NoError(t, repository.NewFeatureRepository(repoDB).Create(ctx, feature))
-	targetTask := &models.Task{
-		BaseEntity: models.BaseEntity{Key: "T-E10-F02-013", Title: "Task with continuation link"},
-		FeatureID:  feature.ID,
-		Status:     models.TaskStatus("todo"),
-		Priority:   5,
-	}
-	require.NoError(t, repository.NewTaskRepository(repoDB).Create(ctx, targetTask))
-	otherTask := &models.Task{
-		BaseEntity: models.BaseEntity{Key: "T-E10-F02-014", Title: "Task with another continuation link"},
-		FeatureID:  feature.ID,
-		Status:     models.TaskStatus("todo"),
-		Priority:   5,
-	}
-	require.NoError(t, repository.NewTaskRepository(repoDB).Create(ctx, otherTask))
+	targetTask := createB078RelatedDocsTask(t, repoDB, feature.ID, "T-E10-F02-013", "Task with continuation link")
+	otherTask := createB078RelatedDocsTask(t, repoDB, feature.ID, "T-E10-F02-014", "Task with another continuation link")
+	return b078CLI{binary: buildSharkTC008(t), dir: projectDir, dbPath: dbPath}, sqlDB, targetTask, otherTask
+}
 
-	const title = "S010 current continuation"
+func createB078RelatedDocsTask(t *testing.T, repoDB *repository.DB, featureID int64, key, title string) *models.Task {
+	t.Helper()
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{Key: key, Title: title},
+		FeatureID:  featureID,
+		Status:     models.TaskStatus("todo"),
+		Priority:   5,
+	}
+	require.NoError(t, repository.NewTaskRepository(repoDB).Create(context.Background(), task))
+	return task
+}
+
+func seedB078DuplicateTitleTaskLinks(t *testing.T, sqlDB *sql.DB, targetTask, otherTask *models.Task, title string) {
+	t.Helper()
+	repoDB := repository.NewDB(sqlDB)
 	documentRepo := repository.NewDocumentRepository(repoDB)
-	targetDoc, err := documentRepo.CreateOrGet(ctx, title, "docs/continuation/target.md")
+	// Insert the unrelated same-title document first: legacy title-only lookup
+	// must select this ID, which is not linked to the task being unlinked.
+	otherDoc, err := documentRepo.CreateOrGet(context.Background(), title, "docs/continuation/other.md")
 	require.NoError(t, err)
-	otherDoc, err := documentRepo.CreateOrGet(ctx, title, "docs/continuation/other.md")
+	targetDoc, err := documentRepo.CreateOrGet(context.Background(), title, "docs/continuation/target.md")
 	require.NoError(t, err)
+	legacyMatch, err := documentRepo.GetByTitle(context.Background(), title)
+	require.NoError(t, err)
+	require.Equal(t, otherDoc.ID, legacyMatch.ID)
 	documentLinks := repository.NewEntityDocumentRepository(repoDB)
+	ctx := context.Background()
 	require.NoError(t, documentLinks.Link(ctx, models.EntityTypeTask, targetTask.ID, targetDoc.ID, "general"))
 	require.NoError(t, documentLinks.Link(ctx, models.EntityTypeTask, otherTask.ID, otherDoc.ID, "general"))
-	_, err = sqlDB.Exec(`
+}
+
+func installB078UnlinkFailureTrigger(t *testing.T, sqlDB *sql.DB) {
+	t.Helper()
+	_, err := sqlDB.Exec(`
 		CREATE TRIGGER reject_related_doc_unlink
 		BEFORE DELETE ON entity_documents
 		BEGIN SELECT RAISE(ABORT, 'fixture unlink failure'); END`)
 	require.NoError(t, err)
+}
 
-	cli := b078CLI{
-		binary: buildSharkTC008(t),
-		dir:    projectDir,
-		dbPath: dbPath,
-	}
+func requireB078UnlinkFailure(t *testing.T, cli b078CLI, title string, targetTask, otherTask *models.Task) {
+	t.Helper()
 	message := cli.rejection(t, "related-docs", "delete", title, "--task="+targetTask.Key)
 	require.Contains(t, message, "failed to unlink document from task "+targetTask.Key)
+	require.Equal(t, 1, strings.Count(message, "failed to unlink document from task "+targetTask.Key))
 	require.Contains(t, message, "fixture unlink failure")
 	require.Equal(t, []string{"docs/continuation/target.md"}, cli.reportPaths(t, targetTask.Key))
 	require.Equal(t, []string{"docs/continuation/other.md"}, cli.reportPaths(t, otherTask.Key))
+}
 
-	_, err = sqlDB.Exec("DROP TRIGGER reject_related_doc_unlink")
+func dropB078UnlinkFailureTrigger(t *testing.T, sqlDB *sql.DB) {
+	t.Helper()
+	_, err := sqlDB.Exec("DROP TRIGGER reject_related_doc_unlink")
 	require.NoError(t, err)
+}
+
+func requireB078SuccessfulUnlink(t *testing.T, cli b078CLI, title string, targetTask, otherTask *models.Task) {
+	t.Helper()
 	var response struct {
 		Status string `json:"status"`
 		Title  string `json:"title"`

@@ -169,7 +169,10 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 		{flag: "change", entityType: "change-card"},
 		{flag: "question", entityType: "question"},
 	} {
-		key, _ := cmd.Flags().GetString(selector.flag)
+		key, err := cmd.Flags().GetString(selector.flag)
+		if err != nil {
+			return fmt.Errorf("read --%s selector: %w", selector.flag, err)
+		}
 		if key == "" {
 			continue
 		}
@@ -203,13 +206,7 @@ func unlinkRelatedDocument(ctx context.Context, entityType, entityKey, title str
 	default:
 		return fmt.Errorf("unsupported related-docs entity type %q", entityType)
 	}
-	if err == nil {
-		return nil
-	}
-	if entityType == "question" {
-		return fmt.Errorf("unlink document from question %s: %w", entityKey, err)
-	}
-	return fmt.Errorf("failed to unlink document from %s %s: %w", entityType, entityKey, err)
+	return err
 }
 
 // printDocUnlinked outputs the result of unlinking a document.
