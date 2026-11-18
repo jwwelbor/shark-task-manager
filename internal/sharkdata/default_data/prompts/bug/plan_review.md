@@ -5,7 +5,7 @@ Independently review the exact revision of the repair plan for {{.id}} against t
 
 {{template "_bug_decision_sources" .}}
 
-Independently reconcile the decision sources with the coverage index. Confirm that each applicable constraint has a testable assertion at the affected production caller or boundary, or an authorized disposition. Return `replan` for an omitted applicable constraint or inadequate coverage.
+Independently reconcile the decision sources with the coverage index. For each row without an authorized disposition, check that its assertion would fail if the protected behavior were lost at the named caller while adjacent checks still pass. For preservation constraints, compare the exact expected values or observable behavior at every affected caller. Return `replan` for an omitted applicable constraint or an assertion that would pass despite a violation.
 
 For approval, include exactly one `plan_review_report` evidence entry with the project-relative path of the linked report as `pointer` and `sha256:<hex digest>` of its bytes as `summary`. In the report include exactly one plain `plan_path: <project-relative plan path>` line and one `plan_sha256: sha256:<hex digest>` line identifying the reviewed revision. The parent checks the report is linked to this bug and retains the approved plan snapshot for downstream workers.
 Approve only when the coverage index and meaningful assertions cover the obligations. Use needs_research for causal gaps, replan for approach or coverage gaps, blocked for unavailable external evidence, and pass for approval. For route_rework outcomes leave kickbacks empty, keep the summary concise, and retain findings in the structured findings and review report. The parent owns transitions.

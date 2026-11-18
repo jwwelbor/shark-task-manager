@@ -7,7 +7,7 @@ Read the research report, accepted repair plan and approval, authoritative decis
 
 {{template "_bug_decision_sources" .}}
 
-Check each applicable decision constraint against the approved coverage index before evaluating new, existing, and resumed fixes. Record the assertion and observed result for each applicable constraint in the linked evidence record. For an authorized disposition, cite the decision owner and the source of their approval. Return `replan` when an omitted or changed constraint requires a material plan update, even if the regression tests and project quality gate pass.
+Check each applicable decision constraint against the approved coverage index before evaluating new, existing, and resumed fixes. Record the assertion and observed result for each applicable constraint in the linked evidence record. Return `replan` when an omitted or changed constraint requires a material plan update, even if the regression tests and project quality gate pass.
 
 Apply `skills/quality/workflows/defect-class-sweep.md` (if the bundle is not extracted, read it with `shark skill get quality workflows/defect-class-sweep.md`) to rejection defect classes, preserving valid dispositions and existing retry policy.
 
