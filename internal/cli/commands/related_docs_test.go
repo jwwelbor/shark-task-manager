@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -243,8 +242,6 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 	tests := []struct {
 		name     string
 		args     []string
-		bug      string
-		techDebt string
 		wantType string
 		wantKey  string
 		wantErr  string
@@ -256,41 +253,37 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 		{name: "change", args: []string{"CC-001"}, wantType: "change-card", wantKey: "CC-001"},
 		{name: "question", args: []string{"Q001"}, wantType: "question", wantKey: "Q001"},
 		{name: "tech debt", args: []string{"TD-595"}, wantType: "tech-debt", wantKey: "TD-595"},
-		{name: "tech debt explicit", techDebt: "TD-595", wantType: "tech-debt", wantKey: "TD-595"},
+		{name: "tech debt explicit", args: []string{"--tech-debt=TD-595"}, wantType: "tech-debt", wantKey: "TD-595"},
 		{name: "unsupported entity", args: []string{"TD001"}, wantErr: "cannot infer a supported entity type"},
 		{name: "multiple positional keys", args: []string{"E01", "E02"}, wantErr: "at most one positional entity key"},
-		{name: "positional and explicit selector", args: []string{"B072"}, bug: "B073", wantErr: "cannot combine positional entity key"},
-		{name: "tech debt positional and conflicting selector", args: []string{"TD-595"}, techDebt: "TD-596", wantErr: "cannot combine positional entity key"},
-		{name: "conflicting tech debt and bug selectors", bug: "B079", techDebt: "TD-595", wantErr: "exactly one of"},
+		{name: "positional and explicit selector", args: []string{"B072", "--bug=B073"}, wantErr: "cannot combine positional entity key"},
+		{name: "tech debt positional and conflicting selector", args: []string{"TD-595", "--tech-debt=TD-596"}, wantErr: "cannot combine positional entity key"},
+		{name: "conflicting tech debt and bug selectors", args: []string{"--bug=B079", "--tech-debt=TD-595"}, wantErr: "exactly one of"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := &cobra.Command{}
-			for _, selector := range relatedDocsSelectors {
-				cmd.Flags().String(selector.flag, "", selector.usage)
-			}
-			if tt.bug != "" {
-				require.NoError(t, cmd.Flags().Set("bug", tt.bug))
-			}
-			if tt.techDebt != "" {
-				require.NoError(t, cmd.Flags().Set("tech-debt", tt.techDebt))
-			}
-			entityType, key, err := resolveRelatedDocsSelection(cmd, tt.args)
+			cmd := parseRelatedDocsListArgs(t, tt.args)
+			entityType, key, err := resolveRelatedDocsSelection(cmd, cmd.Flags().Args())
 			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
-				}
+				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
-			if err != nil {
-				t.Fatalf("resolveRelatedDocsSelection returned error: %v", err)
-			}
-			if entityType != tt.wantType || key != tt.wantKey {
-				t.Fatalf("selection = (%q, %q), want (%q, %q)", entityType, key, tt.wantType, tt.wantKey)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantType, entityType)
+			assert.Equal(t, tt.wantKey, key)
 		})
 	}
+}
+
+func parseRelatedDocsListArgs(t *testing.T, args []string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{}
+	for _, selector := range relatedDocsSelectors {
+		cmd.Flags().String(selector.flag, "", selector.usage)
+	}
+	require.NoError(t, cmd.ParseFlags(args))
+	return cmd
 }
 
 func TestRelatedDocsTechDebtSelectorsAreAvailable(t *testing.T) {

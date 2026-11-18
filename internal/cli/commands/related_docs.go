@@ -218,6 +218,7 @@ func resolveRelatedDocsSelection(cmd *cobra.Command, positional []string) (strin
 			return "", "", fmt.Errorf("exactly one of the entity-type flags must be specified")
 		}
 		kind = selector.label
+		// Changed confirms the flag exists, and init registers every selector as a string.
 		key, _ = cmd.Flags().GetString(selector.flag)
 	}
 	if len(positional) == 1 {
