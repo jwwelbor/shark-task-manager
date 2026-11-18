@@ -93,16 +93,28 @@ while ITERATION < MAX_ITERATIONS:
 
         UNFINISHED = []
         TERMINALITY_UNVERIFIED = false
-        For every item in BACKLOG.items, including terminal-status items:
-            use `/shark-rider workflow {ITEM.key} --json` to resolve the item's
-            entity workflow and its explicitly configured terminal statuses
-            if the item's current status is not marked terminal by that workflow:
-                add its key, entity type, and status to UNFINISHED
-            if the item status or terminal marker cannot be resolved:
+        WORKFLOW_BY_TYPE = {}
+        For every distinct entity type in BACKLOG.items:
+            run `/shark-rider workflow {ENTITY_TYPE} --json` once to resolve
+            that type's workflow and explicitly configured terminal statuses
+            if the workflow or its terminal statuses cannot be resolved:
                 set TERMINALITY_UNVERIFIED = true
+            else:
+                save the resolved workflow in WORKFLOW_BY_TYPE[ENTITY_TYPE]
 
-        if BACKLOG.total_count does not match the returned item count, or
-           TERMINALITY_UNVERIFIED is true:
+        For every item in BACKLOG.items, including terminal-status items:
+            reuse that workflow metadata for every matching item
+            if its workflow, current status, or terminal marker cannot be resolved:
+                set TERMINALITY_UNVERIFIED = true
+            else if its current status is not marked terminal by that workflow:
+                add its key, entity type, and status to UNFINISHED
+
+        if BACKLOG.total_count does not match the returned item count:
+            LOOP_OUTCOME = "paused"
+            print that the full assignment inventory is incomplete
+            break
+
+        if TERMINALITY_UNVERIFIED is true:
             LOOP_OUTCOME = "paused"
             print that the full assignment set's terminality could not be verified
             break
@@ -184,7 +196,9 @@ In every case, include the number and keys of entities dispatched this session.
 **THIS STEP REQUIRES EXPLICIT USER CONFIRMATION. Do NOT skip this step under any circumstances.**
 
 If `LOOP_OUTCOME` is `paused` or `capped`, state that the sprint is not
-verified drained and list the remaining assignments before asking. A close
+verified drained. List assignment keys and statuses only when they come from a
+complete, successful all-status read. If that inventory is unavailable or
+incomplete, say so and do not imply the full remaining set is known. A close
 with carryover may reassign or remove incomplete assignments according to the
 selected carryover mode. The owner must still explicitly confirm, and the
 accepted Sprint Goal Review below remains a separate required gate.
