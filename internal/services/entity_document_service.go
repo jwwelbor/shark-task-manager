@@ -127,13 +127,26 @@ func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityK
 	entityID := entity.GetID()
 	entityType := entity.GetEntityType()
 
-	doc, err := s.writableRepo.GetByTitle(ctx, title)
+	linkedDocs, err := s.linkRepo.ListForEntity(ctx, entityType, entityID)
 	if err != nil {
-		// Document doesn't exist -- idempotent, treat as success
-		return nil
+		return fmt.Errorf("failed to list documents for %s %s: %w", entityType, entityKey, err)
 	}
 
-	if err := s.linkRepo.Unlink(ctx, entityType, entityID, doc.ID); err != nil {
+	var matchingDocs []*models.Document
+	for _, doc := range linkedDocs {
+		if doc != nil && doc.Title == title {
+			matchingDocs = append(matchingDocs, doc)
+		}
+	}
+	if len(matchingDocs) == 0 {
+		// Delete is idempotent when the selected entity has no matching link.
+		return nil
+	}
+	if len(matchingDocs) > 1 {
+		return fmt.Errorf("document title %q is ambiguous for %s %s: %d linked documents have that title", title, entityType, entityKey, len(matchingDocs))
+	}
+
+	if err := s.linkRepo.Unlink(ctx, entityType, entityID, matchingDocs[0].ID); err != nil {
 		return fmt.Errorf("failed to unlink document from %s %s: %w", entityType, entityKey, err)
 	}
 

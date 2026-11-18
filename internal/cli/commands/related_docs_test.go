@@ -3,9 +3,11 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
@@ -191,6 +193,58 @@ func TestRelatedDocsDeleteIdempotent(t *testing.T) {
 
 	// Should not error - delete is idempotent
 	_ = cmd.Execute()
+}
+
+func TestRunRelatedDocsDeleteReturnsUnlinkErrors(t *testing.T) {
+	cli.ResetDB()
+	dbFlag := cli.RootCmd.PersistentFlags().Lookup("db")
+	previousDBPath := dbFlag.Value.String()
+	previousDBChanged := dbFlag.Changed
+	previousJSON := cli.GlobalConfig.JSON
+	dbPath := filepath.Join(t.TempDir(), "related-docs-delete.db")
+	if err := dbFlag.Value.Set(dbPath); err != nil {
+		t.Fatalf("set temporary db path: %v", err)
+	}
+	dbFlag.Changed = true
+	cli.GlobalConfig.DBPath = dbPath
+	cli.GlobalConfig.JSON = false
+	t.Cleanup(func() {
+		cli.ResetDB()
+		_ = dbFlag.Value.Set(previousDBPath)
+		dbFlag.Changed = previousDBChanged
+		cli.GlobalConfig.DBPath = previousDBPath
+		cli.GlobalConfig.JSON = previousJSON
+	})
+
+	cases := []struct {
+		entityFlag string
+		entityKey  string
+	}{
+		{entityFlag: "epic", entityKey: "E99"},
+		{entityFlag: "feature", entityKey: "E99-F01"},
+		{entityFlag: "task", entityKey: "T-E99-F01-001"},
+		{entityFlag: "bug", entityKey: "B999"},
+		{entityFlag: "change", entityKey: "CC-999"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.entityFlag, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			cmd.SetContext(context.Background())
+			cmd.Flags().String("epic", "", "")
+			cmd.Flags().String("feature", "", "")
+			cmd.Flags().String("task", "", "")
+			cmd.Flags().String("bug", "", "")
+			cmd.Flags().String("change", "", "")
+			cmd.Flags().String("question", "", "")
+			if err := cmd.Flags().Set(tc.entityFlag, tc.entityKey); err != nil {
+				t.Fatalf("set entity selector: %v", err)
+			}
+
+			if err := runRelatedDocsDelete(cmd, []string{"Missing Doc"}); err == nil {
+				t.Fatalf("expected missing %s %s to return an error", tc.entityFlag, tc.entityKey)
+			}
+		})
+	}
 }
 
 // TestRelatedDocsListEpic tests listing documents for an epic

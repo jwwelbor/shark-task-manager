@@ -170,24 +170,33 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	if epic != "" {
-		// Idempotent: ignore "not found" errors
-		_ = cli.GetEpicService().UnlinkDocument(ctx, epic, title)
+		if err := cli.GetEpicService().UnlinkDocument(ctx, epic, title); err != nil {
+			return fmt.Errorf("failed to unlink document from epic %s: %w", epic, err)
+		}
 		return printDocUnlinked(title, "epic", epic)
 	}
 	if feature != "" {
-		_ = cli.GetFeatureService().UnlinkDocument(ctx, feature, title)
+		if err := cli.GetFeatureService().UnlinkDocument(ctx, feature, title); err != nil {
+			return fmt.Errorf("failed to unlink document from feature %s: %w", feature, err)
+		}
 		return printDocUnlinked(title, "feature", feature)
 	}
 	if task != "" {
-		_ = cli.GetTaskServiceWithDocs().UnlinkDocument(ctx, task, title)
+		if err := cli.GetTaskServiceWithDocs().UnlinkDocument(ctx, task, title); err != nil {
+			return fmt.Errorf("failed to unlink document from task %s: %w", task, err)
+		}
 		return printDocUnlinked(title, "task", task)
 	}
 	if bug != "" {
-		_ = cli.GetBugService().UnlinkDocument(ctx, bug, title)
+		if err := cli.GetBugService().UnlinkDocument(ctx, bug, title); err != nil {
+			return fmt.Errorf("failed to unlink document from bug %s: %w", bug, err)
+		}
 		return printDocUnlinked(title, "bug", bug)
 	}
 	if change != "" {
-		_ = cli.GetChangeCardService().UnlinkDocument(ctx, change, title)
+		if err := cli.GetChangeCardService().UnlinkDocument(ctx, change, title); err != nil {
+			return fmt.Errorf("failed to unlink document from change-card %s: %w", change, err)
+		}
 		return printDocUnlinked(title, "change-card", change)
 	}
 	if question != "" {

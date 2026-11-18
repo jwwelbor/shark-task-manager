@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -235,16 +236,24 @@ func TestEntityDocumentService_LinkDocumentByKey_LinkFails(t *testing.T) {
 // ============================================================================
 
 func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
-	var capturedEntityType models.EntityType
-	var capturedEntityID, capturedDocID int64
+	var capturedEntityType, listedEntityType models.EntityType
+	var capturedEntityID, capturedDocID, listedEntityID int64
 
 	repo := &mockEntityDocumentRepo{
 		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
+			return &models.Document{ID: 999, Title: title}, nil
 		},
 	}
 
 	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			listedEntityType = entityType
+			listedEntityID = entityID
+			return []*models.Document{
+				{ID: 42, Title: "My Doc", FilePath: "docs/linked.md"},
+				{ID: 999, Title: "Other Doc", FilePath: "docs/other.md"},
+			}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			capturedEntityType = entityType
 			capturedEntityID = entityID
@@ -273,28 +282,89 @@ func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
 	if capturedDocID != 42 {
 		t.Errorf("expected doc ID 42, got %d", capturedDocID)
 	}
+	if listedEntityType != models.EntityTypeFeature {
+		t.Errorf("expected linked documents for entity type %q, got %q", models.EntityTypeFeature, listedEntityType)
+	}
+	if listedEntityID != 5 {
+		t.Errorf("expected linked documents for entity ID 5, got %d", listedEntityID)
+	}
 }
 
-func TestEntityDocumentService_UnlinkDocumentByKey_DocumentNotFound_Idempotent(t *testing.T) {
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return nil, fmt.Errorf("document not found")
+func TestEntityDocumentService_UnlinkDocumentByKey_LinkNotFound_Idempotent(t *testing.T) {
+	unlinkCalls := 0
+	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Other Doc"}}, nil
+		},
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+			unlinkCalls++
+			return nil
 		},
 	}
 
-	linkRepo := &mockEntityDocumentLinkRepo{}
-
 	svc := NewEntityDocumentService(
-		repo, linkRepo,
+		&mockEntityDocumentRepo{}, linkRepo,
 		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 5, "E07-F01-001", "docs/plan/E07/F01/tasks/task.md")),
 		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "E07-F01-001", "Missing Doc")
 
-	// Idempotent: document-not-found is treated as success
+	// Idempotent: a missing association is treated as success.
 	if err != nil {
 		t.Fatalf("expected nil error (idempotent), got: %v", err)
+	}
+	if unlinkCalls != 0 {
+		t.Fatalf("expected no unlink calls for missing association, got %d", unlinkCalls)
+	}
+}
+
+func TestEntityDocumentService_UnlinkDocumentByKey_DuplicateLinkedTitles_Ambiguous(t *testing.T) {
+	unlinkCalls := 0
+	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{
+				{ID: 42, Title: "My Doc", FilePath: "docs/first.md"},
+				{ID: 43, Title: "My Doc", FilePath: "docs/second.md"},
+			}, nil
+		},
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+			unlinkCalls++
+			return nil
+		},
+	}
+
+	svc := NewEntityDocumentService(
+		&mockEntityDocumentRepo{}, linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 5, "T-E07-F01-001", "docs/plan/E07/F01/tasks/task.md")),
+		".",
+	)
+
+	err := svc.UnlinkDocumentByKey(context.Background(), "T-E07-F01-001", "My Doc")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguity error, got: %v", err)
+	}
+	if unlinkCalls != 0 {
+		t.Fatalf("expected no unlink calls for ambiguous title, got %d", unlinkCalls)
+	}
+}
+
+func TestEntityDocumentService_UnlinkDocumentByKey_ListFails(t *testing.T) {
+	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+
+	svc := NewEntityDocumentService(
+		&mockEntityDocumentRepo{}, linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 5, "T-E07-F01-001", "docs/plan/E07/F01/tasks/task.md")),
+		".",
+	)
+
+	err := svc.UnlinkDocumentByKey(context.Background(), "T-E07-F01-001", "My Doc")
+	if err == nil || !strings.Contains(err.Error(), "failed to list documents") {
+		t.Fatalf("expected list error to be returned, got: %v", err)
 	}
 }
 
@@ -321,20 +391,17 @@ func TestEntityDocumentService_UnlinkDocumentByKey_EntityNotFound(t *testing.T) 
 }
 
 func TestEntityDocumentService_UnlinkDocumentByKey_UnlinkFails(t *testing.T) {
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
-
 	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			return fmt.Errorf("db error")
 		},
 	}
 
 	svc := NewEntityDocumentService(
-		repo, linkRepo,
+		&mockEntityDocumentRepo{}, linkRepo,
 		entityLookupResult(entityWithFilePath(models.EntityTypeBug, 5, "B001", "docs/plan/B001/bug.md")),
 		".",
 	)

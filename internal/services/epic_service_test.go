@@ -2445,6 +2445,9 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 	linkRepo := &mockEpicLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Design Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			capturedEpicID = entityID
 			capturedDocID = documentID
@@ -2516,7 +2519,11 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 			return nil, fmt.Errorf("document not found")
 		},
 	}
-	linkRepo := &mockEpicLinkRepo{}
+	linkRepo := &mockEpicLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{}, nil
+		},
+	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
@@ -2542,6 +2549,9 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 		},
 	}
 	linkRepo := &mockEpicLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Design Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			return fmt.Errorf("unlink failed")
 		},

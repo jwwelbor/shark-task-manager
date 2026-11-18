@@ -2613,6 +2613,9 @@ func TestFeatureService_UnlinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 	linkRepo := &mockFeatureLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 55, Title: "API Spec"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			capturedFeatureID = entityID
 			capturedDocID = documentID
@@ -2684,7 +2687,11 @@ func TestFeatureService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 			return nil, fmt.Errorf("document not found")
 		},
 	}
-	linkRepo := &mockFeatureLinkRepo{}
+	linkRepo := &mockFeatureLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{}, nil
+		},
+	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
@@ -2710,6 +2717,9 @@ func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
 		},
 	}
 	linkRepo := &mockFeatureLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 55, Title: "API Spec"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			return fmt.Errorf("unlink failed")
 		},
