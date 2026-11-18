@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // runSprintWorkflowPaths lists every shipped copy of the run-sprint workflow
@@ -148,9 +150,9 @@ func TestRunSprintWorkflowDrainsOnlyAfterVerifiedTerminality(t *testing.T) {
 		branch := sprintEmptySelectionBranch(t, path)
 		allTerminal := strings.Index(branch, "A successful all-status read with no unfinished assignments proves")
 		drained := strings.Index(branch, `LOOP_OUTCOME = "drained"`)
-		if allTerminal == -1 || drained == -1 || allTerminal > drained {
-			t.Fatalf("%s: only a verified all-terminal read may report drained", path)
-		}
+		require.NotEqual(t, -1, allTerminal, "%s: all-terminal proof marker is missing", path)
+		require.NotEqual(t, -1, drained, "%s: drained outcome marker is missing", path)
+		require.Less(t, allTerminal, drained, "%s: only a verified all-terminal read may report drained", path)
 		if strings.Contains(branch, "break  # backlog drained") {
 			t.Errorf("%s: empty selector result must not directly report drained", path)
 		}
@@ -166,9 +168,7 @@ func TestRunSprintWorkflowListsOnlyVerifiedAssignmentsAtClose(t *testing.T) {
 	for _, path := range sprintWorkflowCopies(t) {
 		source := strings.Join(strings.Fields(sprintWorkflowText(t, path)), " ")
 		closeStart := strings.Index(source, "## Step 4: Close Gate")
-		if closeStart == -1 {
-			t.Fatalf("%s: close gate section is missing", path)
-		}
+		require.NotEqual(t, -1, closeStart, "%s: close gate section is missing", path)
 		closeGate := source[closeStart:]
 		for _, required := range []string{
 			"complete, successful all-status read",
@@ -179,6 +179,42 @@ func TestRunSprintWorkflowListsOnlyVerifiedAssignmentsAtClose(t *testing.T) {
 				t.Errorf("%s: close gate must state %q", path, required)
 			}
 		}
+	}
+}
+
+func TestRunSprintWorkflowKeepsCappedAndMalformedSelectorOutcomesUnverified(t *testing.T) {
+	for _, path := range sprintWorkflowCopies(t) {
+		source := sprintWorkflowText(t, path)
+
+		capBranch := sprintTextBetween(
+			t,
+			path,
+			source,
+			"if ITERATION >= MAX_ITERATIONS and NEXT_ENTITY was not empty:",
+			"\n```",
+		)
+		require.Contains(t, capBranch, `LOOP_OUTCOME = "capped"`, "%s: iteration cap must set the capped outcome", path)
+		require.Contains(t, capBranch, "Proceed to Step 3 (still report and prompt; do not skip close gate)", "%s: capped outcome must continue to reporting and the close gate", path)
+		require.NotContains(t, capBranch, `LOOP_OUTCOME = "drained"`, "%s: reaching the iteration cap cannot report drained", path)
+
+		errorHandling := sprintTextBetween(t, path, source, "## Error Handling", "## Idempotency")
+		malformedNext := sprintTextBetween(
+			t,
+			path,
+			errorHandling,
+			"| `shark sprint next` returns a malformed JSON response |",
+			"| All-status sprint backlog read fails",
+		)
+		require.Contains(t, malformedNext, "Print the raw response", "%s: malformed selector output must be surfaced", path)
+		require.Contains(t, malformedNext, `LOOP_OUTCOME = "paused"`, "%s: malformed selector output must pause", path)
+		require.Contains(t, malformedNext, "proceed to Step 3 without calling the backlog drained", "%s: malformed selector output must not be treated as a drained backlog", path)
+		require.NotContains(t, malformedNext, `LOOP_OUTCOME = "drained"`, "%s: malformed selector output cannot report drained", path)
+
+		closeGate := strings.Join(strings.Fields(sprintTextBetween(t, path, source, "## Step 4: Close Gate", "Ask the user:")), " ")
+		require.Contains(t, closeGate, "If `LOOP_OUTCOME` is `paused` or `capped`", "%s: close gate must cover paused and capped outcomes", path)
+		require.Contains(t, closeGate, "the sprint is not verified drained", "%s: close gate must not imply paused or capped sprints are drained", path)
+		require.Contains(t, closeGate, "List assignment keys and statuses only when they come from a complete, successful all-status read", "%s: close gate must condition assignment claims on a complete inventory", path)
+		require.Contains(t, closeGate, "do not imply the full remaining set is known", "%s: close gate must not imply an incomplete inventory is complete", path)
 	}
 }
 
@@ -203,45 +239,29 @@ func TestRunSprintWorkflowResolvesMetadataOncePerEntityType(t *testing.T) {
 func sprintWorkflowCopies(t *testing.T) []string {
 	t.Helper()
 	root, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err, "get working directory")
 	return runSprintWorkflowPaths(root)
 }
 
 func sprintWorkflowText(t *testing.T, path string) string {
 	t.Helper()
 	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	require.NoError(t, err, "read workflow %s", path)
 	return string(content)
 }
 
 func sprintEmptySelectionBranch(t *testing.T, path string) string {
 	t.Helper()
 	source := sprintWorkflowText(t, path)
-	start := strings.Index(source, "if NEXT_ENTITY is null or empty")
-	if start == -1 {
-		t.Fatalf("%s: empty-selector branch is missing", path)
-	}
-	end := strings.Index(source[start:], "ENTITY_KEY = NEXT_ENTITY.key")
-	if end == -1 {
-		t.Fatalf("%s: empty-selector branch does not return to normal dispatch", path)
-	}
-	return source[start : start+end]
+	return sprintTextBetween(t, path, source, "if NEXT_ENTITY is null or empty", "ENTITY_KEY = NEXT_ENTITY.key")
 }
 
 func sprintTextBetween(t *testing.T, path, source, start, end string) string {
 	t.Helper()
 	startAt := strings.Index(source, start)
-	if startAt == -1 {
-		t.Fatalf("%s: missing contract marker %q", path, start)
-	}
+	require.NotEqual(t, -1, startAt, "%s: missing contract marker %q", path, start)
 	endAt := strings.Index(source[startAt+len(start):], end)
-	if endAt == -1 {
-		t.Fatalf("%s: missing end marker %q after %q", path, end, start)
-	}
+	require.NotEqual(t, -1, endAt, "%s: missing end marker %q after %q", path, end, start)
 	return source[startAt : startAt+len(start)+endAt]
 }
 
