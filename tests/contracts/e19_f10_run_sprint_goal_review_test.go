@@ -149,10 +149,13 @@ func TestRunSprintWorkflowDrainsOnlyAfterVerifiedTerminality(t *testing.T) {
 	for _, path := range sprintWorkflowCopies(t) {
 		branch := sprintEmptySelectionBranch(t, path)
 		allTerminal := strings.Index(branch, "A successful all-status read with no unfinished assignments proves")
+		emptyInventory := strings.Index(branch, "including an empty assignment set")
 		drained := strings.Index(branch, `LOOP_OUTCOME = "drained"`)
 		require.NotEqual(t, -1, allTerminal, "%s: all-terminal proof marker is missing", path)
+		require.NotEqual(t, -1, emptyInventory, "%s: an empty assignment set must be a valid drained case", path)
 		require.NotEqual(t, -1, drained, "%s: drained outcome marker is missing", path)
 		require.Less(t, allTerminal, drained, "%s: only a verified all-terminal read may report drained", path)
+		require.Less(t, emptyInventory, drained, "%s: empty inventory must remain within the verified terminality proof", path)
 		if strings.Contains(branch, "break  # backlog drained") {
 			t.Errorf("%s: empty selector result must not directly report drained", path)
 		}
