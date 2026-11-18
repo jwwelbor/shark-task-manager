@@ -34,13 +34,21 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 	requestedBy, _ := cmd.Flags().GetString("requested-by")
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
+	sizeStr, err := cmd.Flags().GetString("size")
+	if err != nil {
+		return fmt.Errorf("read --size: %w", err)
+	}
 	var size *int
-	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+	if sizeStr != "" {
 		parsedSize, err := models.ParseSize(sizeStr)
 		if err != nil {
 			return fmt.Errorf("invalid --size value: %w", err)
 		}
 		size = &parsedSize
+	}
+	tags, err := cmd.Flags().GetStringSlice("tag")
+	if err != nil {
+		return fmt.Errorf("read --tag: %w", err)
 	}
 	body, err := cli.ResolveContentInput(cmd)
 	if err != nil {
@@ -55,6 +63,7 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 		EpicKey:       epicKey,
 		FeatureKey:    featureKey,
 		Size:          size,
+		Tags:          tags,
 		Body:          body,
 	}
 

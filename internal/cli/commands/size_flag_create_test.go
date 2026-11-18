@@ -15,6 +15,7 @@ package commands
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -294,8 +295,8 @@ func TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize(t *testing.T) {
 		size string
 		want int
 	}{
-		{name: "change numeric size", cmd: createChangeCmd, size: "3", want: 3},
-		{name: "change-card label size", cmd: createChangeCardCmd, size: "M", want: 3},
+		{name: "change XS size", cmd: createChangeCmd, size: "XS", want: 1},
+		{name: "change-card label size", cmd: createChangeCardCmd, size: "XXL", want: 13},
 	}
 
 	for _, tt := range tests {
@@ -316,7 +317,11 @@ func TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize(t *testing.T) {
 			cmd.SetContext(context.Background())
 			flag := cmd.Flags().Lookup("size")
 			originalSize := flag.Value.String()
-			t.Cleanup(func() { _ = cmd.Flags().Set("size", originalSize) })
+			t.Cleanup(func() {
+				if err := cmd.Flags().Set("size", originalSize); err != nil {
+					t.Errorf("restore --size: %v", err)
+				}
+			})
 			if err := cmd.Flags().Set("size", tt.size); err != nil {
 				t.Fatalf("set --size: %v", err)
 			}
@@ -353,7 +358,11 @@ func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) 
 	cmd.SetContext(context.Background())
 	flag := cmd.Flags().Lookup("size")
 	originalSize := flag.Value.String()
-	t.Cleanup(func() { _ = cmd.Flags().Set("size", originalSize) })
+	t.Cleanup(func() {
+		if err := cmd.Flags().Set("size", originalSize); err != nil {
+			t.Errorf("restore --size: %v", err)
+		}
+	})
 	if err := cmd.Flags().Set("size", ""); err != nil {
 		t.Fatalf("clear --size: %v", err)
 	}
@@ -372,30 +381,100 @@ func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) 
 }
 
 func TestUnifiedChangeCreate_InvalidSizeRejectedBeforeService(t *testing.T) {
+	for _, bad := range []string{"clear", "4", "XXXL"} {
+		t.Run(bad, func(t *testing.T) {
+			called := false
+			stub := &MockChangeCardService{
+				CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+					called = true
+					return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
+				},
+			}
+			withChangeCardSvcOverrideForSize(t, stub)
+
+			cmd := createChangeCmd
+			cmd.SetContext(context.Background())
+			flag := cmd.Flags().Lookup("size")
+			originalSize := flag.Value.String()
+			t.Cleanup(func() {
+				if err := cmd.Flags().Set("size", originalSize); err != nil {
+					t.Errorf("restore --size: %v", err)
+				}
+			})
+			if err := cmd.Flags().Set("size", bad); err != nil {
+				t.Fatalf("set invalid --size: %v", err)
+			}
+
+			err := runChangeCardCreate(cmd, []string{"Invalid-size change"})
+			if !errors.Is(err, models.ErrInvalidSize) {
+				t.Fatalf("error = %v, want models.ErrInvalidSize", err)
+			}
+			if called {
+				t.Fatal("service should not be called for invalid --size")
+			}
+		})
+	}
+}
+
+func TestUnifiedChangeCreate_SizeFlagReadErrorIsReturned(t *testing.T) {
 	called := false
-	stub := &MockChangeCardService{
+	withChangeCardSvcOverrideForSize(t, &MockChangeCardService{
 		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 			called = true
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: input.Title}}, false, nil
 		},
-	}
-	withChangeCardSvcOverrideForSize(t, stub)
+	})
 
-	cmd := createChangeCmd
+	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
-	flag := cmd.Flags().Lookup("size")
-	originalSize := flag.Value.String()
-	t.Cleanup(func() { _ = cmd.Flags().Set("size", originalSize) })
-	if err := cmd.Flags().Set("size", "clear"); err != nil {
-		t.Fatalf("set invalid --size: %v", err)
-	}
-
-	err := runChangeCardCreate(cmd, []string{"Invalid-size change"})
-	if !errors.Is(err, models.ErrInvalidSize) {
-		t.Fatalf("error = %v, want models.ErrInvalidSize", err)
+	cmd.Flags().StringSlice("tag", nil, "")
+	err := runChangeCardCreate(cmd, []string{"Invalid-size-flag change"})
+	if err == nil {
+		t.Fatal("expected --size flag lookup error")
 	}
 	if called {
-		t.Fatal("service should not be called for invalid --size")
+		t.Fatal("service should not be called when --size cannot be read")
+	}
+}
+
+func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
+	for _, cmd := range []*cobra.Command{createChangeCmd, createChangeCardCmd} {
+		t.Run(cmd.Name(), func(t *testing.T) {
+			var capturedInput services.CreateChangeCardInput
+			withChangeCardSvcOverrideForSize(t, &MockChangeCardService{
+				CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+					capturedInput = input
+					return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
+				},
+			})
+
+			cmd.SetContext(context.Background())
+			sizeFlag := cmd.Flags().Lookup("size")
+			tagFlag := cmd.Flags().Lookup("tag")
+			originalSize := sizeFlag.Value.String()
+			originalTags := tagFlag.Value.String()
+			t.Cleanup(func() {
+				if err := cmd.Flags().Set("size", originalSize); err != nil {
+					t.Errorf("restore --size: %v", err)
+				}
+				if err := cmd.Flags().Set("tag", originalTags); err != nil {
+					t.Errorf("restore --tag: %v", err)
+				}
+			})
+			if err := cmd.Flags().Set("size", ""); err != nil {
+				t.Fatalf("clear --size: %v", err)
+			}
+			if err := cmd.Flags().Set("tag", "ops,review"); err != nil {
+				t.Fatalf("set --tag: %v", err)
+			}
+
+			if err := runChangeCardCreate(cmd, []string{"Tagged change"}); err != nil {
+				t.Fatalf("runChangeCardCreate() error = %v", err)
+			}
+			if !reflect.DeepEqual(capturedInput.Tags, []string{"ops", "review"}) {
+				t.Errorf("service input Tags = %q, want [ops review]", capturedInput.Tags)
+			}
+		})
 	}
 }
 
