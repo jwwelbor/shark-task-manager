@@ -209,13 +209,14 @@ func TestB079ResearchCLIResolvesSluggedTechDebtSelector(t *testing.T) {
 	c := newB079ResearchCLI(t)
 	c.success(t, "td", "create", "Slug Lookup")
 	const sluggedKey = "TD-001-slug-lookup"
-	c.success(t, "related-docs", "add", "Slugged report", "docs/slugged.md", "--tech-debt="+sluggedKey)
+	paddedSluggedKey := " " + sluggedKey + " "
+	c.success(t, "related-docs", "add", "Slugged report", "docs/slugged.md", "--tech-debt="+paddedSluggedKey)
 	require.Equal(t, []string{"docs/slugged.md"}, c.reportPaths(t, sluggedKey))
 	var documents []models.Document
-	require.NoError(t, json.Unmarshal(c.success(t, "related-docs", "list", "--tech-debt="+sluggedKey), &documents))
+	require.NoError(t, json.Unmarshal(c.success(t, "related-docs", "list", "--tech-debt="+paddedSluggedKey), &documents))
 	require.Len(t, documents, 1)
 	require.Equal(t, "docs/slugged.md", documents[0].FilePath)
-	c.success(t, "related-docs", "delete", "Slugged report", "--tech-debt="+sluggedKey)
+	c.success(t, "related-docs", "delete", "Slugged report", "--tech-debt="+paddedSluggedKey)
 	require.Empty(t, c.reportPaths(t, "TD-001"))
 }
 

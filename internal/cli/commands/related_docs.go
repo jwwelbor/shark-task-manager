@@ -262,6 +262,7 @@ func resolveRelatedDocsExplicitSelection(cmd *cobra.Command) (string, string, er
 		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, --question, or --tech-debt must specify an entity key")
 	}
 	if kind == "tech-debt" {
+		key = strings.TrimSpace(key)
 		if err := validateRelatedDocsTechDebtKey(key); err != nil {
 			return "", "", err
 		}
