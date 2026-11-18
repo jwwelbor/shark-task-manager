@@ -151,14 +151,25 @@ contradict work.
 
 ### Route attestation pre-flight (B077)
 
-Before claiming the entity or starting a worker, the parent/adapter must verify
-that the selected host adapter can map the exact requested provider/model to
-an explicit host model selector and can independently observe the launched
-worker's effective provider/model identity. The requested route, Shark persona
+Before claiming the entity or starting a worker, prefer the exact requested
+provider/model route. For an Anthropic request, Claude Code is preferred when
+available, but its absence alone is not a rejection reason. Use a fallback
+only through a documented compatible host selector and explicit compatibility
+mapping. The selector must observe the worker-correlated effective
+provider/model identity. Record the mapping and its capability and identity
+evidence in `evidence_ref`; never infer compatibility from model names. Never
+silently substitute the requested route.
+The requested route, Shark persona
 (`response.agent_type`), host worker class, and reasoning effort
 (`response.effort`) are separate values. Do not infer the model from
-`response.agent_type`, host worker class, or `response.effort`, and do not use
-the parent's model as an implicit fallback.
+`response.agent_type`, host worker class, or
+`response.effort`, and do not use the parent's model as an implicit fallback.
+
+When `response.model` is empty, preserve that exact requested value. Use a
+provider default only when the host reference documents it and the adapter can
+capture the worker-correlated concrete effective model. Reject before claim
+only when no exact route or documented compatible fallback can be selected and
+observed; missing or ambiguous route evidence is not permission to guess.
 
 If pre-flight classifies the route as `unsupported` or `unverified`, the
 parent/adapter issues a bounded parent/adapter pre-dispatch rejection that
@@ -168,23 +179,24 @@ no claim, and causes no status advance; the parent stops and reports the
 rejection. `blocked_external` is reserved for a dispatched worker's control
 envelope. Do not turn a pre-dispatch rejection into that worker result.
 
-On a native Codex host, the route remains `unverified`: the Codex provider
-reference documents Codex CLI only and does not establish native host model
-selection or effective provider/model identity for a native host worker.
-Codex CLI evidence does not attest a native host launch. Keep the route blocked
-before claim and spawn until host-specific evidence establishes both an
-explicit selector and independently observable identity for that worker. Do
-not silently switch to the Codex CLI adapter.
+On a native Codex host, do not infer native host model selection from the
+Codex CLI reference. The CLI's `--model` option may be used only when policy
+explicitly selects the Codex CLI adapter and a documented compatible mapping
+provides the selector; that option's presence proves selector availability,
+not support or effective identity for a particular model. Require
+worker-correlated observation of the effective provider and model before
+attesting the route. Do not switch to the Codex CLI adapter silently.
 
-For any route with captured support, pass the requested model through its
-documented host selector. Correlate host evidence through `worker_id` and,
-when needed, a distinct `host_session_id`; `session_id` remains only the
-parent's Shark claim ID. Apply the phase/status field and evidence rules in
-`context/host-adapter-contract.md`. A post-dispatch `unverified` or `mismatch`
-route rejects the worker result, stops the worker when supported, and does not
-advance the entity. A `verified` route permits its worker result to continue
-through the existing control-envelope path. Keep `response.prompt`
-byte-for-byte unchanged throughout this check.
+For any selected route, pass the requested model or explicitly mapped fallback
+model through its documented selector without overwriting the Shark request.
+Correlate host evidence through `worker_id` and, when needed, a distinct
+`host_session_id`; `session_id` remains only the parent's Shark claim ID. Apply
+the phase/status field and evidence rules in `context/host-adapter-contract.md`.
+A post-dispatch `unverified` or `mismatch` route rejects the worker result,
+stops the worker when supported, and does not advance the entity. A `verified`
+route permits its worker result to continue through the existing control-
+envelope path. Keep `response.prompt` byte-for-byte unchanged throughout this
+check.
 
 Claim the concrete entity returned by Shark:
 
@@ -226,8 +238,12 @@ Spawn the host worker using a host-safe adapter:
   `sonnet`/`opus`/`haiku`/`fable`, or a full model name). `subagent_type`
   only controls reasoning effort — `model` is what actually selects the
   model, so both must be set together; do not skip this and assume effort
-  routing covers it. Omit `model` when `response.model` is empty. Do not pass
-  a non-Claude value (e.g. `codex`) as the Agent tool's `model` — that param
+  routing covers it. When `response.model` is empty, omit `model` only if
+  preflight selected Claude's documented provider default and the adapter can
+  capture the worker-correlated effective provider and concrete model; keep
+  the requested model empty. If Claude Code is unavailable, continue only
+  through an explicitly documented compatible host route. Do not pass a
+  non-Claude value (e.g. `codex`) as the Agent tool's `model` — that param
   only accepts Claude models.
 
 ### Host-neutral handoff and lifecycle
@@ -297,9 +313,22 @@ the event stream and the final message. Run the worker in the background so
 the parent can poll `$EVENT_FILE` while it is still running, and keep stdout
 (the JSONL event stream) separate from stderr:
 
+Set `SELECTED_MODEL` from the exact requested model or the explicitly
+documented compatibility mapping selected during preflight; never derive it
+from the parent session. Pass a non-empty selected model using Codex CLI's
+documented `--model` selector. If the selected route uses a documented Codex
+provider default, omit that selector only when the effective model can still
+be observed and correlated to this worker. The `--model` flag alone does not
+prove which model ran.
+
 ```bash
+CODEX_MODEL_ARGS=()
+if [ -n "$SELECTED_MODEL" ]; then
+  CODEX_MODEL_ARGS=(--model "$SELECTED_MODEL")
+fi
 timeout --foreground 900 codex exec -C "$REPO_ROOT" -s danger-full-access \
-  --json --output-last-message "$RESULT_FILE" - < "$PROMPT_FILE" \
+  "${CODEX_MODEL_ARGS[@]}" --json --output-last-message "$RESULT_FILE" \
+  - < "$PROMPT_FILE" \
   > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
 CODEX_PID=$!
 ```
