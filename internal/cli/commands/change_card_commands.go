@@ -34,6 +34,14 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 	requestedBy, _ := cmd.Flags().GetString("requested-by")
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
+	var size *int
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		parsedSize, err := models.ParseSize(sizeStr)
+		if err != nil {
+			return fmt.Errorf("invalid --size value: %w", err)
+		}
+		size = &parsedSize
+	}
 	body, err := cli.ResolveContentInput(cmd)
 	if err != nil {
 		return err
@@ -46,10 +54,11 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 		RequestedBy:   requestedBy,
 		EpicKey:       epicKey,
 		FeatureKey:    featureKey,
+		Size:          size,
 		Body:          body,
 	}
 
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	card, fileWasLinked, err := svc.CreateChangeCard(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to create change-card: %w", err)

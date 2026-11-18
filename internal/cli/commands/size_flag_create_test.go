@@ -283,6 +283,122 @@ func TestChangeCreate_SizeFlag_Absent_SizeIsNil(t *testing.T) {
 	}
 }
 
+// TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize checks the
+// unified `shark create change` handlers with the production
+// size_required_for: ["change"] contract. Both registered command forms must
+// forward an explicit size to the service.
+func TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  *cobra.Command
+		size string
+		want int
+	}{
+		{name: "change numeric size", cmd: createChangeCmd, size: "3", want: 3},
+		{name: "change-card label size", cmd: createChangeCardCmd, size: "M", want: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedInput services.CreateChangeCardInput
+			stub := &MockChangeCardService{
+				CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+					if input.Size == nil {
+						return nil, false, &services.SizeRequiredError{EntityType: string(models.EntityTypeChange)}
+					}
+					capturedInput = input
+					return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
+				},
+			}
+			withChangeCardSvcOverrideForSize(t, stub)
+
+			cmd := tt.cmd
+			cmd.SetContext(context.Background())
+			flag := cmd.Flags().Lookup("size")
+			originalSize := flag.Value.String()
+			t.Cleanup(func() { _ = cmd.Flags().Set("size", originalSize) })
+			if err := cmd.Flags().Set("size", tt.size); err != nil {
+				t.Fatalf("set --size: %v", err)
+			}
+
+			if err := runChangeCardCreate(cmd, []string{"Explicit-size change"}); err != nil {
+				t.Fatalf("runChangeCardCreate() error = %v", err)
+			}
+			if capturedInput.Size == nil {
+				t.Fatal("expected explicit --size to reach the change-card service")
+			}
+			if *capturedInput.Size != tt.want {
+				t.Errorf("service input Size = %d, want %d", *capturedInput.Size, tt.want)
+			}
+		})
+	}
+}
+
+// TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired verifies that
+// forwarding an optional flag does not bypass change-card size enforcement.
+func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) {
+	called := false
+	stub := &MockChangeCardService{
+		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+			called = true
+			if input.Size != nil {
+				t.Errorf("service input Size = %d, want nil when --size is omitted", *input.Size)
+			}
+			return nil, false, &services.SizeRequiredError{EntityType: string(models.EntityTypeChange)}
+		},
+	}
+	withChangeCardSvcOverrideForSize(t, stub)
+
+	cmd := createChangeCmd
+	cmd.SetContext(context.Background())
+	flag := cmd.Flags().Lookup("size")
+	originalSize := flag.Value.String()
+	t.Cleanup(func() { _ = cmd.Flags().Set("size", originalSize) })
+	if err := cmd.Flags().Set("size", ""); err != nil {
+		t.Fatalf("clear --size: %v", err)
+	}
+
+	err := runChangeCardCreate(cmd, []string{"Missing-size change"})
+	if err == nil {
+		t.Fatal("expected service to reject missing size when change is required")
+	}
+	var sizeErr *services.SizeRequiredError
+	if !errors.As(err, &sizeErr) {
+		t.Fatalf("error = %v, want *services.SizeRequiredError", err)
+	}
+	if !called {
+		t.Fatal("expected required-size service to be called")
+	}
+}
+
+func TestUnifiedChangeCreate_InvalidSizeRejectedBeforeService(t *testing.T) {
+	called := false
+	stub := &MockChangeCardService{
+		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
+			called = true
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}}, false, nil
+		},
+	}
+	withChangeCardSvcOverrideForSize(t, stub)
+
+	cmd := createChangeCmd
+	cmd.SetContext(context.Background())
+	flag := cmd.Flags().Lookup("size")
+	originalSize := flag.Value.String()
+	t.Cleanup(func() { _ = cmd.Flags().Set("size", originalSize) })
+	if err := cmd.Flags().Set("size", "clear"); err != nil {
+		t.Fatalf("set invalid --size: %v", err)
+	}
+
+	err := runChangeCardCreate(cmd, []string{"Invalid-size change"})
+	if !errors.Is(err, models.ErrInvalidSize) {
+		t.Fatalf("error = %v, want models.ErrInvalidSize", err)
+	}
+	if called {
+		t.Fatal("service should not be called for invalid --size")
+	}
+}
+
 func TestChangeCreate_SizeFlag_Invalid_ReturnsError(t *testing.T) {
 	stub := &MockChangeCardService{
 		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
