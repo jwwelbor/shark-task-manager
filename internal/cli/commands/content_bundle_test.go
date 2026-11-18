@@ -62,6 +62,72 @@ func TestSkillAndAgentCommandsRegistered(t *testing.T) {
 	require.NotNil(t, findRegisteredCommand(cli.RootCmd, "agent"), "top-level agent command should be registered")
 }
 
+func TestResearchCatalogDataGetCommandIsRegistered(t *testing.T) {
+	dataCmd := findRegisteredCommand(cli.RootCmd, "data")
+	require.NotNil(t, dataCmd, "top-level data command should be registered")
+	getCmd := findRegisteredCommand(dataCmd, "get")
+	require.NotNil(t, getCmd, "data get command should be registered")
+	assert.Equal(t, "get <resource-path>", getCmd.Use)
+}
+
+func TestResearchCatalogDataGetReadsEmbeddedCatalogWithoutInstallingBundle(t *testing.T) {
+	root := setupContentCommandProject(t, `{}`)
+	dataCmd := findRegisteredCommand(cli.RootCmd, "data")
+	require.NotNil(t, dataCmd)
+	getCmd := findRegisteredCommand(dataCmd, "get")
+	require.NotNil(t, getCmd)
+
+	var runErr error
+	out := captureOutput(t, func() { runErr = getCmd.RunE(getCmd, []string{"research/recipes.yaml"}) })
+	require.NoError(t, runErr)
+	assert.Contains(t, string(out), "recipes:")
+	assert.Contains(t, string(out), "tech_debt")
+	_, err := os.Stat(filepath.Join(root, "shark-data"))
+	assert.ErrorIs(t, err, os.ErrNotExist, "read-only catalog lookup must not install shark-data")
+
+	cli.GlobalConfig.JSON = true
+	jsonOut := captureOutput(t, func() { runErr = getCmd.RunE(getCmd, []string{"research/recipes.yaml"}) })
+	require.NoError(t, runErr)
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal(jsonOut, &payload))
+	assert.Equal(t, "embedded", payload["source"])
+	assert.Equal(t, string(out), payload["content"])
+}
+
+func TestResearchCatalogDataGetUsesConfiguredOverrideAndReportsSource(t *testing.T) {
+	root := setupContentCommandProject(t, `{"shark_data_path":"bundle"}`)
+	writeContentCommandBundleFile(t, root, "bundle/research/recipes.yaml", "version: disk\nrecipes: {}\n")
+	writeContentCommandBundleFile(t, root, "bundle/overrides/research/recipes.yaml", "version: override\nrecipes: {}\n")
+	cli.GlobalConfig.JSON = true
+	dataCmd := findRegisteredCommand(cli.RootCmd, "data")
+	require.NotNil(t, dataCmd)
+	getCmd := findRegisteredCommand(dataCmd, "get")
+	require.NotNil(t, getCmd)
+
+	var runErr error
+	out := captureOutput(t, func() { runErr = getCmd.RunE(getCmd, []string{"research/recipes.yaml"}) })
+	require.NoError(t, runErr)
+
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal(out, &payload))
+	assert.Equal(t, "research/recipes.yaml", payload["path"])
+	assert.Equal(t, "override", payload["source"])
+	assert.Equal(t, "version: override\nrecipes: {}\n", payload["content"])
+
+	require.NoError(t, os.Remove(filepath.Join(root, "bundle", "overrides", "research", "recipes.yaml")))
+	out = captureOutput(t, func() { runErr = getCmd.RunE(getCmd, []string{"research/recipes.yaml"}) })
+	require.NoError(t, runErr)
+	require.NoError(t, json.Unmarshal(out, &payload))
+	assert.Equal(t, "disk", payload["source"])
+	assert.Equal(t, "version: disk\nrecipes: {}\n", payload["content"])
+}
+
+func TestResearchCatalogDataGetRejectsUnsupportedResourcePaths(t *testing.T) {
+	setupContentCommandProject(t, `{}`)
+	err := runDataGet(dataGetCmd, []string{"../.sharkconfig.json"})
+	assert.ErrorContains(t, err, "unsupported data resource")
+}
+
 func TestBundleContentListCommandHelpDescribesDetailMode(t *testing.T) {
 	for _, cmd := range []*cobra.Command{skillListCmd, agentListCmd} {
 		assert.Contains(t, cmd.Short, "--json --all")

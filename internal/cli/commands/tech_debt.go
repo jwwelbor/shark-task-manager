@@ -23,6 +23,9 @@ type techDebtServicer interface {
 	TriageTechDebt(ctx context.Context, key string, input services.TriageTechDebtInput) (*models.TechDebt, error)
 	GetNextStatusForTechDebt(td *models.TechDebt) *services.NextStatusInfo
 	GetOrchestratorAction(td *models.TechDebt) *config.PopulatedAction
+	LinkDocument(ctx context.Context, key, title, path string) error
+	UnlinkDocument(ctx context.Context, key, title string) error
+	ListRelatedDocumentsByKey(ctx context.Context, key string) ([]*models.Document, error)
 }
 
 // tdSvcOverride is non-nil only during tests.

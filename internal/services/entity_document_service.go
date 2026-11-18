@@ -10,7 +10,7 @@ import (
 )
 
 // EntityDocumentRepository defines the minimal interface for document operations
-// shared across all entity types (Task, Feature, Epic, Bug, ChangeCard).
+// shared across all entity types (Task, Feature, Epic, Bug, ChangeCard, TechDebt).
 type EntityDocumentRepository interface {
 	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
 	GetByTitle(ctx context.Context, title string) (*models.Document, error)

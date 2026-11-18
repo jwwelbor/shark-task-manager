@@ -2,7 +2,9 @@
 {{template "advance_preamble" .}}
 
 Research tech debt {{.id}}: "{{.title}}" using the v2 universal recipe
-catalog. Write only `{{.id}}.research-report.md` beside {{.file_path}} and
+catalog. Read it with `shark data get research/recipes.yaml`; the command reads
+the configured catalog or its embedded default without installing shark-data.
+Write only `{{.id}}.research-report.md` beside {{.file_path}} and
 register it as a related document. Front matter must include only
 `research_schema: 2`, `rigor`, a `categories` list drawn only from the
 recipe's category vocabulary (e.g. `frontend`, `backend`, `api`, `data`,

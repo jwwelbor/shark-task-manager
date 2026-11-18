@@ -19,14 +19,17 @@ import (
 
 // MockTechDebtService implements techDebtServicer for testing.
 type MockTechDebtService struct {
-	CreateTechDebtFunc           func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error)
-	GetTechDebtFunc              func(ctx context.Context, key string) (*models.TechDebt, error)
-	ListTechDebtsFunc            func(ctx context.Context, filters services.TechDebtFilters) ([]*models.TechDebt, error)
-	UpdateTechDebtFunc           func(ctx context.Context, key string, updates services.TechDebtUpdates) (*models.TechDebt, error)
-	DeleteTechDebtFunc           func(ctx context.Context, key string) error
-	TriageTechDebtFunc           func(ctx context.Context, key string, input services.TriageTechDebtInput) (*models.TechDebt, error)
-	GetNextStatusForTechDebtFunc func(td *models.TechDebt) *services.NextStatusInfo
-	GetOrchestratorActionFunc    func(td *models.TechDebt) *config.PopulatedAction
+	CreateTechDebtFunc            func(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error)
+	GetTechDebtFunc               func(ctx context.Context, key string) (*models.TechDebt, error)
+	ListTechDebtsFunc             func(ctx context.Context, filters services.TechDebtFilters) ([]*models.TechDebt, error)
+	UpdateTechDebtFunc            func(ctx context.Context, key string, updates services.TechDebtUpdates) (*models.TechDebt, error)
+	DeleteTechDebtFunc            func(ctx context.Context, key string) error
+	TriageTechDebtFunc            func(ctx context.Context, key string, input services.TriageTechDebtInput) (*models.TechDebt, error)
+	GetNextStatusForTechDebtFunc  func(td *models.TechDebt) *services.NextStatusInfo
+	GetOrchestratorActionFunc     func(td *models.TechDebt) *config.PopulatedAction
+	LinkDocumentFunc              func(ctx context.Context, key, title, path string) error
+	UnlinkDocumentFunc            func(ctx context.Context, key, title string) error
+	ListRelatedDocumentsByKeyFunc func(ctx context.Context, key string) ([]*models.Document, error)
 }
 
 func (m *MockTechDebtService) CreateTechDebt(ctx context.Context, input services.CreateTechDebtInput) (*models.TechDebt, bool, error) {
@@ -83,6 +86,27 @@ func (m *MockTechDebtService) GetOrchestratorAction(td *models.TechDebt) *config
 		return m.GetOrchestratorActionFunc(td)
 	}
 	return nil
+}
+
+func (m *MockTechDebtService) LinkDocument(ctx context.Context, key, title, path string) error {
+	if m.LinkDocumentFunc != nil {
+		return m.LinkDocumentFunc(ctx, key, title, path)
+	}
+	return fmt.Errorf("LinkDocument not implemented in mock")
+}
+
+func (m *MockTechDebtService) UnlinkDocument(ctx context.Context, key, title string) error {
+	if m.UnlinkDocumentFunc != nil {
+		return m.UnlinkDocumentFunc(ctx, key, title)
+	}
+	return fmt.Errorf("UnlinkDocument not implemented in mock")
+}
+
+func (m *MockTechDebtService) ListRelatedDocumentsByKey(ctx context.Context, key string) ([]*models.Document, error) {
+	if m.ListRelatedDocumentsByKeyFunc != nil {
+		return m.ListRelatedDocumentsByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("ListRelatedDocumentsByKey not implemented in mock")
 }
 
 // ---------------------------------------------------------------------------

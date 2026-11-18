@@ -8,6 +8,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRelatedDocsAddEpic tests adding a document to an epic
@@ -278,6 +280,7 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 		name     string
 		args     []string
 		bug      string
+		techDebt string
 		wantType string
 		wantKey  string
 		wantErr  string
@@ -288,14 +291,18 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 		{name: "bug", args: []string{"B072"}, wantType: "bug", wantKey: "B072"},
 		{name: "change", args: []string{"CC-001"}, wantType: "change", wantKey: "CC-001"},
 		{name: "question", args: []string{"Q001"}, wantType: "question", wantKey: "Q001"},
+		{name: "tech debt", args: []string{"TD-595"}, wantType: "tech_debt", wantKey: "TD-595"},
+		{name: "tech debt explicit", techDebt: "TD-595", wantType: "tech_debt", wantKey: "TD-595"},
 		{name: "unsupported entity", args: []string{"TD001"}, wantErr: "cannot infer a supported entity type"},
 		{name: "multiple positional keys", args: []string{"E01", "E02"}, wantErr: "at most one positional entity key"},
 		{name: "positional and explicit selector", args: []string{"B072"}, bug: "B073", wantErr: "cannot combine positional entity key"},
+		{name: "tech debt positional and conflicting selector", args: []string{"TD-595"}, techDebt: "TD-596", wantErr: "cannot combine positional entity key"},
+		{name: "conflicting tech debt and bug selectors", bug: "B079", techDebt: "TD-595", wantErr: "exactly one of"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entityType, key, err := resolveRelatedDocsListSelection(tt.args, "", "", "", tt.bug, "", "")
+			entityType, key, err := resolveRelatedDocsListSelection(tt.args, "", "", "", tt.bug, "", "", tt.techDebt)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
@@ -310,6 +317,81 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRelatedDocsTechDebtSelectorsAreAvailable(t *testing.T) {
+	for _, cmd := range []*cobra.Command{relatedDocsAddCmd, relatedDocsDeleteCmd, relatedDocsListCmd} {
+		if cmd.Flags().Lookup("tech-debt") == nil {
+			t.Errorf("%s is missing --tech-debt selector", cmd.CommandPath())
+		}
+	}
+}
+
+func TestRelatedDocsTechDebtAddDeleteAndListUseTechDebtService(t *testing.T) {
+	var linkedKey, linkedTitle, linkedPath string
+	mock := &MockTechDebtService{
+		LinkDocumentFunc: func(_ context.Context, key, title, path string) error {
+			linkedKey, linkedTitle, linkedPath = key, title, path
+			return nil
+		},
+		UnlinkDocumentFunc: func(_ context.Context, key, title string) error {
+			if key != "TD-595" || title != "Research report" {
+				t.Fatalf("UnlinkDocument(%q, %q), want TD-595 and Research report", key, title)
+			}
+			return nil
+		},
+		ListRelatedDocumentsByKeyFunc: func(_ context.Context, key string) ([]*models.Document, error) {
+			if key != "TD-595" {
+				t.Fatalf("ListRelatedDocumentsByKey(%q), want TD-595", key)
+			}
+			return []*models.Document{{Title: "Research report", FilePath: "docs/plan/tech-debt/TD-595.research-report.md"}}, nil
+		},
+	}
+	restore := injectMockTdSvc(t, mock)
+	t.Cleanup(restore)
+	t.Cleanup(func() {
+		for _, flag := range []struct {
+			cmd   *cobra.Command
+			name  string
+			value string
+		}{
+			{cmd: relatedDocsAddCmd, name: "tech-debt", value: ""},
+			{cmd: relatedDocsListCmd, name: "tech-debt", value: ""},
+			{cmd: relatedDocsListCmd, name: "json", value: "false"},
+			{cmd: relatedDocsDeleteCmd, name: "tech-debt", value: ""},
+		} {
+			if err := flag.cmd.Flags().Set(flag.name, flag.value); err != nil {
+				t.Errorf("reset %s flag: %v", flag.name, err)
+			}
+		}
+	})
+	require.NoError(t, relatedDocsAddCmd.Flags().Set("tech-debt", "TD-595"))
+
+	var addErr error
+	addOut := captureOutput(t, func() {
+		addErr = runRelatedDocsAdd(relatedDocsAddCmd, []string{"Research report", "docs/plan/tech-debt/TD-595.research-report.md"})
+	})
+	require.NoError(t, addErr)
+	assert.Contains(t, string(addOut), "Document linked to tech-debt TD-595")
+	assert.Equal(t, "TD-595", linkedKey)
+	assert.Equal(t, "Research report", linkedTitle)
+	assert.Equal(t, "docs/plan/tech-debt/TD-595.research-report.md", linkedPath)
+
+	require.NoError(t, relatedDocsListCmd.Flags().Set("json", "true"))
+	var listErr error
+	listOut := captureOutput(t, func() {
+		listErr = runRelatedDocsListList(relatedDocsListCmd, []string{"TD-595"})
+	})
+	require.NoError(t, listErr)
+	assert.Contains(t, string(listOut), "TD-595.research-report.md")
+
+	require.NoError(t, relatedDocsDeleteCmd.Flags().Set("tech-debt", "TD-595"))
+	var deleteErr error
+	deleteOut := captureOutput(t, func() {
+		deleteErr = runRelatedDocsDelete(relatedDocsDeleteCmd, []string{"Research report"})
+	})
+	require.NoError(t, deleteErr)
+	assert.Contains(t, string(deleteOut), "Document unlinked from tech-debt TD-595")
 }
 
 // TestRelatedDocsListJSON tests JSON output

@@ -15,27 +15,29 @@ var relatedDocsCmd = &cobra.Command{
 	Short:   "Manage related documents",
 	GroupID: "manage",
 	Aliases: []string{"docs"},
-	Long: `Manage related documents linked to epics, features, or tasks.
+	Long: `Manage related documents linked to entities, including tech-debt items.
 
 Examples:
   shark related-docs add "Design Doc" docs/design.md --epic=E01
   shark related-docs list --epic=E01
-  shark related-docs delete "Design Doc" --epic=E01`,
+  shark related-docs delete "Design Doc" --epic=E01
+  shark related-docs add "Research report" docs/report.md --tech-debt=TD-001`,
 }
 
 // relatedDocsAddCmd adds a document to a parent entity
 var relatedDocsAddCmd = &cobra.Command{
 	Use:   "add <title> <path>",
 	Short: "Add a related document",
-	Long: `Add a related document to an epic, feature, or task.
+	Long: `Add a related document to an epic, feature, task, bug, change-card, question, or tech-debt item.
 
 The document is created or retrieved if it already exists with the same title and path.
-The document is then linked to exactly one parent entity (epic, feature, or task).
+The document is then linked to exactly one parent entity.
 
 Examples:
   shark related-docs add "OAuth Specification" docs/oauth.md --epic=E01
   shark related-docs add "Implementation Notes" docs/notes.md --feature=E01-F01
-  shark related-docs add "Task Details" docs/details.md --task=T-E01-F01-001`,
+  shark related-docs add "Task Details" docs/details.md --task=T-E01-F01-001
+  shark related-docs add "Research report" docs/report.md --tech-debt=TD-001`,
 	Args: cobra.ExactArgs(2),
 	RunE: runRelatedDocsAdd,
 }
@@ -44,7 +46,7 @@ Examples:
 var relatedDocsDeleteCmd = &cobra.Command{
 	Use:   "delete <title>",
 	Short: "Delete a related document link",
-	Long: `Remove a document link from an epic, feature, or task.
+	Long: `Remove a document link from an epic, feature, task, bug, change-card, question, or tech-debt item.
 
 The document itself is not deleted from the database, only the link is removed.
 Delete is idempotent - it succeeds even if the document is not linked to the parent.
@@ -52,7 +54,8 @@ Delete is idempotent - it succeeds even if the document is not linked to the par
 Examples:
   shark related-docs delete "OAuth Specification" --epic=E01
   shark related-docs delete "Implementation Notes" --feature=E01-F01
-  shark related-docs delete "Task Details" --task=T-E01-F01-001`,
+  shark related-docs delete "Task Details" --task=T-E01-F01-001
+  shark related-docs delete "Research report" --tech-debt=TD-001`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRelatedDocsDelete,
 }
@@ -61,7 +64,7 @@ Examples:
 var relatedDocsListCmd = &cobra.Command{
 	Use:   "list [<entity-key>]",
 	Short: "List related documents",
-	Long: `List all documents linked to an epic, feature, task, bug, change-card, or question.
+	Long: `List all documents linked to an epic, feature, task, bug, change-card, question, or tech-debt item.
 
 Pass an entity key positionally to infer its type, or use exactly one explicit
 entity-type flag.
@@ -71,13 +74,14 @@ Examples:
   shark related-docs list B001 --json
   shark related-docs list --epic=E01
   shark related-docs list --feature=E01-F01 --json
-  shark related-docs list --task=T-E01-F01-001`,
+  shark related-docs list --task=T-E01-F01-001
+  shark related-docs list TD-001 --json`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRelatedDocsListList,
 }
 
-// dispatchAddDoc links a document to an epic, feature, task, bug, or change-card based on which key is set.
-func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, question, title, path string) error {
+// dispatchAddDoc links a document to the selected entity based on which key is set.
+func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, question, techDebt, title, path string) error {
 	if epic != "" {
 		if err := cli.GetEpicService().LinkDocument(ctx, epic, title, path); err != nil {
 			return fmt.Errorf("failed to link document to epic: %w", err)
@@ -109,6 +113,12 @@ func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, quest
 		}
 		return printDocLinked(doc.Title, doc.FilePath, "question", question, doc.ID)
 	}
+	if techDebt != "" {
+		if err := getTechDebtService().LinkDocument(ctx, techDebt, title, path); err != nil {
+			return fmt.Errorf("failed to link document to tech-debt: %w", err)
+		}
+		return printDocLinked(title, path, "tech-debt", techDebt, 0)
+	}
 	doc, err := cli.GetTaskServiceWithDocs().LinkDocument(ctx, task, title, path)
 	if err != nil {
 		return fmt.Errorf("failed to link document to task: %w", err)
@@ -125,14 +135,15 @@ func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
 	bug, _ := cmd.Flags().GetString("bug")
 	change, _ := cmd.Flags().GetString("change")
 	question, _ := cmd.Flags().GetString("question")
+	techDebt, _ := cmd.Flags().GetString("tech-debt")
 
-	count := boolInt(epic != "") + boolInt(feature != "") + boolInt(task != "") + boolInt(bug != "") + boolInt(change != "") + boolInt(question != "")
+	count := boolInt(epic != "") + boolInt(feature != "") + boolInt(task != "") + boolInt(bug != "") + boolInt(change != "") + boolInt(question != "") + boolInt(techDebt != "")
 	if count != 1 {
 		_ = cmd.Usage()
 		return nil
 	}
 
-	return dispatchAddDoc(cmd.Context(), epic, feature, task, bug, change, question, title, path)
+	return dispatchAddDoc(cmd.Context(), epic, feature, task, bug, change, question, techDebt, title, path)
 }
 
 // boolInt converts a bool to 0 or 1.
@@ -167,6 +178,7 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	bug, _ := cmd.Flags().GetString("bug")
 	change, _ := cmd.Flags().GetString("change")
 	question, _ := cmd.Flags().GetString("question")
+	techDebt, _ := cmd.Flags().GetString("tech-debt")
 	ctx := cmd.Context()
 
 	if epic != "" {
@@ -195,6 +207,11 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("unlink document from question %s: %w", question, err)
 		}
 		return printDocUnlinked(title, "question", question)
+	}
+	if techDebt != "" {
+		// Preserve the existing related-docs delete behavior: report the unlink request as idempotent.
+		_ = getTechDebtService().UnlinkDocument(ctx, techDebt, title)
+		return printDocUnlinked(title, "tech-debt", techDebt)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -247,6 +264,12 @@ func dispatchListDocs(ctx context.Context, entityType, key string) ([]*models.Do
 			return nil, fmt.Errorf("question not found: %w", err)
 		}
 		return docs, nil
+	case "tech_debt":
+		docs, err := getTechDebtService().ListRelatedDocumentsByKey(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("tech-debt not found: %w", err)
+		}
+		return docs, nil
 	case "task":
 		docs, err := cli.GetTaskServiceWithDocs().ListRelatedDocuments(ctx, key)
 		if err != nil {
@@ -260,17 +283,17 @@ func dispatchListDocs(ctx context.Context, entityType, key string) ([]*models.Do
 
 // resolveRelatedDocsListSelection resolves either a positional entity key or
 // one explicit entity-type selector into the values consumed by dispatchListDocs.
-func resolveRelatedDocsListSelection(args []string, epic, feature, task, bug, change, question string) (string, string, error) {
+func resolveRelatedDocsListSelection(args []string, epic, feature, task, bug, change, question, techDebt string) (string, string, error) {
 	if len(args) > 1 {
 		return "", "", fmt.Errorf("related-docs list accepts at most one positional entity key")
 	}
 	if len(args) == 1 {
-		if hasExplicitRelatedDocsSelector(epic, feature, task, bug, change, question) {
+		if hasExplicitRelatedDocsSelector(epic, feature, task, bug, change, question, techDebt) {
 			return "", "", fmt.Errorf("cannot combine positional entity key %q with an explicit entity-type flag", args[0])
 		}
 		return resolvePositionalRelatedDocsSelection(args[0])
 	}
-	return resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, question)
+	return resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, question, techDebt)
 }
 
 func hasExplicitRelatedDocsSelector(keys ...string) bool {
@@ -287,14 +310,14 @@ func resolvePositionalRelatedDocsSelection(key string) (string, string, error) {
 	key = NormalizeKey(key)
 	entityType := DetectEntityType(key)
 	switch entityType {
-	case "epic", "feature", "task", "bug", "change", "question":
+	case "epic", "feature", "task", "bug", "change", "question", "tech_debt":
 		return entityType, key, nil
 	default:
 		return "", "", fmt.Errorf("cannot infer a supported entity type from key %q", key)
 	}
 }
 
-func resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, question string) (string, string, error) {
+func resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, question, techDebt string) (string, string, error) {
 	selectors := []struct {
 		entityType string
 		key        string
@@ -305,6 +328,7 @@ func resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, quest
 		{entityType: "bug", key: bug},
 		{entityType: "change", key: change},
 		{entityType: "question", key: question},
+		{entityType: "tech_debt", key: techDebt},
 	}
 	selected := 0
 	var selectedType, selectedKey string
@@ -316,10 +340,10 @@ func resolveExplicitRelatedDocsSelection(epic, feature, task, bug, change, quest
 		selectedType, selectedKey = selector.entityType, selector.key
 	}
 	if selected == 0 {
-		return "", "", fmt.Errorf("one of --epic, --feature, --task, --bug, --change, or --question must be specified")
+		return "", "", fmt.Errorf("one of --epic, --feature, --task, --bug, --change, --question, or --tech-debt must be specified")
 	}
 	if selected > 1 {
-		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, or --question must be specified")
+		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, --question, or --tech-debt must be specified")
 	}
 	return selectedType, selectedKey, nil
 }
@@ -332,10 +356,11 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	bug, _ := cmd.Flags().GetString("bug")
 	change, _ := cmd.Flags().GetString("change")
 	question, _ := cmd.Flags().GetString("question")
+	techDebt, _ := cmd.Flags().GetString("tech-debt")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	useJSON := jsonOutput || cli.GlobalConfig.JSON
 
-	entityType, key, err := resolveRelatedDocsListSelection(args, epic, feature, task, bug, change, question)
+	entityType, key, err := resolveRelatedDocsListSelection(args, epic, feature, task, bug, change, question, techDebt)
 	if err != nil {
 		return err
 	}
@@ -376,6 +401,7 @@ func init() {
 	relatedDocsAddCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
 	relatedDocsAddCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
 	relatedDocsAddCmd.Flags().String("question", "", "Question key (e.g., Q001)")
+	relatedDocsAddCmd.Flags().String("tech-debt", "", "Tech-debt key (e.g., TD-001)")
 
 	// Add flags for delete command
 	relatedDocsDeleteCmd.Flags().String("epic", "", "Epic key (e.g., E01)")
@@ -384,6 +410,7 @@ func init() {
 	relatedDocsDeleteCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
 	relatedDocsDeleteCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
 	relatedDocsDeleteCmd.Flags().String("question", "", "Question key (e.g., Q001)")
+	relatedDocsDeleteCmd.Flags().String("tech-debt", "", "Tech-debt key (e.g., TD-001)")
 
 	// Add flags for list command
 	relatedDocsListCmd.Flags().String("epic", "", "Epic key (e.g., E01)")
@@ -392,5 +419,6 @@ func init() {
 	relatedDocsListCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
 	relatedDocsListCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
 	relatedDocsListCmd.Flags().String("question", "", "Question key (e.g., Q001)")
+	relatedDocsListCmd.Flags().String("tech-debt", "", "Tech-debt key (e.g., TD-001)")
 	relatedDocsListCmd.Flags().Bool("json", false, "Output in JSON format")
 }
