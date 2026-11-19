@@ -2,6 +2,8 @@
 {{template "advance_preamble" .}}
 
 Research bug {{.id}}: "{{.title}}" using the v2 universal recipe catalog.
+Read it with `shark data get research/recipes.yaml`; the command reads the
+configured catalog or its embedded default without installing shark-data.
 Write only `{{.id}}.research-report.md` beside {{.file_path}} and register it
 as a related document. Commit the research document in `docs/plan` in its
 project checkout and register it against the parent Shark project's bug record.
