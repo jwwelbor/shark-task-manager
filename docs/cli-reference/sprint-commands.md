@@ -72,7 +72,7 @@ Or let `/run-sprint` offer to start it if the sprint is still in `planning` stat
 The pull-loop:
 1. Calls `shark sprint next S005 --json` to get the next unstarted entity
 2. Delegates the entity to `/run {KEY}` — which drives it all the way to terminal status via the standard orchestrator loop
-3. Loops until `shark sprint next` returns null (backlog drained) or `--max-iterations` is hit
+3. When `shark sprint next` returns null, checks `shark sprint backlog <sprint-key> --view=ordered --all --json` without selector filters; it reports the backlog drained only after the complete assignment set is readable and every assigned entity is terminal under its configured workflow. Otherwise it reports a paused run with the remaining held/filtered/blocked assignments or the reason terminality could not be verified. An empty `--agent` slice does not prove the whole sprint is drained.
 4. Prints a burndown + summary report
 5. **Asks before closing** — never auto-closes
 

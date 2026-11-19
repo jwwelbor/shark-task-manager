@@ -14,8 +14,16 @@ calls `shark sprint next --json` and hands each returned entity to
 dispatch to the canonical topology adapter. Neither mode builds worker prompts.
 
 ```
-shark sprint next --json → entity key → /shark-rider run {entity_key} → loop until empty
+shark sprint next --json → eligible entity → /shark-rider run {entity_key} → repeat
 ```
+
+An empty selector result means no candidate is currently eligible. Before
+calling the sprint drained, inspect `shark sprint backlog {sprint_key}
+--view=ordered --all --json` without the selector filters and confirm every
+assigned entity has a terminal status in its configured workflow. An empty
+`--agent` slice can coexist with unfinished assignments for other roles. If
+the assignment set or any entity's terminal status cannot be verified, report
+the run as paused rather than drained.
 
 This skill covers **two execution modes**:
 
@@ -60,4 +68,4 @@ Both modes gate the sprint close operation on explicit user confirmation.
 
 - All shark calls use `--json` or `--field`
 - Never truncate output with `head`, `tail`, or `grep`
-- `shark sprint next --json` returns the next entity object or an empty result; both cases are handled
+- `shark sprint next --json` returns an eligible entity or an empty result. Empty is normal completion only after an unfiltered `sprint backlog --all` read confirms every assigned entity is terminal; if the check is incomplete or any work remains, report a paused/filtered/blocked sprint, including when an `--agent` slice is empty.
