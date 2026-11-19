@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -127,10 +128,21 @@ func TestRenderedPromptsGolden(t *testing.T) {
 			for _, name := range names {
 				status := strings.TrimSuffix(name, ".md")
 				t.Run(status, func(t *testing.T) {
+					promptVarsWithHarness := varsWithHarness
+					promptVarsWithoutHarness := varsWithoutHarness
+					if entity == "sprint" {
+						promptVarsWithHarness = maps.Clone(varsWithHarness)
+						promptVarsWithoutHarness = maps.Clone(varsWithoutHarness)
+						promptVarsWithHarness["id"] = "S005"
+						promptVarsWithoutHarness["id"] = "S005"
+						promptVarsWithHarness["title"] = "Sample sprint for golden test"
+						promptVarsWithoutHarness["title"] = "Sample sprint for golden test"
+					}
+
 					// Match the renderer's lookup key: subdirectory-prefixed
 					// relative path (e.g., "feature/ready_for_assessment.md").
 					tmplName := filepath.ToSlash(filepath.Join(entity, name))
-					rendered, err := renderer.Render(tmplName, varsWithHarness)
+					rendered, err := renderer.Render(tmplName, promptVarsWithHarness)
 					require.NoErrorf(t, err, "render %s", tmplName)
 
 					goldenPath := filepath.Join(goldenRoot, entity, status+".golden")
@@ -164,7 +176,7 @@ func TestRenderedPromptsGolden(t *testing.T) {
 					// construction order" / "map iteration behavior" drift
 					// TC-008's Negative Cases call out, caught across the full
 					// corpus rather than a hand-picked fixture.
-					renderedWithoutHarness, err := renderer.Render(tmplName, varsWithoutHarness)
+					renderedWithoutHarness, err := renderer.Render(tmplName, promptVarsWithoutHarness)
 					require.NoErrorf(t, err, "render %s without harness keys", tmplName)
 					assert.Equalf(t, promptSHA256(renderedWithoutHarness), promptSHA256(rendered),
 						"prompt_sha256 must be identical before/after this feature's harness-vars merge for %s (REQ-NF-001/AC-07)", tmplName)

@@ -1,6 +1,6 @@
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
-Plan sprint E07-F01: "Sample feature for golden test".
+Plan sprint S005: "Sample sprint for golden test".
 
 
 # Sprint Planning
@@ -83,7 +83,7 @@ choosing or starting work:
 This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
-Read the sprint plan and readiness data (`shark sprint plan E07-F01 --json`),
+Read the sprint plan and readiness data (`shark sprint plan S005 --json`),
 propose entity assignments, and confirm scope. Do NOT start the sprint — starting
 is an explicit user action. When scope is agreed, release outcome `pass` to make
 the sprint active.

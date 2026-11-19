@@ -136,7 +136,7 @@ the lease and every transition; the child never claims/advances/releases. See
 
 | Verb | Recipe |
 |------|--------|
-| `/shark-rider run-sprint S###` | Read `skills/sprint-execution/SKILL.md`; `shark sprint next` → `/shark-rider run` per entity; gate close on user confirmation → `verbs/run-sprint.md` |
+| `/shark-rider run-sprint S###` | Read `skills/sprint-execution/SKILL.md`; `shark plan S###` → `/shark-rider run` per entity; gate close on user confirmation → `verbs/run-sprint.md` |
 | `/shark-rider run-agent-team <epic\|feature>` | Confirm host topology prerequisites, then delegate to the canonical Shark Attack topology adapter → `verbs/run-agent-team.md` |
 | `/shark-rider run-sprint-team S###` | Thin alias for `/shark-rider run-agent-team --sprint S###`; the owner retains the sprint close gate → `verbs/run-sprint-team.md` |
 

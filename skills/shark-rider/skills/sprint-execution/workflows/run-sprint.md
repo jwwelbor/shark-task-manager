@@ -85,7 +85,15 @@ while ITERATION < MAX_ITERATIONS:
     Execute NEXT_CMD.
     Parse JSON response as SPRINT_SELECTION.
 
-    if the response is malformed or SPRINT_SELECTION.sprint_key is missing:
+    if the response is malformed:
+        print the raw response and report that sprint selection returned unexpected output
+        stop the pull-loop; do not dispatch an entity
+
+    if the parsed response root is not a JSON object:
+        print the raw response and report that sprint selection returned unexpected output
+        stop the pull-loop; do not dispatch an entity
+
+    if SPRINT_SELECTION.sprint_key is missing:
         print the raw response and report that sprint selection returned unexpected output
         stop the pull-loop; do not dispatch an entity
 
@@ -111,6 +119,7 @@ while ITERATION < MAX_ITERATIONS:
         report null selected entity and stop the pull-loop; do not dispatch an entity
 
     if SELECTED_ENTITY.key is missing, empty, or whitespace-only:
+        SELECTED_ENTITY = null
         print "No dispatchable entity was selected; sprint drain was not verified."
         report the selected entity key is invalid and stop the pull-loop; do not dispatch an entity
 
@@ -248,7 +257,7 @@ before retrying close. Do not retry silently.
 |---|---|
 | Sprint key not found (`shark get` returns not-found) | Print `Sprint {SPRINT_KEY} not found.` and exit |
 | `shark sprint start` fails | Print error; exit without entering the loop |
-| `shark plan {SPRINT_KEY}` returns malformed JSON, an unknown action, or an invalid selection shape | Print the raw response when available, report `sprint selection returned unexpected output`, stop the loop, and proceed to Step 3 |
+| `shark plan {SPRINT_KEY}` returns malformed JSON, a non-object JSON root, an unknown action, or an invalid selection shape | Print the raw response when available, report `sprint selection returned unexpected output`, stop the loop, and proceed to Step 3 |
 | Sprint selection or selected entity has a different `sprint_key` than `SPRINT_KEY` | Report the mismatch, do not dispatch the entity, stop the loop, and proceed to Step 3 |
 | `/shark-rider run {ENTITY_KEY}` fails or the agent errors | Log error; continue loop (do not abort sprint) |
 | `shark sprint close` fails | Print full error; sprint remains open; suggest manual retry |
