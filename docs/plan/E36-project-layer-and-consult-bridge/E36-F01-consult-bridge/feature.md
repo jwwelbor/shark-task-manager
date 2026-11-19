@@ -2,7 +2,7 @@
 feature_key: E36-F01-consult-bridge
 epic_key: E36
 title: Consult bridge
-description: /shark consult <agent> advisor bridge: agent/skill list descriptions (one Go change), verbs/consult.md, query.md NL recognizer, SKILL.md allowlist row. Read-only by default.
+description: /shark-rider consult <agent> advisor bridge: agent/skill list descriptions (one Go change), inline and delegated consultation verbs, query.md NL recognizer, SKILL.md allowlist rows. Read-only by default.
 ---
 
 # Consult bridge
@@ -24,7 +24,7 @@ There is no first-class way to talk to shark's agent personas as advisors. Perso
 Two tightly coupled pieces ship together:
 
 1. **One Go change** (`internal/services/content_bundle_service.go`): add `Description string` to `BundleContentEntry`, populate it from each entry's frontmatter `description:` field (respecting override > disk > embedded precedence, best-effort), and render it in `agent list` / `skill list` text and JSON output.
-2. **Skill-layer** (`skills/shark/verbs/consult.md`): a `/shark consult <agent> [referent]` verb that resolves the agent (exact name, else fuzzy-match by name *and* description, else show the menu), loads the persona via `shark agent get <agent>` (frontmatter stripped), and adopts it **inline** — turn-by-turn, not a background subagent. A consult-intent recognizer added to `query.md` routes natural-language "ask/have/consult `<agent>` to/about `<task>`" phrasing automatically. One `SKILL.md` allowlist row exposes the verb.
+2. **Skill-layer** (`skills/shark-rider/verbs/consult.md`): `/shark-rider consult <agent> [referent]` resolves the agent (exact name, else fuzzy-match by name *and* description, else show the available agents), loads the persona via `shark agent get <agent>` (frontmatter stripped), and adopts it **inline** — turn-by-turn, not a background subagent. Bare consult and consult help show a role-selection guide. A separate `/shark-rider consult-agent <agent> [referent]` verb provides one-shot advice through a bounded host subagent. The `query.md` consult-intent recognizer routes natural-language "ask/have/consult `<agent>` to/about `<task>`" phrasing to inline consultation. `SKILL.md` registers both verbs.
 
 ### Impact
 
@@ -38,7 +38,7 @@ Two tightly coupled pieces ship together:
 
 ### Must-Have Stories
 
-**Story 1**: As a developer, I want to run `/shark consult cx-designer review this plan` so that the cx-designer persona is loaded and reviews the plan in-voice without me manually copying any system prompt.
+**Story 1**: As a developer, I want to run `/shark-rider consult cx-designer review this plan` so that the cx-designer persona is loaded and reviews the plan in-voice without me manually copying any system prompt.
 
 **Acceptance Criteria**:
 - [ ] The verb resolves `cx-designer` via `shark agent get cx-designer`.
@@ -75,7 +75,7 @@ Two tightly coupled pieces ship together:
    - **Priority**: Must-Have
 
 3. **REQ-F-003**: `verbs/consult.md` skill verb
-   - **Description**: A `skills/shark/verbs/consult.md` file implements `/shark consult <agent> [referent]`. Registered in `SKILL.md` allowlist so it is callable via the shark skill router.
+   - **Description**: A `skills/shark-rider/verbs/consult.md` file implements `/shark-rider consult <agent> [referent]`. Registered in the `SKILL.md` allowlist so it is callable via the Shark Rider router. `/shark-rider consult-agent <agent> [referent]` is a separate one-shot delegated mode.
    - **Priority**: Must-Have
 
 4. **REQ-F-004**: Agent resolution
@@ -123,13 +123,13 @@ Two tightly coupled pieces ship together:
 
 **Scenario 2: Explicit consult — known agent, explicit path**
 - **Given** the `cx-designer` agent is available and `docs/design.md` exists
-- **When** `/shark consult cx-designer docs/design.md` is run
+- **When** `/shark-rider consult cx-designer docs/design.md` is run
 - **Then** the persona is loaded via `shark agent get cx-designer` (frontmatter stripped), the file is read, and the response is in the cx-designer's voice
 - **And** no shark entities are created or updated
 
 **Scenario 3: Explicit consult — "this" referent**
 - **Given** a plan document was just referenced in the conversation
-- **When** `/shark consult tech-director review this plan` is run
+- **When** `/shark-rider consult tech-director review this plan` is run
 - **Then** the verb identifies the in-context artifact, states which file it used, and delivers the review
 - **And** if there is no unambiguous artifact, the user is asked to paste or specify
 
@@ -139,7 +139,7 @@ Two tightly coupled pieces ship together:
 - **Then** the router matches the pattern, extracts agent=`devops`, referent=`this deployment config`, and hands off to `consult.md`
 
 **Scenario 5: Unknown agent**
-- **Given** the user requests `/shark consult made-up-agent`
+- **Given** the user requests `/shark-rider consult made-up-agent`
 - **When** the verb attempts to resolve and `shark agent get made-up-agent` fails
 - **Then** a clear message is printed (e.g., "Agent 'made-up-agent' not found") followed by the available agent list
 - **And** execution ends gracefully without an error trace
