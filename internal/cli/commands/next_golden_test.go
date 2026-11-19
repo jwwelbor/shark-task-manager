@@ -60,6 +60,17 @@ func goldenVars() map[string]string {
 	}
 }
 
+func goldenPromptVarsForEntity(entity string, vars map[string]string) map[string]string {
+	if entity != "sprint" {
+		return vars
+	}
+
+	promptVars := maps.Clone(vars)
+	promptVars["id"] = "S005"
+	promptVars["title"] = "Sample sprint for golden test"
+	return promptVars
+}
+
 // promptSHA256 hex-encodes the SHA-256 digest of s using the exact same
 // algorithm runNext uses to compute NextResponse.PromptSHA256
 // (sha256.Sum256 + hex.EncodeToString — see next.go's post-assembly hashing
@@ -128,16 +139,8 @@ func TestRenderedPromptsGolden(t *testing.T) {
 			for _, name := range names {
 				status := strings.TrimSuffix(name, ".md")
 				t.Run(status, func(t *testing.T) {
-					promptVarsWithHarness := varsWithHarness
-					promptVarsWithoutHarness := varsWithoutHarness
-					if entity == "sprint" {
-						promptVarsWithHarness = maps.Clone(varsWithHarness)
-						promptVarsWithoutHarness = maps.Clone(varsWithoutHarness)
-						promptVarsWithHarness["id"] = "S005"
-						promptVarsWithoutHarness["id"] = "S005"
-						promptVarsWithHarness["title"] = "Sample sprint for golden test"
-						promptVarsWithoutHarness["title"] = "Sample sprint for golden test"
-					}
+					promptVarsWithHarness := goldenPromptVarsForEntity(entity, varsWithHarness)
+					promptVarsWithoutHarness := goldenPromptVarsForEntity(entity, varsWithoutHarness)
 
 					// Match the renderer's lookup key: subdirectory-prefixed
 					// relative path (e.g., "feature/ready_for_assessment.md").

@@ -2062,9 +2062,9 @@ func runSprintNext(cmd *cobra.Command, args []string) error {
 			return cli.OutputJSON(nil)
 		}
 		if agentType != "" {
-			cli.Info(fmt.Sprintf("No more items found for agent type %q in the active sprint.", agentType))
+			cli.Info(fmt.Sprintf("No more items found for agent type %q in eligible execution-phase sprints.", agentType))
 		} else {
-			cli.Info("No more items found in the active sprint.")
+			cli.Info("No more items found in eligible execution-phase sprints.")
 		}
 		return nil
 	}
