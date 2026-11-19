@@ -53,10 +53,12 @@ func assertUnifiedChangeCreateExplicitSize(t *testing.T, cmd *cobra.Command, siz
 	cmd.SetContext(context.Background())
 	flag := cmd.Flags().Lookup("size")
 	originalSize := flag.Value.String()
+	originalSizeChanged := flag.Changed
 	t.Cleanup(func() {
 		if err := cmd.Flags().Set("size", originalSize); err != nil {
 			t.Errorf("restore --size: %v", err)
 		}
+		flag.Changed = originalSizeChanged
 	})
 	if err := cmd.Flags().Set("size", size); err != nil {
 		t.Fatalf("set --size: %v", err)
@@ -93,10 +95,12 @@ func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) 
 	cmd.SetContext(context.Background())
 	flag := cmd.Flags().Lookup("size")
 	originalSize := flag.Value.String()
+	originalSizeChanged := flag.Changed
 	t.Cleanup(func() {
 		if err := cmd.Flags().Set("size", originalSize); err != nil {
 			t.Errorf("restore --size: %v", err)
 		}
+		flag.Changed = originalSizeChanged
 	})
 	if err := cmd.Flags().Set("size", ""); err != nil {
 		t.Fatalf("clear --size: %v", err)
@@ -133,10 +137,12 @@ func TestUnifiedChangeCreate_InvalidSizeRejectedBeforeService(t *testing.T) {
 			cmd.SetContext(context.Background())
 			flag := cmd.Flags().Lookup("size")
 			originalSize := flag.Value.String()
+			originalSizeChanged := flag.Changed
 			t.Cleanup(func() {
 				if err := cmd.Flags().Set("size", originalSize); err != nil {
 					t.Errorf("restore --size: %v", err)
 				}
+				flag.Changed = originalSizeChanged
 			})
 			if err := cmd.Flags().Set("size", bad); err != nil {
 				t.Fatalf("set invalid --size: %v", err)
@@ -193,6 +199,7 @@ func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
 			sizeFlag := cmd.Flags().Lookup("size")
 			tagFlag := cmd.Flags().Lookup("tag")
 			originalSize := sizeFlag.Value.String()
+			originalSizeChanged := sizeFlag.Changed
 			tagValue, ok := tagFlag.Value.(pflag.SliceValue)
 			if !ok {
 				t.Fatalf("--tag value has type %T, want pflag.SliceValue", tagFlag.Value)
@@ -203,6 +210,7 @@ func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
 				if err := cmd.Flags().Set("size", originalSize); err != nil {
 					t.Errorf("restore --size: %v", err)
 				}
+				sizeFlag.Changed = originalSizeChanged
 				if err := tagValue.Replace(originalTags); err != nil {
 					t.Errorf("restore --tag: %v", err)
 				}
