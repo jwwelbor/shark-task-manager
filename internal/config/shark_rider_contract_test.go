@@ -101,7 +101,7 @@ func TestSharkRiderConsultModesRemainDistinct(t *testing.T) {
 	assert.Contains(t, query, "Read skills/shark-rider/verbs/consult.md")
 	assert.Contains(t, query, "Natural-language requests use inline")
 	assert.Contains(t, query, "If the request clearly asks to consult an agent but `<agent>` does not resolve")
-	assert.Contains(t, query, "still `Read skills/shark-rider/verbs/consult.md`")
+	assert.Contains(t, query, "still `Read skills/shark-rider/verbs/consult.md` with the extracted `agent` and\n`referent`.")
 	assert.Contains(t, query, "Use `/shark-rider consult-agent` for one-shot subagent advice")
 }
 
