@@ -27,7 +27,7 @@ type ClaimRepository interface {
 	Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error)
 	Release(ctx context.Context, entityType, entityKey string) (bool, error)
 	ReleaseSession(ctx context.Context, entityType, entityKey, sessionID string) (bool, error)
-	Renew(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) (bool, error)
+	Renew(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string, ttl time.Duration) (bool, error)
 	ReclaimExpired(ctx context.Context, ttl time.Duration) (int64, error)
 	List(ctx context.Context) ([]*models.EntityClaim, error)
 }
@@ -239,7 +239,7 @@ func (s *ClaimService) closeSessions(ctx context.Context, entityType, entityKey,
 // update (lease + progress + telemetry) returns an error if no live lease for
 // the session exists.
 func (s *ClaimService) Heartbeat(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) error {
-	ok, err := s.repo.Renew(ctx, entityType, entityKey, sessionID, progress, note)
+	ok, err := s.repo.Renew(ctx, entityType, entityKey, sessionID, progress, note, s.ttl)
 	if err != nil {
 		return err
 	}

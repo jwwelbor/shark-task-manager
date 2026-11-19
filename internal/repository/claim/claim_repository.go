@@ -99,15 +99,18 @@ func (r *Repository) ReleaseSession(ctx context.Context, entityType, entityKey, 
 // Renew updates the heartbeat (and optional progress/note) for a claim held by
 // the given session. Returns true when a row was updated. A heartbeat does
 // triple duty: lease renewal, progress reporting, and telemetry source.
-func (r *Repository) Renew(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) (bool, error) {
+func (r *Repository) Renew(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string, ttl time.Duration) (bool, error) {
 	const q = `
 		UPDATE entity_claims
 		SET last_heartbeat = CURRENT_TIMESTAMP,
 		    progress = COALESCE(?, progress),
 		    note = COALESCE(?, note)
 		WHERE entity_type = ? AND entity_key = ? AND session_id = ?
+		  AND (? <= 0 OR unixepoch(CURRENT_TIMESTAMP) - unixepoch(last_heartbeat) <= ?)
 	`
-	res, err := r.db.ExecContext(ctx, q, progress, nullString(note), entityType, entityKey, sessionID)
+	// Use the database clock in the write itself so waiting for a writer
+	// cannot make a previously calculated cutoff authorize a late renewal.
+	res, err := r.db.ExecContext(ctx, q, progress, nullString(note), entityType, entityKey, sessionID, ttl.Seconds(), ttl.Seconds())
 	if err != nil {
 		return false, fmt.Errorf("renew %s/%s: %w", entityType, entityKey, err)
 	}

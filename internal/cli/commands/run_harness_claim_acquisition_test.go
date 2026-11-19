@@ -103,11 +103,11 @@ func (r *inMemoryClaimRepo) ReleaseSession(_ context.Context, entityType, entity
 	return true, nil
 }
 
-func (r *inMemoryClaimRepo) Renew(_ context.Context, entityType, entityKey, sessionID string, _ *float64, _ string) (bool, error) {
+func (r *inMemoryClaimRepo) Renew(_ context.Context, entityType, entityKey, sessionID string, _ *float64, _ string, ttl time.Duration) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c, ok := r.claims[claimRepoKey(entityType, entityKey)]
-	if !ok || c.SessionID != sessionID {
+	if !ok || c.SessionID != sessionID || c.IsExpired(time.Now().UTC(), ttl) {
 		return false, nil
 	}
 	c.LastHeartbeat = time.Now().UTC()

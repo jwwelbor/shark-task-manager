@@ -19,7 +19,7 @@ type mockClaimRepo struct {
 	GetFn            func(ctx context.Context, t, k string) (*models.EntityClaim, error)
 	ReleaseFn        func(ctx context.Context, t, k string) (bool, error)
 	ReleaseSessionFn func(ctx context.Context, t, k, s string) (bool, error)
-	RenewFn          func(ctx context.Context, t, k, s string, p *float64, n string) (bool, error)
+	RenewFn          func(ctx context.Context, t, k, s string, p *float64, n string, ttl time.Duration) (bool, error)
 	ReclaimFn        func(ctx context.Context, ttl time.Duration) (int64, error)
 	ListFn           func(ctx context.Context) ([]*models.EntityClaim, error)
 }
@@ -36,8 +36,8 @@ func (m *mockClaimRepo) Release(ctx context.Context, t, k string) (bool, error) 
 func (m *mockClaimRepo) ReleaseSession(ctx context.Context, t, k, s string) (bool, error) {
 	return m.ReleaseSessionFn(ctx, t, k, s)
 }
-func (m *mockClaimRepo) Renew(ctx context.Context, t, k, s string, p *float64, n string) (bool, error) {
-	return m.RenewFn(ctx, t, k, s, p, n)
+func (m *mockClaimRepo) Renew(ctx context.Context, t, k, s string, p *float64, n string, ttl time.Duration) (bool, error) {
+	return m.RenewFn(ctx, t, k, s, p, n, ttl)
 }
 func (m *mockClaimRepo) ReclaimExpired(ctx context.Context, ttl time.Duration) (int64, error) {
 	return m.ReclaimFn(ctx, ttl)
@@ -338,7 +338,9 @@ func TestClaimService_Release_SessionRouting(t *testing.T) {
 func TestClaimService_Heartbeat(t *testing.T) {
 	t.Run("error when no live lease (Renew ok=false)", func(t *testing.T) {
 		m := &mockClaimRepo{
-			RenewFn: func(ctx context.Context, t, k, s string, p *float64, n string) (bool, error) { return false, nil },
+			RenewFn: func(ctx context.Context, t, k, s string, p *float64, n string, ttl time.Duration) (bool, error) {
+				return false, nil
+			},
 		}
 		svc := NewClaimService(m, durationPtr(time.Minute))
 		err := svc.Heartbeat(context.Background(), "task", "E1-F1-001", "sess-1", nil, "")
@@ -349,7 +351,9 @@ func TestClaimService_Heartbeat(t *testing.T) {
 
 	t.Run("ok when lease renewed", func(t *testing.T) {
 		m := &mockClaimRepo{
-			RenewFn: func(ctx context.Context, t, k, s string, p *float64, n string) (bool, error) { return true, nil },
+			RenewFn: func(ctx context.Context, t, k, s string, p *float64, n string, ttl time.Duration) (bool, error) {
+				return true, nil
+			},
 		}
 		svc := NewClaimService(m, durationPtr(time.Minute))
 		if err := svc.Heartbeat(context.Background(), "task", "E1-F1-001", "sess-1", nil, "note"); err != nil {
@@ -498,7 +502,7 @@ func newReadOnlyClaimRepo(
 			t.Error("read-only claim list must not call ReleaseSession")
 			return false, nil
 		},
-		RenewFn: func(context.Context, string, string, string, *float64, string) (bool, error) {
+		RenewFn: func(context.Context, string, string, string, *float64, string, time.Duration) (bool, error) {
 			calls.renew++
 			t.Error("read-only claim list must not call Renew")
 			return false, nil
