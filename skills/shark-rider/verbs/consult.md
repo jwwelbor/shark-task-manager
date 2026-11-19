@@ -86,6 +86,11 @@ Walk the list:
 shark agent get <resolved-agent>
 ```
 
+If `shark agent get` fails or returns no persona definition, print:
+`Agent "<resolved-agent>" was listed but its content could not be loaded.`
+Then print `shark agent list --all` and **STOP**. Do not continue to referent
+resolution or adopt the persona.
+
 This returns the agent's definition (name, description, role, instructions,
 skills, etc.). Read it fully — this is the voice you will adopt.
 
@@ -118,7 +123,9 @@ Consulting <agent-name> about <referent-summary>...
 Read context referenced by the persona only when relevant. Get Shark-bundled
 skills through `shark skill get <name> [relative-path]`; read host-local
 Shark Rider sub-skills from their local paths. Do not read bundled Shark persona
-or skill content directly from `shark-data/`.
+or skill content directly from `shark-data/`. If a bundled skill is unavailable,
+report it as unavailable and omit only that content. Continue only if the
+consultation remains useful.
 
 Adopt the persona **inline** for the rest of the consultation:
 

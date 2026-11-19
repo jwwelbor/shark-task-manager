@@ -99,7 +99,7 @@ Two tightly coupled pieces ship together:
    - **Priority**: Must-Have
 
 9. **REQ-F-009**: Graceful degradation when agent is absent
-   - **Description**: If `shark agent get <agent>` fails (agent not in bundle, override, or disk), print a clear unavailability message and the `agent list` menu. Never hard-fail or throw an unhandled error.
+   - **Description**: If `shark agent get <agent>` fails for either `consult` or `consult-agent` (agent not in bundle, override, or disk), print a clear unavailability message, show `shark agent list --all`, and stop before adopting or dispatching the persona. Never hard-fail or throw an unhandled error.
    - **Priority**: Must-Have
 
 ### Non-Functional Requirements

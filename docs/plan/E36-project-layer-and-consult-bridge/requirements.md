@@ -54,8 +54,9 @@ artifacts.
   *ask/have/consult `<agent>` to/about `<task>`*, extract agent + task, hand off
   to `consult.md`. Fire only on clear "talk to an agent" phrasing; fall back to
   the explicit form if the agent doesn't resolve. (plan §4)
-- **REQ-F8** — `consult.md` degrades gracefully when the agent is absent (clear
-  message + `agent list`); never hard-fail. (plan §4)
+- **REQ-F8** — Both `consult.md` and `consult-agent.md` degrade gracefully when
+  `shark agent get` fails: report unavailable content, show `shark agent list
+  --all`, and stop before persona adoption or dispatch. Never hard-fail. (plan §4)
 
 **Consultation mode clarification (2026-11-19):** Inline persona adoption remains
 the behavior of `/shark-rider consult` and natural-language consult requests.
@@ -141,9 +142,10 @@ default.
 - **REQ-NF4 — No source-of-truth duplication.** Both `consult` and
   `spawn_agent` resolve personas through `shark agent get`; the derived checklist
   is never read back as authoritative state. (plan §3, §4)
-- **REQ-NF5 — Graceful degradation.** Missing bundle content (`shark agent get`
-  / `shark skill get` failure) prints an "unavailable / coming soon" message and
-  never hard-fails. (plan §4, SKILL.md router contract)
+- **REQ-NF5 — Graceful degradation.** Missing persona content (`shark agent get`
+  failure) is reported as unavailable, shows `shark agent list --all`, and stops
+  before persona use. Other missing bundle content (`shark skill get` failure)
+  is reported as unavailable; never hard-fail. (plan §4, SKILL.md router contract)
 - **REQ-NF6 — Read-only portfolio advice.** Bare `shark next` uses only read
   interfaces. It does not reclaim expired claims or initialize transition-capable
   keyed-dispatch adapters. (`E36-F04/spec.md` REQ-NF-001)

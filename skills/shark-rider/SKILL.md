@@ -237,7 +237,10 @@ shark agent list --json
 ```
 
 If a `shark skill get` / `shark agent get` fails because content is missing,
-**degrade gracefully** — print a clear "unavailable" message; never hard-fail.
+**degrade gracefully** — report it as unavailable; never hard-fail. A failed
+persona lookup must list `shark agent list --all` and stop before persona
+adoption or dispatch. If supporting skill content is unavailable, omit only
+that content and continue only when the owning action remains useful.
 (Exception: the shark **sub-skills** below are host-local — `Read` them directly,
 never via `shark skill get`.)
 

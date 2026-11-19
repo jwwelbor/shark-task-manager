@@ -90,6 +90,11 @@ Walk the list:
 shark agent get <resolved-agent>
 ```
 
+If `shark agent get` fails or returns no persona definition, print:
+`Agent "<resolved-agent>" was listed but its content could not be loaded.`
+Then print `shark agent list --all` and **STOP**. Do not continue to referent
+resolution, adopt the persona, or launch a subagent.
+
 This returns the agent's definition (name, description, role, instructions,
 skills, etc.). Read it fully and use it as the specialist role instructions in
 the subagent handoff. Do not set the host subagent type to the Shark agent name.
