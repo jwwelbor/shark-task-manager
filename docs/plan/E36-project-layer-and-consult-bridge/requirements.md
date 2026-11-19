@@ -76,9 +76,9 @@ the behavior of `/shark-rider consult` and natural-language consult requests.
 `/shark-rider consult-agent <agent> [referent]` is a separate, explicit command
 for one-shot advice from one bounded host-subagent request with an enforced
 read-only host permission profile. If the host cannot enforce the profile, the
-command falls back to inline `consult` without launching. The parent remains
-responsible for checking and summarizing advice; neither command mutates Shark
-state by default.
+command does not launch and directs the user to inline `consult`. The parent
+remains responsible for checking and summarizing advice; neither command mutates
+Shark state by default.
 
 ### Project namespace + progress record (Slice 2 → E36-F02)
 

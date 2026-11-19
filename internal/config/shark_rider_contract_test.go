@@ -169,6 +169,8 @@ func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
 	})
 	assert.Contains(t, procedureTask, "loads the persona and referent, sends one bounded host-subagent request, then has the parent review and synthesize the advice")
 	assert.Contains(t, procedureTask, "A delegated consultation does not mutate Shark state or workspace files and does not launch nested agents")
+	assert.Contains(t, procedureTask, "otherwise it explains the limitation and directs the user to inline consult without launching a subagent")
+	assert.Contains(t, procedureTask, "delegated mode does not launch a subagent and directs the user to inline `consult`")
 	assert.Contains(t, requestResolution, "If the list is empty, say no Shark agents are installed, suggest\n  `shark admin install-shark-data`, and **STOP**.")
 	assert.Contains(t, procedureTask, "If the host cannot enforce read-only permissions for workspace writes, Shark mutations, and nested dispatch, delegated mode does not launch")
 	assertContainsAll(t, requirements, "delegated consultation requirements", []string{
@@ -193,6 +195,7 @@ func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
 	assert.Contains(t, routingTask, "consult-agent` verb remains a separate explicit one-shot mode")
 	assert.Contains(t, epic, "shared `context/consult-role-guide.md` and `context/consult-request-resolution.md`")
 	assert.Contains(t, requirements, "If the host cannot enforce these permissions, do not launch and direct the user to inline `consult`.")
+	assert.Contains(t, requirements, "the command does not launch and directs the user to inline `consult`.")
 }
 
 func TestSharkRiderConsultQueryRoutingContract(t *testing.T) {
