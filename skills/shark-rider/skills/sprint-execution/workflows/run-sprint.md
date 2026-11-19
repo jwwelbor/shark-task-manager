@@ -66,14 +66,17 @@ Continue with the pull-loop anyway? (yes/no)
 ## Step 2: Pull-Loop
 
 Initialize:
-- `ITERATION = 0`
-- `DISPATCHED = []` (list of entity keys dispatched this session)
-- `SELECTION_PAUSED = false`
-- `SELECTED_ENTITY = null`
+- ITERATION = 0
+- DISPATCHED = [] (list of entity keys dispatched this session)
+- LOOP_OUTCOME = "running" (running, drained, paused, or capped)
+- ASSIGNMENT_INVENTORY_COMPLETE = false
+- TERMINALITY_CHECK_COMPLETE = false
+- UNFINISHED = []
+- UNRESOLVED = []
 
 Loop:
 
-```
+~~~
 while ITERATION < MAX_ITERATIONS:
     ITERATION += 1
     SELECTED_ENTITY = null
@@ -85,48 +88,118 @@ while ITERATION < MAX_ITERATIONS:
     Execute NEXT_CMD.
     Parse JSON response as SPRINT_SELECTION.
 
-    if the response is malformed:
-        print the raw response and report that sprint selection returned unexpected output
-        stop the pull-loop; do not dispatch an entity
+    if the command fails or the response is malformed:
+        print the raw response when available and report unexpected sprint-selection output
+        LOOP_OUTCOME = "paused"
+        break
 
     if the parsed response root is not a JSON object:
-        print the raw response and report that sprint selection returned unexpected output
-        stop the pull-loop; do not dispatch an entity
+        print the raw response and report unexpected sprint-selection output
+        LOOP_OUTCOME = "paused"
+        break
 
     if SPRINT_SELECTION.sprint_key is missing:
-        print the raw response and report that sprint selection returned unexpected output
-        stop the pull-loop; do not dispatch an entity
+        print the raw response and report unexpected sprint-selection output
+        LOOP_OUTCOME = "paused"
+        break
 
     if SPRINT_SELECTION.sprint_key != SPRINT_KEY:
-        report the selected sprint key mismatch and stop the pull-loop without dispatching an entity
+        report the selected sprint key mismatch
+        LOOP_OUTCOME = "paused"
+        break
 
     if SPRINT_SELECTION.action == "pause":
-        print "No dispatchable entity was selected; sprint drain was not verified."
-        SELECTION_PAUSED = true
+        # An empty selector result can be caused by filters or admission rules.
+        # Verify the full assignment set without AGENT_FILTER or other filters.
+        # This verification omits AGENT_FILTER and all other selector filters.
+        BACKLOG = execute shark sprint backlog {SPRINT_KEY} --view=ordered --all --json
+        if the command fails or its JSON is malformed:
+            LOOP_OUTCOME = "paused"
+            report that sprint drain was not verified because the all-status backlog read failed
+            break
+
+        if BACKLOG.total_count does not match the returned item count:
+            LOOP_OUTCOME = "paused"
+            report that the full assignment inventory is incomplete
+            break
+
+        ASSIGNMENT_INVENTORY_COMPLETE = true
+        UNFINISHED = []
+        UNRESOLVED = []
+        TERMINALITY_UNVERIFIED = false
+        WORKFLOW_BY_TYPE = {}
+
+        For every distinct entity type in BACKLOG.items:
+            run `/shark-rider workflow {ENTITY_TYPE} --json` once to resolve that
+            type's workflow and explicitly configured terminal statuses
+            if the workflow or its terminal statuses cannot be resolved:
+                set TERMINALITY_UNVERIFIED = true
+                add the entity type to UNRESOLVED
+            else:
+                save the resolved workflow in WORKFLOW_BY_TYPE[ENTITY_TYPE]
+
+        For every item in BACKLOG.items, including terminal-status items:
+            reuse that workflow metadata for every matching item
+            if its workflow, current status, or terminal marker cannot be resolved:
+                set TERMINALITY_UNVERIFIED = true
+                add its key, entity type, and current status to UNRESOLVED
+            else if its current status is not marked terminal by that workflow:
+                add its key, entity type, and current status to UNFINISHED
+
+        if TERMINALITY_UNVERIFIED is true:
+            LOOP_OUTCOME = "paused"
+            report that the full assignment set's terminality could not be verified
+            list unresolved workflow or status evidence when available
+            break
+
+        TERMINALITY_CHECK_COMPLETE = true
+
+        if UNFINISHED is not empty:
+            LOOP_OUTCOME = "paused"
+            if AGENT_FILTER is set:
+                report that the {AGENT_FILTER} role-filtered slice returned no
+                candidate, but nonterminal assignments remain in the full sprint
+            else:
+                report that no candidate was returned, but nonterminal assignments
+                remain in the full sprint
+            list each unfinished key, entity type, and current status; label work
+            held, filtered, or blocked only when supported by the available evidence
+            break
+
+        # A successful all-status read with no unfinished assignments proves that
+        # every assigned entity is terminal, including an empty assignment set.
+        LOOP_OUTCOME = "drained"
         break
 
     if SPRINT_SELECTION.action == "select_item":
         SELECTED_ENTITY = SPRINT_SELECTION.entity
     else if SPRINT_SELECTION.action == "parallel_candidates":
         if SPRINT_SELECTION.entities is empty:
-            report unexpected output, include "sprint drain was not verified", and stop the pull-loop; do not dispatch an entity
+            report unexpected output and include "sprint drain was not verified"
+            LOOP_OUTCOME = "paused"
+            break
         SELECTED_ENTITY = SPRINT_SELECTION.entities[0]  # first item in selector order
     else:
-        report the unexpected selection action and stop the pull-loop; do not dispatch an entity
+        report the unexpected selection action
+        LOOP_OUTCOME = "paused"
+        break
 
     if SELECTED_ENTITY is null:
         print "No dispatchable entity was selected; sprint drain was not verified."
-        report null selected entity and stop the pull-loop; do not dispatch an entity
+        LOOP_OUTCOME = "paused"
+        break
 
     if SELECTED_ENTITY.key is missing, empty, or whitespace-only:
-        SELECTED_ENTITY = null
         print "No dispatchable entity was selected; sprint drain was not verified."
-        report the selected entity key is invalid and stop the pull-loop; do not dispatch an entity
+        report the selected entity key is invalid
+        LOOP_OUTCOME = "paused"
+        break
 
     if SELECTED_ENTITY.sprint_key != SPRINT_KEY:
-        SELECTED_ENTITY = null
         print "No dispatchable entity was selected; sprint drain was not verified."
-        report the selected entity sprint key mismatch and stop the pull-loop without dispatching an entity
+        report the selected entity sprint key mismatch
+        LOOP_OUTCOME = "paused"
+        break
 
     ENTITY_KEY = SELECTED_ENTITY.key  # e.g., "E07-F01-001", "B003"
 
@@ -140,20 +213,25 @@ while ITERATION < MAX_ITERATIONS:
     # /shark-rider run reads orchestrator_action and drives the entity to terminal status.
     # When /shark-rider run returns, resume the loop.
 
-if ITERATION >= MAX_ITERATIONS and SELECTED_ENTITY is not null:
+if LOOP_OUTCOME == "running" and ITERATION >= MAX_ITERATIONS and SELECTED_ENTITY is not null:
+    LOOP_OUTCOME = "capped"
     Print cap notice:
     "[Sprint {SPRINT_KEY}] Reached --max-iterations={MAX_ITERATIONS}. Loop stopped.
     Dispatched {len(DISPATCHED)} entities this session: {DISPATCHED}
     Sprint is still active. Re-run /shark-rider run-sprint {SPRINT_KEY} to continue."
     Proceed to Step 3 (still report and prompt; do not skip close gate).
-```
+~~~
 
 **Loop exit conditions:**
-1. `shark plan {SPRINT_KEY}` returns `action == "pause"` — no dispatchable entity was selected; sprint drain was not verified.
-2. `ITERATION >= MAX_ITERATIONS` — cap reached; cap notice printed above.
-3. The sprint selection response is malformed or names a different sprint — stop without dispatching an entity.
+1. The sprint-scoped selector returns an entity; validate its sprint identity and dispatch it through /shark-rider run.
+2. The selector returns pause and the unfiltered all-status assignment check confirms every assigned entity is terminal — normal completion; backlog drained.
+3. The selector returns pause but unfinished assignments remain, or terminality cannot be verified — paused; report supported evidence and do not call it normal completion.
+4. The selection response is malformed, names a different sprint, or has an invalid shape — paused without dispatching an entity.
+5. ITERATION reaches MAX_ITERATIONS — capped; the sprint remains active.
 
-**On `/shark-rider run` failure (agent error or unexpected exit):** Print the error, add a note to the entity if possible, and continue the loop. Do not abort the sprint pull-loop on a single entity failure.
+An empty AGENT_FILTER slice is not evidence the full sprint is drained. The all-status backlog verification omits AGENT_FILTER and all other selector filters.
+
+**On /shark-rider run failure (agent error or unexpected exit):** Print the error, add a note to the entity if possible, and continue the loop. Do not abort the sprint pull-loop on a single entity failure.
 
 ---
 
@@ -161,34 +239,36 @@ if ITERATION >= MAX_ITERATIONS and SELECTED_ENTITY is not null:
 
 Print sprint progress reports:
 
-```bash
+~~~
 shark sprint burndown {SPRINT_KEY} --json
-```
+~~~
 
 Display the burndown output (remaining vs. completed entity count and size). If the command is unavailable or returns an error, print a notice and continue.
 
-```bash
+~~~
 shark sprint summary {SPRINT_KEY} --json
-```
+~~~
 
-Display the summary output (completed, in-progress, incomplete entity counts). Basic summary only — do not pass `--detailed`.
+Display the summary output (completed, in-progress, incomplete entity counts). Basic summary only — do not pass --detailed.
 
-Print a session summary:
-```
-[Sprint {SPRINT_KEY}] Pull-loop stopped.
-Entities dispatched this session ({len(DISPATCHED)}): {DISPATCHED joined by ", "}
-```
+Print a session summary that matches LOOP_OUTCOME:
+- drained: [Sprint {SPRINT_KEY}] Pull-loop drained; every assigned entity is terminal.
+- paused: [Sprint {SPRINT_KEY}] Pull-loop paused; the sprint was not verified drained.
+- capped: report the cap and that the sprint remains active.
 
-If `SELECTION_PAUSED` is true, include this exact status in the summary:
-```
-No dispatchable entity was selected; sprint drain was not verified.
-```
+In every case, include the number and keys of entities dispatched this session.
+
+If LOOP_OUTCOME is paused:
+- When TERMINALITY_CHECK_COMPLETE is true, list the unfinished assignment keys, entity types, and statuses from the complete all-status read.
+- Otherwise, state that the full assignment inventory or its terminality could not be verified; do not imply that the known items are the complete remaining set.
 
 ---
 
 ## Step 4: Close Gate
 
 **THIS STEP REQUIRES EXPLICIT USER CONFIRMATION. Do NOT skip this step under any circumstances.**
+
+If `LOOP_OUTCOME` is `paused` or `capped`, state that the sprint is not verified drained. List assignment keys and statuses only when they come from a complete, successful all-status read (`TERMINALITY_CHECK_COMPLETE` is true). If the inventory is unavailable or incomplete, say so and do not imply the full remaining set is known. A close with carryover may reassign or remove incomplete assignments according to the selected carryover mode. The owner must still explicitly confirm, and the accepted Sprint Goal Review below remains a separate required gate.
 
 Ask the user:
 ```
@@ -257,7 +337,7 @@ before retrying close. Do not retry silently.
 |---|---|
 | Sprint key not found (`shark get` returns not-found) | Print `Sprint {SPRINT_KEY} not found.` and exit |
 | `shark sprint start` fails | Print error; exit without entering the loop |
-| `shark plan {SPRINT_KEY}` returns malformed JSON, a non-object JSON root, an unknown action, or an invalid selection shape | Print the raw response when available, report `sprint selection returned unexpected output`, stop the loop, and proceed to Step 3 |
+| `shark plan {SPRINT_KEY}` returns malformed JSON, a non-object JSON root, an unknown action, or an invalid selection shape | Print the raw response when available, set `LOOP_OUTCOME = "paused"`, report `sprint selection returned unexpected output`, do not dispatch, stop the loop, and proceed to Step 3 without treating the sprint as drained |
 | Sprint selection or selected entity has a different `sprint_key` than `SPRINT_KEY` | Report the mismatch, do not dispatch the entity, stop the loop, and proceed to Step 3 |
 | `/shark-rider run {ENTITY_KEY}` fails or the agent errors | Log error; continue loop (do not abort sprint) |
 | `shark sprint close` fails | Print full error; sprint remains open; suggest manual retry |

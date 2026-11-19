@@ -14,7 +14,7 @@ active-backlog selection and keyed dispatch to the canonical topology adapter.
 Neither mode builds worker prompts.
 
 ```
-shark plan S### --json → entity key → /shark-rider run {entity_key} → repeat until pause
+shark plan S### --json → entity key → /shark-rider run {entity_key} → repeat; verify terminality before calling the sprint drained
 ```
 
 This skill covers **two execution modes**:
@@ -62,6 +62,7 @@ Both modes gate the sprint close operation on explicit user confirmation.
 - Never truncate output with `head`, `tail`, or `grep`
 - `shark plan S### --json` returns a sprint-scoped selection envelope. `/run-sprint` validates its `sprint_key`, dispatches `entity` for `select_item`, and dispatches the first ordered item from `entities` for `parallel_candidates`.
 - The keyless `shark sprint next --json` command is not sprint-scoped. Use `shark plan S### --json` when the caller supplies a sprint key.
+- When the sprint-scoped selector returns `pause`, `/run-sprint` checks `shark sprint backlog S### --view=ordered --all --json` without selector filters. It calls the sprint drained only after a complete inventory and workflow-status check confirms every assigned entity is terminal; incomplete evidence, unresolved statuses, remaining work, or an empty `--agent` slice leaves the run paused.
 
 
 PRODUCT CRITICAL-PATH GUARD — consult before choosing or starting any work item:
@@ -108,6 +109,12 @@ This guard only reports; it never names a target status of its own and never
 makes the choice for you.
 
 Select entities within this sprint via `shark plan S005 --json` and dispatch
-each per the execution skill. If no dispatchable entity is selected, report that
-sprint drain was not verified. When the sprint is ready to wrap up, release
-outcome `pass` to move it to closing.
+each per the execution skill. If no dispatchable entity is selected, read the
+full unfiltered assignment set with `shark sprint backlog S005
+--view=ordered --all --json` and resolve each entity type's configured terminal
+statuses. Report the sprint drained and release outcome `pass` only after that
+complete read confirms every assigned entity is terminal. If the read is
+incomplete, a status or terminal marker cannot be resolved, or assignments
+remain, pause and report that sprint drain was not verified. An empty
+`--agent` slice does not prove the sprint is drained. Keep the Sprint Goal
+Review and explicit close confirmation as separate gates.

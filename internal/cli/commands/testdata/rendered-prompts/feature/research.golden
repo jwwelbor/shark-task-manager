@@ -1,10 +1,11 @@
 
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
-Research feature E07-F01: "Sample feature for golden test" using the v2 universal recipe catalog
-at `shark-data/research/recipes.yaml`. Read the parent report, parent PRD,
-siblings, docs/plan/E07/E07-F01/E07-F01.md, and only the category-specific sources selected by
-the report checklist.
+Research feature E07-F01: "Sample feature for golden test" using the v2 universal recipe catalog.
+Read it with `shark data get research/recipes.yaml`; the command reads the
+configured catalog or its embedded default without installing shark-data.
+Read the parent report, parent PRD, siblings, docs/plan/E07/E07-F01/E07-F01.md, and only the
+category-specific sources selected by the report checklist.
 
 Write only `research-report.md` beside the feature file and register that
 report as a related document on E07-F01. Its front matter must include only

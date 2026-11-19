@@ -12,7 +12,6 @@ import (
 // mockEntityDocumentRepo implements EntityDocumentRepository for testing.
 type mockEntityDocumentRepo struct {
 	createOrGetFn func(ctx context.Context, title, filePath string) (*models.Document, error)
-	getByTitleFn  func(ctx context.Context, title string) (*models.Document, error)
 }
 
 func (m *mockEntityDocumentRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
@@ -20,13 +19,6 @@ func (m *mockEntityDocumentRepo) CreateOrGet(ctx context.Context, title, filePat
 		return m.createOrGetFn(ctx, title, filePath)
 	}
 	return nil, fmt.Errorf("CreateOrGet not implemented")
-}
-
-func (m *mockEntityDocumentRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
-	if m.getByTitleFn != nil {
-		return m.getByTitleFn(ctx, title)
-	}
-	return nil, fmt.Errorf("GetByTitle not implemented")
 }
 
 // mockEntityDocumentLinkRepo implements EntityDocumentLinkRepository for testing.
@@ -238,13 +230,12 @@ func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
 	var capturedEntityType models.EntityType
 	var capturedEntityID, capturedDocID int64
 
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
+	repo := &mockEntityDocumentRepo{}
 
 	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "My Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			capturedEntityType = entityType
 			capturedEntityID = entityID
@@ -276,13 +267,13 @@ func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
 }
 
 func TestEntityDocumentService_UnlinkDocumentByKey_DocumentNotFound_Idempotent(t *testing.T) {
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return nil, fmt.Errorf("document not found")
+	repo := &mockEntityDocumentRepo{}
+
+	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return nil, nil
 		},
 	}
-
-	linkRepo := &mockEntityDocumentLinkRepo{}
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
@@ -321,13 +312,12 @@ func TestEntityDocumentService_UnlinkDocumentByKey_EntityNotFound(t *testing.T) 
 }
 
 func TestEntityDocumentService_UnlinkDocumentByKey_UnlinkFails(t *testing.T) {
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
+	repo := &mockEntityDocumentRepo{}
 
 	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			return fmt.Errorf("db error")
 		},

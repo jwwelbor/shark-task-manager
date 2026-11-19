@@ -15,7 +15,7 @@ active-backlog selection and keyed dispatch to the canonical topology adapter.
 Neither mode builds worker prompts.
 
 ```
-shark plan S### --json → entity key → /shark-rider run {entity_key} → repeat until pause
+shark plan S### --json → entity key → /shark-rider run {entity_key} → repeat; verify terminality before calling the sprint drained
 ```
 
 This skill covers **two execution modes**:
@@ -63,3 +63,4 @@ Both modes gate the sprint close operation on explicit user confirmation.
 - Never truncate output with `head`, `tail`, or `grep`
 - `shark plan S### --json` returns a sprint-scoped selection envelope. `/run-sprint` validates its `sprint_key`, dispatches `entity` for `select_item`, and dispatches the first ordered item from `entities` for `parallel_candidates`.
 - The keyless `shark sprint next --json` command is not sprint-scoped. Use `shark plan S### --json` when the caller supplies a sprint key.
+- When the sprint-scoped selector returns `pause`, `/run-sprint` checks `shark sprint backlog S### --view=ordered --all --json` without selector filters. It calls the sprint drained only after a complete inventory and workflow-status check confirms every assigned entity is terminal; incomplete evidence, unresolved statuses, remaining work, or an empty `--agent` slice leaves the run paused.

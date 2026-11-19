@@ -49,8 +49,9 @@ func TestB081RunSprintMalformedAndPausedSelectionStopBeforeDispatch(t *testing.T
 	dispatch := "/shark-rider run {ENTITY_KEY}"
 
 	requireF12Ordered(t, workflow, path,
-		"if the response is malformed:",
-		"stop the pull-loop; do not dispatch an entity",
+		"if the command fails or the response is malformed:",
+		`LOOP_OUTCOME = "paused"`,
+		"break",
 		"if the parsed response root is not a JSON object:",
 		"if SPRINT_SELECTION.sprint_key is missing:",
 		dispatch)
@@ -58,15 +59,19 @@ func TestB081RunSprintMalformedAndPausedSelectionStopBeforeDispatch(t *testing.T
 	require.NotEqual(t, -1, rootGuardStart, "workflow must reject a non-object JSON root")
 	requireF12Ordered(t, workflow[rootGuardStart:], path,
 		"if the parsed response root is not a JSON object:",
-		"stop the pull-loop; do not dispatch an entity",
+		`LOOP_OUTCOME = "paused"`,
+		"break",
 		"if SPRINT_SELECTION.sprint_key is missing:",
 		dispatch)
-	requireF12Ordered(t, workflow, path,
-		"if SPRINT_SELECTION.action == \"pause\":",
-		"No dispatchable entity was selected; sprint drain was not verified.",
-		"SELECTION_PAUSED = true",
-		"break",
-		dispatch)
+	pauseStart := strings.Index(workflow, "if SPRINT_SELECTION.action == \"pause\":")
+	selectStart := strings.Index(workflow, "if SPRINT_SELECTION.action == \"select_item\":")
+	require.NotEqual(t, -1, pauseStart, "workflow must validate a pause against the full assignment set")
+	require.Greater(t, selectStart, pauseStart, "the select-item branch must follow pause validation")
+	pauseBranch := workflow[pauseStart:selectStart]
+	requireF12Contains(t, pauseBranch, path,
+		"shark sprint backlog {SPRINT_KEY} --view=ordered --all --json",
+		"LOOP_OUTCOME = \"drained\"")
+	requireF12Excludes(t, pauseBranch, path, dispatch)
 }
 
 func TestB081RunSprintInvalidSelectionShapesStopBeforeDispatch(t *testing.T) {
@@ -81,14 +86,18 @@ func TestB081RunSprintInvalidSelectionShapesStopBeforeDispatch(t *testing.T) {
 			name: "empty parallel candidates",
 			markers: []string{
 				"if SPRINT_SELECTION.entities is empty:",
-				"report unexpected output, include \"sprint drain was not verified\", and stop the pull-loop; do not dispatch an entity",
+				"report unexpected output and include \"sprint drain was not verified\"",
+				`LOOP_OUTCOME = "paused"`,
+				"break",
 				dispatch,
 			},
 		},
 		{
 			name: "unknown action",
 			markers: []string{
-				"report the unexpected selection action and stop the pull-loop; do not dispatch an entity",
+				"report the unexpected selection action",
+				`LOOP_OUTCOME = "paused"`,
+				"break",
 				dispatch,
 			},
 		},
@@ -96,7 +105,9 @@ func TestB081RunSprintInvalidSelectionShapesStopBeforeDispatch(t *testing.T) {
 			name: "missing selected entity",
 			markers: []string{
 				"if SELECTED_ENTITY is null:",
-				"report null selected entity and stop the pull-loop; do not dispatch an entity",
+				"No dispatchable entity was selected; sprint drain was not verified.",
+				`LOOP_OUTCOME = "paused"`,
+				"break",
 				dispatch,
 			},
 		},
@@ -104,7 +115,9 @@ func TestB081RunSprintInvalidSelectionShapesStopBeforeDispatch(t *testing.T) {
 			name: "missing selected entity key",
 			markers: []string{
 				"if SELECTED_ENTITY.key is missing, empty, or whitespace-only:",
-				"report the selected entity key is invalid and stop the pull-loop; do not dispatch an entity",
+				"report the selected entity key is invalid",
+				`LOOP_OUTCOME = "paused"`,
+				"break",
 				dispatch,
 			},
 		},
@@ -112,7 +125,9 @@ func TestB081RunSprintInvalidSelectionShapesStopBeforeDispatch(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			requireF12Ordered(t, workflow, path, testCase.markers...)
+			start := strings.Index(workflow, testCase.markers[0])
+			require.NotEqual(t, -1, start, "workflow must contain the %s guard", testCase.name)
+			requireF12Ordered(t, workflow[start:], path, testCase.markers...)
 		})
 	}
 }
@@ -122,13 +137,21 @@ func TestB081RunSprintIdentityMismatchesStopBeforeDispatch(t *testing.T) {
 	workflow := readF12Authored(t, path)
 	dispatch := "/shark-rider run {ENTITY_KEY}"
 
-	requireF12Ordered(t, workflow, path,
+	sprintMismatch := strings.Index(workflow, "if SPRINT_SELECTION.sprint_key != SPRINT_KEY:")
+	require.NotEqual(t, -1, sprintMismatch, "workflow must validate the selected sprint identity")
+	requireF12Ordered(t, workflow[sprintMismatch:], path,
 		"if SPRINT_SELECTION.sprint_key != SPRINT_KEY:",
-		"report the selected sprint key mismatch and stop the pull-loop without dispatching an entity",
+		"report the selected sprint key mismatch",
+		`LOOP_OUTCOME = "paused"`,
+		"break",
 		dispatch)
-	requireF12Ordered(t, workflow, path,
+	entityMismatch := strings.Index(workflow, "if SELECTED_ENTITY.sprint_key != SPRINT_KEY:")
+	require.NotEqual(t, -1, entityMismatch, "workflow must validate the selected entity sprint identity")
+	requireF12Ordered(t, workflow[entityMismatch:], path,
 		"if SELECTED_ENTITY.sprint_key != SPRINT_KEY:",
-		"report the selected entity sprint key mismatch and stop the pull-loop without dispatching an entity",
+		"report the selected entity sprint key mismatch",
+		`LOOP_OUTCOME = "paused"`,
+		"break",
 		dispatch)
 }
 
@@ -148,7 +171,7 @@ func TestB081RunSprintCanonicalizesLowercaseInputBeforeSelection(t *testing.T) {
 func TestB081RunSprintIterationCapNoticeRequiresValidSelection(t *testing.T) {
 	path := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
 	workflow := readF12Authored(t, path)
-	capGuard := "if ITERATION >= MAX_ITERATIONS and SELECTED_ENTITY is not null:"
+	capGuard := "if LOOP_OUTCOME == \"running\" and ITERATION >= MAX_ITERATIONS and SELECTED_ENTITY is not null:"
 
 	requireF12Ordered(t, workflow, path,
 		"SELECTED_ENTITY = SPRINT_SELECTION.entity",
@@ -158,20 +181,33 @@ func TestB081RunSprintIterationCapNoticeRequiresValidSelection(t *testing.T) {
 		"Print cap notice:")
 	loopStart := strings.Index(workflow, "while ITERATION < MAX_ITERATIONS:")
 	require.NotEqual(t, -1, loopStart, "workflow must define the bounded pull-loop")
-	requireF12Ordered(t, workflow[loopStart:], path,
-		"while ITERATION < MAX_ITERATIONS:",
-		"SELECTED_ENTITY = null",
-		"if SPRINT_SELECTION.action == \"pause\":",
-		"SELECTION_PAUSED = true",
-		"break",
-		capGuard)
+	loop := workflow[loopStart:]
+	failureStart := strings.Index(loop, "if the command fails or the response is malformed:")
+	pauseStart := strings.Index(loop, "if SPRINT_SELECTION.action == \"pause\":")
+	require.NotEqual(t, -1, failureStart, "workflow must handle malformed selector responses")
+	require.Greater(t, pauseStart, failureStart, "pause validation must follow selector error handling")
+	requireF12Ordered(t, loop[failureStart:pauseStart], path,
+		"if the command fails or the response is malformed:",
+		`LOOP_OUTCOME = "paused"`,
+		"break")
+	selectStart := strings.Index(loop[pauseStart:], "if SPRINT_SELECTION.action == \"select_item\":")
+	require.NotEqual(t, -1, selectStart, "workflow must continue to the select-item branch after pause validation")
+	pauseBranch := loop[pauseStart : pauseStart+selectStart]
+	requireF12Contains(t, pauseBranch, path,
+		"shark sprint backlog {SPRINT_KEY} --view=ordered --all --json",
+		`LOOP_OUTCOME = "drained"`)
+	dispatchAt := strings.Index(loop, "/shark-rider run {ENTITY_KEY}")
+	capAt := strings.Index(loop, capGuard)
+	require.Greater(t, capAt, dispatchAt, "the iteration cap must be evaluated after dispatch")
 	invalidKeyStart := strings.Index(workflow, "if SELECTED_ENTITY.key is missing, empty, or whitespace-only:")
 	require.NotEqual(t, -1, invalidKeyStart, "workflow must validate the selected entity key")
-	requireF12Ordered(t, workflow[invalidKeyStart:], path,
+	invalidKeyEnd := strings.Index(workflow[invalidKeyStart:], "if SELECTED_ENTITY.sprint_key != SPRINT_KEY:")
+	require.NotEqual(t, -1, invalidKeyEnd, "workflow must validate sprint identity after the selected entity key")
+	requireF12Ordered(t, workflow[invalidKeyStart:invalidKeyStart+invalidKeyEnd], path,
 		"if SELECTED_ENTITY.key is missing, empty, or whitespace-only:",
-		"SELECTED_ENTITY = null",
-		"report the selected entity key is invalid and stop the pull-loop; do not dispatch an entity",
-		capGuard)
+		"report the selected entity key is invalid",
+		`LOOP_OUTCOME = "paused"`,
+		"break")
 }
 
 func TestB081RunSprintSummaryDoesNotClaimCompletionWithoutProof(t *testing.T) {
@@ -179,7 +215,7 @@ func TestB081RunSprintSummaryDoesNotClaimCompletionWithoutProof(t *testing.T) {
 	workflow := readF12Authored(t, path)
 
 	requireF12Contains(t, workflow, path,
-		"[Sprint {SPRINT_KEY}] Pull-loop stopped.",
+		"[Sprint {SPRINT_KEY}] Pull-loop paused; the sprint was not verified drained.",
 		"No dispatchable entity was selected; sprint drain was not verified.")
 	requireF12Excludes(t, workflow, path, "[Sprint {SPRINT_KEY}] Pull-loop complete.")
 }
