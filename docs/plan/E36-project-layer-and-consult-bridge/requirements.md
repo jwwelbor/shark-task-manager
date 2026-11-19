@@ -59,10 +59,13 @@ artifacts.
 - **REQ-F5** — A consult is **read-only by default**: it reads shark/docs for
   context as the persona would but does not mutate shark state unless explicitly
   asked. (plan §4)
-- **REQ-F6** — Referent resolution: an explicit path is read; "this" with an
-  obvious in-context artifact is used and named; path detection requires a
-  path-shaped token, and a period in ordinary prose is not enough. Ambiguous
-  input is asked about or accepts pasted content. Never guess silently. (plan §4)
+- **REQ-F6** — Referent resolution: a path-shaped token is read only after
+  resolving it against the active workspace root and verifying that its
+  canonical target (including symlinks) remains inside that root. Outside or
+  unsafe paths are not read; ask for pasted content or an in-workspace copy.
+  "This" with an obvious in-context artifact is used and named; a period in
+  ordinary prose is not enough to identify a path. Ambiguous input is asked
+  about or accepts pasted content. Never guess silently. (plan §4)
 - **REQ-F7** — `query.md` gains a consult-intent recognizer: match
   *ask/have/consult `<agent>` to/about `<task>`*, extract agent + task, hand off
   to `consult.md`. Fire only on clear "talk to an agent" phrasing; fall back to

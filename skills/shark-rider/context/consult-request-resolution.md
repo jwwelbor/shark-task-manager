@@ -34,11 +34,18 @@ the persona.
 
 | Referent form | Resolution |
 |---|---|
-| Path-shaped file token (contains `/` or a Windows-style path separator, or ends in a known file suffix such as `.md`, `.go`, `.json`, `.yaml`, `.yml`, `.toml`, or `.txt`) | Remove sentence-final punctuation from the candidate token only, verify the path exists, then read it. A period elsewhere in ordinary prose is not enough to identify a path. If the sentence includes both a path and a question, read the path and preserve the question. |
+| Path-shaped file token (contains `/` or a Windows-style path separator, or ends in a known file suffix such as `.md`, `.go`, `.json`, `.yaml`, `.yml`, `.toml`, or `.txt`) | Remove sentence-final punctuation from the candidate token only. Resolve relative paths against the active project workspace root. A period elsewhere in ordinary prose is not enough to identify a path. If the sentence includes both a path and a question, read the path and preserve the question. |
 | Shark entity key accepted by `shark get` | Fetch the key with `shark get <key>` and read its content; preserve any remaining prose as the question. |
 | `"this"` or a clear reference to the current artifact | Use the most recent unambiguous artifact visible in the conversation and state which file it is. |
 | Empty or ambiguous prose | Ask: `What would you like to discuss with <agent>?` and **STOP**. |
 | Clear prose topic | Use as-is; no file read is needed. |
+
+Before any file read, canonicalize both the active project workspace root and the
+existing target after following symlinks, then verify containment with a
+component-aware relative-path check (not a string-prefix comparison). Absolute
+paths are allowed only when their canonical target remains inside the workspace
+root. If the target is outside that root or cannot be safely canonicalized, do
+not read it; ask the user to paste the content or provide an in-workspace copy.
 
 If a requested file, entity, or in-context artifact cannot be identified
 unambiguously, do not guess; ask the user and **STOP**. For a clear prose topic,

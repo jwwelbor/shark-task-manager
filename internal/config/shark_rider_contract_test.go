@@ -158,19 +158,7 @@ func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
 	routingTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-003.md")
 	epic := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "epic.md")
 
-	assertContainsAll(t, feature, "delegated consultation acceptance scenario", []string{
-		"**Scenario 7: Successful delegated consultation**",
-		"`/shark-rider consult-agent architect review this design`",
-		"`docs/design.md` is the unambiguous design artifact in the conversation",
-		"`docs/design.md` is identified and read",
-		"one bounded host-subagent request with the enforced read-only profile",
-		"parent reviews the advice and synthesizes a response in its own voice",
-		"no Shark state, workspace files, or additional agents are changed or launched",
-		"**Scenario 8: No agents are installed**",
-		"advised to run `shark admin install-shark-data`",
-		"**Scenario 9: Host cannot enforce delegated read-only permissions**",
-		"no subagent is launched",
-	})
+	assertDelegatedConsultScenarios(t, feature)
 	assert.Contains(t, procedureTask, "loads the persona and referent, sends one bounded host-subagent request, then has the parent review and synthesize the advice")
 	assert.Contains(t, procedureTask, "A delegated consultation does not mutate Shark state or workspace files and does not launch nested agents")
 	assert.Contains(t, procedureTask, "otherwise it explains the limitation and directs the user to inline consult without launching a subagent")
@@ -200,6 +188,34 @@ func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
 	assert.Contains(t, epic, "shared `context/consult-role-guide.md` and `context/consult-request-resolution.md`")
 	assert.Contains(t, requirements, "If the host cannot enforce these permissions, do not launch and direct the user to inline `consult`.")
 	assert.Contains(t, requirements, "the command does not launch and directs the user to inline `consult`.")
+}
+
+func assertDelegatedConsultScenarios(t *testing.T, feature string) {
+	t.Helper()
+	assertContainsAll(t, feature, "delegated consultation acceptance scenario", []string{
+		"**Scenario 7: Successful delegated consultation**",
+		"`/shark-rider consult-agent architect review this design`",
+		"`docs/design.md` is the unambiguous design artifact in the conversation",
+		"`docs/design.md` is identified and read",
+		"one bounded host-subagent request with the enforced read-only profile",
+		"parent reviews the advice and synthesizes a response in its own voice",
+		"no Shark state, workspace files, or additional agents are changed or launched",
+		"**Scenario 8: No agents are installed**",
+		"advised to run `shark admin install-shark-data`",
+		"**Scenario 9: Host cannot enforce delegated read-only permissions**",
+		"no subagent is launched",
+	})
+}
+
+func TestSharkRiderConsultPathReferentBoundaryIsSpecified(t *testing.T) {
+	root := findRepoRootForAudit(t)
+	feature := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "feature.md")
+	procedureTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-002.md")
+	requirements := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "requirements.md")
+	requirements = strings.Join(strings.Fields(requirements), " ")
+	assert.Contains(t, feature, "**Scenario 10: Path referent escapes the workspace**")
+	assert.Contains(t, procedureTask, "canonical target is outside the active workspace root")
+	assert.Contains(t, requirements, "canonical target (including symlinks) remains inside that root")
 }
 
 func TestSharkRiderConsultQueryRoutingContract(t *testing.T) {
@@ -242,6 +258,10 @@ func assertConsultRequestResolution(t *testing.T, resolution string) {
 		"known file suffix",
 		"sentence-final punctuation",
 		"A period elsewhere in ordinary prose is not enough",
+		"canonicalize both the active project workspace root and the\nexisting target after following symlinks",
+		"component-aware relative-path check",
+		"Absolute\npaths are allowed only when their canonical target remains inside the workspace\nroot.",
+		"do\nnot read it; ask the user to paste the content or provide an in-workspace copy.",
 		"Shark entity key accepted by `shark get`",
 		"most recent unambiguous artifact",
 		"Empty or ambiguous prose",
