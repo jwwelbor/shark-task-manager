@@ -59,10 +59,12 @@ artifacts.
 - **REQ-F5** — A consult is **read-only by default**: it reads shark/docs for
   context as the persona would but does not mutate shark state unless explicitly
   asked. (plan §4)
-- **REQ-F6** — Referent resolution: a path-shaped token is read only after
-  resolving it against the active workspace root and verifying that its
-  canonical target (including symlinks) remains inside that root. Outside or
-  unsafe paths are not read; ask for pasted content or an in-workspace copy.
+- **REQ-F6** — Referent resolution: a user-provided path-shaped referent is read
+  only after resolving it against the active workspace root and verifying that
+  its canonical target (including symlinks) remains inside that root. Outside
+  or unsafe referents are not read; ask for pasted content or an in-workspace
+  copy. This path boundary applies only to user-provided file referents; it does
+  not restrict documented host-local skill/context reads.
   "This" with an obvious in-context artifact is used and named; a period in
   ordinary prose is not enough to identify a path. Ambiguous input is asked
   about or accepts pasted content. Never guess silently. (plan §4)

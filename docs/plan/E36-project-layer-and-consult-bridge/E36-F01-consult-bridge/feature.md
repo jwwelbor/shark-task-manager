@@ -91,7 +91,7 @@ Two tightly coupled pieces ship together:
    - **Priority**: Must-Have
 
 7. **REQ-F-007**: Referent resolution
-   - **Description**: A path-shaped token with a path separator or known file suffix is resolved against the active project workspace, canonicalized with symlinks, and read only if it remains inside that root; outside paths are not read. A period in ordinary prose is not enough to identify a path. "This" or "this plan/design/doc" with an unambiguous in-context artifact → use it and state which file was used. Ambiguous → ask the user or accept pasted content. Never silently guess the wrong artifact.
+   - **Description**: A user-provided path-shaped token with a path separator or known file suffix is resolved against the active project workspace, canonicalized with symlinks, and read only if it remains inside that root; outside paths are not read. A period in ordinary prose is not enough to identify a path. "This" or "this plan/design/doc" with an unambiguous in-context artifact → use it and state which file was used. Ambiguous → ask the user or accept pasted content. Never silently guess the wrong artifact.
    - **Priority**: Must-Have
 
 8. **REQ-F-008**: `query.md` consult-intent recognizer
@@ -168,10 +168,10 @@ Two tightly coupled pieces ship together:
 - **When** `/shark-rider consult-agent architect review this design` is requested
 - **Then** no subagent is launched, the host limitation is explained, and the user is directed to inline `/shark-rider consult architect review this design`
 
-**Scenario 10: Path referent escapes the workspace**
-- **Given** a path-shaped referent resolves outside the active project workspace, directly or through a symlink
+**Scenario 10: User path referent escapes the workspace**
+- **Given** a user-provided path-shaped referent resolves outside the active project workspace, directly or through a symlink
 - **When** either consultation mode resolves that referent
-- **Then** the target is not read, the user is asked to paste the content or provide an in-workspace copy, and no target content is sent to a subagent
+- **Then** the target is not read, the user is asked to paste the content or provide an in-workspace copy, and no target content is sent to a subagent; documented host-local skill/context reads remain available
 
 ---
 

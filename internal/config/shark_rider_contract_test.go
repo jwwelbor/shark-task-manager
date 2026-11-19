@@ -213,8 +213,9 @@ func TestSharkRiderConsultPathReferentBoundaryIsSpecified(t *testing.T) {
 	procedureTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-002.md")
 	requirements := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "requirements.md")
 	requirements = strings.Join(strings.Fields(requirements), " ")
-	assert.Contains(t, feature, "**Scenario 10: Path referent escapes the workspace**")
+	assert.Contains(t, feature, "**Scenario 10: User path referent escapes the workspace**")
 	assert.Contains(t, procedureTask, "canonical target is outside the active workspace root")
+	assert.Contains(t, procedureTask, "User-provided file referents stay inside the canonical active workspace root")
 	assert.Contains(t, requirements, "canonical target (including symlinks) remains inside that root")
 }
 
@@ -258,10 +259,11 @@ func assertConsultRequestResolution(t *testing.T, resolution string) {
 		"known file suffix",
 		"sentence-final punctuation",
 		"A period elsewhere in ordinary prose is not enough",
-		"canonicalize both the active project workspace root and the\nexisting target after following symlinks",
+		"Before reading a user-requested path referent, canonicalize both the active\nproject workspace root and the existing target after following symlinks",
 		"component-aware relative-path check",
-		"Absolute\npaths are allowed only when their canonical target remains inside the workspace\nroot.",
-		"do\nnot read it; ask the user to paste the content or provide an in-workspace copy.",
+		"Absolute paths are allowed only when their canonical\ntarget remains inside the workspace root.",
+		"do not read it; ask the user to paste the\ncontent or provide an in-workspace copy.",
+		"This boundary applies to user-referred\nfiles only; documented host-local Shark Rider skill/context reads in Section 5",
 		"Shark entity key accepted by `shark get`",
 		"most recent unambiguous artifact",
 		"Empty or ambiguous prose",
