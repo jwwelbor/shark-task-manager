@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -41,7 +42,7 @@ func TestInitProvider_DisabledTracerDoesNotPanic(t *testing.T) {
 func TestInitProvider_StdoutExporter_NoStdoutOutput(t *testing.T) {
 	// Capture stdout to verify nothing is written there
 	origStdout := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout = w
 

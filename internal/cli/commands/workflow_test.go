@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/spf13/cobra"
 )
 
@@ -85,7 +86,7 @@ func captureStdoutForTest(t *testing.T, run func() error) (string, error) {
 	t.Helper()
 
 	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	if err != nil {
 		t.Fatalf("Failed to create stdout pipe: %v", err)
 	}
@@ -723,7 +724,7 @@ func TestWorkflowValidateCommand(t *testing.T) {
 			// Capture output
 			var buf bytes.Buffer
 			oldStdout := os.Stdout
-			r, w, _ := os.Pipe()
+			r, w, _ := testcapture.NewDrainingPipe()
 			os.Stdout = w
 
 			// Run command
@@ -790,7 +791,7 @@ func TestWorkflowValidateDefaultWorkflow(t *testing.T) {
 	// Capture output
 	var buf bytes.Buffer
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	// Run command
@@ -955,7 +956,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 
 			var buf bytes.Buffer
 			oldStdout := os.Stdout
-			r, w, _ := os.Pipe()
+			r, w, _ := testcapture.NewDrainingPipe()
 			os.Stdout = w
 
 			cmd := &cobra.Command{RunE: runWorkflowValidate}
@@ -1028,7 +1029,7 @@ func TestWorkflowValidateMultiLevel_SourceField(t *testing.T) {
 
 	var buf bytes.Buffer
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	cmd := &cobra.Command{RunE: runWorkflowValidate}

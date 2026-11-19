@@ -15,6 +15,7 @@ import (
 
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -262,7 +263,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
 	orig := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout = w
 	defer func() { os.Stdout = orig }()
@@ -283,9 +284,9 @@ func captureStdoutAndStderr(t *testing.T, fn func()) (stdout, stderr string) {
 	t.Helper()
 
 	origOut, origErr := os.Stdout, os.Stderr
-	rOut, wOut, err := os.Pipe()
+	rOut, wOut, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
-	rErr, wErr, err := os.Pipe()
+	rErr, wErr, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout, os.Stderr = wOut, wErr
 	defer func() { os.Stdout, os.Stderr = origOut, origErr }()
