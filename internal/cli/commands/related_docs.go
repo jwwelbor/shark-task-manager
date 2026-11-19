@@ -90,22 +90,51 @@ type relatedDocService interface {
 	ListRelatedDocumentsByKey(ctx context.Context, key string) ([]*models.Document, error)
 }
 
+type relatedDocsEntityKind string
+
+const (
+	relatedDocsEntityEpic     relatedDocsEntityKind = "epic"
+	relatedDocsEntityFeature  relatedDocsEntityKind = "feature"
+	relatedDocsEntityTask     relatedDocsEntityKind = "task"
+	relatedDocsEntityBug      relatedDocsEntityKind = "bug"
+	relatedDocsEntityChange   relatedDocsEntityKind = "change"
+	relatedDocsEntityQuestion relatedDocsEntityKind = "question"
+	relatedDocsEntityTechDebt relatedDocsEntityKind = "tech_debt"
+)
+
+func (kind relatedDocsEntityKind) cliLabel() string {
+	switch kind {
+	case relatedDocsEntityChange:
+		return "change-card"
+	case relatedDocsEntityTechDebt:
+		return "tech-debt"
+	default:
+		return string(kind)
+	}
+}
+
+type relatedDocsSelector struct {
+	flag  string
+	kind  relatedDocsEntityKind
+	usage string
+}
+
 var techDebtDocService = func() relatedDocService { return cli.GetTechDebtService() }
 
-func relatedDocsService(kind string) (relatedDocService, error) {
+func relatedDocsService(kind relatedDocsEntityKind) (relatedDocService, error) {
 	switch kind {
-	case "epic":
+	case relatedDocsEntityEpic:
 		return cli.GetEpicService(), nil
-	case "feature":
+	case relatedDocsEntityFeature:
 		return cli.GetFeatureService(), nil
-	case "bug":
+	case relatedDocsEntityBug:
 		return cli.GetBugService(), nil
-	case "change-card":
+	case relatedDocsEntityChange:
 		return cli.GetChangeCardService(), nil
-	case "tech-debt":
+	case relatedDocsEntityTechDebt:
 		return techDebtDocService(), nil
 	default:
-		return nil, fmt.Errorf("unsupported related-docs entity type %q", kind)
+		return nil, fmt.Errorf("unsupported related-docs entity type %q", kind.cliLabel())
 	}
 }
 
@@ -118,9 +147,9 @@ func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	var doc *models.Document
 	switch kind {
-	case "task":
+	case relatedDocsEntityTask:
 		doc, err = cli.GetTaskServiceWithDocs().LinkDocument(ctx, key, title, path)
-	case "question":
+	case relatedDocsEntityQuestion:
 		doc, err = cli.GetQuestionDocumentService(ctx).LinkDocumentByKey(ctx, key, title, path)
 	default:
 		svc, err := relatedDocsService(kind)
@@ -128,28 +157,29 @@ func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if err := svc.LinkDocument(ctx, key, title, path); err != nil {
-			return fmt.Errorf("link document to %s %s: %w", kind, key, err)
+			return fmt.Errorf("link document to %s %s: %w", kind.cliLabel(), key, err)
 		}
 		return printDocLinked(title, path, kind, key, 0)
 	}
 	if err != nil {
-		return fmt.Errorf("link document to %s %s: %w", kind, key, err)
+		return fmt.Errorf("link document to %s %s: %w", kind.cliLabel(), key, err)
 	}
 	return printDocLinked(doc.Title, doc.FilePath, kind, key, doc.ID)
 }
 
 // printDocLinked outputs the result of linking a document (JSON or human-readable).
-func printDocLinked(title, path, entityType, parentKey string, docID int64) error {
+func printDocLinked(title, path string, kind relatedDocsEntityKind, parentKey string, docID int64) error {
+	label := kind.cliLabel()
 	if cli.GlobalConfig.JSON {
 		out := map[string]interface{}{
-			"title": title, "path": path, "linked_to": entityType, "parent_key": parentKey,
+			"title": title, "path": path, "linked_to": label, "parent_key": parentKey,
 		}
 		if docID != 0 {
 			out["document_id"] = docID
 		}
 		return cli.OutputJSON(out)
 	}
-	fmt.Printf("Document linked to %s %s\n", entityType, parentKey)
+	fmt.Printf("Document linked to %s %s\n", label, parentKey)
 	return nil
 }
 
@@ -162,9 +192,9 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	title := args[0]
 	ctx := cmd.Context()
 	switch kind {
-	case "task":
+	case relatedDocsEntityTask:
 		err = cli.GetTaskServiceWithDocs().UnlinkDocument(ctx, key, title)
-	case "question":
+	case relatedDocsEntityQuestion:
 		err = cli.GetQuestionDocumentService(ctx).UnlinkDocumentByKey(ctx, key, title)
 	default:
 		svc, serviceErr := relatedDocsService(kind)
@@ -174,36 +204,35 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 		err = svc.UnlinkDocument(ctx, key, title)
 	}
 	if err != nil {
-		return fmt.Errorf("unlink document from %s %s: %w", kind, key, err)
+		return fmt.Errorf("unlink document from %s %s: %w", kind.cliLabel(), key, err)
 	}
 	return printDocUnlinked(title, kind, key)
 }
 
 // printDocUnlinked outputs the result of unlinking a document.
-func printDocUnlinked(title, entityType, parentKey string) error {
+func printDocUnlinked(title string, kind relatedDocsEntityKind, parentKey string) error {
+	label := kind.cliLabel()
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"status": "unlinked", "title": title, "parent": entityType,
+			"status": "unlinked", "title": title, "parent": label,
 		})
 	}
-	fmt.Printf("Document unlinked from %s %s\n", entityType, parentKey)
+	fmt.Printf("Document unlinked from %s %s\n", label, parentKey)
 	return nil
 }
 
 // The CLI uses hyphenated names in its output. Key inference uses Shark entity types.
-var relatedDocsSelectors = []struct {
-	flag, entityType, label, usage string
-}{
-	{"epic", "epic", "epic", "Epic key (e.g., E01)"},
-	{"feature", "feature", "feature", "Feature key (e.g., E01-F01)"},
-	{"task", "task", "task", "Task key (e.g., T-E01-F01-001)"},
-	{"bug", "bug", "bug", "Bug key (e.g., B001)"},
-	{"change", "change", "change-card", "Change-card key (e.g., CC-001)"},
-	{"question", "question", "question", "Question key (e.g., Q001)"},
-	{"tech-debt", "tech_debt", "tech-debt", "Tech-debt key (e.g., TD-001)"},
+var relatedDocsSelectors = []relatedDocsSelector{
+	{flag: "epic", kind: relatedDocsEntityEpic, usage: "Epic key (e.g., E01)"},
+	{flag: "feature", kind: relatedDocsEntityFeature, usage: "Feature key (e.g., E01-F01)"},
+	{flag: "task", kind: relatedDocsEntityTask, usage: "Task key (e.g., T-E01-F01-001)"},
+	{flag: "bug", kind: relatedDocsEntityBug, usage: "Bug key (e.g., B001)"},
+	{flag: "change", kind: relatedDocsEntityChange, usage: "Change-card key (e.g., CC-001)"},
+	{flag: "question", kind: relatedDocsEntityQuestion, usage: "Question key (e.g., Q001)"},
+	{flag: "tech-debt", kind: relatedDocsEntityTechDebt, usage: "Tech-debt key (e.g., TD-001)"},
 }
 
-func resolveRelatedDocsSelection(cmd *cobra.Command, positional []string) (string, string, error) {
+func resolveRelatedDocsSelection(cmd *cobra.Command, positional []string) (relatedDocsEntityKind, string, error) {
 	if len(positional) > 1 {
 		return "", "", fmt.Errorf("related-docs list accepts at most one positional entity key")
 	}
@@ -225,25 +254,26 @@ func hasRelatedDocsSelector(cmd *cobra.Command) bool {
 	return false
 }
 
-func resolveRelatedDocsPositionalSelection(rawKey string) (string, string, error) {
+func resolveRelatedDocsPositionalSelection(rawKey string) (relatedDocsEntityKind, string, error) {
 	key := NormalizeKey(rawKey)
 	if strings.HasPrefix(key, "TD-") {
 		if err := validateRelatedDocsTechDebtKey(key); err != nil {
 			return "", "", err
 		}
-		return "tech-debt", key, nil
+		return relatedDocsEntityTechDebt, key, nil
 	}
 	entityType := DetectEntityType(key)
 	for _, selector := range relatedDocsSelectors {
-		if selector.entityType == entityType {
-			return selector.label, key, nil
+		if string(selector.kind) == entityType {
+			return selector.kind, key, nil
 		}
 	}
 	return "", "", fmt.Errorf("cannot infer a supported entity type from key %q", key)
 }
 
-func resolveRelatedDocsExplicitSelection(cmd *cobra.Command) (string, string, error) {
-	var kind, key string
+func resolveRelatedDocsExplicitSelection(cmd *cobra.Command) (relatedDocsEntityKind, string, error) {
+	var kind relatedDocsEntityKind
+	var key string
 	for _, selector := range relatedDocsSelectors {
 		if !cmd.Flags().Changed(selector.flag) {
 			continue
@@ -251,7 +281,7 @@ func resolveRelatedDocsExplicitSelection(cmd *cobra.Command) (string, string, er
 		if kind != "" {
 			return "", "", fmt.Errorf("exactly one of the entity-type flags must be specified")
 		}
-		kind = selector.label
+		kind = selector.kind
 		var err error
 		key, err = cmd.Flags().GetString(selector.flag)
 		if err != nil {
@@ -261,7 +291,7 @@ func resolveRelatedDocsExplicitSelection(cmd *cobra.Command) (string, string, er
 	if key == "" {
 		return "", "", fmt.Errorf("exactly one of --epic, --feature, --task, --bug, --change, --question, or --tech-debt must specify an entity key")
 	}
-	if kind == "tech-debt" {
+	if kind == relatedDocsEntityTechDebt {
 		key = strings.TrimSpace(key)
 		if err := validateRelatedDocsTechDebtKey(key); err != nil {
 			return "", "", err
@@ -296,9 +326,9 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	var docs []*models.Document
 	switch kind {
-	case "task":
+	case relatedDocsEntityTask:
 		docs, err = cli.GetTaskServiceWithDocs().ListRelatedDocuments(ctx, key)
-	case "question":
+	case relatedDocsEntityQuestion:
 		docs, err = cli.GetQuestionDocumentService(ctx).ListDocumentsByKey(ctx, key)
 	default:
 		svc, serviceErr := relatedDocsService(kind)
@@ -308,7 +338,7 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 		docs, err = svc.ListRelatedDocumentsByKey(ctx, key)
 	}
 	if err != nil {
-		return fmt.Errorf("list documents for %s %s: %w", kind, key, err)
+		return fmt.Errorf("list documents for %s %s: %w", kind.cliLabel(), key, err)
 	}
 	// The related-docs list command always registers json as a bool flag.
 	jsonOutput, _ := cmd.Flags().GetBool("json")

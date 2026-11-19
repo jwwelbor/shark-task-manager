@@ -242,18 +242,18 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 	tests := []struct {
 		name     string
 		args     []string
-		wantType string
+		wantType relatedDocsEntityKind
 		wantKey  string
 		wantErr  string
 	}{
-		{name: "epic", args: []string{"E01"}, wantType: "epic", wantKey: "E01"},
-		{name: "feature", args: []string{"E01-F01"}, wantType: "feature", wantKey: "E01-F01"},
-		{name: "task", args: []string{"T-E01-F01-001"}, wantType: "task", wantKey: "T-E01-F01-001"},
-		{name: "bug", args: []string{"B072"}, wantType: "bug", wantKey: "B072"},
-		{name: "change", args: []string{"CC-001"}, wantType: "change-card", wantKey: "CC-001"},
-		{name: "question", args: []string{"Q001"}, wantType: "question", wantKey: "Q001"},
-		{name: "tech debt", args: []string{"TD-595"}, wantType: "tech-debt", wantKey: "TD-595"},
-		{name: "tech debt explicit", args: []string{"--tech-debt=TD-595"}, wantType: "tech-debt", wantKey: "TD-595"},
+		{name: "epic", args: []string{"E01"}, wantType: relatedDocsEntityEpic, wantKey: "E01"},
+		{name: "feature", args: []string{"E01-F01"}, wantType: relatedDocsEntityFeature, wantKey: "E01-F01"},
+		{name: "task", args: []string{"T-E01-F01-001"}, wantType: relatedDocsEntityTask, wantKey: "T-E01-F01-001"},
+		{name: "bug", args: []string{"B072"}, wantType: relatedDocsEntityBug, wantKey: "B072"},
+		{name: "change", args: []string{"CC-001"}, wantType: relatedDocsEntityChange, wantKey: "CC-001"},
+		{name: "question", args: []string{"Q001"}, wantType: relatedDocsEntityQuestion, wantKey: "Q001"},
+		{name: "tech debt", args: []string{"TD-595"}, wantType: relatedDocsEntityTechDebt, wantKey: "TD-595"},
+		{name: "tech debt explicit", args: []string{"--tech-debt=TD-595"}, wantType: relatedDocsEntityTechDebt, wantKey: "TD-595"},
 		{name: "unsupported entity", args: []string{"TD001"}, wantErr: "cannot infer a supported entity type"},
 		{name: "multiple positional keys", args: []string{"E01", "E02"}, wantErr: "at most one positional entity key"},
 		{name: "positional and explicit selector", args: []string{"B072", "--bug=B073"}, wantErr: "cannot combine positional entity key"},
@@ -273,6 +273,25 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantType, entityType)
 			assert.Equal(t, tt.wantKey, key)
+		})
+	}
+}
+
+func TestRelatedDocsEntityKindPreservesCLIOutputLabels(t *testing.T) {
+	for _, tt := range []struct {
+		kind  relatedDocsEntityKind
+		label string
+	}{
+		{kind: relatedDocsEntityEpic, label: "epic"},
+		{kind: relatedDocsEntityFeature, label: "feature"},
+		{kind: relatedDocsEntityTask, label: "task"},
+		{kind: relatedDocsEntityBug, label: "bug"},
+		{kind: relatedDocsEntityChange, label: "change-card"},
+		{kind: relatedDocsEntityQuestion, label: "question"},
+		{kind: relatedDocsEntityTechDebt, label: "tech-debt"},
+	} {
+		t.Run(tt.label, func(t *testing.T) {
+			assert.Equal(t, tt.label, tt.kind.cliLabel())
 		})
 	}
 }
@@ -367,6 +386,48 @@ func TestRelatedDocsTechDebtDeleteUsesTechDebtService(t *testing.T) {
 	assert.Equal(t, "Research report", gotTitle)
 }
 
+func TestRelatedDocsTechDebtBlankValuesRejectedBeforeServiceAccess(t *testing.T) {
+	for _, value := range []struct {
+		name string
+		key  string
+	}{
+		{name: "empty"},
+		{name: "whitespace", key: " \t "},
+	} {
+		for _, operation := range []string{"add", "delete", "list"} {
+			t.Run(value.name+"/"+operation, func(t *testing.T) {
+				serviceCalls := 0
+				useTechDebtDocService(t, &mockRelatedDocService{
+					LinkDocumentFunc:   func(context.Context, string, string, string) error { return nil },
+					UnlinkDocumentFunc: func(context.Context, string, string) error { return nil },
+					ListRelatedDocumentsByKeyFunc: func(context.Context, string) ([]*models.Document, error) {
+						return []*models.Document{}, nil
+					},
+				})
+				originalService := techDebtDocService
+				techDebtDocService = func() relatedDocService {
+					serviceCalls++
+					return originalService()
+				}
+				t.Cleanup(func() { techDebtDocService = originalService })
+
+				cmd := newRelatedDocsHandlerCommand(t, "tech-debt", value.key)
+				var err error
+				switch operation {
+				case "add":
+					err = runRelatedDocsAdd(cmd, []string{"Research report", "docs/report.md"})
+				case "delete":
+					err = runRelatedDocsDelete(cmd, []string{"Research report"})
+				case "list":
+					err = runRelatedDocsListList(cmd, nil)
+				}
+				require.Error(t, err)
+				assert.Zero(t, serviceCalls, "blank --tech-debt must fail before obtaining its service")
+			})
+		}
+	}
+}
+
 func useTechDebtDocService(t *testing.T, service *mockRelatedDocService) {
 	t.Helper()
 	original := techDebtDocService
@@ -383,7 +444,7 @@ func newRelatedDocsHandlerCommand(t *testing.T, selector, key string) *cobra.Com
 	}
 	cmd.Flags().Bool("json", false, "Output JSON")
 	if selector != "" {
-		require.NoError(t, cmd.Flags().Set(selector, key))
+		require.NoError(t, cmd.ParseFlags([]string{"--" + selector + "=" + key}))
 	}
 	return cmd
 }
