@@ -90,8 +90,7 @@ while ITERATION < MAX_ITERATIONS:
         stop the pull-loop; do not dispatch an entity
 
     if SPRINT_SELECTION.sprint_key != SPRINT_KEY:
-        report the selected sprint key mismatch and stop the pull-loop
-        do not dispatch an entity
+        report the selected sprint key mismatch and stop the pull-loop without dispatching an entity
 
     if SPRINT_SELECTION.action == "pause":
         print "No dispatchable entity was selected; sprint drain was not verified."
@@ -102,20 +101,23 @@ while ITERATION < MAX_ITERATIONS:
         SELECTED_ENTITY = SPRINT_SELECTION.entity
     else if SPRINT_SELECTION.action == "parallel_candidates":
         if SPRINT_SELECTION.entities is empty:
-            report unexpected output, include "sprint drain was not verified", and stop the pull-loop
+            report unexpected output, include "sprint drain was not verified", and stop the pull-loop; do not dispatch an entity
         SELECTED_ENTITY = SPRINT_SELECTION.entities[0]  # first item in selector order
     else:
-        report the unexpected selection action and stop the pull-loop
+        report the unexpected selection action and stop the pull-loop; do not dispatch an entity
 
     if SELECTED_ENTITY is null:
         print "No dispatchable entity was selected; sprint drain was not verified."
-        report invalid selection shape and stop the pull-loop
+        report null selected entity and stop the pull-loop; do not dispatch an entity
+
+    if SELECTED_ENTITY.key is missing, empty, or whitespace-only:
+        print "No dispatchable entity was selected; sprint drain was not verified."
+        report the selected entity key is invalid and stop the pull-loop; do not dispatch an entity
 
     if SELECTED_ENTITY.sprint_key != SPRINT_KEY:
         SELECTED_ENTITY = null
         print "No dispatchable entity was selected; sprint drain was not verified."
-        report the selected entity sprint key mismatch and stop the pull-loop
-        do not dispatch an entity
+        report the selected entity sprint key mismatch and stop the pull-loop without dispatching an entity
 
     ENTITY_KEY = SELECTED_ENTITY.key  # e.g., "E07-F01-001", "B003"
 
