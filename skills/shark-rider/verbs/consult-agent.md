@@ -28,8 +28,10 @@ Split the args after the verb:
 - First token → `<agent>` candidate (or empty).
 - Remaining tokens → `<referent>` (may be empty).
 
-If there are **no args** or the only arg is `help`, print this help response and
-**STOP** without resolving or adopting an agent persona:
+If there are **no args** or the only arg is `help`, print the help response by
+composing the mode-specific opening below with the shared role-selection guide
+at `skills/shark-rider/context/consult-role-guide.md` verbatim. **STOP** without
+resolving or adopting an agent persona:
 
 ```text
 Consult a Shark specialist when a decision needs role-specific judgment. Use
@@ -38,24 +40,6 @@ one-shot, read-only advice from a host subagent. Include the relevant context
 and ask for a concrete recommendation. The parent reviews and synthesizes the
 response. Use `/shark-rider consult <agent> <question or artifact>` to continue
 the current conversation in the persona voice.
-
-Choose the role that matches the question:
-- `tech-director`: epic-level coordination, cross-feature dependencies, blockers,
-  conflicting project state, or UAT direction.
-- `architect`: system design, APIs, data models, technical feasibility, or
-  compliance.
-- `product-manager`: feature readiness, delivery planning, or feature-level
-  coordination.
-- `qa`: test planning, defect assessment, execution, or quality validation.
-- `cx-designer`: journey mapping or experience coherence across touchpoints.
-- `ux-designer`: user research, interface flows, wireframes, or prototypes.
-
-Consult only the role needed. If specialist advice conflicts or an issue remains
-unresolved at the epic level, consult `tech-director`; involve the owner if it
-is still unclear or owner approval is required.
-
-If these roles do not fit, run `shark agent list --json` to list all available
-Shark agents.
 ```
 
 Then **STOP**. Do not treat `help` as an agent name.
@@ -108,7 +92,7 @@ Determine what to discuss:
 | Referent form | Resolution |
 |---|---|
 | Explicit file path (contains `/` or `.`) | `Read <path>` |
-| Shark entity key (`E##`, `E##-F##`, `E##-F##-###`, `B###`, `CC-###`) | Fetch the entity (`shark get` equivalent) and read its content |
+| Shark entity key accepted by `shark get` | Fetch with `shark get <key>` and read its content |
 | `"this"` | Use the most recent artifact visible in this conversation (state which one you are using) |
 | Empty or ambiguous prose | Ask the user: "What would you like to discuss with <agent>?" then **STOP** |
 | Clear prose topic | Use as-is; no file read needed |

@@ -140,9 +140,15 @@ Two tightly coupled pieces ship together:
 
 **Scenario 5: Unknown agent**
 - **Given** the user requests `/shark-rider consult made-up-agent`
-- **When** the verb attempts to resolve and `shark agent get made-up-agent` fails
-- **Then** a clear message is printed (e.g., "Agent 'made-up-agent' not found") followed by the available agent list
-- **And** execution ends gracefully without an error trace
+- **When** `shark agent list --json` contains no exact or fuzzy match
+- **Then** a clear no-match message is printed followed by `shark agent list --all`
+- **And** execution stops without calling `shark agent get` or printing an error trace
+
+**Scenario 6: Listed agent content cannot be loaded**
+- **Given** the requested agent appears in `shark agent list --json`
+- **When** `shark agent get <agent>` fails or returns no persona definition
+- **Then** a clear content-unavailable message is printed followed by `shark agent list --all`
+- **And** execution stops before persona adoption or subagent dispatch without an error trace
 
 ---
 
