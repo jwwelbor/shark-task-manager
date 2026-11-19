@@ -32,7 +32,7 @@ metadata for logging/provenance and host adapter selection only.
 When dispatching a bug in a selected working directory, pass that actual
 directory to `shark next {KEY} --workdir "$WORKDIR" --json` before spawning
 the worker. Shark checks that it is the corresponding project root in the
-parent repository or a linked worktree.
+parent repository or a linked worktree. When no separate workdir was selected, use the parent project root as the worker directory.
 
 ## Ownership model
 
@@ -187,7 +187,10 @@ not support or effective identity for a particular model. Require
 worker-correlated observation of the effective provider and model before
 attesting the route. Do not switch to the Codex CLI adapter silently.
 
-For any selected route, pass the requested model or explicitly mapped fallback
+For a native explicit model or effort, check the actual spawn mode for a
+supported selector for each requested field and a child-correlated observation
+of each. A mode that inherits from its parent cannot select an explicit
+override. Keep omitted effort unforced. For any selected route, pass the requested model or explicitly mapped fallback
 model through its documented selector without overwriting the Shark request.
 Correlate host evidence through `worker_id` and, when needed, a distinct
 `host_session_id`; `session_id` remains only the parent's Shark claim ID. Apply
@@ -229,6 +232,16 @@ worker-identity evidence path is unavailable, reject before claim with no
 worker result or status advance. On a matching tuple, the parent/adapter sets
 `selected_provider=openai`, `selected_model=gpt-6.2-astra`,
 `host_worker_class=codex-cli`, and the mapping reference before claiming.
+For either Codex CLI route, use the installed CLI's local configuration reader
+in the selected worker directory before claim. On CLI 0.170.0 use app-server
+initialization followed by `config/read` with that absolute `cwd`. Supply the
+same profile, environment and provider/model/effort overrides intended for
+the worker. In the configuration reader use `--config model=<model>` for
+the worker's explicit `--model` selection. For an evidenced provider default
+omit both model overrides. Require the returned provider to equal the selected
+provider, and verify the expected model and any explicit requested effort.
+A failed read, unsupported explicit effort, or conflicting result stops this
+assignment before claim. Keep only those bounded fields as preflight evidence.
 Before selecting this fallback, verify that the installed Codex CLI supports
 `codex exec --model`, `codex login status` reports an authenticated session,
 and persistent rollout records can be read from the configured Codex home.
@@ -356,21 +369,41 @@ The preflight table selects `openai/gpt-6.2-astra` for each listed default bug
 stage when Claude Code is unavailable. For one of those exact request tuples,
 the adapter sets `SELECTED_PROVIDER` and `SELECTED_MODEL` from that fixed
 mapping. For an exact Codex request, it may use the exact requested model.
+Make the prompt, result and event paths absolute and unique to this invocation.
+Use the absolute `CODEX_BIN` resolved in preflight, its profile, environment
+and authorized sandbox. An omitted profile or sandbox uses the checked host
+configuration. Set `REQUESTED_MODEL` from the final keyed response, including
+its empty value for a documented default, and `REQUESTED_EFFORT` from its
+optional effort field.
 Never derive `SELECTED_MODEL` from the parent session, a Codex configuration
-default, or an environment variable. Always pass the selected model through
-Codex CLI's `--model` selector; the flag alone does not prove which model ran.
+default, or an environment variable. Pass every explicit selection through
+Codex CLI's `--model` selector. For an evidenced default, omit that flag.
+Use the producing worker's observation to establish which model ran.
 Do not use Codex's provider default for a mapped Anthropic fallback.
 
 ```bash
-# These are the selected values returned by the exact B077 preflight mapping.
-SELECTED_PROVIDER=openai
-SELECTED_MODEL=gpt-6.2-astra
-ROUTE_MAPPING_REF=B077-default-bug-anthropic-codex-v1
-CODEX_MODEL_ARGS=(--model "$SELECTED_MODEL")
-timeout --foreground 900 codex exec -C "$REPO_ROOT" -s danger-full-access \
-  "${CODEX_MODEL_ARGS[@]}" --json --output-last-message "$RESULT_FILE" \
-  - < "$PROMPT_FILE" \
-  > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
+# Use the authorized selections from this assignment's preflight. For the
+# six mapped tuples these are openai and gpt-6.2-astra. An exact request
+# keeps its own selection. An evidenced default omits the model flag.
+CODEX_ROUTE_ARGS=(--config "model_provider=${SELECTED_PROVIDER:?}")
+if [[ -n ${SELECTED_PROFILE:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--profile "$SELECTED_PROFILE")
+fi
+if [[ -n ${SELECTED_SANDBOX:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--sandbox "$SELECTED_SANDBOX")
+fi
+if [[ -n ${REQUESTED_MODEL?missing keyed model field} ]]; then
+  CODEX_ROUTE_ARGS+=(--model "${SELECTED_MODEL:?missing selected model}")
+fi
+if [[ -n ${REQUESTED_EFFORT:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--config "model_reasoning_effort=$REQUESTED_EFFORT")
+fi
+(
+  cd -- "${WORKDIR:?}" || exit 1
+  exec timeout --foreground 900 "${CODEX_BIN:?}" exec -C "$WORKDIR" \
+    "${CODEX_ROUTE_ARGS[@]}" --json --output-last-message "$RESULT_FILE" \
+    - < "$PROMPT_FILE"
+) > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
 CODEX_PID=$!
 ```
 

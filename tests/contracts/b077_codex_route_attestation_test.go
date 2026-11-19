@@ -1,7 +1,9 @@
 package contracts
 
 import (
-	"regexp"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -77,12 +79,71 @@ func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 		assert.Contains(t, selection, invariant)
 	}
 
-	codexAdapter := normalizeContractText(e36F04RawSection(t, run,
-		"### Long-running Codex CLI adapter",
-		"### Mid-run consultation"))
-	modelFlowsToSelector := regexp.MustCompile(`(?s)selected_model="?gpt-6\.2-astra"?.*?codex_model_args=\(--model "\$selected_model"\).*?codex exec.*?"\$\{codex_model_args\[@\]\}"`)
-	require.Regexp(t, modelFlowsToSelector, codexAdapter,
-		"the mapped model must be passed as codex exec --model, not inferred from the parent")
+	// TestB077RecordingCodexReceivesSelectedRoute executes the launch and checks the expanded arguments.
+}
+
+// C01/C02/C15: run Rider's actual launch command. The recording Codex
+// executable starts in a competing provider's configuration.
+func TestB077RecordingCodexReceivesSelectedRoute(t *testing.T) {
+	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
+	section := e36F04RawSection(t, run, "### Long-running Codex CLI adapter", "### Mid-run consultation")
+	_, excerpt, found := strings.Cut(section, "```bash\n")
+	require.True(t, found)
+	launch, _, found := strings.Cut(excerpt, "\n```")
+	require.True(t, found)
+
+	for _, tc := range []struct{ name, request, model, effort string }{
+		{"mapped explicit effort", "opus", "gpt-6.2-astra", "low"},
+		{"exact explicit effort", "different-exact-model", "different-exact-model", "low"},
+		{"mapped omitted effort", "opus", "gpt-6.2-astra", ""},
+		{"exact omitted effort", "different-exact-model", "different-exact-model", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			workdir := filepath.Join(dir, "worker checkout")
+			require.NoError(t, os.Mkdir(workdir, 0700))
+			prompt := []byte("Quoted '$' 🙂\nsecond line  \n")
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "prompt"), prompt, 0600))
+			const recorder = `#!/bin/bash
+set -eu
+provider=other
+for arg; do
+    case "$arg" in model_provider=*) provider=${arg#model_provider=} ;; esac
+done
+printf '%s\0' "$@" > "$REPO_ROOT/argv"
+pwd > "$REPO_ROOT/cwd"
+cat > "$REPO_ROOT/submitted-$provider"
+`
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "codex"), []byte(recorder), 0700))
+			cmd := exec.Command("bash", "-eu", "-c", launch+"\nwait \"$CODEX_PID\"")
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"),
+				"REPO_ROOT="+dir, "WORKDIR="+workdir, "SELECTED_PROVIDER=openai",
+				"SELECTED_MODEL="+tc.model, "REQUESTED_MODEL="+tc.request, "REQUESTED_EFFORT="+tc.effort,
+				"SELECTED_SANDBOX=read-only", "CODEX_BIN="+filepath.Join(dir, "codex"), "SELECTED_PROFILE=",
+				"PROMPT_FILE="+filepath.Join(dir, "prompt"), "EVENT_FILE="+filepath.Join(dir, "events"),
+				"RESULT_FILE="+filepath.Join(dir, "result"))
+			output, err := cmd.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+			args, err := os.ReadFile(filepath.Join(dir, "argv"))
+			require.NoError(t, err)
+			assert.Contains(t, string(args), "--config\x00model_provider=openai\x00")
+			assert.Contains(t, string(args), "--model\x00"+tc.model+"\x00")
+			assert.Contains(t, string(args), "-C\x00"+workdir+"\x00")
+			if tc.effort == "" {
+				assert.NotContains(t, string(args), "model_reasoning_effort=")
+			} else {
+				assert.Contains(t, string(args), "--config\x00model_reasoning_effort="+tc.effort+"\x00")
+			}
+			cwd, err := os.ReadFile(filepath.Join(dir, "cwd"))
+			require.NoError(t, err)
+			assert.Equal(t, workdir+"\n", string(cwd))
+			assert.NoFileExists(t, filepath.Join(dir, "submitted-other"))
+			received, err := os.ReadFile(filepath.Join(dir, "submitted-openai"))
+			require.NoError(t, err)
+			assert.Equal(t, prompt, received)
+		})
+	}
 }
 
 func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
