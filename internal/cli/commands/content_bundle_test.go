@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -126,6 +127,17 @@ func TestResearchCatalogDataGetRejectsUnsupportedResourcePaths(t *testing.T) {
 	setupContentCommandProject(t, `{}`)
 	err := runDataGet(dataGetCmd, []string{"../.sharkconfig.json"})
 	assert.ErrorContains(t, err, "unsupported data resource")
+}
+
+func TestResearchCatalogDataGetHonorsCommandCancellation(t *testing.T) {
+	setupContentCommandProject(t, `{}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(ctx)
+	err := runDataGet(cmd, []string{"research/recipes.yaml"})
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestBundleContentListCommandHelpDescribesDetailMode(t *testing.T) {

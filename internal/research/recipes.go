@@ -3,6 +3,7 @@
 package research
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -67,12 +68,20 @@ type Paths struct {
 // relative shark_data_path values from projectRoot. The embedded fallback
 // keeps default workflows usable before shark-data is installed.
 func ReadCatalogFromConfig(configPath, projectRoot string) ([]byte, CatalogSource, error) {
-	data, source, found, err := readCatalogFromDisk(configPath, projectRoot)
+	return ReadCatalogFromConfigContext(context.Background(), configPath, projectRoot)
+}
+
+// ReadCatalogFromConfigContext reads the selected catalog while honoring caller cancellation.
+func ReadCatalogFromConfigContext(ctx context.Context, configPath, projectRoot string) ([]byte, CatalogSource, error) {
+	data, source, found, err := readCatalogFromDisk(ctx, configPath, projectRoot)
 	if err != nil {
 		return nil, "", err
 	}
 	if found {
 		return data, source, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
 	}
 	data, err = sharkdata.ReadEmbedded(CatalogResourcePath)
 	if err != nil {
@@ -84,7 +93,12 @@ func ReadCatalogFromConfig(configPath, projectRoot string) ([]byte, CatalogSourc
 // LoadCatalog loads a project materialization when present and otherwise uses
 // the embedded catalog.
 func LoadCatalog(projectRoot string) (*Catalog, error) {
-	data, _, err := ReadCatalogFromConfig(filepath.Join(projectRoot, ".sharkconfig.json"), projectRoot)
+	return LoadCatalogContext(context.Background(), projectRoot)
+}
+
+// LoadCatalogContext loads a project materialization while honoring caller cancellation.
+func LoadCatalogContext(ctx context.Context, projectRoot string) (*Catalog, error) {
+	data, _, err := ReadCatalogFromConfigContext(ctx, filepath.Join(projectRoot, ".sharkconfig.json"), projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +113,10 @@ func LoadCatalog(projectRoot string) (*Catalog, error) {
 	return &catalog, nil
 }
 
-func readCatalogFromDisk(configPath, projectRoot string) ([]byte, CatalogSource, bool, error) {
+func readCatalogFromDisk(ctx context.Context, configPath, projectRoot string) ([]byte, CatalogSource, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, "", false, err
+	}
 	configBytes, err := os.ReadFile(configPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, "", false, fmt.Errorf("read %s: %w", configPath, err)
@@ -115,6 +132,9 @@ func readCatalogFromDisk(configPath, projectRoot string) ([]byte, CatalogSource,
 		{path: filepath.Join(dataRoot, "overrides", CatalogResourcePath), source: CatalogSourceOverride},
 		{path: filepath.Join(dataRoot, CatalogResourcePath), source: CatalogSourceDisk},
 	} {
+		if err := ctx.Err(); err != nil {
+			return nil, "", false, err
+		}
 		data, err := os.ReadFile(candidate.path)
 		if err == nil {
 			return data, candidate.source, true, nil

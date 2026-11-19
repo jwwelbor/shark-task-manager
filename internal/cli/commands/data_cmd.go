@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -38,7 +39,11 @@ func init() {
 	cli.RootCmd.AddCommand(dataCmd)
 }
 
-func runDataGet(_ *cobra.Command, args []string) error {
+func runDataGet(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	resourcePath := args[0]
 	if resourcePath != research.CatalogResourcePath {
 		return fmt.Errorf("unsupported data resource %q; supported resource: %s", resourcePath, research.CatalogResourcePath)
@@ -52,7 +57,7 @@ func runDataGet(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("locate project configuration: %w", err)
 	}
-	content, source, err := research.ReadCatalogFromConfig(configPath, projectRoot)
+	content, source, err := research.ReadCatalogFromConfigContext(ctx, configPath, projectRoot)
 	if err != nil {
 		return err
 	}
