@@ -46,9 +46,10 @@ verify containment with a component-aware relative-path check (not a
 string-prefix comparison). Absolute paths are allowed only when their canonical
 target remains inside the workspace root. If the target is outside that root or
 cannot be safely canonicalized, do not read it; ask the user to paste the
-content or provide an in-workspace copy. This boundary applies to user-referred
-files only; documented host-local Shark Rider skill/context reads in Section 5
-remain available through their specified local paths.
+content or provide an in-workspace copy, then stop before the caller adopts or
+dispatches the persona. This boundary applies to user-referred files only;
+documented host-local Shark Rider skill/context reads in Section 5 remain
+available through their specified local paths.
 
 If a requested file, entity, or in-context artifact cannot be identified
 unambiguously, do not guess; ask the user and **STOP**. For a clear prose topic,

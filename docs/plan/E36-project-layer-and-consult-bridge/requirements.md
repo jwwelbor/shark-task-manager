@@ -63,8 +63,9 @@ artifacts.
   only after resolving it against the active workspace root and verifying that
   its canonical target (including symlinks) remains inside that root. Outside
   or unsafe referents are not read; ask for pasted content or an in-workspace
-  copy. This path boundary applies only to user-provided file referents; it does
-  not restrict documented host-local skill/context reads.
+  copy and stop before persona adoption or dispatch. This path boundary applies
+  only to user-provided file referents; it does not restrict documented
+  host-local skill/context reads.
   "This" with an obvious in-context artifact is used and named; a period in
   ordinary prose is not enough to identify a path. Ambiguous input is asked
   about or accepts pasted content. Never guess silently. (plan §4)

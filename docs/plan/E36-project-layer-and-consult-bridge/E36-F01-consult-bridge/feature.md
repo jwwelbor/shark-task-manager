@@ -171,7 +171,7 @@ Two tightly coupled pieces ship together:
 **Scenario 10: User path referent escapes the workspace**
 - **Given** a user-provided path-shaped referent resolves outside the active project workspace, directly or through a symlink
 - **When** either consultation mode resolves that referent
-- **Then** the target is not read, the user is asked to paste the content or provide an in-workspace copy, and no target content is sent to a subagent; documented host-local skill/context reads remain available
+- **Then** the target is not read, the user is asked to paste the content or provide an in-workspace copy, and execution stops before persona adoption or dispatch; no target content is sent to a subagent, while documented host-local skill/context reads remain available
 
 ---
 

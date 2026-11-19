@@ -212,11 +212,16 @@ func TestSharkRiderConsultPathReferentBoundaryIsSpecified(t *testing.T) {
 	feature := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "feature.md")
 	procedureTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-002.md")
 	requirements := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "requirements.md")
+	resolution := readContractFile(t, root, "skills", "shark-rider", "context", "consult-request-resolution.md")
 	requirements = strings.Join(strings.Fields(requirements), " ")
 	assert.Contains(t, feature, "**Scenario 10: User path referent escapes the workspace**")
+	assert.Contains(t, feature, "execution stops before persona adoption or dispatch")
+	assert.Contains(t, feature, "no target content is sent to a subagent")
 	assert.Contains(t, procedureTask, "canonical target is outside the active workspace root")
 	assert.Contains(t, procedureTask, "User-provided file referents stay inside the canonical active workspace root")
+	assert.Contains(t, procedureTask, "stop before persona adoption or dispatch")
 	assert.Contains(t, requirements, "canonical target (including symlinks) remains inside that root")
+	assert.Contains(t, resolution, "then stop before the caller adopts or\ndispatches the persona.")
 }
 
 func TestSharkRiderConsultQueryRoutingContract(t *testing.T) {
@@ -262,8 +267,9 @@ func assertConsultRequestResolution(t *testing.T, resolution string) {
 		"Before reading a user-requested path referent, canonicalize both the active\nproject workspace root and the existing target after following symlinks",
 		"component-aware relative-path check",
 		"Absolute paths are allowed only when their canonical\ntarget remains inside the workspace root.",
-		"do not read it; ask the user to paste the\ncontent or provide an in-workspace copy.",
-		"This boundary applies to user-referred\nfiles only; documented host-local Shark Rider skill/context reads in Section 5",
+		"do not read it; ask the user to paste the\ncontent or provide an in-workspace copy,",
+		"This boundary applies to user-referred files only;\ndocumented host-local Shark Rider skill/context reads in Section 5",
+		"then stop before the caller adopts or\ndispatches the persona.",
 		"Shark entity key accepted by `shark get`",
 		"most recent unambiguous artifact",
 		"Empty or ambiguous prose",
