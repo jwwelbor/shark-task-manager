@@ -18,5 +18,5 @@ Usage: `/shark-rider run-sprint S### [--agent=TYPE] [--max-iterations=N] [--carr
 ## Notes
 
 - For team topology mode, use `/shark-rider run-sprint-team`.
-- The sprint must be in `active` status; the skill will offer to start it if it is
-  still in `planning`.
+- A sprint in `planning` status is started automatically under the standing
+  authorization recorded in the workflow.

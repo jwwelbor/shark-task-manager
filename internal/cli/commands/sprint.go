@@ -496,15 +496,15 @@ Examples:
 	RunE: runSprintReorder,
 }
 
-// sprintNextCmd retrieves the next item to work on from the active sprint.
+// sprintNextCmd retrieves the next item to work on across execution-phase sprints.
 var sprintNextCmd = &cobra.Command{
 	Use:   "next",
-	Short: "Get the next item from the active sprint",
-	Long: `Identify and display the next highest-priority item in the active sprint.
+	Short: "Get the next item across execution-phase sprints",
+	Long: `Identify and display the next highest-priority item across execution-phase sprints.
 Optionally filter by agent type.
 
 This compatibility command returns the first candidate from the shared sprint
-selector. For the full read-only candidate set, use ` + "`shark plan sprint`" + `.
+selector. To preview candidates for one specific sprint, use ` + "`shark plan S###`" + `.
 
 Selection logic:
 1. Sprint order (lowest first)

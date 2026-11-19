@@ -7,6 +7,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const b081DispatchCall = "/shark-rider run {ENTITY_KEY}"
+
+var b081InvalidSelectionShapeCases = []struct {
+	name    string
+	markers []string
+}{
+	{
+		name: "non-array parallel candidates",
+		markers: []string{
+			"if SPRINT_SELECTION.entities is not a JSON array:",
+			"report the candidate collection is invalid",
+			`LOOP_OUTCOME = "paused"`,
+			"break",
+			b081DispatchCall,
+		},
+	},
+	{
+		name: "empty parallel candidates",
+		markers: []string{
+			"if SPRINT_SELECTION.entities is empty:",
+			"report unexpected output and include \"sprint drain was not verified\"",
+			`LOOP_OUTCOME = "paused"`,
+			"break",
+			b081DispatchCall,
+		},
+	},
+	{
+		name: "unknown action",
+		markers: []string{
+			"report the unexpected selection action",
+			`LOOP_OUTCOME = "paused"`,
+			"break",
+			b081DispatchCall,
+		},
+	},
+	{
+		name: "missing selected entity",
+		markers: []string{
+			"if SELECTED_ENTITY is null:",
+			"No dispatchable entity was selected; sprint drain was not verified.",
+			`LOOP_OUTCOME = "paused"`,
+			"break",
+			b081DispatchCall,
+		},
+	},
+	{
+		name: "selected entity is not an object",
+		markers: []string{
+			"if SELECTED_ENTITY is not a JSON object:",
+			"report the selected entity is invalid",
+			`LOOP_OUTCOME = "paused"`,
+			"break",
+			b081DispatchCall,
+		},
+	},
+	{
+		name: "selected entity key is invalid",
+		markers: []string{
+			"if SELECTED_ENTITY.key is missing, is not a string, empty, or whitespace-only:",
+			"report the selected entity key is invalid",
+			`LOOP_OUTCOME = "paused"`,
+			"break",
+			b081DispatchCall,
+		},
+	},
+}
+
 func TestB081RunSprintWorkflowMirrorsAndValidatesSelection(t *testing.T) {
 	canonicalPath := "internal/sharkdata/default_data/skills/sprint-execution/workflows/run-sprint.md"
 	hostPath := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
@@ -18,10 +85,11 @@ func TestB081RunSprintWorkflowMirrorsAndValidatesSelection(t *testing.T) {
 		"NEXT_CMD = \"shark plan {SPRINT_KEY} --json\"",
 		"NEXT_CMD = \"shark plan {SPRINT_KEY} --agent={AGENT_FILTER} --json\"",
 		"if the parsed response root is not a JSON object:",
+		"if SPRINT_SELECTION.entities is not a JSON array:",
 		"SPRINT_SELECTION.action == \"select_item\"",
 		"SPRINT_SELECTION.action == \"parallel_candidates\"",
 		"SELECTED_ENTITY = SPRINT_SELECTION.entities[0]  # first item in selector order",
-		"SELECTED_ENTITY.key is missing, empty, or whitespace-only")
+		"SELECTED_ENTITY.key is missing, is not a string, empty, or whitespace-only")
 	requireF12Excludes(t, canonicalWorkflow, canonicalPath, "shark sprint next {SPRINT_KEY}")
 	requireF12Ordered(t, canonicalWorkflow, canonicalPath,
 		"Parse JSON response as SPRINT_SELECTION.",
@@ -38,15 +106,33 @@ func TestB081RunSprintSelectItemAssignsAndDispatchesSelectedKey(t *testing.T) {
 		"if SPRINT_SELECTION.action == \"select_item\":",
 		"SELECTED_ENTITY = SPRINT_SELECTION.entity",
 		"if SELECTED_ENTITY is null:",
-		"if SELECTED_ENTITY.key is missing, empty, or whitespace-only:",
+		"if SELECTED_ENTITY is not a JSON object:",
+		"if SELECTED_ENTITY.key is missing, is not a string, empty, or whitespace-only:",
 		"ENTITY_KEY = SELECTED_ENTITY.key",
-		"/shark-rider run {ENTITY_KEY}")
+		b081DispatchCall)
+}
+
+func TestB081RunSprintParallelCandidateDispatchesFirstSelectedKey(t *testing.T) {
+	path := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
+	workflow := readF12Authored(t, path)
+	parallelStart := strings.Index(workflow, "else if SPRINT_SELECTION.action == \"parallel_candidates\":")
+	require.NotEqual(t, -1, parallelStart, "workflow must handle parallel candidates")
+	requireF12Ordered(t, workflow[parallelStart:], path,
+		"else if SPRINT_SELECTION.action == \"parallel_candidates\":",
+		"if SPRINT_SELECTION.entities is not a JSON array:",
+		"if SPRINT_SELECTION.entities is empty:",
+		"SELECTED_ENTITY = SPRINT_SELECTION.entities[0]  # first item in selector order",
+		"if SELECTED_ENTITY is null:",
+		"if SELECTED_ENTITY is not a JSON object:",
+		"if SELECTED_ENTITY.key is missing, is not a string, empty, or whitespace-only:",
+		"ENTITY_KEY = SELECTED_ENTITY.key",
+		b081DispatchCall)
 }
 
 func TestB081RunSprintMalformedAndPausedSelectionStopBeforeDispatch(t *testing.T) {
 	path := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
 	workflow := readF12Authored(t, path)
-	dispatch := "/shark-rider run {ENTITY_KEY}"
+	dispatch := b081DispatchCall
 
 	requireF12Ordered(t, workflow, path,
 		"if the command fails or the response is malformed:",
@@ -63,6 +149,14 @@ func TestB081RunSprintMalformedAndPausedSelectionStopBeforeDispatch(t *testing.T
 		"break",
 		"if SPRINT_SELECTION.sprint_key is missing:",
 		dispatch)
+	sprintKeyStart := strings.Index(workflow, "if SPRINT_SELECTION.sprint_key is missing:")
+	sprintMismatchStart := strings.Index(workflow, "if SPRINT_SELECTION.sprint_key != SPRINT_KEY:")
+	require.NotEqual(t, -1, sprintKeyStart, "workflow must reject a missing selected sprint key")
+	require.Greater(t, sprintMismatchStart, sprintKeyStart, "the missing-key guard must precede the identity comparison")
+	requireF12Ordered(t, workflow[sprintKeyStart:sprintMismatchStart], path,
+		"if SPRINT_SELECTION.sprint_key is missing:",
+		`LOOP_OUTCOME = "paused"`,
+		"break")
 	pauseStart := strings.Index(workflow, "if SPRINT_SELECTION.action == \"pause\":")
 	selectStart := strings.Index(workflow, "if SPRINT_SELECTION.action == \"select_item\":")
 	require.NotEqual(t, -1, pauseStart, "workflow must validate a pause against the full assignment set")
@@ -77,53 +171,7 @@ func TestB081RunSprintMalformedAndPausedSelectionStopBeforeDispatch(t *testing.T
 func TestB081RunSprintInvalidSelectionShapesStopBeforeDispatch(t *testing.T) {
 	path := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
 	workflow := readF12Authored(t, path)
-	dispatch := "/shark-rider run {ENTITY_KEY}"
-	cases := []struct {
-		name    string
-		markers []string
-	}{
-		{
-			name: "empty parallel candidates",
-			markers: []string{
-				"if SPRINT_SELECTION.entities is empty:",
-				"report unexpected output and include \"sprint drain was not verified\"",
-				`LOOP_OUTCOME = "paused"`,
-				"break",
-				dispatch,
-			},
-		},
-		{
-			name: "unknown action",
-			markers: []string{
-				"report the unexpected selection action",
-				`LOOP_OUTCOME = "paused"`,
-				"break",
-				dispatch,
-			},
-		},
-		{
-			name: "missing selected entity",
-			markers: []string{
-				"if SELECTED_ENTITY is null:",
-				"No dispatchable entity was selected; sprint drain was not verified.",
-				`LOOP_OUTCOME = "paused"`,
-				"break",
-				dispatch,
-			},
-		},
-		{
-			name: "missing selected entity key",
-			markers: []string{
-				"if SELECTED_ENTITY.key is missing, empty, or whitespace-only:",
-				"report the selected entity key is invalid",
-				`LOOP_OUTCOME = "paused"`,
-				"break",
-				dispatch,
-			},
-		},
-	}
-
-	for _, testCase := range cases {
+	for _, testCase := range b081InvalidSelectionShapeCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			start := strings.Index(workflow, testCase.markers[0])
 			require.NotEqual(t, -1, start, "workflow must contain the %s guard", testCase.name)
@@ -135,7 +183,7 @@ func TestB081RunSprintInvalidSelectionShapesStopBeforeDispatch(t *testing.T) {
 func TestB081RunSprintIdentityMismatchesStopBeforeDispatch(t *testing.T) {
 	path := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
 	workflow := readF12Authored(t, path)
-	dispatch := "/shark-rider run {ENTITY_KEY}"
+	dispatch := b081DispatchCall
 
 	sprintMismatch := strings.Index(workflow, "if SPRINT_SELECTION.sprint_key != SPRINT_KEY:")
 	require.NotEqual(t, -1, sprintMismatch, "workflow must validate the selected sprint identity")
@@ -199,12 +247,12 @@ func TestB081RunSprintIterationCapNoticeRequiresValidSelection(t *testing.T) {
 	dispatchAt := strings.Index(loop, "/shark-rider run {ENTITY_KEY}")
 	capAt := strings.Index(loop, capGuard)
 	require.Greater(t, capAt, dispatchAt, "the iteration cap must be evaluated after dispatch")
-	invalidKeyStart := strings.Index(workflow, "if SELECTED_ENTITY.key is missing, empty, or whitespace-only:")
+	invalidKeyStart := strings.Index(workflow, "if SELECTED_ENTITY.key is missing, is not a string, empty, or whitespace-only:")
 	require.NotEqual(t, -1, invalidKeyStart, "workflow must validate the selected entity key")
 	invalidKeyEnd := strings.Index(workflow[invalidKeyStart:], "if SELECTED_ENTITY.sprint_key != SPRINT_KEY:")
 	require.NotEqual(t, -1, invalidKeyEnd, "workflow must validate sprint identity after the selected entity key")
 	requireF12Ordered(t, workflow[invalidKeyStart:invalidKeyStart+invalidKeyEnd], path,
-		"if SELECTED_ENTITY.key is missing, empty, or whitespace-only:",
+		"if SELECTED_ENTITY.key is missing, is not a string, empty, or whitespace-only:",
 		"report the selected entity key is invalid",
 		`LOOP_OUTCOME = "paused"`,
 		"break")

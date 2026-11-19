@@ -206,9 +206,11 @@ var _ sprintLifecycleServicer = (*MockSprintService)(nil)
 var _ sprintAssignmentServicer = (*MockSprintService)(nil)
 var _ sprintCapacityServicer = (*MockSprintService)(nil)
 
-// TC-006: the compatibility notice belongs in human-facing command help only.
+// TC-006: command help must describe sprint-next scope and the per-sprint alternative.
 func TestSprintNext_TC006_HelpPointsToPlanSprint(t *testing.T) {
-	require.Contains(t, sprintNextCmd.Long, "shark plan sprint")
+	require.Contains(t, sprintNextCmd.Short, "across execution-phase sprints")
+	require.Contains(t, sprintNextCmd.Long, "across execution-phase sprints")
+	require.Contains(t, sprintNextCmd.Long, "shark plan S###")
 }
 
 // Test helpers

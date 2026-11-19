@@ -36,9 +36,8 @@ Parse the JSON response. Extract:
 Set `SPRINT_KEY = key` before continuing so later identity checks use the canonical form.
 
 **If status is `planning`**:
-Auto-start it without asking — the user has standing authorization for
-this (confirmed 2026-09-05: asking here wasted hours waiting on a decision
-that should be automatic). Call `shark sprint start {SPRINT_KEY} --json`.
+Auto-start it without asking under the user's standing authorization (confirmed
+2026-09-05). Call `shark sprint start {SPRINT_KEY} --json`.
 Parse response. If the call fails, print the error and exit. Print a notice
 either way:
 ```
@@ -69,7 +68,6 @@ Initialize:
 - ITERATION = 0
 - DISPATCHED = [] (list of entity keys dispatched this session)
 - LOOP_OUTCOME = "running" (running, drained, paused, or capped)
-- ASSIGNMENT_INVENTORY_COMPLETE = false
 - TERMINALITY_CHECK_COMPLETE = false
 - UNFINISHED = []
 - UNRESOLVED = []
@@ -123,7 +121,6 @@ while ITERATION < MAX_ITERATIONS:
             report that the full assignment inventory is incomplete
             break
 
-        ASSIGNMENT_INVENTORY_COMPLETE = true
         UNFINISHED = []
         UNRESOLVED = []
         TERMINALITY_UNVERIFIED = false
@@ -174,6 +171,10 @@ while ITERATION < MAX_ITERATIONS:
     if SPRINT_SELECTION.action == "select_item":
         SELECTED_ENTITY = SPRINT_SELECTION.entity
     else if SPRINT_SELECTION.action == "parallel_candidates":
+        if SPRINT_SELECTION.entities is not a JSON array:
+            print the raw response and report the candidate collection is invalid
+            LOOP_OUTCOME = "paused"
+            break
         if SPRINT_SELECTION.entities is empty:
             report unexpected output and include "sprint drain was not verified"
             LOOP_OUTCOME = "paused"
@@ -189,7 +190,12 @@ while ITERATION < MAX_ITERATIONS:
         LOOP_OUTCOME = "paused"
         break
 
-    if SELECTED_ENTITY.key is missing, empty, or whitespace-only:
+    if SELECTED_ENTITY is not a JSON object:
+        print the raw response and report the selected entity is invalid
+        LOOP_OUTCOME = "paused"
+        break
+
+    if SELECTED_ENTITY.key is missing, is not a string, empty, or whitespace-only:
         print "No dispatchable entity was selected; sprint drain was not verified."
         report the selected entity key is invalid
         LOOP_OUTCOME = "paused"
@@ -363,4 +369,4 @@ This workflow is safe to re-invoke:
 - `/shark-rider run {ENTITY_KEY}` is the sole dispatch mechanism. The loop does NOT call `shark status advance` or any other entity-manipulation command directly.
 - `shark sprint close` is only called after explicit user confirmation in Step 4, and only after an accepted `shark sprint goal-review` submission for this close attempt.
 - The loop honors `--max-iterations` and exits at the cap with a notice.
-- `shark sprint start` is only called if status is `planning` AND the user explicitly confirms (Step 1).
+- `shark sprint start` is called automatically only when status is `planning`, under the user's standing authorization stated in Step 1.
