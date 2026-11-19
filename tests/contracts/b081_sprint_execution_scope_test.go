@@ -7,31 +7,13 @@ import (
 	"testing"
 )
 
-func TestB081RunSprintUsesSprintScopedSelection(t *testing.T) {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	repoRoot, err := filepath.Abs(filepath.Join(workingDir, "..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	read := func(relative string) string {
-		t.Helper()
-		content, err := os.ReadFile(filepath.Join(repoRoot, relative))
-		if err != nil {
-			t.Fatalf("read %s: %v", relative, err)
-		}
-		return string(content)
-	}
-
-	canonicalWorkflowPath := "internal/sharkdata/default_data/skills/sprint-execution/workflows/run-sprint.md"
-	hostWorkflowPath := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
-	canonicalWorkflow := read(canonicalWorkflowPath)
-	hostWorkflow := read(hostWorkflowPath)
+func TestB081RunSprintWorkflowMirrorsAndValidatesSelection(t *testing.T) {
+	canonicalPath := "internal/sharkdata/default_data/skills/sprint-execution/workflows/run-sprint.md"
+	hostPath := "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md"
+	canonicalWorkflow := readB081RepoFile(t, canonicalPath)
+	hostWorkflow := readB081RepoFile(t, hostPath)
 	if canonicalWorkflow != hostWorkflow {
-		t.Fatalf("embedded canonical %s and host mirror %s diverged", canonicalWorkflowPath, hostWorkflowPath)
+		t.Fatalf("embedded canonical %s and host mirror %s diverged", canonicalPath, hostPath)
 	}
 
 	for _, required := range []string{
@@ -40,43 +22,79 @@ func TestB081RunSprintUsesSprintScopedSelection(t *testing.T) {
 		`SPRINT_SELECTION.sprint_key != SPRINT_KEY`,
 		`SPRINT_SELECTION.action == "select_item"`,
 		`SPRINT_SELECTION.action == "parallel_candidates"`,
+		`SELECTED_ENTITY = SPRINT_SELECTION.entities[0]  # first item in selector order`,
 		`SELECTED_ENTITY.sprint_key != SPRINT_KEY`,
 		`No dispatchable entity was selected; sprint drain was not verified.`,
 	} {
-		if !strings.Contains(canonicalWorkflow, required) {
-			t.Errorf("%s: missing sprint-scoped selection contract %q", canonicalWorkflowPath, required)
-		}
+		assertB081Contains(t, canonicalPath, canonicalWorkflow, required)
 	}
 	if strings.Contains(canonicalWorkflow, "shark sprint next {SPRINT_KEY}") {
-		t.Errorf("%s still passes an unsupported sprint key to `shark sprint next`", canonicalWorkflowPath)
+		t.Errorf("%s still passes an unsupported sprint key to `shark sprint next`", canonicalPath)
 	}
 
-	canonicalSkill := read("internal/sharkdata/default_data/skills/sprint-execution/SKILL.md")
-	hostSkill := read("skills/shark-rider/skills/sprint-execution/SKILL.md")
-	for path, skill := range map[string]string{
-		"internal/sharkdata/default_data/skills/sprint-execution/SKILL.md": canonicalSkill,
-		"skills/shark-rider/skills/sprint-execution/SKILL.md":              hostSkill,
+	assertB081MismatchStopsBeforeDispatch(t, canonicalWorkflow, "if SPRINT_SELECTION.sprint_key != SPRINT_KEY:")
+	assertB081MismatchStopsBeforeDispatch(t, canonicalWorkflow, "if SELECTED_ENTITY.sprint_key != SPRINT_KEY:")
+}
+
+func TestB081RunSprintSkillsAndPromptUseScopedSelector(t *testing.T) {
+	for _, path := range []string{
+		"internal/sharkdata/default_data/skills/sprint-execution/SKILL.md",
+		"skills/shark-rider/skills/sprint-execution/SKILL.md",
 	} {
-		if !strings.Contains(skill, "shark plan S### --json") {
-			t.Errorf("%s does not direct /run-sprint to the sprint-scoped plan selector", path)
-		}
+		assertB081Contains(t, path, readB081RepoFile(t, path), "shark plan S### --json")
 	}
 
-	activePrompt := read("internal/sharkdata/default_data/prompts/sprint/active.md")
-	if !strings.Contains(activePrompt, "shark plan {{.id}} --json") {
-		t.Error("embedded active-sprint prompt does not use the sprint-scoped selector")
-	}
+	promptPath := "internal/sharkdata/default_data/prompts/sprint/active.md"
+	assertB081Contains(t, promptPath, readB081RepoFile(t, promptPath), "shark plan {{.id}} --json")
+	verbPath := "skills/shark-rider/verbs/run-sprint.md"
+	assertB081Contains(t, verbPath, readB081RepoFile(t, verbPath), "shark plan S###")
+}
 
-	verb := read("skills/shark-rider/verbs/run-sprint.md")
-	if !strings.Contains(verb, "shark plan S###") {
-		t.Error("/run-sprint verb summary does not describe the sprint-scoped selector")
-	}
-
-	cliReference := read("docs/cli-reference/sprint-commands.md")
+func TestB081RunSprintCLIReferenceUsesKeylessSyntax(t *testing.T) {
+	path := "docs/cli-reference/sprint-commands.md"
+	cliReference := readB081RepoFile(t, path)
 	if strings.Contains(cliReference, "shark sprint next [sprint-key]") || strings.Contains(cliReference, "shark sprint next S024") {
-		t.Error("CLI reference still documents the unsupported positional sprint key")
+		t.Errorf("%s still documents the unsupported positional sprint key", path)
 	}
-	if !strings.Contains(cliReference, "shark sprint next [flags]") {
-		t.Error("CLI reference does not show the keyless `shark sprint next` syntax")
+	assertB081Contains(t, path, cliReference, "shark sprint next [flags]")
+}
+
+func readB081RepoFile(t *testing.T, relative string) string {
+	t.Helper()
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(workingDir, "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(repoRoot, relative))
+	if err != nil {
+		t.Fatalf("read %s: %v", relative, err)
+	}
+	return string(content)
+}
+
+func assertB081Contains(t *testing.T, path, content, required string) {
+	t.Helper()
+	if !strings.Contains(content, required) {
+		t.Errorf("%s: missing sprint-scope contract %q", path, required)
+	}
+}
+
+func assertB081MismatchStopsBeforeDispatch(t *testing.T, workflow, mismatchGuard string) {
+	t.Helper()
+	guardAt := strings.Index(workflow, mismatchGuard)
+	if guardAt < 0 {
+		t.Errorf("workflow is missing mismatch guard %q", mismatchGuard)
+		return
+	}
+
+	guardBody := workflow[guardAt:]
+	noDispatchAt := strings.Index(guardBody, "do not dispatch an entity")
+	dispatchAt := strings.Index(guardBody, "/shark-rider run {ENTITY_KEY}")
+	if noDispatchAt < 0 || dispatchAt < 0 || noDispatchAt > dispatchAt {
+		t.Errorf("workflow must stop without dispatch after mismatch guard %q", mismatchGuard)
 	}
 }
