@@ -216,6 +216,9 @@ func unlinkRelatedDocument(ctx context.Context, entityType, entityKey, title str
 		err = cli.GetChangeCardService().UnlinkDocument(ctx, entityKey, title)
 	case "question":
 		err = cli.GetQuestionDocumentService(ctx).UnlinkDocumentByKey(ctx, entityKey, title)
+		if err != nil {
+			return fmt.Errorf("unlink document from question %s: %w", entityKey, err)
+		}
 	default:
 		return fmt.Errorf("unsupported related-docs entity type %q", entityType)
 	}

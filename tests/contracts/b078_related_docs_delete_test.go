@@ -47,6 +47,12 @@ func TestB078RelatedDocsDeleteRequiresExactlyOneSelector(t *testing.T) {
 	}
 }
 
+func TestB078RelatedDocsDeleteKeepsQuestionKeyInUnlinkErrors(t *testing.T) {
+	cli, _, _, _ := newB078RelatedDocsDeleteFixture(t)
+	message := cli.rejection(t, "related-docs", "delete", "Question spec", "--question=Q404")
+	require.Contains(t, message, "unlink document from question Q404:")
+}
+
 func newB078RelatedDocsDeleteFixture(t *testing.T) (b078CLI, *sql.DB, *models.Task, *models.Task) {
 	t.Helper()
 	projectDir := t.TempDir()
@@ -90,19 +96,25 @@ func seedB078DuplicateTitleTaskLinks(t *testing.T, sqlDB *sql.DB, targetTask, ot
 	t.Helper()
 	repoDB := repository.NewDB(sqlDB)
 	documentRepo := repository.NewDocumentRepository(repoDB)
-	// Insert the unrelated same-title document first: legacy title-only lookup
-	// must select this ID, which is not linked to the task being unlinked.
+	// Insert duplicate titles, then link whichever title-only row the legacy
+	// lookup actually selects only to the unrelated task. Query order is not
+	// defined, so the fixture must use the observed match rather than insertion
+	// order to preserve the counterexample deterministically.
 	otherDoc, err := documentRepo.CreateOrGet(context.Background(), title, "docs/continuation/other.md")
 	require.NoError(t, err)
 	targetDoc, err := documentRepo.CreateOrGet(context.Background(), title, "docs/continuation/target.md")
 	require.NoError(t, err)
 	legacyMatch, err := documentRepo.GetByTitle(context.Background(), title)
 	require.NoError(t, err)
-	require.Equal(t, otherDoc.ID, legacyMatch.ID)
+	require.Contains(t, []int64{otherDoc.ID, targetDoc.ID}, legacyMatch.ID)
+	targetDocID := otherDoc.ID
+	if legacyMatch.ID == otherDoc.ID {
+		targetDocID = targetDoc.ID
+	}
 	documentLinks := repository.NewEntityDocumentRepository(repoDB)
 	ctx := context.Background()
-	require.NoError(t, documentLinks.Link(ctx, models.EntityTypeTask, targetTask.ID, targetDoc.ID, "general"))
-	require.NoError(t, documentLinks.Link(ctx, models.EntityTypeTask, otherTask.ID, otherDoc.ID, "general"))
+	require.NoError(t, documentLinks.Link(ctx, models.EntityTypeTask, targetTask.ID, targetDocID, "general"))
+	require.NoError(t, documentLinks.Link(ctx, models.EntityTypeTask, otherTask.ID, legacyMatch.ID, "general"))
 }
 
 func installB078UnlinkFailureTrigger(t *testing.T, sqlDB *sql.DB) {
