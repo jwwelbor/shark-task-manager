@@ -15,12 +15,14 @@ package commands
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // ---------------------------------------------------------------------------
@@ -296,11 +298,14 @@ func TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize(t *testing.T) {
 		want int
 	}{
 		{name: "change XS size", cmd: createChangeCmd, size: "XS", want: 1},
+		{name: "change numeric size from B082 reproduction", cmd: createChangeCmd, size: "3", want: 3},
 		{name: "change-card label size", cmd: createChangeCardCmd, size: "XXL", want: 13},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			withEmptyStdin(t)
+
 			var capturedInput services.CreateChangeCardInput
 			stub := &MockChangeCardService{
 				CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
@@ -342,6 +347,8 @@ func TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize(t *testing.T) {
 // TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired verifies that
 // forwarding an optional flag does not bypass change-card size enforcement.
 func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) {
+	withEmptyStdin(t)
+
 	called := false
 	stub := &MockChangeCardService{
 		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
@@ -383,6 +390,8 @@ func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) 
 func TestUnifiedChangeCreate_InvalidSizeRejectedBeforeService(t *testing.T) {
 	for _, bad := range []string{"clear", "4", "XXXL"} {
 		t.Run(bad, func(t *testing.T) {
+			withEmptyStdin(t)
+
 			called := false
 			stub := &MockChangeCardService{
 				CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
@@ -417,6 +426,8 @@ func TestUnifiedChangeCreate_InvalidSizeRejectedBeforeService(t *testing.T) {
 }
 
 func TestUnifiedChangeCreate_SizeFlagReadErrorIsReturned(t *testing.T) {
+	withEmptyStdin(t)
+
 	called := false
 	withChangeCardSvcOverrideForSize(t, &MockChangeCardService{
 		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
@@ -440,6 +451,8 @@ func TestUnifiedChangeCreate_SizeFlagReadErrorIsReturned(t *testing.T) {
 func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
 	for _, cmd := range []*cobra.Command{createChangeCmd, createChangeCardCmd} {
 		t.Run(cmd.Name(), func(t *testing.T) {
+			withEmptyStdin(t)
+
 			var capturedInput services.CreateChangeCardInput
 			withChangeCardSvcOverrideForSize(t, &MockChangeCardService{
 				CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
@@ -452,14 +465,20 @@ func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
 			sizeFlag := cmd.Flags().Lookup("size")
 			tagFlag := cmd.Flags().Lookup("tag")
 			originalSize := sizeFlag.Value.String()
-			originalTags := tagFlag.Value.String()
+			tagValue, ok := tagFlag.Value.(pflag.SliceValue)
+			if !ok {
+				t.Fatalf("--tag value has type %T, want pflag.SliceValue", tagFlag.Value)
+			}
+			originalTags := append([]string(nil), tagValue.GetSlice()...)
+			originalTagChanged := tagFlag.Changed
 			t.Cleanup(func() {
 				if err := cmd.Flags().Set("size", originalSize); err != nil {
 					t.Errorf("restore --size: %v", err)
 				}
-				if err := cmd.Flags().Set("tag", originalTags); err != nil {
+				if err := tagValue.Replace(originalTags); err != nil {
 					t.Errorf("restore --tag: %v", err)
 				}
+				tagFlag.Changed = originalTagChanged
 			})
 			if err := cmd.Flags().Set("size", ""); err != nil {
 				t.Fatalf("clear --size: %v", err)
@@ -476,6 +495,30 @@ func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withEmptyStdin gives direct create-handler tests a pipe that immediately
+// reaches EOF when ResolveContentInput checks for piped content.
+func withEmptyStdin(t *testing.T) {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdin pipe: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		_ = reader.Close()
+		t.Fatalf("close stdin pipe writer: %v", err)
+	}
+
+	originalStdin := os.Stdin
+	os.Stdin = reader
+	t.Cleanup(func() {
+		os.Stdin = originalStdin
+		if err := reader.Close(); err != nil {
+			t.Errorf("close stdin pipe reader: %v", err)
+		}
+	})
 }
 
 func TestChangeCreate_SizeFlag_Invalid_ReturnsError(t *testing.T) {
