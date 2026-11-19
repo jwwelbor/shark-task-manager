@@ -162,7 +162,15 @@ func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
 	})
 	assert.Contains(t, procedureTask, "loads the persona and referent, sends one bounded read-only host-subagent request, then has the parent review and synthesize the advice")
 	assert.Contains(t, procedureTask, "A delegated consultation does not mutate Shark state or workspace files and does not launch nested agents")
+	assertContainsAll(t, procedureTask, "delegated consultation task plan", []string{
+		"### 6. Delegated one-shot consultation",
+		"one bounded read-only host-subagent request",
+		"Have the parent inspect the response and synthesize advice in its own voice.",
+		"skills/shark-rider/verbs/consult-agent.md",
+		"skills/shark-rider/context/consult-role-guide.md",
+	})
 	assert.Contains(t, routingTask, "`/shark-rider consult-agent <agent> [referent]` is separately registered and routes to `verbs/consult-agent.md`")
+	assert.Contains(t, routingTask, "consult-agent` verb remains a separate explicit one-shot mode")
 }
 
 func TestSharkRiderConsultQueryRoutingContract(t *testing.T) {
