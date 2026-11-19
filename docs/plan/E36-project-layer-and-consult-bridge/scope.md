@@ -13,8 +13,10 @@
   deprecation alias.
 - A derived-checklist + decision-log progress record + a
   `file_templates/progress.md` template.
-- `/shark consult <agent>` advisor bridge (explicit form + NL recognizer in
-  `query.md`), read-only by default.
+- `/shark-rider consult <agent>` inline advisor bridge (explicit form + NL
+  recognizer in `skills/shark-rider/verbs/query.md`), read-only by default.
+- `/shark-rider consult-agent <agent>` separate one-shot advice through a
+  bounded, read-only host subagent.
 - For the original F01-F03 scope, one Go change: `Description` on
   `BundleContentEntry`, populated from frontmatter and rendered in `agent list`
   / `skill list` (text + JSON).
