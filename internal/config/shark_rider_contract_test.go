@@ -87,6 +87,10 @@ func TestSharkRiderConsultModesAreRegistered(t *testing.T) {
 		"`verbs/consult.md`",
 		"`verbs/consult-agent.md`",
 	})
+	recognizedVerbsAt := strings.Index(skill, "Recognized verbs:")
+	require.NotEqual(t, -1, recognizedVerbsAt, "router recognized-verb list must remain explicit")
+	recognizedVerbs := strings.SplitN(skill[recognizedVerbsAt:], "\n\n", 2)[0]
+	assert.Contains(t, recognizedVerbs, "`consult`, `consult-agent`, `workflow`")
 	assert.Contains(t, skill, "| Consult an agent inline | "+
 		"`/shark-rider consult <agent> [referent]` → resolve with `shark agent list --json`, "+
 		"load via `shark agent get`, and continue the conversation in the persona's voice; "+
