@@ -145,6 +145,26 @@ func TestSharkRiderDelegatedConsultContract(t *testing.T) {
 	assertConsultRoleGuide(t, guide)
 }
 
+func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
+	root := findRepoRootForAudit(t)
+	feature := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "feature.md")
+	procedureTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-002.md")
+	routingTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-003.md")
+
+	assertContainsAll(t, feature, "delegated consultation acceptance scenario", []string{
+		"**Scenario 7: Successful delegated consultation**",
+		"`/shark-rider consult-agent architect review this design`",
+		"`docs/design.md` is the unambiguous design artifact in the conversation",
+		"`docs/design.md` is identified and read",
+		"one bounded, read-only host-subagent request",
+		"parent reviews the advice and synthesizes a response in its own voice",
+		"no Shark state, workspace files, or additional agents are changed or launched",
+	})
+	assert.Contains(t, procedureTask, "loads the persona and referent, sends one bounded read-only host-subagent request, then has the parent review and synthesize the advice")
+	assert.Contains(t, procedureTask, "A delegated consultation does not mutate Shark state or workspace files and does not launch nested agents")
+	assert.Contains(t, routingTask, "`/shark-rider consult-agent <agent> [referent]` is separately registered and routes to `verbs/consult-agent.md`")
+}
+
 func TestSharkRiderConsultQueryRoutingContract(t *testing.T) {
 	root := findRepoRootForAudit(t)
 	query := readContractFile(t, root, "skills", "shark-rider", "verbs", "query.md")

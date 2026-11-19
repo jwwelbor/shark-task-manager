@@ -74,8 +74,8 @@ Two tightly coupled pieces ship together:
    - **Description**: `agent list` and `skill list` render `Description` in both text (human-readable, one line per entry) and JSON (field on each entry object) output. Applies to both `shark agent list` and `shark skill list` commands.
    - **Priority**: Must-Have
 
-3. **REQ-F-003**: `verbs/consult.md` skill verb
-   - **Description**: A `skills/shark-rider/verbs/consult.md` file implements `/shark-rider consult <agent> [referent]`. Registered in the `SKILL.md` allowlist so it is callable via the Shark Rider router. `/shark-rider consult-agent <agent> [referent]` is a separate one-shot delegated mode.
+3. **REQ-F-003**: Consultation skill verbs
+   - **Description**: `skills/shark-rider/verbs/consult.md` implements `/shark-rider consult <agent> [referent]` as an inline consultation. `skills/shark-rider/verbs/consult-agent.md` implements `/shark-rider consult-agent <agent> [referent]` as a separate one-shot delegated consultation: resolve the persona and referent, launch one bounded read-only host subagent, then have the parent review and synthesize the advice. Both are registered in the `SKILL.md` allowlist.
    - **Priority**: Must-Have
 
 4. **REQ-F-004**: Agent resolution
@@ -149,6 +149,13 @@ Two tightly coupled pieces ship together:
 - **When** `shark agent get <agent>` fails or returns no persona definition
 - **Then** a clear content-unavailable message is printed followed by `shark agent list --all`
 - **And** execution stops before persona adoption or subagent dispatch without an error trace
+
+**Scenario 7: Successful delegated consultation**
+- **Given** the `architect` agent is available and `docs/design.md` is the unambiguous design artifact in the conversation
+- **When** `/shark-rider consult-agent architect review this design` is run
+- **Then** the persona is loaded, `docs/design.md` is identified and read, and both are included in one bounded, read-only host-subagent request
+- **And** the parent reviews the advice and synthesizes a response in its own voice
+- **And** no Shark state, workspace files, or additional agents are changed or launched
 
 ---
 
