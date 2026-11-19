@@ -36,10 +36,12 @@ pre-epic activities under one `/shark project <activity>` namespace (a menu, not
 a sequence). Track the arc with a single advisory **progress record** — a
 checklist *derived from artifacts on disk* plus an append-only human decision
 log — so it can never drift into a second authoritative copy of state. Add
-`/shark consult <agent>`, a skill verb that loads an agent persona via
-`shark agent get` and adopts it inline as a read-only advisor. The only Go
-change in the original F01-F03 scope is populating a `description` field on
-`agent list` / `skill list`.
+`/shark-rider consult <agent>`, a skill verb that loads an agent persona via
+`shark agent get` and continues the conversation inline as a read-only advisor.
+`/shark-rider consult-agent <agent>` provides separate one-shot advice through
+a bounded host subagent; it is read-only by default. The only Go change in the
+original F01-F03 scope is populating a `description` field on `agent list` /
+`skill list`.
 
 The additive F04 slice gives project-level coordination a read-only portfolio
 advisor. Bare `shark next` returns epic evidence, deterministic relationship
@@ -50,12 +52,13 @@ dispatch API, including its current normalization behavior.
 ### Impact
 - The pre-epic PDLC arc becomes a discoverable, consistent command surface
   (`/shark project bootstrap | brownfield-analysis | product-design`).
-- Every future design conversation becomes a first-class command
-  (`/shark consult <agent>`) instead of ad-hoc prompting.
+- Every future design conversation has an inline command
+  (`/shark-rider consult <agent>`) and a separate one-shot delegated option
+  (`/shark-rider consult-agent <agent>`).
 - Zero schema cost: no `project` table, no `project_id`, no migration — tenancy
   stays a deployment concern (one DB per project, the natural Turso model).
 - `agent list` / `skill list` become self-describing (name → description),
-  enabling consult fuzzy-matching and the discovery menu.
+  enabling consult fuzzy-matching and role discovery.
 - An operator can ask what epic should come next without claiming, advancing,
   or dispatching work.
 
@@ -112,7 +115,8 @@ project setup; agents running pre-epic activities and consulting personas).
 **Key Capabilities**:
 - `/shark project bootstrap | brownfield-analysis | product-design`
 - Derived-checklist + decision-log progress record (advisory, never authoritative)
-- `/shark consult <agent>` advisor bridge (explicit + NL forms)
+- `/shark-rider consult <agent>` inline advisor bridge (explicit + NL forms)
+- `/shark-rider consult-agent <agent>` one-shot delegated advisor
 - Self-describing `agent list` / `skill list`
 - Recurring ops modeled as regular shark entities, not project activities
 - Bare `shark next` portfolio advice with explicit `/shark-rider run <key>` handoff
@@ -121,7 +125,7 @@ project setup; agents running pre-epic activities and consulting personas).
 - F01-F03 land as skill-layer markdown plus one Go field; F04 adds a bounded
   read-model/service/CLI path. No slice requires a schema migration.
 - `project-init` keeps working as a deprecation alias for `project bootstrap`.
-- A consult never mutates shark state unless explicitly asked.
+- Inline and delegated consults never mutate Shark state unless explicitly asked.
 - Bare `shark next` is strictly read-only; keyed `shark next <key>` preserves
   its dispatch response and normalization behavior; `shark next --preview`
   does not exist.
