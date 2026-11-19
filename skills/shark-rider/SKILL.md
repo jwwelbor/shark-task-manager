@@ -174,7 +174,8 @@ and perform it, using `shark` only for the data reads/writes it calls out.
 |-----------|--------|
 | Scope a sprint | `/shark-rider plan-sprint S###` → read `skills/sprint-planning/SKILL.md`; reads `shark sprint plan` + readiness, proposes, confirms. Never `shark sprint start` → `verbs/plan-sprint.md` |
 | Sprint retrospective | `/shark-rider retro-sprint S###` → read `skills/sprint-analytics/SKILL.md`; `shark sprint summary --detailed` + velocity → five-section report → `verbs/retro-sprint.md` |
-| Consult an agent persona | `/shark-rider consult <agent> [referent]` → resolve with `shark agent list --json`, load via `shark agent get`, then launch a bounded host subagent with the retrieved persona and relevant context; parent reviews and synthesizes read-only advice → `verbs/consult.md` |
+| Consult an agent inline | `/shark-rider consult <agent> [referent]` → resolve with `shark agent list --json`, load via `shark agent get`, and continue the conversation in the persona's voice; read-only by default → `verbs/consult.md` |
+| Request delegated agent advice | `/shark-rider consult-agent <agent> [referent]` → resolve and load the persona, launch a bounded read-only host subagent, then review and synthesize its advice → `verbs/consult-agent.md` |
 | Inspect workflow/status flow | `/shark-rider workflow [entity-type\|entity-key] [--all\|--json]` → read status for keys, then render `shark admin workflow list` → `verbs/workflow.md` |
 | Select next work | `/shark-rider plan [root\|collection]` → call `shark plan [root\|collection]` once → recommend an execution shape for the returned selection. It does not claim or launch work itself → `verbs/plan.md` |
 | State-aware portfolio advice | `/shark-rider help` → call bare `shark plan` once → report the selected epic, evaluate an epic tie through the `/plan` evidence gate, or surface a pause reason. Stop before keyed dispatch. `--fast`/`commands` = static, no CLI → `verbs/help.md` |
@@ -217,7 +218,8 @@ command. It may auto-advance cascade-complete parents or agentless
 
 Recognized verbs: `project`, `project-init`, `product-design`, `vision`, `breakdown`, `run`, `plan`, `triage`, `demo`, `walkthrough`,
 `deep-review` (= `comprehensive-review` / `pr-review`), `brownfield-analysis`,
-`viewer`, `consult`, `workflow`, `plan-sprint`, `run-sprint`, `run-agent-team`, `run-sprint-team`,
+`viewer`, `consult`, `consult-agent`, `workflow`, `plan-sprint`, `run-sprint`,
+`run-agent-team`, `run-sprint-team`,
 `retro-sprint`, `sync` (explicit user invocation only), `update-docs`, `amend`,
 `revalidate`, `help`. Everything else (including `status` / `list` / `get`)
 falls through to `query`. `/shark-rider run` and `/run` both route to `verbs/run.md`.

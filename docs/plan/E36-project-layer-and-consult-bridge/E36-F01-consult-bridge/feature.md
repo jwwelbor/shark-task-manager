@@ -79,7 +79,7 @@ Two tightly coupled pieces ship together:
    - **Priority**: Must-Have
 
 4. **REQ-F-004**: Agent resolution
-   - **Description**: Resolution order: (1) exact name match against `agent list`; (2) fuzzy-match against names *and* descriptions (typos and role words like "ux"/"ops" work); (3) if omitted entirely, show the menu (agent list with descriptions). If a fuzzy match is ambiguous, show the menu.
+   - **Description**: Resolution order: (1) exact name match against `agent list`; (2) fuzzy-match against names *and* descriptions (typos and role words like "ux"/"ops" work). If a fuzzy match is ambiguous, list the matching agents and ask the user to clarify. Bare `/shark-rider consult` and `/shark-rider consult help` show the role-selection guide and stop.
    - **Priority**: Must-Have
 
 5. **REQ-F-005**: Inline persona adoption
@@ -148,7 +148,7 @@ Two tightly coupled pieces ship together:
 
 ## Out of Scope
 
-- **Consult as a background subagent** — consult is inline and advisory; `spawn_agent` dispatch remains the mechanism for worker tasks.
+- **Replacing inline consult with subagent dispatch** — `/shark-rider consult` remains inline and advisory. `/shark-rider consult-agent` is a separate, explicit one-shot advice mode.
 - **State mutation during consult** — a consult is read-only by default; explicit mutation is the user's opt-in.
 - **Relocating agent definitions** — agents stay in the embed (`internal/sharkdata/default_data/agents/`); the consult bridge is sufficient without moving definitions.
 
@@ -161,3 +161,11 @@ N/A — internal tooling; see epic scope.md exclusions.
 ---
 
 *Last Updated*: 2026-06-29
+
+## Post-completion clarification (2026-11-19)
+
+The completed inline consultation contract remains in force. Bare `consult` and
+`consult help` show the role-selection guide; named `consult` requests continue
+in the persona's voice. The separate `consult-agent` command delegates one
+read-only advice request to a bounded host subagent. Natural-language consult
+requests continue to use the inline mode.

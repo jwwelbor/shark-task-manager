@@ -35,7 +35,11 @@ Before translating to a query, check whether the request is asking you to *talk 
 | "get \<agent\>'s opinion / take on …" | "get the backend-dev's take on the API design" |
 | "talk to \<agent\> about …" | "talk to the product-designer about the vision" |
 
-Extract `<agent>` (the role/persona name) and `<referent>` (what to discuss). If `<agent>` resolves to a known shark agent persona, **do not proceed to NL routing** — instead `Read skills/shark-rider/verbs/consult.md` and follow it with `agent=<agent>` and `referent=<referent>`.
+Extract `<agent>` (the role/persona name) and `<referent>` (what to discuss). If
+`<agent>` resolves to a known Shark agent persona, **do not proceed to NL
+routing** — instead `Read skills/shark-rider/verbs/consult.md` and follow it with
+`agent=<agent>` and `referent=<referent>`. Natural-language requests use inline
+consultation. Use `/shark-rider consult-agent` for one-shot subagent advice.
 
 **Negative example:** "tell me about the cx-designer" → this is a query *about* an agent, not a request to consult one; fall through to NL routing below.
 
