@@ -1,6 +1,6 @@
 # Workflow: /shark-rider run-sprint
 
-Solo sprint pull-loop. Calls `shark sprint next` to get the next entity, delegates to `/shark-rider run` for per-entity orchestration, loops until the backlog is drained or `--max-iterations` is reached, then prompts the user before closing the sprint. Never auto-closes.
+Solo sprint pull-loop. Calls the sprint-scoped `shark plan S###` selector to get the next entity, delegates to `/shark-rider run` for per-entity orchestration, loops until no dispatchable entity is selected or `--max-iterations` is reached, then prompts the user before closing the sprint. Never auto-closes.
 
 ---
 
@@ -33,6 +33,7 @@ shark get {SPRINT_KEY} --json
 Parse the JSON response. Extract:
 - `status` — the sprint's current lifecycle status
 - `key` — canonical sprint key (use this for all subsequent calls)
+Set `SPRINT_KEY = key` before continuing so later identity checks use the canonical form.
 
 **If status is `planning`**:
 Auto-start it without asking — the user has standing authorization for
@@ -67,24 +68,56 @@ Continue with the pull-loop anyway? (yes/no)
 Initialize:
 - `ITERATION = 0`
 - `DISPATCHED = []` (list of entity keys dispatched this session)
+- `SELECTION_PAUSED = false`
+- `SELECTED_ENTITY = null`
 
 Loop:
 
 ```
 while ITERATION < MAX_ITERATIONS:
     ITERATION += 1
+    SELECTED_ENTITY = null
 
-    NEXT_CMD = "shark sprint next {SPRINT_KEY} --json"
+    NEXT_CMD = "shark plan {SPRINT_KEY} --json"
     if AGENT_FILTER is set:
-        NEXT_CMD = "shark sprint next {SPRINT_KEY} --agent={AGENT_FILTER} --json"
+        NEXT_CMD = "shark plan {SPRINT_KEY} --agent={AGENT_FILTER} --json"
 
     Execute NEXT_CMD.
-    Parse JSON response as NEXT_ENTITY.
+    Parse JSON response as SPRINT_SELECTION.
 
-    if NEXT_ENTITY is null or empty (no entity returned):
-        break  # backlog drained; exit loop normally
+    if the response is malformed or SPRINT_SELECTION.sprint_key is missing:
+        print the raw response and report that sprint selection returned unexpected output
+        stop the pull-loop; do not dispatch an entity
 
-    ENTITY_KEY = NEXT_ENTITY.key  # e.g., "E07-F01-001", "B003"
+    if SPRINT_SELECTION.sprint_key != SPRINT_KEY:
+        report the selected sprint key mismatch and stop the pull-loop
+        do not dispatch an entity
+
+    if SPRINT_SELECTION.action == "pause":
+        print "No dispatchable entity was selected; sprint drain was not verified."
+        SELECTION_PAUSED = true
+        break
+
+    if SPRINT_SELECTION.action == "select_item":
+        SELECTED_ENTITY = SPRINT_SELECTION.entity
+    else if SPRINT_SELECTION.action == "parallel_candidates":
+        if SPRINT_SELECTION.entities is empty:
+            report unexpected output, include "sprint drain was not verified", and stop the pull-loop
+        SELECTED_ENTITY = SPRINT_SELECTION.entities[0]  # first item in selector order
+    else:
+        report the unexpected selection action and stop the pull-loop
+
+    if SELECTED_ENTITY is null:
+        print "No dispatchable entity was selected; sprint drain was not verified."
+        report invalid selection shape and stop the pull-loop
+
+    if SELECTED_ENTITY.sprint_key != SPRINT_KEY:
+        SELECTED_ENTITY = null
+        print "No dispatchable entity was selected; sprint drain was not verified."
+        report the selected entity sprint key mismatch and stop the pull-loop
+        do not dispatch an entity
+
+    ENTITY_KEY = SELECTED_ENTITY.key  # e.g., "E07-F01-001", "B003"
 
     Print progress:
     "[Sprint {SPRINT_KEY}] Iteration {ITERATION}/{MAX_ITERATIONS} — dispatching {ENTITY_KEY}"
@@ -96,7 +129,7 @@ while ITERATION < MAX_ITERATIONS:
     # /shark-rider run reads orchestrator_action and drives the entity to terminal status.
     # When /shark-rider run returns, resume the loop.
 
-if ITERATION >= MAX_ITERATIONS and NEXT_ENTITY was not empty:
+if ITERATION >= MAX_ITERATIONS and SELECTED_ENTITY is not null:
     Print cap notice:
     "[Sprint {SPRINT_KEY}] Reached --max-iterations={MAX_ITERATIONS}. Loop stopped.
     Dispatched {len(DISPATCHED)} entities this session: {DISPATCHED}
@@ -105,8 +138,9 @@ if ITERATION >= MAX_ITERATIONS and NEXT_ENTITY was not empty:
 ```
 
 **Loop exit conditions:**
-1. `shark sprint next` returns empty — normal completion; backlog drained.
+1. `shark plan {SPRINT_KEY}` returns `action == "pause"` — no dispatchable entity was selected; sprint drain was not verified.
 2. `ITERATION >= MAX_ITERATIONS` — cap reached; cap notice printed above.
+3. The sprint selection response is malformed or names a different sprint — stop without dispatching an entity.
 
 **On `/shark-rider run` failure (agent error or unexpected exit):** Print the error, add a note to the entity if possible, and continue the loop. Do not abort the sprint pull-loop on a single entity failure.
 
@@ -130,8 +164,13 @@ Display the summary output (completed, in-progress, incomplete entity counts). B
 
 Print a session summary:
 ```
-[Sprint {SPRINT_KEY}] Pull-loop complete.
+[Sprint {SPRINT_KEY}] Pull-loop stopped.
 Entities dispatched this session ({len(DISPATCHED)}): {DISPATCHED joined by ", "}
+```
+
+If `SELECTION_PAUSED` is true, include this exact status in the summary:
+```
+No dispatchable entity was selected; sprint drain was not verified.
 ```
 
 ---
@@ -207,7 +246,8 @@ before retrying close. Do not retry silently.
 |---|---|
 | Sprint key not found (`shark get` returns not-found) | Print `Sprint {SPRINT_KEY} not found.` and exit |
 | `shark sprint start` fails | Print error; exit without entering the loop |
-| `shark sprint next` returns a malformed JSON response | Print the raw response, report `shark sprint next returned unexpected output`, exit loop and proceed to Step 3 |
+| `shark plan {SPRINT_KEY}` returns malformed JSON, an unknown action, or an invalid selection shape | Print the raw response when available, report `sprint selection returned unexpected output`, stop the loop, and proceed to Step 3 |
+| Sprint selection or selected entity has a different `sprint_key` than `SPRINT_KEY` | Report the mismatch, do not dispatch the entity, stop the loop, and proceed to Step 3 |
 | `/shark-rider run {ENTITY_KEY}` fails or the agent errors | Log error; continue loop (do not abort sprint) |
 | `shark sprint close` fails | Print full error; sprint remains open; suggest manual retry |
 | `shark sprint close` fails with no accepted goal review | Sprint remains active, no completion row created; submit `shark sprint goal-review {SPRINT_KEY} --outcome=accepted` (with goal/before/after/reviewer evidence) before retrying close |
@@ -220,7 +260,7 @@ before retrying close. Do not retry silently.
 This workflow is safe to re-invoke:
 
 - If the sprint is already `completed`/`archived`/`cancelled`, Step 1 exits with a notice — no double-close possible (TC-NF02).
-- If re-invoked on an `active` sprint mid-execution, the loop picks up where shark left off: `shark sprint next` returns the next un-dispatched entity regardless of what this session previously dispatched. DISPATCHED tracking is session-local and does not affect shark state.
+- If re-invoked on an `active` sprint mid-execution, the loop asks `shark plan {SPRINT_KEY}` again and uses its first ordered candidate. DISPATCHED tracking is session-local and does not affect shark state.
 - `shark sprint close` is only reachable through the explicit user-confirmation gate in Step 4 — not callable via re-entry without the user answering "yes" again.
 
 ---
@@ -228,7 +268,7 @@ This workflow is safe to re-invoke:
 ## Constraints
 
 - All shark calls use `--json`.
-- `shark sprint next` is the sole source of "what to work on next". The loop does NOT read the backlog directly or pick entities itself.
+- `shark plan {SPRINT_KEY} --json` is the sprint-scoped source of "what to work on next". The loop does NOT read the backlog directly or pick entities itself; when it receives `parallel_candidates`, it consumes the first candidate in selector order for this solo iteration.
 - `/shark-rider run {ENTITY_KEY}` is the sole dispatch mechanism. The loop does NOT call `shark status advance` or any other entity-manipulation command directly.
 - `shark sprint close` is only called after explicit user confirmation in Step 4, and only after an accepted `shark sprint goal-review` submission for this close attempt.
 - The loop honors `--max-iterations` and exits at the cap with a notice.

@@ -547,7 +547,8 @@ func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
 
 // productCriticalPathGuardBaselineSHA256 records the SHA-256 of each of the
 // twelve wired prompts' content as of their latest intentional edits; the task
-// baseline was updated by CC-044 after its development-prompt change. Originally
+// baseline was updated by CC-044 after its development-prompt change and by
+// B081 after the active-sprint selection-prompt change. Originally
 // the values recorded content exactly as it existed before T-E34-F10-002
 // added the guard invocation (captured from the pre-edit checked-in files).
 // TestTwelvePromptsAddGuardAsPureAddition reconstructs each file's
@@ -557,7 +558,7 @@ func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
 // (test-plan.md TC-003, spec.md AC-3/REQ-NF-001).
 var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"sprint/planning.md":         "f27d56ae7e922347d611389a6d5797fa39402b4887e41bb1dc815a10799d4248",
-	"sprint/active.md":           "86752cf41ecdc68c08063e392616b149f5ffdf5e42c6e7db18426f673898b5c4",
+	"sprint/active.md":           "cdda51394e0a97b0d8b0c25d4fa52cece39fa42b2922e2ebbf9c0883a044347c",
 	"sprint/closing.md":          "94f8057747fae8ffa85b95fab0cf86146c8f8298e285322737c5457f4f9e3a59",
 	"epic/assessment.md":         "6e9c5516db6e8c415000795fbbdbe2c48a5acebb4e8c493f77f00ae724ee27fb",
 	"epic/decomposition.md":      "76a7558c41c97ed3fd9eba3dc6671799da58c3e0a94ff340f7c308f166704131",

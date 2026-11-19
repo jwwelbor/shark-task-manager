@@ -1,7 +1,7 @@
 # /shark-rider run-sprint — Solo sprint execution
 
-Solo sequential pull-loop: repeatedly calls `shark sprint next`, delegates each
-entity to `/shark-rider run`, and loops until the backlog is drained. Prompts before closing.
+Solo sequential pull-loop: repeatedly calls the sprint-scoped `shark plan S###`
+selector, delegates each entity to `/shark-rider run`, and prompts before closing.
 
 Usage: `/shark-rider run-sprint S### [--agent=TYPE] [--max-iterations=N] [--carryover=VALUE]`
 
