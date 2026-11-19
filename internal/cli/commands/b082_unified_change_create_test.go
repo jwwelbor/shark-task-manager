@@ -2,15 +2,15 @@ package commands
 
 import (
 	"context"
-	"errors"
 	"os"
-	"reflect"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize checks the
@@ -39,6 +39,7 @@ func TestUnifiedChangeCreate_ExplicitSizeSatisfiesRequiredSize(t *testing.T) {
 func assertUnifiedChangeCreateExplicitSize(t *testing.T, cmd *cobra.Command, size string, want int) {
 	t.Helper()
 	withEmptyStdin(t)
+	withBackgroundCommandContext(t, cmd)
 	var capturedInput services.CreateChangeCardInput
 	stub := &MockChangeCardService{
 		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
@@ -55,37 +56,26 @@ func assertUnifiedChangeCreateExplicitSize(t *testing.T, cmd *cobra.Command, siz
 	originalSize := flag.Value.String()
 	originalSizeChanged := flag.Changed
 	t.Cleanup(func() {
-		if err := cmd.Flags().Set("size", originalSize); err != nil {
-			t.Errorf("restore --size: %v", err)
-		}
+		assert.NoError(t, cmd.Flags().Set("size", originalSize), "restore --size")
 		flag.Changed = originalSizeChanged
 	})
-	if err := cmd.Flags().Set("size", size); err != nil {
-		t.Fatalf("set --size: %v", err)
-	}
-	if err := runChangeCardCreate(cmd, []string{"Explicit-size change"}); err != nil {
-		t.Fatalf("runChangeCardCreate() error = %v", err)
-	}
-	if capturedInput.Size == nil {
-		t.Fatal("expected explicit --size to reach the change-card service")
-	}
-	if *capturedInput.Size != want {
-		t.Errorf("service input Size = %d, want %d", *capturedInput.Size, want)
-	}
+	require.NoError(t, cmd.Flags().Set("size", size), "set --size")
+	require.NoError(t, runChangeCardCreate(cmd, []string{"Explicit-size change"}))
+	require.NotNil(t, capturedInput.Size, "explicit --size should reach the change-card service")
+	assert.Equal(t, want, *capturedInput.Size, "service input Size")
 }
 
 // TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired verifies that
 // forwarding an optional flag does not bypass change-card size enforcement.
 func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) {
 	withEmptyStdin(t)
+	withBackgroundCommandContext(t, createChangeCmd)
 
 	called := false
 	stub := &MockChangeCardService{
 		CreateChangeCardFunc: func(_ context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, bool, error) {
 			called = true
-			if input.Size != nil {
-				t.Errorf("service input Size = %d, want nil when --size is omitted", *input.Size)
-			}
+			assert.Nil(t, input.Size, "service input Size when --size is omitted")
 			return nil, false, &services.SizeRequiredError{EntityType: string(models.EntityTypeChange)}
 		},
 	}
@@ -97,32 +87,23 @@ func TestUnifiedChangeCreate_MissingSizeStillRejectedWhenRequired(t *testing.T) 
 	originalSize := flag.Value.String()
 	originalSizeChanged := flag.Changed
 	t.Cleanup(func() {
-		if err := cmd.Flags().Set("size", originalSize); err != nil {
-			t.Errorf("restore --size: %v", err)
-		}
+		assert.NoError(t, cmd.Flags().Set("size", originalSize), "restore --size")
 		flag.Changed = originalSizeChanged
 	})
-	if err := cmd.Flags().Set("size", ""); err != nil {
-		t.Fatalf("clear --size: %v", err)
-	}
+	require.NoError(t, cmd.Flags().Set("size", ""), "clear --size")
 
 	err := runChangeCardCreate(cmd, []string{"Missing-size change"})
-	if err == nil {
-		t.Fatal("expected service to reject missing size when change is required")
-	}
+	require.Error(t, err, "service should reject missing size when change is required")
 	var sizeErr *services.SizeRequiredError
-	if !errors.As(err, &sizeErr) {
-		t.Fatalf("error = %v, want *services.SizeRequiredError", err)
-	}
-	if !called {
-		t.Fatal("expected required-size service to be called")
-	}
+	require.ErrorAs(t, err, &sizeErr)
+	assert.True(t, called, "required-size service should be called")
 }
 
 func TestUnifiedChangeCreate_InvalidSizeRejectedBeforeService(t *testing.T) {
 	for _, bad := range []string{"clear", "4", "XXXL"} {
 		t.Run(bad, func(t *testing.T) {
 			withEmptyStdin(t)
+			withBackgroundCommandContext(t, createChangeCmd)
 
 			called := false
 			stub := &MockChangeCardService{
@@ -139,22 +120,14 @@ func TestUnifiedChangeCreate_InvalidSizeRejectedBeforeService(t *testing.T) {
 			originalSize := flag.Value.String()
 			originalSizeChanged := flag.Changed
 			t.Cleanup(func() {
-				if err := cmd.Flags().Set("size", originalSize); err != nil {
-					t.Errorf("restore --size: %v", err)
-				}
+				assert.NoError(t, cmd.Flags().Set("size", originalSize), "restore --size")
 				flag.Changed = originalSizeChanged
 			})
-			if err := cmd.Flags().Set("size", bad); err != nil {
-				t.Fatalf("set invalid --size: %v", err)
-			}
+			require.NoError(t, cmd.Flags().Set("size", bad), "set invalid --size")
 
 			err := runChangeCardCreate(cmd, []string{"Invalid-size change"})
-			if !errors.Is(err, models.ErrInvalidSize) {
-				t.Fatalf("error = %v, want models.ErrInvalidSize", err)
-			}
-			if called {
-				t.Fatal("service should not be called for invalid --size")
-			}
+			require.ErrorIs(t, err, models.ErrInvalidSize)
+			assert.False(t, called, "service should not be called for invalid --size")
 		})
 	}
 }
@@ -171,21 +144,18 @@ func TestUnifiedChangeCreate_SizeFlagReadErrorIsReturned(t *testing.T) {
 	})
 
 	cmd := &cobra.Command{}
-	cmd.SetContext(context.Background())
+	withBackgroundCommandContext(t, cmd)
 	cmd.Flags().StringSlice("tag", nil, "")
 	err := runChangeCardCreate(cmd, []string{"Invalid-size-flag change"})
-	if err == nil {
-		t.Fatal("expected --size flag lookup error")
-	}
-	if called {
-		t.Fatal("service should not be called when --size cannot be read")
-	}
+	require.Error(t, err, "expected --size flag lookup error")
+	assert.False(t, called, "service should not be called when --size cannot be read")
 }
 
 func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
 	for _, cmd := range []*cobra.Command{createChangeCmd, createChangeCardCmd} {
 		t.Run(cmd.Name(), func(t *testing.T) {
 			withEmptyStdin(t)
+			withBackgroundCommandContext(t, cmd)
 
 			var capturedInput services.CreateChangeCardInput
 			withChangeCardSvcOverrideForSize(t, &MockChangeCardService{
@@ -201,34 +171,20 @@ func TestUnifiedChangeCreate_TagsReachService(t *testing.T) {
 			originalSize := sizeFlag.Value.String()
 			originalSizeChanged := sizeFlag.Changed
 			tagValue, ok := tagFlag.Value.(pflag.SliceValue)
-			if !ok {
-				t.Fatalf("--tag value has type %T, want pflag.SliceValue", tagFlag.Value)
-			}
+			require.Truef(t, ok, "--tag value has type %T, want pflag.SliceValue", tagFlag.Value)
 			originalTags := append([]string(nil), tagValue.GetSlice()...)
 			originalTagChanged := tagFlag.Changed
 			t.Cleanup(func() {
-				if err := cmd.Flags().Set("size", originalSize); err != nil {
-					t.Errorf("restore --size: %v", err)
-				}
+				assert.NoError(t, cmd.Flags().Set("size", originalSize), "restore --size")
 				sizeFlag.Changed = originalSizeChanged
-				if err := tagValue.Replace(originalTags); err != nil {
-					t.Errorf("restore --tag: %v", err)
-				}
+				assert.NoError(t, tagValue.Replace(originalTags), "restore --tag")
 				tagFlag.Changed = originalTagChanged
 			})
-			if err := cmd.Flags().Set("size", ""); err != nil {
-				t.Fatalf("clear --size: %v", err)
-			}
-			if err := cmd.Flags().Set("tag", "ops,review"); err != nil {
-				t.Fatalf("set --tag: %v", err)
-			}
+			require.NoError(t, cmd.Flags().Set("size", ""), "clear --size")
+			require.NoError(t, cmd.Flags().Set("tag", "ops,review"), "set --tag")
 
-			if err := runChangeCardCreate(cmd, []string{"Tagged change"}); err != nil {
-				t.Fatalf("runChangeCardCreate() error = %v", err)
-			}
-			if !reflect.DeepEqual(capturedInput.Tags, []string{"ops", "review"}) {
-				t.Errorf("service input Tags = %q, want [ops review]", capturedInput.Tags)
-			}
+			require.NoError(t, runChangeCardCreate(cmd, []string{"Tagged change"}))
+			assert.Equal(t, []string{"ops", "review"}, capturedInput.Tags, "service input Tags")
 		})
 	}
 }
@@ -239,22 +195,23 @@ func withEmptyStdin(t *testing.T) {
 	t.Helper()
 
 	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create stdin pipe: %v", err)
-	}
+	require.NoError(t, err, "create stdin pipe")
 	if err := writer.Close(); err != nil {
-		if readerErr := reader.Close(); readerErr != nil {
-			t.Errorf("close stdin pipe reader after writer close failure: %v", readerErr)
-		}
-		t.Fatalf("close stdin pipe writer: %v", err)
+		assert.NoError(t, reader.Close(), "close stdin pipe reader after writer close failure")
+		require.NoError(t, err, "close stdin pipe writer")
 	}
 
 	originalStdin := os.Stdin
 	os.Stdin = reader
 	t.Cleanup(func() {
 		os.Stdin = originalStdin
-		if err := reader.Close(); err != nil {
-			t.Errorf("close stdin pipe reader: %v", err)
-		}
+		assert.NoError(t, reader.Close(), "close stdin pipe reader")
 	})
+}
+
+func withBackgroundCommandContext(t *testing.T, cmd *cobra.Command) {
+	t.Helper()
+	originalContext := cmd.Context()
+	cmd.SetContext(context.Background())
+	t.Cleanup(func() { cmd.SetContext(originalContext) })
 }
