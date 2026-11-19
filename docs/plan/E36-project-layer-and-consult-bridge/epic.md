@@ -96,7 +96,7 @@ additive fourth slice:
 
 | Feature | Slice | Touches | Size |
 |---------|-------|---------|------|
-| **E36-F01** | Consult bridge | `agent list`/`skill list` description (Go) + inline `verbs/consult.md` + delegated `verbs/consult-agent.md` + `query.md` recognizer + `SKILL.md` allowlist rows | S |
+| **E36-F01** | Consult bridge | `agent list`/`skill list` description (Go) + inline `verbs/consult.md` + delegated `verbs/consult-agent.md` + shared `context/consult-role-guide.md` and `context/consult-request-resolution.md` + `query.md` recognizer + `SKILL.md` allowlist rows | S |
 | **E36-F02** | Project namespace + progress record | `verbs/project.md` dispatch; rename `project-init` → `project bootstrap` (alias old); `file_templates/progress.md`; derived-checklist + decision-log updates in activity verbs | M |
 | **E36-F03** | Ops-as-entities convention | docs + an "Ops epic" convention for deploy/devops; no new mechanism | S |
 | **E36-F04** | Portfolio-aware next-action advisor | bare read-only `shark next` evidence and prompt; deterministic epic relationship layers; Rider help integration; keyed dispatch unchanged | M |

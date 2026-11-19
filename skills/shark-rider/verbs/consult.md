@@ -19,11 +19,7 @@ artifact in context), or plain prose describing what to discuss.
 
 ## Procedure
 
-### Step 0 — Parse args
-
-Split the args after the verb:
-- First token → `<agent>` candidate (or empty).
-- Remaining tokens → `<referent>` (may be empty).
+### Step 0 — Handle help
 
 If there are **no args** or the only arg is `help`, print the help response by
 composing the mode-specific opening below, the shared role-selection guide at
@@ -49,74 +45,24 @@ Then **STOP**. Do not treat `help` as an agent name.
 
 ---
 
-### Step 1 — Resolve the agent
+### Step 1 — Resolve the request
 
-```bash
-shark agent list --json
-```
-
-Walk the list:
-
-1. **Exact name match** (case-insensitive) — use it.
-2. **Fuzzy match** — find agents where `<agent>` appears as a substring in the
-   name OR description. If exactly one match, use it. If multiple matches, list
-   them and ask the user to clarify, then **STOP**.
-3. **No match** — print:
-   ```
-   No agent matching "<agent>" found.
-
-   Available agents:
-   ```
-   followed by `shark agent list --all` output, then **STOP**.
+For every other invocation, read and follow
+`skills/shark-rider/context/consult-request-resolution.md` with the arguments
+that remain after this verb. It parses the agent and referent, loads the persona,
+and reads the requested context. If that procedure stops for any reason, stop
+here too; do not adopt or dispatch a persona after a failed or incomplete
+resolution.
 
 ---
 
-### Step 2 — Load the persona
-
-```bash
-shark agent get <resolved-agent>
-```
-
-If `shark agent get` fails or returns no persona definition, print:
-`Agent "<resolved-agent>" was listed but its content could not be loaded.`
-Then print `shark agent list --all` and **STOP**. Do not continue to referent
-resolution or adopt the persona.
-
-This returns the agent's definition (name, description, role, instructions,
-skills, etc.). Read it fully — this is the voice you will adopt.
-
----
-
-### Step 3 — Resolve the referent
-
-Determine what to discuss:
-
-| Referent form | Resolution |
-|---|---|
-| Explicit file path (contains `/` or `.`) | `Read <path>` |
-| Shark entity key accepted by `shark get` | Fetch with `shark get <key>` and read its content |
-| `"this"` | Use the most recent artifact visible in this conversation (state which one you are using) |
-| Empty or ambiguous prose | Ask the user: "What would you like to discuss with <agent>?" then **STOP** |
-| Clear prose topic | Use as-is; no file read needed |
-
-If the referent is a file or entity, read its content before proceeding.
-
----
-
-### Step 4 — Announce and adopt the persona
+### Step 2 — Announce and adopt the persona
 
 Print a brief announcement:
 
 ```text
 Consulting <agent-name> about <referent-summary>...
 ```
-
-Read context referenced by the persona only when relevant. Get Shark-bundled
-skills through `shark skill get <name> [relative-path]`; read host-local
-Shark Rider sub-skills from their local paths. Do not read bundled Shark persona
-or skill content directly from `shark-data/`. If a bundled skill is unavailable,
-report it as unavailable and omit only that content. Continue only if the
-consultation remains useful.
 
 Adopt the persona **inline** for the rest of the consultation:
 
@@ -128,7 +74,7 @@ Adopt the persona **inline** for the rest of the consultation:
 
 ---
 
-### Step 5 — Read-only by default
+### Step 3 — Read-only by default
 
 The persona does **not** mutate shark state (no `shark create`, `shark status
 set`, `shark delete`, etc.) unless the user explicitly asks for it. If a
@@ -139,8 +85,5 @@ mutation seems warranted, describe what it would do and ask whether to proceed.
 ## Notes
 
 - The consultation is **turn-by-turn in this session**. Use `consult-agent` for a separate, one-shot host subagent request.
-- Fuzzy matching checks both `name` and `description` fields from the agent list.
-- Get Shark-bundled skills through `shark skill get`; read host-local Shark
-  Rider sub-skills from their local paths.
 - To end a consultation and return to normal mode, the user can invoke any other
   `/shark-rider` verb or simply say "done" / "thanks".

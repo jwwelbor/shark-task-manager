@@ -1,9 +1,10 @@
 # /shark-rider consult-agent — Specialist subagent consultation
 
-Consult a Shark agent persona through a bounded, read-only host subagent. The
-parent remains the lead advisor: it provides context, reviews the response, and
-synthesizes advice in this conversation. This is a local consultation recipe,
-not keyed Shark workflow dispatch.
+Consult a Shark agent persona through a bounded host subagent when the host can
+enforce read-only permissions. The parent remains the lead advisor: it provides
+context, reviews the response, and synthesizes advice in this conversation. If
+the host cannot enforce read-only permissions, use inline `consult` instead.
+This is a local consultation recipe, not keyed Shark workflow dispatch.
 
 Usage:
 
@@ -22,11 +23,7 @@ artifact in context), or plain prose describing what to discuss.
 
 ## Procedure
 
-### Step 0 — Parse args
-
-Split the args after the verb:
-- First token → `<agent>` candidate (or empty).
-- Remaining tokens → `<referent>` (may be empty).
+### Step 0 — Handle help
 
 If there are **no args** or the only arg is `help`, print the help response by
 composing the mode-specific opening below with the shared role-selection guide
@@ -46,62 +43,18 @@ Then **STOP**. Do not treat `help` as an agent name.
 
 ---
 
-### Step 1 — Resolve the agent
+### Step 1 — Resolve the request
 
-```bash
-shark agent list --json
-```
-
-Walk the list:
-
-1. **Exact name match** (case-insensitive) — use it.
-2. **Fuzzy match** — find agents where `<agent>` appears as a substring in the
-   name OR description. If exactly one match, use it. If multiple matches, list
-   them and ask the user to clarify, then **STOP**.
-3. **No match** — print:
-   ```
-   No agent matching "<agent>" found.
-
-   Available agents:
-   ```
-   followed by `shark agent list --all` output, then **STOP**.
+For every other invocation, read and follow
+`skills/shark-rider/context/consult-request-resolution.md` with the arguments
+that remain after this verb. It parses the agent and referent, loads the persona,
+and reads the requested context. If that procedure stops for any reason, stop
+here too; do not adopt or dispatch a persona after a failed or incomplete
+resolution.
 
 ---
 
-### Step 2 — Load the persona
-
-```bash
-shark agent get <resolved-agent>
-```
-
-If `shark agent get` fails or returns no persona definition, print:
-`Agent "<resolved-agent>" was listed but its content could not be loaded.`
-Then print `shark agent list --all` and **STOP**. Do not continue to referent
-resolution, adopt the persona, or launch a subagent.
-
-This returns the agent's definition (name, description, role, instructions,
-skills, etc.). Read it fully and use it as the specialist role instructions in
-the subagent handoff. Do not set the host subagent type to the Shark agent name.
-
----
-
-### Step 3 — Resolve the referent
-
-Determine what to discuss:
-
-| Referent form | Resolution |
-|---|---|
-| Explicit file path (contains `/` or `.`) | `Read <path>` |
-| Shark entity key accepted by `shark get` | Fetch with `shark get <key>` and read its content |
-| `"this"` | Use the most recent artifact visible in this conversation (state which one you are using) |
-| Empty or ambiguous prose | Ask the user: "What would you like to discuss with <agent>?" then **STOP** |
-| Clear prose topic | Use as-is; no file read needed |
-
-If the referent is a file or entity, read its content before proceeding.
-
----
-
-### Step 4 — Prepare the consultation context
+### Step 2 — Prepare the consultation context
 
 Print a brief announcement (one line):
 
@@ -109,13 +62,7 @@ Print a brief announcement (one line):
 Consulting <agent-name> about <referent-summary> with a specialist subagent...
 ```
 
-Read context referenced by the persona only when relevant to the question. Get
-Shark-bundled skills through `shark skill get <name> [relative-path]`; read
-host-local Shark Rider sub-skills from their local paths. Do not read bundled
-Shark persona or skill content directly from `shark-data/`. If required content
-is unavailable, say so and continue only if the consultation remains useful.
-
-### Step 5 — Select and launch a suitable subagent
+### Step 3 — Select and launch a suitable subagent
 
 Use the `$efficient-advisor` approach: the parent remains responsible for
 framing the question, choosing a suitable contributor, judging the evidence,
@@ -131,13 +78,22 @@ handoff prompt, not in the host subagent type. Use the host's native subagent
 launcher and model selector; do not claim a subagent was launched unless it
 actually started and returned a result.
 
+Require a host-provided read-only sandbox or tool profile that prevents workspace
+writes, Shark mutations, and nested dispatch. If the launcher cannot enforce all
+three parts of that boundary, do not launch the subagent; explain that delegated
+read-only advice is unavailable on this host and direct the user to inline
+`consult` instead. A prompt instruction alone does not count as an enforced
+read-only profile.
+
 Give the subagent a self-contained, bounded handoff containing:
 
 - The requested question or decision and the resolved referent.
 - The Shark persona definition and relevant retrieved skill/context content.
 - Only the project facts and artifact content needed to advise.
 - A read-only scope: inspect and recommend, but do not edit files, mutate Shark
-  state, launch other agents, or perform implementation.
+  state, launch other agents, or perform implementation. This handoff constraint
+  supplements the required read-only sandbox or tool profile; it does not replace
+  one.
 - The expected response: a concrete recommendation, its reasoning and evidence,
   assumptions or uncertainty, and any follow-up needed from the parent.
 
@@ -146,12 +102,13 @@ context, resolve unsupported or conflicting advice, and answer in the parent's
 own voice. Do not remain in character across later turns. A follow-up
 consultation is a new bounded handoff using the relevant prior context.
 
-If no suitable host subagent or model is available, say so and direct the user
-to `/shark-rider consult <agent> <question or artifact>` for an inline consultation.
+If no suitable host subagent, model, or enforced read-only profile is available,
+say so and direct the user to `/shark-rider consult <agent> <question or
+artifact>` for an inline consultation.
 
 ---
 
-### Step 6 — Read-only by default
+### Step 4 — Read-only by default
 
 The subagent provides advice only. It does **not** mutate Shark state (no
 `shark create`, `shark status set`, `shark delete`, etc.), edit files, or
@@ -165,6 +122,5 @@ explicitly requested.
 
 - Each consultation is a bounded subagent request whose response is integrated
   into the current conversation; the parent remains responsible for the answer.
-- Fuzzy matching checks both `name` and `description` fields from the agent list.
 - To end a consultation and return to normal mode, the user can invoke any other
   `/shark-rider` verb or simply say "done" / "thanks".

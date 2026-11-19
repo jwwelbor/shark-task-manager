@@ -75,11 +75,11 @@ Two tightly coupled pieces ship together:
    - **Priority**: Must-Have
 
 3. **REQ-F-003**: Consultation skill verbs
-   - **Description**: `skills/shark-rider/verbs/consult.md` implements `/shark-rider consult <agent> [referent]` as an inline consultation. `skills/shark-rider/verbs/consult-agent.md` implements `/shark-rider consult-agent <agent> [referent]` as a separate one-shot delegated consultation: resolve the persona and referent, launch one bounded read-only host subagent, then have the parent review and synthesize the advice. Both are registered in the `SKILL.md` allowlist.
+   - **Description**: `skills/shark-rider/verbs/consult.md` implements `/shark-rider consult <agent> [referent]` as an inline consultation. `skills/shark-rider/verbs/consult-agent.md` implements `/shark-rider consult-agent <agent> [referent]` as a separate one-shot delegated consultation: resolve the persona and referent, then launch one bounded host subagent only when the host can enforce read-only permissions for workspace writes, Shark mutations, and nested dispatch. The parent reviews and synthesizes the advice. If those permissions are unavailable, do not launch and direct the user to inline consult. Both modes use the shared request-resolution procedure and are registered in the `SKILL.md` allowlist.
    - **Priority**: Must-Have
 
 4. **REQ-F-004**: Agent resolution
-   - **Description**: Resolution order: (1) exact name match against `agent list`; (2) fuzzy-match against names *and* descriptions (typos and role words like "ux"/"ops" work). If a fuzzy match is ambiguous, list the matching agents and ask the user to clarify. Bare `/shark-rider consult` and `/shark-rider consult help` show the role-selection guide and stop.
+   - **Description**: Both modes use `context/consult-request-resolution.md` to resolve the agent, persona, and referent before mode-specific behavior. Resolution order: (1) exact name match against `agent list`; (2) fuzzy-match against names *and* descriptions (typos and role words like "ux"/"ops" work). If a fuzzy match is ambiguous, list matching agents and ask the user to clarify. If the agent list is empty, suggest `shark admin install-shark-data` and stop. Bare `/shark-rider consult` and `/shark-rider consult help` show the role-selection guide and stop.
    - **Priority**: Must-Have
 
 5. **REQ-F-005**: Inline persona adoption
@@ -91,7 +91,7 @@ Two tightly coupled pieces ship together:
    - **Priority**: Must-Have
 
 7. **REQ-F-007**: Referent resolution
-   - **Description**: Explicit file path → read it. "This" or "this plan/design/doc" with an unambiguous in-context artifact → use it and state which file was used. Ambiguous → ask the user or accept pasted content. Never silently guess the wrong artifact.
+   - **Description**: A path-shaped token with a path separator or known file suffix is verified and read; a period in ordinary prose is not enough to identify a path. "This" or "this plan/design/doc" with an unambiguous in-context artifact → use it and state which file was used. Ambiguous → ask the user or accept pasted content. Never silently guess the wrong artifact.
    - **Priority**: Must-Have
 
 8. **REQ-F-008**: `query.md` consult-intent recognizer
@@ -151,11 +151,22 @@ Two tightly coupled pieces ship together:
 - **And** execution stops before persona adoption or subagent dispatch without an error trace
 
 **Scenario 7: Successful delegated consultation**
-- **Given** the `architect` agent is available and `docs/design.md` is the unambiguous design artifact in the conversation
+- **Given** the `architect` agent is available, `docs/design.md` is the unambiguous design artifact in the conversation, and the host can enforce read-only permissions for workspace writes, Shark mutations, and nested dispatch
 - **When** `/shark-rider consult-agent architect review this design` is run
-- **Then** the persona is loaded, `docs/design.md` is identified and read, and both are included in one bounded, read-only host-subagent request
+- **Then** the persona is loaded, `docs/design.md` is identified and read, and both are included in one bounded host-subagent request with the enforced read-only profile
 - **And** the parent reviews the advice and synthesizes a response in its own voice
 - **And** no Shark state, workspace files, or additional agents are changed or launched
+
+**Scenario 8: No agents are installed**
+- **Given** `shark agent list --json` returns an empty list
+- **When** the user requests either `/shark-rider consult <agent>` or `/shark-rider consult-agent <agent>`
+- **Then** the user is told that no Shark agents are installed and is advised to run `shark admin install-shark-data`
+- **And** execution stops before matching, persona loading, or subagent dispatch
+
+**Scenario 9: Host cannot enforce delegated read-only permissions**
+- **Given** no available host launcher can prevent workspace writes, Shark mutations, and nested dispatch
+- **When** `/shark-rider consult-agent architect review this design` is requested
+- **Then** no subagent is launched, the host limitation is explained, and the user is directed to inline `/shark-rider consult architect review this design`
 
 ---
 
@@ -180,5 +191,6 @@ N/A — internal tooling; see epic scope.md exclusions.
 The completed inline consultation contract remains in force. Bare `consult` and
 `consult help` show the role-selection guide; named `consult` requests continue
 in the persona's voice. The separate `consult-agent` command delegates one
-read-only advice request to a bounded host subagent. Natural-language consult
-requests continue to use the inline mode.
+read-only advice request only when the host can enforce the required permission
+profile; otherwise it does not launch and directs the user to inline `consult`.
+Natural-language consult requests continue to use the inline mode.
