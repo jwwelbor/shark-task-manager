@@ -39,11 +39,17 @@ artifacts.
   respects override > disk > embedded precedence, and is best-effort: a parse
   failure must never fail the list. (plan §5)
 - **REQ-F3** — Description renders in both text and JSON list output. (plan §5)
-- **REQ-F4** — `/shark-rider consult <agent> [referent]` resolves the agent
-  (exact name, else fuzzy-match against `agent list` names **and** descriptions),
-  loads the persona via `shark agent get <agent>` (frontmatter stripped), and
-  adopts it **inline** (turn-by-turn, not a background subagent). Bare `consult`
-  and `consult help` show the role-selection guide and stop. (plan §4)
+- **REQ-F4** — Consultation modes:
+  - `/shark-rider consult <agent> [referent]` resolves the agent (exact name,
+    else fuzzy-match against `agent list` names **and** descriptions), loads the
+    persona via `shark agent get <agent>` (frontmatter stripped), and adopts it
+    **inline** (turn-by-turn, not a background subagent).
+  - `/shark-rider consult-agent <agent> [referent]` resolves the persona and
+    referent, sends one bounded read-only request to a host subagent, then has
+    the parent check and synthesize the advice. This is a separate, explicit
+    one-shot mode.
+  - Bare `consult` and `consult help` show the role-selection guide and stop.
+  (plan §4)
 - **REQ-F5** — A consult is **read-only by default**: it reads shark/docs for
   context as the persona would but does not mutate shark state unless explicitly
   asked. (plan §4)
@@ -61,9 +67,9 @@ artifacts.
 **Consultation mode clarification (2026-11-19):** Inline persona adoption remains
 the behavior of `/shark-rider consult` and natural-language consult requests.
 `/shark-rider consult-agent <agent> [referent]` is a separate, explicit command
-for one-shot advice from a bounded host subagent. The parent remains responsible
-for checking and summarizing that advice; neither command mutates Shark state by
-default.
+for one-shot advice from one bounded host-subagent request. The parent remains
+responsible for checking and summarizing that advice; neither command mutates
+Shark state by default.
 
 ### Project namespace + progress record (Slice 2 → E36-F02)
 

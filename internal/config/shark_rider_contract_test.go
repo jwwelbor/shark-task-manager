@@ -148,6 +148,8 @@ func TestSharkRiderDelegatedConsultContract(t *testing.T) {
 func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
 	root := findRepoRootForAudit(t)
 	feature := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "feature.md")
+	requirements := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "requirements.md")
+	requirements = strings.Join(strings.Fields(requirements), " ")
 	procedureTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-002.md")
 	routingTask := readContractFile(t, root, "docs", "plan", "E36-project-layer-and-consult-bridge", "E36-F01-consult-bridge", "tasks", "T-E36-F01-003.md")
 
@@ -162,6 +164,13 @@ func TestSharkRiderDelegatedConsultAcceptanceIsSpecified(t *testing.T) {
 	})
 	assert.Contains(t, procedureTask, "loads the persona and referent, sends one bounded read-only host-subagent request, then has the parent review and synthesize the advice")
 	assert.Contains(t, procedureTask, "A delegated consultation does not mutate Shark state or workspace files and does not launch nested agents")
+	assertContainsAll(t, requirements, "delegated consultation requirements", []string{
+		"**REQ-F4** — Consultation modes:",
+		"`/shark-rider consult-agent <agent> [referent]` resolves the persona and",
+		"sends one bounded read-only request to a host subagent",
+		"then has the parent check and synthesize the advice",
+		"This is a separate, explicit",
+	})
 	assertContainsAll(t, procedureTask, "delegated consultation task plan", []string{
 		"### 6. Delegated one-shot consultation",
 		"one bounded read-only host-subagent request",
