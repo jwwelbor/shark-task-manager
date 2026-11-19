@@ -70,7 +70,7 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, fileWasLinked, err := svc.CreateChangeCard(ctx, input)
 	if err != nil {
-		return fmt.Errorf("failed to create change-card: %w", err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeChange, input.Title)
 	}
 
 	projectRoot, _ := cli.FindProjectRoot()
