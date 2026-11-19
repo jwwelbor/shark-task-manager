@@ -93,12 +93,15 @@ func TestSharkRiderConsultModesRemainDistinct(t *testing.T) {
 	assert.Contains(t, inline, "If there are **no args** or the only arg is `help`")
 	assert.Contains(t, inline, "Choose the role that matches the question:")
 	assert.Contains(t, inline, "Then **STOP**. Do not treat `help` as an agent name.")
+	assert.Contains(t, inline, "No agent matching")
 	assert.Contains(t, inline, "No subagent is spawned")
 	assert.Contains(t, inline, "Adopt the persona **inline**")
 	assert.Contains(t, delegated, "bounded, read-only host subagent")
 	assert.Contains(t, delegated, "Select and launch a suitable subagent")
 	assert.Contains(t, query, "Read skills/shark-rider/verbs/consult.md")
 	assert.Contains(t, query, "Natural-language requests use inline")
+	assert.Contains(t, query, "If the request clearly asks to consult an agent but `<agent>` does not resolve")
+	assert.Contains(t, query, "still `Read skills/shark-rider/verbs/consult.md`")
 	assert.Contains(t, query, "Use `/shark-rider consult-agent` for one-shot subagent advice")
 }
 

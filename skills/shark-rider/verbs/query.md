@@ -43,7 +43,11 @@ consultation. Use `/shark-rider consult-agent` for one-shot subagent advice.
 
 **Negative example:** "tell me about the cx-designer" → this is a query *about* an agent, not a request to consult one; fall through to NL routing below.
 
-If the agent name does not resolve to a known persona, fall through to normal NL routing below.
+If the request clearly asks to consult an agent but `<agent>` does not resolve,
+still `Read skills/shark-rider/verbs/consult.md` with the extracted `agent` and
+`referent`. The consult verb reports the unavailable agent and lists available
+agents. Fall through to normal NL routing only when the request is not a clear
+consult-intent match.
 
 ## Natural-language questions
 
