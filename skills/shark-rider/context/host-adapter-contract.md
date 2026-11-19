@@ -70,7 +70,9 @@ worker class, provider/model, and reasoning effort as distinct values:
 | `route_status` | `verified`, `unsupported`, `unverified`, or `mismatch`, with phase-specific semantics below; `verified` and `mismatch` compare observations with the selected documented route |
 | `requested_provider` | Exact `provider` value from `shark next <key> --json` |
 | `requested_model` | Exact `model` value from `shark next <key> --json`; retain an empty value when no override was requested |
-| `host_worker_class` | Native host execution class selected by the adapter; never the Shark persona or model |
+| `selected_provider` | Provider explicitly selected by the host route policy; absent when no supported route is selected |
+| `selected_model` | Model explicitly selected by the host route policy and passed through its selector; never inferred from the parent or copied into effective fields |
+| `host_worker_class` | Host execution adapter selected for this worker (native host or CLI); never the Shark persona or model |
 | `effort` | Exact requested reasoning-effort setting, kept separate from provider/model selection |
 | `effective_provider` | Provider independently observed for this worker; present for `verified` and `mismatch`, absent for `unverified` |
 | `effective_model` | Model independently observed for this worker; present for `verified` and `mismatch`, absent for `unverified` |
@@ -81,12 +83,16 @@ worker class, provider/model, and reasoning effort as distinct values:
 The adapter prefers the exact requested provider/model route. For an Anthropic
 request, Claude Code is preferred when available, but its absence alone is not a
 rejection reason. A host may select a fallback only through an explicit,
-documented compatibility mapping and selector. `evidence_ref` identifies that
-mapping and the evidence for the selected route. Never infer compatibility from
-similar model names, effort, Shark persona, worker class, or the parent's model.
-If no exact route or documented compatible fallback can be selected and its
-effective provider/model observed for the worker, reject before claim. Preserve
-the requested fields exactly even when the selected route is a fallback.
+documented compatibility mapping and selector. `selected_provider` and
+`selected_model` record that selection separately from the request and the
+worker's later observed identity. `evidence_ref` identifies the mapping and the
+evidence for the selected route. A workflow-level compatibility mapping does
+not claim semantic equivalence between the requested and selected models.
+Never infer compatibility from similar model names, effort, Shark persona,
+worker class, parent model, or a provider configuration default. If no exact
+route or documented compatible fallback can be selected and its effective
+provider/model observed for the worker, reject before claim. Preserve the
+requested fields exactly even when the selected route is a fallback.
 
 When `requested_model` is empty, keep it empty. A provider default is a usable
 route only when the host reference documents that default and the adapter can
@@ -99,9 +105,9 @@ reject before claim.
 `shark claim ... --field session_id`; it is not a provider or host identity.
 Never use `session_id` as host identity or correlation. Correlate host evidence
 through `worker_id` and, when needed, the distinct `host_session_id`. Never
-copy requested values into effective fields to imply verification. `effort`
-is the exact requested value when present and remains separate from route
-selection.
+copy requested or selected values into effective fields to imply verification.
+`effort` is the exact requested value when present and remains separate from
+route selection.
 
 Route attestation is ephemeral adapter metadata and does not expand the
 durable provenance fields above. The phase/status matrix is normative. Every
@@ -114,20 +120,22 @@ requested an effort override.
 
 | Phase | route_status | Required fields | Forbidden fields | Evidence | Launch disposition |
 |---|---|---|---|---|---|
-| preflight | unsupported | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `evidence_ref` | `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | Evidence proves no exact host selector, documented provider default, or documented compatible fallback exists. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
-| preflight | unverified | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `evidence_ref` | `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | Selection, compatibility, default, or identity evidence is missing or inconclusive. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
-| post-dispatch | verified | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | An explicit selector chooses the requested route or documented compatible fallback, and worker-correlated observed provider and model match that selected route. If `requested_model` is empty, the documented provider default is selected and its concrete effective model is observed. | Launch permitted after preflight; a worker result may enter its existing envelope path. |
-| post-dispatch | unverified | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `worker_id`, `evidence_ref` | `effective_provider`, `effective_model` | The selector was used but worker-correlated observation is missing or inconclusive; do not infer effective fields. | Reject the worker result, stop the worker when supported, and do not advance. |
-| post-dispatch | mismatch | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | Worker-correlated observed provider or model differs from the selected route; retain both observed fields to show the mismatch. | Reject the worker result, stop the worker when supported, and do not advance. |
+| preflight | unsupported | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `evidence_ref` | `selected_provider`, `selected_model`, `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | Evidence proves no exact host selector, documented provider default, or documented compatible fallback exists. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
+| preflight | unverified | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `evidence_ref` | `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | An explicit selected route exists, but compatibility, selector, default, or identity-capture evidence is missing or inconclusive. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
+| post-dispatch | verified | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | An explicit selector chooses the requested route or documented compatible fallback, and worker-correlated observed provider and model match the selected provider and model. If `requested_model` is empty, the documented provider default is selected and its concrete effective model is observed. | Launch permitted after preflight; a worker result may enter its existing envelope path. |
+| post-dispatch | unverified | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `worker_id`, `evidence_ref` | `effective_provider`, `effective_model` | The selector was used but worker-correlated observation is missing or inconclusive; do not infer effective fields. | Reject the worker result, stop the worker when supported, and do not advance. |
+| post-dispatch | mismatch | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | Worker-correlated observed provider or model differs from the selected provider or model; retain both observed fields to show the mismatch. | Reject the worker result, stop the worker when supported, and do not advance. |
 
 `unsupported` means capability evidence establishes there is no usable exact,
-default, or documented compatible host route. `unverified` means required
-selector, compatibility, default, or effective-identity evidence is absent or
-inconclusive. Both preflight states reject before claim or spawn; neither has a
-worker control envelope/result, claim, or status advance. A post-dispatch
-`unverified` state records the launched worker identity but has no independently
-observed effective fields. `mismatch` means either the independently observed
-provider or model differs from the selected route; retain both effective
+default, or documented compatible host route; no selected identity fields are
+present. `unverified` in preflight means the adapter selected a route under an
+explicit policy, so both selected fields are present, but required selector or
+identity-capture evidence is absent or inconclusive. Both preflight states
+reject before claim or spawn; neither has a worker control envelope/result,
+claim, or status advance. A post-dispatch `unverified` state records the
+selected route and launched worker identity but has no independently observed
+effective fields. `mismatch` means either the independently observed provider
+or model differs from the selected provider or model; retain both effective
 fields so the discrepancy is inspectable. A documented fallback can be
 `verified` even when its effective values differ from the request, because the
 request and selected mapping are both preserved in the route evidence. Only

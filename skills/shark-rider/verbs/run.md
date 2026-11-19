@@ -198,6 +198,45 @@ route permits its worker result to continue through the existing control-
 envelope path. Keep `response.prompt` byte-for-byte unchanged throughout this
 check.
 
+### B077 default bug-stage Codex fallback mappings
+
+For the embedded bug workflow's Anthropic `spawn_agent` stages, prefer the
+exact requested route through Claude Code when it is available. When Claude
+Code is unavailable, the following explicit compatibility mapping selects
+the Codex CLI route.
+This is a workflow-level compatibility decision for bug-stage work; it does
+not claim that any Codex model is equivalent to the requested Anthropic model.
+Keep every requested provider/model value unchanged and record the selected
+Codex route separately.
+
+| entity_type | status | agent_type | requested_provider | requested_model | host_worker_class | selected_provider | selected_model | mapping_ref |
+|---|---|---|---|---|---|---|---|---|
+| bug | research | researcher | anthropic | haiku | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | repair_plan | architect | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | plan_review | tech-lead | anthropic | opus | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | development | developer | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | code_review | tech-lead | anthropic | opus | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | qa | qa | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+
+These are the current Anthropic stage tuples in the embedded default bug
+workflow. The table applies only to the exact entity type, status, persona,
+provider, and model shown; it does not
+authorize a fallback for other entities, stages, personas, Anthropic models,
+or an empty model. The selected Codex model is a fixed policy value, never
+derived from the parent session, Codex configuration default, or environment.
+If the exact route or table entry does not match, or the Codex selector or
+worker-identity evidence path is unavailable, reject before claim with no
+worker result or status advance. On a matching tuple, the parent/adapter sets
+`selected_provider=openai`, `selected_model=gpt-6.2-astra`,
+`host_worker_class=codex-cli`, and the mapping reference before claiming.
+Before selecting this fallback, verify that the installed Codex CLI supports
+`codex exec --model`, `codex login status` reports an authenticated session,
+and persistent rollout records can be read from the configured Codex home.
+Use only a CLI version whose selector and local identity-record shape have
+been checked; the current host evidence is `codex-cli 0.170.0`. These are
+local capability checks and make no model/API call. If any check fails, reject
+before claim.
+
 Claim the concrete entity returned by Shark:
 
 ```bash
@@ -313,25 +352,44 @@ the event stream and the final message. Run the worker in the background so
 the parent can poll `$EVENT_FILE` while it is still running, and keep stdout
 (the JSONL event stream) separate from stderr:
 
-Set `SELECTED_MODEL` from the exact requested model or the explicitly
-documented compatibility mapping selected during preflight; never derive it
-from the parent session. Pass a non-empty selected model using Codex CLI's
-documented `--model` selector. If the selected route uses a documented Codex
-provider default, omit that selector only when the effective model can still
-be observed and correlated to this worker. The `--model` flag alone does not
-prove which model ran.
+The preflight table selects `openai/gpt-6.2-astra` for each listed default bug
+stage when Claude Code is unavailable. For one of those exact request tuples,
+the adapter sets `SELECTED_PROVIDER` and `SELECTED_MODEL` from that fixed
+mapping. For an exact Codex request, it may use the exact requested model.
+Never derive `SELECTED_MODEL` from the parent session, a Codex configuration
+default, or an environment variable. Always pass the selected model through
+Codex CLI's `--model` selector; the flag alone does not prove which model ran.
+Do not use Codex's provider default for a mapped Anthropic fallback.
 
 ```bash
-CODEX_MODEL_ARGS=()
-if [ -n "$SELECTED_MODEL" ]; then
-  CODEX_MODEL_ARGS=(--model "$SELECTED_MODEL")
-fi
+# These are the selected values returned by the exact B077 preflight mapping.
+SELECTED_PROVIDER=openai
+SELECTED_MODEL=gpt-6.2-astra
+ROUTE_MAPPING_REF=B077-default-bug-anthropic-codex-v1
+CODEX_MODEL_ARGS=(--model "$SELECTED_MODEL")
 timeout --foreground 900 codex exec -C "$REPO_ROOT" -s danger-full-access \
   "${CODEX_MODEL_ARGS[@]}" --json --output-last-message "$RESULT_FILE" \
   - < "$PROMPT_FILE" \
   > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
 CODEX_PID=$!
 ```
+
+For the B077 Codex CLI route, take `worker_id` from the `thread.started`
+event's `thread_id`. The event identifies the worker thread but contains no
+effective model. Correlate that exact ID to a persisted Codex rollout under
+`$CODEX_HOME/sessions` (or `$HOME/.codex/sessions` when `CODEX_HOME` is unset):
+the rollout's `session_meta.payload.id` must equal the event's `thread_id`.
+Read `effective_provider` from `session_meta.payload.model_provider` and
+`effective_model` from each `turn_context.payload.model` in that same rollout.
+Require both values and require them to match `SELECTED_PROVIDER` and
+`SELECTED_MODEL`. Missing or ambiguous metadata is `unverified`; an observed
+different provider or model is `mismatch`; conflicting records for one ID are
+`unverified`. Never select the newest rollout by timestamp or use another
+worker's metadata.
+This identity path is Codex CLI-specific; it does not attest native Codex host
+workers. If the rollout format or its configured storage path is unavailable,
+reject before claim or reject the worker result as unverified, according to
+the dispatch phase.
 
 While the worker runs, inspect `$EVENT_FILE` at least once per minute. For
 each new event, renew the lease and record the latest event type or item type:

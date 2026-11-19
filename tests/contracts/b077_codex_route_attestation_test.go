@@ -1,11 +1,13 @@
 package contracts
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestB077PreflightRunsBeforeClaimAndSpawn(t *testing.T) {
@@ -49,6 +51,86 @@ func TestB077PreflightAllowsOnlyDocumentedCompatibleRoutes(t *testing.T) {
 	} {
 		assert.Contains(t, preflight, invariant)
 	}
+}
+
+func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
+	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
+	selection := normalizeContractText(e36F04RawSection(t, run,
+		"### B077 default bug-stage Codex fallback mappings",
+		"### Claude Code Agent tool adapter"))
+	for _, invariant := range []string{
+		"host_worker_class=codex-cli",
+		"selected_provider=openai",
+		"selected_model=gpt-6.2-astra",
+		"compatibility mapping",
+		"does not claim that any codex model is equivalent to the requested anthropic model",
+		"never derived from the parent session, codex configuration default, or environment",
+		"table entry does not match",
+		"codex selector or worker-identity evidence path is unavailable",
+		"reject before claim",
+		"codex exec --model",
+		"codex login status reports an authenticated session",
+		"persistent rollout records can be read",
+		"local capability checks and make no model/api call",
+		"current host evidence is codex-cli 0.170.0",
+	} {
+		assert.Contains(t, selection, invariant)
+	}
+
+	codexAdapter := normalizeContractText(e36F04RawSection(t, run,
+		"### Long-running Codex CLI adapter",
+		"### Mid-run consultation"))
+	modelFlowsToSelector := regexp.MustCompile(`(?s)selected_model="?gpt-6\.2-astra"?.*?codex_model_args=\(--model "\$selected_model"\).*?codex exec.*?"\$\{codex_model_args\[@\]\}"`)
+	require.Regexp(t, modelFlowsToSelector, codexAdapter,
+		"the mapped model must be passed as codex exec --model, not inferred from the parent")
+}
+
+func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
+	workflowText := readF09RepositoryFile(t, "internal/sharkdata/default_data/workflow/bug.yaml")
+	var workflow struct {
+		Steps map[string]struct {
+			Action   string `yaml:"action"`
+			Agent    string `yaml:"agent"`
+			Provider string `yaml:"provider"`
+			Model    string `yaml:"model"`
+		} `yaml:"steps"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(workflowText), &workflow))
+
+	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
+	selection := e36F04RawSection(t, run,
+		"### B077 default bug-stage Codex fallback mappings",
+		"### Claude Code Agent tool adapter")
+	rows := b077MarkdownTableRows(t, selection, "| status |")
+	mappings := make(map[string]map[string]string, len(rows))
+	for _, row := range rows {
+		status := strings.ToLower(row["status"])
+		require.NotContains(t, mappings, status, "fallback mappings must not duplicate workflow states")
+		mappings[status] = row
+	}
+
+	spawnableAnthropicStages := 0
+	for status, step := range workflow.Steps {
+		if step.Action != "spawn_agent" || step.Provider != "anthropic" {
+			continue
+		}
+		spawnableAnthropicStages++
+		status, step := status, step
+		t.Run(status, func(t *testing.T) {
+			row, ok := mappings[status]
+			require.True(t, ok, "missing Codex fallback mapping for embedded bug workflow status %q", status)
+			assert.Equal(t, "bug", strings.ToLower(row["entity_type"]))
+			assert.Equal(t, strings.ToLower(step.Agent), strings.ToLower(row["agent_type"]))
+			assert.Equal(t, step.Provider, strings.ToLower(row["requested_provider"]))
+			assert.Equal(t, step.Model, strings.ToLower(row["requested_model"]))
+			assert.Equal(t, "codex-cli", strings.ToLower(row["host_worker_class"]))
+			assert.Equal(t, "openai", strings.ToLower(row["selected_provider"]))
+			assert.Equal(t, "gpt-6.2-astra", strings.ToLower(row["selected_model"]))
+			assert.Equal(t, "b077-default-bug-anthropic-codex-v1", strings.ToLower(row["mapping_ref"]))
+		})
+	}
+	require.Equal(t, 6, spawnableAnthropicStages, "test must cover all current Anthropic bug workflow stages")
+	require.Len(t, mappings, spawnableAnthropicStages, "fallback table must cover only the Anthropic spawn stages")
 }
 
 func TestB077PersonaClassAndEffortDoNotSelectTheModel(t *testing.T) {
@@ -115,9 +197,10 @@ func TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant(t *testing.T) {
 	}
 
 	base := []string{"route_status", "requested_provider", "requested_model", "host_worker_class", "evidence_ref"}
+	selected := []string{"selected_provider", "selected_model"}
 	worker := []string{"worker_id"}
 	effective := []string{"effective_provider", "effective_model"}
-	for _, testCase := range b077ExpectedRouteStates(base, worker, effective) {
+	for _, testCase := range b077ExpectedRouteStates(base, selected, worker, effective) {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			row, ok := actual[testCase.name]
@@ -139,11 +222,17 @@ func TestB077RouteIdentityGlossaryAndWorkerSchemaStaySeparated(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(resultFields), "provider identity")
 
 	routeSection := e36F04RawSection(t, contract, "## Host route attestation", "## Lease lifetime")
+	selectedProvider := b077MarkdownTableRow(t, routeSection, "selected_provider")
+	assert.Contains(t, selectedProvider, "explicitly selected by the host route policy")
+	selectedModel := b077MarkdownTableRow(t, routeSection, "selected_model")
+	assert.Contains(t, selectedModel, "passed through its selector")
 	for _, invariant := range []string{
 		"host_session_id",
 		"never use session_id as host identity or correlation",
 		"route attestation itself is not a worker control envelope",
-		"mismatch means either the independently observed provider or model differs from the selected route",
+		"mismatch means either the independently observed provider or model differs from the selected provider or model",
+		"selected_provider and selected_model record that selection separately",
+		"does not claim semantic equivalence between the requested and selected models",
 	} {
 		assert.Contains(t, normalizeContractText(routeSection), normalizeContractText(invariant))
 	}
@@ -161,10 +250,20 @@ func TestB077CodexModelSelectorEvidenceIsCLIOnlyAndCopiesMatch(t *testing.T) {
 	canonical := readF09RepositoryFile(t, "skills/shark-attack/providers/codex.md")
 	embedded := readF09RepositoryFile(t, "internal/sharkdata/default_data/skills/shark-attack/providers/codex.md")
 	require.Equal(t, canonical, embedded, "canonical and embedded Codex provider references must match")
+	supported := normalizeContractText(e36F04RawSection(t, canonical, "## Supported Operations", "## Unsupported Operations"))
 	assert.Contains(t, canonical, "`codex exec -m, --model <MODEL>`")
 	assert.Contains(t, canonical, "proves selector availability only")
 	assert.Contains(t, canonical, "does not establish native host model selection")
 	assert.Contains(t, canonical, "worker-correlated effective provider/model identity")
+	assert.Contains(t, canonical, "session_meta.payload.model_provider=openai")
+	assert.Contains(t, canonical, "turn_context.payload.model=gpt-6.2-astra")
+	assert.Contains(t, supported, "thread.started event's thread_id as the codex worker identity")
+	assert.Contains(t, supported, "requiring session_meta.payload.id to equal the event's thread id")
+	assert.Contains(t, supported, "effective provider from session_meta.payload.model_provider")
+	assert.Contains(t, supported, "effective model from each matching turn_context.payload.model")
+	assert.Contains(t, supported, "missing or ambiguous records/fields are unverified")
+	assert.Contains(t, supported, "if multiple records for the id disagree, classify the identity as unverified")
+	assert.Contains(t, supported, "fail closed when the event, path, or record shape is unavailable")
 }
 
 type b077RouteState struct {
@@ -179,36 +278,36 @@ type b077RouteCase struct {
 	state b077RouteState
 }
 
-func b077ExpectedRouteStates(base, worker, effective []string) []b077RouteCase {
+func b077ExpectedRouteStates(base, selected, worker, effective []string) []b077RouteCase {
 	return []b077RouteCase{
 		{name: "preflight/unsupported", state: b077RouteState{
 			required:    base,
-			forbidden:   []string{"worker_id", "host_session_id", "effective_provider", "effective_model"},
+			forbidden:   []string{"selected_provider", "selected_model", "worker_id", "host_session_id", "effective_provider", "effective_model"},
 			evidence:    []string{"no exact host selector", "documented compatible fallback exists"},
 			disposition: []string{"reject before claim", "do not spawn", "no status advance"},
 		}},
 		{name: "preflight/unverified", state: b077RouteState{
-			required:    base,
+			required:    append(append([]string{}, base...), selected...),
 			forbidden:   []string{"worker_id", "host_session_id", "effective_provider", "effective_model"},
-			evidence:    []string{"or identity evidence is missing or inconclusive"},
+			evidence:    []string{"explicit selected route exists", "identity-capture evidence is missing or inconclusive"},
 			disposition: []string{"reject before claim", "do not spawn", "no status advance"},
 		}},
 		{name: "post-dispatch/verified", state: b077RouteState{
-			required:    append(append([]string{}, base...), append(worker, effective...)...),
+			required:    append(append(append([]string{}, base...), selected...), append(worker, effective...)...),
 			forbidden:   []string{},
-			evidence:    []string{"requested route or documented compatible fallback", "worker-correlated observed provider and model match that selected route"},
+			evidence:    []string{"requested route or documented compatible fallback", "worker-correlated observed provider and model match the selected provider and model"},
 			disposition: []string{"launch permitted after preflight", "worker result may enter its existing envelope path"},
 		}},
 		{name: "post-dispatch/unverified", state: b077RouteState{
-			required:    append(append([]string{}, base...), worker...),
+			required:    append(append(append([]string{}, base...), selected...), worker...),
 			forbidden:   effective,
 			evidence:    []string{"worker-correlated observation is missing or inconclusive"},
 			disposition: []string{"reject the worker result", "stop the worker when supported", "do not advance"},
 		}},
 		{name: "post-dispatch/mismatch", state: b077RouteState{
-			required:    append(append([]string{}, base...), append(worker, effective...)...),
+			required:    append(append(append([]string{}, base...), selected...), append(worker, effective...)...),
 			forbidden:   []string{},
-			evidence:    []string{"observed provider or model differs from the selected route"},
+			evidence:    []string{"observed provider or model differs from the selected provider or model"},
 			disposition: []string{"reject the worker result", "stop the worker when supported", "do not advance"},
 		}},
 	}
@@ -263,7 +362,7 @@ func b077MarkdownTableRow(t *testing.T, text, field string) string {
 			return row["meaning"]
 		}
 	}
-	t.Fatalf("field table has no row for %q", field)
+	require.FailNow(t, "field table has no row", "field %q", field)
 	return ""
 }
 
@@ -290,5 +389,5 @@ func assertCellContains(t *testing.T, label, cell string, expected []string) {
 
 func normalizeContractText(text string) string {
 	text = strings.ToLower(strings.ReplaceAll(text, "`", ""))
-	return strings.Join(strings.Fields(text), " ")
+	return f09NormalizeWhitespace(text)
 }
