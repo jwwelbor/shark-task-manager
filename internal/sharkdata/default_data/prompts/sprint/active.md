@@ -6,12 +6,13 @@ Drive active sprint {{.id}}: "{{.title}}" to completion.
 
 {{template "_product_critical_path_guard" .}}
 
-Pull entities via `shark sprint next` and dispatch each per the execution skill.
-An empty selection means no candidate is currently eligible; inspect the full
-unfiltered all-status sprint backlog and each entity's configured terminal
-status before calling the sprint drained. If any assignment remains
-nonterminal or terminality cannot be verified, report the sprint as paused and
-do not release outcome `pass` as if it were complete. An empty `--agent` slice
-may leave unfinished assignments for other roles. Only after every assigned
-entity is verified terminal should the owner follow the existing Sprint Goal
-Review and close gates and release outcome `pass` to move the sprint to closing.
+Select entities within this sprint via `shark plan {{.id}} --json` and dispatch
+each per the execution skill. If no dispatchable entity is selected, read the
+full unfiltered assignment set with `shark sprint backlog {{.id}}
+--view=ordered --all --json` and resolve each entity type's configured terminal
+statuses. Report the sprint drained and release outcome `pass` only after that
+complete read confirms every assigned entity is terminal. If the read is
+incomplete, a status or terminal marker cannot be resolved, or assignments
+remain, pause and report that sprint drain was not verified. An empty
+`--agent` slice does not prove the sprint is drained. Keep the Sprint Goal
+Review and explicit close confirmation as separate gates.

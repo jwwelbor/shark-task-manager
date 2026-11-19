@@ -219,7 +219,7 @@ func TestTC008SprintModeAndCeremonyContract(t *testing.T) {
 }
 
 // TC-009 verifies every team-sprint surface is a thin alias and that the solo
-// pull loop still has its own sprint-next contract.
+// pull loop retains its sprint-scoped selector contract.
 func TestTC009SprintTeamAliasAndSoloSeparationContract(t *testing.T) {
 	for _, alias := range []struct {
 		path  string
@@ -237,7 +237,7 @@ func TestTC009SprintTeamAliasAndSoloSeparationContract(t *testing.T) {
 		requireF12Excludes(t, content, alias.path, "feature-grouped nested-team workflow", "nested team bootstrap")
 	}
 	solo := readF12Authored(t, "skills/shark-rider/skills/sprint-execution/workflows/run-sprint.md")
-	requireF12Contains(t, solo, "run-sprint.md", "sprint next", "/shark-rider run")
+	requireF12Contains(t, solo, "run-sprint.md", "shark plan {SPRINT_KEY}", "/shark-rider run")
 }
 
 // TC-009 also guards the complete public Rider execution/help corpus. The

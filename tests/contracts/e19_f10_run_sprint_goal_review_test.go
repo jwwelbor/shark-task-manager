@@ -89,7 +89,7 @@ func TestRunSprintWorkflowChecksTheUnfilteredAssignmentSet(t *testing.T) {
 		branch := sprintEmptySelectionBranch(t, path)
 		for _, required := range []string{
 			"shark sprint backlog {SPRINT_KEY} --view=ordered --all --json",
-			"omit AGENT_FILTER",
+			"omits AGENT_FILTER",
 			"configured terminal status",
 			"AGENT_FILTER is set",
 			"role-filtered slice",
@@ -193,7 +193,7 @@ func TestRunSprintWorkflowKeepsCappedAndMalformedSelectorOutcomesUnverified(t *t
 			t,
 			path,
 			source,
-			"if ITERATION >= MAX_ITERATIONS and NEXT_ENTITY was not empty:",
+			`if LOOP_OUTCOME == "running" and ITERATION >= MAX_ITERATIONS and SELECTED_ENTITY is not null:`,
 			"\n```",
 		)
 		require.Contains(t, capBranch, `LOOP_OUTCOME = "capped"`, "%s: iteration cap must set the capped outcome", path)
@@ -205,12 +205,12 @@ func TestRunSprintWorkflowKeepsCappedAndMalformedSelectorOutcomesUnverified(t *t
 			t,
 			path,
 			errorHandling,
-			"| `shark sprint next` returns a malformed JSON response |",
-			"| All-status sprint backlog read fails",
+			"| `shark plan {SPRINT_KEY}` returns malformed JSON, a non-object JSON root, an unknown action, or an invalid selection shape |",
+			"| Sprint selection or selected entity has a different `sprint_key` than `SPRINT_KEY` |",
 		)
 		require.Contains(t, malformedNext, "Print the raw response", "%s: malformed selector output must be surfaced", path)
 		require.Contains(t, malformedNext, `LOOP_OUTCOME = "paused"`, "%s: malformed selector output must pause", path)
-		require.Contains(t, malformedNext, "proceed to Step 3 without calling the backlog drained", "%s: malformed selector output must not be treated as a drained backlog", path)
+		require.Contains(t, malformedNext, "proceed to Step 3 without treating the sprint as drained", "%s: malformed selector output must not be treated as a drained backlog", path)
 		require.NotContains(t, malformedNext, `LOOP_OUTCOME = "drained"`, "%s: malformed selector output cannot report drained", path)
 
 		closeGate := strings.Join(strings.Fields(sprintTextBetween(t, path, source, "## Step 4: Close Gate", "Ask the user:")), " ")
@@ -256,7 +256,9 @@ func sprintWorkflowText(t *testing.T, path string) string {
 func sprintEmptySelectionBranch(t *testing.T, path string) string {
 	t.Helper()
 	source := sprintWorkflowText(t, path)
-	return sprintTextBetween(t, path, source, "if NEXT_ENTITY is null or empty", "ENTITY_KEY = NEXT_ENTITY.key")
+	return sprintTextBetween(t, path, source,
+		"if SPRINT_SELECTION.action == \"pause\":",
+		"if SPRINT_SELECTION.action == \"select_item\":")
 }
 
 func sprintTextBetween(t *testing.T, path, source, start, end string) string {
