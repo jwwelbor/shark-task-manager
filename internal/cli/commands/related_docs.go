@@ -160,32 +160,45 @@ func printDocLinked(title, path, entityType, parentKey string, docID int64) erro
 
 // runRelatedDocsDelete handles deleting a document link
 func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
+	kind, key, err := resolveRelatedDocsDeleteSelection(cmd)
+	if err != nil {
+		return err
+	}
 	title := args[0]
-	for _, selector := range []struct{ flag, entityType string }{
-		{flag: "epic", entityType: "epic"},
-		{flag: "feature", entityType: "feature"},
-		{flag: "task", entityType: "task"},
-		{flag: "bug", entityType: "bug"},
-		{flag: "change", entityType: "change-card"},
-		{flag: "question", entityType: "question"},
-	} {
-		key, err := cmd.Flags().GetString(selector.flag)
-		if err != nil {
-			return fmt.Errorf("read --%s selector: %w", selector.flag, err)
-		}
-		if key == "" {
+	if err := unlinkRelatedDocument(cmd.Context(), kind, key, title); err != nil {
+		return err
+	}
+	return printDocUnlinked(title, kind, key)
+}
+
+var relatedDocsDeleteSelectors = []struct{ flag, entityType string }{
+	{flag: "epic", entityType: "epic"},
+	{flag: "feature", entityType: "feature"},
+	{flag: "task", entityType: "task"},
+	{flag: "bug", entityType: "bug"},
+	{flag: "change", entityType: "change-card"},
+	{flag: "question", entityType: "question"},
+}
+
+func resolveRelatedDocsDeleteSelection(cmd *cobra.Command) (string, string, error) {
+	var selectedType, selectedKey string
+	for _, selector := range relatedDocsDeleteSelectors {
+		if !cmd.Flags().Changed(selector.flag) {
 			continue
 		}
-		if err := unlinkRelatedDocument(cmd.Context(), selector.entityType, key, title); err != nil {
-			return err
+		if selectedType != "" {
+			return "", "", fmt.Errorf("exactly one entity selector is required for related-docs delete")
 		}
-		return printDocUnlinked(title, selector.entityType, key)
+		key, err := cmd.Flags().GetString(selector.flag)
+		if err != nil {
+			return "", "", fmt.Errorf("read --%s selector: %w", selector.flag, err)
+		}
+		selectedType, selectedKey = selector.entityType, key
 	}
-
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{"status": "unlinked", "title": title})
+	if selectedType == "" || selectedKey == "" {
+		return "", "", fmt.Errorf("exactly one entity selector with a key is required for related-docs delete")
 	}
-	return nil
+	return selectedType, selectedKey, nil
 }
 
 func unlinkRelatedDocument(ctx context.Context, entityType, entityKey, title string) error {
