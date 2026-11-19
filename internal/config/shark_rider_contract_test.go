@@ -76,6 +76,29 @@ func TestSharkRiderRunAliasRoutesToCoreLoop(t *testing.T) {
 	assert.NotContains(t, skill, "`/shark-rider run <key>` is an alias for `/shark-rider run <key>`")
 }
 
+func TestSharkRiderConsultModesRemainDistinct(t *testing.T) {
+	root := findRepoRootForAudit(t)
+	skill := readContractFile(t, root, "skills", "shark-rider", "SKILL.md")
+	inline := readContractFile(t, root, "skills", "shark-rider", "verbs", "consult.md")
+	delegated := readContractFile(t, root, "skills", "shark-rider", "verbs", "consult-agent.md")
+	query := readContractFile(t, root, "skills", "shark-rider", "verbs", "query.md")
+
+	assertContainsAll(t, skill, "consult mode registration", []string{
+		"`/shark-rider consult <agent> [referent]`",
+		"`/shark-rider consult-agent <agent> [referent]`",
+		"`consult-agent`",
+		"`verbs/consult.md`",
+		"`verbs/consult-agent.md`",
+	})
+	assert.Contains(t, inline, "No subagent is spawned")
+	assert.Contains(t, inline, "Adopt the persona **inline**")
+	assert.Contains(t, delegated, "bounded, read-only host subagent")
+	assert.Contains(t, delegated, "Select and launch a suitable subagent")
+	assert.Contains(t, query, "Read skills/shark-rider/verbs/consult.md")
+	assert.Contains(t, query, "Natural-language requests use inline")
+	assert.Contains(t, query, "Use `/shark-rider consult-agent` for one-shot subagent advice")
+}
+
 func TestSharkRiderBootstrapChildHandoffContract(t *testing.T) {
 	root := findRepoRootForAudit(t)
 	project := readContractFile(t, root, "skills", "shark-rider", "verbs", "project.md")
