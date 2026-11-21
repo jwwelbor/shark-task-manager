@@ -126,14 +126,14 @@ func (s *EntityDocumentService) LinkDocumentByKey(ctx context.Context, entityKey
 func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityKey, title string) error {
 	entity, err := s.entityLookupFn(ctx, entityKey)
 	if err != nil {
-		return fmt.Errorf("entity not found: %w", err)
+		return fmt.Errorf("resolve entity for document unlink: %w", err)
 	}
 	entityID := entity.GetID()
 	entityType := entity.GetEntityType()
 
 	linkedDocs, err := s.linkRepo.ListForEntity(ctx, entityType, entityID)
 	if err != nil {
-		return fmt.Errorf("failed to list documents for %s %s: %w", entityType, entityKey, err)
+		return fmt.Errorf("list linked documents: %w", err)
 	}
 
 	var matchingDocs []*models.Document
@@ -147,11 +147,11 @@ func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityK
 		return nil
 	}
 	if len(matchingDocs) > 1 {
-		return fmt.Errorf("%w: %q for %s %s (%d linked documents)", ErrAmbiguousDocumentTitle, title, entityType, entityKey, len(matchingDocs))
+		return fmt.Errorf("%w: %q (%d linked documents)", ErrAmbiguousDocumentTitle, title, len(matchingDocs))
 	}
 
 	if err := s.linkRepo.Unlink(ctx, entityType, entityID, matchingDocs[0].ID); err != nil {
-		return fmt.Errorf("failed to unlink document from %s %s: %w", entityType, entityKey, err)
+		return fmt.Errorf("remove entity association: %w", err)
 	}
 
 	return nil

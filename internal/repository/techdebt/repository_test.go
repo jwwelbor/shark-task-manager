@@ -2,12 +2,16 @@ package techdebt
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func techDebtTestSetup(t *testing.T) (*TechDebtRepository, func()) {
@@ -149,6 +153,84 @@ func TestGetByKey_NotFound(t *testing.T) {
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("GetByKey() error = %q, expected 'not found'", err.Error())
 	}
+}
+
+func TestGetByKeySlugFallbackPreservesScanFailure(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := techDebtTestSetup(t)
+	t.Cleanup(cleanup)
+	td := newTestTechDebt("TD-917", "Unreadable slug fallback", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
+	slug := "fixture"
+	td.Slug = &slug
+	require.NoError(t, repo.Create(ctx, td))
+	_, err := repo.db.ExecContext(ctx, "UPDATE tech_debts SET created_at = ? WHERE key = ?", "not-a-timestamp", td.Key)
+	require.NoError(t, err, "make tech-debt row unreadable")
+
+	_, err = repo.GetByKey(ctx, "TD-917-fixture")
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, repoerr.ErrNotFound), "scan failure must not become not found")
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure, "scan failure must be classified for CLI exit mapping")
+	assert.Contains(t, strings.ToLower(err.Error()), "time", "want original timestamp scan cause")
+}
+
+func TestGetByKeyExactLookupClassifiesScanFailure(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := techDebtTestSetup(t)
+	t.Cleanup(cleanup)
+	td := newTestTechDebt("TD-918", "Unreadable exact-key row", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
+	require.NoError(t, repo.Create(ctx, td))
+	_, err := repo.db.ExecContext(ctx, "UPDATE tech_debts SET created_at = ? WHERE key = ?", "not-a-timestamp", td.Key)
+	require.NoError(t, err, "make tech-debt row unreadable")
+
+	_, err = repo.GetByKey(ctx, td.Key)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure)
+	assert.False(t, errors.Is(err, repoerr.ErrNotFound), "scan failure must not become not found")
+}
+
+func TestGetByKeySlugFallbackTrimsWhitespace(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := techDebtTestSetup(t)
+	t.Cleanup(cleanup)
+	td := newTestTechDebt("TD-919", "Whitespace slug key", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
+	slug := "fixture"
+	td.Slug = &slug
+	require.NoError(t, repo.Create(ctx, td))
+
+	got, err := repo.GetByKey(ctx, " TD-919-FiXtUrE ")
+	require.NoError(t, err)
+	assert.Equal(t, td.Key, got.Key)
+}
+
+func TestTechDebtRepositoryUpdateClassifiesDatabaseFailure(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewTechDebtRepository(dbconn.NewDB(database))
+	td := newTestTechDebt("TD-920", "Update failure fixture", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
+	require.NoError(t, repo.Create(ctx, td))
+	_, err := database.ExecContext(ctx, `CREATE TRIGGER fail_tech_debt_update BEFORE UPDATE ON tech_debts BEGIN SELECT RAISE(ABORT, 'forced update failure'); END`)
+	require.NoError(t, err)
+	td.Title = "Updated fixture"
+
+	err = repo.Update(ctx, td)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure)
+	assert.Contains(t, err.Error(), "forced update failure")
+}
+
+func TestTechDebtRepositoryDeleteClassifiesDatabaseFailure(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewTechDebtRepository(dbconn.NewDB(database))
+	td := newTestTechDebt("TD-921", "Delete failure fixture", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
+	require.NoError(t, repo.Create(ctx, td))
+	_, err := database.ExecContext(ctx, `CREATE TRIGGER fail_tech_debt_delete BEFORE DELETE ON tech_debts BEGIN SELECT RAISE(ABORT, 'forced delete failure'); END`)
+	require.NoError(t, err)
+
+	err = repo.Delete(ctx, td.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure)
+	assert.Contains(t, err.Error(), "forced delete failure")
 }
 
 func TestGetByID(t *testing.T) {

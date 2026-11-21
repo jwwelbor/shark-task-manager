@@ -3,11 +3,11 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRelatedDocsAddEpic tests adding a document to an epic
@@ -193,58 +193,6 @@ func TestRelatedDocsDeleteIdempotent(t *testing.T) {
 	_ = cmd.Execute()
 }
 
-func TestResolveRelatedDocsDeleteSelectionRequiresExactlyOneSelector(t *testing.T) {
-	tests := []struct {
-		name     string
-		flags    []struct{ name, value string }
-		wantType string
-		wantKey  string
-		wantErr  bool
-	}{
-		{name: "missing", wantErr: true},
-		{name: "empty key", flags: []struct{ name, value string }{{"task", ""}}, wantErr: true},
-		{name: "conflicting", flags: []struct{ name, value string }{{"epic", "E01"}, {"task", "T-E01-F01-001"}}, wantErr: true},
-		{name: "epic", flags: []struct{ name, value string }{{"epic", "E01"}}, wantType: "epic", wantKey: "E01"},
-		{name: "feature", flags: []struct{ name, value string }{{"feature", "E01-F01"}}, wantType: "feature", wantKey: "E01-F01"},
-		{name: "task", flags: []struct{ name, value string }{{"task", "T-E01-F01-001"}}, wantType: "task", wantKey: "T-E01-F01-001"},
-		{name: "bug", flags: []struct{ name, value string }{{"bug", "B078"}}, wantType: "bug", wantKey: "B078"},
-		{name: "change", flags: []struct{ name, value string }{{"change", "CC-001"}}, wantType: "change-card", wantKey: "CC-001"},
-		{name: "question", flags: []struct{ name, value string }{{"question", "Q001"}}, wantType: "question", wantKey: "Q001"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cmd := newRelatedDocsDeleteSelectionCommand(t, test.flags)
-			gotType, gotKey, err := resolveRelatedDocsDeleteSelection(cmd)
-			if test.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "exactly one") {
-					t.Fatalf("resolveRelatedDocsDeleteSelection() error = %v, want exactly-one-selector error", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("resolveRelatedDocsDeleteSelection() error = %v", err)
-			}
-			if gotType != test.wantType || gotKey != test.wantKey {
-				t.Fatalf("resolveRelatedDocsDeleteSelection() = (%q, %q), want (%q, %q)", gotType, gotKey, test.wantType, test.wantKey)
-			}
-		})
-	}
-}
-
-func newRelatedDocsDeleteSelectionCommand(t *testing.T, values []struct{ name, value string }) *cobra.Command {
-	t.Helper()
-	cmd := &cobra.Command{}
-	for _, selector := range relatedDocsDeleteSelectors {
-		cmd.Flags().String(selector.flag, "", "")
-	}
-	for _, value := range values {
-		if err := cmd.Flags().Set(value.name, value.value); err != nil {
-			t.Fatalf("set --%s: %v", value.name, err)
-		}
-	}
-	return cmd
-}
-
 // TestRelatedDocsListEpic tests listing documents for an epic
 func TestRelatedDocsListEpic(t *testing.T) {
 	mockDocRepo := NewMockDocumentRepository()
@@ -340,6 +288,8 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 		{name: "bug", args: []string{"B072"}, wantType: "bug", wantKey: "B072"},
 		{name: "change", args: []string{"CC-001"}, wantType: "change", wantKey: "CC-001"},
 		{name: "question", args: []string{"Q001"}, wantType: "question", wantKey: "Q001"},
+		{name: "tech-debt", args: []string{"TD-001"}, wantType: "tech_debt", wantKey: "TD-001"},
+		{name: "invalid tech-debt key", args: []string{"TD-001-"}, wantErr: "invalid tech-debt key"},
 		{name: "unsupported entity", args: []string{"TD001"}, wantErr: "cannot infer a supported entity type"},
 		{name: "multiple positional keys", args: []string{"E01", "E02"}, wantErr: "at most one positional entity key"},
 		{name: "positional and explicit selector", args: []string{"B072"}, bug: "B073", wantErr: "cannot combine positional entity key"},
@@ -347,19 +297,19 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entityType, key, err := resolveRelatedDocsListSelection(tt.args, "", "", "", tt.bug, "", "")
+			flags := []struct{ name, value string }{}
+			if tt.bug != "" {
+				flags = append(flags, struct{ name, value string }{"bug", tt.bug})
+			}
+			cmd := newRelatedDocsDeleteSelectionCommand(t, flags)
+			entityType, key, err := resolveRelatedDocsSelection(cmd, tt.args)
 			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
-				}
+				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
-			if err != nil {
-				t.Fatalf("resolveRelatedDocsListSelection returned error: %v", err)
-			}
-			if entityType != tt.wantType || key != tt.wantKey {
-				t.Fatalf("selection = (%q, %q), want (%q, %q)", entityType, key, tt.wantType, tt.wantKey)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantType, string(entityType))
+			require.Equal(t, tt.wantKey, key)
 		})
 	}
 }

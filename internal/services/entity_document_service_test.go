@@ -267,7 +267,28 @@ func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
 	require.Equal(t, int64(5), listedEntityID)
 }
 
-func TestEntityDocumentService_UnlinkDocumentByKey_LinkNotFound_Idempotent(t *testing.T) {
+func TestB078DocumentUnlinkWrappersRejectUnconfiguredRepositoryWithoutDelegation(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name   string
+		unlink func(context.Context) error
+	}{
+		{name: "epic", unlink: func(ctx context.Context) error { return (&EpicService{}).UnlinkDocument(ctx, "E01", "spec") }},
+		{name: "feature", unlink: func(ctx context.Context) error { return (&FeatureService{}).UnlinkDocument(ctx, "E01-F01", "spec") }},
+		{name: "task", unlink: func(ctx context.Context) error { return (&TaskService{}).UnlinkDocument(ctx, "T-E01-F01-001", "spec") }},
+		{name: "bug", unlink: func(ctx context.Context) error { return (&BugService{}).UnlinkDocument(ctx, "B001", "spec") }},
+		{name: "change-card", unlink: func(ctx context.Context) error { return (&ChangeCardService{}).UnlinkDocument(ctx, "CC-001", "spec") }},
+		{name: "tech-debt", unlink: func(ctx context.Context) error { return (&TechDebtService{}).UnlinkDocument(ctx, "TD-001", "spec") }},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.unlink(ctx)
+			require.EqualError(t, err, "writable document repository not configured")
+		})
+	}
+}
+
+func TestEntityDocumentServiceUnlinkDocumentByKeyLinkNotFoundIdempotent(t *testing.T) {
 	unlinkCalls := 0
 	linkRepo := &mockEntityDocumentLinkRepo{
 		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
@@ -292,7 +313,7 @@ func TestEntityDocumentService_UnlinkDocumentByKey_LinkNotFound_Idempotent(t *te
 	require.Zero(t, unlinkCalls)
 }
 
-func TestEntityDocumentService_UnlinkDocumentByKey_DuplicateLinkedTitles_Ambiguous(t *testing.T) {
+func TestEntityDocumentServiceUnlinkDocumentByKeyDuplicateLinkedTitlesAmbiguous(t *testing.T) {
 	unlinkCalls := 0
 	linkRepo := &mockEntityDocumentLinkRepo{
 		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
@@ -315,10 +336,12 @@ func TestEntityDocumentService_UnlinkDocumentByKey_DuplicateLinkedTitles_Ambiguo
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "T-E07-F01-001", "My Doc")
 	require.ErrorIs(t, err, ErrAmbiguousDocumentTitle)
+	require.Contains(t, err.Error(), `"My Doc" (2 linked documents)`)
+	require.NotContains(t, err.Error(), "T-E07-F01-001", "service error should leave public entity context to the CLI")
 	require.Zero(t, unlinkCalls)
 }
 
-func TestEntityDocumentService_UnlinkDocumentByKey_ListFails(t *testing.T) {
+func TestEntityDocumentServiceUnlinkDocumentByKeyListFails(t *testing.T) {
 	listErr := errors.New("fixture list error")
 	linkRepo := &mockEntityDocumentLinkRepo{
 		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {

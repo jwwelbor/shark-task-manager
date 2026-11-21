@@ -19,6 +19,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockFeatureRepo implements FeatureRepository for testing.
@@ -2686,6 +2688,7 @@ func TestFeatureService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 }
 
 func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
+	wantCause := errors.New("unlink failed")
 	repo := &mockFeatureRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
 			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01"}}, nil
@@ -2698,7 +2701,7 @@ func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
 			return []*models.Document{{ID: 55, Title: "API Spec"}}, nil
 		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
-			return fmt.Errorf("unlink failed")
+			return wantCause
 		},
 	}
 
@@ -2707,12 +2710,10 @@ func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
 
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to unlink document from feature") {
-		t.Errorf("expected error to contain 'failed to unlink document from feature', got: %v", err)
-	}
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantCause, "expected unlink cause to be preserved")
+	assert.Contains(t, err.Error(), "remove entity association", "expected neutral association-removal context")
+	assert.NotContains(t, err.Error(), "failed to unlink document from feature", "service repeated public unlink context")
 }
 
 // mockDocumentRepository implements DocumentRepository (read-only) for testing.

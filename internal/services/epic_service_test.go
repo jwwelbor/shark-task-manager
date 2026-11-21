@@ -2518,6 +2518,7 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 }
 
 func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
+	wantCause := errors.New("unlink failed")
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
@@ -2530,7 +2531,7 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 			return []*models.Document{{ID: 42, Title: "Design Doc"}}, nil
 		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
-			return fmt.Errorf("unlink failed")
+			return wantCause
 		},
 	}
 
@@ -2539,12 +2540,10 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
 
-	if err == nil {
-		t.Fatal("expected error from UnlinkFromEpic, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to unlink document from epic") {
-		t.Errorf("expected 'failed to unlink document from epic' in error, got: %v", err)
-	}
+	require.Error(t, err, "expected error from UnlinkFromEpic")
+	assert.ErrorIs(t, err, wantCause, "expected unlink cause to be preserved")
+	assert.Contains(t, err.Error(), "remove entity association", "expected neutral association-removal context")
+	assert.NotContains(t, err.Error(), "failed to unlink document from epic", "service repeated public unlink context")
 }
 
 // ============================================================================

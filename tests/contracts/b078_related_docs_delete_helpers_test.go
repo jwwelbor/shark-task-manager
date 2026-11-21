@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,44 +14,88 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/techdebt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestB078RelatedDocsDeleteReturnsUnlinkFailureForExistingTaskLink(t *testing.T) {
-	cli, sqlDB, targetTask, otherTask := newB078RelatedDocsDeleteFixture(t)
-	const title = "S010 current continuation"
-	seedB078DuplicateTitleTaskLinks(t, sqlDB, targetTask, otherTask, title)
-	installB078UnlinkFailureTrigger(t, sqlDB)
-	requireB078UnlinkFailure(t, cli, title, targetTask, otherTask)
-	dropB078UnlinkFailureTrigger(t, sqlDB)
-	requireB078SuccessfulUnlink(t, cli, title, targetTask, otherTask)
+func newB078RelatedDocsFixture(t *testing.T) (b078CLI, *sql.DB, *repository.DB) {
+	t.Helper()
+	cli, sqlDB, _, _ := newB078RelatedDocsDeleteFixture(t)
+	return cli, sqlDB, repository.NewDB(sqlDB)
 }
 
-func TestB078RelatedDocsDeleteRequiresExactlyOneSelector(t *testing.T) {
-	cli, sqlDB, targetTask, otherTask := newB078RelatedDocsDeleteFixture(t)
-	const title = "S010 current continuation"
-	seedB078DuplicateTitleTaskLinks(t, sqlDB, targetTask, otherTask, title)
-	for _, test := range []struct {
-		name  string
-		flags []string
-	}{
-		{name: "missing selector"},
-		{name: "multiple selectors", flags: []string{"--epic=E10", "--task=" + targetTask.Key}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			args := append([]string{"related-docs", "delete", title}, test.flags...)
-			message := cli.rejection(t, args...)
-			require.Contains(t, message, "exactly one")
-			require.Equal(t, []string{"docs/continuation/target.md"}, cli.reportPaths(t, targetTask.Key))
-			require.Equal(t, []string{"docs/continuation/other.md"}, cli.reportPaths(t, otherTask.Key))
-		})
+func stringPointer(value string) *string { return &value }
+
+func createB078TechDebt(t *testing.T, repo *techdebt.TechDebtRepository, key, slug string) *models.TechDebt {
+	t.Helper()
+	td := &models.TechDebt{
+		BaseEntity: models.BaseEntity{Key: key, Title: "B078 " + key, Slug: stringPointer(slug)},
+		Status:     models.TechDebtStatus("identified"),
+		Category:   models.TechDebtCategoryCodeQuality,
+		Severity:   models.TechDebtSeverityMedium,
 	}
+	require.NoError(t, repo.Create(context.Background(), td))
+	return td
 }
 
-func TestB078RelatedDocsDeleteKeepsQuestionKeyInUnlinkErrors(t *testing.T) {
-	cli, _, _, _ := newB078RelatedDocsDeleteFixture(t)
-	message := cli.rejection(t, "related-docs", "delete", "Question spec", "--question=Q404")
-	require.Contains(t, message, "unlink document from question Q404:")
+func createB078ChangeCard(t *testing.T, database *sql.DB, key, slug string) *models.ChangeCard {
+	t.Helper()
+	_, err := database.Exec(`INSERT INTO change_cards (key, title, status, priority, slug) VALUES (?, ?, ?, ?, ?)`,
+		key, "B078 "+key, "proposed", 1, slug)
+	require.NoError(t, err)
+	card := &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}}
+	require.NoError(t, database.QueryRow(`SELECT id FROM change_cards WHERE key = ?`, key).Scan(&card.ID))
+	return card
+}
+
+func assertB078Link(t *testing.T, database *sql.DB, entityType models.EntityType, entityID, documentID int64, want bool) {
+	t.Helper()
+	var count int
+	require.NoError(t, database.QueryRow(`SELECT COUNT(*) FROM entity_documents WHERE entity_type = ? AND entity_id = ? AND document_id = ?`,
+		entityType, entityID, documentID).Scan(&count))
+	if want {
+		require.Equal(t, 1, count)
+		return
+	}
+	require.Zero(t, count)
+}
+
+func assertB078LinkMetadata(t *testing.T, database *sql.DB, entityType models.EntityType, entityID, documentID int64, wantLinkType string) {
+	t.Helper()
+	var linkType string
+	require.NoError(t, database.QueryRow(`SELECT link_type FROM entity_documents WHERE entity_type = ? AND entity_id = ? AND document_id = ?`, entityType, entityID, documentID).Scan(&linkType))
+	require.Equal(t, wantLinkType, linkType)
+}
+
+func readB078RelatedDocuments(t *testing.T, cli b078CLI, selector string) []*models.Document {
+	t.Helper()
+	var docs []*models.Document
+	require.NoError(t, json.Unmarshal(cli.success(t, "related-docs", "list", selector), &docs))
+	return docs
+}
+
+func assertB078DocumentPresent(t *testing.T, docs []*models.Document, documentID int64, path string, wantPresent bool) {
+	t.Helper()
+	for _, doc := range docs {
+		if doc.ID == documentID {
+			require.True(t, wantPresent, "document %d unexpectedly listed", documentID)
+			require.Equal(t, path, doc.FilePath)
+			return
+		}
+	}
+	require.False(t, wantPresent, "document %d at %s was not listed", documentID, path)
+}
+
+func assertB078DocumentRowAndFile(t *testing.T, database *sql.DB, projectDir string, expected *models.Document, expectedBytes []byte) {
+	t.Helper()
+	var title, path string
+	require.NoError(t, database.QueryRow("SELECT title, file_path FROM documents WHERE id = ?", expected.ID).Scan(&title, &path))
+	require.Equal(t, expected.Title, title)
+	require.Equal(t, expected.FilePath, path)
+	actualBytes, err := os.ReadFile(filepath.Join(projectDir, path))
+	require.NoError(t, err)
+	require.Equal(t, expectedBytes, actualBytes)
 }
 
 func newB078RelatedDocsDeleteFixture(t *testing.T) (b078CLI, *sql.DB, *models.Task, *models.Task) {
@@ -124,6 +169,16 @@ func installB078UnlinkFailureTrigger(t *testing.T, sqlDB *sql.DB) {
 		BEFORE DELETE ON entity_documents
 		BEGIN SELECT RAISE(ABORT, 'fixture unlink failure'); END`)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := sqlDB.Exec("DROP TRIGGER IF EXISTS reject_related_doc_unlink")
+		assert.NoError(t, cleanupErr, "drop fixture unlink trigger")
+	})
+}
+
+func dropB078Trigger(t *testing.T, sqlDB *sql.DB, name string) {
+	t.Helper()
+	_, err := sqlDB.Exec("DROP TRIGGER IF EXISTS " + name)
+	require.NoError(t, err)
 }
 
 func requireB078UnlinkFailure(t *testing.T, cli b078CLI, title string, targetTask, otherTask *models.Task) {
@@ -169,6 +224,25 @@ func (c b078CLI) run(args ...string) ([]byte, error) {
 	return command.Output()
 }
 
+func (c b078CLI) runWithDatabase(databasePath string, jsonMode bool, args ...string) ([]byte, []byte, int) {
+	commandArgs := []string{"--db", databasePath}
+	if jsonMode {
+		commandArgs = append(commandArgs, "--json")
+	}
+	commandArgs = append(commandArgs, args...)
+	command := exec.Command(c.binary, commandArgs...)
+	command.Dir = c.dir
+	stdout, err := command.Output()
+	if err == nil {
+		return stdout, nil, 0
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return stdout, []byte(err.Error()), -1
+	}
+	return stdout, exitErr.Stderr, exitErr.ExitCode()
+}
+
 func (c b078CLI) success(t *testing.T, args ...string) []byte {
 	t.Helper()
 	output, err := c.run(args...)
@@ -178,12 +252,18 @@ func (c b078CLI) success(t *testing.T, args ...string) []byte {
 
 func (c b078CLI) rejection(t *testing.T, args ...string) string {
 	t.Helper()
+	message, _ := c.rejectionWithExit(t, args...)
+	return message
+}
+
+func (c b078CLI) rejectionWithExit(t *testing.T, args ...string) (string, int) {
+	t.Helper()
 	output, err := c.run(args...)
 	var exitErr *exec.ExitError
 	require.ErrorAs(t, err, &exitErr, "%v returned success: %s", args, output)
 	if len(output) == 0 {
 		require.NotEmpty(t, exitErr.Stderr)
-		return string(exitErr.Stderr)
+		return string(exitErr.Stderr), exitErr.ExitCode()
 	}
 	var failure struct {
 		Error   bool   `json:"error"`
@@ -191,7 +271,7 @@ func (c b078CLI) rejection(t *testing.T, args ...string) string {
 	}
 	require.NoError(t, json.Unmarshal(output, &failure), "%s\n%s", output, exitErr.Stderr)
 	require.True(t, failure.Error, "%s", output)
-	return failure.Message
+	return failure.Message, exitErr.ExitCode()
 }
 
 func (c b078CLI) reportPaths(t *testing.T, key string) []string {
@@ -203,4 +283,25 @@ func (c b078CLI) reportPaths(t *testing.T, key string) []string {
 		paths = append(paths, document.FilePath)
 	}
 	return paths
+}
+
+func (c b078CLI) relatedDocIDs(t *testing.T, selector string) []int64 {
+	t.Helper()
+	return relatedB078DocumentIDs(t, c.success(t, "related-docs", "list", selector))
+}
+
+func relatedB078DocumentIDs(t *testing.T, output []byte) []int64 {
+	t.Helper()
+	var documents []models.Document
+	require.NoError(t, json.Unmarshal(output, &documents))
+	ids := make([]int64, 0, len(documents))
+	for _, document := range documents {
+		ids = append(ids, document.ID)
+	}
+	return ids
+}
+
+func (c b078CLI) relatedDocIDsPositional(t *testing.T, key string) []int64 {
+	t.Helper()
+	return relatedB078DocumentIDs(t, c.success(t, "related-docs", "list", key))
 }
