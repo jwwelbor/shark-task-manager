@@ -306,7 +306,7 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, tags, err := svc.GetChangeCardWithTags(ctx, key)
 	if err != nil {
-		return fmt.Errorf("change-card %s not found: %w", key, err)
+		return mapRepositoryError("change-card", key, err)
 	}
 
 	// Gather enrichment data (best-effort)
@@ -411,7 +411,7 @@ func runChangeUpdate(cmd *cobra.Command, args []string) error {
 	svc := getChangeCardService()
 	card, err := svc.UpdateChangeCard(cmd.Context(), key, updates)
 	if err != nil {
-		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeChange, key)
+		return handleEntityServiceError(cmd, resolveTagService(nil), mapRepositoryError("change-card", key, err), models.EntityTypeChange, key)
 	}
 
 	// Step 3: Format output
@@ -432,7 +432,7 @@ func runChangeDelete(cmd *cobra.Command, args []string) error {
 	if !changeForce {
 		card, err := svc.GetChangeCard(cmd.Context(), key)
 		if err != nil {
-			return fmt.Errorf("change-card %s not found: %w", key, err)
+			return mapRepositoryError("change-card", key, err)
 		}
 		if !confirmChangeDelete(card) {
 			return nil
@@ -441,7 +441,7 @@ func runChangeDelete(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Call service
 	if err := svc.DeleteChangeCard(cmd.Context(), key); err != nil {
-		return fmt.Errorf("failed to delete change-card %s: %w", key, err)
+		return fmt.Errorf("failed to delete change-card %s: %w", key, mapRepositoryError("change-card", key, err))
 	}
 
 	// Step 4: Format output

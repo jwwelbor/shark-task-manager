@@ -2,11 +2,14 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -90,6 +93,10 @@ type relatedDocService interface {
 	ListRelatedDocumentsByKey(ctx context.Context, key string) ([]*models.Document, error)
 }
 
+type questionUnlinkService interface {
+	UnlinkDocumentByKey(ctx context.Context, key, title string) error
+}
+
 type relatedDocsEntityKind string
 
 const (
@@ -120,6 +127,20 @@ type relatedDocsSelector struct {
 }
 
 var techDebtDocService = func() relatedDocService { return cli.GetTechDebtService() }
+
+// relatedDocsGetDB lets the delete handler return acquisition failures before
+// any accessor that assumes the CLI database has already been initialized.
+//
+//nolint:gochecknoglobals // Test seam for the handler's pre-dispatch failure path.
+var relatedDocsGetDB = cli.GetDB
+
+// relatedDocsQuestionUnlinkService keeps the question handler's sentinel
+// propagation directly testable at the registered Cobra boundary.
+//
+//nolint:gochecknoglobals // Test seam for the question RunE error contract.
+var relatedDocsQuestionUnlinkService = func(ctx context.Context) questionUnlinkService {
+	return cli.GetQuestionDocumentService(ctx)
+}
 
 func relatedDocsService(kind relatedDocsEntityKind) (relatedDocService, error) {
 	switch kind {
@@ -189,13 +210,16 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := relatedDocsGetDB(cmd.Context()); err != nil {
+		return fmt.Errorf("exit code 2: failed to unlink document from %s %s: acquire database: %w", kind.cliLabel(), key, err)
+	}
 	title := args[0]
 	ctx := cmd.Context()
 	switch kind {
 	case relatedDocsEntityTask:
 		err = cli.GetTaskServiceWithDocs().UnlinkDocument(ctx, key, title)
 	case relatedDocsEntityQuestion:
-		err = cli.GetQuestionDocumentService(ctx).UnlinkDocumentByKey(ctx, key, title)
+		err = relatedDocsQuestionUnlinkService(ctx).UnlinkDocumentByKey(ctx, key, title)
 	default:
 		svc, serviceErr := relatedDocsService(kind)
 		if serviceErr != nil {
@@ -204,9 +228,22 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 		err = svc.UnlinkDocument(ctx, key, title)
 	}
 	if err != nil {
-		return fmt.Errorf("unlink document from %s %s: %w", kind.cliLabel(), key, err)
+		return fmt.Errorf("exit code %d: failed to unlink document from %s %s: %w", relatedDocsErrorExitCode(err), kind.cliLabel(), key, err)
 	}
 	return printDocUnlinked(title, kind, key)
+}
+
+func relatedDocsErrorExitCode(err error) int {
+	if repoerr.IsNotFound(err) {
+		return 1
+	}
+	if errors.Is(err, repoerr.ErrAmbiguousKey) {
+		return 3
+	}
+	if errors.Is(err, services.ErrAmbiguousDocumentTitle) {
+		return 3
+	}
+	return 2
 }
 
 // printDocUnlinked outputs the result of unlinking a document.

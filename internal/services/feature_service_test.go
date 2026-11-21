@@ -19,6 +19,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockFeatureRepo implements FeatureRepository for testing.
@@ -40,6 +42,14 @@ type mockFeatureRepo struct {
 	updateFilePathFn              func(ctx context.Context, featureKey string, newFilePath *string) error
 	getByFilePathFn               func(ctx context.Context, filePath string) (*models.Feature, error)
 	getFeatureDisplayDataRawFn    func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error)
+	resolveDocumentUnlinkKeyFn    func(ctx context.Context, key string) (*models.Feature, error)
+}
+
+func (m *mockFeatureRepo) ResolveDocumentUnlinkKey(ctx context.Context, key string) (*models.Feature, error) {
+	if m.resolveDocumentUnlinkKeyFn != nil {
+		return m.resolveDocumentUnlinkKeyFn(ctx, key)
+	}
+	return m.GetByKey(ctx, key)
 }
 
 // mockFeatureEpicLookup implements FeatureEpicLookup for testing.
@@ -2624,6 +2634,27 @@ func TestFeatureService_UnlinkDocument_Happy_Path(t *testing.T) {
 	}
 }
 
+func TestFeatureService_UnlinkDocumentUsesResolvedFeatureIdentity(t *testing.T) {
+	var capturedID int64
+	repo := &mockFeatureRepo{
+		resolveDocumentUnlinkKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			assert.Equal(t, "F02-fixture", key)
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 72, Key: "E10-F02"}}, nil
+		},
+	}
+	links := &mockFeatureLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			capturedID = entityID
+			return nil, nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+	svc.SetWritableDocRepo(&mockFeatureDocRepo{}, links, ".")
+
+	require.NoError(t, svc.UnlinkDocument(context.Background(), "F02-fixture", "API Spec"))
+	assert.Equal(t, int64(72), capturedID, "unlink must retain the selected entity ID without resolving its key again")
+}
+
 func TestFeatureService_UnlinkDocument_NoWritableDocRepo(t *testing.T) {
 	repo := &mockFeatureRepo{}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
@@ -2670,7 +2701,7 @@ func TestFeatureService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 	docRepo := &mockFeatureDocRepo{}
 	linkRepo := &mockFeatureLinkRepo{
 		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
-			return nil, nil
+			return []*models.Document{}, nil
 		},
 	}
 
@@ -2686,6 +2717,7 @@ func TestFeatureService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 }
 
 func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
+	wantCause := errors.New("unlink failed")
 	repo := &mockFeatureRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
 			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01"}}, nil
@@ -2698,7 +2730,7 @@ func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
 			return []*models.Document{{ID: 55, Title: "API Spec"}}, nil
 		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
-			return fmt.Errorf("unlink failed")
+			return wantCause
 		},
 	}
 
@@ -2707,12 +2739,10 @@ func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
 
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to unlink document from feature") {
-		t.Errorf("expected error to contain 'failed to unlink document from feature', got: %v", err)
-	}
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantCause, "expected unlink cause to be preserved")
+	assert.Contains(t, err.Error(), "remove entity association", "expected neutral association-removal context")
+	assert.NotContains(t, err.Error(), "failed to unlink document from feature", "service repeated public unlink context")
 }
 
 // mockDocumentRepository implements DocumentRepository (read-only) for testing.

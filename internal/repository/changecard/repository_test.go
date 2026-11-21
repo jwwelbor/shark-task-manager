@@ -2,11 +2,16 @@ package changecard
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestChangeCardRepository_List_TerminalStatusFiltering verifies that
@@ -176,4 +181,82 @@ func TestChangeCardRepository_GetByKey_SluggedAliasesResolveCanonicalKey(t *test
 			}
 		})
 	}
+}
+
+func TestChangeCardRepositoryGetByKeySluggedLookupReturnsScanFailure(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewChangeCardRepository(dbconn.NewDB(database))
+	const key = "CC-986"
+	_, err := database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", key)
+	require.NoError(t, err, "clear fixture change-card")
+	card := newTestChangeCard(key, "Unreadable slug alias card", "draft")
+	slug := "fixture"
+	card.Slug = &slug
+	require.NoError(t, repo.Create(ctx, card))
+	t.Cleanup(func() {
+		_, cleanupErr := database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", key)
+		assert.NoError(t, cleanupErr, "remove fixture change-card")
+	})
+	_, err = database.ExecContext(ctx, "UPDATE change_cards SET priority = NULL WHERE key = ?", key)
+	require.NoError(t, err, "make card unreadable")
+
+	_, err = repo.GetByKey(ctx, "CC-986-fixture")
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, repoerr.ErrNotFound), "scan failure must not become not found")
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure, "scan failure must be classified for CLI exit mapping")
+	assert.Contains(t, strings.ToLower(err.Error()), "null", "want original NULL scan cause")
+}
+
+func TestChangeCardRepositoryGetByKeyExactLookupClassifiesScanFailure(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewChangeCardRepository(dbconn.NewDB(database))
+	const key = "CC-987"
+	_, err := database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", key)
+	require.NoError(t, err, "clear fixture change-card")
+	card := newTestChangeCard(key, "Unreadable exact-key card", "draft")
+	require.NoError(t, repo.Create(ctx, card))
+	t.Cleanup(func() {
+		_, cleanupErr := database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", key)
+		assert.NoError(t, cleanupErr, "remove fixture change-card")
+	})
+	_, err = database.ExecContext(ctx, "UPDATE change_cards SET priority = NULL WHERE key = ?", key)
+	require.NoError(t, err, "make card unreadable")
+
+	_, err = repo.GetByKey(ctx, key)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure)
+	assert.False(t, errors.Is(err, repoerr.ErrNotFound), "scan failure must not become not found")
+}
+
+func TestChangeCardRepositoryUpdateClassifiesDatabaseFailure(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewChangeCardRepository(dbconn.NewDB(database))
+	card := newTestChangeCard("CC-988", "Update failure fixture", "draft")
+	require.NoError(t, repo.Create(ctx, card))
+	_, err := database.ExecContext(ctx, `CREATE TRIGGER fail_change_card_update BEFORE UPDATE ON change_cards BEGIN SELECT RAISE(ABORT, 'forced update failure'); END`)
+	require.NoError(t, err)
+	card.Title = "Updated fixture"
+
+	err = repo.Update(ctx, card)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure)
+	assert.Contains(t, err.Error(), "forced update failure")
+}
+
+func TestChangeCardRepositoryDeleteClassifiesDatabaseFailure(t *testing.T) {
+	ctx := context.Background()
+	database := test.NewIsolatedTestDB(t)
+	repo := NewChangeCardRepository(dbconn.NewDB(database))
+	card := newTestChangeCard("CC-989", "Delete failure fixture", "draft")
+	require.NoError(t, repo.Create(ctx, card))
+	_, err := database.ExecContext(ctx, `CREATE TRIGGER fail_change_card_delete BEFORE DELETE ON change_cards BEGIN SELECT RAISE(ABORT, 'forced delete failure'); END`)
+	require.NoError(t, err)
+
+	err = repo.Delete(ctx, card.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoerr.ErrDatabaseFailure)
+	assert.Contains(t, err.Error(), "forced delete failure")
 }

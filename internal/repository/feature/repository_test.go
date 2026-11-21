@@ -72,7 +72,7 @@ func TestFeatureRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 // because "015" was treated as a slug instead of a task number suffix.
 func TestFeatureRepository_GetByKey_WithTaskKeySuffix(t *testing.T) {
 	ctx := context.Background()
-	database := test.GetTestDB()
+	database := test.NewIsolatedTestDB(t)
 	db := dbconn.NewDB(database)
 	repo := NewFeatureRepository(db)
 	epicRepo := epic.NewEpicRepository(db)
@@ -136,6 +136,16 @@ func TestFeatureRepository_GetByKey_WithTaskKeySuffix(t *testing.T) {
 			assert.Equal(t, tt.wantFeature, result.Key)
 		})
 	}
+
+	for _, input := range []string{"E88-F01-001", "E88-F01-015"} {
+		resolved, err := repo.ResolveDocumentUnlinkKey(ctx, input)
+		require.NoError(t, err)
+		assert.Equal(t, "E88-F01", resolved.Key, "numeric task suffix selects its exact parent feature")
+	}
+	_, err = repo.ResolveDocumentUnlinkKey(ctx, "E88-F01-")
+	assert.Error(t, err, "empty qualified suffix must not broaden to the parent")
+	_, err = repo.ResolveDocumentUnlinkKey(ctx, "E88-F0_1")
+	assert.Error(t, err, "selector wildcard must not be interpreted as SQL LIKE syntax")
 
 	t.Run("non-numeric suffix is still treated as slug", func(t *testing.T) {
 		// "E88-F01-somefeature" should fail (it's a slug lookup for a different feature)
