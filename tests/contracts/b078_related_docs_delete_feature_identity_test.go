@@ -134,3 +134,25 @@ func documentPaths(documents []models.Document) []string {
 	}
 	return paths
 }
+
+func TestB078RelatedDocsDeleteValidatesNumericQualifiedSlug(t *testing.T) {
+	fixture := newB078IdentityFixture(t)
+	repoDB := repository.NewDB(fixture.sqlDB)
+	feature, err := repository.NewFeatureRepository(repoDB).GetByKey(context.Background(), "E10-F02")
+	require.NoError(t, err)
+	doc, err := fixture.documents.CreateOrGet(context.Background(), "B078 numeric slug doc", "docs/b078/feature/numeric-slug.md")
+	require.NoError(t, err)
+	links := repository.NewEntityDocumentRepository(repoDB)
+	require.NoError(t, links.Link(context.Background(), models.EntityTypeFeature, feature.ID, doc.ID, "numeric-slug"))
+	_, err = fixture.sqlDB.ExecContext(context.Background(), "UPDATE features SET slug = '123' WHERE id = ?", feature.ID)
+	require.NoError(t, err)
+
+	_, exitCode := fixture.cli.rejectionWithExit(t, "related-docs", "delete", doc.Title, "--feature=E10-F02-456")
+	require.Equal(t, 1, exitCode)
+	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, feature.ID, doc.ID, true)
+
+	var output map[string]string
+	require.NoError(t, json.Unmarshal(fixture.cli.success(t, "related-docs", "delete", doc.Title, "--feature=E10-F02-123"), &output))
+	require.Equal(t, "unlinked", output["status"])
+	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, feature.ID, doc.ID, false)
+}

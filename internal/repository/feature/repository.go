@@ -205,11 +205,7 @@ func (r *FeatureRepository) ResolveDocumentUnlinkKey(ctx context.Context, key st
 			feature, err := r.getByExactKey(ctx, featureKey)
 			return feature, mapFeatureLookupError(err)
 		}
-		if len(parts) == 3 && repoutil.IsNumeric(parts[2]) {
-			feature, err := r.getByExactKey(ctx, featureKey)
-			return feature, mapFeatureLookupError(err)
-		}
-		feature, err := r.getBySluggedKey(ctx, normalized)
+		feature, err := r.getByExactKeyAndSlug(ctx, featureKey, strings.ToLower(strings.Join(parts[2:], "-")))
 		return feature, mapFeatureLookupError(err)
 	}
 	if len(parts) == 1 && strings.HasPrefix(parts[0], "F") {
@@ -220,6 +216,20 @@ func (r *FeatureRepository) ResolveDocumentUnlinkKey(ctx context.Context, key st
 	}
 	feature, err := r.GetByKey(ctx, key)
 	return feature, mapFeatureLookupError(err)
+}
+
+func (r *FeatureRepository) getByExactKeyAndSlug(ctx context.Context, key, slug string) (*models.Feature, error) {
+	query := `SELECT id, epic_id, key, title, slug, description, status,
+	 COALESCE(status_override, 0), progress_pct, execution_order, file_path,
+	 context_data, size, created_at, updated_at FROM features WHERE key = ? AND slug = ?`
+	feature := &models.Feature{}
+	err := r.db.QueryRowContext(ctx, query, key, slug).Scan(
+		&feature.ID, &feature.EpicID, &feature.Key, &feature.Title, &feature.Slug,
+		&feature.Description, &feature.Status, &feature.StatusOverride, &feature.ProgressPct,
+		&feature.ExecutionOrder, &feature.FilePath, &feature.ContextData, &feature.Size,
+		&feature.CreatedAt, &feature.UpdatedAt,
+	)
+	return feature, err
 }
 
 func mapFeatureLookupError(err error) error {
