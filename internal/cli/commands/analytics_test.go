@@ -11,6 +11,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 )
 
 // ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ func (m *mockDashboardAnalyticsService) GetTechDebtAnalytics(ctx context.Context
 // capturingOutput redirects stdout for the duration of fn and returns what was printed.
 func capturingOutput(fn func()) string {
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	fn()

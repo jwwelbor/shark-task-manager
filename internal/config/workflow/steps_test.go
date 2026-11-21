@@ -185,6 +185,22 @@ func TestResolveOutcome(t *testing.T) {
 	}
 }
 
+func TestResolveReworkOutcomeIncludesTerminalAndCaseInsensitiveKeys(t *testing.T) {
+	cfg := &WorkflowConfig{Steps: map[string]*Step{
+		"development": {ReworkOutcomes: map[string]string{"fail": "development"}},
+		"completed":   {Terminal: true, ReworkOutcomes: map[string]string{"fail": "development"}},
+	}}
+
+	for _, from := range []string{"development", "completed"} {
+		if got, ok := cfg.ResolveReworkOutcome(from, "FAIL"); !ok || got != "development" {
+			t.Errorf("ResolveReworkOutcome(%q, FAIL) = (%q, %v), want (development, true)", from, got, ok)
+		}
+	}
+	if got, ok := cfg.ResolveReworkOutcome("completed", "unknown"); ok || got != "" {
+		t.Errorf("ResolveReworkOutcome(completed, unknown) = (%q, %v), want (empty, false)", got, ok)
+	}
+}
+
 func TestDeriveLegacyFromSteps_NoOpWhenEmpty(t *testing.T) {
 	cfg := &WorkflowConfig{
 		StatusFlow:     map[string][]string{"todo": {"done"}},

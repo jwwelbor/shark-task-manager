@@ -2,17 +2,18 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/stretchr/testify/require"
 )
 
 // mockEntityDocumentRepo implements EntityDocumentRepository for testing.
 type mockEntityDocumentRepo struct {
 	createOrGetFn func(ctx context.Context, title, filePath string) (*models.Document, error)
-	getByTitleFn  func(ctx context.Context, title string) (*models.Document, error)
 }
 
 func (m *mockEntityDocumentRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
@@ -20,13 +21,6 @@ func (m *mockEntityDocumentRepo) CreateOrGet(ctx context.Context, title, filePat
 		return m.createOrGetFn(ctx, title, filePath)
 	}
 	return nil, fmt.Errorf("CreateOrGet not implemented")
-}
-
-func (m *mockEntityDocumentRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
-	if m.getByTitleFn != nil {
-		return m.getByTitleFn(ctx, title)
-	}
-	return nil, fmt.Errorf("GetByTitle not implemented")
 }
 
 // mockEntityDocumentLinkRepo implements EntityDocumentLinkRepository for testing.
@@ -234,17 +228,27 @@ func TestEntityDocumentService_LinkDocumentByKey_LinkFails(t *testing.T) {
 // EntityDocumentService.UnlinkDocumentByKey Tests
 // ============================================================================
 
-func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
-	var capturedEntityType models.EntityType
-	var capturedEntityID, capturedDocID int64
+func TestEntityDocumentServiceUnlinkDocumentByEntityRejectsTypedNil(t *testing.T) {
+	var feature *models.Feature
+	err := (&EntityDocumentService{}).UnlinkDocumentByEntity(context.Background(), feature, "spec")
+	require.ErrorContains(t, err, "resolved entity for document unlink is required")
+}
 
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
+func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
+	var capturedEntityType, listedEntityType models.EntityType
+	var capturedEntityID, capturedDocID, listedEntityID int64
+
+	repo := &mockEntityDocumentRepo{}
 
 	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			listedEntityType = entityType
+			listedEntityID = entityID
+			return []*models.Document{
+				{ID: 42, Title: "My Doc", FilePath: "docs/linked.md"},
+				{ID: 999, Title: "Other Doc", FilePath: "docs/other.md"},
+			}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			capturedEntityType = entityType
 			capturedEntityID = entityID
@@ -261,92 +265,144 @@ func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "E07-F01", "My Doc")
 
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
+	require.NoError(t, err)
+	require.Equal(t, models.EntityTypeFeature, capturedEntityType)
+	require.Equal(t, int64(5), capturedEntityID)
+	require.Equal(t, int64(42), capturedDocID)
+	require.Equal(t, models.EntityTypeFeature, listedEntityType)
+	require.Equal(t, int64(5), listedEntityID)
+}
+
+func TestB078DocumentUnlinkWrappersRejectUnconfiguredRepositoryWithoutDelegation(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name   string
+		unlink func(context.Context) error
+	}{
+		{name: "epic", unlink: func(ctx context.Context) error { return (&EpicService{}).UnlinkDocument(ctx, "E01", "spec") }},
+		{name: "feature", unlink: func(ctx context.Context) error { return (&FeatureService{}).UnlinkDocument(ctx, "E01-F01", "spec") }},
+		{name: "task", unlink: func(ctx context.Context) error { return (&TaskService{}).UnlinkDocument(ctx, "T-E01-F01-001", "spec") }},
+		{name: "bug", unlink: func(ctx context.Context) error { return (&BugService{}).UnlinkDocument(ctx, "B001", "spec") }},
+		{name: "change-card", unlink: func(ctx context.Context) error { return (&ChangeCardService{}).UnlinkDocument(ctx, "CC-001", "spec") }},
+		{name: "tech-debt", unlink: func(ctx context.Context) error { return (&TechDebtService{}).UnlinkDocument(ctx, "TD-001", "spec") }},
 	}
-	if capturedEntityType != models.EntityTypeFeature {
-		t.Errorf("expected entity type %q, got %q", models.EntityTypeFeature, capturedEntityType)
-	}
-	if capturedEntityID != 5 {
-		t.Errorf("expected entity ID 5, got %d", capturedEntityID)
-	}
-	if capturedDocID != 42 {
-		t.Errorf("expected doc ID 42, got %d", capturedDocID)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.unlink(ctx)
+			require.EqualError(t, err, "writable document repository not configured")
+		})
 	}
 }
 
-func TestEntityDocumentService_UnlinkDocumentByKey_DocumentNotFound_Idempotent(t *testing.T) {
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return nil, fmt.Errorf("document not found")
+func TestEntityDocumentServiceUnlinkDocumentByKeyLinkNotFoundIdempotent(t *testing.T) {
+	unlinkCalls := 0
+	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Other Doc"}}, nil
+		},
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+			unlinkCalls++
+			return nil
 		},
 	}
 
-	linkRepo := &mockEntityDocumentLinkRepo{}
-
 	svc := NewEntityDocumentService(
-		repo, linkRepo,
+		&mockEntityDocumentRepo{}, linkRepo,
 		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 5, "E07-F01-001", "docs/plan/E07/F01/tasks/task.md")),
 		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "E07-F01-001", "Missing Doc")
 
-	// Idempotent: document-not-found is treated as success
-	if err != nil {
-		t.Fatalf("expected nil error (idempotent), got: %v", err)
+	// Idempotent: a missing association is treated as success.
+	require.NoError(t, err)
+	require.Zero(t, unlinkCalls)
+}
+
+func TestEntityDocumentServiceUnlinkDocumentByKeyDuplicateLinkedTitlesAmbiguous(t *testing.T) {
+	unlinkCalls := 0
+	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{
+				{ID: 42, Title: "My Doc", FilePath: "docs/first.md"},
+				{ID: 43, Title: "My Doc", FilePath: "docs/second.md"},
+			}, nil
+		},
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+			unlinkCalls++
+			return nil
+		},
 	}
+
+	svc := NewEntityDocumentService(
+		&mockEntityDocumentRepo{}, linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 5, "T-E07-F01-001", "docs/plan/E07/F01/tasks/task.md")),
+		".",
+	)
+
+	err := svc.UnlinkDocumentByKey(context.Background(), "T-E07-F01-001", "My Doc")
+	require.ErrorIs(t, err, ErrAmbiguousDocumentTitle)
+	require.Contains(t, err.Error(), `"My Doc" (2 linked documents)`)
+	require.NotContains(t, err.Error(), "T-E07-F01-001", "service error should leave public entity context to the CLI")
+	require.Zero(t, unlinkCalls)
+}
+
+func TestEntityDocumentServiceUnlinkDocumentByKeyListFails(t *testing.T) {
+	listErr := errors.New("fixture list error")
+	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return nil, listErr
+		},
+	}
+
+	svc := NewEntityDocumentService(
+		&mockEntityDocumentRepo{}, linkRepo,
+		entityLookupResult(entityWithFilePath(models.EntityTypeTask, 5, "T-E07-F01-001", "docs/plan/E07/F01/tasks/task.md")),
+		".",
+	)
+
+	err := svc.UnlinkDocumentByKey(context.Background(), "T-E07-F01-001", "My Doc")
+	require.ErrorIs(t, err, listErr)
 }
 
 func TestEntityDocumentService_UnlinkDocumentByKey_EntityNotFound(t *testing.T) {
 	repo := &mockEntityDocumentRepo{}
 	linkRepo := &mockEntityDocumentLinkRepo{}
+	lookupErr := errors.New("fixture entity lookup error")
 
 	svc := NewEntityDocumentService(
 		repo, linkRepo,
 		func(ctx context.Context, key string) (models.Entity, error) {
-			return nil, fmt.Errorf("not found")
+			return nil, lookupErr
 		},
 		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "B999", "Doc")
 
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if got := err.Error(); got != "entity not found: not found" {
-		t.Errorf("unexpected error: %v", got)
-	}
+	require.ErrorIs(t, err, lookupErr)
 }
 
 func TestEntityDocumentService_UnlinkDocumentByKey_UnlinkFails(t *testing.T) {
-	repo := &mockEntityDocumentRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
-
+	unlinkErr := errors.New("fixture unlink error")
 	linkRepo := &mockEntityDocumentLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
-			return fmt.Errorf("db error")
+			return unlinkErr
 		},
 	}
 
 	svc := NewEntityDocumentService(
-		repo, linkRepo,
+		&mockEntityDocumentRepo{}, linkRepo,
 		entityLookupResult(entityWithFilePath(models.EntityTypeBug, 5, "B001", "docs/plan/B001/bug.md")),
 		".",
 	)
 
 	err := svc.UnlinkDocumentByKey(context.Background(), "B001", "Doc")
 
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if got := err.Error(); got != "failed to unlink document from bug B001: db error" {
-		t.Errorf("unexpected error: %v", got)
-	}
+	require.ErrorIs(t, err, unlinkErr)
 }
 
 // ============================================================================

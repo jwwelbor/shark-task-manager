@@ -217,7 +217,7 @@ func TestEntityServiceTransitioner_TransitionAndIdempotency(t *testing.T) {
 	}
 }
 
-func terminalReopenTransitioner(t *testing.T, status string) (*EntityServiceTransitioner, *fakeTaskRepo) {
+func terminalTransitioner(t *testing.T, status string) (*EntityServiceTransitioner, *fakeTaskRepo) {
 	t.Helper()
 	svc := testWorkflowService(t)
 	entitySvc := services.NewEntityService(svc)
@@ -230,84 +230,10 @@ func terminalReopenTransitioner(t *testing.T, status string) (*EntityServiceTran
 	return NewEntityServiceTransitioner(entitySvc, registry, svc), repo
 }
 
-func TestEntityServiceTransitioner_KickbackReopensTerminalTarget(t *testing.T) {
-	transitioner, repo := terminalReopenTransitioner(t, "completed")
-	from, transitioned, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "gate found rework", "gate-agent", TransitionGuard{SessionID: "sess-1", FromStatus: "completed", Outcome: "kickback_rework", ForceTerminalReopen: true})
-	require.NoError(t, err)
-	require.True(t, transitioned)
-	require.Equal(t, "completed", from)
-	require.Equal(t, "in_review", repo.task.GetStatus())
-}
-
-func TestEntityServiceTransitioner_KickbackReopensConfiguredCustomTerminal(t *testing.T) {
-	config.ClearWorkflowCache()
-	t.Cleanup(config.ClearWorkflowCache)
-	tmpDir := t.TempDir()
-	configJSON := `{"task_workflow":{"status_flow_version":"1.0","special_statuses":{"_start_":["todo"],"_complete_":["shipped"]},"status_flow":{"todo":["in_review"],"in_review":["shipped"],"shipped":[]},"status_metadata":{"todo":{"phase":"planning"},"in_review":{"phase":"review"},"shipped":{"phase":"done"}}}}`
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".sharkconfig.json"), []byte(configJSON), 0o644))
-	svc := workflow.NewService(tmpDir)
-	entitySvc := services.NewEntityService(svc)
-	registry := services.NewEntityRegistry()
-	repo := &fakeTaskRepo{task: &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", Title: "t"}, Status: models.TaskStatus("shipped")}}
-	registry.Register(models.EntityTypeTask, repo)
-	transitioner := NewEntityServiceTransitioner(entitySvc, registry, svc)
-
-	_, transitioned, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "gate found rework", "gate-agent", TransitionGuard{SessionID: "sess-custom", FromStatus: "shipped", Outcome: "kickback_rework", ForceTerminalReopen: true})
-	require.NoError(t, err)
-	require.True(t, transitioned)
-	require.Equal(t, "in_review", repo.task.GetStatus())
-}
-
-func TestEntityServiceTransitioner_TerminalReopenDoesNotBypassNonTerminalRoute(t *testing.T) {
-	transitioner, repo := terminalReopenTransitioner(t, "todo")
-	_, _, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "completed", "gate found rework", "gate-agent", TransitionGuard{SessionID: "sess-1", FromStatus: "todo", Outcome: "kickback_rework", ForceTerminalReopen: true})
+func TestEntityServiceTransitioner_OrdinaryTransitionCannotReopenTerminalTarget(t *testing.T) {
+	transitioner, repo := terminalTransitioner(t, "completed")
+	_, _, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "ordinary transition", "agent", TransitionGuard{})
 	require.Error(t, err)
-	require.Equal(t, "todo", repo.task.GetStatus())
-}
-
-func TestEntityServiceTransitioner_MainTransitionCannotRequestTerminalReopen(t *testing.T) {
-	transitioner, repo := terminalReopenTransitioner(t, "completed")
-	_, _, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "main gate transition", "gate-agent", TransitionGuard{FromStatus: "completed"})
-	require.Error(t, err)
-	require.Equal(t, "completed", repo.task.GetStatus())
-}
-
-func TestEntityServiceTransitioner_TerminalReopenRejectsStaleSource(t *testing.T) {
-	transitioner, repo := terminalReopenTransitioner(t, "todo")
-	_, _, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "completed", "gate found rework", "gate-agent", TransitionGuard{SessionID: "sess-2", FromStatus: "completed", Outcome: "kickback_rework", ForceTerminalReopen: true})
-	require.ErrorIs(t, err, services.ErrAdvanceGuardStaleFromStatus)
-	require.Equal(t, "todo", repo.task.GetStatus())
-}
-
-func TestEntityServiceTransitioner_TerminalReopenUsesConditionalUpdate(t *testing.T) {
-	transitioner, repo := terminalReopenTransitioner(t, "completed")
-	repo.beforeConditionalUpdate = func() { repo.task.SetStatus("todo") }
-
-	_, _, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "gate found rework", "gate-agent", TransitionGuard{SessionID: "sess-3", FromStatus: "completed", Outcome: "kickback_rework", ForceTerminalReopen: true})
-	require.ErrorIs(t, err, services.ErrAdvanceGuardStaleFromStatus)
-	require.Equal(t, "todo", repo.task.GetStatus())
-}
-
-func TestEntityServiceTransitioner_TerminalReopenHonorsAdvanceGuard(t *testing.T) {
-	svc := testWorkflowService(t)
-	entitySvc := services.NewEntityService(svc)
-	entitySvc.SetAdvanceGuard(config.AdvanceGuardConfig{Enabled: true}, newFakeAdvanceGuardRecorder())
-	registry := services.NewEntityRegistry()
-	repo := &fakeTaskRepo{task: &models.Task{
-		BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", Title: "t"},
-		Status:     models.TaskStatus("completed"),
-	}}
-	registry.Register(models.EntityTypeTask, repo)
-	transitioner := NewEntityServiceTransitioner(entitySvc, registry, svc)
-	guard := TransitionGuard{SessionID: "sess-guarded", FromStatus: "completed", Outcome: "kickback_rework", ForceTerminalReopen: true}
-
-	_, transitioned, err := transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "gate found rework", "gate-agent", guard)
-	require.NoError(t, err)
-	require.True(t, transitioned)
-
-	repo.task.SetStatus("completed")
-	_, _, err = transitioner.Transition(context.Background(), models.EntityTypeTask, "T-E01-F01-001", "in_review", "gate found rework", "gate-agent", guard)
-	require.ErrorIs(t, err, services.ErrAdvanceGuardRepeatRejected)
 	require.Equal(t, "completed", repo.task.GetStatus())
 }
 

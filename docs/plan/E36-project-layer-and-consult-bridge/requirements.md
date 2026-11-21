@@ -39,23 +39,52 @@ artifacts.
   respects override > disk > embedded precedence, and is best-effort: a parse
   failure must never fail the list. (plan §5)
 - **REQ-F3** — Description renders in both text and JSON list output. (plan §5)
-- **REQ-F4** — `/shark consult <agent> [referent]` resolves the agent (exact
-  name, else fuzzy-match against `agent list` names **and** descriptions; if
-  omitted, show the menu), loads the persona via `shark agent get <agent>`
-  (frontmatter stripped), and adopts it **inline** (turn-by-turn, not a
-  background subagent). (plan §4)
+- **REQ-F4** — Consultation modes:
+  - Both modes use `skills/shark-rider/context/consult-request-resolution.md`
+    to parse arguments, resolve the agent and referent, and load relevant
+    context. If the agent list is empty, suggest
+    `shark admin install-shark-data` and stop.
+  - `/shark-rider consult <agent> [referent]` resolves the agent (exact name,
+    else fuzzy-match against `agent list` names **and** descriptions), loads the
+    persona via `shark agent get <agent>` (frontmatter stripped), and adopts it
+    **inline** (turn-by-turn, not a background subagent).
+  - `/shark-rider consult-agent <agent> [referent]` resolves the persona and
+    referent, and sends one bounded request only when a host-enforced read-only
+    profile prevents workspace writes, Shark mutations, and nested dispatch.
+    The parent checks and synthesizes the advice. If the host cannot enforce
+    these permissions, do not launch and direct the user to inline `consult`.
+    This is a separate, explicit one-shot mode.
+  - Bare `consult` and `consult help` show the role-selection guide and stop.
+  (plan §4)
 - **REQ-F5** — A consult is **read-only by default**: it reads shark/docs for
   context as the persona would but does not mutate shark state unless explicitly
   asked. (plan §4)
-- **REQ-F6** — Referent resolution: an explicit path is read; "this" with an
-  obvious in-context artifact is used and named; ambiguous input is asked about
-  or accepts pasted content. Never guess silently. (plan §4)
+- **REQ-F6** — Referent resolution: a user-provided path-shaped referent is read
+  only after resolving it against the active workspace root and verifying that
+  its canonical target (including symlinks) remains inside that root. Outside
+  or unsafe referents are not read; ask for pasted content or an in-workspace
+  copy and stop before persona adoption or dispatch. This path boundary applies
+  only to user-provided file referents; it does not restrict documented
+  host-local skill/context reads.
+  "This" with an obvious in-context artifact is used and named; a period in
+  ordinary prose is not enough to identify a path. Ambiguous input is asked
+  about or accepts pasted content. Never guess silently. (plan §4)
 - **REQ-F7** — `query.md` gains a consult-intent recognizer: match
   *ask/have/consult `<agent>` to/about `<task>`*, extract agent + task, hand off
   to `consult.md`. Fire only on clear "talk to an agent" phrasing; fall back to
   the explicit form if the agent doesn't resolve. (plan §4)
-- **REQ-F8** — `consult.md` degrades gracefully when the agent is absent (clear
-  message + `agent list`); never hard-fail. (plan §4)
+- **REQ-F8** — Both `consult.md` and `consult-agent.md` degrade gracefully when
+  `shark agent get` fails: report unavailable content, show `shark agent list
+  --all`, and stop before persona adoption or dispatch. Never hard-fail. (plan §4)
+
+**Consultation mode clarification (2026-11-19):** Inline persona adoption remains
+the behavior of `/shark-rider consult` and natural-language consult requests.
+`/shark-rider consult-agent <agent> [referent]` is a separate, explicit command
+for one-shot advice from one bounded host-subagent request with an enforced
+read-only host permission profile. If the host cannot enforce the profile, the
+command does not launch and directs the user to inline `consult`. The parent
+remains responsible for checking and summarizing advice; neither command mutates
+Shark state by default.
 
 ### Project namespace + progress record (Slice 2 → E36-F02)
 
@@ -134,9 +163,10 @@ artifacts.
 - **REQ-NF4 — No source-of-truth duplication.** Both `consult` and
   `spawn_agent` resolve personas through `shark agent get`; the derived checklist
   is never read back as authoritative state. (plan §3, §4)
-- **REQ-NF5 — Graceful degradation.** Missing bundle content (`shark agent get`
-  / `shark skill get` failure) prints an "unavailable / coming soon" message and
-  never hard-fails. (plan §4, SKILL.md router contract)
+- **REQ-NF5 — Graceful degradation.** Missing persona content (`shark agent get`
+  failure) is reported as unavailable, shows `shark agent list --all`, and stops
+  before persona use. Other missing bundle content (`shark skill get` failure)
+  is reported as unavailable; never hard-fail. (plan §4, SKILL.md router contract)
 - **REQ-NF6 — Read-only portfolio advice.** Bare `shark next` uses only read
   interfaces. It does not reclaim expired claims or initialize transition-capable
   keyed-dispatch adapters. (`E36-F04/spec.md` REQ-NF-001)

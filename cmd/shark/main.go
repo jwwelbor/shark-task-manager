@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	_ "github.com/jwwelbor/shark-task-manager/internal/cli/commands" // Import command packages for side effects
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
@@ -19,9 +20,9 @@ var (
 	GitCommit = ""
 )
 
-// extractExitCode inspects err for a leading "exit code N: " prefix produced
-// by handleVocabularyErrorWithSnippet and handleEntityServiceError. When
-// found it returns N; otherwise it returns the provided fallback.
+// extractExitCode inspects err for a leading "exit code N: " prefix and for
+// repository database failures. When either classification is found, it
+// returns the mapped exit code; otherwise it returns the provided fallback.
 //
 // The prefix format is "exit code <N>: <original error>" where N is a decimal
 // integer. This convention is used to thread the correct exit code through the
@@ -31,6 +32,9 @@ var (
 func extractExitCode(err error, fallback int) int {
 	if err == nil {
 		return 0
+	}
+	if repoerr.IsDatabaseFailure(err) {
+		return 2
 	}
 	msg := err.Error()
 	const prefix = "exit code "

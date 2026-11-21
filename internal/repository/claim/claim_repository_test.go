@@ -12,7 +12,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/claim"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/stretchr/testify/require"
 )
 
 func setup(t *testing.T) (*claim.Repository, *dbconn.DB) {
@@ -96,6 +98,35 @@ func TestClaim_ReleaseSessionOnlyMatchingSession(t *testing.T) {
 	}
 }
 
+func TestClaim_VerifySessionWithTx(t *testing.T) {
+	repo, db := setup(t)
+	ctx := context.Background()
+	claimRecord := newClaim("E01-F01-003-tx")
+	_, err := repo.Claim(ctx, claimRecord)
+	require.NoError(t, err)
+
+	ttl := time.Minute
+	svc := services.NewClaimService(repo, &ttl)
+	tx, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.VerifySessionWithTx(ctx, tx, models.EntityTypeTask, claimRecord.EntityKey, claimRecord.SessionID))
+	require.NoError(t, tx.Rollback())
+
+	tx, err = db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	err = svc.VerifySessionWithTx(ctx, tx, models.EntityTypeTask, claimRecord.EntityKey, "another-session")
+	require.ErrorContains(t, err, "no longer matches or has expired")
+	require.NoError(t, tx.Rollback())
+
+	_, err = db.ExecContext(ctx, `UPDATE entity_claims SET last_heartbeat = datetime('now', '-2 minutes') WHERE entity_key = ?`, claimRecord.EntityKey)
+	require.NoError(t, err)
+	tx, err = db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	err = svc.VerifySessionWithTx(ctx, tx, models.EntityTypeTask, claimRecord.EntityKey, claimRecord.SessionID)
+	require.ErrorContains(t, err, "no longer matches or has expired")
+	require.NoError(t, tx.Rollback())
+}
+
 func TestClaim_Renew(t *testing.T) {
 	repo, _ := setup(t)
 	ctx := context.Background()
@@ -103,7 +134,7 @@ func TestClaim_Renew(t *testing.T) {
 		t.Fatalf("claim: %v", err)
 	}
 	prog := 0.42
-	ok, err := repo.Renew(ctx, "task", "E01-F01-004", "sess-abc", &prog, "halfway")
+	ok, err := repo.Renew(ctx, "task", "E01-F01-004", "sess-abc", &prog, "halfway", time.Minute)
 	if err != nil || !ok {
 		t.Fatalf("renew: ok=%v err=%v", ok, err)
 	}
@@ -115,9 +146,66 @@ func TestClaim_Renew(t *testing.T) {
 		t.Errorf("note = %q, want halfway", got.Note)
 	}
 	// Renew with wrong session is a no-op.
-	ok, _ = repo.Renew(ctx, "task", "E01-F01-004", "wrong", nil, "")
+	ok, _ = repo.Renew(ctx, "task", "E01-F01-004", "wrong", nil, "", time.Minute)
 	if ok {
 		t.Error("renew with wrong session should not update")
+	}
+}
+
+// C30 / R24-01: a heartbeat is the first operation after the holder goes
+// quiet. No competitor or sweep removes its row before the renewal decision.
+func TestHeartbeatOnUnsweptLease(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		ttl     time.Duration
+		age     int
+		session string
+		renew   bool
+	}{
+		{"within TTL", time.Minute, 50, "sess-abc", true},
+		{"at TTL", time.Minute, 60, "sess-abc", true},
+		{"past TTL", time.Minute, 61, "sess-abc", false},
+		{"expiry disabled", 0, 3600, "sess-abc", true},
+		{"wrong holder with expiry disabled", 0, 3600, "other", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, db := setup(t)
+			ctx := context.Background()
+			c := newClaim("E01-F01-001")
+			_, err := repo.Claim(ctx, c)
+			require.NoError(t, err)
+			svc := services.NewClaimService(repo, &tc.ttl)
+			progress := 0.75
+			// SQLite writes lease timestamps at whole-second precision. When
+			// the clock rolls into the next second during setup, reseed before
+			// asserting an exact age.
+			for attempt := 0; attempt < 3; attempt++ {
+				var started, ended int64
+				require.NoError(t, db.QueryRowContext(ctx, "SELECT unixepoch()").Scan(&started))
+				_, err := db.ExecContext(ctx, `UPDATE entity_claims SET last_heartbeat = datetime(?, 'unixepoch'), progress = .25, note = 'original' WHERE entity_key = ?`, started-int64(tc.age), c.EntityKey)
+				require.NoError(t, err)
+				before, err := repo.Get(ctx, c.EntityType, c.EntityKey)
+				require.NoError(t, err)
+				renewErr := svc.Heartbeat(ctx, c.EntityType, c.EntityKey, tc.session, &progress, "updated")
+				after, err := repo.Get(ctx, c.EntityType, c.EntityKey)
+				require.NoError(t, err)
+				require.NoError(t, db.QueryRowContext(ctx, "SELECT unixepoch()").Scan(&ended))
+				if started != ended {
+					continue
+				}
+				if tc.renew {
+					require.NoError(t, renewErr)
+					require.Equal(t, started, after.LastHeartbeat.Unix())
+					require.Equal(t, &progress, after.Progress)
+					require.Equal(t, "updated", after.Note)
+				} else {
+					require.ErrorContains(t, renewErr, "no active claim")
+					require.Equal(t, before, after)
+				}
+				return
+			}
+			t.Fatal("could not pin both observations to the same database clock second")
+		})
 	}
 }
 

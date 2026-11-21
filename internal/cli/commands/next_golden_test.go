@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +58,17 @@ func goldenVars() map[string]string {
 		"blocked_reason":      "External dependency unavailable",
 		"fail_reason_summary": "Validation failed",
 	}
+}
+
+func goldenPromptVarsForEntity(entity string, vars map[string]string) map[string]string {
+	if entity != "sprint" {
+		return vars
+	}
+
+	promptVars := maps.Clone(vars)
+	promptVars["id"] = "S005"
+	promptVars["title"] = "Sample sprint for golden test"
+	return promptVars
 }
 
 // promptSHA256 hex-encodes the SHA-256 digest of s using the exact same
@@ -127,10 +139,13 @@ func TestRenderedPromptsGolden(t *testing.T) {
 			for _, name := range names {
 				status := strings.TrimSuffix(name, ".md")
 				t.Run(status, func(t *testing.T) {
+					promptVarsWithHarness := goldenPromptVarsForEntity(entity, varsWithHarness)
+					promptVarsWithoutHarness := goldenPromptVarsForEntity(entity, varsWithoutHarness)
+
 					// Match the renderer's lookup key: subdirectory-prefixed
 					// relative path (e.g., "feature/ready_for_assessment.md").
 					tmplName := filepath.ToSlash(filepath.Join(entity, name))
-					rendered, err := renderer.Render(tmplName, varsWithHarness)
+					rendered, err := renderer.Render(tmplName, promptVarsWithHarness)
 					require.NoErrorf(t, err, "render %s", tmplName)
 
 					goldenPath := filepath.Join(goldenRoot, entity, status+".golden")
@@ -164,7 +179,7 @@ func TestRenderedPromptsGolden(t *testing.T) {
 					// construction order" / "map iteration behavior" drift
 					// TC-008's Negative Cases call out, caught across the full
 					// corpus rather than a hand-picked fixture.
-					renderedWithoutHarness, err := renderer.Render(tmplName, varsWithoutHarness)
+					renderedWithoutHarness, err := renderer.Render(tmplName, promptVarsWithoutHarness)
 					require.NoErrorf(t, err, "render %s without harness keys", tmplName)
 					assert.Equalf(t, promptSHA256(renderedWithoutHarness), promptSHA256(rendered),
 						"prompt_sha256 must be identical before/after this feature's harness-vars merge for %s (REQ-NF-001/AC-07)", tmplName)

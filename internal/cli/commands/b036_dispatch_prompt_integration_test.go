@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	testutil "github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 )
 
 func TestNext_RendersRepresentativeDispatchPromptsFromWorkflowIndexBundle(t *testing.T) {
@@ -293,11 +294,11 @@ func runB036CLI(t *testing.T, projectDir, dbPath string, args ...string) string 
 
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
-	rOut, wOut, err := os.Pipe()
+	rOut, wOut, err := testcapture.NewDrainingPipe()
 	if err != nil {
 		t.Fatalf("stdout pipe: %v", err)
 	}
-	rErr, wErr, err := os.Pipe()
+	rErr, wErr, err := testcapture.NewDrainingPipe()
 	if err != nil {
 		t.Fatalf("stderr pipe: %v", err)
 	}

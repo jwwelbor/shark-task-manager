@@ -3,6 +3,7 @@
 package research
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -15,7 +16,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const catalogPath = "research/recipes.yaml"
+// CatalogResourcePath is the supported project resource path for the recipe catalog.
+const CatalogResourcePath = "research/recipes.yaml"
+
+// CatalogSource identifies the layer that supplied the research recipe catalog.
+type CatalogSource string
+
+const (
+	CatalogSourceOverride CatalogSource = "override"
+	CatalogSourceDisk     CatalogSource = "disk"
+	CatalogSourceEmbedded CatalogSource = "embedded"
+)
 
 // Catalog is the declarative recipe catalog shipped in shark-data.
 type Catalog struct {
@@ -53,19 +64,43 @@ type Paths struct {
 	Report string
 }
 
+// ReadCatalogFromConfig reads the raw catalog selected by configPath, resolving
+// relative shark_data_path values from projectRoot. The embedded fallback
+// keeps default workflows usable before shark-data is installed.
+func ReadCatalogFromConfig(configPath, projectRoot string) ([]byte, CatalogSource, error) {
+	return ReadCatalogFromConfigContext(context.Background(), configPath, projectRoot)
+}
+
+// ReadCatalogFromConfigContext reads the selected catalog while honoring caller cancellation.
+func ReadCatalogFromConfigContext(ctx context.Context, configPath, projectRoot string) ([]byte, CatalogSource, error) {
+	data, source, found, err := readCatalogFromDisk(ctx, configPath, projectRoot)
+	if err != nil {
+		return nil, "", err
+	}
+	if found {
+		return data, source, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	data, err = sharkdata.ReadEmbedded(CatalogResourcePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("read embedded research recipe catalog: %w", err)
+	}
+	return data, CatalogSourceEmbedded, nil
+}
+
 // LoadCatalog loads a project materialization when present and otherwise uses
-// the embedded catalog. The embedded fallback keeps default workflows usable
-// before shark-data is installed.
+// the embedded catalog.
 func LoadCatalog(projectRoot string) (*Catalog, error) {
-	data, found, err := readCatalogFromDisk(projectRoot)
+	return LoadCatalogContext(context.Background(), projectRoot)
+}
+
+// LoadCatalogContext loads a project materialization while honoring caller cancellation.
+func LoadCatalogContext(ctx context.Context, projectRoot string) (*Catalog, error) {
+	data, _, err := ReadCatalogFromConfigContext(ctx, filepath.Join(projectRoot, ".sharkconfig.json"), projectRoot)
 	if err != nil {
 		return nil, err
-	}
-	if !found {
-		data, err = sharkdata.ReadEmbedded(catalogPath)
-		if err != nil {
-			return nil, fmt.Errorf("read embedded research recipe catalog: %w", err)
-		}
 	}
 
 	var catalog Catalog
@@ -78,28 +113,37 @@ func LoadCatalog(projectRoot string) (*Catalog, error) {
 	return &catalog, nil
 }
 
-func readCatalogFromDisk(projectRoot string) ([]byte, bool, error) {
-	configBytes, err := os.ReadFile(filepath.Join(projectRoot, ".sharkconfig.json"))
+func readCatalogFromDisk(ctx context.Context, configPath, projectRoot string) ([]byte, CatalogSource, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, "", false, err
+	}
+	configBytes, err := os.ReadFile(configPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, false, fmt.Errorf("read .sharkconfig.json: %w", err)
+		return nil, "", false, fmt.Errorf("read %s: %w", configPath, err)
 	}
 	dataRoot, err := config.ResolveSharkDataRoot(projectRoot, configBytes)
 	if err != nil {
-		return nil, false, fmt.Errorf("resolve shark data root: %w", err)
+		return nil, "", false, fmt.Errorf("resolve shark data root: %w", err)
 	}
-	for _, path := range []string{
-		filepath.Join(dataRoot, "overrides", catalogPath),
-		filepath.Join(dataRoot, catalogPath),
+	for _, candidate := range []struct {
+		path   string
+		source CatalogSource
+	}{
+		{path: filepath.Join(dataRoot, "overrides", CatalogResourcePath), source: CatalogSourceOverride},
+		{path: filepath.Join(dataRoot, CatalogResourcePath), source: CatalogSourceDisk},
 	} {
-		data, err := os.ReadFile(path)
+		if err := ctx.Err(); err != nil {
+			return nil, "", false, err
+		}
+		data, err := os.ReadFile(candidate.path)
 		if err == nil {
-			return data, true, nil
+			return data, candidate.source, true, nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return nil, false, fmt.Errorf("read research recipe catalog: %w", err)
+			return nil, "", false, fmt.Errorf("read research recipe catalog: %w", err)
 		}
 	}
-	return nil, false, nil
+	return nil, "", false, nil
 }
 
 // ArtifactPaths returns the co-located report path. Epic and feature reports

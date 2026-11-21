@@ -3,11 +3,11 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRelatedDocsAddEpic tests adding a document to an epic
@@ -288,6 +288,8 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 		{name: "bug", args: []string{"B072"}, wantType: "bug", wantKey: "B072"},
 		{name: "change", args: []string{"CC-001"}, wantType: "change", wantKey: "CC-001"},
 		{name: "question", args: []string{"Q001"}, wantType: "question", wantKey: "Q001"},
+		{name: "tech-debt", args: []string{"TD-001"}, wantType: "tech_debt", wantKey: "TD-001"},
+		{name: "invalid tech-debt key", args: []string{"TD-001-"}, wantErr: "invalid tech-debt key"},
 		{name: "unsupported entity", args: []string{"TD001"}, wantErr: "cannot infer a supported entity type"},
 		{name: "multiple positional keys", args: []string{"E01", "E02"}, wantErr: "at most one positional entity key"},
 		{name: "positional and explicit selector", args: []string{"B072"}, bug: "B073", wantErr: "cannot combine positional entity key"},
@@ -295,19 +297,19 @@ func TestRelatedDocsListPositionalSelection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entityType, key, err := resolveRelatedDocsListSelection(tt.args, "", "", "", tt.bug, "", "")
+			flags := []struct{ name, value string }{}
+			if tt.bug != "" {
+				flags = append(flags, struct{ name, value string }{"bug", tt.bug})
+			}
+			cmd := newRelatedDocsDeleteSelectionCommand(t, flags)
+			entityType, key, err := resolveRelatedDocsSelection(cmd, tt.args)
 			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
-				}
+				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
-			if err != nil {
-				t.Fatalf("resolveRelatedDocsListSelection returned error: %v", err)
-			}
-			if entityType != tt.wantType || key != tt.wantKey {
-				t.Fatalf("selection = (%q, %q), want (%q, %q)", entityType, key, tt.wantType, tt.wantKey)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantType, string(entityType))
+			require.Equal(t, tt.wantKey, key)
 		})
 	}
 }

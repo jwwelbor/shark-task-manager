@@ -64,6 +64,30 @@ func (r *Repository) Get(ctx context.Context, entityType, entityKey string) (*mo
 	return r.scanOne(r.db.QueryRowContext(ctx, q, entityType, entityKey))
 }
 
+// VerifySessionWithTx checks that the expected session still owns a live
+// claim and acquires SQLite's writer lock through a no-op update. A caller
+// that proceeds to a child mutation in the same transaction cannot race a
+// release, reissue, or expiry-reclaim between this check and commit.
+func (r *Repository) VerifySessionWithTx(ctx context.Context, tx *sql.Tx, entityType, entityKey, sessionID string, ttl time.Duration) (bool, error) {
+	if tx == nil {
+		return false, fmt.Errorf("verify claim %s/%s: transaction is required", entityType, entityKey)
+	}
+	const q = `
+		UPDATE entity_claims SET session_id = session_id
+		WHERE entity_type = ? AND entity_key = ? AND session_id = ?
+		  AND (? <= 0 OR unixepoch(CURRENT_TIMESTAMP) - unixepoch(last_heartbeat) <= ?)
+	`
+	res, err := tx.ExecContext(ctx, q, entityType, entityKey, sessionID, ttl.Seconds(), ttl.Seconds())
+	if err != nil {
+		return false, fmt.Errorf("verify claim %s/%s: %w", entityType, entityKey, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("verify claim %s/%s: rows affected: %w", entityType, entityKey, err)
+	}
+	return n == 1, nil
+}
+
 // Release deletes the claim for an entity regardless of session. Returns true
 // when a row was removed. Used by administrative/force release.
 func (r *Repository) Release(ctx context.Context, entityType, entityKey string) (bool, error) {
@@ -99,15 +123,18 @@ func (r *Repository) ReleaseSession(ctx context.Context, entityType, entityKey, 
 // Renew updates the heartbeat (and optional progress/note) for a claim held by
 // the given session. Returns true when a row was updated. A heartbeat does
 // triple duty: lease renewal, progress reporting, and telemetry source.
-func (r *Repository) Renew(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) (bool, error) {
+func (r *Repository) Renew(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string, ttl time.Duration) (bool, error) {
 	const q = `
 		UPDATE entity_claims
 		SET last_heartbeat = CURRENT_TIMESTAMP,
 		    progress = COALESCE(?, progress),
 		    note = COALESCE(?, note)
 		WHERE entity_type = ? AND entity_key = ? AND session_id = ?
+		  AND (? <= 0 OR unixepoch(CURRENT_TIMESTAMP) - unixepoch(last_heartbeat) <= ?)
 	`
-	res, err := r.db.ExecContext(ctx, q, progress, nullString(note), entityType, entityKey, sessionID)
+	// Use the database clock in the write itself so waiting for a writer
+	// cannot make a previously calculated cutoff authorize a late renewal.
+	res, err := r.db.ExecContext(ctx, q, progress, nullString(note), entityType, entityKey, sessionID, ttl.Seconds(), ttl.Seconds())
 	if err != nil {
 		return false, fmt.Errorf("renew %s/%s: %w", entityType, entityKey, err)
 	}

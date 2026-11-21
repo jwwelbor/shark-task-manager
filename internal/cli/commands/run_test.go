@@ -7,6 +7,7 @@ package commands
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -100,6 +101,10 @@ func (m *mockRunClaimService) TTL() time.Duration {
 		return m.ttl
 	}
 	return time.Hour
+}
+
+func (m *mockRunClaimService) VerifySessionWithTx(context.Context, *sql.Tx, models.EntityType, string, string) error {
+	return nil
 }
 
 func withRunClaimSvcOverride(t *testing.T, svc runClaimServicer) {

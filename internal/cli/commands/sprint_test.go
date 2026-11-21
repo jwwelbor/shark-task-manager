@@ -17,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -206,9 +207,11 @@ var _ sprintLifecycleServicer = (*MockSprintService)(nil)
 var _ sprintAssignmentServicer = (*MockSprintService)(nil)
 var _ sprintCapacityServicer = (*MockSprintService)(nil)
 
-// TC-006: the compatibility notice belongs in human-facing command help only.
+// TC-006: command help must describe sprint-next scope and the per-sprint alternative.
 func TestSprintNext_TC006_HelpPointsToPlanSprint(t *testing.T) {
-	require.Contains(t, sprintNextCmd.Long, "shark plan sprint")
+	require.Contains(t, sprintNextCmd.Short, "across execution-phase sprints")
+	require.Contains(t, sprintNextCmd.Long, "across execution-phase sprints")
+	require.Contains(t, sprintNextCmd.Long, "shark plan S###")
 }
 
 // Test helpers
@@ -697,7 +700,7 @@ func TestSprintVelocity_UnsizedCompletedInJSONOutput(t *testing.T) {
 
 	var jsonBuf bytes.Buffer
 	origOut := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout = w
 
@@ -745,7 +748,7 @@ func TestSprintVelocity_JSONSchema(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -812,7 +815,7 @@ func TestSprintBurndown_ASCIIOnlyHumanOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -875,7 +878,7 @@ func TestSprintBurndown_JSONSchema(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -941,7 +944,7 @@ func TestSprintBurndown_FutureDaysDash(t *testing.T) {
 	defer pterm.SetDefaultOutput(os.Stdout)
 
 	// Also capture plain fmt.Printf output via os.Stdout pipe.
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -994,7 +997,7 @@ func TestPrintSummaryTable_NilSizeWithNonNilCount(t *testing.T) {
 
 	// Redirect stdout so Printf output does not pollute test output.
 	origOut := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout = w
 
@@ -1027,7 +1030,7 @@ func TestPrintSummaryDetailed_WritesBothSections(t *testing.T) {
 	}
 
 	origOut := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout = w
 
@@ -1048,7 +1051,7 @@ func TestPrintSummaryDetailed_WritesBothSections(t *testing.T) {
 
 func TestPrintSummarySections(t *testing.T) {
 	origOut := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout = w
 
@@ -1099,7 +1102,7 @@ func TestSprintSummary_JSONSchemaDetailedFalse(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1192,7 +1195,7 @@ func TestSprintSummary_JSONSchemaDetailedTrueNilPhase(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1355,7 +1358,7 @@ func TestSprintAdd_JSONOutputContainsAssignmentFields(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1455,7 +1458,7 @@ func TestSprintRemove_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1514,7 +1517,7 @@ func TestSprintBacklog_JSONOutputEntityTypeOnEveryItem(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1620,7 +1623,7 @@ func TestSprintAdd_CapacityWarningEmittedBeforeSuccess(t *testing.T) {
 	// instead of pterm (which writes to its own internal writer, not the redirected os.Stdout).
 	cli.GlobalConfig.NoColor = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1709,7 +1712,7 @@ func TestSprintClose_CarryoverNextOutputShowsMovedCountAndNextKey(t *testing.T) 
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1764,7 +1767,7 @@ func TestSprintClose_CarryoverBacklogOutputShowsDroppedCount(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1930,7 +1933,7 @@ func TestSprintPlan_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -1978,7 +1981,7 @@ func TestSprintPlan_HumanOutputSections(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2027,7 +2030,7 @@ func TestSprintReadiness_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2084,7 +2087,7 @@ func TestSprintReadiness_HumanFactorTable(t *testing.T) {
 	pterm.SetDefaultOutput(&ptermBuf)
 	defer pterm.SetDefaultOutput(os.Stdout)
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2129,7 +2132,7 @@ func TestSprintCapacityShow_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2178,7 +2181,7 @@ func TestSprintCapacityShow_NegativeRemaining(t *testing.T) {
 	pterm.SetDefaultOutput(&ptermBuf)
 	defer pterm.SetDefaultOutput(os.Stdout)
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2347,7 +2350,7 @@ func TestSprintAdd_BulkBugs_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2486,7 +2489,7 @@ func TestSprintClose_TC022_CarryoverNextPrintsOrderPreservedYes(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2535,7 +2538,7 @@ func TestSprintClose_TC022_CarryoverBacklogPrintsOrderPreservedNo(t *testing.T) 
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2588,7 +2591,7 @@ func TestSprintReorder_TC014_TopFlagPassesReorderTargetTop(t *testing.T) {
 	cli.GlobalConfig.JSON = false
 
 	// Capture stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2609,7 +2612,7 @@ func TestSprintReorder_TC014_TopFlagPassesReorderTargetTop(t *testing.T) {
 	buf.ReadFrom(r)
 
 	// Now test via command with --top flag
-	r2, w2, err2 := os.Pipe()
+	r2, w2, err2 := testcapture.NewDrainingPipe()
 	require.NoError(t, err2)
 	os.Stdout = w2
 
@@ -2706,7 +2709,7 @@ func TestSprintAdd_TC014b_AtFlagPassesPositionAndJSONIncludesSprintOrder(t *test
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2769,7 +2772,7 @@ func TestSprintAdd_AtFlagAbsentPassesNilPosition(t *testing.T) {
 	cmd.Flags().Int("at", 0, "")
 	// --at not set
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2851,7 +2854,7 @@ func TestSprintBacklog_TC017_ViewOrderedPassedToService(t *testing.T) {
 	pterm.SetDefaultOutput(&ptermBuf)
 	defer pterm.SetDefaultOutput(os.Stdout)
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2911,7 +2914,7 @@ func TestSprintBacklog_TC018_NoViewFlagPassesEmptyViewToService(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -2957,7 +2960,7 @@ func TestSprintBacklog_TC018b_ViewGroupedPassedToService(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3002,7 +3005,7 @@ func TestSprintBacklog_AllFlagPassesIncludeCompletedToService(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3059,7 +3062,7 @@ func TestSprintBacklog_TC017_UnorderedItemShowsTildeInPosColumn(t *testing.T) {
 	pterm.SetDefaultOutput(&ptermBuf)
 	defer pterm.SetDefaultOutput(os.Stdout)
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3158,7 +3161,7 @@ func TestSprintBacklog_OrderedViewUsesWorkflowDisplayToken(t *testing.T) {
 	pterm.SetDefaultOutput(&ptermBuf)
 	defer pterm.SetDefaultOutput(os.Stdout)
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3256,7 +3259,7 @@ func TestSprintBacklog_GroupedViewFallsBackWhenDisplayTokenMissing(t *testing.T)
 	pterm.SetDefaultOutput(&ptermBuf)
 	defer pterm.SetDefaultOutput(os.Stdout)
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3321,7 +3324,7 @@ func TestSprintNext_TC015_JSONIncludesNewFields(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3388,7 +3391,7 @@ func TestSprintNext_TC015b_NullSprintOrderInJSON(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3451,7 +3454,7 @@ func TestSprintNext_TC016_HumanOutputShowsSprintOrderAndReason(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3504,7 +3507,7 @@ func TestSprintNext_TC016b_HumanOutputUnorderedItem(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3545,7 +3548,7 @@ func TestSprintNext_E38F06_ForwardsExactRoleWithoutMutation(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3592,6 +3595,56 @@ func TestSprintNext_E38F06_WithoutRolePreservesUnfilteredCall(t *testing.T) {
 	assert.Empty(t, receivedAgentType, "no --agent flag must preserve unfiltered selection")
 }
 
+func TestSprintNext_HumanOutputDescribesEligibleExecutionPhaseSprints(t *testing.T) {
+	cases := []struct {
+		name        string
+		agentType   string
+		wantMessage string
+	}{
+		{
+			name:        "unfiltered",
+			wantMessage: "No more items found in eligible execution-phase sprints.",
+		},
+		{
+			name:        "agent filtered",
+			agentType:   "qa",
+			wantMessage: `No more items found for agent type "qa" in eligible execution-phase sprints.`,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mock := &MockSprintService{
+				GetNextTaskFunc: func(context.Context, string) (*services.BacklogItemView, error) {
+					return nil, nil
+				},
+			}
+			cleanup := setupSprintTest(t, mock)
+			defer cleanup()
+
+			originalJSON := cli.GlobalConfig.JSON
+			defer func() { cli.GlobalConfig.JSON = originalJSON }()
+			cli.GlobalConfig.JSON = false
+
+			var output bytes.Buffer
+			previousPtermWriter := pterm.Info.Writer
+			pterm.Info.Writer = &output
+			defer func() { pterm.Info.Writer = previousPtermWriter }()
+
+			cmd := &cobra.Command{}
+			cmd.SetContext(context.Background())
+			cmd.Flags().String("agent", "", "agent type")
+			if testCase.agentType != "" {
+				require.NoError(t, cmd.Flags().Set("agent", testCase.agentType))
+			}
+
+			runErr := runSprintNext(cmd, []string{})
+			require.NoError(t, runErr)
+			assert.Contains(t, output.String(), testCase.wantMessage)
+		})
+	}
+}
+
 // =============================================================================
 // TC-024: sprint start emits warning when NULL sprint_orders exist (human mode only)
 // =============================================================================
@@ -3619,7 +3672,7 @@ func TestSprintStart_TC024_HumanModeWarningWhenNullOrdersExist(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3664,7 +3717,7 @@ func TestSprintStart_TC024_JSONModeNoWarning(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3713,7 +3766,7 @@ func TestSprintStart_TC024_HumanModeNoWarningWhenAllOrdered(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3756,7 +3809,7 @@ func TestSprintStart_TC024_JSONModeNoWarningWhenAllOrdered(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 	cli.GlobalConfig.JSON = true
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	origOut := os.Stdout
 	os.Stdout = w
@@ -3820,7 +3873,7 @@ func TestSprintNext_E19F09_HumanOutputMarksExpansionCandidate(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = originalJSON }()
 	cli.GlobalConfig.JSON = false
 
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	originalOut := os.Stdout
 	os.Stdout = w

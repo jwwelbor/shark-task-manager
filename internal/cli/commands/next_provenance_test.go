@@ -13,6 +13,7 @@ import (
 	cli "github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -143,7 +144,7 @@ func TestTC002_05_FieldPromptDiffersFromPromptOutByExactlyOneTrailingNewline(t *
 	require.NoError(t, err)
 
 	oldStdout := os.Stdout
-	r, w, pipeErr := os.Pipe()
+	r, w, pipeErr := testcapture.NewDrainingPipe()
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 

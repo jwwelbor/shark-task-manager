@@ -11,6 +11,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
 // Coordinator is the T-E34-F05-003 parent-owned persistence coordinator. All
@@ -32,6 +33,13 @@ type Coordinator struct {
 	// back to the Normalize-only comparison round 12 proved insufficient —
 	// a documented path back to the exact vulnerability being fixed.
 	Identity IdentityResolver
+
+	// ReworkRoutes, QuestionBlocker, and RoutedRework are required whenever a
+	// GateResult carries child kickbacks. The routed transitioner is the only
+	// path allowed to apply those child state changes.
+	ReworkRoutes    ReworkRouteResolver
+	QuestionBlocker QuestionBlocker
+	RoutedRework    RoutedReworkTransitioner
 
 	// ClaimVerifier, when set, re-verifies Request.Session's claim ownership
 	// immediately after Persist acquires the per-run lock (UAT round-2
@@ -76,7 +84,7 @@ func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryRead
 	case identity == nil:
 		panic("gatepersist: NewCoordinator requires a non-nil IdentityResolver")
 	}
-	return &Coordinator{
+	coordinator := &Coordinator{
 		Notes:      notes,
 		NoteReader: noteReader,
 		History:    history,
@@ -86,6 +94,13 @@ func NewCoordinator(notes NoteWriter, noteReader NoteReader, history HistoryRead
 		Lease:      lease,
 		Identity:   identity,
 	}
+	if routes, ok := validator.(ReworkRouteResolver); ok {
+		coordinator.ReworkRoutes = routes
+	}
+	if routed, ok := transition.(RoutedReworkTransitioner); ok {
+		coordinator.RoutedRework = routed
+	}
+	return coordinator
 }
 
 // Persist runs the full REQ-F-002/REQ-F-003 sequence for req: acquire the
@@ -282,21 +297,29 @@ func (c *Coordinator) initializeRun(ctx context.Context, req Request) (digest st
 		return "", nil, nil, fmt.Errorf("gatepersist: compute operation digest: %w", err)
 	}
 
-	// UAT-3-1 fix, extended by UAT round 3+4 (note #2926): durably bind this
-	// run_id's owning entity AND its full replay-identity context BEFORE
-	// result.json (or anything derived from it) ever becomes recoverable.
-	// gaterun.CreateIdentity uses the same create-once/first-writer-wins
-	// protocol as CreateResult: a first call for run_id durably binds
-	// req.EntityKey/EntityType/SourceStatus/Gate/digest; a later call whose
-	// fields all agree is idempotent (the ordinary resume/replay case); a
-	// later call disagreeing on ANY of those fields for the same run_id
-	// fails closed with *ConflictError before any coordinator write —
-	// closing the crash window where a result.json could exist with no
-	// durable replay context to check a resume request's caller-supplied
-	// identity against (see
-	// internal/cli/commands.resumeGateIngestForUninitializedState's now-
-	// resolved former accepted-risk comment; the full wiring of that
-	// caller's own verification is T-E34-F05-004's scope).
+	state, exists, err := gaterun.LoadOperationState(req.RunDir)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("gatepersist: load operation state: %w", err)
+	}
+
+	// Resolve identity and basic workflow membership before accepting a new
+	// immutable result. Route and Question preflight also happen before a new
+	// result is accepted. Existing operation states defer route checks until
+	// reconciliation has identified already-applied kickbacks, so replay never
+	// resolves an applied child from its new live status.
+	kickbackEntityTypes, err = validateKickbacks(ctx, req.Result.Kickbacks, req.EntityType, req.EntityKey, c.Validator, c.Identity)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if !exists {
+		if err := c.preflightKickbacks(ctx, req, kickbackEntityTypes, nil, digest); err != nil {
+			return "", nil, nil, err
+		}
+	}
+
+	// Bind replay identity only after a fresh result has passed every route
+	// and Question preflight. The identity must still precede result.json so a
+	// resumed or conflicting result is checked against its durable owner.
 	if _, err := gaterun.CreateIdentity(req.RunDir, gaterun.RunIdentity{
 		RunID:           req.RunID,
 		EntityKey:       req.EntityKey,
@@ -312,25 +335,10 @@ func (c *Coordinator) initializeRun(ctx context.Context, req Request) (digest st
 		return "", nil, nil, fmt.Errorf("gatepersist: bind run identity: %w", err)
 	}
 
-	// Kickback validation runs before this run_id ever accepts a durable
-	// result: a run whose result would be rejected must not permanently burn
-	// its run_id under gaterun.CreateResult's create-once/first-writer-wins
-	// contract (there is no rewrite path — a corrected envelope needs a new
-	// run_id otherwise). This is "rejected without partial mutation" applied
-	// to the sidecar transport itself, not just target-store writes.
-	kickbackEntityTypes, err = validateKickbacks(ctx, req.Result.Kickbacks, req.EntityType, req.EntityKey, c.Validator, c.Identity)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
 	if _, err := gaterun.CreateResult(req.RunDir, []byte(req.EnvelopeJSON)); err != nil {
 		return "", nil, nil, err
 	}
 
-	state, exists, err := gaterun.LoadOperationState(req.RunDir)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("gatepersist: load operation state: %w", err)
-	}
 	if !exists {
 		// Entity identity here (req.EntityKey/req.EntityType) is no longer
 		// established solely from THIS call's Request (the UAT-3-1 gap): the
@@ -380,6 +388,9 @@ func (c *Coordinator) reconcileAndApplyOperations(ctx context.Context, req Reque
 			return fmt.Errorf("gatepersist: save reconciled operation state: %w", err)
 		}
 	}
+	if err := c.preflightKickbacks(ctx, req, kickbackEntityTypes, state, digest); err != nil {
+		return err
+	}
 
 	for _, op := range ops {
 		subID := op.suboperationID(digest)
@@ -424,6 +435,9 @@ func (c *Coordinator) applyGuardedTransition(ctx context.Context, req Request, s
 }
 func (c *Coordinator) applyPendingTransition(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
 	if err := c.verifyPendingTransition(ctx, req, state); err != nil {
+		return err
+	}
+	if err := c.checkKickbackQuestions(ctx, req); err != nil {
 		return err
 	}
 	if err := c.transitionWithProvenance(ctx, req, state, result); err != nil {
@@ -610,24 +624,16 @@ func (c *Coordinator) applyKickback(ctx context.Context, op operation, subID str
 	if err != nil {
 		return err
 	}
-	// The kickback target (often a different entity than req.EntityKey) has
-	// no parent-observed SourceStatus the way the main transition does, so
-	// its expected pre-transition status is read fresh here, immediately
-	// before the guarded Transition call — the same narrow
-	// observe-then-transition window guardedTransitionOptions accepts for
-	// the runner's own dispatch-loop transitions.
-	fromStatus, err := c.Status.CurrentStatus(ctx, entityType, k.EntityKey)
-	if err != nil {
-		return fmt.Errorf("gatepersist: read kickback target status for %s: %w", k.EntityKey, err)
+	if err := c.checkKickbackQuestion(ctx, entityType, k.EntityKey); err != nil {
+		return err
 	}
 	reason := buildKickbackReason(k.Reason, subID, op.contentDigest(), req.RunID)
-	guard := TransitionGuard{
-		SessionID:           req.Session.ID,
-		FromStatus:          fromStatus,
-		Outcome:             req.OutcomeKey,
-		ForceTerminalReopen: true,
+	parent := services.ParentLeaseAuthority{
+		EntityType: req.EntityType,
+		EntityKey:  req.EntityKey,
+		SessionID:  req.Session.ID,
 	}
-	if _, _, err := c.Transition.Transition(ctx, entityType, k.EntityKey, k.TargetStatus, reason, req.Session.Agent, guard); err != nil {
+	if _, _, err := c.RoutedRework.TransitionReviewRework(ctx, entityType, k.EntityKey, req.OutcomeKey, k.TargetStatus, reason, req.Session.Agent, parent); err != nil {
 		return fmt.Errorf("gatepersist: apply kickback to %s: %w", k.EntityKey, err)
 	}
 	return nil

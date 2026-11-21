@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 )
 
 // captureStderrOutput redirects stderr for the duration of fn and returns
@@ -17,7 +19,7 @@ import (
 func captureStderrOutput(fn func()) string {
 	old := os.Stderr
 	defer func() { os.Stderr = old }()
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stderr = w
 
 	fn()

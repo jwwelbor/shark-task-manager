@@ -44,7 +44,7 @@ func ValidateEntityAt(projectRoot, artifactRoot string, entity models.Entity) er
 
 // ValidateEntityAtContext validates research evidence with caller cancellation.
 func ValidateEntityAtContext(ctx context.Context, projectRoot, artifactRoot string, entity models.Entity) error {
-	catalog, err := LoadCatalog(projectRoot)
+	catalog, err := LoadCatalogContext(ctx, projectRoot)
 	if err != nil {
 		return err
 	}

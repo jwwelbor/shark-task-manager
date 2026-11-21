@@ -131,7 +131,7 @@ func (r *TechDebtRepository) GetByKey(ctx context.Context, key string) (*models.
 		return td, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("failed to get tech-debt: %w", err)
+		return nil, fmt.Errorf("failed to get tech-debt: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	// If not found and input might contain a slug suffix (e.g., TD-001-some-slug),
@@ -139,12 +139,15 @@ func (r *TechDebtRepository) GetByKey(ctx context.Context, key string) (*models.
 	parts := strings.SplitN(normalizedKey, "-", 3)
 	if len(parts) >= 3 {
 		numericKey := parts[0] + "-" + parts[1] // TD-001
-		slug := strings.ToLower(key[len(numericKey)+1:])
+		slug := strings.ToLower(normalizedKey[len(numericKey)+1:])
 
 		slugQuery := fmt.Sprintf(`SELECT %s FROM tech_debts WHERE key = ? AND slug = ?`, techDebtSelectColumns)
 		td, scanErr := scanTechDebt(r.db.QueryRowContext(ctx, slugQuery, numericKey, slug))
 		if scanErr == nil {
 			return td, nil
+		}
+		if !errors.Is(scanErr, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to get tech-debt by key and slug: %w: %w", repoerr.ErrDatabaseFailure, scanErr)
 		}
 	}
 
@@ -193,12 +196,12 @@ func (r *TechDebtRepository) Update(ctx context.Context, td *models.TechDebt) er
 		td.ID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to update tech-debt: %w", err)
+		return fmt.Errorf("failed to update tech-debt: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return fmt.Errorf("failed to get rows affected while updating tech-debt: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	if rowsAffected == 0 {
@@ -214,12 +217,12 @@ func (r *TechDebtRepository) Delete(ctx context.Context, id int64) error {
 
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete tech-debt: %w", err)
+		return fmt.Errorf("failed to delete tech-debt: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return fmt.Errorf("failed to get rows affected while deleting tech-debt: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	if rowsAffected == 0 {

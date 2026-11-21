@@ -87,7 +87,9 @@ ON FAIL (blockers, spec drift, missing ACs, contract violations): recommended_ou
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
 - This outcome's role is `kickback_rework` — `gate_result.kickbacks` must
   contain one entry per task that needs to reopen (`entity_key`: the task
-  key, `target_status`: development, `reason`: "<defect-class statement> —
+  key, `target_status`: the configured `rework_outcomes[fail]` destination
+  for the task's current status (development in the shipped workflow),
+  `reason`: "<defect-class statement> —
   <specific findings>. Before fixing the cited instance, sweep the touched
   module(s) for every other instance of this defect class; fix all; list
   swept sites in the completion note.")
