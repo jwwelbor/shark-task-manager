@@ -168,7 +168,7 @@ func (s *EntityDocumentService) UnlinkDocumentByEntity(ctx context.Context, enti
 
 func isNilEntity(entity models.Entity) bool {
 	value := reflect.ValueOf(entity)
-	return value.Kind() == reflect.Ptr && value.IsNil()
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 // ListDocumentsByKey returns all documents linked to an entity identified by key.
