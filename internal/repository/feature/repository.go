@@ -197,6 +197,9 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (_ *models
 // Unlike GetByKey's compatibility lookup, shorthand selectors must be unique
 // before the document service lists or removes any links.
 func (r *FeatureRepository) ResolveDocumentUnlinkKey(ctx context.Context, key string) (*models.Feature, error) {
+	if ctx == nil {
+		return nil, errors.New("resolve feature for document unlink: context is required")
+	}
 	normalized := strings.ToUpper(strings.TrimSpace(key))
 	parts := strings.Split(normalized, "-")
 	if len(parts) >= 2 && strings.HasPrefix(parts[0], "E") {
@@ -208,10 +211,13 @@ func (r *FeatureRepository) ResolveDocumentUnlinkKey(ctx context.Context, key st
 		feature, err := r.getByExactKeyAndSlug(ctx, featureKey, strings.ToLower(strings.Join(parts[2:], "-")))
 		return feature, mapFeatureLookupError(err)
 	}
-	if len(parts) == 1 && strings.HasPrefix(parts[0], "F") {
-		return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], "")
-	}
-	if len(parts) >= 2 && strings.HasPrefix(parts[0], "F") {
+	if strings.HasPrefix(parts[0], "F") {
+		if !repoutil.IsNumeric(strings.TrimPrefix(parts[0], "F")) {
+			return nil, mapFeatureLookupError(sql.ErrNoRows)
+		}
+		if len(parts) == 1 {
+			return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], "")
+		}
 		return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], strings.ToLower(strings.Join(parts[1:], "-")))
 	}
 	feature, err := r.GetByKey(ctx, key)

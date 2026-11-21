@@ -156,3 +156,29 @@ func TestB078RelatedDocsDeleteValidatesNumericQualifiedSlug(t *testing.T) {
 	require.Equal(t, "unlinked", output["status"])
 	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, feature.ID, doc.ID, false)
 }
+
+func TestB078RelatedDocsDeleteRejectsWildcardFeatureSelectors(t *testing.T) {
+	fixture := newB078IdentityFixture(t)
+	repoDB := repository.NewDB(fixture.sqlDB)
+	feature, err := repository.NewFeatureRepository(repoDB).GetByKey(context.Background(), "E10-F02")
+	require.NoError(t, err)
+	doc, err := fixture.documents.CreateOrGet(context.Background(), "B078 wildcard selector doc", "docs/b078/feature/wildcard.md")
+	require.NoError(t, err)
+	links := repository.NewEntityDocumentRepository(repoDB)
+	require.NoError(t, links.Link(context.Background(), models.EntityTypeFeature, feature.ID, doc.ID, "wildcard"))
+
+	for _, selector := range []string{"F0_2", "F%2"} {
+		_, exitCode := fixture.cli.rejectionWithExit(t, "related-docs", "delete", doc.Title, "--feature="+selector)
+		require.Equal(t, 1, exitCode)
+		assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, feature.ID, doc.ID, true)
+	}
+}
+
+func TestB078RelatedDocsDeleteFeatureResolverRejectsNilContext(t *testing.T) {
+	fixture := newB078IdentityFixture(t)
+	repoDB := repository.NewDB(fixture.sqlDB)
+	var nilContext context.Context
+	resolved, err := repository.NewFeatureRepository(repoDB).ResolveDocumentUnlinkKey(nilContext, "E10-F02")
+	require.Nil(t, resolved)
+	require.ErrorContains(t, err, "context is required")
+}
