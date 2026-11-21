@@ -10,6 +10,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	repoerr "github.com/jwwelbor/shark-task-manager/internal/repository/repoerr"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -222,7 +223,7 @@ func newRelatedDocsHandlerCommand(t *testing.T, handler func(*cobra.Command, []s
 
 func captureRelatedDocsHandlerOutput(t *testing.T, run func() error) (string, error) {
 	t.Helper()
-	reader, writer, err := os.Pipe()
+	reader, writer, err := testcapture.NewDrainingPipe()
 	if err != nil {
 		return "", err
 	}
