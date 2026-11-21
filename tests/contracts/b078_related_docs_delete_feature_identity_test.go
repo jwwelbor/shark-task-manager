@@ -27,6 +27,26 @@ func TestB078RelatedDocsDeleteBindsQualifiedFeatureAndRejectsAmbiguousShorthand(
 	require.NoError(t, links.Link(context.Background(), models.EntityTypeFeature, first.ID, doc.ID, "first"))
 	require.NoError(t, links.Link(context.Background(), models.EntityTypeFeature, second.ID, doc.ID, "second"))
 
+	// Qualified numeric keys must preserve the epic identity on the registered
+	// get, add, and list routes even when the feature slug is shared.
+	qualifiedGet, err := fixture.cli.run("feature", "get", "E10-F02")
+	require.NoError(t, err)
+	require.Contains(t, string(qualifiedGet), "E10-F02")
+	_, err = fixture.cli.run("related-docs", "add", "B078 qualified feature doc", "docs/b078/feature/qualified.md", "--feature=E10-F02")
+	require.NoError(t, err)
+	qualifiedIDs := fixture.cli.relatedDocIDs(t, "--feature=E10-F02")
+	siblingIDs := fixture.cli.relatedDocIDs(t, "--feature=E11-F02")
+	require.NotEmpty(t, qualifiedIDs)
+	require.NotEqual(t, qualifiedIDs, siblingIDs)
+	var qualifiedDocs []models.Document
+	require.NoError(t, json.Unmarshal(fixture.cli.success(t, "related-docs", "list", "--feature=E10-F02"), &qualifiedDocs))
+	var siblingDocs []models.Document
+	require.NoError(t, json.Unmarshal(fixture.cli.success(t, "related-docs", "list", "--feature=E11-F02"), &siblingDocs))
+	require.Contains(t, documentPaths(qualifiedDocs), "docs/b078/feature/qualified.md")
+	require.NotContains(t, documentPaths(siblingDocs), "docs/b078/feature/qualified.md")
+	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, first.ID, doc.ID, true)
+	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, second.ID, doc.ID, true)
+
 	_, exitCode := fixture.cli.rejectionWithExit(t, "related-docs", "delete", doc.Title, "--feature=E10-F02-wrong-slug")
 	require.Equal(t, 1, exitCode)
 	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, first.ID, doc.ID, true)
@@ -83,6 +103,34 @@ func TestB078RelatedDocsDeleteBindsQualifiedFeatureAndRejectsAmbiguousShorthand(
 	}
 	require.True(t, selectedHasAdded)
 	require.False(t, otherHasAdded)
+
+	// Slugged shorthand add keeps the historical compatibility lookup target.
+	slugSelected, err := repository.NewFeatureRepository(repoDB).GetByKey(context.Background(), "F02-"+*first.Slug)
+	require.NoError(t, err)
+	_, err = fixture.cli.run("related-docs", "add", "B078 slugged feature compatibility", "docs/b078/feature/slug-compatibility.md", "--feature=F02-"+*first.Slug)
+	require.NoError(t, err)
+	slugSelectedDocs := fixture.cli.relatedDocIDs(t, "--feature="+slugSelected.Key)
+	slugOtherKey := first.Key
+	if slugSelected.Key == first.Key {
+		slugOtherKey = second.Key
+	}
+	slugOtherDocs := fixture.cli.relatedDocIDs(t, "--feature="+slugOtherKey)
+	var slugSelectedList []models.Document
+	require.NoError(t, json.Unmarshal(fixture.cli.success(t, "related-docs", "list", "--feature="+slugSelected.Key), &slugSelectedList))
+	var slugOtherList []models.Document
+	require.NoError(t, json.Unmarshal(fixture.cli.success(t, "related-docs", "list", "--feature="+slugOtherKey), &slugOtherList))
+	require.Contains(t, documentPaths(slugSelectedList), "docs/b078/feature/slug-compatibility.md")
+	require.NotContains(t, documentPaths(slugOtherList), "docs/b078/feature/slug-compatibility.md")
+	require.NotEmpty(t, slugSelectedDocs)
+	require.NotEmpty(t, slugOtherDocs)
 	require.NotEmpty(t, selectedIDs)
 	require.NotEmpty(t, otherIDs)
+}
+
+func documentPaths(documents []models.Document) []string {
+	paths := make([]string, 0, len(documents))
+	for _, document := range documents {
+		paths = append(paths, document.FilePath)
+	}
+	return paths
 }
