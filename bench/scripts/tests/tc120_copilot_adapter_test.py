@@ -4,28 +4,16 @@ Covers AC-F13-01, AC-F13-02, and AC-F13-12 (TC-F13-01, TC-F13-02, TC-F13-12).
 """
 
 import argparse
-import json
-import os
-import re
+import sys
 from pathlib import Path
 import pytest
 
-# Load adapter functions by parsing the embedded python script inside lifecycle-worker-adapter.sh
-ADAPTER_SCRIPT = Path(__file__).resolve().parent.parent / "lifecycle-worker-adapter.sh"
+TEST_LIB = Path(__file__).resolve().parent / "lib"
+sys.path.insert(0, str(TEST_LIB))
+from lifecycle_adapter_test_helper import load_adapter_module
 
 
-def _load_adapter_module():
-    content = ADAPTER_SCRIPT.read_text(encoding="utf-8")
-    match = re.search(r"<<'PYEOF'\n(.*)\nPYEOF", content, re.DOTALL)
-    assert match is not None, "Could not find embedded Python in lifecycle-worker-adapter.sh"
-    py_code = match.group(1)
-    py_code_no_main = re.sub(r"\nmain\(\)\s*$", "\n", py_code)
-    ns = {}
-    exec(py_code_no_main, ns)
-    return ns
-
-
-_adapter = _load_adapter_module()
+_adapter = load_adapter_module()
 command_for = _adapter["command_for"]
 decode_envelope = _adapter["decode_envelope"]
 provider_measurements = _adapter["provider_measurements"]
@@ -83,137 +71,6 @@ def test_copilot_missing_model_raises_adapter_error():
 
 
 # ---------------------------------------------------------------------------
-# B083: E40 pins the Codex model and reasoning effort at the adapter boundary.
-# ---------------------------------------------------------------------------
-@pytest.mark.parametrize("model", ["gpt-5.4", "gpt-5.5"])
-def test_b083_codex_command_preserves_model_and_effort(model):
-    request = {"provider": "openai", "model": model, "effort": "high"}
-    cmd = command_for(make_args(), request)
-
-    assert cmd[:3] == ["codex", "exec", "--json"]
-    assert cmd[cmd.index("-m") + 1] == model
-    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="high"'
-
-
-def test_b083_codex_executable_override_preserves_model_and_effort():
-    request = {"provider": "codex", "model": "gpt-5.5", "effort": "xhigh"}
-    cmd = command_for(make_args("/custom/codex"), request)
-
-    assert cmd[:2] == ["/custom/codex", "exec"]
-    assert cmd[cmd.index("-m") + 1] == "gpt-5.5"
-    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="xhigh"'
-
-
-def test_b083_codex_opaque_command_override_rejects_unbound_route(monkeypatch):
-    monkeypatch.setenv("LIFECYCLE_PROVIDER_COMMAND", '["/custom/wrapper"]')
-
-    with pytest.raises(AdapterError, match="cannot preserve the pinned Codex route"):
-        command_for(make_args(), {"provider": "codex", "model": "gpt-5.5", "effort": "high"})
-
-
-@pytest.mark.parametrize(
-    "extra_route_flags",
-    [
-        ["--model=gpt-5.4"],
-        ["--model=gpt-5.5"],
-        ["--model", "gpt-5.4"],
-        ["-m", "gpt-5.4"],
-        ["-mgpt-5.4"],
-        ["-c", 'model="gpt-5.4"'],
-        ['-cmodel="gpt-5.4"'],
-        ["--config=model_reasoning_effort=low"],
-        ["--config", 'model_reasoning_effort="low"'],
-        ["--config", 'model_provider="other"'],
-        ["--config=model_provider=other"],
-        ['-cmodel_reasoning_effort="low"'],
-        ["--oss"],
-    ],
-)
-def test_b083_codex_command_override_rejects_alternate_route_syntax(monkeypatch, extra_route_flags):
-    command = [
-        "codex",
-        "exec",
-        "--json",
-        "-m",
-        "gpt-5.5",
-        "-c",
-        'model_reasoning_effort="high"',
-        *extra_route_flags,
-    ]
-    monkeypatch.setenv("LIFECYCLE_PROVIDER_COMMAND", json.dumps(command))
-
-    with pytest.raises(AdapterError, match="cannot preserve the pinned Codex route"):
-        command_for(
-            make_args(),
-            {"provider": "codex", "model": "gpt-5.5", "effort": "high"},
-        )
-
-
-def test_b083_codex_route_flag_parser_collects_repeated_override_forms():
-    parser = _adapter.get("_codex_route_flags")
-    assert callable(parser), "B083 route override parsing should be isolated from command construction"
-
-    models, configs = parser(
-        [
-            "codex",
-            "exec",
-            "-m",
-            "gpt-5.5",
-            "--model=gpt-5.4",
-            "-c",
-            'model_provider="other"',
-            "--config=model_reasoning_effort=low",
-        ]
-    )
-
-    assert models == ["gpt-5.5", "gpt-5.4"]
-    assert configs == {
-        "model": [],
-        "model_provider": ['model_provider="other"'],
-        "model_reasoning_effort": ["model_reasoning_effort=low"],
-    }
-
-
-def test_b083_route_identity_reaches_provider_environment():
-    request = {
-        "entity_key": "TASK-1",
-        "entity_type": "task",
-        "provider": "codex",
-        "model": "gpt-5.5",
-        "effort": "high",
-        "routing_identity": {
-            "profile_id": "codex-test",
-            "profile_schema_version": "1.0",
-            "profile_digest": "a" * 64,
-            "profile_source_digest": "b" * 64,
-            "routing_digest": "c" * 64,
-        },
-    }
-
-    environment = provider_environment(request, "session-1", "d" * 64, 1)
-
-    assert environment["LIFECYCLE_ROUTING_DIGEST"] == "c" * 64
-    assert environment["LIFECYCLE_ROUTING_PROFILE_ID"] == "codex-test"
-    assert environment["LIFECYCLE_ROUTING_PROFILE_VERSION"] == "1.0"
-    assert environment["LIFECYCLE_ROUTING_PROFILE_DIGEST"] == "a" * 64
-    assert environment["LIFECYCLE_ROUTING_PROFILE_SOURCE_DIGEST"] == "b" * 64
-
-
-@pytest.mark.parametrize("invalid_value", [["unexpected"], {"unexpected": True}, 7, True])
-def test_b083_route_identity_rejects_non_string_environment_fields(invalid_value):
-    request = {
-        "entity_key": "TASK-1",
-        "entity_type": "task",
-        "provider": "codex",
-        "model": "gpt-5.5",
-        "routing_identity": {"routing_digest": invalid_value},
-    }
-
-    with pytest.raises(AdapterError, match="routing_identity.routing_digest must be a string or null"):
-        provider_environment(request, "session-1", "d" * 64, 1)
-
-
-# ---------------------------------------------------------------------------
 # TC-F13-02: Model pinned & reasoning effort mapping (AC-F13-02)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
@@ -226,9 +83,9 @@ def test_b083_route_identity_rejects_non_string_environment_fields(invalid_value
         ("claude-sonnet-5", "low", "low"),
         ("claude-sonnet-5", "medium", "medium"),
         ("claude-sonnet-5", "high", "high"),
-        ("gpt-5.4", "xhigh", "xhigh"),
-        ("gpt-5.4", "max", "max"),
-        ("gpt-5.4", "none", "none"),
+        ("fixture-codex-model-a", "xhigh", "xhigh"),
+        ("fixture-codex-model-a", "max", "max"),
+        ("fixture-codex-model-a", "none", "none"),
         ("claude-sonnet-5", "HIGH", "high"),  # Case insensitive normalization
     ],
 )
@@ -454,14 +311,14 @@ def test_copilot_measurements_extraction():
 
 def test_copilot_measurements_multiple_models_sorted():
     stream = """{"type":"session.start","data":{"sessionId":"copilot-session-multi"}}
-{"type":"assistant.message","data":{"content":"Turn 1","model":"gpt-5.4"}}
+{"type":"assistant.message","data":{"content":"Turn 1","model":"fixture-codex-model-a"}}
 {"type":"assistant.message","data":{"content":"Turn 2","model":"claude-sonnet-5"}}
-{"type":"session.usage_checkpoint","data":{"promptCacheBreakState":{"models":{"claude-sonnet-5":{"prompt_tokens":500,"output_tokens":100,"cache_read":100,"cache_write":50},"gpt-5.4":{"prompt_tokens":700,"output_tokens":200,"cache_read":200,"cache_write":50}}},"lastActiveModel":"claude-sonnet-5"}}
+{"type":"session.usage_checkpoint","data":{"promptCacheBreakState":{"models":{"claude-sonnet-5":{"prompt_tokens":500,"output_tokens":100,"cache_read":100,"cache_write":50},"fixture-codex-model-a":{"prompt_tokens":700,"output_tokens":200,"cache_read":200,"cache_write":50}}},"lastActiveModel":"claude-sonnet-5"}}
 {"type":"result","data":{"exitCode":0,"usage":{"totalApiDurationMs":1500},"sessionId":"copilot-session-multi"}}
 """
     measurements = provider_measurements(stream)
     usage = measurements["usage"]
-    assert usage["model_ids"] == ["claude-sonnet-5", "gpt-5.4"]
+    assert usage["model_ids"] == ["claude-sonnet-5", "fixture-codex-model-a"]
     assert usage["input_tokens"] == 1200
     assert usage["output_tokens"] == 300
     assert usage["cache_read_input_tokens"] == 300

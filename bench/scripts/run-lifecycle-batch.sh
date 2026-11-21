@@ -93,6 +93,7 @@ BENCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUN_LIFECYCLE_BIN="${RUN_LIFECYCLE_BIN:-$SCRIPT_DIR/run-lifecycle.sh}"
 EVALUATE_LIFECYCLE_BIN="${EVALUATE_LIFECYCLE_BIN:-$SCRIPT_DIR/evaluate-lifecycle.sh}"
 CHECKOUT_SCENARIO_FIXTURE_BIN="${CHECKOUT_SCENARIO_FIXTURE_BIN:-$SCRIPT_DIR/checkout-scenario-fixture.sh}"
+ROUTE_MATERIALIZER="${SCRIPT_DIR}/materialize-routing-profile$(python3 -c 'import os; print(os.extsep + "py")')"
 # UAT-R3-01 fix (T-E40-F10-004): the real producer for retain_pair's
 # entity-history.json artifact -- see export-entity-history.sh's own header.
 ENTITY_HISTORY_EXPORT_BIN="${ENTITY_HISTORY_EXPORT_BIN:-$SCRIPT_DIR/export-entity-history.sh}"
@@ -429,6 +430,11 @@ if requested_ids:
         raise SystemExit(1)
 else:
     selected = packages
+configured_families = policy.get("workflow_families")
+if isinstance(configured_families, list) and all(isinstance(item, str) and item for item in configured_families):
+    workflow_families = sorted(set(configured_families))
+else:
+    workflow_families = sorted({str(pkg.get("entity_family", "unknown")) for _, _, pkg in selected})
 
 policy_scenarios = policy.get("scenarios") or {}
 if not isinstance(policy_scenarios, dict):
@@ -465,6 +471,14 @@ for scenario_id, pkg_path, pkg in selected:
     if replay_result and not os.path.isabs(replay_result):
         replay_result = os.path.join(bench_dir, replay_result)
     workflow_root = str(entry.get("workflow_root") or "shark-data/workflow")
+    if os.path.isabs(workflow_root) or any(
+        part == ".." for part in re.split(r"[/\\]+", workflow_root)
+    ):
+        print(
+            f"run-lifecycle-batch: scenarios.{scenario_id}.workflow_root must be a relative path inside the scratch copy",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     routing_profile = str(entry.get("routing_profile") or "")
     if routing_profile and not os.path.isabs(routing_profile):
         routing_profile = os.path.join(bench_dir, routing_profile)
@@ -481,6 +495,7 @@ for scenario_id, pkg_path, pkg in selected:
         "i05_bundle_dir": i05_bundle_dir,
         "replay_result": replay_result,
         "workflow_root": workflow_root,
+        "workflow_families": workflow_families,
         "routing_profile": routing_profile,
         "package_path": os.path.abspath(pkg_path),
         "prelude": prelude,
@@ -517,7 +532,7 @@ if [[ "$mode" == "preview" ]]; then
 	trap 'cleanup_matrix; rm -rf "$PREVIEW_WORK"' EXIT
 
 	set +e
-	python3 - "$RUN_LIFECYCLE_BIN" "$MATRIX_TMP" "$out_root_canon" "$PREVIEW_WORK" \
+	python3 - "$RUN_LIFECYCLE_BIN" "$SCRIPT_DIR" "$MATRIX_TMP" "$out_root_canon" "$PREVIEW_WORK" \
 		"${ORIGINAL_ARGV[*]}" <<'PYEOF'
 import json
 import os
@@ -526,7 +541,7 @@ import shutil
 import subprocess
 import sys
 
-run_lifecycle_bin, matrix_path, retention_root, work_dir, argv_joined = sys.argv[1:6]
+run_lifecycle_bin, script_dir, matrix_path, retention_root, work_dir, argv_joined = sys.argv[1:7]
 
 
 def flag_value(argv_str, flag):
@@ -591,7 +606,8 @@ def emit_ledger_record(row, resolution, cause_class, reason, dispatch_count=0, s
         entry["routing_profile_source_digest"] = routing.get("profile_source_digest")
         provider_routing = routing.get("provider_routing") or {}
         entry["routing_digest"] = provider_routing.get("routing_digest")
-        entry["requested_routes"] = routing.get("requested_routes") or routing.get("effective_routes")
+        entry["requested_routes"] = routing.get("requested_routes") or []
+        entry["effective_routes"] = routing.get("effective_routes") or {}
     ledger_records.append(entry)
 
 
@@ -642,13 +658,17 @@ for row in rows:
     # at `ephemeral`, never a symlink to the template). Different copy
     # primitive, not vulnerable to the finding-2 defect class.
     shutil.copytree(scratch_root, ephemeral)
-    materializer = os.path.join(os.path.dirname(run_lifecycle_bin), "materialize-routing-profile.py")
+    materializer = os.path.join(script_dir, "materialize-routing-profile" + os.extsep + "py")
     route_command = [
         sys.executable,
         materializer,
         "--workflow-root",
         os.path.join(ephemeral, row["workflow_root"]),
+        "--allowed-root",
+        ephemeral,
     ]
+    for route_family in row.get("workflow_families") or []:
+        route_command.extend(["--family", route_family])
     if row["routing_profile"]:
         route_command.extend(["--profile", row["routing_profile"]])
     route_process = subprocess.run(route_command, text=True, capture_output=True, check=False)
@@ -662,6 +682,20 @@ for row in rows:
             else (route_process.stderr or route_process.stdout).strip() or "route materialization failed"
         )
         print(f"    stage resolution: FAILED (route_defect: {reason})")
+        emit_ledger_record(row, "failed", "route_defect", reason, routing=routing)
+        continue
+    provider_routing = routing.get("provider_routing") or {}
+    expected_routing_digest = os.environ.get("E40_EXPECTED_ROUTING_DIGEST")
+    if expected_routing_digest and provider_routing.get("routing_digest") != expected_routing_digest:
+        reason = "route_defect: preview routing digest differs from the manifest identity"
+        print(f"    stage resolution: FAILED ({reason})")
+        emit_ledger_record(row, "failed", "route_defect", reason, routing=routing)
+        continue
+    codex_catalog = routing.get("codex_catalog") or {}
+    expected_catalog_digest = os.environ.get("E40_EXPECTED_CODEX_CATALOG_DIGEST")
+    if expected_catalog_digest and codex_catalog.get("catalog_digest") != expected_catalog_digest:
+        reason = "route_defect: preview Codex catalog differs from the manifest identity"
+        print(f"    stage resolution: FAILED ({reason})")
         emit_ledger_record(row, "failed", "route_defect", reason, routing=routing)
         continue
     output_path = os.path.join(work_dir, f"{row['scenario_id']}-preview-resolution.jsonl")
@@ -819,11 +853,12 @@ retain_pair() {
 }
 
 dispatch_pair() {
-	# dispatch_pair <scenario_id> <scenario_version> <family> <rep> <package_path> <root_key> <scratch_root> <i05_bundle_dir> <replay_result> <success_label> <routing_profile> <workflow_root>
+	# dispatch_pair <scenario_id> <scenario_version> <family> <rep> <package_path> <root_key> <scratch_root> <i05_bundle_dir> <replay_result> <success_label> <routing_profile> <workflow_root> <workflow_families_json>
 	assert_retention_root_identity
 	local scenario_id="$1" scenario_version="$2" family="$3" rep="$4" package_path="$5"
 	local root_key="$6" scratch_root="$7" i05_bundle_dir="$8" replay_result="$9" success_label="${10}"
 	local routing_profile="${11}" workflow_root="${12}"
+	local workflow_families_json="${13:-[]}" route_family
 
 	if [[ -z "$root_key" || -z "$scratch_root" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep: root_key/scratch_root not configured; recorded failed, batch proceeds" >&2
@@ -892,8 +927,14 @@ dispatch_pair() {
 		return 0
 	fi
 	local routing_identity_path="$pair_work/routing-identity.json"
-	local -a route_command=(python3 "$SCRIPT_DIR/materialize-routing-profile.py"
-		--workflow-root "$ephemeral/$workflow_root")
+	local -a route_command=(python3 "$ROUTE_MATERIALIZER"
+		--workflow-root "$ephemeral/$workflow_root"
+		--allowed-root "$ephemeral")
+	local -a workflow_families=()
+	mapfile -t workflow_families < <(python3 -c 'import json,sys; print("\n".join(json.loads(sys.argv[1])))' "$workflow_families_json")
+	for route_family in "${workflow_families[@]}"; do
+		route_command+=(--family "$route_family")
+	done
 	if [[ -n "$routing_profile" ]]; then
 		route_command+=(--profile "$routing_profile")
 	fi
@@ -904,15 +945,44 @@ dispatch_pair() {
 		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
 		record_invalid "$scenario_id" "$rep" "route_defect"
 		overall_bad="true"
-		rm -rf "$pair_work"
+		preserve_failed_pair "route-defect"
 		return 0
 	fi
-	local routing_digest routing_profile_id routing_profile_version routing_profile_digest routing_profile_source_digest
-	routing_digest="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("provider_routing") or {}).get("routing_digest", ""))' "$routing_identity_path")"
-	routing_profile_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("profile_id") or "")' "$routing_identity_path")"
-	routing_profile_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("profile_schema_version") or "")' "$routing_identity_path")"
-	routing_profile_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("profile_digest") or "")' "$routing_identity_path")"
-	routing_profile_source_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("profile_source_digest") or "")' "$routing_identity_path")"
+	local routing_digest routing_profile_id routing_profile_version routing_profile_digest routing_profile_source_digest catalog_digest
+	local route_fields
+	if ! route_fields="$(python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+p=d.get("routing_profile") or {}
+r=d.get("provider_routing") or p.get("provider_routing") or {}
+c=d.get("codex_catalog") or p.get("codex_catalog") or {}
+fields=(r.get("routing_digest", ""), c.get("catalog_digest", ""), d.get("profile_id", ""), d.get("profile_schema_version", ""), d.get("profile_digest", ""), d.get("profile_source_digest", ""))
+sys.stdout.write("\x1f".join(str(value or "") for value in fields))
+' "$routing_identity_path")"; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: route_defect: routing identity metadata could not be read" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "route_defect"
+		overall_bad="true"
+		preserve_failed_pair "route-metadata"
+		return 0
+	fi
+	IFS=$'\x1f' read -r routing_digest catalog_digest routing_profile_id routing_profile_version routing_profile_digest routing_profile_source_digest <<<"$route_fields"
+	if [[ -n "${E40_EXPECTED_ROUTING_DIGEST:-}" && "$routing_digest" != "$E40_EXPECTED_ROUTING_DIGEST" ]]; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: route_defect: materialized routing digest differs from the manifest identity" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "route_defect"
+		overall_bad="true"
+		preserve_failed_pair "routing-digest-mismatch"
+		return 0
+	fi
+	if [[ -n "${E40_EXPECTED_CODEX_CATALOG_DIGEST:-}" && "$catalog_digest" != "$E40_EXPECTED_CODEX_CATALOG_DIGEST" ]]; then
+		echo "run-lifecycle-batch: $scenario_id rep $rep: route_defect: materialized Codex catalog differs from the manifest identity" >&2
+		append_summary "$scenario_id" "$scenario_version" "$family" "$rep" "failed"
+		record_invalid "$scenario_id" "$rep" "route_defect"
+		overall_bad="true"
+		preserve_failed_pair "catalog-digest-mismatch"
+		return 0
+	fi
 	local fixture_id fixture_base_sha
 	fixture_id="$(python3 -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["fixture"]["fixture_id"])' "$package_path")"
 	fixture_base_sha="$(python3 -c 'import sys,yaml; print((yaml.safe_load(open(sys.argv[1])) or {})["fixture"]["base_sha"])' "$package_path")"
@@ -1218,6 +1288,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 	replay_result="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["replay_result"])' "$row_json")"
 	routing_profile="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("routing_profile") or "")' "$row_json")"
 	workflow_root="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("workflow_root") or "shark-data/workflow")' "$row_json")"
+	workflow_families_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]).get("workflow_families", [])))' "$row_json")"
 	package_path="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["package_path"])' "$row_json")"
 
 	for ((rep = 1; rep <= reps; rep++)); do
@@ -1285,7 +1356,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 					overall_bad="true"
 				else
 					dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-						"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "quarantined_and_rerun" "$routing_profile" "$workflow_root"
+						"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "quarantined_and_rerun" "$routing_profile" "$workflow_root" "$workflow_families_json"
 				fi
 			else
 				echo "run-lifecycle-batch: $scenario_id rep $rep is an incomplete prior attempt (directory present, evaluation.jsonl absent); skipping (pass --reclaim-incomplete to quarantine and re-run)" >&2
@@ -1295,7 +1366,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 			;;
 		pending)
 			dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-				"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "pending_run" "$routing_profile" "$workflow_root"
+				"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "pending_run" "$routing_profile" "$workflow_root" "$workflow_families_json"
 			;;
 		esac
 	done

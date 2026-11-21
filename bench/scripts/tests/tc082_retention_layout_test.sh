@@ -194,7 +194,12 @@ echo '{"stage": "code", "note": "tc082 driver-path evidence"}' >"$DRIVER_I05_BUN
 echo "tc082 driver-path transcript" >"$DRIVER_I05_BUNDLE/transcripts/stage.txt"
 
 DRIVER_SCRATCH="$DRIVER_WORKDIR/scratch-template"
-mkdir -p "$DRIVER_SCRATCH"
+mkdir -p "$DRIVER_SCRATCH/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/feature.yaml" \
+	"$DRIVER_SCRATCH/shark-data/workflow/feature.yaml"
+python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+	"$DRIVER_SCRATCH/shark-data/workflow" \
+	--allowed-root "$DRIVER_WORKDIR"
 echo "placeholder scratch project (never mutated -- run-lifecycle-batch.sh copies it)" >"$DRIVER_SCRATCH/marker.txt"
 
 DRIVER_INDEX_DIR="$DRIVER_WORKDIR/index"
@@ -1558,7 +1563,12 @@ SCRATCH_SYMLINK_ROOT="$WORKDIR/scratch-symlink-root"
 mkdir -p "$SCRATCH_SYMLINK_ROOT"
 
 SCRATCH_REAL_TEMPLATE="$WORKDIR/scratch-real-template"
-mkdir -p "$SCRATCH_REAL_TEMPLATE"
+mkdir -p "$SCRATCH_REAL_TEMPLATE/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/feature.yaml" \
+	"$SCRATCH_REAL_TEMPLATE/shark-data/workflow/feature.yaml"
+python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+	"$SCRATCH_REAL_TEMPLATE/shark-data/workflow" \
+	--allowed-root "$WORKDIR"
 echo "ORIGINAL TEMPLATE CONTENT -- must never be mutated" >"$SCRATCH_REAL_TEMPLATE/marker.txt"
 SCRATCH_TEMPLATE_BEFORE="$(sha256sum "$SCRATCH_REAL_TEMPLATE/marker.txt" | awk '{print $1}')"
 
@@ -1585,7 +1595,7 @@ cat >"$SCRATCH_SYMLINK_INDEX/packages/$SCRATCH_SYMLINK_SCENARIO/package.yaml" <<
 schema_version: "1.0"
 scenario_id: "$SCRATCH_SYMLINK_SCENARIO"
 scenario_version: "1"
-entity_family: "family-tc082-scratch-symlink"
+entity_family: "feature"
 fixture:
   fixture_id: "fixture-tc082-scratch-symlink"
   base_sha: "fixture-base-tc082-scratch-symlink"
@@ -1693,6 +1703,12 @@ echo "TC-082(dispatch_pair scratch_root TOP-LEVEL symlink, round-6 generalizatio
 # ---------------------------------------------------------------------------
 SCRATCH_NESTED_ROOT="$WORKDIR/scratch-nested-root"
 mkdir -p "$SCRATCH_NESTED_ROOT"
+mkdir -p "$SCRATCH_NESTED_ROOT/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/feature.yaml" \
+	"$SCRATCH_NESTED_ROOT/shark-data/workflow/feature.yaml"
+python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+	"$SCRATCH_NESTED_ROOT/shark-data/workflow" \
+	--allowed-root "$WORKDIR"
 
 SCRATCH_NESTED_EXTERNAL="$WORKDIR/scratch-nested-external"
 mkdir -p "$SCRATCH_NESTED_EXTERNAL"
@@ -1727,7 +1743,7 @@ cat >"$SCRATCH_NESTED_INDEX/packages/$SCRATCH_NESTED_SCENARIO/package.yaml" <<EO
 schema_version: "1.0"
 scenario_id: "$SCRATCH_NESTED_SCENARIO"
 scenario_version: "1"
-entity_family: "family-tc082-scratch-nested-symlink"
+entity_family: "feature"
 fixture:
   fixture_id: "fixture-tc082-scratch-nested-symlink"
   base_sha: "fixture-base-tc082-scratch-nested-symlink"

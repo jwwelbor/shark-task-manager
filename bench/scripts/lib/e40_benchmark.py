@@ -146,9 +146,9 @@ def workflow_routing_identity(root: Path) -> dict[str, Any]:
                     {
                         "source": source,
                         "pointer": "/" + "/".join(pointer),
-                        "provider": value.get("provider", UNAVAILABLE),
-                        "model": value.get("model", UNAVAILABLE),
-                        "effort": value.get("effort", UNAVAILABLE),
+                        "provider": value.get("provider"),
+                        "model": value.get("model"),
+                        "effort": value.get("effort"),
                     }
                 )
             for key, child in value.items():
@@ -192,6 +192,46 @@ def load_routing_profile(path: Path) -> dict[str, Any]:
     return load_yaml(path, "model routing profile")
 
 
+def _profile_route_errors(
+    step_name: str, route: Any, provider: str, valid_efforts: set[str]
+) -> list[str]:
+    if not isinstance(route, dict):
+        return [f"routes[{step_name!r}] must be a dictionary"]
+    model_error = _profile_model_error(step_name, route.get("model"), provider)
+    effort_error = _profile_effort_error(
+        step_name, route.get("effort"), provider, valid_efforts
+    )
+    return [error for error in (model_error, effort_error) if error]
+
+
+def _profile_model_error(step_name: str, model: Any, provider: str) -> str | None:
+    if provider in {"codex", "openai"} and model is None:
+        return None
+    if isinstance(model, str) and model.strip():
+        return None
+    if model is None:
+        return f"routes[{step_name!r}].model must be a non-empty string"
+    return f"routes[{step_name!r}].model must be a non-empty string when supplied"
+
+
+def _profile_effort_error(
+    step_name: str, effort: Any, provider: str, valid_efforts: set[str]
+) -> str | None:
+    if effort is None:
+        return None
+    if not isinstance(effort, str) or not effort.strip():
+        return (
+            f"routes[{step_name!r}].effort {effort!r} is invalid; "
+            f"expected one of {sorted(valid_efforts)}"
+        )
+    if provider not in {"codex", "openai"} and effort.lower() not in valid_efforts:
+        return (
+            f"routes[{step_name!r}].effort {effort!r} is invalid; "
+            f"expected one of {sorted(valid_efforts)}"
+        )
+    return None
+
+
 def validate_routing_profile_schema(
     profile: dict[str, Any], schema_path: Path | None = None
 ) -> list[str]:
@@ -230,6 +270,8 @@ def validate_routing_profile_schema(
     profile_id = profile.get("profile_id")
     if not isinstance(profile_id, str) or not profile_id.strip():
         errors.append("profile_id must be a non-empty string")
+    elif any(ord(character) < 0x20 or ord(character) == 0x7F for character in profile_id):
+        errors.append("profile_id must not contain control characters")
 
     description = profile.get("description")
     if not isinstance(description, str) or not description.strip():
@@ -238,154 +280,196 @@ def validate_routing_profile_schema(
     provider = profile.get("provider")
     if not isinstance(provider, str) or not provider.strip():
         errors.append("provider must be a non-empty string")
-    elif valid_providers and provider.lower() not in valid_providers:
+    elif valid_providers and provider.strip().lower() not in valid_providers:
         errors.append(
             f"unsupported provider {provider!r}; expected one of {sorted(valid_providers)}"
         )
 
+    provider = str(profile.get("provider", "")).strip().lower()
     routes = profile.get("routes")
     if not isinstance(routes, dict) or not routes:
         errors.append("routes must be a non-empty dictionary of step definitions")
     else:
         for step_name, route in routes.items():
-            if not isinstance(route, dict):
-                errors.append(f"routes[{step_name!r}] must be a dictionary")
-                continue
-            model = route.get("model")
-            if not isinstance(model, str) or not model.strip():
-                errors.append(f"routes[{step_name!r}].model must be a non-empty string")
-            effort = route.get("effort")
-            if effort is not None:
-                if not isinstance(effort, str) or effort.lower() not in valid_efforts:
-                    errors.append(
-                        f"routes[{step_name!r}].effort {effort!r} is invalid; expected one of {sorted(valid_efforts)}"
-                    )
+            errors.extend(_profile_route_errors(step_name, route, provider, valid_efforts))
 
     return errors
 
 
-def workflow_yaml_paths(workflow_dir: Path) -> list[Path]:
+def workflow_yaml_paths(
+    workflow_dir: Path, families: list[str] | None = None
+) -> list[Path]:
     """Return the YAML files that define one workflow file or bundle."""
-    paths = (
-        [workflow_dir]
-        if workflow_dir.is_file()
-        else sorted((*workflow_dir.rglob("*.yaml"), *workflow_dir.rglob("*.yml")))
-    )
+    if families is not None and not workflow_dir.is_file():
+        paths = [family_workflow_path(workflow_dir, family) for family in sorted(set(families))]
+    else:
+        paths = (
+            [workflow_dir]
+            if workflow_dir.is_file()
+            else sorted((*workflow_dir.rglob("*.yaml"), *workflow_dir.rglob("*.yml")))
+        )
     if not paths:
         raise OperatorError(f"workflow bundle has no YAML files: {workflow_dir}")
     return paths
 
 
-def live_workflow_stages(workflow_dir: Path) -> set[str]:
+def live_workflow_stages(
+    workflow_dir: Path, families: list[str] | None = None
+) -> set[str]:
     """Return live spawn_agent stage names without requiring source routes."""
-    stages: set[str] = set()
-    for path in workflow_yaml_paths(workflow_dir):
-        document = load_yaml(path, "workflow file")
-        steps = document.get("steps") or {}
-        if not isinstance(steps, dict):
-            raise OperatorError(f"workflow has no steps mapping: {path}")
-        for name, step in steps.items():
-            if isinstance(step, dict) and step.get("action") == "spawn_agent":
-                stages.add(str(name))
+    stages = {str(name) for _source, name, _step in _iter_live_spawn_steps(workflow_dir, families)}
     if not stages:
         raise OperatorError(f"workflow bundle contains no live spawn_agent stages: {workflow_dir}")
     return stages
 
 
-def live_workflow_routes(workflow_dir: Path) -> dict[str, dict[str, str]]:
+def live_workflow_routes(
+    workflow_dir: Path, families: list[str] | None = None
+) -> dict[str, dict[str, Any]]:
     """Return explicit route tuples for every live spawn_agent stage."""
-    routes: dict[str, dict[str, str]] = {}
-    for path in workflow_yaml_paths(workflow_dir):
-        document = load_yaml(path, "workflow file")
-        steps = document.get("steps") or {}
-        if not isinstance(steps, dict):
-            raise OperatorError(f"workflow has no steps mapping: {path}")
-        for name, step in steps.items():
-            if not isinstance(step, dict) or step.get("action") != "spawn_agent":
-                continue
-            provider = step.get("provider")
-            model = step.get("model")
-            effort = step.get("effort")
-            if not isinstance(provider, str) or not provider.strip():
-                raise OperatorError(f"live workflow stage {name!r} has no explicit provider")
-            if not isinstance(model, str) or not model.strip():
-                raise OperatorError(f"live workflow stage {name!r} has no explicit model")
-            routes[str(name)] = {
-                "provider": provider,
-                "model": model,
-                "effort": effort if isinstance(effort, str) and effort else UNAVAILABLE,
-            }
+    routes: dict[str, dict[str, Any]] = {}
+    for source, name, step in _iter_live_spawn_steps(workflow_dir, families):
+        route_key, route = _live_stage_route(source, name, step)
+        previous = routes.get(route_key)
+        if previous is not None and previous != route:
+            raise OperatorError(
+                f"workflow route {route_key!r} conflicts between route sections"
+            )
+        routes[route_key] = route
     if not routes:
         raise OperatorError(f"workflow bundle contains no live spawn_agent stages: {workflow_dir}")
     return routes
 
 
-def validate_codex_catalogs(
-    model: str,
-    cli_catalog: dict[str, Any] | None,
-    account_catalog: dict[str, Any] | None,
-) -> dict[str, str]:
-    """Validate catalog membership only; the result never claims runtime access."""
-    if not isinstance(cli_catalog, dict):
+def _iter_live_spawn_steps(workflow_dir: Path, families: list[str] | None):
+    base_dir = workflow_dir.parent if workflow_dir.is_file() else workflow_dir
+    for path in workflow_yaml_paths(workflow_dir, families):
+        source = path.relative_to(base_dir).as_posix()
+        yield from _iter_file_spawn_steps(path, source)
+
+
+def _iter_file_spawn_steps(path: Path, source: str):
+    document = load_yaml(path, "workflow file")
+    for section_name in ("steps", "status_metadata"):
+        section = document.get(section_name) or {}
+        if not isinstance(section, dict):
+            raise OperatorError(f"workflow has no {section_name} mapping: {path}")
+        for name, metadata in section.items():
+            action = _route_action_mapping(metadata)
+            if action is not None:
+                yield source, name, action
+
+
+def _route_action_mapping(metadata: Any) -> dict[str, Any] | None:
+    """Return the mutable route/action mapping for a live spawn step.
+
+    Route-based ``steps`` entries keep the action and route together. Legacy
+    ``status_metadata`` entries nest them under ``orchestrator_action``. Keep
+    accepting a flat action mapping for compatibility with pre-release bundles.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("action") == "spawn_agent":
+        return metadata
+    nested = metadata.get("orchestrator_action")
+    if isinstance(nested, dict) and nested.get("action") == "spawn_agent":
+        return nested
+    return None
+
+
+def _live_stage_route(
+    source: str, name: Any, step: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    provider = _live_stage_provider(step, name)
+    model = _live_stage_model(step, provider, name)
+    route = {
+        "source": source,
+        "stage": str(name),
+        "provider": provider,
+        "model": model,
+        "effort": _live_stage_effort(step.get("effort"), provider, name),
+    }
+    return f"{source}::{name}", route
+
+
+def _live_stage_provider(step: dict[str, Any], name: Any) -> str:
+    provider = step.get("provider")
+    if not isinstance(provider, str) or not provider.strip():
+        raise OperatorError(f"live workflow stage {name!r} has no explicit provider")
+    provider = provider.strip().lower()
+    if provider not in VALID_ROUTING_PROVIDERS:
+        raise OperatorError(f"live workflow stage {name!r} has unsupported provider {provider!r}")
+    return provider
+
+
+def _live_stage_model(step: dict[str, Any], provider: str, name: Any) -> str | None:
+    model = step.get("model")
+    if provider not in {"codex", "openai"} and (
+        not isinstance(model, str) or not model.strip()
+    ):
+        raise OperatorError(f"live workflow stage {name!r} has no explicit model")
+    if model is not None and (not isinstance(model, str) or not model.strip()):
         raise OperatorError(
-            f"route_defect: Codex CLI compatibility catalog is unavailable for {model!r}"
+            f"live workflow stage {name!r} model must be a non-empty string when supplied"
         )
-    cli_models = cli_catalog.get("models")
-    if not isinstance(cli_models, list) or any(not isinstance(item, str) for item in cli_models):
+    return model.strip() if isinstance(model, str) else None
+
+
+def _live_stage_effort(effort: Any, provider: str, stage: Any) -> str | None:
+    if effort is None:
+        return None
+    if not isinstance(effort, str):
+        raise OperatorError(f"live workflow stage {stage!r} effort must be a string")
+    if not effort.strip():
+        raise OperatorError(f"live workflow stage {stage!r} effort must be a non-empty string")
+    normalized = effort.strip().lower()
+    if provider not in {"codex", "openai"} and normalized not in VALID_ROUTING_EFFORTS:
+        raise OperatorError(
+            f"live workflow stage {stage!r} has unsupported effort {effort!r}"
+        )
+    return normalized
+
+
+def _cli_catalog_models(catalog: dict[str, Any] | None) -> list[str]:
+    if not isinstance(catalog, dict):
+        raise OperatorError("route_defect: Codex CLI compatibility catalog is unavailable")
+    models = catalog.get("models")
+    if not isinstance(models, list) or any(not isinstance(item, str) for item in models):
         raise OperatorError("route_defect: Codex CLI compatibility catalog is malformed")
-    if model not in cli_models:
+    return models
+
+
+def validate_codex_cli_compatibility(model: str, catalog: dict[str, Any] | None) -> None:
+    """Validate CLI catalog membership independently of account entitlement."""
+    if model not in _cli_catalog_models(catalog):
         raise OperatorError(
             f"route_defect: Codex CLI compatibility catalog does not contain pinned model {model!r}"
         )
-    if not isinstance(account_catalog, dict):
-        raise OperatorError(
-            f"route_defect: same-account model catalog is unavailable for {model!r}"
-        )
-    account_models = account_catalog.get("models")
-    if (
-        account_catalog.get("schema_version") != "1.0"
-        or account_catalog.get("same_account") is not True
-        or not isinstance(account_catalog.get("retrieved_at"), str)
-        or not isinstance(account_models, list)
-        or any(not isinstance(item, str) for item in account_models)
-    ):
-        raise OperatorError("route_defect: same-account model catalog is malformed or unproven")
-    try:
-        retrieved_at = datetime.fromisoformat(
-            account_catalog["retrieved_at"].replace("Z", "+00:00")
-        )
-    except ValueError as exc:
-        raise OperatorError("route_defect: same-account model catalog timestamp is malformed") from exc
-    if retrieved_at.tzinfo is None or retrieved_at.utcoffset() is None:
-        raise OperatorError(
-            "route_defect: same-account model catalog timestamp must include a timezone"
-        )
-    age_seconds = (datetime.now(timezone.utc) - retrieved_at).total_seconds()
-    if age_seconds < 0 or age_seconds > 3600:
-        raise OperatorError("route_defect: same-account model catalog is stale")
-    if model not in account_models:
-        raise OperatorError(
-            f"route_defect: same-account model catalog does not contain pinned model {model!r}"
-        )
-    return {
-        "cli_compatibility": "catalog_match",
-        "account_catalog_presence": "catalog_match",
-        "runtime_access": "unverified",
-    }
+
+
+def validate_codex_catalogs(
+    model: str,
+    cli_catalog: dict[str, Any] | None,
+    account_catalog: Any = None,
+) -> dict[str, str]:
+    """Validate advertised CLI compatibility without claiming account access."""
+    validate_codex_cli_compatibility(model, cli_catalog)
+    return {"cli_compatibility": "catalog_match", "runtime_access": "unverified"}
 
 
 def validate_profile_coverage(
     profile: dict[str, Any],
     workflow_dir: Path,
     *,
+    families: list[str] | None = None,
     cli_catalog: dict[str, Any] | None = None,
-    account_catalog: dict[str, Any] | None = None,
+    account_catalog: Any = None,
     validate_catalogs: bool = True,
 ) -> dict[str, dict[str, str]]:
     errors = validate_routing_profile_schema(profile)
     if errors:
         raise OperatorError(f"cannot select invalid routing profile: {'; '.join(errors)}")
-    live_stages = live_workflow_stages(workflow_dir)
+    live_stages = live_workflow_stages(workflow_dir, families)
     profile_routes = profile["routes"]
     missing = sorted(live_stages - set(profile_routes))
     if missing:
@@ -393,23 +477,47 @@ def validate_profile_coverage(
             "route_defect: routing profile omits live workflow stage(s): " + ", ".join(missing)
         )
     provider = str(profile["provider"]).lower()
-    effective: dict[str, dict[str, str]] = {}
+    effective: dict[str, dict[str, Any]] = {}
     for stage in sorted(live_stages):
-        route = profile_routes[stage]
-        model = str(route["model"])
-        effort = str(route.get("effort") or UNAVAILABLE).lower()
-        if validate_catalogs and provider in {"codex", "openai"}:
-            validate_codex_catalogs(model, cli_catalog, account_catalog)
-        effective[stage] = {"provider": provider, "model": model, "effort": effort}
+        effective[stage] = _effective_profile_route(
+            stage,
+            profile_routes[stage],
+            provider,
+            cli_catalog,
+            account_catalog,
+            validate_catalogs,
+        )
     return effective
+
+
+def _effective_profile_route(
+    stage: str,
+    route: dict[str, Any],
+    provider: str,
+    cli_catalog: dict[str, Any] | None,
+    account_catalog: Any,
+    validate_catalogs: bool,
+) -> dict[str, Any]:
+    raw_model = route.get("model")
+    if provider in {"codex", "openai"} and (
+        not isinstance(raw_model, str) or not raw_model.strip()
+    ):
+        raise OperatorError("route_defect: Codex model must be resolved from model/list")
+    model = raw_model.strip() if isinstance(raw_model, str) else UNAVAILABLE
+    raw_effort = route.get("effort")
+    effort = raw_effort.strip().lower() if isinstance(raw_effort, str) else None
+    if validate_catalogs and provider in {"codex", "openai"}:
+        validate_codex_catalogs(model, cli_catalog, account_catalog)
+    return {"provider": provider, "model": model, "effort": effort}
 
 
 def apply_routing_profile(
     profile: dict[str, Any],
     workflow_dir: Path,
     *,
+    families: list[str] | None = None,
     cli_catalog: dict[str, Any] | None = None,
-    account_catalog: dict[str, Any] | None = None,
+    account_catalog: Any = None,
 ) -> list[Path]:
     """Apply a model routing profile to workflow YAML files in workflow_dir.
     Updates steps matching route keys with the profile's provider, model, and effort.
@@ -418,20 +526,33 @@ def apply_routing_profile(
     effective_routes = validate_profile_coverage(
         profile,
         workflow_dir,
+        families=families,
         cli_catalog=cli_catalog,
         account_catalog=account_catalog,
     )
     return apply_validated_routing_profile(
-        profile, effective_routes, workflow_dir
+        profile, effective_routes, workflow_dir, families=families
     )
 
 
 def apply_validated_routing_profile(
     profile: dict[str, Any],
-    effective_routes: dict[str, dict[str, str]],
+    effective_routes: dict[str, dict[str, Any]],
     workflow_dir: Path,
+    *,
+    families: list[str] | None = None,
 ) -> list[Path]:
     """Apply profile routes after coverage and catalog validation succeeded."""
+    _validate_effective_routes(profile, effective_routes)
+    pending = _pending_workflow_writes(
+        profile, effective_routes, workflow_dir, families=families
+    )
+    return _write_workflow_updates(pending)
+
+
+def _validate_effective_routes(
+    profile: dict[str, Any], effective_routes: dict[str, dict[str, Any]]
+) -> None:
     errors = validate_routing_profile_schema(profile)
     if errors:
         raise OperatorError(
@@ -451,7 +572,8 @@ def apply_validated_routing_profile(
         if not isinstance(route, dict):
             raise OperatorError(f"validated route for {stage!r} must be a mapping")
         expected = profile_routes[stage]
-        expected_effort = str(expected.get("effort") or UNAVAILABLE).lower()
+        raw_effort = expected.get("effort")
+        expected_effort = raw_effort.strip().lower() if isinstance(raw_effort, str) else None
         if route != {
             "provider": provider,
             "model": expected["model"],
@@ -461,48 +583,56 @@ def apply_validated_routing_profile(
                 f"validated route for {stage!r} does not match the selected profile"
             )
 
-    pending_writes: list[tuple[Path, dict[str, Any]]] = []
 
-    for path in workflow_yaml_paths(workflow_dir):
+def _update_route_mapping(
+    values: Any,
+    profile_routes: dict[str, Any],
+    effective_routes: dict[str, dict[str, Any]],
+) -> bool:
+    if not isinstance(values, dict):
+        return False
+    modified = False
+    for stage, route in effective_routes.items():
+        action = _route_action_mapping(values.get(stage))
+        if action is None:
+            continue
+        action["provider"] = route["provider"]
+        action["model"] = route["model"]
+        if "effort" in profile_routes[stage]:
+            action["effort"] = route["effort"]
+        modified = True
+    return modified
+
+
+def _pending_workflow_writes(
+    profile: dict[str, Any],
+    effective_routes: dict[str, dict[str, Any]],
+    workflow_dir: Path,
+    *,
+    families: list[str] | None = None,
+) -> list[tuple[Path, dict[str, Any]]]:
+    profile_routes = profile["routes"]
+    pending_writes = []
+    for path in workflow_yaml_paths(workflow_dir, families):
         document = load_yaml(path, "workflow file")
-        modified = False
-
-        # Route-based workflow (Shark 2.x steps block)
-        steps = document.get("steps")
-        if isinstance(steps, dict):
-            for step_name, step_data in steps.items():
-                if isinstance(step_data, dict) and step_name in effective_routes:
-                    route = effective_routes[step_name]
-                    step_data["provider"] = route["provider"]
-                    step_data["model"] = route["model"]
-                    if "effort" in profile_routes[step_name]:
-                        step_data["effort"] = route["effort"]
-                    else:
-                        step_data.pop("effort", None)
-                    modified = True
-
-        # Legacy status_metadata fallback
-        status_meta = document.get("status_metadata")
-        if isinstance(status_meta, dict):
-            for step_name, step_data in status_meta.items():
-                if isinstance(step_data, dict) and step_name in effective_routes:
-                    route = effective_routes[step_name]
-                    step_data["provider"] = route["provider"]
-                    step_data["model"] = route["model"]
-                    if "effort" in profile_routes[step_name]:
-                        step_data["effort"] = route["effort"]
-                    else:
-                        step_data.pop("effort", None)
-                    modified = True
-
-        if modified:
+        modified_steps = _update_route_mapping(
+            document.get("steps") or {}, profile_routes, effective_routes
+        )
+        modified_metadata = _update_route_mapping(
+            document.get("status_metadata") or {}, profile_routes, effective_routes
+        )
+        if modified_steps or modified_metadata:
             pending_writes.append((path, document))
+    return pending_writes
 
-    modified_paths: list[Path] = []
+
+def _write_workflow_updates(
+    pending_writes: list[tuple[Path, dict[str, Any]]],
+) -> list[Path]:
+    modified_paths = []
     for path, document in pending_writes:
         write_yaml(path, document)
         modified_paths.append(path)
-
     return modified_paths
 
 
@@ -510,18 +640,22 @@ def apply_selected_routing_profile(
     profile: dict[str, Any],
     workflow_dir: Path,
     *,
+    families: list[str] | None = None,
     cli_catalog: dict[str, Any] | None = None,
-    account_catalog: dict[str, Any] | None = None,
+    account_catalog: Any = None,
     validate_catalogs: bool = True,
 ) -> dict[str, Any]:
     effective_routes = validate_profile_coverage(
         profile,
         workflow_dir,
+        families=families,
         cli_catalog=cli_catalog,
         account_catalog=account_catalog,
         validate_catalogs=validate_catalogs,
     )
-    apply_validated_routing_profile(profile, effective_routes, workflow_dir)
+    apply_validated_routing_profile(
+        profile, effective_routes, workflow_dir, families=families
+    )
     return {
         "profile_id": profile["profile_id"],
         "profile_schema_version": profile["schema_version"],
@@ -532,53 +666,10 @@ def apply_selected_routing_profile(
     }
 
 
-def routing_profile_identity(
-    profile_path: Path,
-    workflow_dir: Path,
-    *,
-    cli_catalog: dict[str, Any] | None = None,
-    account_catalog: dict[str, Any] | None = None,
-    validate_catalogs: bool = True,
-) -> dict[str, Any]:
-    """Compute route identity from a temporary, run-scoped profile overlay.
-
-    Catalog validation is optional because route identity describes the pinned
-    route, while route preflight separately decides whether that route is
-    currently resolvable for dispatch.
-    """
-    source_workflow_digest = path_digest(workflow_dir, "source workflow bundle")
-    profile = load_routing_profile(profile_path)
-    profile_source_digest = path_digest(profile_path, "routing profile")
-    with tempfile.TemporaryDirectory(prefix="e40-routing-profile-") as temporary_root:
-        effective_workflow = Path(temporary_root) / "workflow"
-        shutil.copytree(workflow_dir, effective_workflow, symlinks=False)
-        effective = apply_selected_routing_profile(
-            profile,
-            effective_workflow,
-            cli_catalog=cli_catalog,
-            account_catalog=account_catalog,
-            validate_catalogs=validate_catalogs,
-        )
-    return {
-        "profile_id": effective["profile_id"],
-        "profile_schema_version": profile["schema_version"],
-        "profile_path": str(profile_path.resolve()),
-        "profile_source_digest": profile_source_digest,
-        "profile_digest": effective["profile_digest"],
-        "provider": effective["provider"],
-        "effective_routes": effective["effective_routes"],
-        "source_workflow_digest": source_workflow_digest,
-        "provider_routing": effective["provider_routing"],
-        "catalog_validation": (
-            "validated_when_required" if validate_catalogs else "not_performed"
-        ),
-    }
-
-
 def load_yaml(path: Path, label: str) -> dict[str, Any]:
     try:
         value = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise OperatorError(f"cannot read {label} {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise OperatorError(f"{label} must be a YAML mapping: {path}")
@@ -1575,9 +1666,21 @@ def isolated_environment() -> dict[str, str]:
         "E40_AGGREGATE_LIFECYCLE_BIN",
         "E40_REPORT_LIFECYCLE_BIN",
         "E40_VERIFY_RETENTION_ROOT_BIN",
+        "E40_ROUTE_MATERIALIZATION_ERROR",
     ):
         environment.pop(name, None)
     return environment
+
+
+def clear_codex_route_environment(environment: dict[str, str]) -> None:
+    """Remove inherited route snapshots before installing this run's identity."""
+    for name in (
+        "E40_CODEX_CATALOG_JSON",
+        "E40_EXPECTED_ROUTING_DIGEST",
+        "E40_EXPECTED_CODEX_CATALOG_DIGEST",
+        "E40_ROUTE_MATERIALIZATION_ERROR",
+    ):
+        environment.pop(name, None)
 
 
 def aggregation_environment() -> dict[str, str]:
@@ -2909,23 +3012,15 @@ def materialize_batch_policy(
 ) -> dict[str, Any]:
     trusted_scratch_root = trusted_execution_scratch_root(config, config_base, matrix)
     workflow_root = config_path_value(config, config_base, "workflow_root")
-    try:
-        workflow_root_relative = workflow_root.relative_to(trusted_scratch_root).as_posix()
-    except ValueError as exc:
-        raise OperatorError(
-            f"workflow_root must be inside the trusted scratch template: {workflow_root}"
-        ) from exc
-    raw_routing_profile = config.get("routing_profile")
-    routing_profile_path = None
-    if raw_routing_profile is not None:
-        if not isinstance(raw_routing_profile, str) or not raw_routing_profile.strip():
-            raise OperatorError("routing_profile must be a profile file path when configured")
-        routing_profile_path = resolve_path(raw_routing_profile, config_base)
-        path_digest(routing_profile_path, "selected routing profile")
+    workflow_root_relative = _relative_batch_workflow_root(
+        workflow_root, trusted_scratch_root
+    )
+    routing_profile_path = _batch_routing_profile_path(config, config_base)
     roots = config.get("scenario_roots") or {}
     policy: dict[str, Any] = {
         "schema_version": "1.0",
         "min_reps": matrix[0]["reps"],
+        "workflow_families": sorted({str(row["family"]) for row in matrix}),
         "scenario_index": str(
             resolve_path(
                 str(config.get("scenario_index") or DEFAULT_SCENARIO_INDEX), config_base
@@ -2934,33 +3029,82 @@ def materialize_batch_policy(
         "scenarios": {},
     }
     for row in matrix:
-        entry = roots.get(row["scenario_id"]) if isinstance(roots, dict) else None
-        if not isinstance(entry, dict):
-            raise OperatorError(
-                f"benchmark config is missing scenario_roots.{row['scenario_id']}"
-            )
-        root_key = entry.get("root_key")
-        if not isinstance(root_key, str) or not root_key:
-            raise OperatorError(
-                f"scenario_roots.{row['scenario_id']}.root_key is missing"
-            )
-        policy_entry: dict[str, Any] = {
-            "reps": row["reps"],
-            "root_key": root_key,
-            "scratch_root": str(trusted_scratch_root),
-            "workflow_root": workflow_root_relative,
-            "routing_profile": str(routing_profile_path) if routing_profile_path else None,
-        }
-        i05 = entry.get("i05_bundle_dir")
-        if isinstance(i05, str) and i05:
-            policy_entry["i05_bundle_dir"] = str(resolve_path(i05, config_base))
-        replay_result = entry.get("replay_result")
-        if isinstance(replay_result, str) and replay_result:
-            policy_entry["replay_result"] = str(resolve_path(replay_result, config_base))
-        policy["scenarios"][row["scenario_id"]] = policy_entry
+        policy["scenarios"][row["scenario_id"]] = _batch_policy_scenario(
+            row,
+            roots,
+            trusted_scratch_root,
+            workflow_root_relative,
+            routing_profile_path,
+            config_base,
+        )
     encoded = yaml.safe_dump(policy, sort_keys=False, allow_unicode=True).encode(
         "utf-8"
     )
+    _write_prepared_batch_policy(
+        destination, encoded, parent_descriptor=parent_descriptor
+    )
+    return policy
+
+
+def _relative_batch_workflow_root(workflow_root: Path, trusted_scratch_root: Path) -> str:
+    try:
+        resolved_scratch_root = trusted_scratch_root.resolve(strict=True)
+        resolved_workflow_root = workflow_root.resolve(strict=True)
+        return resolved_workflow_root.relative_to(resolved_scratch_root).as_posix()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise OperatorError(
+            f"workflow_root must resolve inside the trusted scratch template: {workflow_root}"
+        ) from exc
+
+
+def _batch_routing_profile_path(
+    config: dict[str, Any], config_base: Path
+) -> Path | None:
+    raw_profile = config.get("routing_profile")
+    if raw_profile is None:
+        return None
+    if not isinstance(raw_profile, str) or not raw_profile.strip():
+        raise OperatorError("routing_profile must be a profile file path when configured")
+    profile_path = resolve_path(raw_profile, config_base)
+    path_digest(profile_path, "selected routing profile")
+    return profile_path
+
+
+def _batch_policy_scenario(
+    row: dict[str, Any],
+    roots: Any,
+    trusted_scratch_root: Path,
+    workflow_root_relative: str,
+    routing_profile_path: Path | None,
+    config_base: Path,
+) -> dict[str, Any]:
+    scenario_id = row["scenario_id"]
+    entry = roots.get(scenario_id) if isinstance(roots, dict) else None
+    if not isinstance(entry, dict):
+        raise OperatorError(f"benchmark config is missing scenario_roots.{scenario_id}")
+    root_key = entry.get("root_key")
+    if not isinstance(root_key, str) or not root_key:
+        raise OperatorError(f"scenario_roots.{scenario_id}.root_key is missing")
+    policy_entry: dict[str, Any] = {
+        "reps": row["reps"],
+        "root_key": root_key,
+        "scratch_root": str(trusted_scratch_root),
+        "workflow_root": workflow_root_relative,
+        "routing_profile": str(routing_profile_path) if routing_profile_path else None,
+    }
+    for field in ("i05_bundle_dir", "replay_result"):
+        value = entry.get(field)
+        if isinstance(value, str) and value:
+            policy_entry[field] = str(resolve_path(value, config_base))
+    return policy_entry
+
+
+def _write_prepared_batch_policy(
+    destination: Path,
+    encoded: bytes,
+    *,
+    parent_descriptor: int | None,
+) -> None:
     if parent_descriptor is not None:
         try:
             os.stat(destination.name, dir_fd=parent_descriptor, follow_symlinks=False)
@@ -2993,7 +3137,6 @@ def materialize_batch_policy(
             )
     else:
         atomic_write(destination, encoded, overwrite=False)
-    return policy
 
 
 def trusted_shark_identity(config: dict[str, Any], config_base: Path) -> dict[str, str]:
@@ -3028,8 +3171,13 @@ def trusted_shark_identity(config: dict[str, Any], config_base: Path) -> dict[st
     }
 
 
-def preflight_environment(config: dict[str, Any], config_base: Path) -> dict[str, str]:
+def preflight_environment(
+    config: dict[str, Any],
+    config_base: Path,
+    identity: dict[str, Any] | None = None,
+) -> dict[str, str]:
     environment = isolated_environment()
+    clear_codex_route_environment(environment)
     environment["SHARK_BIN"] = trusted_shark_identity(config, config_base)["path"]
     environment["RUN_LIFECYCLE_BIN"] = str(SCRIPTS_DIR / "run-lifecycle.sh")
     environment["EVALUATE_LIFECYCLE_BIN"] = str(SCRIPTS_DIR / "evaluate-lifecycle.sh")
@@ -3037,13 +3185,256 @@ def preflight_environment(config: dict[str, Any], config_base: Path) -> dict[str
         SCRIPTS_DIR / "export-entity-history.sh"
     )
     environment["LIFECYCLE_SCHEMA"] = str(DEFAULT_SCHEMA)
+    if identity is not None:
+        execution = execution_environment(config, config_base, identity)
+        for name in (
+            "E40_CODEX_COMMAND",
+            "E40_CODEX_CATALOG_JSON",
+            "E40_EXPECTED_ROUTING_DIGEST",
+            "E40_EXPECTED_CODEX_CATALOG_DIGEST",
+            "E40_ROUTE_MATERIALIZATION_ERROR",
+        ):
+            if name in execution:
+                environment[name] = execution[name]
     return environment
 
 
-def execution_environment(config: dict[str, Any], config_base: Path) -> dict[str, str]:
+def _codex_route_requested(
+    config: dict[str, Any], config_base: Path, families: list[str] | None = None
+) -> bool:
+    workflow_root = config_path_value(config, config_base, "workflow_root")
+    raw_profile = config.get("routing_profile")
+    if raw_profile is not None:
+        if not isinstance(raw_profile, str) or not raw_profile.strip():
+            raise OperatorError("routing_profile must be a profile file path when configured")
+        profile = load_routing_profile(resolve_path(raw_profile, config_base))
+        return str(profile.get("provider", "")).strip().lower() in {"codex", "openai"}
+    return any(
+        route["provider"] in {"codex", "openai"}
+        for route in live_workflow_routes(workflow_root, families).values()
+    )
+
+
+def _resolve_codex_command(
+    configured: Any, raw_override: str | None, environment: dict[str, str]
+) -> list[str]:
+    if str(LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(LIB_DIR))
+    from codex_model_catalog import CatalogError, resolve_cli_command
+
+    if not raw_override:
+        command = configured if configured is not None else ["codex"]
+        return resolve_cli_command(command, env=environment)
+    override = json.loads(raw_override)
+    command = resolve_cli_command(override, env=environment)
+    if configured is not None:
+        configured_command = resolve_cli_command(configured, env=environment)
+        if configured_command != command:
+            raise CatalogError("E40_CODEX_COMMAND differs from runtime.provider_command")
+    return command
+
+
+def _codex_command(config: dict[str, Any], *, environment: dict[str, str]) -> list[str]:
+    if str(LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(LIB_DIR))
+    from codex_model_catalog import CatalogError
+
+    configured = runtime_config(config).get("provider_command")
+    try:
+        return _resolve_codex_command(
+            configured, environment.get("E40_CODEX_COMMAND"), environment
+        )
+    except (CatalogError, json.JSONDecodeError) as exc:
+        raise OperatorError(f"route_defect: Codex CLI selection failed: {exc}") from exc
+
+
+def _discover_codex_catalog(
+    config: dict[str, Any],
+    config_base: Path,
+    environment: dict[str, str],
+    families: list[str] | None = None,
+) -> tuple[list[str] | None, dict[str, Any] | None]:
+    if not _codex_route_requested(config, config_base, families):
+        return None, None
+    if str(LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(LIB_DIR))
+    from codex_model_catalog import CatalogError, discover_models
+
+    command = _codex_command(config, environment=environment)
+    try:
+        return command, discover_models(command, env=environment)
+    except CatalogError as exc:
+        raise OperatorError(f"route_defect: Codex model discovery failed: {exc}") from exc
+
+
+def _route_materializer_environment(
+    codex_command: list[str] | None,
+    codex_catalog: dict[str, Any] | None,
+    route_error: str | None = None,
+) -> dict[str, str]:
     environment = isolated_environment()
+    clear_codex_route_environment(environment)
+    if codex_command is not None and codex_catalog is not None:
+        environment["E40_CODEX_COMMAND"] = json.dumps(codex_command)
+        environment["E40_CODEX_CATALOG_JSON"] = json.dumps(
+            codex_catalog, sort_keys=True, separators=(",", ":")
+        )
+    if route_error is not None:
+        environment["E40_ROUTE_MATERIALIZATION_ERROR"] = route_error
+    return environment
+
+
+def _copy_workflow_for_materialization(workflow_root: Path, temporary_root: Path) -> Path:
+    effective_workflow = temporary_root / (
+        workflow_root.name if workflow_root.is_file() else "workflow"
+    )
+    if workflow_root.is_file():
+        shutil.copy2(workflow_root, effective_workflow)
+    else:
+        shutil.copytree(workflow_root, effective_workflow, symlinks=False)
+    return effective_workflow
+
+
+def _route_materializer_command(
+    workflow_root: Path, profile_path: Path | None, families: list[str] | None
+) -> list[str]:
+    command = [
+        sys.executable,
+        str(SCRIPTS_DIR / "materialize-routing-profile.py"),
+        "--workflow-root",
+        str(workflow_root),
+    ]
+    if profile_path is not None:
+        command.extend(["--profile", str(profile_path)])
+    for family in families or []:
+        command.extend(["--family", family])
+    return command
+
+
+def _parse_materialized_route_identity(
+    process: subprocess.CompletedProcess[str],
+    codex_catalog: dict[str, Any] | None,
+) -> dict[str, Any]:
+    result = _decode_materialized_route_identity(process.stdout)
+    if process.returncode != 0:
+        if _is_route_defect_result(result):
+            return result
+        _raise_materialized_route_failure(process, result)
+    if not isinstance(result, dict):
+        _raise_materialized_route_failure(process, result)
+    _validate_materialized_catalog(result, codex_catalog)
+    return result
+
+
+def _decode_materialized_route_identity(stdout: str) -> Any:
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise OperatorError(
+            "route_defect: routing materializer returned malformed identity"
+        ) from exc
+
+
+def _is_route_defect_result(result: Any) -> bool:
+    return (
+        isinstance(result, dict)
+        and result.get("resolution") == "failed"
+        and result.get("cause_class") == "route_defect"
+    )
+
+
+def _raise_materialized_route_failure(
+    process: subprocess.CompletedProcess[str], result: Any
+) -> None:
+    reason = result.get("reason") if isinstance(result, dict) else process.stderr.strip()
+    raise OperatorError(f"route_defect: routing identity materialization failed: {reason}")
+
+
+def _validate_materialized_catalog(
+    result: dict[str, Any], codex_catalog: dict[str, Any] | None
+) -> None:
+    if codex_catalog is not None and result.get("codex_catalog") != codex_catalog:
+        raise OperatorError("route_defect: routing materializer changed the frozen Codex catalog")
+
+
+def _materialize_route_identity(
+    workflow_root: Path,
+    profile_path: Path | None,
+    codex_command: list[str] | None,
+    codex_catalog: dict[str, Any] | None,
+    families: list[str] | None = None,
+    route_error: str | None = None,
+) -> dict[str, Any]:
+    environment = _route_materializer_environment(
+        codex_command, codex_catalog, route_error
+    )
+    with tempfile.TemporaryDirectory(prefix="e40-routing-identity-") as temporary_root:
+        effective_workflow = _copy_workflow_for_materialization(
+            workflow_root, Path(temporary_root)
+        )
+        command = _route_materializer_command(effective_workflow, profile_path, families)
+        process = subprocess.run(
+            command, text=True, capture_output=True, env=environment, check=False
+        )
+    return _parse_materialized_route_identity(process, codex_catalog)
+
+
+def _bind_codex_execution_identity(
+    environment: dict[str, str],
+    config: dict[str, Any],
+    codex_catalog: dict[str, Any] | None,
+) -> None:
+    if not isinstance(codex_catalog, dict):
+        return
+    if str(LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(LIB_DIR))
+    from codex_model_catalog import CatalogError, validate_catalog_snapshot
+
+    command = _codex_command(config, environment=environment)
+    try:
+        validate_catalog_snapshot(codex_catalog, command, env=environment)
+    except CatalogError as exc:
+        raise OperatorError(
+            f"route_defect: frozen Codex catalog no longer matches dispatch configuration: {exc}"
+        ) from exc
+    environment["E40_CODEX_COMMAND"] = json.dumps(command)
+    environment["E40_CODEX_CATALOG_JSON"] = json.dumps(
+        codex_catalog, sort_keys=True, separators=(",", ":")
+    )
+    environment["E40_EXPECTED_CODEX_CATALOG_DIGEST"] = str(
+        codex_catalog.get("catalog_digest") or ""
+    )
+
+
+def _routing_environment_parts(
+    identity: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    if not isinstance(identity, dict):
+        return None, {}
+    routing_profile = identity.get("routing_profile")
+    if not isinstance(routing_profile, dict):
+        routing_profile = {}
+    codex_catalog = routing_profile.get("codex_catalog")
+    if not isinstance(codex_catalog, dict):
+        codex_catalog = identity.get("codex_catalog")
+    if not isinstance(codex_catalog, dict):
+        codex_catalog = None
+    provider_routing = identity.get("provider_routing")
+    if not isinstance(provider_routing, dict):
+        provider_routing = routing_profile.get("provider_routing")
+    if not isinstance(provider_routing, dict):
+        provider_routing = {}
+    return codex_catalog, provider_routing
+
+
+def execution_environment(
+    config: dict[str, Any], config_base: Path, identity: dict[str, Any] | None = None
+) -> dict[str, str]:
+    environment = isolated_environment()
+    clear_codex_route_environment(environment)
     environment["SHARK_BIN"] = trusted_shark_identity(config, config_base)["path"]
     runtime = runtime_config(config)
+    codex_catalog, provider_routing = _routing_environment_parts(identity)
     if (
         isinstance(runtime.get("lifecycle_adapter"), str)
         and runtime["lifecycle_adapter"]
@@ -3051,9 +3442,21 @@ def execution_environment(config: dict[str, Any], config_base: Path) -> dict[str
         environment["LIFECYCLE_ADAPTER"] = str(
             resolve_path(runtime["lifecycle_adapter"], config_base)
         )
-    if runtime.get("provider_command"):
+    if runtime.get("provider_command") and not isinstance(codex_catalog, dict):
         environment["LIFECYCLE_PROVIDER_COMMAND"] = json.dumps(
             runtime["provider_command"]
+        )
+    _bind_codex_execution_identity(environment, config, codex_catalog)
+    environment["E40_EXPECTED_ROUTING_DIGEST"] = str(
+        provider_routing.get("routing_digest") or ""
+    )
+    route_resolution = identity.get("routing_resolution") if isinstance(identity, dict) else None
+    if (
+        isinstance(route_resolution, dict)
+        and route_resolution.get("resolution") == "failed"
+    ):
+        environment["E40_ROUTE_MATERIALIZATION_ERROR"] = str(
+            route_resolution.get("reason") or "routing identity materialization failed"
         )
     return environment
 
@@ -3183,6 +3586,27 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
     matrix = selected_matrix(
         config, config_base, selected, reps, operator_root / "fixture-checkouts"
     )
+    configured_resources = config.get("resource_policy") or {}
+    planned_resources = {
+        "max_cost_usd": require_positive(
+            configured_resources.get("max_cost_usd"), "resource_policy.max_cost_usd"
+        ),
+        "max_wall_clock_seconds": require_positive(
+            configured_resources.get("max_wall_clock_seconds"),
+            "resource_policy.max_wall_clock_seconds",
+        ),
+        "max_generated_tasks": require_positive(
+            configured_resources.get("max_generated_tasks"),
+            "resource_policy.max_generated_tasks",
+            integer=True,
+        ),
+        "max_provider_calls": require_positive(
+            configured_resources.get("max_provider_calls"),
+            "resource_policy.max_provider_calls",
+            integer=True,
+        ),
+        "repetitions": reps,
+    }
     output_root = (
         lexical_absolute_path(args.out)
         if args.out
@@ -3190,6 +3614,9 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
     )
     ensure_external_operator_root(output_root)
     ensure_real_directory(output_root, "preflight output root")
+    planned_identity = identity_profile(
+        config, config_base, matrix, planned_resources
+    )
     batch_path = output_root / "batch-policy.yaml"
     materialize_batch_policy(config, config_base, matrix, batch_path)
     preview_bin = SCRIPTS_DIR / "run-lifecycle-batch.sh"
@@ -3207,7 +3634,9 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
     if args.scenario:
         command.extend(["--scenarios", args.scenario])
     process = run_process(
-        command, cwd=REPO_ROOT, env=preflight_environment(config, config_base)
+        command,
+        cwd=REPO_ROOT,
+        env=preflight_environment(config, config_base, planned_identity),
     )
     preview_text = process.stdout + process.stderr
     atomic_write(output_root / "preview.txt", preview_text.encode("utf-8"))
@@ -3271,27 +3700,6 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
     else:
         status = "pass"
 
-    configured_resources = config.get("resource_policy") or {}
-    planned_resources = {
-        "max_cost_usd": require_positive(
-            configured_resources.get("max_cost_usd"), "resource_policy.max_cost_usd"
-        ),
-        "max_wall_clock_seconds": require_positive(
-            configured_resources.get("max_wall_clock_seconds"),
-            "resource_policy.max_wall_clock_seconds",
-        ),
-        "max_generated_tasks": require_positive(
-            configured_resources.get("max_generated_tasks"),
-            "resource_policy.max_generated_tasks",
-            integer=True,
-        ),
-        "max_provider_calls": require_positive(
-            configured_resources.get("max_provider_calls"),
-            "resource_policy.max_provider_calls",
-            integer=True,
-        ),
-        "repetitions": reps,
-    }
     # REQ-F-006/§2.3.3: the conservative, evidence-backed provider-call plan
     # -- derived (and admission-rejected on a package/policy mismatch)
     # before any spend can be approved against it, independent of the
@@ -3310,9 +3718,7 @@ def _cmd_preflight_locked(args: argparse.Namespace) -> int:
         "batch_policy": str(batch_path),
         "batch_policy_digest": path_digest(batch_path, "prepared batch policy"),
         "scenario_matrix": matrix,
-        "planned_identity": identity_profile(
-            config, config_base, matrix, planned_resources
-        ),
+        "planned_identity": planned_identity,
         "call_plan": call_plan,
         "provider_ready": ready,
         "missing_real_runtime_inputs": missing_real_runtime_inputs,
@@ -3493,7 +3899,7 @@ def aggregate_models_and_providers(
     """AC-F11-18's `model`/`provider` evidence fields: the distinct
     `model`/`provider` values named by the given families' own spawn_agent
     steps, joined deterministically when more than one is in play (an
-    epic's own steps alone span haiku/sonnet/opus/gpt-5.6-terra) -- never a
+    epic's own steps alone span several model tiers) -- never a
     single hardcoded literal."""
     models: set[str] = set()
     providers: set[str] = set()
@@ -3981,6 +4387,51 @@ def cmd_prepare_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _identity_routing_fields(
+    config: dict[str, Any], config_base: Path, workflow_families: list[str]
+) -> dict[str, Any]:
+    workflow_root = config_path_value(config, config_base, "workflow_root")
+    raw_routing_profile = config.get("routing_profile")
+    if raw_routing_profile is not None:
+        if not isinstance(raw_routing_profile, str) or not raw_routing_profile.strip():
+            raise OperatorError("routing_profile must be a profile file path when configured")
+        selected_profile_path = resolve_path(raw_routing_profile, config_base)
+    else:
+        selected_profile_path = None
+    codex_environment = isolated_environment()
+    clear_codex_route_environment(codex_environment)
+    route_error = None
+    try:
+        codex_command, codex_catalog = _discover_codex_catalog(
+            config, config_base, codex_environment, workflow_families
+        )
+    except OperatorError as exc:
+        codex_command, codex_catalog = None, None
+        route_error = str(exc)
+    materialized_routing = _materialize_route_identity(
+        workflow_root,
+        selected_profile_path,
+        codex_command,
+        codex_catalog,
+        workflow_families,
+        route_error,
+    )
+    route_resolution = (
+        materialized_routing
+        if materialized_routing.get("resolution") == "failed"
+        else None
+    )
+    return {
+        "provider_routing": materialized_routing.get("provider_routing"),
+        "routing_profile": (
+            materialized_routing if selected_profile_path is not None else None
+        ),
+        "codex_catalog": codex_catalog,
+        "selected_codex_models": materialized_routing.get("selected_codex_models"),
+        "routing_resolution": route_resolution,
+    }
+
+
 def identity_profile(
     config: dict[str, Any],
     config_base: Path,
@@ -4007,22 +4458,8 @@ def identity_profile(
         }
         for row in matrix
     ]
-    workflow_root = config_path_value(config, config_base, "workflow_root")
-    raw_routing_profile = config.get("routing_profile")
-    routing_profile = None
-    if raw_routing_profile is not None:
-        if not isinstance(raw_routing_profile, str) or not raw_routing_profile.strip():
-            raise OperatorError("routing_profile must be a profile file path when configured")
-        routing_profile = routing_profile_identity(
-            resolve_path(raw_routing_profile, config_base),
-            workflow_root,
-            validate_catalogs=False,
-        )
-    effective_provider_routing = (
-        routing_profile["provider_routing"]
-        if routing_profile is not None
-        else workflow_routing_identity(workflow_root)
-    )
+    workflow_families = sorted({str(row["family"]) for row in matrix})
+    routing_fields = _identity_routing_fields(config, config_base, workflow_families)
     identity = {
         "scenario_set_digest": canonical_digest(scenario_set),
         "fixture_set_digest": canonical_digest(
@@ -4059,12 +4496,11 @@ def identity_profile(
                 "enabled-gate workflow bundle",
             ),
         },
-        "provider_routing": effective_provider_routing,
-        "routing_profile": routing_profile,
         "execution_inputs": execution_input_identity(config, config_base, matrix),
         "resource_policy_digest": canonical_digest(resources),
         "candidate": candidate_identity(candidate_root),
     }
+    identity.update(routing_fields)
     identity["identity_digest"] = canonical_digest(identity)
     return identity
 
@@ -4732,7 +5168,7 @@ def execute_profile(args: argparse.Namespace, *, role: str, run_mode: str) -> in
         process = run_process(
             command,
             cwd=REPO_ROOT,
-            env=execution_environment(run_config, config_base),
+            env=execution_environment(run_config, config_base, identity),
             pass_fds=(lock.root_descriptor,),
         )
         assert_directory_fd_matches_path(

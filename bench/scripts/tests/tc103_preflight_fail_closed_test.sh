@@ -62,28 +62,9 @@ fail() {
 
 normalize_workflow_routes() {
 	local workflow_root="$1"
-	python3 - "$workflow_root" <<'PY'
-from pathlib import Path
-import sys
-import yaml
-
-root = Path(sys.argv[1])
-for path in sorted((*root.rglob("*.yaml"), *root.rglob("*.yml"))):
-    document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    changed = False
-    for step in (document.get("steps") or {}).values():
-        if not isinstance(step, dict) or step.get("action") != "spawn_agent":
-            continue
-        if step.get("provider") in {"codex", "openai"} or not step.get("provider"):
-            step["provider"] = "anthropic"
-            step["model"] = "haiku"
-            changed = True
-        elif not step.get("model"):
-            step["model"] = "haiku"
-            changed = True
-    if changed:
-        path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-PY
+	local allowed_root="$2"
+	python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+		"$workflow_root" --allowed-root "$allowed_root"
 }
 
 [[ -x "$OPERATOR" ]] || fail "e40-benchmark.sh missing or not executable"
@@ -117,7 +98,7 @@ READY_ROOT="$WORKDIR/ready-setup"
 # This suite isolates F11 preflight admission conditions. Keep its ephemeral
 # scratch workflow on the existing Anthropic route so B083's independent
 # Codex catalog preflight does not shadow the positive/negative controls.
-normalize_workflow_routes "$READY_ROOT/scratch-template/shark-data/workflow"
+normalize_workflow_routes "$READY_ROOT/scratch-template/shark-data/workflow" "$READY_ROOT"
 
 TASK_KEY="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['root_keys']['py-task-delete-task'])" "$READY_ROOT/setup-result.json")"
 [[ "$TASK_KEY" =~ ^T-E[0-9]{2}-F[0-9]{2}-[0-9]{3}$ ]] || fail "seeded task root_key is not a task key: $TASK_KEY"
@@ -574,7 +555,7 @@ REPRO_ROOT="$WORKDIR/repro-setup"
 	>"$WORKDIR/repro-setup.out" 2>&1 \
 	|| fail "real 'e40-benchmark.sh setup' (repro) failed: $(cat "$WORKDIR/repro-setup.out")"
 
-normalize_workflow_routes "$REPRO_ROOT/scratch-template/shark-data/workflow"
+normalize_workflow_routes "$REPRO_ROOT/scratch-template/shark-data/workflow" "$REPRO_ROOT"
 
 # P5 satisfied for every scenario here (i05_bundle_dir configured) -- the
 # reproduction targets exactly the four 2026-09-04 causes, not a fifth.

@@ -65,20 +65,46 @@ WORKDIR_19="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR_19"' EXIT
 
 TC19_SCENARIO_ID="tc115-tc019-scenario"
-mkdir -p "$WORKDIR_19/index/packages/$TC19_SCENARIO_ID" "$WORKDIR_19/scratch"
+TC19_UNSELECTED_SCENARIO_ID="tc115-tc019-unselected-feature"
+mkdir -p "$WORKDIR_19/index/packages/$TC19_SCENARIO_ID" \
+	"$WORKDIR_19/index/packages/$TC19_UNSELECTED_SCENARIO_ID" \
+	"$WORKDIR_19/scratch/shark-data/workflow"
+cat >"$WORKDIR_19/scratch/shark-data/workflow/bug.yaml" <<'YAML'
+steps:
+  development:
+    action: spawn_agent
+    provider: anthropic
+    model: haiku
+    effort: high
+YAML
+cat >"$WORKDIR_19/scratch/shark-data/workflow/feature.yaml" <<'YAML'
+steps:
+  development:
+    action: spawn_agent
+YAML
 cat >"$WORKDIR_19/index/packages/$TC19_SCENARIO_ID/package.yaml" <<EOF
 schema_version: "1.0"
 scenario_id: "$TC19_SCENARIO_ID"
 scenario_version: "1"
-entity_family: "family-tc019"
+entity_family: "bug"
 fixture:
   fixture_id: "fixture-tc019-scenario"
   base_sha: "fixture-base-tc019-scenario"
+EOF
+cat >"$WORKDIR_19/index/packages/$TC19_UNSELECTED_SCENARIO_ID/package.yaml" <<EOF
+schema_version: "1.0"
+scenario_id: "$TC19_UNSELECTED_SCENARIO_ID"
+scenario_version: "1"
+entity_family: "feature"
+fixture:
+  fixture_id: "fixture-tc019-unselected-feature"
+  base_sha: "fixture-base-tc019-unselected-feature"
 EOF
 cat >"$WORKDIR_19/index/scenarios.yaml" <<EOF
 schema_version: "1.0"
 scenarios:
   - packages/$TC19_SCENARIO_ID
+  - packages/$TC19_UNSELECTED_SCENARIO_ID
 EOF
 
 # dispatch_pair() (run-lifecycle-batch.sh) checks out the declared fixture
@@ -154,10 +180,11 @@ RUN_LIFECYCLE_BIN="$TC19_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$TC19_EVAL_STUB" \
 	CHECKOUT_SCENARIO_FIXTURE_BIN="$TC19_CHECKOUT_STUB" \
 	"$BATCH" --batch "$TC19A_POLICY" --retention-root "$WORKDIR_19/retention-a" \
 	--mode pilot --acknowledge-provider-spend \
+	--scenarios "$TC19_SCENARIO_ID" \
 	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
 	>"$WORKDIR_19/tc19a.out" 2>"$WORKDIR_19/tc19a.err" || tc19a_rc=$?
 [[ "$tc19a_rc" -eq 4 ]] || fail "TC-019(a): expected exit 4 (real dispatch reached, evaluation deliberately failed), got $tc19a_rc: $(cat "$WORKDIR_19/tc19a.out") $(cat "$WORKDIR_19/tc19a.err")"
-[[ -s "$TC19_RUN_LOG" ]] || fail "TC-019(a): RUN_LIFECYCLE_BIN was never invoked despite a configured i05_bundle_dir"
+[[ -s "$TC19_RUN_LOG" ]] || fail "TC-019(a): RUN_LIFECYCLE_BIN was never invoked despite a configured i05_bundle_dir: $(cat "$WORKDIR_19/tc19a.out") $(cat "$WORKDIR_19/tc19a.err")"
 grep -q -- "--i05-bundle-dir $TC19A_I05" "$TC19_RUN_LOG" \
 	|| fail "TC-019(a): dispatch_pair's real invocation did not include --i05-bundle-dir $TC19A_I05: $(cat "$TC19_RUN_LOG")"
 grep -q "evaluation_failed" "$WORKDIR_19/retention-a/invalid/index.jsonl" \
@@ -189,6 +216,7 @@ RUN_LIFECYCLE_BIN="$TC19_RUN_STUB" EVALUATE_LIFECYCLE_BIN="$TC19_EVAL_STUB" \
 	CHECKOUT_SCENARIO_FIXTURE_BIN="$TC19_CHECKOUT_STUB" \
 	"$BATCH" --batch "$TC19B_POLICY" --retention-root "$WORKDIR_19/retention-b" \
 	--mode pilot --acknowledge-provider-spend \
+	--scenarios "$TC19_SCENARIO_ID" \
 	--max-cost-usd 5 --max-wall-clock-seconds 600 --max-generated-tasks 10 \
 	>"$WORKDIR_19/tc19b.out" 2>"$WORKDIR_19/tc19b.err" || tc19b_rc=$?
 [[ "$tc19b_rc" -eq 4 ]] || fail "TC-019(b): expected exit 4 (pair recorded invalid pre-dispatch), got $tc19b_rc: $(cat "$WORKDIR_19/tc19b.out") $(cat "$WORKDIR_19/tc19b.err")"

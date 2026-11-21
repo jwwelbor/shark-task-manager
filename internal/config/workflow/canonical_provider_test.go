@@ -5,6 +5,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/stretchr/testify/require"
 )
 
 // canonicalWorkflowDir resolves the embedded canonical workflow directory by
@@ -70,5 +73,53 @@ func TestCanonicalWorkflows_SpawnAndResumeActionsSetProvider(t *testing.T) {
 
 	if loaded == 0 {
 		t.Fatalf("no canonical workflows loaded from %s; check fixture layout", canonicalWorkflowDir(t))
+	}
+}
+
+// TestCanonicalOpenAIWorkflowDefaultsDoNotPinModel keeps built-in Codex routes
+// on the installed CLI's current default model rather than a stale static ID.
+func TestCanonicalOpenAIWorkflowDefaultsDoNotPinModel(t *testing.T) {
+	mlw, err := LoadMultiLevelWorkflowFromYAMLDir(canonicalWorkflowDir(t), "")
+	require.NoError(t, err, "failed to load canonical workflows")
+
+	openAIRoutes := []struct {
+		workflow string
+		step     string
+		config   *WorkflowConfig
+	}{
+		{workflow: "epic", step: "feature_review", config: mlw.Epic},
+		{workflow: "epic", step: "integration_review", config: mlw.Epic},
+		{workflow: "feature", step: "approval", config: mlw.Feature},
+		{workflow: "feature", step: "task_review", config: mlw.Feature},
+	}
+	for _, route := range openAIRoutes {
+		route := route
+		t.Run(route.workflow+"/"+route.step, func(t *testing.T) {
+			assertCanonicalOpenAIRouteDoesNotPinModel(t, route.workflow, route.step, route.config)
+		})
+	}
+}
+
+func assertCanonicalOpenAIRouteDoesNotPinModel(
+	t *testing.T, workflowName, stepName string, config *WorkflowConfig,
+) {
+	t.Helper()
+	if config == nil {
+		t.Errorf("canonical %s workflow is unavailable", workflowName)
+		return
+	}
+	step := config.Steps[stepName]
+	if step == nil {
+		t.Errorf("canonical %s workflow is missing OpenAI route %q", workflowName, stepName)
+		return
+	}
+	if step.Action != action.ActionSpawnAgent || step.Provider != "openai" {
+		t.Errorf(
+			"canonical %s workflow route %q = action %q/provider %q, want spawn_agent/openai",
+			workflowName, stepName, step.Action, step.Provider,
+		)
+	}
+	if step.Model != "" {
+		t.Errorf("canonical %s workflow OpenAI route %q has a hardcoded model %q", workflowName, stepName, step.Model)
 	}
 }

@@ -691,6 +691,9 @@ chmod +x "$UAT_R2_01_EVAL_ALWAYS_FAIL"
 # ---------------------------------------------------------------------------
 BATCH_R2_WORKDIR="$UAT_R2_01_WORKDIR/batch"
 mkdir -p "$BATCH_R2_WORKDIR/scratch"
+mkdir -p "$BATCH_R2_WORKDIR/scratch/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/bug.yaml" \
+	"$BATCH_R2_WORKDIR/scratch/shark-data/workflow/bug.yaml"
 cat >"$BATCH_R2_WORKDIR/policy.yaml" <<EOF
 schema_version: "1.0"
 min_reps: 1
@@ -747,6 +750,9 @@ echo "TC-080(UAT-R2-01 regression, batch driver, T-E40-F10-004): real run-lifecy
 # ---------------------------------------------------------------------------
 CMP_R2_WORKDIR="$UAT_R2_01_WORKDIR/cmp"
 mkdir -p "$CMP_R2_WORKDIR/scratch"
+mkdir -p "$CMP_R2_WORKDIR/scratch/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/bug.yaml" \
+	"$CMP_R2_WORKDIR/scratch/shark-data/workflow/bug.yaml"
 cat >"$CMP_R2_WORKDIR/candidate.yaml" <<EOF
 schema_version: "1.0"
 scenario_id: "$UAT_R2_01_SCENARIO_ID"

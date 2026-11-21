@@ -505,7 +505,7 @@ func TestGetStatusActionPopulated_EmptyProviderAndModel(t *testing.T) {
 	}
 }
 
-// TC-023: PopulatedAction propagates openai/o3 provider+model pair correctly
+// TC-023: PopulatedAction propagates an openai provider+model pair correctly
 func TestGetStatusActionPopulated_PropagatesOpenAIProvider(t *testing.T) {
 	ClearWorkflowCache()
 
@@ -523,7 +523,7 @@ func TestGetStatusActionPopulated_PropagatesOpenAIProvider(t *testing.T) {
 					"action": "spawn_agent",
 					"agent_type": "developer",
 					"provider": "openai",
-					"model": "o3",
+					"model": "synthetic-openai-model",
 					"skills": ["implementation"],
 					"instruction_template": "implement {task_key}"
 				}
@@ -552,8 +552,8 @@ func TestGetStatusActionPopulated_PropagatesOpenAIProvider(t *testing.T) {
 	if populated.Provider != "openai" {
 		t.Errorf("expected Provider %q, got %q", "openai", populated.Provider)
 	}
-	if populated.Model != "o3" {
-		t.Errorf("expected Model %q, got %q", "o3", populated.Model)
+	if populated.Model != "synthetic-openai-model" {
+		t.Errorf("expected Model %q, got %q", "synthetic-openai-model", populated.Model)
 	}
 }
 

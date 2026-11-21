@@ -274,7 +274,7 @@ func TestCodexDispatcher_BuildCommand_MatchesDispatchCommandString(t *testing.T)
 	in := DispatchInput{
 		Instruction: "it's a \"test\" with $vars",
 		EntityKey:   "E07-F41-003",
-		Model:       "gpt-5",
+		Model:       "synthetic-codex-model",
 	}
 
 	preLogged, buildErr := d.BuildCommand(in)

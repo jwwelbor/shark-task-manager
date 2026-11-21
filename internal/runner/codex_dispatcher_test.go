@@ -188,11 +188,11 @@ func TestCodexDispatcher_ModelOverride(t *testing.T) {
 
 	_, _ = d.Dispatch(context.Background(), DispatchInput{
 		Instruction: "test",
-		Model:       "o4-mini",
+		Model:       "synthetic-codex-model",
 	})
 
-	if !containsConsecutive(captured.args, "-m", "o4-mini") {
-		t.Errorf("expected '-m o4-mini' in args, got %v", captured.args)
+	if !containsConsecutive(captured.args, "-m", "synthetic-codex-model") {
+		t.Errorf("expected '-m synthetic-codex-model' in args, got %v", captured.args)
 	}
 }
 
@@ -211,7 +211,7 @@ func TestCodexDispatcher_ModelOverride_Empty_NotAdded(t *testing.T) {
 }
 
 func TestCodexDispatcher_ModelOverride_DifferentModels(t *testing.T) {
-	tests := []string{"o3", "o4-mini", "gpt-4o"}
+	tests := []string{"synthetic-codex-model-a", "synthetic-codex-model-b", "synthetic-codex-model-c"}
 
 	for _, model := range tests {
 		t.Run(model, func(t *testing.T) {
@@ -236,7 +236,7 @@ func TestCodexDispatcher_ModelFlag_AppearsBeforeInstruction(t *testing.T) {
 
 	_, _ = d.Dispatch(context.Background(), DispatchInput{
 		Instruction: "test instruction",
-		Model:       "o4-mini",
+		Model:       "synthetic-codex-model",
 	})
 
 	// Find positions of -m and instruction
@@ -683,16 +683,16 @@ func TestCodexDispatcher_ModelScenarios(t *testing.T) {
 			expectMFlag: false,
 		},
 		{
-			name:         "o3 model",
-			model:        "o3",
+			name:         "first synthetic model",
+			model:        "synthetic-codex-model-a",
 			expectMFlag:  true,
-			expectedArgs: []string{"-m", "o3"},
+			expectedArgs: []string{"-m", "synthetic-codex-model-a"},
 		},
 		{
-			name:         "o4-mini model",
-			model:        "o4-mini",
+			name:         "second synthetic model",
+			model:        "synthetic-codex-model-b",
 			expectMFlag:  true,
-			expectedArgs: []string{"-m", "o4-mini"},
+			expectedArgs: []string{"-m", "synthetic-codex-model-b"},
 		},
 	}
 
