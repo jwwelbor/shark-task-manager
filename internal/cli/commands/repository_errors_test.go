@@ -35,6 +35,7 @@ func TestMapRepositoryErrorClassifiesDatabaseFailure(t *testing.T) {
 func TestRunChangeGetSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			require.Equal(t, "CC-001-slug", key)
 			return nil, newRepositoryDatabaseFailure()
 		},
 	})
@@ -46,6 +47,7 @@ func TestRunChangeGetSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 func TestRunChangeUpdateSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		UpdateChangeCardFunc: func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error) {
+			require.Equal(t, "CC-001-slug", key)
 			return nil, newRepositoryDatabaseFailure()
 		},
 	})
@@ -62,6 +64,7 @@ func TestRunChangeDeleteSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 	t.Cleanup(func() { changeForce = false })
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			require.Equal(t, "CC-001-slug", key)
 			return nil, newRepositoryDatabaseFailure()
 		},
 	})
@@ -73,6 +76,7 @@ func TestRunChangeDeleteSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 func TestRunTdGetSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 	restore := injectMockTdSvc(t, &MockTechDebtService{
 		GetTechDebtFunc: func(ctx context.Context, key string) (*models.TechDebt, error) {
+			require.Equal(t, "TD-001-slug", key)
 			return nil, newRepositoryDatabaseFailure()
 		},
 	})
@@ -84,6 +88,7 @@ func TestRunTdGetSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 func TestRunTdUpdateSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 	restore := injectMockTdSvc(t, &MockTechDebtService{
 		UpdateTechDebtFunc: func(ctx context.Context, key string, updates services.TechDebtUpdates) (*models.TechDebt, error) {
+			require.Equal(t, "TD-001-slug", key)
 			return nil, newRepositoryDatabaseFailure()
 		},
 	})
@@ -99,6 +104,7 @@ func TestRunTdDeleteSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 	cmd.Flags().Bool("force", false, "")
 	restore := injectMockTdSvc(t, &MockTechDebtService{
 		GetTechDebtFunc: func(ctx context.Context, key string) (*models.TechDebt, error) {
+			require.Equal(t, "TD-001-slug", key)
 			return nil, newRepositoryDatabaseFailure()
 		},
 	})
@@ -112,6 +118,7 @@ func TestRunChangeDeleteWriteFailureUsesDatabaseExitCode(t *testing.T) {
 	t.Cleanup(func() { changeForce = false })
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		DeleteChangeCardFunc: func(ctx context.Context, key string) error {
+			require.Equal(t, "CC-001-slug", key)
 			return newRepositoryDatabaseFailure()
 		},
 	})
@@ -125,6 +132,7 @@ func TestRunTdDeleteWriteFailureUsesDatabaseExitCode(t *testing.T) {
 	cmd.Flags().Bool("force", true, "")
 	restore := injectMockTdSvc(t, &MockTechDebtService{
 		DeleteTechDebtFunc: func(ctx context.Context, key string) error {
+			require.Equal(t, "TD-001-slug", key)
 			return newRepositoryDatabaseFailure()
 		},
 	})
@@ -140,6 +148,7 @@ func TestRunTdTriageSlugLookupFailureUsesDatabaseExitCode(t *testing.T) {
 	cmd.Flags().String("effort-estimate", "", "")
 	restore := injectMockTdSvc(t, &MockTechDebtService{
 		TriageTechDebtFunc: func(ctx context.Context, key string, input services.TriageTechDebtInput) (*models.TechDebt, error) {
+			require.Equal(t, "TD-001-slug", key)
 			return nil, newRepositoryDatabaseFailure()
 		},
 	})

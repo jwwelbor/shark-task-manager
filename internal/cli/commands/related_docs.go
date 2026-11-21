@@ -237,6 +237,9 @@ func relatedDocsErrorExitCode(err error) int {
 	if repoerr.IsNotFound(err) {
 		return 1
 	}
+	if errors.Is(err, repoerr.ErrAmbiguousKey) {
+		return 3
+	}
 	if errors.Is(err, services.ErrAmbiguousDocumentTitle) {
 		return 3
 	}

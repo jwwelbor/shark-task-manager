@@ -308,7 +308,17 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-	return s.docSvc.UnlinkDocumentByKey(ctx, featureKey, docTitle)
+	resolvedKey := featureKey
+	if resolver, ok := s.repo.(interface {
+		ResolveDocumentUnlinkKey(context.Context, string) (*models.Feature, error)
+	}); ok {
+		feature, err := resolver.ResolveDocumentUnlinkKey(ctx, featureKey)
+		if err != nil {
+			return fmt.Errorf("resolve feature for document unlink: %w", err)
+		}
+		resolvedKey = feature.Key
+	}
+	return s.docSvc.UnlinkDocumentByKey(ctx, resolvedKey, docTitle)
 }
 
 // TransitionStatus validates and performs a status transition on a feature.

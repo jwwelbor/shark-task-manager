@@ -193,6 +193,80 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (_ *models
 	return nil, sql.ErrNoRows
 }
 
+// ResolveDocumentUnlinkKey resolves a feature selector for related-docs delete.
+// Unlike GetByKey's compatibility lookup, shorthand selectors must be unique
+// before the document service lists or removes any links.
+func (r *FeatureRepository) ResolveDocumentUnlinkKey(ctx context.Context, key string) (*models.Feature, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(key))
+	parts := strings.Split(normalized, "-")
+	if len(parts) >= 2 && strings.HasPrefix(parts[0], "E") {
+		featureKey := strings.Join(parts[:2], "-")
+		if len(parts) == 2 {
+			feature, err := r.getByExactKey(ctx, featureKey)
+			return feature, mapFeatureLookupError(err)
+		}
+		if len(parts) == 3 && repoutil.IsNumeric(parts[2]) {
+			feature, err := r.getByExactKey(ctx, featureKey)
+			return feature, mapFeatureLookupError(err)
+		}
+		feature, err := r.getBySluggedKey(ctx, normalized)
+		return feature, mapFeatureLookupError(err)
+	}
+	if len(parts) == 1 && strings.HasPrefix(parts[0], "F") {
+		return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], "")
+	}
+	if len(parts) >= 2 && strings.HasPrefix(parts[0], "F") {
+		return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], strings.ToLower(strings.Join(parts[1:], "-")))
+	}
+	feature, err := r.GetByKey(ctx, key)
+	return feature, mapFeatureLookupError(err)
+}
+
+func mapFeatureLookupError(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("feature not found: %w", repoerr.ErrNotFound)
+	}
+	return err
+}
+
+func (r *FeatureRepository) findUniqueFeatureForUnlink(ctx context.Context, selector, keyPattern, slugValue string) (*models.Feature, error) {
+	query := `SELECT id, epic_id, key, title, slug, description, status,
+	 COALESCE(status_override, 0), progress_pct, execution_order, file_path,
+	 context_data, size, created_at, updated_at FROM features WHERE key LIKE ?`
+	args := []interface{}{keyPattern}
+	if slugValue != "" {
+		query += ` AND slug = ?`
+		args = append(args, slugValue)
+	}
+	query += ` LIMIT 2`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve feature for document unlink: %w", err)
+	}
+	defer rows.Close()
+	var found *models.Feature
+	for rows.Next() {
+		feature := &models.Feature{}
+		if err := rows.Scan(&feature.ID, &feature.EpicID, &feature.Key, &feature.Title, &feature.Slug,
+			&feature.Description, &feature.Status, &feature.StatusOverride, &feature.ProgressPct,
+			&feature.ExecutionOrder, &feature.FilePath, &feature.ContextData, &feature.Size,
+			&feature.CreatedAt, &feature.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to resolve feature for document unlink: %w", err)
+		}
+		if found != nil {
+			return nil, fmt.Errorf("%w: %q; use a fully qualified feature key", repoerr.ErrAmbiguousKey, selector)
+		}
+		found = feature
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to resolve feature for document unlink: %w", err)
+	}
+	if found == nil {
+		return nil, fmt.Errorf("feature not found: %w", repoerr.ErrNotFound)
+	}
+	return found, nil
+}
+
 // getByExactKey performs exact match lookup on the key column
 func (r *FeatureRepository) getByExactKey(ctx context.Context, key string) (*models.Feature, error) {
 	query := `
@@ -296,7 +370,8 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 		return nil, sql.ErrNoRows
 	}
 
-	// Query for features where key ends with numeric part AND slug matches
+	// Qualified keys must bind both the complete parent key and slug. Shorthand
+	// keys keep their historical single-row resolution for non-delete callers.
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
 		       execution_order, file_path, context_data, size, created_at, updated_at
@@ -305,6 +380,10 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 	`
 
 	pattern := "%-" + numericPart
+	if strings.HasPrefix(sluggedKey, "E") {
+		parts := strings.Split(sluggedKey, "-")
+		pattern = strings.Join(parts[:2], "-")
+	}
 	slugLower := strings.ToLower(slugPart)
 
 	feature := &models.Feature{}

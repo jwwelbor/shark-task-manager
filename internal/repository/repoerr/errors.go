@@ -18,6 +18,9 @@ var ErrDatabaseFailure = errors.New("repository database failure")
 // matched no row because a concurrent mutation changed its expected state.
 var ErrConditionalWriteConflict = errors.New("repository conditional write conflict")
 
+// ErrAmbiguousKey indicates that a shorthand entity key matches multiple rows.
+var ErrAmbiguousKey = errors.New("repository key is ambiguous")
+
 // IsNotFound identifies the repository's stable missing-record sentinel and
 // the database/sql no-row result still exposed by a small number of legacy
 // repository paths.
