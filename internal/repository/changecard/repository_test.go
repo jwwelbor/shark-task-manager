@@ -185,7 +185,7 @@ func TestChangeCardRepository_GetByKey_SluggedAliasesResolveCanonicalKey(t *test
 
 func TestChangeCardRepositoryGetByKeySluggedLookupReturnsScanFailure(t *testing.T) {
 	ctx := context.Background()
-	database := test.GetTestDB()
+	database := test.NewIsolatedTestDB(t)
 	repo := NewChangeCardRepository(dbconn.NewDB(database))
 	const key = "CC-986"
 	_, err := database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", key)
@@ -210,7 +210,7 @@ func TestChangeCardRepositoryGetByKeySluggedLookupReturnsScanFailure(t *testing.
 
 func TestChangeCardRepositoryGetByKeyExactLookupClassifiesScanFailure(t *testing.T) {
 	ctx := context.Background()
-	database := test.GetTestDB()
+	database := test.NewIsolatedTestDB(t)
 	repo := NewChangeCardRepository(dbconn.NewDB(database))
 	const key = "CC-987"
 	_, err := database.ExecContext(ctx, "DELETE FROM change_cards WHERE key = ?", key)

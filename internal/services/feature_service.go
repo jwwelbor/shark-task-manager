@@ -316,7 +316,7 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 		if err != nil {
 			return fmt.Errorf("resolve feature for document unlink: %w", err)
 		}
-		resolvedKey = feature.Key
+		return s.docSvc.UnlinkDocumentByEntity(ctx, feature, docTitle)
 	}
 	return s.docSvc.UnlinkDocumentByKey(ctx, resolvedKey, docTitle)
 }

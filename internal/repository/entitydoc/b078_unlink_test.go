@@ -36,7 +36,7 @@ func TestEntityDocumentRepoUnlinkRejectsRestoredDeleteAndPreservesSiblings(t *te
 func assertB078RetainedUnlinkFailsAndRetryPreservesSiblings(t *testing.T, triggerName string, entityID int64, triggerSQL string) {
 	t.Helper()
 	ctx := context.Background()
-	database := test.GetTestDB()
+	database := test.NewIsolatedTestDB(t)
 	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 	otherEntityID := entityID - 10
@@ -110,7 +110,7 @@ func TestEntityDocumentRepoUnlinkValidatesBeforeOpeningTransaction(t *testing.T)
 }
 
 func TestEntityDocumentRepoUnlinkHonorsCancelledCallerContext(t *testing.T) {
-	database := test.GetTestDB()
+	database := test.NewIsolatedTestDB(t)
 	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 	const entityID int64 = 99980

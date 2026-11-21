@@ -42,6 +42,14 @@ type mockFeatureRepo struct {
 	updateFilePathFn              func(ctx context.Context, featureKey string, newFilePath *string) error
 	getByFilePathFn               func(ctx context.Context, filePath string) (*models.Feature, error)
 	getFeatureDisplayDataRawFn    func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error)
+	resolveDocumentUnlinkKeyFn    func(ctx context.Context, key string) (*models.Feature, error)
+}
+
+func (m *mockFeatureRepo) ResolveDocumentUnlinkKey(ctx context.Context, key string) (*models.Feature, error) {
+	if m.resolveDocumentUnlinkKeyFn != nil {
+		return m.resolveDocumentUnlinkKeyFn(ctx, key)
+	}
+	return m.GetByKey(ctx, key)
 }
 
 // mockFeatureEpicLookup implements FeatureEpicLookup for testing.
@@ -2624,6 +2632,27 @@ func TestFeatureService_UnlinkDocument_Happy_Path(t *testing.T) {
 	if capturedDocID != 55 {
 		t.Errorf("expected doc ID 55, got %d", capturedDocID)
 	}
+}
+
+func TestFeatureService_UnlinkDocumentUsesResolvedFeatureIdentity(t *testing.T) {
+	var capturedID int64
+	repo := &mockFeatureRepo{
+		resolveDocumentUnlinkKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			assert.Equal(t, "F02-fixture", key)
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 72, Key: "E10-F02"}}, nil
+		},
+	}
+	links := &mockFeatureLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			capturedID = entityID
+			return nil, nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, nil)
+	svc.SetWritableDocRepo(&mockFeatureDocRepo{}, links, ".")
+
+	require.NoError(t, svc.UnlinkDocument(context.Background(), "F02-fixture", "API Spec"))
+	assert.Equal(t, int64(72), capturedID, "unlink must retain the selected entity ID without resolving its key again")
 }
 
 func TestFeatureService_UnlinkDocument_NoWritableDocRepo(t *testing.T) {

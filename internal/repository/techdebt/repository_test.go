@@ -157,8 +157,8 @@ func TestGetByKey_NotFound(t *testing.T) {
 
 func TestGetByKeySlugFallbackPreservesScanFailure(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := techDebtTestSetup(t)
-	t.Cleanup(cleanup)
+	database := test.NewIsolatedTestDB(t)
+	repo := NewTechDebtRepository(dbconn.NewDB(database))
 	td := newTestTechDebt("TD-917", "Unreadable slug fallback", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
 	slug := "fixture"
 	td.Slug = &slug
@@ -175,8 +175,8 @@ func TestGetByKeySlugFallbackPreservesScanFailure(t *testing.T) {
 
 func TestGetByKeyExactLookupClassifiesScanFailure(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := techDebtTestSetup(t)
-	t.Cleanup(cleanup)
+	database := test.NewIsolatedTestDB(t)
+	repo := NewTechDebtRepository(dbconn.NewDB(database))
 	td := newTestTechDebt("TD-918", "Unreadable exact-key row", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
 	require.NoError(t, repo.Create(ctx, td))
 	_, err := repo.db.ExecContext(ctx, "UPDATE tech_debts SET created_at = ? WHERE key = ?", "not-a-timestamp", td.Key)
@@ -190,8 +190,8 @@ func TestGetByKeyExactLookupClassifiesScanFailure(t *testing.T) {
 
 func TestGetByKeySlugFallbackTrimsWhitespace(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := techDebtTestSetup(t)
-	t.Cleanup(cleanup)
+	database := test.NewIsolatedTestDB(t)
+	repo := NewTechDebtRepository(dbconn.NewDB(database))
 	td := newTestTechDebt("TD-919", "Whitespace slug key", "identified", models.TechDebtCategoryTesting, models.TechDebtSeverityMedium)
 	slug := "fixture"
 	td.Slug = &slug

@@ -128,6 +128,14 @@ func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityK
 	if err != nil {
 		return fmt.Errorf("resolve entity for document unlink: %w", err)
 	}
+	return s.UnlinkDocumentByEntity(ctx, entity, title)
+}
+
+// UnlinkDocumentByEntity removes a document link using an entity already resolved by the caller.
+func (s *EntityDocumentService) UnlinkDocumentByEntity(ctx context.Context, entity models.Entity, title string) error {
+	if entity == nil {
+		return fmt.Errorf("resolved entity for document unlink is required")
+	}
 	entityID := entity.GetID()
 	entityType := entity.GetEntityType()
 
