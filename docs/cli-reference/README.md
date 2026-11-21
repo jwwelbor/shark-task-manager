@@ -83,6 +83,7 @@ Commands for creating, updating, and organizing entities.
 | `shark <entity> notes <key>` | View notes for a specific entity |
 | `shark related-docs` | Manage related documents |
 | `shark docs` | Alias for `shark related-docs` |
+| `shark data get research/recipes.yaml` | Read the configured or embedded research recipe catalog |
 | `shark history <key>` | View entity history |
 
 **Note:** `shark update` does not accept a `--status` flag. Use `shark status set <key> <status>` instead.

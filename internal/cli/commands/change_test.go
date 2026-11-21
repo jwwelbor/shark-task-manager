@@ -124,6 +124,8 @@ func injectMockChangeCardSvc(t *testing.T, mock changeCardServicer) func() {
 // newChangeCmd returns a minimal cobra.Command (Context may be nil).
 func newChangeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "test"}
+	cmd.Flags().String("size", "", "size")
+	cmd.Flags().StringSlice("tag", nil, "tag")
 	return cmd
 }
 
@@ -1063,6 +1065,7 @@ func buildChangeCreateCmdForTagTest(t *testing.T) *cobra.Command {
 	cmd.Flags().StringVar(&changeRequestedBy, "requested-by", "", "requested-by")
 	var tags []string
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
+	cmd.Flags().String("size", "", "size")
 	return cmd
 }
 

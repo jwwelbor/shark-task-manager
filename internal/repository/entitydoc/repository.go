@@ -2,6 +2,8 @@ package entitydoc
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -62,7 +64,7 @@ func (r *EntityDocumentRepository) Link(ctx context.Context, entityType models.E
 // Unlink removes the association between an entity and a document.
 // If no link exists, the method is a no-op (returns nil error).
 // The document itself is NOT deleted.
-func (r *EntityDocumentRepository) Unlink(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+func (r *EntityDocumentRepository) Unlink(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) (resultErr error) {
 	if err := validateEntityType(entityType); err != nil {
 		return err
 	}
@@ -70,16 +72,51 @@ func (r *EntityDocumentRepository) Unlink(ctx context.Context, entityType models
 		return err
 	}
 
-	query := `
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return fmt.Errorf("begin association removal transaction: %w", err)
+	}
+	defer preserveAssociationRollbackError(tx, &resultErr)
+
+	if err := deleteAndVerifyAssociation(ctx, tx, entityType, entityID, documentID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit association removal transaction: %w", err)
+	}
+	return nil
+}
+
+func preserveAssociationRollbackError(tx *sql.Tx, resultErr *error) {
+	if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		*resultErr = errors.Join(*resultErr, fmt.Errorf("rollback association removal transaction: %w", rollbackErr))
+	}
+}
+
+func deleteAndVerifyAssociation(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityID, documentID int64) error {
+	deleteQuery := `
 		DELETE FROM entity_documents
 		WHERE entity_type = ? AND entity_id = ? AND document_id = ?
 	`
 
-	_, err := r.db.ExecContext(ctx, query, entityType, entityID, documentID)
+	_, err := tx.ExecContext(ctx, deleteQuery, entityType, entityID, documentID)
 	if err != nil {
-		return fmt.Errorf("failed to unlink document: %w", err)
+		return fmt.Errorf("delete entity association: %w", err)
 	}
 
+	var remains bool
+	verifyQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM entity_documents
+			WHERE entity_type = ? AND entity_id = ? AND document_id = ?
+		)
+	`
+	if err := tx.QueryRowContext(ctx, verifyQuery, entityType, entityID, documentID).Scan(&remains); err != nil {
+		return fmt.Errorf("verify entity association removal: %w", err)
+	}
+	if remains {
+		return fmt.Errorf("entity association remains after delete (type=%s, entity_id=%d, document_id=%d)", entityType, entityID, documentID)
+	}
 	return nil
 }
 

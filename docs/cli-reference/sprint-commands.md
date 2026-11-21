@@ -13,7 +13,7 @@ This section covers how an agent plans and executes a sprint end-to-end using th
 | Command | When to use |
 |---|---|
 | `/plan-sprint S###` | Fill the sprint backlog before starting — proposes assignments, confirms with user, never starts the sprint |
-| `/run-sprint S###` | Drive an active sprint solo — pulls one entity at a time via `shark sprint next`, dispatches each via `/run` |
+| `/run-sprint S###` | Drive an active sprint solo — selects one entity at a time via `shark plan S###`, dispatches each via `/run` |
 | `/run-sprint-team S###` | Drive an active sprint through the canonical team topology — the active backlog is its sole selection universe. |
 | `/retro-sprint S###` | Post-close retrospective — reads `shark sprint summary --detailed` and velocity data, produces a five-section markdown report |
 
@@ -70,9 +70,9 @@ Or let `/run-sprint` offer to start it if the sprint is still in `planning` stat
 ```
 
 The pull-loop:
-1. Calls `shark sprint next S005 --json` to get the next unstarted entity
+1. Calls `shark plan S005 --json` to select from S005 and get its first ordered dispatchable entity
 2. Delegates the entity to `/run {KEY}` — which drives it all the way to terminal status via the standard orchestrator loop
-3. Loops until `shark sprint next` returns null (backlog drained) or `--max-iterations` is hit
+3. On `action: "pause"`, checks the complete unfiltered assignment set with `shark sprint backlog S005 --view=ordered --all --json`; it reports drained only if every assigned entity is terminal under its configured workflow, otherwise it pauses and reports the remaining or unresolved work. An empty `--agent` slice does not prove the sprint is drained.
 4. Prints a burndown + summary report
 5. **Asks before closing** — never auto-closes
 
@@ -193,7 +193,7 @@ See the [Sizing Guide](sizing.md) for detailed benchmarks on estimating work for
 | `shark sprint readiness` | Show readiness score | 0-100 score with factor breakdown |
 | `shark sprint capacity set` | Set sprint or default capacity | Use `--default` to update config defaults |
 | `shark sprint capacity show` | Show capacity utilization | Displays capacity, allocated, remaining, unsized |
-| `shark sprint next` | Get the next entity from the active sprint | Returns `sprint_order`, `selection_reason`, and `sprint_key` in JSON |
+| `shark sprint next` | Get the next entity across execution-phase sprints; this command is not scoped to one sprint key | Returns `sprint_order`, `selection_reason`, and `sprint_key` in JSON |
 | `shark sprint velocity` | Show velocity history | Defaults to the last 5 completed sprints |
 | `shark sprint burndown` | Show burndown chart | Uses the active sprint when omitted |
 | `shark sprint summary` | Show sprint summary report | Supports `--detailed` |
@@ -647,7 +647,9 @@ shark sprint capacity show S024 --json
 
 ### `shark sprint next`
 
-Identify the next highest-priority non-terminal entity in the active sprint.
+Identify the next highest-priority non-terminal entity across execution-phase sprints.
+This command has no positional sprint key; use `shark plan S### --json` when
+selection must be scoped to one sprint, as `/run-sprint S###` does.
 
 The entity is selected using a four-tier stable sort:
 
@@ -669,10 +671,11 @@ The entity is selected using a four-tier stable sort:
 **Usage**
 
 ```bash
-shark sprint next [sprint-key]
+shark sprint next [flags]
 ```
 
-If no sprint key is given, Shark uses the current active sprint.
+This command takes no positional arguments. It selects from all eligible
+execution-phase sprints; it is not scoped to a specific sprint key.
 
 `shark sprint next` is not task-only. It considers any assigned `task`, `bug`, `change_card`, or `tech_debt` item that is still open, then returns the first one in sprint pull order.
 
@@ -680,9 +683,9 @@ If no sprint key is given, Shark uses the current active sprint.
 
 ```bash
 shark sprint next
-shark sprint next S024
-shark sprint next S024 --json
-shark sprint next S024 --field sprint_order
+shark sprint next --json
+shark sprint next --field sprint_order
+shark plan S024 --json
 ```
 
 **Agent usage** — agents should check `selection_reason` to understand why an item was selected and use `sprint_order` to detect when pull order has been explicitly set by a human planner.

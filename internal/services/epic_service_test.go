@@ -2235,7 +2235,6 @@ func TestEpicService_CascadeStatusToFeaturesAndTasks_RepoError(t *testing.T) {
 // mockEpicDocRepo implements EntityDocumentRepository for epic-service doc tests.
 type mockEpicDocRepo struct {
 	createOrGetFn func(ctx context.Context, title, filePath string) (*models.Document, error)
-	getByTitleFn  func(ctx context.Context, title string) (*models.Document, error)
 }
 
 func (m *mockEpicDocRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
@@ -2243,13 +2242,6 @@ func (m *mockEpicDocRepo) CreateOrGet(ctx context.Context, title, filePath strin
 		return m.createOrGetFn(ctx, title, filePath)
 	}
 	return nil, fmt.Errorf("CreateOrGet not implemented")
-}
-
-func (m *mockEpicDocRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
-	if m.getByTitleFn != nil {
-		return m.getByTitleFn(ctx, title)
-	}
-	return nil, fmt.Errorf("GetByTitle not implemented")
 }
 
 // mockEpicLinkRepo implements EntityDocumentLinkRepository for epic-service doc tests.
@@ -2436,15 +2428,11 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicDocRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			if title != "Design Doc" {
-				t.Errorf("expected title 'Design Doc', got %q", title)
-			}
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
+	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Design Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			capturedEpicID = entityID
 			capturedDocID = documentID
@@ -2511,12 +2499,12 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicDocRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return nil, fmt.Errorf("document not found")
+	docRepo := &mockEpicDocRepo{}
+	linkRepo := &mockEpicLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{}, nil
 		},
 	}
-	linkRepo := &mockEpicLinkRepo{}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo, ".")
@@ -2530,20 +2518,20 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 }
 
 func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
+	wantCause := errors.New("unlink failed")
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
 		},
 	}
 
-	docRepo := &mockEpicDocRepo{
-		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
-			return &models.Document{ID: 42, Title: title}, nil
-		},
-	}
+	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{
+		listForEntityFn: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+			return []*models.Document{{ID: 42, Title: "Design Doc"}}, nil
+		},
 		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
-			return fmt.Errorf("unlink failed")
+			return wantCause
 		},
 	}
 
@@ -2552,12 +2540,10 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
 
-	if err == nil {
-		t.Fatal("expected error from UnlinkFromEpic, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to unlink document from epic") {
-		t.Errorf("expected 'failed to unlink document from epic' in error, got: %v", err)
-	}
+	require.Error(t, err, "expected error from UnlinkFromEpic")
+	assert.ErrorIs(t, err, wantCause, "expected unlink cause to be preserved")
+	assert.Contains(t, err.Error(), "remove entity association", "expected neutral association-removal context")
+	assert.NotContains(t, err.Error(), "failed to unlink document from epic", "service repeated public unlink context")
 }
 
 // ============================================================================

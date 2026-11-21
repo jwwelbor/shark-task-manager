@@ -34,6 +34,10 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 	requestedBy, _ := cmd.Flags().GetString("requested-by")
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
+	size, tags, err := readChangeCreateSizeAndTags(cmd)
+	if err != nil {
+		return err
+	}
 	body, err := cli.ResolveContentInput(cmd)
 	if err != nil {
 		return err
@@ -46,13 +50,15 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 		RequestedBy:   requestedBy,
 		EpicKey:       epicKey,
 		FeatureKey:    featureKey,
+		Size:          size,
+		Tags:          tags,
 		Body:          body,
 	}
 
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	card, fileWasLinked, err := svc.CreateChangeCard(ctx, input)
 	if err != nil {
-		return fmt.Errorf("failed to create change-card: %w", err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, models.EntityTypeChange, input.Title)
 	}
 
 	projectRoot, _ := cli.FindProjectRoot()

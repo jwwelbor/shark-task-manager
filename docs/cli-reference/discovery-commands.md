@@ -8,7 +8,7 @@ Shark provides three discovery mechanisms:
 
 - **`shark search`** - Find tasks by file metadata (files changed during completion)
 - **`shark notes search`** - Search note content across all entities (epics, features, tasks)
-- **`shark related-docs`** - Manage document links attached to epics, features, tasks, bugs, change-cards, or questions
+- **`shark related-docs`** - Manage document links attached to epics, features, tasks, bugs, change-cards, questions, or tech-debt items
 
 These commands are useful for tracing which tasks touched specific files, finding past decisions or solutions recorded in notes, and maintaining links between entities and their supporting documentation.
 
@@ -111,7 +111,7 @@ shark notes search "performance" --since 2026-01-01 --until 2026-01-31 --json
 
 ## `shark related-docs`
 
-Manage related documents linked to epics, features, or tasks. Related documents provide traceable links between entities and their supporting files (design docs, specifications, implementation guides, etc.).
+Manage related documents linked to epics, features, tasks, bugs, change-cards, questions, or tech-debt items. Related documents provide traceable links between entities and their supporting files (design docs, specifications, implementation guides, etc.).
 
 **Usage:**
 
@@ -131,7 +131,7 @@ shark related-docs [command]
 
 ### `shark related-docs add`
 
-Add a related document to an epic, feature, or task. The document is created or retrieved if it already exists with the same title and path. The document is then linked to exactly one parent entity.
+Add a related document to an epic, feature, task, bug, change-card, question, or tech-debt item. The document is created or retrieved if it already exists with the same title and path. The document is then linked to exactly one parent entity.
 
 **Usage:**
 
@@ -149,8 +149,9 @@ shark related-docs add <title> <path> [flags]
 | `--bug <key>` | Bug key (e.g., `B001`) |
 | `--change <key>` | Change-card key (e.g., `CC-001`) |
 | `--question <key>` | Question key (e.g., `Q001`) |
+| `--tech-debt <key>` | Tech-debt key (e.g., `TD-001`) |
 
-Exactly one of `--epic`, `--feature`, `--task`, `--bug`, `--change`, or `--question` is required.
+Exactly one entity selector is required.
 
 **Examples:**
 
@@ -163,13 +164,16 @@ shark related-docs add "Implementation Notes" docs/notes.md --feature=E01-F01
 
 # Link detailed notes to a specific task
 shark related-docs add "Task Details" docs/details.md --task=T-E01-F01-001
+
+# Link a research report to a tech-debt item
+shark related-docs add "Research Report" docs/plan/tech-debt/TD-001.research-report.md --tech-debt=TD-001
 ```
 
 ---
 
 ### `shark related-docs list`
 
-List all documents linked to an epic, feature, task, bug, change-card, or question. Pass an entity key positionally to infer its type, or provide exactly one explicit entity-type flag.
+List all documents linked to an epic, feature, task, bug, change-card, question, or tech-debt item. Pass an entity key positionally to infer its type, or provide exactly one explicit entity-type flag.
 
 **Usage:**
 
@@ -187,6 +191,7 @@ shark related-docs list [<entity-key>] [flags]
 | `--bug <key>` | Bug key (e.g., `B001`) |
 | `--change <key>` | Change-card key (e.g., `CC-001`) |
 | `--question <key>` | Question key (e.g., `Q001`) |
+| `--tech-debt <key>` | Tech-debt key (e.g., `TD-001`) |
 | `--json` | Output in JSON format |
 
 **Examples:**
@@ -203,13 +208,16 @@ shark related-docs list --feature=E01-F01 --json
 
 # List docs linked to a task
 shark related-docs list --task=T-E01-F01-001
+
+# Infer the entity type from a tech-debt key
+shark related-docs list TD-001 --json
 ```
 
 ---
 
 ### `shark related-docs delete`
 
-Remove a document link from an epic, feature, or task. The document itself is not deleted from the database, only the link is removed. Delete is idempotent -- it succeeds even if the document is not linked to the parent.
+Remove a document link from an epic, feature, task, bug, change-card, question, or tech-debt item. Shark looks for the title among the selected entity’s links. A unique match removes the link and preserves the document. A missing link succeeds on retry. If multiple linked documents share the title, Shark returns an ambiguity error and keeps all links.
 
 **Usage:**
 
@@ -224,8 +232,12 @@ shark related-docs delete <title> [flags]
 | `--epic <key>` | Epic key (e.g., `E01`) |
 | `--feature <key>` | Feature key (e.g., `E01-F01`) |
 | `--task <key>` | Task key (e.g., `T-E01-F01-001`) |
+| `--bug <key>` | Bug key (e.g., `B001`) |
+| `--change <key>` | Change-card key (e.g., `CC-001`) |
+| `--question <key>` | Question key (e.g., `Q001`) |
+| `--tech-debt <key>` | Tech-debt key (e.g., `TD-001`) |
 
-Exactly one of `--epic`, `--feature`, or `--task` is required.
+Exactly one entity selector is required.
 
 **Examples:**
 
@@ -238,6 +250,9 @@ shark related-docs delete "Implementation Notes" --feature=E01-F01
 
 # Remove a doc link from a task
 shark related-docs delete "Task Details" --task=T-E01-F01-001
+
+# Remove a doc link from a tech-debt item
+shark related-docs delete "Research Report" --tech-debt=TD-001
 ```
 
 ---
