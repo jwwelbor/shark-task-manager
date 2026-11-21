@@ -150,6 +150,20 @@ func TestB078RelatedDocsDeletePreservesNumericTaskSuffixParentLookup(t *testing.
 	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, feature.ID, doc.ID, false)
 }
 
+func TestB078RelatedDocsDeleteRejectsEmptyShorthandSuffixWithoutUnlinking(t *testing.T) {
+	fixture := newB078IdentityFixture(t)
+	repoDB := repository.NewDB(fixture.sqlDB)
+	feature, err := repository.NewFeatureRepository(repoDB).GetByKey(context.Background(), "E10-F02")
+	require.NoError(t, err)
+	doc, err := fixture.documents.CreateOrGet(context.Background(), "B078 empty shorthand suffix", "docs/b078/feature/empty-suffix.md")
+	require.NoError(t, err)
+	require.NoError(t, fixture.links.Link(context.Background(), models.EntityTypeFeature, feature.ID, doc.ID, "empty-suffix"))
+
+	_, exitCode := fixture.cli.rejectionWithExit(t, "related-docs", "delete", doc.Title, "--feature=F02-")
+	require.NotZero(t, exitCode, "empty shorthand suffix must be rejected")
+	assertB078Link(t, fixture.sqlDB, models.EntityTypeFeature, feature.ID, doc.ID, true)
+}
+
 func TestB078RelatedDocsDeleteRejectsWildcardFeatureSelectors(t *testing.T) {
 	fixture := newB078IdentityFixture(t)
 	repoDB := repository.NewDB(fixture.sqlDB)

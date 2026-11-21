@@ -228,6 +228,12 @@ func TestEntityDocumentService_LinkDocumentByKey_LinkFails(t *testing.T) {
 // EntityDocumentService.UnlinkDocumentByKey Tests
 // ============================================================================
 
+func TestEntityDocumentServiceUnlinkDocumentByEntityRejectsTypedNil(t *testing.T) {
+	var feature *models.Feature
+	err := (&EntityDocumentService{}).UnlinkDocumentByEntity(context.Background(), feature, "spec")
+	require.ErrorContains(t, err, "resolved entity for document unlink is required")
+}
+
 func TestEntityDocumentService_UnlinkDocumentByKey_HappyPath(t *testing.T) {
 	var capturedEntityType, listedEntityType models.EntityType
 	var capturedEntityID, capturedDocID, listedEntityID int64

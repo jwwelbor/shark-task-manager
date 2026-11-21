@@ -181,6 +181,9 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (_ *models
 
 	// Try 3: Slugged key pattern (F11-slug-name or E07-F11-slug-name)
 	// Extract the numeric part and slug, then match against key and slug columns
+	if !isValidFeatureSlugSelector(normalizedKey) {
+		return nil, sql.ErrNoRows
+	}
 	feature, err = r.getBySluggedKey(ctx, normalizedKey)
 	if err == nil {
 		return feature, nil
@@ -200,46 +203,61 @@ func (r *FeatureRepository) ResolveDocumentUnlinkKey(ctx context.Context, key st
 	if ctx == nil {
 		return nil, errors.New("resolve feature for document unlink: context is required")
 	}
-	normalized := strings.ToUpper(strings.TrimSpace(key))
-	parts := strings.Split(normalized, "-")
-	if len(parts) >= 2 && strings.HasPrefix(parts[0], "E") {
-		if !repoutil.IsNumeric(strings.TrimPrefix(parts[0], "E")) || !strings.HasPrefix(parts[1], "F") || !repoutil.IsNumeric(strings.TrimPrefix(parts[1], "F")) {
-			return nil, mapFeatureLookupError(sql.ErrNoRows)
-		}
-		featureKey := strings.Join(parts[:2], "-")
-		if len(parts) == 2 {
-			feature, err := r.getByExactKey(ctx, featureKey)
-			return feature, mapFeatureLookupError(err)
-		}
-		suffix := strings.Join(parts[2:], "-")
-		if suffix == "" {
-			return nil, mapFeatureLookupError(sql.ErrNoRows)
-		}
-		if repoutil.IsNumeric(suffix) { // Preserve task-key suffix compatibility.
-			feature, err := r.getByExactKey(ctx, featureKey)
-			return feature, mapFeatureLookupError(err)
-		}
-		feature, err := r.getByExactKeyAndSlug(ctx, featureKey, strings.ToLower(suffix))
-		return feature, mapFeatureLookupError(err)
+	parts := strings.Split(strings.ToUpper(strings.TrimSpace(key)), "-")
+	if strings.HasPrefix(parts[0], "E") {
+		return r.resolveQualifiedUnlinkSelector(ctx, parts)
 	}
 	if strings.HasPrefix(parts[0], "F") {
-		if !repoutil.IsNumeric(strings.TrimPrefix(parts[0], "F")) {
-			return nil, mapFeatureLookupError(sql.ErrNoRows)
-		}
-		if len(parts) == 1 {
-			return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], "")
-		}
-		suffix := strings.Join(parts[1:], "-")
-		if suffix == "" {
-			return nil, mapFeatureLookupError(sql.ErrNoRows)
-		}
-		if repoutil.IsNumeric(suffix) {
-			return nil, mapFeatureLookupError(sql.ErrNoRows)
-		}
-		return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], strings.ToLower(suffix))
+		return r.resolveShorthandUnlinkSelector(ctx, key, parts)
 	}
 	feature, err := r.GetByKey(ctx, key)
 	return feature, mapFeatureLookupError(err)
+}
+
+func (r *FeatureRepository) resolveQualifiedUnlinkSelector(ctx context.Context, parts []string) (*models.Feature, error) {
+	if len(parts) < 2 || !isNumericFeaturePart(parts[0], "E") || !isNumericFeaturePart(parts[1], "F") {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	featureKey := strings.Join(parts[:2], "-")
+	if len(parts) == 2 || (len(parts) == 3 && repoutil.IsNumeric(parts[2])) {
+		feature, err := r.getByExactKey(ctx, featureKey)
+		return feature, mapFeatureLookupError(err)
+	}
+	suffix := strings.Join(parts[2:], "-")
+	if suffix == "" {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	feature, err := r.getByExactKeyAndSlug(ctx, featureKey, strings.ToLower(suffix))
+	return feature, mapFeatureLookupError(err)
+}
+
+func (r *FeatureRepository) resolveShorthandUnlinkSelector(ctx context.Context, key string, parts []string) (*models.Feature, error) {
+	if !isNumericFeaturePart(parts[0], "F") {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	if len(parts) == 1 {
+		return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], "")
+	}
+	suffix := strings.Join(parts[1:], "-")
+	if suffix == "" || repoutil.IsNumeric(suffix) {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], strings.ToLower(suffix))
+}
+
+func isNumericFeaturePart(part, prefix string) bool {
+	return strings.HasPrefix(part, prefix) && repoutil.IsNumeric(strings.TrimPrefix(part, prefix))
+}
+
+func isValidFeatureSlugSelector(key string) bool {
+	parts := strings.Split(key, "-")
+	if len(parts) < 2 {
+		return false
+	}
+	if strings.HasPrefix(parts[0], "E") {
+		return len(parts) >= 3 && isNumericFeaturePart(parts[0], "E") && isNumericFeaturePart(parts[1], "F")
+	}
+	return strings.HasPrefix(parts[0], "F") && isNumericFeaturePart(parts[0], "F") && strings.Join(parts[1:], "-") != ""
 }
 
 func (r *FeatureRepository) getByExactKeyAndSlug(ctx context.Context, key, slug string) (*models.Feature, error) {
@@ -386,9 +404,6 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 
 	// Check if first part is epic (E##) or feature (F##)
 	if strings.HasPrefix(parts[0], "E") && len(parts) >= 3 {
-		if !repoutil.IsNumeric(strings.TrimPrefix(parts[0], "E")) || !strings.HasPrefix(parts[1], "F") || !repoutil.IsNumeric(strings.TrimPrefix(parts[1], "F")) {
-			return nil, sql.ErrNoRows
-		}
 		// Format: E07-F11-slug-name
 		numericPart = parts[1]                  // F11
 		slugPart = strings.Join(parts[2:], "-") // slug-name
@@ -400,9 +415,6 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 			return r.getByExactKey(ctx, featureKey)
 		}
 	} else if strings.HasPrefix(parts[0], "F") {
-		if !repoutil.IsNumeric(strings.TrimPrefix(parts[0], "F")) || strings.Join(parts[1:], "-") == "" {
-			return nil, sql.ErrNoRows
-		}
 		// Format: F11-slug-name
 		numericPart = parts[0]                  // F11
 		slugPart = strings.Join(parts[1:], "-") // slug-name

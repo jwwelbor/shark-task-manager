@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -133,7 +134,7 @@ func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityK
 
 // UnlinkDocumentByEntity removes a document link using an entity already resolved by the caller.
 func (s *EntityDocumentService) UnlinkDocumentByEntity(ctx context.Context, entity models.Entity, title string) error {
-	if entity == nil {
+	if entity == nil || isNilEntity(entity) {
 		return fmt.Errorf("resolved entity for document unlink is required")
 	}
 	entityID := entity.GetID()
@@ -163,6 +164,11 @@ func (s *EntityDocumentService) UnlinkDocumentByEntity(ctx context.Context, enti
 	}
 
 	return nil
+}
+
+func isNilEntity(entity models.Entity) bool {
+	value := reflect.ValueOf(entity)
+	return value.Kind() == reflect.Ptr && value.IsNil()
 }
 
 // ListDocumentsByKey returns all documents linked to an entity identified by key.
