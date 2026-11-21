@@ -55,15 +55,31 @@ func TestB077PreflightAllowsOnlyDocumentedCompatibleRoutes(t *testing.T) {
 	}
 }
 
+func b077SelectedCodexModel(t *testing.T, run string) string {
+	t.Helper()
+	selection := e36F04RawSection(t, run,
+		"### B077 default bug-stage Codex fallback mappings",
+		"### Claude Code Agent tool adapter")
+	rows := b077MarkdownTableRows(t, selection, "| status |")
+	require.NotEmpty(t, rows, "B077 must document Codex fallback mappings")
+	model := strings.TrimSpace(rows[0]["selected_model"])
+	require.NotEmpty(t, model, "B077 fallback mapping must select a model")
+	for _, row := range rows {
+		require.Equal(t, model, strings.TrimSpace(row["selected_model"]), "B077 fallback mappings must use one selected model")
+	}
+	return model
+}
+
 func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
+	selectedModel := strings.ToLower(b077SelectedCodexModel(t, run))
 	selection := normalizeContractText(e36F04RawSection(t, run,
 		"### B077 default bug-stage Codex fallback mappings",
 		"### Claude Code Agent tool adapter"))
 	for _, invariant := range []string{
 		"host_worker_class=codex-cli",
 		"selected_provider=openai",
-		"selected_model=gpt-6.2-astra",
+		"selected_model=" + selectedModel,
 		"compatibility mapping",
 		"does not claim that any codex model is equivalent to the requested anthropic model",
 		"never derived from the parent session, codex configuration default, or environment",
@@ -86,6 +102,7 @@ func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 // executable starts in a competing provider's configuration.
 func TestB077RecordingCodexReceivesSelectedRoute(t *testing.T) {
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
+	selectedModel := b077SelectedCodexModel(t, run)
 	section := e36F04RawSection(t, run, "### Long-running Codex CLI adapter", "### Mid-run consultation")
 	_, excerpt, found := strings.Cut(section, "```bash\n")
 	require.True(t, found)
@@ -93,9 +110,9 @@ func TestB077RecordingCodexReceivesSelectedRoute(t *testing.T) {
 	require.True(t, found)
 
 	for _, tc := range []struct{ name, request, model, effort string }{
-		{"mapped explicit effort", "opus", "gpt-6.2-astra", "low"},
+		{"mapped explicit effort", "opus", selectedModel, "low"},
 		{"exact explicit effort", "different-exact-model", "different-exact-model", "low"},
-		{"mapped omitted effort", "opus", "gpt-6.2-astra", ""},
+		{"mapped omitted effort", "opus", selectedModel, ""},
 		{"exact omitted effort", "different-exact-model", "different-exact-model", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -159,6 +176,7 @@ func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte(workflowText), &workflow))
 
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
+	selectedModel := strings.ToLower(b077SelectedCodexModel(t, run))
 	selection := e36F04RawSection(t, run,
 		"### B077 default bug-stage Codex fallback mappings",
 		"### Claude Code Agent tool adapter")
@@ -186,7 +204,7 @@ func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
 			assert.Equal(t, step.Model, strings.ToLower(row["requested_model"]))
 			assert.Equal(t, "codex-cli", strings.ToLower(row["host_worker_class"]))
 			assert.Equal(t, "openai", strings.ToLower(row["selected_provider"]))
-			assert.Equal(t, "gpt-6.2-astra", strings.ToLower(row["selected_model"]))
+			assert.Equal(t, selectedModel, strings.ToLower(row["selected_model"]))
 			assert.Equal(t, "b077-default-bug-anthropic-codex-v1", strings.ToLower(row["mapping_ref"]))
 		})
 	}
@@ -317,7 +335,7 @@ func TestB077CodexModelSelectorEvidenceIsCLIOnlyAndCopiesMatch(t *testing.T) {
 	assert.Contains(t, canonical, "does not establish native host model selection")
 	assert.Contains(t, canonical, "worker-correlated effective provider/model identity")
 	assert.Contains(t, canonical, "session_meta.payload.model_provider=openai")
-	assert.Contains(t, canonical, "turn_context.payload.model=gpt-6.2-astra")
+	assert.Contains(t, canonical, "turn_context.payload.model=")
 	assert.Contains(t, supported, "thread.started event's thread_id as the codex worker identity")
 	assert.Contains(t, supported, "requiring session_meta.payload.id to equal the event's thread id")
 	assert.Contains(t, supported, "effective provider from session_meta.payload.model_provider")

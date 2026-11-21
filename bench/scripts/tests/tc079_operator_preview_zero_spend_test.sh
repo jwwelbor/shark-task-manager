@@ -83,6 +83,9 @@ export PATH="$WORKDIR/bin:$PATH_SHIM_DENIAL_BIN_DIR:$PATH"
 export SHARK_RESPONSE="$NEXT_RESPONSE"
 
 mkdir -p "$WORKDIR/scratch-template" "$WORKDIR/retention"
+mkdir -p "$WORKDIR/scratch-template/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/bug.yaml" \
+	"$WORKDIR/scratch-template/shark-data/workflow/bug.yaml"
 
 # Only py-bug-due-date-boundary is configured with root_key/scratch_root --
 # proving both halves of the Edge Case: a scenario with a fully-replayed
@@ -642,6 +645,9 @@ export PATH="$CMP_WORKDIR/bin:$PATH_SHIM_DENIAL_BIN_DIR:$PATH"
 export SHARK_RESPONSE="$NEXT_RESPONSE"
 
 mkdir -p "$CMP_WORKDIR/scratch-template" "$CMP_WORKDIR/truth-set" "$CMP_WORKDIR/retention"
+mkdir -p "$CMP_WORKDIR/scratch-template/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/bug.yaml" \
+	"$CMP_WORKDIR/scratch-template/shark-data/workflow/bug.yaml"
 echo "seeded truth-set marker" >"$CMP_WORKDIR/truth-set/marker.txt"
 
 cat >"$CMP_WORKDIR/candidate.yaml" <<EOF

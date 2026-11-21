@@ -4,31 +4,21 @@ Covers AC-F13-01, AC-F13-02, and AC-F13-12 (TC-F13-01, TC-F13-02, TC-F13-12).
 """
 
 import argparse
-import os
-import re
+import sys
 from pathlib import Path
 import pytest
 
-# Load adapter functions by parsing the embedded python script inside lifecycle-worker-adapter.sh
-ADAPTER_SCRIPT = Path(__file__).resolve().parent.parent / "lifecycle-worker-adapter.sh"
+TEST_LIB = Path(__file__).resolve().parent / "lib"
+sys.path.insert(0, str(TEST_LIB))
+from lifecycle_adapter_test_helper import load_adapter_module
 
 
-def _load_adapter_module():
-    content = ADAPTER_SCRIPT.read_text(encoding="utf-8")
-    match = re.search(r"<<'PYEOF'\n(.*)\nPYEOF", content, re.DOTALL)
-    assert match is not None, "Could not find embedded Python in lifecycle-worker-adapter.sh"
-    py_code = match.group(1)
-    py_code_no_main = re.sub(r"\nmain\(\)\s*$", "\n", py_code)
-    ns = {}
-    exec(py_code_no_main, ns)
-    return ns
-
-
-_adapter = _load_adapter_module()
+_adapter = load_adapter_module()
 command_for = _adapter["command_for"]
 decode_envelope = _adapter["decode_envelope"]
 provider_measurements = _adapter["provider_measurements"]
 AdapterError = _adapter["AdapterError"]
+provider_environment = _adapter["provider_environment"]
 
 
 def make_args(provider_command=None):
@@ -93,9 +83,9 @@ def test_copilot_missing_model_raises_adapter_error():
         ("claude-sonnet-5", "low", "low"),
         ("claude-sonnet-5", "medium", "medium"),
         ("claude-sonnet-5", "high", "high"),
-        ("gpt-5.4", "xhigh", "xhigh"),
-        ("gpt-5.4", "max", "max"),
-        ("gpt-5.4", "none", "none"),
+        ("fixture-codex-model-a", "xhigh", "xhigh"),
+        ("fixture-codex-model-a", "max", "max"),
+        ("fixture-codex-model-a", "none", "none"),
         ("claude-sonnet-5", "HIGH", "high"),  # Case insensitive normalization
     ],
 )
@@ -321,14 +311,14 @@ def test_copilot_measurements_extraction():
 
 def test_copilot_measurements_multiple_models_sorted():
     stream = """{"type":"session.start","data":{"sessionId":"copilot-session-multi"}}
-{"type":"assistant.message","data":{"content":"Turn 1","model":"gpt-5.4"}}
+{"type":"assistant.message","data":{"content":"Turn 1","model":"fixture-codex-model-a"}}
 {"type":"assistant.message","data":{"content":"Turn 2","model":"claude-sonnet-5"}}
-{"type":"session.usage_checkpoint","data":{"promptCacheBreakState":{"models":{"claude-sonnet-5":{"prompt_tokens":500,"output_tokens":100,"cache_read":100,"cache_write":50},"gpt-5.4":{"prompt_tokens":700,"output_tokens":200,"cache_read":200,"cache_write":50}}},"lastActiveModel":"claude-sonnet-5"}}
+{"type":"session.usage_checkpoint","data":{"promptCacheBreakState":{"models":{"claude-sonnet-5":{"prompt_tokens":500,"output_tokens":100,"cache_read":100,"cache_write":50},"fixture-codex-model-a":{"prompt_tokens":700,"output_tokens":200,"cache_read":200,"cache_write":50}}},"lastActiveModel":"claude-sonnet-5"}}
 {"type":"result","data":{"exitCode":0,"usage":{"totalApiDurationMs":1500},"sessionId":"copilot-session-multi"}}
 """
     measurements = provider_measurements(stream)
     usage = measurements["usage"]
-    assert usage["model_ids"] == ["claude-sonnet-5", "gpt-5.4"]
+    assert usage["model_ids"] == ["claude-sonnet-5", "fixture-codex-model-a"]
     assert usage["input_tokens"] == 1200
     assert usage["output_tokens"] == 300
     assert usage["cache_read_input_tokens"] == 300

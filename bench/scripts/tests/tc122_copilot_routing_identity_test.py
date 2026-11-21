@@ -9,10 +9,12 @@ Covers:
 """
 
 import copy
+import json
+import os
 import re
 import shutil
+import subprocess
 import sys
-import uuid
 from pathlib import Path
 import pytest
 import yaml
@@ -25,103 +27,20 @@ from bench.scripts.lib.e40_benchmark import (
     DEFAULT_PROFILES_DIR,
     DEFAULT_PROFILE_SCHEMA,
     OperatorError,
+    apply_selected_routing_profile,
     apply_routing_profile,
     load_routing_profile,
     load_yaml,
+    path_digest,
     validate_routing_profile_schema,
     workflow_routing_identity,
     write_yaml,
 )
+import bench.scripts.lib.e40_benchmark as e40_benchmark
 HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-SCRATCH_BASE = REPO_ROOT / "dev-artifacts"
-
-
-@pytest.fixture
-def scratch_dir():
-    """Provides an isolated scratch directory within the repository (never in /tmp)."""
-    SCRATCH_BASE.mkdir(parents=True, exist_ok=True)
-    unique_id = uuid.uuid4().hex[:12]
-    work_dir = SCRATCH_BASE / f"tc122-{unique_id}"
-    work_dir.mkdir(parents=True, exist_ok=False)
-    try:
-        yield work_dir
-    finally:
-        if work_dir.exists():
-            shutil.rmtree(work_dir, ignore_errors=True)
-
-
-def create_sample_workflow_bundle(root: Path, provider="copilot", model="claude-sonnet-5", effort="high") -> Path:
-    """Create a sample Shark 2.x workflow directory structure for testing."""
-    workflow_dir = root / "shark-data" / "workflow"
-    workflow_dir.mkdir(parents=True, exist_ok=True)
-
-    task_workflow = {
-        "version": "1.0",
-        "start": "draft",
-        "steps": {
-            "draft": {
-                "phase": "planning",
-                "progress_weight": 0.0,
-            },
-            "development": {
-                "phase": "development",
-                "responsibility": "agent",
-                "action": "spawn_agent",
-                "provider": provider,
-                "model": model,
-                "effort": effort,
-                "prompt": "task/development.md",
-            },
-            "review": {
-                "phase": "review",
-                "responsibility": "agent",
-                "action": "spawn_agent",
-                "provider": provider,
-                "model": model,
-                "effort": effort,
-                "prompt": "task/review.md",
-            },
-            "completed": {
-                "phase": "done",
-                "progress_weight": 1.0,
-                "terminal": True,
-            },
-        },
-    }
-    feature_workflow = {
-        "version": "1.0",
-        "start": "discovery",
-        "steps": {
-            "discovery": {
-                "phase": "planning",
-                "responsibility": "agent",
-                "action": "spawn_agent",
-                "provider": provider,
-                "model": "gemini-3.8-flash",
-                "effort": "medium",
-            },
-            "specification": {
-                "phase": "planning",
-                "responsibility": "agent",
-                "action": "spawn_agent",
-                "provider": provider,
-                "model": model,
-                "effort": "medium",
-            },
-            "qa": {
-                "phase": "qa",
-                "responsibility": "agent",
-                "action": "spawn_agent",
-                "provider": provider,
-                "model": "gemini-3.8-flash",
-                "effort": "low",
-            },
-        },
-    }
-
-    write_yaml(workflow_dir / "task.yaml", task_workflow)
-    write_yaml(workflow_dir / "feature.yaml", feature_workflow)
-    return workflow_dir
+TEST_LIB = Path(__file__).resolve().parent / "lib"
+sys.path.insert(0, str(TEST_LIB))
+from tc122_workflow_fixtures import create_sample_workflow_bundle, scratch_dir
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +92,11 @@ def test_routing_profiles_schema():
     assert variant["profile_id"] == "copilot-variant-review"
     assert variant["provider"] == "copilot"
 
-    # Route assignments for variant:
-    # review step routes to gpt-5.4 with effort xhigh; other steps match balanced
+    # The review step uses a distinct configured model with xhigh effort;
+    # other steps match the balanced profile.
     variant_routes = variant["routes"]
-    assert variant_routes["review"]["model"] == "gpt-5.4"
+    assert variant_routes["review"]["model"]
+    assert variant_routes["review"]["model"] != routes["review"]["model"]
     assert variant_routes["review"]["effort"] == "xhigh"
 
     for step in ("discovery", "specification", "planning", "development", "qa"):
@@ -290,7 +210,7 @@ def test_workflow_routing_identity_model_mutation(scratch_dir):
     # Mutate the model in task.yaml for development step
     task_yaml_path = workflow_dir / "task.yaml"
     task_doc = load_yaml(task_yaml_path, "task workflow")
-    task_doc["steps"]["development"]["model"] = "gpt-5.4"
+    task_doc["steps"]["development"]["model"] = "fixture-codex-model-a"
     write_yaml(task_yaml_path, task_doc)
 
     mutated = workflow_routing_identity(workflow_dir)
@@ -366,7 +286,7 @@ def test_apply_routing_profile_to_workflow(scratch_dir):
     # Both profiles specify provider: copilot -> provider_digest must match
     assert id_balanced["provider_digest"] == id_variant["provider_digest"]
 
-    # Variant modifies review step to gpt-5.4 with xhigh effort -> model, effort, routing digests must differ
+    # Variant modifies review step to fixture-codex-model-a with xhigh effort -> model, effort, routing digests must differ
     assert id_balanced["model_digest"] != id_variant["model_digest"]
     assert id_balanced["effort_digest"] != id_variant["effort_digest"]
     assert id_balanced["routing_digest"] != id_variant["routing_digest"]

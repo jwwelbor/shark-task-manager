@@ -885,7 +885,7 @@ func TestOrchestratorAction_Validate_EmptyProvider_IsValid(t *testing.T) {
 		{"empty provider and model", "", ""},
 		{"provider only", "anthropic", ""},
 		{"model only", "", "claude-sonnet-4-5"},
-		{"openai provider", "openai", "o3"},
+		{"openai provider", "openai", "synthetic-openai-model"},
 		{"arbitrary provider", "custom-provider", "custom-model"},
 	}
 
@@ -923,7 +923,7 @@ func TestOrchestratorAction_JSON_RoundTrip_ProviderAndModel(t *testing.T) {
 						"action": "spawn_agent",
 						"agent_type": "developer",
 						"provider": "openai",
-						"model": "o3",
+						"model": "synthetic-openai-model",
 						"skills": ["implementation"],
 						"instruction_template": "do the work"
 					}
@@ -947,8 +947,8 @@ func TestOrchestratorAction_JSON_RoundTrip_ProviderAndModel(t *testing.T) {
 		if meta.OrchestratorAction.Provider != "openai" {
 			t.Errorf("expected Provider %q, got %q", "openai", meta.OrchestratorAction.Provider)
 		}
-		if meta.OrchestratorAction.Model != "o3" {
-			t.Errorf("expected Model %q, got %q", "o3", meta.OrchestratorAction.Model)
+		if meta.OrchestratorAction.Model != "synthetic-openai-model" {
+			t.Errorf("expected Model %q, got %q", "synthetic-openai-model", meta.OrchestratorAction.Model)
 		}
 	})
 

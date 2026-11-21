@@ -212,6 +212,9 @@ echo "TC-113(step1/AC-F11-38a): setup synthesizes six hierarchies + the syntheti
 OPROOT="$WORKDIR/operator"
 SETUP_OUT="$WORKDIR/setup.out"
 "$OPERATOR" setup --out "$OPROOT" >"$SETUP_OUT" 2>&1 || fail "step1 setup failed: $(cat "$SETUP_OUT")"
+python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+	"$OPROOT/scratch-template/shark-data/workflow" \
+	--allowed-root "$OPROOT"
 CFG="$OPROOT/e40-demo.yaml"
 [[ -f "$CFG" ]] || fail "setup did not produce a config: $CFG"
 SIX_ROOTS_COUNT="$(python3 -c "
