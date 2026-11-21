@@ -243,6 +243,12 @@ func (s *TaskService) SetDocRepo(docRepo config.DocumentRepository) {
 	s.docRepo = docRepo
 }
 
+// SetReviewReworkQuestionBlocker wires the transaction-bound Question gate
+// used by structured review kickbacks.
+func (s *TaskService) SetReviewReworkQuestionBlocker(blocker ReviewReworkQuestionBlocker) {
+	s.entitySvc.SetReviewReworkQuestionBlocker(blocker)
+}
+
 // SetRelRepo sets the task relationship repository for template placeholder population.
 func (s *TaskService) SetRelRepo(relRepo config.TaskRelationshipRepository) {
 	s.relRepo = relRepo

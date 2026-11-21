@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -75,6 +76,19 @@ type QuestionBlockerQuestionReader interface {
 	GetQuestionByID(ctx context.Context, id int64) (*models.Question, error)
 }
 
+// QuestionBlockerTxRelationshipReader reads incoming relationships through
+// the child transition transaction so a new blocking edge cannot race the
+// status write.
+type QuestionBlockerTxRelationshipReader interface {
+	GetIncomingWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityID int64, relTypes []models.EntityRelationshipType) ([]*models.EntityRelationship, error)
+}
+
+// QuestionBlockerTxQuestionReader reads Question state through the child
+// transition transaction so resolution and rework are serialized.
+type QuestionBlockerTxQuestionReader interface {
+	GetByIDWithTx(ctx context.Context, tx *sql.Tx, id int64) (*models.Question, error)
+}
+
 // QualifyQuestionBlock is the one F03 source-Question predicate shared by
 // dispatch preflight and focused read surfaces. It deliberately accepts no
 // relationship data, so callers remain responsible for direct typed-edge
@@ -105,9 +119,11 @@ func QualifyQuestionBlock(question *models.Question) (*QuestionBlock, error) {
 // QuestionBlocker qualifies direct open blocking Question relationships without
 // mutating either side of the relationship.
 type QuestionBlocker struct {
-	relationships QuestionBlockerRelationshipReader
-	registry      QuestionBlockerRegistry
-	questions     QuestionBlockerQuestionReader
+	relationships   QuestionBlockerRelationshipReader
+	registry        QuestionBlockerRegistry
+	questions       QuestionBlockerQuestionReader
+	txRelationships QuestionBlockerTxRelationshipReader
+	txQuestions     QuestionBlockerTxQuestionReader
 }
 
 // NewQuestionBlocker constructs the read-only direct Question gate.
@@ -124,31 +140,77 @@ func NewQuestionBlocker(relationships QuestionBlockerRelationshipReader, registr
 	return &QuestionBlocker{relationships: relationships, registry: registry, questions: questions}, nil
 }
 
+// SetTransactionReaders enables the child-rework gate to inspect Question
+// holds using the same transaction as the status mutation. Both readers are
+// required for routed review rework; ordinary read-only callers use Check.
+func (b *QuestionBlocker) SetTransactionReaders(relationships QuestionBlockerTxRelationshipReader, questions QuestionBlockerTxQuestionReader) {
+	b.txRelationships = relationships
+	b.txQuestions = questions
+}
+
 // Check returns the deterministic compact handoff for one directly blocked
 // candidate, nil when no source qualifies, or an actionable read/state error.
 func (b *QuestionBlocker) Check(ctx context.Context, candidateType models.EntityType, candidateKey string) (*QuestionBlock, error) {
-	repository, err := b.registry.GetRepository(candidateType)
-	if err != nil {
-		return nil, fmt.Errorf("Question blocker resolve %s %s: %w", candidateType, candidateKey, err)
+	return b.checkCandidate(ctx, nil, candidateType, candidateKey, 0)
+}
+
+// CheckWithTx performs the same fail-closed qualification using the supplied
+// child transition transaction for relationship and Question reads.
+func (b *QuestionBlocker) CheckWithTx(ctx context.Context, tx *sql.Tx, candidateType models.EntityType, candidateKey string, candidateID int64) (*QuestionBlock, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("Question blocker transaction is required")
 	}
-	candidate, err := repository.GetByKey(ctx, candidateKey)
-	if err != nil {
-		return nil, fmt.Errorf("Question blocker load candidate %s: %w", candidateKey, err)
+	if candidateID <= 0 {
+		return nil, fmt.Errorf("Question blocker candidate ID must be positive")
 	}
-	if candidate == nil {
-		return nil, fmt.Errorf("Question blocker load candidate %s: repository returned no entity", candidateKey)
+	if b.txRelationships == nil || b.txQuestions == nil {
+		return nil, fmt.Errorf("Question blocker transaction readers are required")
+	}
+	return b.checkCandidate(ctx, tx, candidateType, candidateKey, candidateID)
+}
+
+func (b *QuestionBlocker) checkCandidate(ctx context.Context, tx *sql.Tx, candidateType models.EntityType, candidateKey string, candidateID int64) (*QuestionBlock, error) {
+	if tx == nil {
+		repository, err := b.registry.GetRepository(candidateType)
+		if err != nil {
+			return nil, fmt.Errorf("Question blocker resolve %s %s: %w", candidateType, candidateKey, err)
+		}
+		candidate, err := repository.GetByKey(ctx, candidateKey)
+		if err != nil {
+			return nil, fmt.Errorf("Question blocker load candidate %s: %w", candidateKey, err)
+		}
+		if candidate == nil {
+			return nil, fmt.Errorf("Question blocker load candidate %s: repository returned no entity", candidateKey)
+		}
+		candidateID = candidate.GetID()
 	}
 
-	edges, err := b.relationships.GetIncoming(ctx, candidateType, candidate.GetID(), []models.EntityRelationshipType{models.EntityRelQuestionBlocks})
-	if err != nil {
-		return nil, fmt.Errorf("Question blocker load incoming relationships for %s: %w", candidateKey, err)
+	var edges []*models.EntityRelationship
+	if tx != nil {
+		var err error
+		edges, err = b.txRelationships.GetIncomingWithTx(ctx, tx, candidateType, candidateID, []models.EntityRelationshipType{models.EntityRelQuestionBlocks})
+		if err != nil {
+			return nil, fmt.Errorf("Question blocker load incoming relationships for %s: %w", candidateKey, err)
+		}
+	} else {
+		var err error
+		edges, err = b.relationships.GetIncoming(ctx, candidateType, candidateID, []models.EntityRelationshipType{models.EntityRelQuestionBlocks})
+		if err != nil {
+			return nil, fmt.Errorf("Question blocker load incoming relationships for %s: %w", candidateKey, err)
+		}
 	}
 	matches := make([]questionBlockMatch, 0, len(edges))
 	for _, edge := range edges {
 		if edge == nil || edge.RelationshipType != models.EntityRelQuestionBlocks || edge.FromEntityType != models.EntityTypeQuestion {
 			continue
 		}
-		question, err := b.questions.GetQuestionByID(ctx, edge.FromEntityID)
+		var question *models.Question
+		var err error
+		if tx != nil {
+			question, err = b.txQuestions.GetByIDWithTx(ctx, tx, edge.FromEntityID)
+		} else {
+			question, err = b.questions.GetQuestionByID(ctx, edge.FromEntityID)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("Question blocker load source Question %d: %w", edge.FromEntityID, err)
 		}

@@ -154,6 +154,12 @@ func NewFeatureService(repo FeatureRepository, entitySvc *EntityService, entityR
 	}
 }
 
+// SetReviewReworkQuestionBlocker wires the transaction-bound Question gate
+// used by structured review kickbacks.
+func (s *FeatureService) SetReviewReworkQuestionBlocker(blocker ReviewReworkQuestionBlocker) {
+	s.entitySvc.SetReviewReworkQuestionBlocker(blocker)
+}
+
 // SetTracer sets the OpenTelemetry tracer for the service.
 // When nil, getTracer falls back to the OTel global tracer (noop until provider is wired).
 func (s *FeatureService) SetTracer(t trace.Tracer) {

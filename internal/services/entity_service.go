@@ -34,6 +34,12 @@ type AdvanceGuardRecorder interface {
 	DeleteConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
 }
 
+// ReviewReworkQuestionBlocker checks a child Question hold through the same
+// transaction that will apply the routed review rework.
+type ReviewReworkQuestionBlocker interface {
+	CheckWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityKey string, entityID int64) (*QuestionBlock, error)
+}
+
 // AdvanceGuardTxRecorder performs the guarded-advance protocol inside a
 // caller-owned transaction.
 type AdvanceGuardTxRecorder interface {
@@ -146,11 +152,12 @@ type ResolveActionFn func(entity models.Entity, status string) *config.Populated
 // EntityService provides shared status transition logic for all entity types.
 // Entity-specific services compose this and delegate shared steps to it.
 type EntityService struct {
-	workflowSvc      *workflow.Service
-	noteRepo         RejectionNoteCreator  // optional, for rejection notes during transitions
-	historyRepo      EntityHistoryRecorder // optional, for history recording during transitions
-	advanceGuardRepo AdvanceGuardRecorder  // optional, for replay protection during guarded advances
-	advanceGuardCfg  config.AdvanceGuardConfig
+	workflowSvc           *workflow.Service
+	reworkQuestionBlocker ReviewReworkQuestionBlocker
+	noteRepo              RejectionNoteCreator  // optional, for rejection notes during transitions
+	historyRepo           EntityHistoryRecorder // optional, for history recording during transitions
+	advanceGuardRepo      AdvanceGuardRecorder  // optional, for replay protection during guarded advances
+	advanceGuardCfg       config.AdvanceGuardConfig
 }
 
 // NewEntityService creates an EntityService with the workflow service dependency.
@@ -168,12 +175,19 @@ func NewEntityService(workflowSvc *workflow.Service) *EntityService {
 // Level constants: workflow.LevelEpic, workflow.LevelFeature, workflow.LevelTask.
 func (s *EntityService) ForLevel(level string) *EntityService {
 	return &EntityService{
-		workflowSvc:      s.workflowSvc.ForLevel(level),
-		noteRepo:         s.noteRepo,
-		historyRepo:      s.historyRepo,
-		advanceGuardRepo: s.advanceGuardRepo,
-		advanceGuardCfg:  s.advanceGuardCfg,
+		workflowSvc:           s.workflowSvc.ForLevel(level),
+		reworkQuestionBlocker: s.reworkQuestionBlocker,
+		noteRepo:              s.noteRepo,
+		historyRepo:           s.historyRepo,
+		advanceGuardRepo:      s.advanceGuardRepo,
+		advanceGuardCfg:       s.advanceGuardCfg,
 	}
+}
+
+// SetReviewReworkQuestionBlocker wires the fail-closed transaction-bound
+// Question gate used only by structured review rework.
+func (s *EntityService) SetReviewReworkQuestionBlocker(blocker ReviewReworkQuestionBlocker) {
+	s.reworkQuestionBlocker = blocker
 }
 
 // SetNoteRepo sets the rejection note repository. Optional — degrades gracefully.
@@ -273,13 +287,17 @@ func (s *EntityService) TransitionReviewReworkWithTx(
 	if leaseVerifier == nil {
 		return nil, fmt.Errorf("review rework transition %s %s: parent lease verifier is required", entityType, key)
 	}
+	if s.reworkQuestionBlocker == nil {
+		return nil, fmt.Errorf("review rework transition %s %s: transaction-bound Question blocker is required", entityType, key)
+	}
 	return s.transitionStatus(ctx, tx, repo, entityType, key, targetAssertion, opts, features, resolveActionFn,
-		&reviewReworkRoute{outcomeKey: outcomeKey, targetAssertion: targetAssertion}, &parent, leaseVerifier)
+		&reviewReworkRoute{outcomeKey: outcomeKey, targetAssertion: targetAssertion, questionBlocker: s.reworkQuestionBlocker}, &parent, leaseVerifier)
 }
 
 type reviewReworkRoute struct {
 	outcomeKey      string
 	targetAssertion string
+	questionBlocker ReviewReworkQuestionBlocker
 }
 
 func (s *EntityService) transitionStatus(
@@ -328,6 +346,16 @@ func (s *EntityService) transitionStatus(
 		}
 		if !strings.EqualFold(resolvedTargetStatus, resolvedRouteTarget) || !strings.EqualFold(s.workflowSvc.NormalizeStatus(rework.targetAssertion), resolvedRouteTarget) {
 			return nil, fmt.Errorf("%w: outcome %q from %q resolves to %q, assertion is %q", ErrReviewReworkTargetMismatch, rework.outcomeKey, resolvedCurrentStatus, resolvedRouteTarget, rework.targetAssertion)
+		}
+		if rework.questionBlocker == nil {
+			return nil, fmt.Errorf("review rework transition %s %s: transaction-bound Question blocker is required", entityType, key)
+		}
+		block, err := rework.questionBlocker.CheckWithTx(ctx, tx, entityType, key, entity.GetID())
+		if err != nil {
+			return nil, fmt.Errorf("review rework transition %s %s: check Question hold in transaction: %w", entityType, key, err)
+		}
+		if block != nil {
+			return nil, fmt.Errorf("%w: review rework target %s is blocked by open Question %s", ErrReviewReworkQuestionBlocked, key, block.QuestionKey)
 		}
 		resolvedTargetStatus = resolvedRouteTarget
 		opts.SessionID = parent.SessionID

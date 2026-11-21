@@ -307,11 +307,12 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	// coordinator's re-verification (ClaimVerifier, below) reads from the
 	// exact same claim state run.go's initial verifyClaimSession checked.
 	claimSvc := getRunClaimService()
-	transitioner.SetReviewReworkDependencies(cli.GetTaskService(), cli.GetFeatureService(), claimSvc)
+	questionBlocker := cli.GetQuestionBlocker()
+	transitioner.SetReviewReworkDependencies(cli.GetTaskService(), cli.GetFeatureService(), claimSvc, questionBlocker)
 
 	coordinator := gatepersist.NewCoordinator(noteSvc, noteSvc, history, validator, transitioner, transitioner, claimSvc, transitioner)
 	coordinator.ReworkRoutes = validator
-	coordinator.QuestionBlocker = cli.GetQuestionBlocker()
+	coordinator.QuestionBlocker = questionBlocker
 	coordinator.RoutedRework = transitioner
 	// UAT round-2 Finding 1: fold a second claim-ownership check into
 	// Persist's own critical section (the per-run lock), immediately before

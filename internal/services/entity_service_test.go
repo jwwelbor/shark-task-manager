@@ -174,6 +174,10 @@ func TestEntityService_ReviewReworkUsesConfiguredTerminalRouteAndParentLease(t *
 		return nil
 	})
 	svc := NewEntityService(workflow.NewService("")).ForLevel(workflow.LevelTask)
+	svc.SetReviewReworkQuestionBlocker(reviewReworkQuestionBlockerFunc(func(_ context.Context, gotTx *sql.Tx, _ models.EntityType, _ string, _ int64) (*QuestionBlock, error) {
+		require.Same(t, tx, gotTx)
+		return nil, nil
+	}))
 	result, err := svc.TransitionReviewReworkWithTx(context.Background(), tx, repo, models.EntityTypeTask,
 		"T-E01-F01-001", "fail", "development", TransitionOptions{Reason: "review found rework"},
 		SimpleTransitionFeatures(), nil, parent, verifier)
@@ -191,9 +195,11 @@ func TestEntityService_ReviewReworkRejectsAssertionAndLeaseBeforeChildWrite(t *t
 		leaseErr   error
 		wantErr    error
 		wantVerify bool
+		question   *QuestionBlock
 	}{
 		{name: "mismatched assertion", target: "blocked", wantErr: ErrReviewReworkTargetMismatch},
 		{name: "parent lease lost", target: "development", leaseErr: errors.New("claim expired"), wantErr: ErrReviewReworkLeaseUnauthorized, wantVerify: true},
+		{name: "Question hold", target: "development", question: &QuestionBlock{QuestionKey: "Q001"}, wantErr: ErrReviewReworkQuestionBlocked},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := test.NewIsolatedTestDB(t)
@@ -223,6 +229,10 @@ func TestEntityService_ReviewReworkRejectsAssertionAndLeaseBeforeChildWrite(t *t
 			})
 			parent := ParentLeaseAuthority{EntityType: models.EntityTypeFeature, EntityKey: "E01-F01", SessionID: "parent-session"}
 			svc := NewEntityService(workflow.NewService("")).ForLevel(workflow.LevelTask)
+			svc.SetReviewReworkQuestionBlocker(reviewReworkQuestionBlockerFunc(func(_ context.Context, gotTx *sql.Tx, _ models.EntityType, _ string, _ int64) (*QuestionBlock, error) {
+				require.Same(t, tx, gotTx)
+				return tc.question, nil
+			}))
 			_, err = svc.TransitionReviewReworkWithTx(context.Background(), tx, repo, models.EntityTypeTask,
 				"T-E01-F01-001", "fail", tc.target, TransitionOptions{Reason: "review found rework"},
 				SimpleTransitionFeatures(), nil, parent, verifier)
@@ -232,6 +242,12 @@ func TestEntityService_ReviewReworkRejectsAssertionAndLeaseBeforeChildWrite(t *t
 			require.Equal(t, "completed", currentStatus)
 		})
 	}
+}
+
+type reviewReworkQuestionBlockerFunc func(context.Context, *sql.Tx, models.EntityType, string, int64) (*QuestionBlock, error)
+
+func (f reviewReworkQuestionBlockerFunc) CheckWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityKey string, entityID int64) (*QuestionBlock, error) {
+	return f(ctx, tx, entityType, entityKey, entityID)
 }
 
 // --- TransitionStatus Tests ---

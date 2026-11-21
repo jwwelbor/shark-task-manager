@@ -46,6 +46,7 @@ var (
 	ErrReviewReworkTargetMismatch    = errors.New("GateResult target_status does not match the configured review rework route")
 	ErrReviewReworkForceNotAllowed   = errors.New("review rework uses configured routing and does not allow force")
 	ErrReviewReworkLeaseUnauthorized = errors.New("parent lease does not authorize the review rework transition")
+	ErrReviewReworkQuestionBlocked   = errors.New("review rework target is blocked by an open Question")
 )
 
 // BackwardReasonError is returned when a backward transition is missing a reason.

@@ -90,10 +90,12 @@ func NewEntityServiceTransitioner(entitySvc *services.EntityService, registry *s
 // SetReviewReworkDependencies enables transaction-bound child kickbacks. The
 // current built-in review prompts target tasks from features and features from
 // epics, so those are the two typed transaction paths required here.
-func (t *EntityServiceTransitioner) SetReviewReworkDependencies(taskSvc *services.TaskService, featureSvc *services.FeatureService, leaseCheck services.ParentLeaseTxVerifier) {
-	if taskSvc == nil || featureSvc == nil || leaseCheck == nil {
-		panic("gatepersist: review rework dependencies require task, feature, and lease services")
+func (t *EntityServiceTransitioner) SetReviewReworkDependencies(taskSvc *services.TaskService, featureSvc *services.FeatureService, leaseCheck services.ParentLeaseTxVerifier, questionBlocker services.ReviewReworkQuestionBlocker) {
+	if taskSvc == nil || featureSvc == nil || leaseCheck == nil || questionBlocker == nil {
+		panic("gatepersist: review rework dependencies require task, feature, lease, and transaction-bound Question services")
 	}
+	taskSvc.SetReviewReworkQuestionBlocker(questionBlocker)
+	featureSvc.SetReviewReworkQuestionBlocker(questionBlocker)
 	t.taskSvc = taskSvc
 	t.featureSvc = featureSvc
 	t.leaseCheck = leaseCheck
