@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -134,6 +136,102 @@ func TestAdmittedBugTransitionAcceptsSourceAlias(t *testing.T) {
 	result, err := svc.TransitionStatus(context.Background(), repo, models.EntityTypeBug, "B001", "research", TransitionOptions{GateAdmissionVerified: true, FromStatus: "draft"}, SimpleTransitionFeatures(), nil)
 	require.NoError(t, err)
 	require.Equal(t, "reported", result.FromStatus)
+}
+
+type parentLeaseTxVerifierFunc func(context.Context, *sql.Tx, models.EntityType, string, string) error
+
+func (f parentLeaseTxVerifierFunc) VerifySessionWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityKey, sessionID string) error {
+	return f(ctx, tx, entityType, entityKey, sessionID)
+}
+
+func TestEntityService_ReviewReworkUsesConfiguredTerminalRouteAndParentLease(t *testing.T) {
+	db := test.NewIsolatedTestDB(t)
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	currentStatus := "completed"
+	repo := &mockEntityRepo{
+		getByKeyFn: func(context.Context, string) (models.Entity, error) {
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 42, Key: "T-E01-F01-001"}, Status: models.TaskStatus(currentStatus)}, nil
+		},
+		updateStatusIfCurrentFn: func(_ context.Context, _ int64, expected, target string) (bool, error) {
+			if currentStatus != expected {
+				return false, nil
+			}
+			currentStatus = target
+			return true, nil
+		},
+	}
+	parent := ParentLeaseAuthority{EntityType: models.EntityTypeFeature, EntityKey: "E01-F01", SessionID: "parent-session"}
+	verified := false
+	verifier := parentLeaseTxVerifierFunc(func(_ context.Context, gotTx *sql.Tx, entityType models.EntityType, entityKey, sessionID string) error {
+		require.Same(t, tx, gotTx)
+		require.Equal(t, parent.EntityType, entityType)
+		require.Equal(t, parent.EntityKey, entityKey)
+		require.Equal(t, parent.SessionID, sessionID)
+		verified = true
+		return nil
+	})
+	svc := NewEntityService(workflow.NewService("")).ForLevel(workflow.LevelTask)
+	result, err := svc.TransitionReviewReworkWithTx(context.Background(), tx, repo, models.EntityTypeTask,
+		"T-E01-F01-001", "fail", "development", TransitionOptions{Reason: "review found rework"},
+		SimpleTransitionFeatures(), nil, parent, verifier)
+	require.NoError(t, err)
+	require.True(t, verified)
+	require.Equal(t, "completed", result.FromStatus)
+	require.Equal(t, "development", result.ToStatus)
+	require.Equal(t, "development", currentStatus)
+}
+
+func TestEntityService_ReviewReworkRejectsAssertionAndLeaseBeforeChildWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		target     string
+		leaseErr   error
+		wantErr    error
+		wantVerify bool
+	}{
+		{name: "mismatched assertion", target: "blocked", wantErr: ErrReviewReworkTargetMismatch},
+		{name: "parent lease lost", target: "development", leaseErr: errors.New("claim expired"), wantErr: ErrReviewReworkLeaseUnauthorized, wantVerify: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := test.NewIsolatedTestDB(t)
+			tx, err := db.Begin()
+			require.NoError(t, err)
+			defer tx.Rollback()
+
+			currentStatus := "completed"
+			updated := false
+			repo := &mockEntityRepo{
+				getByKeyFn: func(context.Context, string) (models.Entity, error) {
+					return &models.Task{BaseEntity: models.BaseEntity{ID: 42, Key: "T-E01-F01-001"}, Status: models.TaskStatus(currentStatus)}, nil
+				},
+				updateStatusIfCurrentFn: func(_ context.Context, _ int64, expected, target string) (bool, error) {
+					updated = true
+					if currentStatus != expected {
+						return false, nil
+					}
+					currentStatus = target
+					return true, nil
+				},
+			}
+			verified := false
+			verifier := parentLeaseTxVerifierFunc(func(context.Context, *sql.Tx, models.EntityType, string, string) error {
+				verified = true
+				return tc.leaseErr
+			})
+			parent := ParentLeaseAuthority{EntityType: models.EntityTypeFeature, EntityKey: "E01-F01", SessionID: "parent-session"}
+			svc := NewEntityService(workflow.NewService("")).ForLevel(workflow.LevelTask)
+			_, err = svc.TransitionReviewReworkWithTx(context.Background(), tx, repo, models.EntityTypeTask,
+				"T-E01-F01-001", "fail", tc.target, TransitionOptions{Reason: "review found rework"},
+				SimpleTransitionFeatures(), nil, parent, verifier)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantVerify, verified)
+			require.False(t, updated, "rejected review rework must not write the child")
+			require.Equal(t, "completed", currentStatus)
+		})
+	}
 }
 
 // --- TransitionStatus Tests ---

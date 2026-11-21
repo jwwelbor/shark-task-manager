@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -39,6 +41,11 @@ var (
 
 	// ErrAdvanceGuardForceRepeatReasonRequired indicates replay overrides must be auditable.
 	ErrAdvanceGuardForceRepeatReasonRequired = errors.New("--force-repeat requires --reason")
+
+	ErrReviewReworkRouteMissing      = errors.New("configured review rework route is missing")
+	ErrReviewReworkTargetMismatch    = errors.New("GateResult target_status does not match the configured review rework route")
+	ErrReviewReworkForceNotAllowed   = errors.New("review rework uses configured routing and does not allow force")
+	ErrReviewReworkLeaseUnauthorized = errors.New("parent lease does not authorize the review rework transition")
 )
 
 // BackwardReasonError is returned when a backward transition is missing a reason.
@@ -76,6 +83,26 @@ type TransitionOptions struct {
 	Outcome              string `json:"outcome,omitempty"`
 	ForceRepeat          bool   `json:"force_repeat,omitempty"`
 	GuardAdvance         bool   `json:"guard_advance,omitempty"`
+}
+
+// ParentLeaseAuthority identifies the parent session that authorizes a
+// review-triggered child rework transition.
+type ParentLeaseAuthority struct {
+	EntityType models.EntityType
+	EntityKey  string
+	SessionID  string
+}
+
+// ParentLeaseTxVerifier verifies that the parent session still owns a live
+// lease using the same transaction as the child status and history writes.
+type ParentLeaseTxVerifier interface {
+	VerifySessionWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityKey, sessionID string) error
+}
+
+type reviewReworkTransitionRequest struct {
+	outcomeKey    string
+	parent        ParentLeaseAuthority
+	leaseVerifier ParentLeaseTxVerifier
 }
 
 // TransitionResult represents the outcome of a status transition.

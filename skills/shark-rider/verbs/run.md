@@ -536,16 +536,17 @@ the workflow prompts emit, apply them in this order, then advance:
      ```bash
      shark create note {response.entity_key} "<note>" --type comment
      ```
-4. **Apply task kickbacks.** Gate steps (code review, QA, UAT) that fail list
-   kickback lines in the form
-   `<task-id> -> <status> --reason "<why>"`.
-   Apply each one BEFORE advancing the parent, so the reopened tasks are
-   already in place when the feature drops back:
-   ```bash
-   shark status set <task-id> <status> --reason "<why>" --force
-   ```
-   A `fail` outcome whose response names no kickbacks is suspicious — record a
-   blocker note and surface it to the user rather than silently advancing.
+4. **Apply structured review kickbacks through the coordinator.** Preserve the
+   worker's full `gate_result` and its `recommended_outcome` for the existing
+   `--apply-result` path. The parent-owned coordinator resolves each child
+   destination from the review outcome key and the target's configured
+   `rework_outcomes`; it checks Question holds and the parent lease before
+   each child write, then applies the parent outcome transition. If any child
+   is blocked or cannot be routed or authorized, do not advance the parent.
+   Never translate a kickback into a direct child status
+   command or a legacy `<task-id> -> <status>` directive. A `fail` outcome
+   whose response names no kickbacks is suspicious — record a blocker note and
+   surface it to the user rather than silently advancing.
 5. **Advance by the resolved outcome**, attributing the transition to the
    agent that did the work (this populates `entity_history.changed_by`):
    ```bash

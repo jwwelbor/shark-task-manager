@@ -3,12 +3,14 @@ package services
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -30,6 +32,10 @@ type ClaimRepository interface {
 	Renew(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string, ttl time.Duration) (bool, error)
 	ReclaimExpired(ctx context.Context, ttl time.Duration) (int64, error)
 	List(ctx context.Context) ([]*models.EntityClaim, error)
+}
+
+type claimSessionTxVerifier interface {
+	VerifySessionWithTx(ctx context.Context, tx *sql.Tx, entityType, entityKey, sessionID string, ttl time.Duration) (bool, error)
 }
 
 // WorkSessionLog is the optional session-journal surface ClaimService writes
@@ -79,6 +85,29 @@ func NewClaimService(repo ClaimRepository, ttl *time.Duration) *ClaimService {
 
 // TTL returns the configured lease time-to-live.
 func (s *ClaimService) TTL() time.Duration { return s.ttl }
+
+// VerifySessionWithTx verifies and locks a live parent claim in the caller's
+// transaction. The transaction must also contain the derived child mutation.
+func (s *ClaimService) VerifySessionWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityKey, sessionID string) error {
+	if tx == nil {
+		return fmt.Errorf("verify parent claim %s/%s: transaction is required", entityType, entityKey)
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("verify parent claim %s/%s: session id is required", entityType, entityKey)
+	}
+	verifier, ok := s.repo.(claimSessionTxVerifier)
+	if !ok {
+		return fmt.Errorf("verify parent claim %s/%s: claim repository does not support transactional verification", entityType, entityKey)
+	}
+	valid, err := verifier.VerifySessionWithTx(ctx, tx, string(entityType), entityKey, sessionID, s.ttl)
+	if err != nil {
+		return fmt.Errorf("verify parent claim %s/%s: %w", entityType, entityKey, err)
+	}
+	if !valid {
+		return fmt.Errorf("active claim session no longer matches or has expired")
+	}
+	return nil
+}
 
 // ClaimInput holds the parameters for claiming an entity.
 type ClaimInput struct {

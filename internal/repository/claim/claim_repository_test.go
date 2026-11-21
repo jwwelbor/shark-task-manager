@@ -98,6 +98,35 @@ func TestClaim_ReleaseSessionOnlyMatchingSession(t *testing.T) {
 	}
 }
 
+func TestClaim_VerifySessionWithTx(t *testing.T) {
+	repo, db := setup(t)
+	ctx := context.Background()
+	claimRecord := newClaim("E01-F01-003-tx")
+	_, err := repo.Claim(ctx, claimRecord)
+	require.NoError(t, err)
+
+	ttl := time.Minute
+	svc := services.NewClaimService(repo, &ttl)
+	tx, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.VerifySessionWithTx(ctx, tx, models.EntityTypeTask, claimRecord.EntityKey, claimRecord.SessionID))
+	require.NoError(t, tx.Rollback())
+
+	tx, err = db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	err = svc.VerifySessionWithTx(ctx, tx, models.EntityTypeTask, claimRecord.EntityKey, "another-session")
+	require.ErrorContains(t, err, "no longer matches or has expired")
+	require.NoError(t, tx.Rollback())
+
+	_, err = db.ExecContext(ctx, `UPDATE entity_claims SET last_heartbeat = datetime('now', '-2 minutes') WHERE entity_key = ?`, claimRecord.EntityKey)
+	require.NoError(t, err)
+	tx, err = db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	err = svc.VerifySessionWithTx(ctx, tx, models.EntityTypeTask, claimRecord.EntityKey, claimRecord.SessionID)
+	require.ErrorContains(t, err, "no longer matches or has expired")
+	require.NoError(t, tx.Rollback())
+}
+
 func TestClaim_Renew(t *testing.T) {
 	repo, _ := setup(t)
 	ctx := context.Background()

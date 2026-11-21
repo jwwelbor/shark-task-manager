@@ -819,6 +819,21 @@ func sortTasks(tasks []*models.Task) {
 //   - ValidationError: missing required reason for backward transitions
 //   - RepositoryError: database update failed
 func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	return s.transitionStatus(ctx, key, targetStatus, opts, nil)
+}
+
+// TransitionReviewRework applies one configured child rework route while the
+// parent lease and all task status/history/aggregate writes share a DB
+// transaction. targetAssertion is GateResult v1's required target_status.
+func (s *TaskService) TransitionReviewRework(ctx context.Context, key, outcomeKey, targetAssertion, reason, agent string, parent ParentLeaseAuthority, verifier ParentLeaseTxVerifier) (*TransitionResult, error) {
+	return s.transitionStatus(ctx, key, targetAssertion, TransitionOptions{
+		Reason:  reason,
+		Agent:   agent,
+		Outcome: outcomeKey,
+	}, &reviewReworkTransitionRequest{outcomeKey: outcomeKey, parent: parent, leaseVerifier: verifier})
+}
+
+func (s *TaskService) transitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions, rework *reviewReworkTransitionRequest) (*TransitionResult, error) {
 	ctx, span := s.getTracer().Start(ctx, "TaskService.TransitionStatus",
 		trace.WithAttributes(
 			attribute.String("task.key", key),
@@ -840,6 +855,8 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		}
 		defer rollbackAfterAggregateMutation(aggregateTx)
 		adapter.tx = aggregateTx
+	} else if rework != nil {
+		return nil, fmt.Errorf("review rework transition for task %s requires aggregate transaction support", key)
 	}
 
 	// Delegate full transition flow to EntityService:
@@ -852,10 +869,16 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		// TaskRepository.StatusUpdateRawWithTx creates the rejection note in the
 		// same transaction, so EntityService must not create a duplicate.
 		transitionFeatures.CreateRejectionNotes = false
-		result, err = s.entitySvc.TransitionStatusWithTx(
-			ctx, aggregateTx, adapter, models.EntityTypeTask, key, targetStatus, opts,
-			transitionFeatures, s.makeResolveActionFn(ctx),
-		)
+		if rework != nil {
+			result, err = s.entitySvc.TransitionReviewReworkWithTx(ctx, aggregateTx, adapter,
+				models.EntityTypeTask, key, rework.outcomeKey, targetStatus, opts,
+				transitionFeatures, s.makeResolveActionFn(ctx), rework.parent, rework.leaseVerifier)
+		} else {
+			result, err = s.entitySvc.TransitionStatusWithTx(
+				ctx, aggregateTx, adapter, models.EntityTypeTask, key, targetStatus, opts,
+				transitionFeatures, s.makeResolveActionFn(ctx),
+			)
+		}
 	} else {
 		result, err = s.entitySvc.TransitionStatus(
 			ctx, adapter, models.EntityTypeTask, key, targetStatus, opts,

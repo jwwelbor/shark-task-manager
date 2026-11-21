@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
 // NoteWriter creates one typed, metadata-bearing note on an entity. Its
@@ -34,6 +35,26 @@ type StatusValidator interface {
 	IsValidStatus(entityType models.EntityType, status string) bool
 }
 
+// ReworkRouteResolver resolves the review outcome key through the target
+// entity's current-step rework_outcomes map.
+type ReworkRouteResolver interface {
+	ResolveReworkOutcome(entityType models.EntityType, fromStatus, outcomeKey string) (string, error)
+}
+
+// QuestionBlocker checks the existing direct question_blocks gate for a
+// target entity.
+type QuestionBlocker interface {
+	Check(ctx context.Context, entityType models.EntityType, entityKey string) (*services.QuestionBlock, error)
+}
+
+// RoutedReworkTransitioner applies review kickbacks through the dedicated
+// routed-rework service path. Implementations must bind the parent lease
+// verification to the child mutation transaction.
+type RoutedReworkTransitioner interface {
+	SupportsReviewReworkTarget(entityType models.EntityType) bool
+	TransitionReviewRework(ctx context.Context, entityType models.EntityType, entityKey, outcomeKey, targetAssertion, reason, agent string, parent services.ParentLeaseAuthority) (fromStatus string, transitioned bool, err error)
+}
+
 // TransitionGuard carries the replay-protection tuple a parent-owned
 // transition must supply so services.EntityService's advance_guard can
 // engage (session id, the expected pre-transition status, and the semantic
@@ -51,11 +72,10 @@ type StatusValidator interface {
 // (shouldUseAdvanceGuard), so a legacy/unguarded deployment is unaffected
 // and this package never needs its own copy of that config decision.
 type TransitionGuard struct {
-	SessionID           string
-	FromStatus          string
-	Outcome             string
-	ForceTerminalReopen bool
-	AdmissionVerified   bool
+	SessionID         string
+	FromStatus        string
+	Outcome           string
+	AdmissionVerified bool
 }
 
 // Transitioner applies a workflow status transition to one entity, recording
