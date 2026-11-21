@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,21 +106,18 @@ func assertCanonicalOpenAIRouteDoesNotPinModel(
 ) {
 	t.Helper()
 	if config == nil {
-		t.Errorf("canonical %s workflow is unavailable", workflowName)
+		assert.Fail(t, "canonical workflow is unavailable", "canonical %s workflow is unavailable", workflowName)
 		return
 	}
 	step := config.Steps[stepName]
 	if step == nil {
-		t.Errorf("canonical %s workflow is missing OpenAI route %q", workflowName, stepName)
+		assert.Fail(t, "canonical workflow route is missing", "canonical %s workflow is missing OpenAI route %q", workflowName, stepName)
 		return
 	}
-	if step.Action != action.ActionSpawnAgent || step.Provider != "openai" {
-		t.Errorf(
-			"canonical %s workflow route %q = action %q/provider %q, want spawn_agent/openai",
-			workflowName, stepName, step.Action, step.Provider,
-		)
-	}
-	if step.Model != "" {
-		t.Errorf("canonical %s workflow OpenAI route %q has a hardcoded model %q", workflowName, stepName, step.Model)
-	}
+	assert.Equal(t, action.ActionSpawnAgent, step.Action,
+		"canonical %s workflow route %q action", workflowName, stepName)
+	assert.Equal(t, "openai", step.Provider,
+		"canonical %s workflow route %q provider", workflowName, stepName)
+	assert.Empty(t, step.Model,
+		"canonical %s workflow OpenAI route %q should not pin a model", workflowName, stepName)
 }
