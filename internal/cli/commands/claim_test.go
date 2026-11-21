@@ -83,11 +83,11 @@ func (f *fakeClaimRepo) ReleaseSession(_ context.Context, entityType, entityKey,
 	return true, nil
 }
 
-func (f *fakeClaimRepo) Renew(_ context.Context, entityType, entityKey, sessionID string, progress *float64, note string) (bool, error) {
+func (f *fakeClaimRepo) Renew(_ context.Context, entityType, entityKey, sessionID string, progress *float64, note string, ttl time.Duration) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c, ok := f.claims[fakeClaimKey(entityType, entityKey)]
-	if !ok || c.SessionID != sessionID {
+	if !ok || c.SessionID != sessionID || c.IsExpired(time.Now().UTC(), ttl) {
 		return false, nil
 	}
 	c.LastHeartbeat = time.Now().UTC()

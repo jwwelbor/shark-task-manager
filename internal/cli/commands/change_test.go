@@ -12,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/spf13/cobra"
 )
 
@@ -142,7 +143,7 @@ func suppressOutput(t *testing.T) func() {
 	t.Helper()
 	origStdout := os.Stdout
 	origStderr := os.Stderr
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 	os.Stderr = w
 	return func() {
@@ -157,7 +158,7 @@ func suppressOutput(t *testing.T) func() {
 func captureOutput(t *testing.T, fn func()) []byte {
 	t.Helper()
 	origStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	// Drain the pipe concurrently with fn(): if fn() writes more than the OS

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 )
 
 func TestCLIError_JSONSerialization(t *testing.T) {
@@ -112,7 +114,7 @@ func TestErrorJSON_InJSONMode(t *testing.T) {
 
 	// Capture stdout
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	ErrorJSON(CLIError{
@@ -152,7 +154,7 @@ func TestErrorJSON_SetsErrorTrue(t *testing.T) {
 	GlobalConfig.JSON = true
 
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	ErrorJSON(CLIError{
@@ -193,7 +195,7 @@ func TestErrorJSON_InHumanMode(t *testing.T) {
 
 	// Capture stderr (Error() writes to stderr in human mode)
 	oldStderr := os.Stderr
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stderr = w
 
 	ErrorJSON(CLIError{
@@ -224,7 +226,7 @@ func TestError_InJSONMode(t *testing.T) {
 	GlobalConfig.JSON = true
 
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	Error("something failed")

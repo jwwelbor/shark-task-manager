@@ -110,7 +110,7 @@ Print interaction-map closure table and cross-epic integration closure table in 
 
 DECISION:
 - ALL PASS -> recommended_outcome: pass
-- ANY FAIL -> recommended_outcome: fail; a fail on this step kicks back individual features (`entity_key` = the feature key, `target_status` = decomposition), naming the specific gaps or issues to fix in each kickback's `reason`
+- ANY FAIL -> recommended_outcome: fail; a fail on this step kicks back individual features (`entity_key` = the feature key, `target_status` = that feature's configured `rework_outcomes[fail]` destination, `task_generation` in the shipped workflow), naming the specific gaps or issues to fix in each kickback's `reason`
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome and route the epic.
 
 {{template "_gate_result_directive" .}}

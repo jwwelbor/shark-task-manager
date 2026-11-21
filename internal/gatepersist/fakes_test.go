@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
 // fakeWorld is an in-memory stand-in for every injected dependency
@@ -37,6 +38,8 @@ type fakeWorld struct {
 	failTransitionTo map[string]bool
 
 	transitionCalls []transitionCall
+	reworkAttempts  int
+	failReworkAt    int
 }
 
 type releaseCall struct {
@@ -154,6 +157,30 @@ func (w *fakeWorld) Transition(_ context.Context, entityType models.EntityType, 
 	return from, true, nil
 }
 
+func (w *fakeWorld) SupportsReviewReworkTarget(entityType models.EntityType) bool {
+	return entityType == models.EntityTypeTask || entityType == models.EntityTypeFeature
+}
+
+func (w *fakeWorld) TransitionReviewRework(ctx context.Context, entityType models.EntityType, entityKey, outcomeKey, targetAssertion, reason, agent string, parent services.ParentLeaseAuthority) (string, bool, error) {
+	w.mu.Lock()
+	w.reworkAttempts++
+	attempt := w.reworkAttempts
+	shouldFail := w.failReworkAt == attempt
+	w.mu.Unlock()
+	if shouldFail {
+		return "", false, fmt.Errorf("fakeWorld: parent lease was lost before review rework call %d", attempt)
+	}
+	from, err := w.CurrentStatus(ctx, entityType, entityKey)
+	if err != nil {
+		return "", false, err
+	}
+	return w.Transition(ctx, entityType, entityKey, targetAssertion, reason, agent, TransitionGuard{
+		SessionID:  parent.SessionID,
+		FromStatus: from,
+		Outcome:    outcomeKey,
+	})
+}
+
 // CurrentStatus implements StatusReader.
 func (w *fakeWorld) CurrentStatus(_ context.Context, entityType models.EntityType, entityKey string) (string, error) {
 	w.mu.Lock()
@@ -188,11 +215,12 @@ func entityIDFor(entityKey string) int64 {
 // fakeStatusValidator implements StatusValidator with a fixed allowlist per
 // entity type.
 type fakeStatusValidator struct {
-	valid map[models.EntityType]map[string]bool
+	valid        map[models.EntityType]map[string]bool
+	reworkRoutes map[string]string
 }
 
 func newFakeStatusValidator() *fakeStatusValidator {
-	return &fakeStatusValidator{valid: make(map[models.EntityType]map[string]bool)}
+	return &fakeStatusValidator{valid: make(map[models.EntityType]map[string]bool), reworkRoutes: make(map[string]string)}
 }
 
 func (v *fakeStatusValidator) allow(entityType models.EntityType, statuses ...string) *fakeStatusValidator {
@@ -207,6 +235,46 @@ func (v *fakeStatusValidator) allow(entityType models.EntityType, statuses ...st
 
 func (v *fakeStatusValidator) IsValidStatus(entityType models.EntityType, status string) bool {
 	return v.valid[entityType][status]
+}
+
+func (v *fakeStatusValidator) route(entityType models.EntityType, fromStatus, outcomeKey, target string) *fakeStatusValidator {
+	v.reworkRoutes[historyKey(entityType, fromStatus)+"|"+outcomeKey] = target
+	return v
+}
+
+func (v *fakeStatusValidator) ResolveReworkOutcome(entityType models.EntityType, fromStatus, outcomeKey string) (string, error) {
+	if target, ok := v.reworkRoutes[historyKey(entityType, fromStatus)+"|"+outcomeKey]; ok {
+		return target, nil
+	}
+	return "", fmt.Errorf("no fake rework route from %s for outcome %s", fromStatus, outcomeKey)
+}
+
+type fakeQuestionBlocker struct {
+	mu      sync.Mutex
+	blocked map[string]string
+	err     error
+}
+
+func newFakeQuestionBlocker() *fakeQuestionBlocker {
+	return &fakeQuestionBlocker{blocked: make(map[string]string)}
+}
+
+func (b *fakeQuestionBlocker) Check(_ context.Context, entityType models.EntityType, entityKey string) (*services.QuestionBlock, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.err != nil {
+		return nil, b.err
+	}
+	if questionKey := b.blocked[historyKey(entityType, entityKey)]; questionKey != "" {
+		return &services.QuestionBlock{QuestionKey: questionKey}, nil
+	}
+	return nil, nil
+}
+
+func (b *fakeQuestionBlocker) setBlocked(entityType models.EntityType, entityKey, questionKey string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.blocked[historyKey(entityType, entityKey)] = questionKey
 }
 
 // fakeIdentityResolver is a minimal in-memory IdentityResolver, good enough

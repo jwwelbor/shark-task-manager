@@ -2,12 +2,18 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/entityrel"
+	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
+	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/stretchr/testify/require"
 )
 
 type questionBlockerRegistry struct{ repo EntityRepository }
@@ -46,6 +52,20 @@ type questionBlockerRelationships struct {
 	filter   []models.EntityRelationshipType
 }
 
+type questionBlockerTxRelationships struct {
+	t      *testing.T
+	wantTx *sql.Tx
+	edges  []*models.EntityRelationship
+}
+
+func (r questionBlockerTxRelationships) GetIncomingWithTx(_ context.Context, tx *sql.Tx, _ models.EntityType, _ int64, _ []models.EntityRelationshipType) ([]*models.EntityRelationship, error) {
+	r.t.Helper()
+	if tx != r.wantTx {
+		r.t.Fatalf("GetIncomingWithTx tx = %p, want %p", tx, r.wantTx)
+	}
+	return r.edges, nil
+}
+
 func (r *questionBlockerRelationships) GetIncoming(_ context.Context, _ models.EntityType, _ int64, types []models.EntityRelationshipType) ([]*models.EntityRelationship, error) {
 	r.calls++
 	r.filter = append([]models.EntityRelationshipType(nil), types...)
@@ -55,6 +75,24 @@ func (r *questionBlockerRelationships) GetIncoming(_ context.Context, _ models.E
 type questionBlockerQuestions struct {
 	byID  map[int64]*models.Question
 	calls int
+}
+
+type questionBlockerTxQuestions struct {
+	t      *testing.T
+	wantTx *sql.Tx
+	byID   map[int64]*models.Question
+}
+
+func (r questionBlockerTxQuestions) GetByIDWithTx(_ context.Context, tx *sql.Tx, id int64) (*models.Question, error) {
+	r.t.Helper()
+	if tx != r.wantTx {
+		r.t.Fatalf("GetByIDWithTx tx = %p, want %p", tx, r.wantTx)
+	}
+	question, ok := r.byID[id]
+	if !ok {
+		return nil, fmt.Errorf("Question %d not found", id)
+	}
+	return question, nil
 }
 
 func (r *questionBlockerQuestions) GetQuestionByID(_ context.Context, id int64) (*models.Question, error) {
@@ -114,6 +152,70 @@ func TestQuestionBlockerCheckTC303QualifiesOnlyDirectOpenBlockingQuestion(t *tes
 			})
 		}
 	}
+}
+
+func TestQuestionBlockerCheckWithTxUsesTransitionTransactionForHoldReads(t *testing.T) {
+	testDB := test.NewIsolatedTestDB(t)
+	tx, err := testDB.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	candidate := &models.Task{BaseEntity: models.BaseEntity{ID: 42, Key: "T-E01-F01-001"}}
+	edges := &questionBlockerTxRelationships{t: t, wantTx: tx, edges: []*models.EntityRelationship{{
+		FromEntityType: models.EntityTypeQuestion, FromEntityID: 7, ToEntityType: models.EntityTypeTask,
+		ToEntityID: 42, RelationshipType: models.EntityRelQuestionBlocks,
+	}}}
+	questions := questionBlockerTxQuestions{t: t, wantTx: tx, byID: map[int64]*models.Question{
+		7: questionBlockerQuestion(t, "Q007", true, models.QuestionStatusOpen, "owner", "responder"),
+	}}
+	blocker, err := NewQuestionBlocker(&questionBlockerRelationships{}, questionBlockerRegistry{repo: &questionBlockerEntityRepo{entity: candidate}}, &questionBlockerQuestions{})
+	require.NoError(t, err)
+	blocker.SetTransactionReaders(edges, questions)
+
+	block, err := blocker.CheckWithTx(context.Background(), tx, models.EntityTypeTask, candidate.GetKey(), candidate.GetID())
+	require.NoError(t, err)
+	require.NotNil(t, block)
+	require.Equal(t, "Q007", block.QuestionKey)
+}
+
+func TestQuestionBlockerCheckWithTxSeesHoldAddedAfterPreflight(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	epicID := seedB058Epic(t, db, "E77")
+	featureID := seedB058Feature(t, db, epicID, "E77-F01")
+	seedB058Task(t, db, featureID, "T-E77-F01-001", "completed")
+
+	entities := NewEntityRegistry()
+	entities.Register(models.EntityTypeTask, NewTaskRepositoryAdapter(repository.NewTaskRepository(db)))
+	questions := questionrepo.NewQuestionRepository(db)
+	relationships := entityrel.NewEntityRelationshipRepository(db)
+	blocker, err := NewQuestionBlocker(relationships, entities, persistedQuestionReader{repo: questions})
+	require.NoError(t, err)
+	blocker.SetTransactionReaders(relationships, questions)
+
+	block, err := blocker.Check(ctx, models.EntityTypeTask, "T-E77-F01-001")
+	require.NoError(t, err)
+	require.Nil(t, block, "the initial review preflight has no Question hold")
+
+	question := questionBlockerQuestion(t, "Q077", true, models.QuestionStatusOpen, "owner", "responder")
+	question.Title = "Blocking question"
+	question.Requester = "reviewer"
+	require.NoError(t, questions.Create(ctx, question))
+	var taskID int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT id FROM tasks WHERE key = ?`, "T-E77-F01-001").Scan(&taskID))
+	require.NoError(t, relationships.Create(ctx, &models.EntityRelationship{
+		FromEntityType: models.EntityTypeQuestion, FromEntityID: question.ID,
+		ToEntityType: models.EntityTypeTask, ToEntityID: taskID,
+		RelationshipType: models.EntityRelQuestionBlocks,
+	}))
+
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+	block, err = blocker.CheckWithTx(ctx, tx, models.EntityTypeTask, "T-E77-F01-001", taskID)
+	require.NoError(t, err)
+	require.NotNil(t, block)
+	require.Equal(t, question.Key, block.QuestionKey)
 }
 
 func TestQuestionBlockerCheckTC303ExcludesGenericAndIndirectRelationships(t *testing.T) {

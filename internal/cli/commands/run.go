@@ -42,6 +42,7 @@ func dispatchPromptAssembler(entityType string) runner.PromptAssembler {
 }
 
 type runClaimServicer interface {
+	services.ParentLeaseTxVerifier
 	Claim(ctx context.Context, in services.ClaimInput) (*models.EntityClaim, error)
 	Release(ctx context.Context, entityType, entityKey, sessionID, outcome string, force bool) (bool, error)
 	Heartbeat(ctx context.Context, entityType, entityKey, sessionID string, progress *float64, note string) error

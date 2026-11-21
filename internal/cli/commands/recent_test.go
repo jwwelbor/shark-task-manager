@@ -13,6 +13,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +47,7 @@ func (m *mockRecentService) ListRecent(ctx context.Context, filters services.Rec
 // (capturingOutput already defined in analytics_test.go for other tests.)
 func captureRecentOutput(fn func()) string {
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 
 	fn()
@@ -131,7 +132,7 @@ func TestRunRecent_LimitFlagOverridesPositional(t *testing.T) {
 
 	// Redirect stdout to suppress table output
 	old := os.Stdout
-	_, w, _ := os.Pipe()
+	_, w, _ := testcapture.NewDrainingPipe()
 	os.Stdout = w
 	defer func() {
 		w.Close()

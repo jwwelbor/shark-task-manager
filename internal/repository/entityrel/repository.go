@@ -210,6 +210,43 @@ func (r *EntityRelationshipRepository) GetIncoming(
 	return r.scanRelationships(rows)
 }
 
+// GetIncomingWithTx reads incoming relationships from a caller-owned
+// transaction. It is used when relationship state must be consistent with a
+// status mutation in that transaction.
+func (r *EntityRelationshipRepository) GetIncomingWithTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	entityType models.EntityType,
+	entityID int64,
+	relTypes []models.EntityRelationshipType,
+) ([]*models.EntityRelationship, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("transaction is required")
+	}
+	args := []interface{}{entityType, entityID}
+	filterClause := ""
+	if len(relTypes) > 0 {
+		placeholders := make([]string, len(relTypes))
+		for i, rt := range relTypes {
+			placeholders[i] = "?"
+			args = append(args, rt)
+		}
+		filterClause = fmt.Sprintf("AND relationship_type IN (%s)", strings.Join(placeholders, ","))
+	}
+	query := fmt.Sprintf(`
+		SELECT id, from_entity_type, from_entity_id,
+		       to_entity_type, to_entity_id, relationship_type, created_at
+		FROM entity_relationships
+		WHERE to_entity_type = ? AND to_entity_id = ? %s
+		ORDER BY created_at ASC`, filterClause)
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query incoming entity relationships in transaction: %w", err)
+	}
+	defer rows.Close()
+	return r.scanRelationships(rows)
+}
+
 // GetIncomingPage returns one finite, stable page of incoming typed edges.
 // It is the repository seam for focused consumers; qualification of a source
 // Question remains in QuestionBlocker and its callers.

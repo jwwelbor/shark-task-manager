@@ -454,7 +454,9 @@ ON FAIL (blockers, spec drift, missing ACs, contract violations): recommended_ou
   - Per-task findings: task ID, specific issues, required changes, and a one-line defect-class statement per blocking finding (the general class, not the point instance)
 - This outcome's role is `kickback_rework` — `gate_result.kickbacks` must
   contain one entry per task that needs to reopen (`entity_key`: the task
-  key, `target_status`: development, `reason`: "<defect-class statement> —
+  key, `target_status`: the configured `rework_outcomes[fail]` destination
+  for the task's current status (development in the shipped workflow),
+  `reason`: "<defect-class statement> —
   <specific findings>. Before fixing the cited instance, sweep the touched
   module(s) for every other instance of this defect class; fix all; list
   swept sites in the completion note.")
@@ -482,6 +484,13 @@ The nested `gate_result` shape is validated and typed in `internal/gateresult`
 (see its doc comment for the full field list — `findings[]`,
 `kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
 not restate it. Two rules this step's outcomes commonly need:
+
+For each `kickbacks[]` entry, `target_status` is required by GateResult v1
+but is only a compatibility assertion. Read the target entity's current
+status and its workflow step, then set `target_status` to that step's
+`rework_outcomes[recommended_outcome]`. Do not choose or infer a destination
+independently. If the route is missing or cannot be read, do not guess or
+submit that kickback; report the missing route and return a blocked result.
 
 - Whether `kickbacks` must be empty or non-empty for a given outcome depends
   on that outcome's configured semantic role (`outcome_roles`, visible via

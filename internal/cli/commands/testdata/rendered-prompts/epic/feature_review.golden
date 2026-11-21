@@ -120,7 +120,7 @@ Print interaction-map closure table and cross-epic integration closure table in 
 
 DECISION:
 - ALL PASS -> recommended_outcome: pass
-- ANY FAIL -> recommended_outcome: fail; a fail on this step kicks back individual features (`entity_key` = the feature key, `target_status` = decomposition), naming the specific gaps or issues to fix in each kickback's `reason`
+- ANY FAIL -> recommended_outcome: fail; a fail on this step kicks back individual features (`entity_key` = the feature key, `target_status` = that feature's configured `rework_outcomes[fail]` destination, `task_generation` in the shipped workflow), naming the specific gaps or issues to fix in each kickback's `reason`
 - Do NOT run Shark status commands yourself; the parent loop will apply the outcome and route the epic.
 
 FINAL RESPONSE — STRUCTURED GATE RESULT (T-E34-F05, `result_contract: gate_result_v1`):
@@ -145,6 +145,13 @@ The nested `gate_result` shape is validated and typed in `internal/gateresult`
 (see its doc comment for the full field list — `findings[]`,
 `kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
 not restate it. Two rules this step's outcomes commonly need:
+
+For each `kickbacks[]` entry, `target_status` is required by GateResult v1
+but is only a compatibility assertion. Read the target entity's current
+status and its workflow step, then set `target_status` to that step's
+`rework_outcomes[recommended_outcome]`. Do not choose or infer a destination
+independently. If the route is missing or cannot be read, do not guess or
+submit that kickback; report the missing route and return a blocked result.
 
 - Whether `kickbacks` must be empty or non-empty for a given outcome depends
   on that outcome's configured semantic role (`outcome_roles`, visible via

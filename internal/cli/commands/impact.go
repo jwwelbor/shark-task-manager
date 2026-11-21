@@ -17,6 +17,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -73,7 +74,7 @@ func impactNoteWriter(ctx context.Context) (gatepersist.NoteWriter, error) {
 func readBoundedImpactFile(path string) ([]byte, error) {
 	data, err := gaterun.ReadBoundedRegularFile(path, workercontrol.MaxEnvelopeBytes)
 	if err != nil {
-		if strings.Contains(err.Error(), "byte bound") {
+		if errors.Is(err, gaterun.ErrSizeLimitExceeded) {
 			return nil, fmt.Errorf("--impact-file %q exceeds the maximum size of %d bytes", path, workercontrol.MaxEnvelopeBytes)
 		}
 		return nil, fmt.Errorf("read --impact-file %q: %w", path, err)

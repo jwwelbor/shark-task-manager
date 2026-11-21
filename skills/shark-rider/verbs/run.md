@@ -32,7 +32,7 @@ metadata for logging/provenance and host adapter selection only.
 When dispatching a bug in a selected working directory, pass that actual
 directory to `shark next {KEY} --workdir "$WORKDIR" --json` before spawning
 the worker. Shark checks that it is the corresponding project root in the
-parent repository or a linked worktree.
+parent repository or a linked worktree. When no separate workdir was selected, use the parent project root as the worker directory.
 
 ## Ownership model
 
@@ -114,7 +114,7 @@ Parse the JSON response:
 | `response.prompt_bytes` | Byte length of `response.prompt`, computed alongside `prompt_sha256` |
 | `response.agent_type` | Shark persona metadata, not a native host subagent name |
 | `response.provider` | Provider metadata, e.g. `anthropic`, `openai`, `codex` |
-| `response.model` | Model to dispatch the worker with (e.g. `sonnet`, `opus`, `haiku`, `fable`) when `response.provider` is `anthropic` |
+| `response.model` | Requested model for `response.provider`, regardless of provider |
 | `response.effort` | Optional reasoning-effort override for the worker (`low`, `medium`, `high`, `xhigh`) |
 | `response.resolved_via` | Optional parent keys traversed by cascade resolution |
 | `response.error` | Error detail when action is `error` or pause carries a warning |
@@ -149,6 +149,107 @@ contradict work.
 > only because a subsequent worker happened to run `ps -ef` and noticed.
 > No corruption resulted that time, but it was luck, not a guarantee.
 
+### Route attestation pre-flight (B077)
+
+Before claiming the entity or starting a worker, prefer the exact requested
+provider/model route. For an Anthropic request, Claude Code is preferred when
+available, but its absence alone is not a rejection reason. Use a fallback
+only through a documented compatible host selector and explicit compatibility
+mapping. The selector must observe the worker-correlated effective
+provider/model identity. Record the mapping and its capability and identity
+evidence in `evidence_ref`; never infer compatibility from model names. Never
+silently substitute the requested route.
+The requested route, Shark persona
+(`response.agent_type`), host worker class, and reasoning effort
+(`response.effort`) are separate values. Do not infer the model from
+`response.agent_type`, host worker class, or
+`response.effort`, and do not use the parent's model as an implicit fallback.
+
+When `response.model` is empty, preserve that exact requested value. Use a
+provider default only when the host reference documents it and the adapter can
+capture the worker-correlated concrete effective model. Reject before claim
+only when no exact route or documented compatible fallback can be selected and
+observed; missing or ambiguous route evidence is not permission to guess.
+
+If pre-flight classifies the route as `unsupported` or `unverified`, the
+parent/adapter issues a bounded parent/adapter pre-dispatch rejection that
+records the requested provider/model and the capability or identity evidence
+gap. This rejection has no worker control envelope or worker result, creates
+no claim, and causes no status advance; the parent stops and reports the
+rejection. `blocked_external` is reserved for a dispatched worker's control
+envelope. Do not turn a pre-dispatch rejection into that worker result.
+
+On a native Codex host, do not infer native host model selection from the
+Codex CLI reference. The CLI's `--model` option may be used only when policy
+explicitly selects the Codex CLI adapter and a documented compatible mapping
+provides the selector; that option's presence proves selector availability,
+not support or effective identity for a particular model. Require
+worker-correlated observation of the effective provider and model before
+attesting the route. Do not switch to the Codex CLI adapter silently.
+
+For a native explicit model or effort, check the actual spawn mode for a
+supported selector for each requested field and a child-correlated observation
+of each. A mode that inherits from its parent cannot select an explicit
+override. Keep omitted effort unforced. For any selected route, pass the requested model or explicitly mapped fallback
+model through its documented selector without overwriting the Shark request.
+Correlate host evidence through `worker_id` and, when needed, a distinct
+`host_session_id`; `session_id` remains only the parent's Shark claim ID. Apply
+the phase/status field and evidence rules in `context/host-adapter-contract.md`.
+A post-dispatch `unverified` or `mismatch` route rejects the worker result,
+stops the worker when supported, and does not advance the entity. A `verified`
+route permits its worker result to continue through the existing control-
+envelope path. Keep `response.prompt` byte-for-byte unchanged throughout this
+check.
+
+### B077 default bug-stage Codex fallback mappings
+
+For the embedded bug workflow's Anthropic `spawn_agent` stages, prefer the
+exact requested route through Claude Code when it is available. When Claude
+Code is unavailable, the following explicit compatibility mapping selects
+the Codex CLI route.
+This is a workflow-level compatibility decision for bug-stage work; it does
+not claim that any Codex model is equivalent to the requested Anthropic model.
+Keep every requested provider/model value unchanged and record the selected
+Codex route separately.
+
+| entity_type | status | agent_type | requested_provider | requested_model | host_worker_class | selected_provider | selected_model | mapping_ref |
+|---|---|---|---|---|---|---|---|---|
+| bug | research | researcher | anthropic | haiku | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | repair_plan | architect | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | plan_review | tech-lead | anthropic | opus | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | development | developer | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | code_review | tech-lead | anthropic | opus | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | qa | qa | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+
+These are the current Anthropic stage tuples in the embedded default bug
+workflow. The table applies only to the exact entity type, status, persona,
+provider, and model shown; it does not
+authorize a fallback for other entities, stages, personas, Anthropic models,
+or an empty model. The selected Codex model is a fixed policy value, never
+derived from the parent session, Codex configuration default, or environment.
+If the exact route or table entry does not match, or the Codex selector or
+worker-identity evidence path is unavailable, reject before claim with no
+worker result or status advance. On a matching tuple, the parent/adapter sets
+`selected_provider=openai`, `selected_model=gpt-6.2-astra`,
+`host_worker_class=codex-cli`, and the mapping reference before claiming.
+For either Codex CLI route, use the installed CLI's local configuration reader
+in the selected worker directory before claim. On CLI 0.170.0 use app-server
+initialization followed by `config/read` with that absolute `cwd`. Supply the
+same profile, environment and provider/model/effort overrides intended for
+the worker. In the configuration reader use `--config model=<model>` for
+the worker's explicit `--model` selection. For an evidenced provider default
+omit both model overrides. Require the returned provider to equal the selected
+provider, and verify the expected model and any explicit requested effort.
+A failed read, unsupported explicit effort, or conflicting result stops this
+assignment before claim. Keep only those bounded fields as preflight evidence.
+Before selecting this fallback, verify that the installed Codex CLI supports
+`codex exec --model`, `codex login status` reports an authenticated session,
+and persistent rollout records can be read from the configured Codex home.
+Use only a CLI version whose selector and local identity-record shape have
+been checked; the current host evidence is `codex-cli 0.170.0`. These are
+local capability checks and make no model/API call. If any check fails, reject
+before claim.
+
 Claim the concrete entity returned by Shark:
 
 ```bash
@@ -179,17 +280,26 @@ responsibility.
 
 Spawn the host worker using a host-safe adapter:
 
-- Claude Code Agent tool: select `subagent_type` by `response.effort` —
+### Claude Code Agent tool adapter
+
+- Select the Agent tool's `subagent_type` by `response.effort` —
   `low`/`medium`/`high`/`xhigh` → `shark-worker-<effort>`; absent,
   unrecognized, or not defined in this project → `general-purpose`
-- Model: when `response.provider` is `anthropic` and `response.model` is
+- For model selection, when `response.provider` is `anthropic` and `response.model` is
   non-empty, pass it as the Agent tool's `model` parameter (accepts
   `sonnet`/`opus`/`haiku`/`fable`, or a full model name). `subagent_type`
   only controls reasoning effort — `model` is what actually selects the
   model, so both must be set together; do not skip this and assume effort
-  routing covers it. Omit `model` when `response.model` is empty. Do not pass
-  a non-Claude value (e.g. `codex`) as the Agent tool's `model` — that param
+  routing covers it. When `response.model` is empty, omit `model` only if
+  preflight selected Claude's documented provider default and the adapter can
+  capture the worker-correlated effective provider and concrete model; keep
+  the requested model empty. If Claude Code is unavailable, continue only
+  through an explicitly documented compatible host route. Do not pass a
+  non-Claude value (e.g. `codex`) as the Agent tool's `model` — that param
   only accepts Claude models.
+
+### Host-neutral handoff and lifecycle
+
 - Prompt: exactly `response.prompt`
 - Metadata to record/pass through if the host supports it: `response.agent_type`,
   `response.provider`, `response.model`
@@ -255,12 +365,64 @@ the event stream and the final message. Run the worker in the background so
 the parent can poll `$EVENT_FILE` while it is still running, and keep stdout
 (the JSONL event stream) separate from stderr:
 
+The preflight table selects `openai/gpt-6.2-astra` for each listed default bug
+stage when Claude Code is unavailable. For one of those exact request tuples,
+the adapter sets `SELECTED_PROVIDER` and `SELECTED_MODEL` from that fixed
+mapping. For an exact Codex request, it may use the exact requested model.
+Make the prompt, result and event paths absolute and unique to this invocation.
+Use the absolute `CODEX_BIN` resolved in preflight, its profile, environment
+and authorized sandbox. An omitted profile or sandbox uses the checked host
+configuration. Set `REQUESTED_MODEL` from the final keyed response, including
+its empty value for a documented default, and `REQUESTED_EFFORT` from its
+optional effort field.
+Never derive `SELECTED_MODEL` from the parent session, a Codex configuration
+default, or an environment variable. Pass every explicit selection through
+Codex CLI's `--model` selector. For an evidenced default, omit that flag.
+Use the producing worker's observation to establish which model ran.
+Do not use Codex's provider default for a mapped Anthropic fallback.
+
 ```bash
-timeout --foreground 900 codex exec -C "$REPO_ROOT" -s danger-full-access \
-  --json --output-last-message "$RESULT_FILE" - < "$PROMPT_FILE" \
-  > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
+# Use the authorized selections from this assignment's preflight. For the
+# six mapped tuples these are openai and gpt-6.2-astra. An exact request
+# keeps its own selection. An evidenced default omits the model flag.
+CODEX_ROUTE_ARGS=(--config "model_provider=${SELECTED_PROVIDER:?}")
+if [[ -n ${SELECTED_PROFILE:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--profile "$SELECTED_PROFILE")
+fi
+if [[ -n ${SELECTED_SANDBOX:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--sandbox "$SELECTED_SANDBOX")
+fi
+if [[ -n ${REQUESTED_MODEL?missing keyed model field} ]]; then
+  CODEX_ROUTE_ARGS+=(--model "${SELECTED_MODEL:?missing selected model}")
+fi
+if [[ -n ${REQUESTED_EFFORT:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--config "model_reasoning_effort=$REQUESTED_EFFORT")
+fi
+(
+  cd -- "${WORKDIR:?}" || exit 1
+  exec timeout --foreground 900 "${CODEX_BIN:?}" exec -C "$WORKDIR" \
+    "${CODEX_ROUTE_ARGS[@]}" --json --output-last-message "$RESULT_FILE" \
+    - < "$PROMPT_FILE"
+) > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
 CODEX_PID=$!
 ```
+
+For the B077 Codex CLI route, take `worker_id` from the `thread.started`
+event's `thread_id`. The event identifies the worker thread but contains no
+effective model. Correlate that exact ID to a persisted Codex rollout under
+`$CODEX_HOME/sessions` (or `$HOME/.codex/sessions` when `CODEX_HOME` is unset):
+the rollout's `session_meta.payload.id` must equal the event's `thread_id`.
+Read `effective_provider` from `session_meta.payload.model_provider` and
+`effective_model` from each `turn_context.payload.model` in that same rollout.
+Require both values and require them to match `SELECTED_PROVIDER` and
+`SELECTED_MODEL`. Missing or ambiguous metadata is `unverified`; an observed
+different provider or model is `mismatch`; conflicting records for one ID are
+`unverified`. Never select the newest rollout by timestamp or use another
+worker's metadata.
+This identity path is Codex CLI-specific; it does not attest native Codex host
+workers. If the rollout format or its configured storage path is unavailable,
+reject before claim or reject the worker result as unverified, according to
+the dispatch phase.
 
 While the worker runs, inspect `$EVENT_FILE` at least once per minute. For
 each new event, renew the lease and record the latest event type or item type:
@@ -374,16 +536,17 @@ the workflow prompts emit, apply them in this order, then advance:
      ```bash
      shark create note {response.entity_key} "<note>" --type comment
      ```
-4. **Apply task kickbacks.** Gate steps (code review, QA, UAT) that fail list
-   kickback lines in the form
-   `<task-id> -> <status> --reason "<why>"`.
-   Apply each one BEFORE advancing the parent, so the reopened tasks are
-   already in place when the feature drops back:
-   ```bash
-   shark status set <task-id> <status> --reason "<why>" --force
-   ```
-   A `fail` outcome whose response names no kickbacks is suspicious — record a
-   blocker note and surface it to the user rather than silently advancing.
+4. **Apply structured review kickbacks through the coordinator.** Preserve the
+   worker's full `gate_result` and its `recommended_outcome` for the existing
+   `--apply-result` path. The parent-owned coordinator resolves each child
+   destination from the review outcome key and the target's configured
+   `rework_outcomes`; it checks Question holds and the parent lease before
+   each child write, then applies the parent outcome transition. If any child
+   is blocked or cannot be routed or authorized, do not advance the parent.
+   Never translate a kickback into a direct child status
+   command or a legacy `<task-id> -> <status>` directive. A `fail` outcome
+   whose response names no kickbacks is suspicious — record a blocker note and
+   surface it to the user rather than silently advancing.
 5. **Advance by the resolved outcome**, attributing the transition to the
    agent that did the work (this populates `entity_history.changed_by`):
    ```bash

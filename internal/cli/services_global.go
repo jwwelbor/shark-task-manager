@@ -16,6 +16,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityrel"
 	planhierarchyrepo "github.com/jwwelbor/shark-task-manager/internal/repository/planhierarchy"
 	portfoliorepo "github.com/jwwelbor/shark-task-manager/internal/repository/portfolio"
+	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
 	sprintrepo "github.com/jwwelbor/shark-task-manager/internal/repository/sprint"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -607,6 +608,7 @@ func GetQuestionBlocker() *services.QuestionBlocker {
 	if err != nil {
 		panic(fmt.Sprintf("failed to create QuestionBlocker: %v", err))
 	}
+	blocker.SetTransactionReaders(entityrel.NewEntityRelationshipRepository(db), questionrepo.NewQuestionRepository(db))
 	return blocker
 }
 

@@ -198,6 +198,26 @@ func (w *WorkflowConfig) ResolveOutcome(fromStep, outcome string) (string, bool)
 	return "", false
 }
 
+// ResolveReworkOutcome resolves an external review outcome key against the
+// current step's explicit rework route. Rework routes are separate from
+// ordinary outcomes so they can reopen terminal and parking steps without
+// making those steps generally advanceable.
+func (w *WorkflowConfig) ResolveReworkOutcome(fromStep, outcome string) (string, bool) {
+	st, ok := w.GetStep(fromStep)
+	if !ok || st == nil {
+		return "", false
+	}
+	if target, ok := st.ReworkOutcomes[outcome]; ok {
+		return target, true
+	}
+	for key, target := range st.ReworkOutcomes {
+		if strings.EqualFold(key, outcome) {
+			return target, true
+		}
+	}
+	return "", false
+}
+
 // AliasMap returns a map from old status name -> new step name, built from each
 // step's Aliases list (E35-F05, §7). The map drives the three alias duties:
 // one-shot migration, input compat shim, and history-read resolution.
@@ -279,7 +299,18 @@ func (w *WorkflowConfig) ValidateCoreOutcomes() []error {
 	}
 	var errs []error
 	for name, st := range w.Steps {
-		if st == nil || st.Terminal || st.Parking {
+		if st == nil {
+			continue
+		}
+		for outcome, target := range st.ReworkOutcomes {
+			if strings.TrimSpace(outcome) == "" {
+				errs = append(errs, fmt.Errorf("step %q rework_outcomes contains an empty outcome key", name))
+			}
+			if _, ok := w.Steps[target]; !ok {
+				errs = append(errs, fmt.Errorf("step %q rework outcome %q targets unknown step %q", name, outcome, target))
+			}
+		}
+		if st.Terminal || st.Parking {
 			continue
 		}
 		var missing []string

@@ -107,8 +107,8 @@ func TestTC004_FailureMissingOutcomeAndKickbackOrdering(t *testing.T) {
 	run := normalizeF07Content(readF07RepositoryFile(t, "skills/shark-rider/verbs/run.md"))
 	for _, want := range []string{
 		"No outcome at all → treat as `blocked` and record a blocker note",
-		"Apply task kickbacks.",
-		"BEFORE advancing the parent",
+		"Apply structured review kickbacks through the coordinator.",
+		"then applies the parent outcome transition",
 		"A `fail` outcome whose response names no kickbacks is suspicious",
 		"Release the lease, always",
 		"every success, failure, or exception path",

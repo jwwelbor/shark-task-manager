@@ -10,8 +10,8 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -93,7 +93,7 @@ func runApplyResultSet() bool {
 func readBoundedEnvelopeFile(path string) ([]byte, error) {
 	data, err := gaterun.ReadBoundedRegularFile(path, workercontrol.MaxEnvelopeBytes)
 	if err != nil {
-		if strings.Contains(err.Error(), "byte bound") {
+		if errors.Is(err, gaterun.ErrSizeLimitExceeded) {
 			return nil, fmt.Errorf("exceeds the maximum envelope size of %d bytes", workercontrol.MaxEnvelopeBytes)
 		}
 		return nil, err
@@ -307,8 +307,13 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	// coordinator's re-verification (ClaimVerifier, below) reads from the
 	// exact same claim state run.go's initial verifyClaimSession checked.
 	claimSvc := getRunClaimService()
+	questionBlocker := cli.GetQuestionBlocker()
+	transitioner.SetReviewReworkDependencies(cli.GetTaskService(), cli.GetFeatureService(), claimSvc, questionBlocker)
 
 	coordinator := gatepersist.NewCoordinator(noteSvc, noteSvc, history, validator, transitioner, transitioner, claimSvc, transitioner)
+	coordinator.ReworkRoutes = validator
+	coordinator.QuestionBlocker = questionBlocker
+	coordinator.RoutedRework = transitioner
 	// UAT round-2 Finding 1: fold a second claim-ownership check into
 	// Persist's own critical section (the per-run lock), immediately before
 	// its mutating writes — closing the TOCTOU window between run.go's

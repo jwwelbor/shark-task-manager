@@ -15,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/spf13/cobra"
 )
 
@@ -90,7 +91,7 @@ func TestB074UnifiedListProductionBoundary(t *testing.T) {
 			cmd.Flags().StringSlice("tag", nil, "tag")
 
 			oldStdout := os.Stdout
-			reader, writer, err := os.Pipe()
+			reader, writer, err := testcapture.NewDrainingPipe()
 			if err != nil {
 				t.Fatalf("create stdout pipe: %v", err)
 			}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/status"
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,7 +103,7 @@ func TestOutputProgressJSON(t *testing.T) {
 
 	// Capture stdout
 	old := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	require.NoError(t, err)
 	os.Stdout = w
 

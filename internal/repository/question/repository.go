@@ -153,6 +153,22 @@ func (r *QuestionRepository) GetByID(ctx context.Context, id int64) (*models.Que
 	return question, nil
 }
 
+// GetByIDWithTx reads a Question through a caller-owned transaction.
+func (r *QuestionRepository) GetByIDWithTx(ctx context.Context, tx *sql.Tx, id int64) (*models.Question, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("get question by ID: transaction is required")
+	}
+	question, err := scanQuestion(tx.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT %s FROM questions WHERE id = ?", questionSelectColumns), id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("question not found with ID %d: %w", id, repoerr.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get question by ID in transaction: %w", err)
+	}
+	return question, nil
+}
+
 // Update persists Question base fields. Workflow status changes use UpdateStatus.
 func (r *QuestionRepository) Update(ctx context.Context, question *models.Question) error {
 	if question == nil {

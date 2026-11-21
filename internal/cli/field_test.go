@@ -10,13 +10,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jwwelbor/shark-task-manager/internal/testcapture"
 )
 
 // captureStdout captures stdout output from a function call
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
+	r, w, err := testcapture.NewDrainingPipe()
 	if err != nil {
 		t.Fatalf("failed to create pipe: %v", err)
 	}
