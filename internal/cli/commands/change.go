@@ -267,20 +267,12 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	title := args[0]
 	input := buildCreateChangeCardInput(title)
-	// E28-F04 REQ-F-012: read --tag via the flag accessor (not the
-	// package-level variable) so test invocations that reset flags between
-	// runs see a fresh value each time.
-	if tags, err := cmd.Flags().GetStringSlice("tag"); err == nil {
-		input.Tags = tags
+	inputSize, tags, err := readChangeCreateSizeAndTags(cmd)
+	if err != nil {
+		return err
 	}
-	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
-	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
-		n, sizeErr := models.ParseSize(sizeStr)
-		if sizeErr != nil {
-			return fmt.Errorf("invalid --size value: %w", sizeErr)
-		}
-		input.Size = &n
-	}
+	input.Size = inputSize
+	input.Tags = tags
 	body, err := cli.ResolveContentInput(cmd)
 	if err != nil {
 		return err
@@ -496,6 +488,30 @@ func runChangeApprove(cmd *cobra.Command, args []string) error {
 }
 
 // --- Helper functions ---
+
+// readChangeCreateSizeAndTags reads and validates the optional size and tag
+// flags shared by `shark change create` and `shark create change`.
+func readChangeCreateSizeAndTags(cmd *cobra.Command) (*int, []string, error) {
+	sizeStr, err := cmd.Flags().GetString("size")
+	if err != nil {
+		return nil, nil, fmt.Errorf("read --size: %w", err)
+	}
+
+	var size *int
+	if sizeStr != "" {
+		parsedSize, err := models.ParseSize(sizeStr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid --size value: %w", err)
+		}
+		size = &parsedSize
+	}
+
+	tags, err := cmd.Flags().GetStringSlice("tag")
+	if err != nil {
+		return nil, nil, fmt.Errorf("read --tag: %w", err)
+	}
+	return size, tags, nil
+}
 
 // buildCreateChangeCardInput constructs a CreateChangeCardInput from flag values.
 // Note: Tags are threaded in by the caller (runChangeCreate) via the flag

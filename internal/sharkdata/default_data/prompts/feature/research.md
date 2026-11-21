@@ -1,10 +1,11 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Research feature {{.id}}: "{{.title}}" using the v2 universal recipe catalog
-at `shark-data/research/recipes.yaml`. Read the parent report, parent PRD,
-siblings, {{.file_path}}, and only the category-specific sources selected by
-the report checklist.
+Research feature {{.id}}: "{{.title}}" using the v2 universal recipe catalog.
+Read it with `shark data get research/recipes.yaml`; the command reads the
+configured catalog or its embedded default without installing shark-data.
+Read the parent report, parent PRD, siblings, {{.file_path}}, and only the
+category-specific sources selected by the report checklist.
 
 Write only `research-report.md` beside the feature file and register that
 report as a related document on {{.id}}. Its front matter must include only

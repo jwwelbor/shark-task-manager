@@ -201,6 +201,17 @@ func TestLoadCatalog_UsesConfiguredV1SharkDataPath(t *testing.T) {
 	}
 }
 
+func TestValidateEntityAtContextRejectsCancellationBeforeCatalogRead(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".sharkconfig.json")
+	require.NoError(t, os.WriteFile(configPath, []byte("{"), 0o644))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := ValidateEntityAtContext(ctx, root, root, taskEntity())
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func taskEntity() models.Entity {
 	return &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", FilePath: stringPtr("docs/plan/E01/F01/tasks/T-E01-F01-001.md")}, Status: "research"}
 }

@@ -1,8 +1,9 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
-Research epic {{.id}}: "{{.title}}" using the v2 universal recipe catalog at
-`shark-data/research/recipes.yaml`.
+Research epic {{.id}}: "{{.title}}" using the v2 universal recipe catalog.
+Read it with `shark data get research/recipes.yaml`; the command reads the
+configured catalog or its embedded default without installing shark-data.
 
 Write only `research-report.md` beside {{.file_path}} and register that report
 as a related document on {{.id}}. Its front matter must include only

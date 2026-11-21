@@ -206,9 +206,11 @@ var _ sprintLifecycleServicer = (*MockSprintService)(nil)
 var _ sprintAssignmentServicer = (*MockSprintService)(nil)
 var _ sprintCapacityServicer = (*MockSprintService)(nil)
 
-// TC-006: the compatibility notice belongs in human-facing command help only.
+// TC-006: command help must describe sprint-next scope and the per-sprint alternative.
 func TestSprintNext_TC006_HelpPointsToPlanSprint(t *testing.T) {
-	require.Contains(t, sprintNextCmd.Long, "shark plan sprint")
+	require.Contains(t, sprintNextCmd.Short, "across execution-phase sprints")
+	require.Contains(t, sprintNextCmd.Long, "across execution-phase sprints")
+	require.Contains(t, sprintNextCmd.Long, "shark plan S###")
 }
 
 // Test helpers
@@ -3590,6 +3592,56 @@ func TestSprintNext_E38F06_WithoutRolePreservesUnfilteredCall(t *testing.T) {
 
 	require.NoError(t, runSprintNext(cmd, []string{}))
 	assert.Empty(t, receivedAgentType, "no --agent flag must preserve unfiltered selection")
+}
+
+func TestSprintNext_HumanOutputDescribesEligibleExecutionPhaseSprints(t *testing.T) {
+	cases := []struct {
+		name        string
+		agentType   string
+		wantMessage string
+	}{
+		{
+			name:        "unfiltered",
+			wantMessage: "No more items found in eligible execution-phase sprints.",
+		},
+		{
+			name:        "agent filtered",
+			agentType:   "qa",
+			wantMessage: `No more items found for agent type "qa" in eligible execution-phase sprints.`,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mock := &MockSprintService{
+				GetNextTaskFunc: func(context.Context, string) (*services.BacklogItemView, error) {
+					return nil, nil
+				},
+			}
+			cleanup := setupSprintTest(t, mock)
+			defer cleanup()
+
+			originalJSON := cli.GlobalConfig.JSON
+			defer func() { cli.GlobalConfig.JSON = originalJSON }()
+			cli.GlobalConfig.JSON = false
+
+			var output bytes.Buffer
+			previousPtermWriter := pterm.Info.Writer
+			pterm.Info.Writer = &output
+			defer func() { pterm.Info.Writer = previousPtermWriter }()
+
+			cmd := &cobra.Command{}
+			cmd.SetContext(context.Background())
+			cmd.Flags().String("agent", "", "agent type")
+			if testCase.agentType != "" {
+				require.NoError(t, cmd.Flags().Set("agent", testCase.agentType))
+			}
+
+			runErr := runSprintNext(cmd, []string{})
+			require.NoError(t, runErr)
+			assert.Contains(t, output.String(), testCase.wantMessage)
+		})
+	}
 }
 
 // =============================================================================
