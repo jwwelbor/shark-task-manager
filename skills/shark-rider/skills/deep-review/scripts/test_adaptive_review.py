@@ -328,6 +328,46 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
 
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_cli_inspection_must_cover_the_frozen_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            (repo / 'second').write_text('second changed file')
+            subprocess.run(['git', 'add', 'second'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'add second file'], cwd=repo, check=True)
+            capture = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo)
+            scope_file.write_bytes(capture)
+            scope = json.loads(capture)
+            self.assertEqual(set(scope['changed_files']), {'source', 'second'})
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect every changed file: source and second.')
+            for inspected, expected in [(['source', 'second'], 'PASS'), (['source'], 'INCOMPLETE')]:
+                with self.subTest(inspected=inspected):
+                    reviewer = root / 'reviewer'
+                    reviewer.write_text(
+                        '#!/usr/bin/env python3\nfrom pathlib import Path\nimport json\n'
+                        f'paths = {inspected!r}\npacket = {review_packet(scope)!r}\n'
+                        'for path in paths: Path(path).read_text()\n'
+                        'packet["report"] = ("Scope inspected: " + ", ".join(paths) + '
+                        '"\\nChecks: read each listed file and checked its contents.'
+                        '\\nFindings: 0 defects found.\\nVerdict: PASS")\n'
+                        'print(json.dumps(packet))\n'
+                    )
+                    reviewer.chmod(0o700)
+                    report = root / f'report-{len(inspected)}.md'
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                        '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                        '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                        '--base-commit', scope['base_commit'], '--review-output-path', str(report),
+                        '--host', 'claude', '--codex-command', str(reviewer), '--claude-command', str(reviewer),
+                        '--no-workflow-available', '--no-agent-dispatch-available',
+                    ], capture_output=True, text=True)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata['verdict'], expected, report.read_text())
+                    self.assertEqual(result.returncode, 0 if expected == 'PASS' else 2)
+
     def test_cli_pass_with_open_blocker_is_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
