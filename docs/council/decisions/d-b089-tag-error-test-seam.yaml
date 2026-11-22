@@ -1,0 +1,23 @@
+artifact_id: d-b089-tag-error-test-seam
+type: decision
+status: resolved
+roles:
+  - architect
+  - developer
+root_key: B089
+evidence:
+  - docs/plan/bugs/B089.repair-plan-evidence.md
+  - internal/cli/commands/tags.go
+  - internal/cli/commands/tags_shared.go
+  - .claude/rules/testing/cli-tests.md
+created_at: 2026-11-22T04:39:43Z
+updated_at: 2026-11-22T04:39:43Z
+next_action: Revise and independently approve the plan for a test-only injectable tag-service factory before adding caller-level tests.
+body: >-
+  Add a package-local tag-service factory at the existing resolveTagService
+  boundary, defaulting to cli.GetTagService. Keep the production lookup and
+  renderer behavior unchanged. Tests may substitute the existing tagServiceIface
+  mock so the three creation registrations can exercise UnregisteredTagError and
+  TagRequiredError in text and JSON modes without opening a real database. If a
+  caller-level assertion demonstrates a runtime defect, fix that behavior under
+  B089 and preserve the same output contract.
