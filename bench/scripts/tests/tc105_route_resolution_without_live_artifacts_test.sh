@@ -133,6 +133,130 @@ OPERATOR_ROOT="$WORKDIR/operator"
 "$OPERATOR" setup --out "$OPERATOR_ROOT" >"$WORKDIR/setup.out" 2>"$WORKDIR/setup.err" \
 	|| fail "real 'e40-benchmark.sh setup' failed: $(cat "$WORKDIR/setup.err")"
 
+# Keep TC-13/14 focused on the route-resolution ledger contract. This
+# temporary scratch fixture uses Anthropic routes so B083's separate
+# fail-closed Codex catalog check does not replace the statuses under test.
+python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+	"$OPERATOR_ROOT/scratch-template/shark-data/workflow" \
+	--allowed-root "$OPERATOR_ROOT"
+cat >"$OPERATOR_ROOT/scratch-template/shark-data/workflow/question.yaml" <<'YAML'
+version: "1.0"
+steps:
+  ask:
+    action: spawn_agent
+    agent: unconfigured-question-stage
+YAML
+
+# The preview helper must resolve relative to this script even when its
+# run-lifecycle executable override lives in a separate directory.
+EXTERNAL_RUNNER_DIR="$WORKDIR/external-runner"
+mkdir -p "$EXTERNAL_RUNNER_DIR"
+cat >"$EXTERNAL_RUNNER_DIR/run-lifecycle.sh" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ "$#" -gt 0 ]]; do
+	if [[ "$1" == "--output" ]]; then
+		output="$2"
+		shift 2
+	else
+		shift
+	fi
+done
+[[ -n "$output" ]]
+mkdir -p "$(dirname "$output")"
+cat >"$output" <<'JSON'
+{"resolution":"resolved","cause_class":null,"reason":"fixture route","dispatch_count":0,"stage_count":1,"outcome":{"terminal":"pass"},"stages":[]}
+JSON
+STUB
+chmod +x "$EXTERNAL_RUNNER_DIR/run-lifecycle.sh"
+PREVIEW_POLICY="$WORKDIR/preview-policy.yaml"
+cat >"$PREVIEW_POLICY" <<YAML
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SCRIPTS_DIR/../scenarios/scenarios.yaml"
+workflow_families: [bug]
+scenarios:
+  py-bug-due-date-boundary:
+    reps: 1
+    root_key: B001
+    scratch_root: "$OPERATOR_ROOT/scratch-template"
+    workflow_root: shark-data/workflow
+YAML
+PREVIEW_RETENTION="$WORKDIR/preview-retention"
+RUN_LIFECYCLE_BIN="$EXTERNAL_RUNNER_DIR/run-lifecycle.sh" \
+	"$SCRIPTS_DIR/run-lifecycle-batch.sh" \
+	--batch "$PREVIEW_POLICY" --retention-root "$PREVIEW_RETENTION" \
+	--mode preview --scenarios py-bug-due-date-boundary --reps 1 \
+	>"$WORKDIR/preview-override.out" 2>"$WORKDIR/preview-override.err" \
+	|| fail "preview with external runner override failed: $(cat "$WORKDIR/preview-override.err")"
+python3 - "$PREVIEW_RETENTION/resolution-ledger.jsonl" <<'PY'
+import json
+import sys
+
+records = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+if len(records) != 1 or records[0]["resolution"] != "resolved":
+    raise SystemExit(f"preview did not locate the in-tree materializer with external runner: {records!r}")
+PY
+echo "TC-105(B083/F5: preview materializer remains beside batch script with external runner override) PASS"
+
+for identity_variable in E40_EXPECTED_ROUTING_DIGEST E40_EXPECTED_CODEX_CATALOG_DIGEST; do
+	preview_retention="$WORKDIR/${identity_variable}-retention"
+	set +e
+	env "RUN_LIFECYCLE_BIN=$EXTERNAL_RUNNER_DIR/run-lifecycle.sh" \
+		"$identity_variable=fixture-mismatched-identity" \
+	"$SCRIPTS_DIR/run-lifecycle-batch.sh" \
+		--batch "$PREVIEW_POLICY" --retention-root "$preview_retention" \
+		--mode preview --scenarios py-bug-due-date-boundary --reps 1 \
+		>"$WORKDIR/${identity_variable}.out" 2>"$WORKDIR/${identity_variable}.err"
+	preview_rc=$?
+	set -e
+	[[ "$preview_rc" -eq 0 ]] \
+		|| fail "preview digest mismatch did not produce a structured result: $(cat "$WORKDIR/${identity_variable}.err")"
+	python3 - "$preview_retention/resolution-ledger.jsonl" "$identity_variable" <<'PY'
+import json
+import sys
+
+records = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+if (
+    len(records) != 1
+    or records[0]["resolution"] != "failed"
+    or records[0]["cause_class"] != "route_defect"
+    or "manifest identity" not in records[0]["reason"]
+):
+    raise SystemExit(f"preview accepted mismatched {sys.argv[2]}: {records!r}")
+PY
+done
+echo "TC-105(B083: preview rejects routing and catalog identity drift) PASS"
+
+TRAVERSAL_POLICY="$WORKDIR/traversal-policy.yaml"
+cat >"$TRAVERSAL_POLICY" <<YAML
+schema_version: "1.0"
+min_reps: 1
+scenario_index: "$SCRIPTS_DIR/../scenarios/scenarios.yaml"
+workflow_families: [bug]
+scenarios:
+  py-bug-due-date-boundary:
+    reps: 1
+    root_key: B001
+    scratch_root: "$OPERATOR_ROOT/scratch-template"
+    workflow_root: ../../outside
+YAML
+set +e
+RUN_LIFECYCLE_BIN="$EXTERNAL_RUNNER_DIR/run-lifecycle.sh" \
+	"$SCRIPTS_DIR/run-lifecycle-batch.sh" \
+	--batch "$TRAVERSAL_POLICY" --retention-root "$WORKDIR/traversal-retention" \
+	--mode preview --scenarios py-bug-due-date-boundary --reps 1 \
+	>"$WORKDIR/traversal-preview.out" 2>"$WORKDIR/traversal-preview.err"
+traversal_rc=$?
+set -e
+[[ "$traversal_rc" -ne 0 ]] \
+	|| fail "traversal workflow_root was accepted by batch policy parsing"
+grep -q "workflow_root must be a relative path inside the scratch copy" \
+	"$WORKDIR/traversal-preview.err" \
+	|| fail "traversal workflow_root failure did not identify the path constraint"
+echo "TC-105(B083: workflow_root traversal is rejected before route materialization) PASS"
+
 STUB_CALLS="$WORKDIR/stub-calls.log"
 : >"$STUB_CALLS"
 cat >"$OPERATOR_ROOT/scratch-template/shark" <<STUB
@@ -266,7 +390,7 @@ bug = records.get("py-bug-due-date-boundary")
 if bug is None:
     raise SystemExit("resolution-ledger.jsonl has no record for py-bug-due-date-boundary")
 if bug["resolution"] != "resolved" or bug["cause_class"] is not None:
-    raise SystemExit(f"expected py-bug-due-date-boundary resolved/null, got {bug['resolution']!r}/{bug['cause_class']!r}")
+    raise SystemExit(f"expected py-bug-due-date-boundary resolved/null, got {bug['resolution']!r}/{bug['cause_class']!r}: {bug.get('reason')!r}")
 if bug["dispatch_count"] != 1 or bug["stage_count"] != 1:
     raise SystemExit(f"expected exactly 1 dispatch/1 stage for py-bug-due-date-boundary, got {bug!r}")
 stage = bug["stages"][0]
@@ -319,6 +443,130 @@ PY
 echo "TC-105(TC-13: real resolve-route stage record carries all 7 required fields; each field's absence is independently detected) PASS"
 echo "TC-105(TC-14 case A: a real dispatch-seam failure classifies as resolution=failed, cause_class=route_defect) PASS"
 echo "TC-105(TC-14 residual class: a caller-path/output-contract failure (exit 0, non-JSON) classifies as resolution=failed, cause_class=null -- never route_defect) PASS"
+
+# B083 regression: preflight resolves a Codex pin from the selected CLI's live
+# model/list metadata, retains that catalog and its descriptions in identity,
+# and does not claim account entitlement before dispatch.
+PREFLIGHT_CODEX_CONFIG="$OPERATOR_ROOT/b083-catalog-preflight.yaml"
+PREFLIGHT_CODEX_PROFILE="$OPERATOR_ROOT/b083-codex-profile.yaml"
+CODEX_CLI_FIXTURE="$WORKDIR/codex-cli-fixture"
+cat >"$CODEX_CLI_FIXTURE" <<'PY'
+#!/usr/bin/env python3
+import json
+import sys
+
+if sys.argv[1:] == ["--version"]:
+    print("codex fixture 1.0")
+    raise SystemExit(0)
+if sys.argv[1:] != ["app-server", "--stdio"]:
+    raise SystemExit(2)
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if "id" not in request:
+        continue
+    if request.get("method") == "initialize":
+        result = {"userAgent": "codex-fixture/1.0"}
+    elif request.get("method") == "model/list":
+        result = {
+            "data": [{
+                "model": "fixture-codex-model-b",
+                "displayName": "Fixture Codex B",
+                "description": "Synthetic test model discovered from model/list.",
+                "isDefault": True,
+                "defaultReasoningEffort": "high",
+                "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
+            }]
+        }
+    else:
+        print(json.dumps({"id": request["id"], "error": "unsupported request"}), flush=True)
+        continue
+    print(json.dumps({"id": request["id"], "result": result}), flush=True)
+PY
+chmod +x "$CODEX_CLI_FIXTURE"
+python3 - "$OPERATOR_ROOT/e40-demo.yaml" "$PREFLIGHT_CODEX_CONFIG" \
+	"$OPERATOR_ROOT/scratch-template/shark-data/workflow" "$PREFLIGHT_CODEX_PROFILE" \
+	"$CODEX_CLI_FIXTURE" <<'PY'
+import sys
+from pathlib import Path
+import yaml
+
+source_config, target_config, workflow_root, profile_path, codex_cli = sys.argv[1:]
+with open(source_config, encoding="utf-8") as stream:
+    config = yaml.safe_load(stream)
+stages = set()
+for path in sorted((*Path(workflow_root).rglob("*.yaml"), *Path(workflow_root).rglob("*.yml"))):
+    document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for name, step in (document.get("steps") or {}).items():
+        if isinstance(step, dict) and step.get("action") == "spawn_agent":
+            stages.add(name)
+profile = {
+    "schema_version": "1.0",
+    "profile_id": "b083-preflight-codex",
+    "description": "Deterministic dynamic-catalog fixture for preflight identity.",
+    "provider": "codex",
+    "routes": {stage: {"model": "fixture-codex-model-b", "effort": "high"} for stage in sorted(stages)},
+}
+Path(profile_path).write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+config["routing_profile"] = profile_path
+config["profile"]["name"] = "b083-catalog-preflight"
+config.setdefault("runtime", {})["provider_command"] = [codex_cli]
+Path(target_config).write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+PY
+
+set +e
+"$OPERATOR" preflight --config "$PREFLIGHT_CODEX_CONFIG" --scenario py-bug-due-date-boundary --reps 1 \
+	>"$WORKDIR/preflight-codex.out" 2>"$WORKDIR/preflight-codex.err"
+preflight_codex_rc=$?
+set -e
+[[ "$preflight_codex_rc" -eq 1 ]] \
+	|| fail "Codex catalog preflight exited $preflight_codex_rc, want blocked exit 1: $(cat "$WORKDIR/preflight-codex.err")"
+PREFLIGHT_CODEX_RESULT="$OPERATOR_ROOT/preflight/b083-catalog-preflight/preflight-result.json"
+[[ -f "$PREFLIGHT_CODEX_RESULT" ]] \
+	|| fail "Codex catalog route defect masked structured preflight-result.json: $(cat "$WORKDIR/preflight-codex.err")"
+python3 - "$PREFLIGHT_CODEX_RESULT" <<'PY'
+import json
+import sys
+
+result = json.load(open(sys.argv[1], encoding="utf-8"))
+if result["status"] != "blocked":
+    raise SystemExit(f"expected blocked preflight, got {result['status']!r}")
+routing = result["planned_identity"]["routing_profile"]
+if routing["effective_routes"]["bug.yaml::development"] != {
+    "provider": "codex", "model": "fixture-codex-model-b", "effort": "high"
+}:
+    raise SystemExit(f"pinned route missing from planned identity: {routing['effective_routes']!r}")
+catalog = routing.get("codex_catalog") or {}
+if catalog.get("source") != "codex-app-server-model-list":
+    raise SystemExit(f"planned identity lost the dynamic Codex catalog source: {catalog!r}")
+metadata = (routing.get("selected_codex_models") or {}).get("bug.yaml::development") or {}
+if metadata.get("description") != "Synthetic test model discovered from model/list.":
+    raise SystemExit(f"planned identity lost selected model description: {metadata!r}")
+records = result["resolution_ledger"]
+failed_routes = [
+    record for record in records
+    if record["resolution"] == "failed" and record["cause_class"] == "route_defect"
+]
+if failed_routes:
+    raise SystemExit(f"preflight incorrectly rejected a model advertised by model/list: {failed_routes!r}")
+def requests_codex(record):
+    requested = record.get("requested_routes", {})
+    routes = requested.values() if isinstance(requested, dict) else requested
+    return any(
+        isinstance(route, dict) and route.get("provider") == "codex"
+        for route in routes
+    )
+
+resolved_codex = [
+    record for record in records
+    if record["resolution"] == "resolved" and requests_codex(record)
+]
+if not resolved_codex:
+    raise SystemExit(f"preflight did not resolve the advertised Codex route: {records!r}")
+if result.get("provider_calls") != 0:
+    raise SystemExit("preflight must not claim account entitlement by calling a provider")
+PY
+echo "TC-105(B083: model/list pin and description persist in planned identity; preflight resolves without dispatch) PASS"
 
 # ===========================================================================
 # TC-14 (artifact_deferred half): a feature-family scenario whose replay
@@ -504,6 +752,11 @@ REAL_BINARY_ROOT="$WORKDIR/operator-real-binary"
 "$OPERATOR" setup --out "$REAL_BINARY_ROOT" --scenario-index "$REAL_INDEX_DIR/scenarios.yaml" \
 	>"$WORKDIR/real-binary-setup.out" 2>"$WORKDIR/real-binary-setup.err" \
 	|| fail "real 'e40-benchmark.sh setup' (real-binary regression) failed: $(cat "$WORKDIR/real-binary-setup.err")"
+# Keep the real-binary route-resolution regression independent of B083's
+# Codex catalog boundary and require explicit routes for every live stage.
+python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+	"$REAL_BINARY_ROOT/scratch-template/shark-data/workflow" \
+	--allowed-root "$REAL_BINARY_ROOT"
 # Unlike the TC-13/14 stubbed scaffold above, the scratch `shark` under
 # $REAL_BINARY_ROOT is never substituted -- `setup` copies the real
 # bench-built `bin/shark` verbatim (cmd_setup, e40_benchmark.py) -- so this

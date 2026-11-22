@@ -169,7 +169,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (_ *models
 	}
 
 	// Try 2: Numeric key pattern (F11, f11) -> match features with key ending in -F11
-	if strings.HasPrefix(normalizedKey, "F") {
+	if strings.HasPrefix(normalizedKey, "F") && repoutil.IsNumeric(strings.TrimPrefix(normalizedKey, "F")) {
 		feature, err = r.getByNumericKey(ctx, normalizedKey)
 		if err == nil {
 			return feature, nil
@@ -181,6 +181,9 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (_ *models
 
 	// Try 3: Slugged key pattern (F11-slug-name or E07-F11-slug-name)
 	// Extract the numeric part and slug, then match against key and slug columns
+	if !isValidFeatureSlugSelector(normalizedKey) {
+		return nil, sql.ErrNoRows
+	}
 	feature, err = r.getBySluggedKey(ctx, normalizedKey)
 	if err == nil {
 		return feature, nil
@@ -191,6 +194,129 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (_ *models
 
 	// No match found
 	return nil, sql.ErrNoRows
+}
+
+// ResolveDocumentUnlinkKey resolves a feature selector for related-docs delete.
+// Unlike GetByKey's compatibility lookup, shorthand selectors must be unique
+// before the document service lists or removes any links.
+func (r *FeatureRepository) ResolveDocumentUnlinkKey(ctx context.Context, key string) (*models.Feature, error) {
+	if ctx == nil {
+		return nil, errors.New("resolve feature for document unlink: context is required")
+	}
+	parts := strings.Split(strings.ToUpper(strings.TrimSpace(key)), "-")
+	if strings.HasPrefix(parts[0], "E") {
+		return r.resolveQualifiedUnlinkSelector(ctx, parts)
+	}
+	if strings.HasPrefix(parts[0], "F") {
+		return r.resolveShorthandUnlinkSelector(ctx, key, parts)
+	}
+	feature, err := r.GetByKey(ctx, key)
+	return feature, mapFeatureLookupError(err)
+}
+
+func (r *FeatureRepository) resolveQualifiedUnlinkSelector(ctx context.Context, parts []string) (*models.Feature, error) {
+	if len(parts) < 2 || !isNumericFeaturePart(parts[0], "E") || !isNumericFeaturePart(parts[1], "F") {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	featureKey := strings.Join(parts[:2], "-")
+	if len(parts) == 2 || (len(parts) == 3 && repoutil.IsNumeric(parts[2])) {
+		feature, err := r.getByExactKey(ctx, featureKey)
+		return feature, mapFeatureLookupError(err)
+	}
+	suffix := strings.Join(parts[2:], "-")
+	if suffix == "" {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	feature, err := r.getByExactKeyAndSlug(ctx, featureKey, strings.ToLower(suffix))
+	return feature, mapFeatureLookupError(err)
+}
+
+func (r *FeatureRepository) resolveShorthandUnlinkSelector(ctx context.Context, key string, parts []string) (*models.Feature, error) {
+	if !isNumericFeaturePart(parts[0], "F") {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	if len(parts) == 1 {
+		return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], "")
+	}
+	suffix := strings.Join(parts[1:], "-")
+	if suffix == "" || repoutil.IsNumeric(suffix) {
+		return nil, mapFeatureLookupError(sql.ErrNoRows)
+	}
+	return r.findUniqueFeatureForUnlink(ctx, key, "%-"+parts[0], strings.ToLower(suffix))
+}
+
+func isNumericFeaturePart(part, prefix string) bool {
+	return strings.HasPrefix(part, prefix) && repoutil.IsNumeric(strings.TrimPrefix(part, prefix))
+}
+
+func isValidFeatureSlugSelector(key string) bool {
+	parts := strings.Split(key, "-")
+	if len(parts) < 2 {
+		return false
+	}
+	if strings.HasPrefix(parts[0], "E") {
+		return len(parts) >= 3 && isNumericFeaturePart(parts[0], "E") && isNumericFeaturePart(parts[1], "F")
+	}
+	return strings.HasPrefix(parts[0], "F") && isNumericFeaturePart(parts[0], "F") && strings.Join(parts[1:], "-") != ""
+}
+
+func (r *FeatureRepository) getByExactKeyAndSlug(ctx context.Context, key, slug string) (*models.Feature, error) {
+	query := `SELECT id, epic_id, key, title, slug, description, status,
+	 COALESCE(status_override, 0), progress_pct, execution_order, file_path,
+	 context_data, size, created_at, updated_at FROM features WHERE key = ? AND slug = ?`
+	feature := &models.Feature{}
+	err := r.db.QueryRowContext(ctx, query, key, slug).Scan(
+		&feature.ID, &feature.EpicID, &feature.Key, &feature.Title, &feature.Slug,
+		&feature.Description, &feature.Status, &feature.StatusOverride, &feature.ProgressPct,
+		&feature.ExecutionOrder, &feature.FilePath, &feature.ContextData, &feature.Size,
+		&feature.CreatedAt, &feature.UpdatedAt,
+	)
+	return feature, err
+}
+
+func mapFeatureLookupError(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("feature not found: %w", repoerr.ErrNotFound)
+	}
+	return err
+}
+
+func (r *FeatureRepository) findUniqueFeatureForUnlink(ctx context.Context, selector, keyPattern, slugValue string) (*models.Feature, error) {
+	query := `SELECT id, epic_id, key, title, slug, description, status,
+	 COALESCE(status_override, 0), progress_pct, execution_order, file_path,
+	 context_data, size, created_at, updated_at FROM features WHERE key LIKE ?`
+	args := []interface{}{keyPattern}
+	if slugValue != "" {
+		query += ` AND slug = ?`
+		args = append(args, slugValue)
+	}
+	query += ` LIMIT 2`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve feature for document unlink: %w", err)
+	}
+	defer rows.Close()
+	var found *models.Feature
+	for rows.Next() {
+		feature := &models.Feature{}
+		if err := rows.Scan(&feature.ID, &feature.EpicID, &feature.Key, &feature.Title, &feature.Slug,
+			&feature.Description, &feature.Status, &feature.StatusOverride, &feature.ProgressPct,
+			&feature.ExecutionOrder, &feature.FilePath, &feature.ContextData, &feature.Size,
+			&feature.CreatedAt, &feature.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to resolve feature for document unlink: %w", err)
+		}
+		if found != nil {
+			return nil, fmt.Errorf("%w: %q; use a fully qualified feature key", repoerr.ErrAmbiguousKey, selector)
+		}
+		found = feature
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to resolve feature for document unlink: %w", err)
+	}
+	if found == nil {
+		return nil, fmt.Errorf("feature not found: %w", repoerr.ErrNotFound)
+	}
+	return found, nil
 }
 
 // getByExactKey performs exact match lookup on the key column
@@ -296,15 +422,21 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 		return nil, sql.ErrNoRows
 	}
 
-	// Query for features where key ends with numeric part AND slug matches
+	// Qualified keys must bind both the complete parent key and slug. Shorthand
+	// keys keep their historical single-row resolution for non-delete callers.
+	keyPredicate := "key LIKE ?"
+	pattern := "%-" + numericPart
+	if strings.HasPrefix(sluggedKey, "E") {
+		keyPredicate = "key = ?"
+		parts := strings.Split(sluggedKey, "-")
+		pattern = strings.Join(parts[:2], "-")
+	}
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
 		       execution_order, file_path, context_data, size, created_at, updated_at
 		FROM features
-		WHERE key LIKE ? AND slug = ?
+		WHERE ` + keyPredicate + ` AND slug = ?
 	`
-
-	pattern := "%-" + numericPart
 	slugLower := strings.ToLower(slugPart)
 
 	feature := &models.Feature{}

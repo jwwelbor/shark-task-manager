@@ -1,9 +1,13 @@
 package gaterun
 
 import (
+	"errors"
 	"fmt"
 	"io"
 )
+
+// ErrSizeLimitExceeded marks a regular file whose content exceeds the caller's bound.
+var ErrSizeLimitExceeded = errors.New("gaterun: file exceeds size limit")
 
 // ReadBoundedRegularFile reads path after verifying, via a no-follow open
 // plus an fstat on the resulting descriptor, that it is a real (non-symlink)
@@ -31,7 +35,7 @@ func ReadBoundedRegularFile(path string, maxBytes int) ([]byte, error) {
 		return nil, fmt.Errorf("gaterun: read %s: %w", path, err)
 	}
 	if len(data) > maxBytes {
-		return nil, fmt.Errorf("gaterun: %s exceeds the %d byte bound", path, maxBytes)
+		return nil, fmt.Errorf("%w: %s exceeds the %d byte bound", ErrSizeLimitExceeded, path, maxBytes)
 	}
 	return data, nil
 }

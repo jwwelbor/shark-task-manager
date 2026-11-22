@@ -31,6 +31,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BENCH_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$BENCH_DIR/.." && pwd)"
 AGGREGATOR="$SCRIPTS_DIR/aggregate-lifecycle.sh"
 BATCH="$SCRIPTS_DIR/run-lifecycle-batch.sh"
 SCHEMA="$BENCH_DIR/reports/lifecycle-baseline-schema.yaml"
@@ -794,7 +795,9 @@ fixture:
 EOF
 
 E2E_SCRATCH="$E2E_WORKDIR/scratch-template"
-mkdir -p "$E2E_SCRATCH"
+mkdir -p "$E2E_SCRATCH/shark-data/workflow"
+cp "$REPO_ROOT/internal/sharkdata/default_data/workflow/bug.yaml" \
+	"$E2E_SCRATCH/shark-data/workflow/bug.yaml"
 echo "placeholder scratch project (never mutated -- the driver copies it)" >"$E2E_SCRATCH/marker.txt"
 
 E2E_I05_BUNDLE="$E2E_WORKDIR/i05-bundle"

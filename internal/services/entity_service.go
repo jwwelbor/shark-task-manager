@@ -34,6 +34,12 @@ type AdvanceGuardRecorder interface {
 	DeleteConsumed(ctx context.Context, entityType string, entityID int64, sessionID, fromStatus, outcome string) error
 }
 
+// ReviewReworkQuestionBlocker checks a child Question hold through the same
+// transaction that will apply the routed review rework.
+type ReviewReworkQuestionBlocker interface {
+	CheckWithTx(ctx context.Context, tx *sql.Tx, entityType models.EntityType, entityKey string, entityID int64) (*QuestionBlock, error)
+}
+
 // AdvanceGuardTxRecorder performs the guarded-advance protocol inside a
 // caller-owned transaction.
 type AdvanceGuardTxRecorder interface {
@@ -146,11 +152,12 @@ type ResolveActionFn func(entity models.Entity, status string) *config.Populated
 // EntityService provides shared status transition logic for all entity types.
 // Entity-specific services compose this and delegate shared steps to it.
 type EntityService struct {
-	workflowSvc      *workflow.Service
-	noteRepo         RejectionNoteCreator  // optional, for rejection notes during transitions
-	historyRepo      EntityHistoryRecorder // optional, for history recording during transitions
-	advanceGuardRepo AdvanceGuardRecorder  // optional, for replay protection during guarded advances
-	advanceGuardCfg  config.AdvanceGuardConfig
+	workflowSvc           *workflow.Service
+	reworkQuestionBlocker ReviewReworkQuestionBlocker
+	noteRepo              RejectionNoteCreator  // optional, for rejection notes during transitions
+	historyRepo           EntityHistoryRecorder // optional, for history recording during transitions
+	advanceGuardRepo      AdvanceGuardRecorder  // optional, for replay protection during guarded advances
+	advanceGuardCfg       config.AdvanceGuardConfig
 }
 
 // NewEntityService creates an EntityService with the workflow service dependency.
@@ -168,12 +175,19 @@ func NewEntityService(workflowSvc *workflow.Service) *EntityService {
 // Level constants: workflow.LevelEpic, workflow.LevelFeature, workflow.LevelTask.
 func (s *EntityService) ForLevel(level string) *EntityService {
 	return &EntityService{
-		workflowSvc:      s.workflowSvc.ForLevel(level),
-		noteRepo:         s.noteRepo,
-		historyRepo:      s.historyRepo,
-		advanceGuardRepo: s.advanceGuardRepo,
-		advanceGuardCfg:  s.advanceGuardCfg,
+		workflowSvc:           s.workflowSvc.ForLevel(level),
+		reworkQuestionBlocker: s.reworkQuestionBlocker,
+		noteRepo:              s.noteRepo,
+		historyRepo:           s.historyRepo,
+		advanceGuardRepo:      s.advanceGuardRepo,
+		advanceGuardCfg:       s.advanceGuardCfg,
 	}
+}
+
+// SetReviewReworkQuestionBlocker wires the fail-closed transaction-bound
+// Question gate used only by structured review rework.
+func (s *EntityService) SetReviewReworkQuestionBlocker(blocker ReviewReworkQuestionBlocker) {
+	s.reworkQuestionBlocker = blocker
 }
 
 // SetNoteRepo sets the rejection note repository. Optional — degrades gracefully.
@@ -220,7 +234,7 @@ func (s *EntityService) TransitionStatus(
 	features TransitionFeatures,
 	resolveActionFn ResolveActionFn,
 ) (*TransitionResult, error) {
-	return s.transitionStatus(ctx, nil, repo, entityType, key, targetStatus, opts, features, resolveActionFn)
+	return s.transitionStatus(ctx, nil, repo, entityType, key, targetStatus, opts, features, resolveActionFn, nil, nil, nil)
 }
 
 // TransitionStatusWithTx performs the full transition protocol inside tx,
@@ -239,7 +253,51 @@ func (s *EntityService) TransitionStatusWithTx(
 	if tx == nil {
 		return nil, fmt.Errorf("transition %s %s: transaction is required", entityType, key)
 	}
-	return s.transitionStatus(ctx, tx, repo, entityType, key, targetStatus, opts, features, resolveActionFn)
+	return s.transitionStatus(ctx, tx, repo, entityType, key, targetStatus, opts, features, resolveActionFn, nil, nil, nil)
+}
+
+// TransitionReviewReworkWithTx applies a configured child rework route and
+// verifies its parent lease in the same transaction as status/history writes.
+// targetAssertion is GateResult v1's required target_status compatibility
+// field; it must equal the configured route for outcomeKey and the child's
+// current step.
+func (s *EntityService) TransitionReviewReworkWithTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	repo EntityRepository,
+	entityType models.EntityType,
+	key string,
+	outcomeKey string,
+	targetAssertion string,
+	opts TransitionOptions,
+	features TransitionFeatures,
+	resolveActionFn ResolveActionFn,
+	parent ParentLeaseAuthority,
+	leaseVerifier ParentLeaseTxVerifier,
+) (*TransitionResult, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("review rework transition %s %s: transaction is required", entityType, key)
+	}
+	if strings.TrimSpace(outcomeKey) == "" {
+		return nil, fmt.Errorf("review rework transition %s %s: outcome key is required", entityType, key)
+	}
+	if strings.TrimSpace(string(parent.EntityType)) == "" || strings.TrimSpace(parent.EntityKey) == "" || strings.TrimSpace(parent.SessionID) == "" {
+		return nil, fmt.Errorf("review rework transition %s %s: parent lease authority is incomplete", entityType, key)
+	}
+	if leaseVerifier == nil {
+		return nil, fmt.Errorf("review rework transition %s %s: parent lease verifier is required", entityType, key)
+	}
+	if s.reworkQuestionBlocker == nil {
+		return nil, fmt.Errorf("review rework transition %s %s: transaction-bound Question blocker is required", entityType, key)
+	}
+	return s.transitionStatus(ctx, tx, repo, entityType, key, targetAssertion, opts, features, resolveActionFn,
+		&reviewReworkRoute{outcomeKey: outcomeKey, targetAssertion: targetAssertion, questionBlocker: s.reworkQuestionBlocker}, &parent, leaseVerifier)
+}
+
+type reviewReworkRoute struct {
+	outcomeKey      string
+	targetAssertion string
+	questionBlocker ReviewReworkQuestionBlocker
 }
 
 func (s *EntityService) transitionStatus(
@@ -252,6 +310,9 @@ func (s *EntityService) transitionStatus(
 	opts TransitionOptions,
 	features TransitionFeatures,
 	resolveActionFn ResolveActionFn,
+	rework *reviewReworkRoute,
+	parent *ParentLeaseAuthority,
+	leaseVerifier ParentLeaseTxVerifier,
 ) (*TransitionResult, error) {
 	// Step 1: Get entity
 	entity, err := repo.GetByKey(ctx, key)
@@ -271,6 +332,40 @@ func (s *EntityService) transitionStatus(
 	currentStatus := entity.GetStatus()
 	resolvedCurrentStatus := s.workflowSvc.NormalizeStatus(currentStatus)
 	resolvedTargetStatus := s.workflowSvc.NormalizeStatus(targetStatus)
+	if rework != nil {
+		if opts.Force || opts.ForceTerminalReopen {
+			return nil, ErrReviewReworkForceNotAllowed
+		}
+		routeTarget, routeErr := s.workflowSvc.ResolveReworkOutcome(resolvedCurrentStatus, rework.outcomeKey)
+		if routeErr != nil {
+			return nil, fmt.Errorf("%w: %s: %v", ErrReviewReworkRouteMissing, resolvedCurrentStatus, routeErr)
+		}
+		resolvedRouteTarget := s.workflowSvc.NormalizeStatus(routeTarget)
+		if !s.workflowSvc.IsValidStatus(resolvedRouteTarget) {
+			return nil, fmt.Errorf("%w: configured target %q is not a status in the %s workflow", ErrReviewReworkRouteMissing, routeTarget, entityType)
+		}
+		if !strings.EqualFold(resolvedTargetStatus, resolvedRouteTarget) || !strings.EqualFold(s.workflowSvc.NormalizeStatus(rework.targetAssertion), resolvedRouteTarget) {
+			return nil, fmt.Errorf("%w: outcome %q from %q resolves to %q, assertion is %q", ErrReviewReworkTargetMismatch, rework.outcomeKey, resolvedCurrentStatus, resolvedRouteTarget, rework.targetAssertion)
+		}
+		if rework.questionBlocker == nil {
+			return nil, fmt.Errorf("review rework transition %s %s: transaction-bound Question blocker is required", entityType, key)
+		}
+		block, err := rework.questionBlocker.CheckWithTx(ctx, tx, entityType, key, entity.GetID())
+		if err != nil {
+			return nil, fmt.Errorf("review rework transition %s %s: check Question hold in transaction: %w", entityType, key, err)
+		}
+		if block != nil {
+			return nil, fmt.Errorf("%w: review rework target %s is blocked by open Question %s", ErrReviewReworkQuestionBlocked, key, block.QuestionKey)
+		}
+		resolvedTargetStatus = resolvedRouteTarget
+		opts.SessionID = parent.SessionID
+		opts.FromStatus = currentStatus
+		opts.Outcome = rework.outcomeKey
+		opts.GuardAdvance = true
+		if err := leaseVerifier.VerifySessionWithTx(ctx, tx, parent.EntityType, parent.EntityKey, parent.SessionID); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrReviewReworkLeaseUnauthorized, err)
+		}
+	}
 	// Step 2: Idempotency check — if already at target status, return early without writing
 	if strings.EqualFold(resolvedCurrentStatus, resolvedTargetStatus) {
 		return &TransitionResult{
@@ -290,9 +385,13 @@ func (s *EntityService) transitionStatus(
 	// Steps 3-4: Validate and normalize. Pass the resolved target so a legacy
 	// alias passed as the target (e.g. "reported") validates against its
 	// canonical step ("draft") instead of failing a literal StatusFlow match.
-	targetStatus, err = s.ValidateAndNormalize(resolvedCurrentStatus, resolvedTargetStatus, opts.Force)
-	if err != nil {
-		return nil, err
+	if rework == nil {
+		targetStatus, err = s.ValidateAndNormalize(resolvedCurrentStatus, resolvedTargetStatus, opts.Force)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		targetStatus = resolvedTargetStatus
 	}
 	if err := s.validateTransitionEvidence(ctx, entityType, key, entity, resolvedCurrentStatus, targetStatus, opts); err != nil {
 		return nil, err
@@ -315,8 +414,7 @@ func (s *EntityService) transitionStatus(
 	if err := s.enforceAdvanceGuard(ctx, tx, entityType, entity.GetID(), currentStatus, opts); err != nil {
 		return nil, err
 	}
-
-	if err := s.updateTransitionStatus(ctx, tx, repo, entityType, entity.GetID(), currentStatus, targetStatus, opts); err != nil {
+	if err := s.updateTransitionStatus(ctx, tx, repo, entityType, entity.GetID(), currentStatus, targetStatus, opts, rework != nil); err != nil {
 		return nil, err
 	}
 
@@ -395,12 +493,13 @@ func (s *EntityService) updateTransitionStatus(
 	entityID int64,
 	currentStatus, targetStatus string,
 	opts TransitionOptions,
+	requireConditionalSource bool,
 ) error {
 	if !s.shouldUseAdvanceGuard(opts) {
 		// Preserve the observed source for terminal reopens and unforced bug
 		// transitions even without the optional replay ledger. Otherwise a
 		// concurrent transition can invalidate the evidence checks above.
-		if opts.ForceTerminalReopen || (entityType == models.EntityTypeBug && !opts.Force) {
+		if requireConditionalSource || opts.ForceTerminalReopen || (entityType == models.EntityTypeBug && !opts.Force) {
 			updated, err := repo.UpdateStatusIfCurrent(ctx, entityID, currentStatus, targetStatus)
 			if err != nil {
 				return fmt.Errorf("failed to update %s status: %w", entityType, err)

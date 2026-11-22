@@ -11,6 +11,8 @@ steps:
     action: pause
     parking: true
     prompt: task/blocked.md
+    rework_outcomes:
+      fail: development
   cancelled:
     phase: done
     color: red
@@ -33,6 +35,8 @@ steps:
     terminal: true
     primary: true
     prompt: task/completed.md
+    rework_outcomes:
+      fail: development
   development:
     phase: development
     color: yellow
@@ -52,6 +56,8 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: completed
+    rework_outcomes:
+      fail: development
   draft:
     phase: planning
     color: gray
@@ -68,6 +74,8 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: development
+    rework_outcomes:
+      fail: development
   on_hold:
     phase: paused
     color: gray
@@ -78,3 +86,5 @@ steps:
     action: pause
     parking: true
     prompt: task/on_hold.md
+    rework_outcomes:
+      fail: development

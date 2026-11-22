@@ -125,6 +125,9 @@ func (r *ChangeCardRepository) GetByKey(ctx context.Context, key string) (*model
 		if scanErr == nil {
 			return card, nil
 		}
+		if !errors.Is(scanErr, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to get change-card by key and slug: %w: %w", repoerr.ErrDatabaseFailure, scanErr)
+		}
 	}
 
 	return nil, fmt.Errorf("change-card not found: %s: %w", key, repoerr.ErrNotFound)
@@ -164,7 +167,7 @@ func (r *ChangeCardRepository) getByExactKey(ctx context.Context, key string) (*
 		return nil, fmt.Errorf("change-card not found: %s: %w", key, repoerr.ErrNotFound)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get change-card: %w", err)
+		return nil, fmt.Errorf("failed to get change-card: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	return card, nil
@@ -206,12 +209,12 @@ func (r *ChangeCardRepository) Update(ctx context.Context, card *models.ChangeCa
 		card.ID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to update change-card: %w", err)
+		return fmt.Errorf("failed to update change-card: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return fmt.Errorf("failed to get rows affected while updating change-card: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	if rowsAffected == 0 {
@@ -227,12 +230,12 @@ func (r *ChangeCardRepository) Delete(ctx context.Context, id int64) error {
 
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete change-card: %w", err)
+		return fmt.Errorf("failed to delete change-card: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return fmt.Errorf("failed to get rows affected while deleting change-card: %w: %w", repoerr.ErrDatabaseFailure, err)
 	}
 
 	if rowsAffected == 0 {

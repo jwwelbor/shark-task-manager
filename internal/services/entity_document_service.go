@@ -2,15 +2,21 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
+// ErrAmbiguousDocumentTitle indicates that more than one linked document on
+// the selected entity has the requested title.
+var ErrAmbiguousDocumentTitle = errors.New("document title is ambiguous for selected entity")
+
 // EntityDocumentRepository defines the minimal interface for document operations
-// shared across all entity types (Task, Feature, Epic, Bug, ChangeCard, TechDebt).
+// shared across all entity types (Task, Feature, Epic, Bug, ChangeCard).
 type EntityDocumentRepository interface {
 	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
 }
@@ -62,7 +68,7 @@ type EntityDocumentService struct {
 // NewEntityDocumentService creates a new EntityDocumentService.
 //
 // Parameters:
-//   - writableRepo: repository supporting CreateOrGet
+//   - writableRepo: repository supporting CreateOrGet document operations
 //   - linkRepo: polymorphic repository for Link/Unlink/ListForEntity operations
 //   - entityLookupFn: function to resolve an entity key to (entityID, entityType)
 func NewEntityDocumentService(
@@ -121,33 +127,48 @@ func (s *EntityDocumentService) LinkDocumentByKey(ctx context.Context, entityKey
 func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityKey, title string) error {
 	entity, err := s.entityLookupFn(ctx, entityKey)
 	if err != nil {
-		return fmt.Errorf("entity not found: %w", err)
+		return fmt.Errorf("resolve entity for document unlink: %w", err)
+	}
+	return s.UnlinkDocumentByEntity(ctx, entity, title)
+}
+
+// UnlinkDocumentByEntity removes a document link using an entity already resolved by the caller.
+func (s *EntityDocumentService) UnlinkDocumentByEntity(ctx context.Context, entity models.Entity, title string) error {
+	if entity == nil || isNilEntity(entity) {
+		return fmt.Errorf("resolved entity for document unlink is required")
 	}
 	entityID := entity.GetID()
 	entityType := entity.GetEntityType()
 
-	docs, err := s.linkRepo.ListForEntity(ctx, entityType, entityID)
+	linkedDocs, err := s.linkRepo.ListForEntity(ctx, entityType, entityID)
 	if err != nil {
-		return fmt.Errorf("find document %q on %s %s: %w", title, entityType, entityKey, err)
+		return fmt.Errorf("list linked documents: %w", err)
 	}
-	var match *models.Document
-	for _, doc := range docs {
-		if doc.Title != title {
-			continue
+
+	var matchingDocs []*models.Document
+	for _, doc := range linkedDocs {
+		if doc != nil && doc.Title == title {
+			matchingDocs = append(matchingDocs, doc)
 		}
-		if match != nil {
-			return fmt.Errorf("ambiguous document title %q on %s %s", title, entityType, entityKey)
-		}
-		match = doc
 	}
-	if match == nil {
+	if len(matchingDocs) == 0 {
+		// Delete is idempotent when the selected entity has no matching link.
 		return nil
 	}
-	if err := s.linkRepo.Unlink(ctx, entityType, entityID, match.ID); err != nil {
-		return fmt.Errorf("failed to unlink document from %s %s: %w", entityType, entityKey, err)
+	if len(matchingDocs) > 1 {
+		return fmt.Errorf("%w: %q (%d linked documents)", ErrAmbiguousDocumentTitle, title, len(matchingDocs))
+	}
+
+	if err := s.linkRepo.Unlink(ctx, entityType, entityID, matchingDocs[0].ID); err != nil {
+		return fmt.Errorf("remove entity association: %w", err)
 	}
 
 	return nil
+}
+
+func isNilEntity(entity models.Entity) bool {
+	value := reflect.ValueOf(entity)
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 // ListDocumentsByKey returns all documents linked to an entity identified by key.

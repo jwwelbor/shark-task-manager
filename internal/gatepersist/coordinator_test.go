@@ -76,7 +76,7 @@ func fixtureResult() *gateresult.GateResult {
 func envelopeFor(result *gateresult.GateResult) json.RawMessage {
 	envelope := map[string]interface{}{
 		"kind":                "final",
-		"recommended_outcome": "kickback_rework",
+		"recommended_outcome": "fail",
 		"gate_result":         result,
 	}
 	data, err := json.Marshal(envelope)
@@ -100,7 +100,7 @@ func baseRequest(t *testing.T, runDir string) Request {
 		EnvelopeJSON: envelopeFor(result),
 		Result:       result,
 		Role:         gateresult.RoleKickbackRework,
-		OutcomeKey:   "kickback_rework",
+		OutcomeKey:   "fail",
 		TargetStatus: "ready_for_qa",
 	}
 }
@@ -121,11 +121,16 @@ func newTestRunDir(t *testing.T) string {
 }
 
 func newTestCoordinator(w *fakeWorld, v StatusValidator) *Coordinator {
-	return NewCoordinator(w, w, w, v, w, w, w, newFakeIdentityResolver())
+	coordinator := NewCoordinator(w, w, w, v, w, w, w, newFakeIdentityResolver())
+	coordinator.QuestionBlocker = newFakeQuestionBlocker()
+	return coordinator
 }
 
 func defaultValidator() *fakeStatusValidator {
-	return newFakeStatusValidator().allow(models.EntityTypeTask, "todo", "in_review", "ready_for_qa", "completed", "blocked")
+	return newFakeStatusValidator().allow(models.EntityTypeTask, "todo", "in_review", "ready_for_qa", "completed", "blocked", "development").
+		route(models.EntityTypeTask, "todo", "fail", "blocked").
+		route(models.EntityTypeTask, "completed", "fail", "blocked").
+		route(models.EntityTypeTask, "blocked", "fail", "development")
 }
 
 func TestPersist_OrderingAndContent(t *testing.T) {
@@ -214,7 +219,7 @@ func TestPersist_OrderingAndContent(t *testing.T) {
 	}
 }
 
-func TestPersist_KickbackAuthorizesTerminalReopen(t *testing.T) {
+func TestPersist_KickbackRoutesTerminalChildWithoutForce(t *testing.T) {
 	runDir := newTestRunDir(t)
 	world := newFakeWorld()
 	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
@@ -225,10 +230,178 @@ func TestPersist_KickbackAuthorizesTerminalReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, world.transitionCalls)
 	kickback := world.transitionCalls[0]
-	require.True(t, kickback.guard.ForceTerminalReopen)
 	require.Equal(t, "completed", kickback.guard.FromStatus)
 	require.Equal(t, "sess-1", kickback.guard.SessionID)
-	require.Equal(t, "kickback_rework", kickback.guard.Outcome)
+	require.Equal(t, "fail", kickback.guard.Outcome)
+}
+
+func TestPersist_KickbackRoutesNonterminalChildFromConfiguredOutcome(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	world.setStatus(models.EntityTypeTask, "T-E34-F05-100", "todo")
+	coord := newTestCoordinator(world, defaultValidator())
+
+	_, err := coord.Persist(context.Background(), baseRequest(t, runDir))
+	require.NoError(t, err)
+	require.Equal(t, "blocked", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-100")])
+	require.Equal(t, "fail", world.transitionCalls[0].guard.Outcome)
+}
+
+func TestPersist_KickbackTargetAssertionMismatchHasNoEffects(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	req := baseRequest(t, runDir)
+	req.Result.Kickbacks[0].TargetStatus = "development"
+	req.EnvelopeJSON = envelopeFor(req.Result)
+
+	_, err := coord.Persist(context.Background(), req)
+	require.ErrorContains(t, err, "does not match configured route")
+	require.Empty(t, world.notes)
+	require.Empty(t, world.transitionCalls)
+	require.Empty(t, world.releaseCalls)
+	_, identityExists, identityErr := gaterun.ReadIdentity(runDir)
+	require.NoError(t, identityErr)
+	require.False(t, identityExists, "a fresh result blocked by a Question must not leave replay artifacts")
+}
+
+func TestPersist_OpenQuestionStopsBeforeAnyKickbackResultEffects(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	coord := newTestCoordinator(world, defaultValidator())
+	blocker := newFakeQuestionBlocker()
+	blocker.setBlocked(models.EntityTypeTask, "T-E34-F05-101", "Q001")
+	coord.QuestionBlocker = blocker
+	req := baseRequest(t, runDir)
+	req.Result.Kickbacks = append(req.Result.Kickbacks, gateresult.Kickback{
+		EntityKey: "T-E34-F05-101", TargetStatus: "blocked", Reason: "second child needs rework",
+	})
+	req.EnvelopeJSON = envelopeFor(req.Result)
+
+	_, err := coord.Persist(context.Background(), req)
+	var blocked *KickbackQuestionBlockedError
+	require.ErrorAs(t, err, &blocked)
+	require.Equal(t, "Q001", blocked.QuestionKey)
+	require.Empty(t, world.notes)
+	require.Empty(t, world.transitionCalls)
+	require.Empty(t, world.releaseCalls)
+}
+
+func TestPersist_ResumeReconcilesCommittedKickbackBeforeRerouting(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	world.setStatus(models.EntityTypeTask, "T-E34-F05-100", "todo")
+	world.failTransitionTo["task|T-E34-F05-100|blocked"] = true
+	coord := newTestCoordinator(world, defaultValidator())
+	req := baseRequest(t, runDir)
+
+	_, err := coord.Persist(context.Background(), req)
+	require.Error(t, err)
+	require.Equal(t, "blocked", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-100")])
+
+	// The child's new live state would now route fail to development. The
+	// committed history token must be reconciled first and the applied child
+	// must retain the original blocked destination.
+	_, err = coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, "blocked", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-100")])
+	require.Len(t, world.history[historyKey(models.EntityTypeTask, "T-E34-F05-100")], 1)
+}
+
+func TestPersist_ResumeQuestionHoldStopsPendingKickbacksAndParent(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	world.setStatus(models.EntityTypeTask, "T-E34-F05-100", "todo")
+	world.setStatus(models.EntityTypeTask, "T-E34-F05-101", "todo")
+	world.failTransitionTo["task|T-E34-F05-100|blocked"] = true
+	coord := newTestCoordinator(world, defaultValidator())
+	blocker := newFakeQuestionBlocker()
+	coord.QuestionBlocker = blocker
+	req := baseRequest(t, runDir)
+	req.Result.Kickbacks = append(req.Result.Kickbacks, gateresult.Kickback{
+		EntityKey: "T-E34-F05-101", TargetStatus: "blocked", Reason: "second child needs rework",
+	})
+	req.EnvelopeJSON = envelopeFor(req.Result)
+
+	_, err := coord.Persist(context.Background(), req)
+	require.Error(t, err)
+	require.Equal(t, "blocked", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-100")])
+
+	blocker.setBlocked(models.EntityTypeTask, "T-E34-F05-101", "Q002")
+	blocker.setBlocked(models.EntityTypeTask, "T-E34-F05-100", "Q001")
+	_, err = coord.Persist(context.Background(), req)
+	var blocked *KickbackQuestionBlockedError
+	require.ErrorAs(t, err, &blocked)
+	require.Equal(t, "Q002", blocked.QuestionKey)
+	require.Equal(t, "todo", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-101")])
+	require.Equal(t, "in_review", world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)])
+
+	// Clearing the hold must let this same bound result resume. The first
+	// kickback was already committed before the hold appeared, so replay must
+	// reconcile it and apply each remaining operation exactly once.
+	blocker.setBlocked(models.EntityTypeTask, "T-E34-F05-100", "")
+	blocker.setBlocked(models.EntityTypeTask, "T-E34-F05-101", "")
+	res, err := coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, res.TransitionApplied)
+	require.Equal(t, "ready_for_qa", world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)])
+	for _, entityKey := range []string{"T-E34-F05-100", "T-E34-F05-101"} {
+		calls := 0
+		for _, call := range world.transitionCalls {
+			if call.entityKey == entityKey {
+				calls++
+			}
+		}
+		require.Equal(t, 1, calls, "kickback %s must be applied exactly once", entityKey)
+	}
+}
+
+func TestPersist_ParentLeaseLossAfterCommittedPrefixStopsAndResumes(t *testing.T) {
+	runDir := newTestRunDir(t)
+	world := newFakeWorld()
+	world.setStatus(models.EntityTypeTask, mainEntityKey, "in_review")
+	world.setStatus(models.EntityTypeTask, "T-E34-F05-100", "todo")
+	world.setStatus(models.EntityTypeTask, "T-E34-F05-101", "todo")
+	world.failReworkAt = 2
+	coord := newTestCoordinator(world, defaultValidator())
+	req := baseRequest(t, runDir)
+	req.Result.Kickbacks = append(req.Result.Kickbacks, gateresult.Kickback{
+		EntityKey: "T-E34-F05-101", TargetStatus: "blocked", Reason: "second child needs rework",
+	})
+	req.EnvelopeJSON = envelopeFor(req.Result)
+
+	_, err := coord.Persist(context.Background(), req)
+	require.ErrorContains(t, err, "parent lease was lost")
+	require.Equal(t, "blocked", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-100")])
+	require.Equal(t, "todo", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-101")])
+	require.Equal(t, "in_review", world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)])
+	require.Len(t, world.transitionCalls, 1, "only the authorized first child transition should commit")
+
+	// A newly claimed parent session may resume the same bound result.
+	// Reconciliation must preserve the committed first child while the new
+	// live lease authorizes the pending second child and parent transition.
+	world.failReworkAt = 0
+	req.Session.ID = "sess-2"
+	res, err := coord.Persist(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, res.TransitionApplied)
+	require.Equal(t, "blocked", world.statuses[historyKey(models.EntityTypeTask, "T-E34-F05-101")])
+	require.Equal(t, "ready_for_qa", world.statuses[historyKey(models.EntityTypeTask, mainEntityKey)])
+	firstChildCalls := 0
+	for _, call := range world.transitionCalls {
+		if call.entityKey == "T-E34-F05-100" {
+			firstChildCalls++
+		}
+		if call.entityKey == "T-E34-F05-101" {
+			require.Equal(t, "sess-2", call.guard.SessionID)
+		}
+	}
+	require.Equal(t, 1, firstChildCalls)
 }
 
 func TestPersist_EvidenceFoldedIntoGateSummaryNote(t *testing.T) {

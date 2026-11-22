@@ -90,6 +90,11 @@ fail() {
 	exit 1
 }
 
+normalize_workflow_routes() {
+	python3 "$SCRIPT_DIR/lib/normalize_workflow_routes.py" \
+		"$1" --allowed-root "$2"
+}
+
 [[ -x "$ADMIT_SCRIPT" ]] || fail "admit-scenario.sh missing or not executable"
 [[ -x "$CHECKOUT_SCRIPT" ]] || fail "checkout-scenario-fixture.sh missing or not executable"
 [[ -x "$ORACLE_SCRIPT" ]] || fail "run-heldback-oracle.sh missing or not executable"
@@ -372,6 +377,7 @@ echo "TC-109(TC-29 direct): real claim/next/status-advance/release sequence take
 LEDGER_ROOT="$WORKDIR/ledger-setup"
 "$OPERATOR" setup --out "$LEDGER_ROOT" --scenario-index "$TASK_ONLY_INDEX" >"$WORKDIR/ledger-setup.out" 2>&1 \
 	|| fail "real 'e40-benchmark.sh setup' (ledger run) failed: $(cat "$WORKDIR/ledger-setup.out")"
+normalize_workflow_routes "$LEDGER_ROOT/scratch-template/shark-data/workflow" "$LEDGER_ROOT"
 # T-E40-F11-010 (AC-F11-09): this scaffold's unconfigured P4/P5 (no
 # adapter/provider plumbing wired up) makes the fail-closed gate report
 # status=="blocked" (exit 1) regardless of route resolution -- what
@@ -442,6 +448,7 @@ echo "TC-109: TC-29 (c) -- an illegal transition classifies as route_defect (T3/
 DEFECT_ROOT="$WORKDIR/defect-setup"
 "$OPERATOR" setup --out "$DEFECT_ROOT" --scenario-index "$TASK_ONLY_INDEX" >"$WORKDIR/defect-setup.out" 2>&1 \
 	|| fail "real 'e40-benchmark.sh setup' (defect run) failed: $(cat "$WORKDIR/defect-setup.out")"
+normalize_workflow_routes "$DEFECT_ROOT/scratch-template/shark-data/workflow" "$DEFECT_ROOT"
 DEFECT_TASK_KEY="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['root_keys']['py-task-delete-task'])" "$DEFECT_ROOT/setup-result.json")"
 
 cat >"$DEFECT_ROOT/scratch-template/shark" <<STUB

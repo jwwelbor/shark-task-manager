@@ -777,3 +777,18 @@ func (s *Service) Release(fromStatus, outcome string) (string, error) {
 	}
 	return target, nil
 }
+
+// ResolveReworkOutcome resolves an external review outcome key from the
+// entity's current step. Unlike Release, this is available for terminal and
+// parking steps when an explicit rework_outcomes route is configured.
+func (s *Service) ResolveReworkOutcome(fromStatus, outcome string) (string, error) {
+	if !s.IsRouteBased() {
+		return "", fmt.Errorf("review rework routing requires a route-based (steps:) workflow")
+	}
+	fromStatus = s.aliasResolve(fromStatus)
+	target, ok := s.workflow.ResolveReworkOutcome(fromStatus, outcome)
+	if !ok {
+		return "", fmt.Errorf("no rework outcome %q defined for step %q", outcome, fromStatus)
+	}
+	return target, nil
+}

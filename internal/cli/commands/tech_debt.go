@@ -319,7 +319,7 @@ func runTdGet(cmd *cobra.Command, args []string) error {
 	svc := getTechDebtService()
 	td, err := svc.GetTechDebt(ctx, key)
 	if err != nil {
-		return err
+		return mapRepositoryError("tech-debt", key, err)
 	}
 
 	// Gather enrichment data (best-effort)
@@ -468,7 +468,7 @@ func runTdUpdate(cmd *cobra.Command, args []string) error {
 	svc := getTechDebtService()
 	td, err := svc.UpdateTechDebt(cmd.Context(), key, updates)
 	if err != nil {
-		return err
+		return mapRepositoryError("tech-debt", key, err)
 	}
 
 	// Step 3: Format output
@@ -491,7 +491,7 @@ func runTdDelete(cmd *cobra.Command, args []string) error {
 	if !force {
 		td, err := svc.GetTechDebt(cmd.Context(), key)
 		if err != nil {
-			return err
+			return mapRepositoryError("tech-debt", key, err)
 		}
 		if !confirmTdDelete(td) {
 			cli.Info("Delete cancelled")
@@ -501,7 +501,7 @@ func runTdDelete(cmd *cobra.Command, args []string) error {
 
 	// Step 2: Call service
 	if err := svc.DeleteTechDebt(cmd.Context(), key); err != nil {
-		return err
+		return mapRepositoryError("tech-debt", key, err)
 	}
 
 	// Step 3: Format output
@@ -530,7 +530,7 @@ func runTdTriage(cmd *cobra.Command, args []string) error {
 	svc := getTechDebtService()
 	td, err := svc.TriageTechDebt(cmd.Context(), key, input)
 	if err != nil {
-		return err
+		return mapRepositoryError("tech-debt", key, err)
 	}
 
 	// Step 3: Format output

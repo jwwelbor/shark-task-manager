@@ -60,5 +60,7 @@ func TestReadBoundedRegularFile_RejectsOversized(t *testing.T) {
 
 	if _, err := ReadBoundedRegularFile(path, 10); err == nil {
 		t.Fatal("ReadBoundedRegularFile with an oversized file: want error, got nil")
+	} else if !errors.Is(err, ErrSizeLimitExceeded) {
+		t.Fatalf("ReadBoundedRegularFile oversized error = %v, want ErrSizeLimitExceeded", err)
 	}
 }

@@ -58,6 +58,18 @@ func TestValidateCoreOutcomes_UnknownTarget(t *testing.T) {
 	}
 }
 
+func TestValidateCoreOutcomes_ValidatesTerminalReworkTargets(t *testing.T) {
+	cfg := &WorkflowConfig{
+		Steps: map[string]*Step{
+			"done": {Terminal: true, ReworkOutcomes: map[string]string{"fail": "missing"}},
+		},
+	}
+	errs := cfg.ValidateCoreOutcomes()
+	if len(errs) != 1 || errs[0].Error() != `step "done" rework outcome "fail" targets unknown step "missing"` {
+		t.Fatalf("ValidateCoreOutcomes() = %v, want terminal rework target error", errs)
+	}
+}
+
 func TestValidateCoreOutcomes_LegacyNoOp(t *testing.T) {
 	cfg := &WorkflowConfig{StatusFlow: map[string][]string{"todo": {"done"}}}
 	if errs := cfg.ValidateCoreOutcomes(); errs != nil {

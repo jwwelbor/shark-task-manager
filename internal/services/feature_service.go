@@ -154,6 +154,12 @@ func NewFeatureService(repo FeatureRepository, entitySvc *EntityService, entityR
 	}
 }
 
+// SetReviewReworkQuestionBlocker wires the transaction-bound Question gate
+// used by structured review kickbacks.
+func (s *FeatureService) SetReviewReworkQuestionBlocker(blocker ReviewReworkQuestionBlocker) {
+	s.entitySvc.SetReviewReworkQuestionBlocker(blocker)
+}
+
 // SetTracer sets the OpenTelemetry tracer for the service.
 // When nil, getTracer falls back to the OTel global tracer (noop until provider is wired).
 func (s *FeatureService) SetTracer(t trace.Tracer) {
@@ -308,7 +314,17 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-	return s.docSvc.UnlinkDocumentByKey(ctx, featureKey, docTitle)
+	resolvedKey := featureKey
+	if resolver, ok := s.repo.(interface {
+		ResolveDocumentUnlinkKey(context.Context, string) (*models.Feature, error)
+	}); ok {
+		feature, err := resolver.ResolveDocumentUnlinkKey(ctx, featureKey)
+		if err != nil {
+			return fmt.Errorf("resolve feature for document unlink: %w", err)
+		}
+		return s.docSvc.UnlinkDocumentByEntity(ctx, feature, docTitle)
+	}
+	return s.docSvc.UnlinkDocumentByKey(ctx, resolvedKey, docTitle)
 }
 
 // TransitionStatus validates and performs a status transition on a feature.
@@ -323,6 +339,21 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	return s.transitionStatus(ctx, featureKey, targetStatus, opts, nil)
+}
+
+// TransitionReviewRework applies one configured child rework route while the
+// parent lease and feature status/history/aggregate writes share a DB
+// transaction. targetAssertion is GateResult v1's required target_status.
+func (s *FeatureService) TransitionReviewRework(ctx context.Context, featureKey, outcomeKey, targetAssertion, reason, agent string, parent ParentLeaseAuthority, verifier ParentLeaseTxVerifier) (*TransitionResult, error) {
+	return s.transitionStatus(ctx, featureKey, targetAssertion, TransitionOptions{
+		Reason:  reason,
+		Agent:   agent,
+		Outcome: outcomeKey,
+	}, &reviewReworkTransitionRequest{outcomeKey: outcomeKey, parent: parent, leaseVerifier: verifier})
+}
+
+func (s *FeatureService) transitionStatus(ctx context.Context, featureKey string, targetStatus string, opts TransitionOptions, rework *reviewReworkTransitionRequest) (*TransitionResult, error) {
 	ctx, span := s.getTracer().Start(ctx, "FeatureService.TransitionStatus",
 		trace.WithAttributes(
 			attribute.String("feature.key", featureKey),
@@ -358,10 +389,16 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 				return txRepo.UpdateStatusIfCurrentTx(ctx, tx, id, models.FeatureStatus(expected), models.FeatureStatus(status))
 			},
 		}
-		result, err = s.entitySvc.TransitionStatusWithTx(
-			ctx, tx, txEntityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
-			DefaultTransitionFeatures(), s.makeResolveActionFn(ctx),
-		)
+		if rework != nil {
+			result, err = s.entitySvc.TransitionReviewReworkWithTx(ctx, tx, txEntityRepo,
+				models.EntityTypeFeature, featureKey, rework.outcomeKey, targetStatus, opts,
+				DefaultTransitionFeatures(), s.makeResolveActionFn(ctx), rework.parent, rework.leaseVerifier)
+		} else {
+			result, err = s.entitySvc.TransitionStatusWithTx(
+				ctx, tx, txEntityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
+				DefaultTransitionFeatures(), s.makeResolveActionFn(ctx),
+			)
+		}
 		if err != nil {
 			return nil, recordSpanError(span, err)
 		}
@@ -390,6 +427,9 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 			s.recordIntegrationEventForTerminalTransition(ctx, featureKey)
 		}
 	} else {
+		if rework != nil {
+			return nil, fmt.Errorf("review rework transition for feature %s requires aggregate transaction support", featureKey)
+		}
 		// Delegate shared logic to EntityService.
 		var err error
 		result, err = s.entitySvc.TransitionStatus(

@@ -728,6 +728,13 @@ The nested `gate_result` shape is validated and typed in `internal/gateresult`
 `kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
 not restate it. Two rules this step's outcomes commonly need:
 
+For each `kickbacks[]` entry, `target_status` is required by GateResult v1
+but is only a compatibility assertion. Read the target entity's current
+status and its workflow step, then set `target_status` to that step's
+`rework_outcomes[recommended_outcome]`. Do not choose or infer a destination
+independently. If the route is missing or cannot be read, do not guess or
+submit that kickback; report the missing route and return a blocked result.
+
 - Whether `kickbacks` must be empty or non-empty for a given outcome depends
   on that outcome's configured semantic role (`outcome_roles`, visible via
   `shark get E07-F01 --json` or `shark next E07-F01 --json` ->

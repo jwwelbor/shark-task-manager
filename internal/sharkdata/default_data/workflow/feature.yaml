@@ -16,6 +16,7 @@ steps:
       fail: task_review
       on_hold: on_hold
       pass: code_review
+    rework_outcomes: {fail: task_generation}
   approval:
     phase: approval
     color: cyan
@@ -26,7 +27,6 @@ steps:
     action: spawn_agent
     agent: uat-agent
     provider: openai
-    model: gpt-5.6-terra
     skills: [quality, uat]
     prompt: feature/approval.md
     result_contract: gate_result_v1
@@ -40,6 +40,7 @@ steps:
       fail: route_rework
       on_hold: hold
       pass: success
+    rework_outcomes: {fail: task_generation}
   assessment:
     phase: triage
     color: orange
@@ -61,6 +62,7 @@ steps:
       fail: draft
       on_hold: on_hold
       pass: research
+    rework_outcomes: {fail: task_generation}
   blocked:
     phase: blocked
     color: red
@@ -71,6 +73,7 @@ steps:
     action: pause
     parking: true
     prompt: feature/blocked.md
+    rework_outcomes: {fail: task_generation}
   cancelled:
     phase: done
     color: red
@@ -109,6 +112,7 @@ steps:
       fail: kickback_rework
       on_hold: hold
       pass: success
+    rework_outcomes: {fail: task_generation}
   completed:
     phase: done
     color: green
@@ -120,6 +124,7 @@ steps:
     terminal: true
     primary: true
     prompt: feature/completed.md
+    rework_outcomes: {fail: task_generation}
   draft:
     phase: planning
     color: gray
@@ -136,6 +141,7 @@ steps:
       cancelled: cancelled
       fail: draft
       pass: assessment
+    rework_outcomes: {fail: task_generation}
   on_hold:
     phase: paused
     color: gray
@@ -146,6 +152,7 @@ steps:
     action: pause
     parking: true
     prompt: feature/on_hold.md
+    rework_outcomes: {fail: task_generation}
   qa:
     phase: qa
     color: blue
@@ -171,6 +178,7 @@ steps:
       fail: kickback_rework
       on_hold: hold
       pass: success
+    rework_outcomes: {fail: task_generation}
   research:
     phase: research
     color: purple
@@ -192,6 +200,7 @@ steps:
       simple: task_generation
       standard: specification
       pass: specification
+    rework_outcomes: {fail: task_generation}
   specification:
     phase: specification
     color: cyan
@@ -218,6 +227,7 @@ steps:
       fail: route_rework
       on_hold: hold
       pass: success
+    rework_outcomes: {fail: task_generation}
   task_generation:
     phase: decomposition
     color: blue
@@ -237,6 +247,7 @@ steps:
       fail: test_planning
       on_hold: on_hold
       pass: task_review
+    rework_outcomes: {fail: task_generation}
   task_review:
     phase: review
     color: magenta
@@ -248,7 +259,6 @@ steps:
     action: spawn_agent
     agent: uat-agent
     provider: openai
-    model: gpt-5.6-terra
     skills: [quality, specification-writing]
     prompt: feature/task_review.md
     result_contract: gate_result_v1
@@ -277,6 +287,7 @@ steps:
       fail: route_rework
       on_hold: hold
       pass: success
+    rework_outcomes: {fail: task_generation}
   test_planning:
     phase: test_planning
     color: blue
@@ -297,6 +308,7 @@ steps:
       fail: specification
       on_hold: on_hold
       pass: task_generation
+    rework_outcomes: {fail: task_generation}
     outcome_roles:
       blocked: blocked
       fail: route_rework

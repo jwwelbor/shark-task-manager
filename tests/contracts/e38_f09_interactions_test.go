@@ -3876,14 +3876,10 @@ func TestTC017_RunMdExtendsProvenanceQuestionRoutingHeartbeatAndResumeAdapter(t 
 		}
 	}
 
-	// This task's own additions must not introduce a second `shark status
-	// set` occurrence beyond the one pre-existing kickback-application use
-	// (run.md's "Apply task kickbacks" step) — T-026 owns the full-corpus
-	// zero-occurrence grep sweep across skills/shark-attack/workflows/ and
-	// this file together; that pre-existing occurrence is out of this
-	// task's scope to remove.
-	if got := strings.Count(run, "shark status set"); got > 1 {
-		t.Errorf("TC-017 run.md contains %d `shark status set` occurrences, want at most the 1 pre-existing kickback-application use — this task's additions must not introduce a new one", got)
+	// AC-006 reserves status set --force for human work; Rider review
+	// kickbacks now use the structured coordinator route.
+	if got := strings.Count(run, "shark status set"); got != 0 {
+		t.Errorf("TC-017 run.md contains %d `shark status set` occurrences, want 0 on Rider paths", got)
 	}
 }
 
@@ -3901,26 +3897,6 @@ func TestTC017_RunMdExtendsProvenanceQuestionRoutingHeartbeatAndResumeAdapter(t 
 // f09RiderStatusSetMarker is the literal invocation TC-003-03b's grep
 // targets (AC-006: "shark status set ... appears on no Rider path").
 const f09RiderStatusSetMarker = "shark status set"
-
-// f09KnownRiderKickbackStatusSetExceptionCount is TC-003-03b's honestly
-// documented gap in AC-006's literal "appears on no Rider path" claim:
-// run.md's "Apply task kickbacks" step (test-plan.md TC-004-06's own fixture
-// target) applies a --force status set to a KICKED-BACK SIBLING task —
-// never the entity currently dispatched — as the deliberately documented
-// human escape hatch (D-006, AC-006's own second sentence). T-E38-F09-017's
-// TestTC017_RunMdExtendsProvenanceQuestionRoutingHeartbeatAndResumeAdapter
-// already pins this single occurrence as "at most 1" for run.md alone and
-// explicitly delegates "the full-corpus zero-occurrence grep sweep" to this
-// task. Rather than either silently asserting a "zero" claim production does
-// not meet, or leaving the gap unrecorded, this test treats the count as a
-// bounded, named exception — mirroring how REQ-F-018 requires F09 to record
-// the I-08/I-09 degraded-upstream gaps as evidence instead of assuming
-// compliance; this task's own scope note says it "mirrors that degraded
-// state." PARENT NOTE: AC-006's prose ("appears on no Rider path") does not
-// literally hold given this pre-existing, independently-documented
-// exception; flagging for the owner rather than silently treating it as
-// compliant or leaving it to regress unnoticed.
-const f09KnownRiderKickbackStatusSetExceptionCount = 1
 
 // TestTC003_03bShardStatusSetAbsentFromRiderExecutablePaths is TC-003-03b
 // (test-plan.md #tc-003, AC-006, added per codex red-team CONCERN): greps
@@ -3949,16 +3925,15 @@ func TestTC003_03bShardStatusSetAbsentFromRiderExecutablePaths(t *testing.T) {
 		t.Fatal("TC-003-03b fixture assumption broken: embedded skills/shark-attack/workflows/ tree resolved zero files")
 	}
 
-	// skills/shark-rider/verbs/run.md carries exactly the one documented
-	// kickback-application exception above; a second occurrence — anywhere,
-	// including a new dispatched-entity-advancing use AC-006 exists to
-	// forbid — fails this test.
+	// Rider's legacy direct kickback command is gone. Child rework is
+	// handled by the outcome-routed coordinator; the human CLI escape-hatch
+	// is covered separately below.
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
-	if !strings.Contains(run, "Apply task kickbacks") {
-		t.Fatal("TC-003-03b fixture assumption broken: run.md's kickback-application step (the documented exception's context) no longer exists — re-verify the sole `shark status set` occurrence's context before trusting the exception count below")
+	if !strings.Contains(run, "Apply structured review kickbacks through the coordinator") {
+		t.Fatal("TC-003-03b: run.md must direct review kickbacks through the structured coordinator")
 	}
-	if got := strings.Count(run, f09RiderStatusSetMarker); got != f09KnownRiderKickbackStatusSetExceptionCount {
-		t.Errorf("TC-003-03b: run.md contains %d %q occurrence(s), want exactly %d (the documented kickback-application escape hatch, AC-006/D-006) — a changed count means either a regression (new occurrence) or the documented exception was removed; either way the exception count and AC-006's prose need reconciling by the parent/owner", got, f09RiderStatusSetMarker, f09KnownRiderKickbackStatusSetExceptionCount)
+	if got := strings.Count(run, f09RiderStatusSetMarker); got != 0 {
+		t.Errorf("TC-003-03b: run.md contains %d %q occurrence(s), want 0 on the Rider path", got, f09RiderStatusSetMarker)
 	}
 }
 

@@ -49,24 +49,37 @@ Place portable review criteria in the existing quality craft content and retain 
 
 Adopt the existing `gate_result_v1` contract for the relevant bug gates. Configured outcomes such as `needs_research`, `replan`, and implementation rework can use `route_rework`; exact names remain an implementation choice. Verify actual dispatch and ingestion, not only schema acceptance.
 
-## Approved model recommendations
+## Model selection guidance
 
-| Work | Suggested model | Effort |
+Choose a model by the task's capability and effort needs. The available Codex
+models, display names, descriptions, and supported efforts come from the
+selected Codex CLI's runtime `model/list` catalog. Do not keep a copied model
+list or fixed model identifiers in this plan.
+
+| Work | Capability | Effort |
 |---|---|---|
-| Bounded inventory/history/caller scans | gpt-6-luna | medium |
-| Routine research and repair planning | gpt-6.1-terra | high |
-| Difficult causal research and repair planning | gpt-6.1-sol | high |
-| Independent plan review | gpt-6.1-sol; separate Terra reviewer for simple repairs | high |
-| Development | gpt-6-luna | high |
-| Review A bugs/callers, D reuse/complexity, F standards/security | gpt-6.1-terra | high |
-| Complex review B behavior, C contracts/siblings, E test adequacy | gpt-6.1-sol | high |
-| Consolidation | gpt-6.1-sol | high |
-| QA | gpt-6.1-terra | medium execution; high interpretation |
-| Final acceptance/dispute | gpt-6.1-sol | high |
+| Bounded inventory/history/caller scans | Fast model for routine coding and research | medium |
+| Routine research and repair planning | Efficient model with strong tool use | high |
+| Difficult causal research and repair planning | Frontier model for complex analysis | high |
+| Independent plan review | Strong reasoning; use a separate reviewer for simple repairs | high |
+| Development | Fast model for implementation work | high |
+| Review A, D, and F | Efficient model for caller, reuse, complexity, and standards checks | high |
+| Review B, C, and E | Frontier model for behavior, contract, and test-adequacy checks | high |
+| Consolidation | Frontier model for resolving competing findings | high |
+| QA | Efficient model for execution; frontier model for interpreting failures | medium/high |
+| Final acceptance or dispute | Frontier model for unresolved decisions | high |
 
-Reserve Astra for exceptional consultation on unresolved architectural disagreement or contradictory causal evidence after focused Sol assessment. Preserve all review/evidence obligations when reducing model cost. These are recommendations to validate, not measured quality equivalence or current workflow settings.
+Preserve all review and evidence obligations when reducing model cost. These
+capability recommendations are guidance, not measured quality equivalence or
+current workflow settings.
 
-Current workflow steps use explicit provider/model/effort. Existing roster `capability_profile: fast|balanced|deep` is advisory, not a step-to-model mapper. B083 tracks benchmark harness switching and compatibility separately; do not introduce unsupported workflow syntax or silent parent-model inheritance. Record requested and verified effective execution identity separately, with unknown identity explicit.
+Workflow steps may declare provider, model, and effort. The harness resolves
+Codex model details from the selected CLI when a route omits a model or effort.
+The existing roster `capability_profile: fast|balanced|deep` is advisory, not a
+step-to-model mapper. B083 tracks benchmark harness switching and compatibility
+separately; do not introduce unsupported workflow syntax or silent
+parent-model inheritance. Record requested and verified effective execution
+identity separately, with unknown identity explicit.
 
 ## Implementation sequence
 

@@ -410,7 +410,7 @@ func TestClaudeDispatcher_ModelOverride_Empty_NotAdded(t *testing.T) {
 }
 
 func TestClaudeDispatcher_ModelOverride_DifferentModels(t *testing.T) {
-	tests := []string{"claude-haiku-3", "claude-sonnet-4-5", "o3"}
+	tests := []string{"claude-haiku-3", "claude-sonnet-4-5", "synthetic-codex-model"}
 
 	for _, model := range tests {
 		t.Run(model, func(t *testing.T) {

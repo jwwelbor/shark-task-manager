@@ -51,6 +51,11 @@ func (v *WorkflowStatusValidator) NormalizeStatus(entityType models.EntityType, 
 	return v.workflowSvc.ForLevel(string(entityType)).NormalizeStatus(status)
 }
 
+// ResolveReworkOutcome implements ReworkRouteResolver.
+func (v *WorkflowStatusValidator) ResolveReworkOutcome(entityType models.EntityType, fromStatus, outcomeKey string) (string, error) {
+	return v.workflowSvc.ForLevel(string(entityType)).ResolveReworkOutcome(fromStatus, outcomeKey)
+}
+
 // EntityServiceTransitioner adapts *services.EntityService plus a
 // *services.EntityRegistry (for per-entity-type repository lookup) into
 // Transitioner. It always applies the transition with
@@ -63,6 +68,9 @@ type EntityServiceTransitioner struct {
 	entitySvc   *services.EntityService
 	registry    *services.EntityRegistry
 	workflowSvc *workflow.Service
+	taskSvc     *services.TaskService
+	featureSvc  *services.FeatureService
+	leaseCheck  services.ParentLeaseTxVerifier
 }
 
 // NewEntityServiceTransitioner constructs an EntityServiceTransitioner.
@@ -77,6 +85,51 @@ func NewEntityServiceTransitioner(entitySvc *services.EntityService, registry *s
 		panic("gatepersist: NewEntityServiceTransitioner requires a non-nil workflow.Service")
 	}
 	return &EntityServiceTransitioner{entitySvc: entitySvc, registry: registry, workflowSvc: workflowSvc}
+}
+
+// SetReviewReworkDependencies enables transaction-bound child kickbacks. The
+// current built-in review prompts target tasks from features and features from
+// epics, so those are the two typed transaction paths required here.
+func (t *EntityServiceTransitioner) SetReviewReworkDependencies(taskSvc *services.TaskService, featureSvc *services.FeatureService, leaseCheck services.ParentLeaseTxVerifier, questionBlocker services.ReviewReworkQuestionBlocker) {
+	if taskSvc == nil || featureSvc == nil || leaseCheck == nil || questionBlocker == nil {
+		panic("gatepersist: review rework dependencies require task, feature, lease, and transaction-bound Question services")
+	}
+	taskSvc.SetReviewReworkQuestionBlocker(questionBlocker)
+	featureSvc.SetReviewReworkQuestionBlocker(questionBlocker)
+	t.taskSvc = taskSvc
+	t.featureSvc = featureSvc
+	t.leaseCheck = leaseCheck
+}
+
+// SupportsReviewReworkTarget implements RoutedReworkTransitioner.
+func (t *EntityServiceTransitioner) SupportsReviewReworkTarget(entityType models.EntityType) bool {
+	return t.leaseCheck != nil && ((entityType == models.EntityTypeTask && t.taskSvc != nil) || (entityType == models.EntityTypeFeature && t.featureSvc != nil))
+}
+
+// TransitionReviewRework implements RoutedReworkTransitioner. It deliberately
+// dispatches only to the task and feature services that own the supported
+// child transaction and aggregate-maintenance paths.
+func (t *EntityServiceTransitioner) TransitionReviewRework(ctx context.Context, entityType models.EntityType, entityKey, outcomeKey, targetAssertion, reason, agent string, parent services.ParentLeaseAuthority) (string, bool, error) {
+	var result *services.TransitionResult
+	var err error
+	switch entityType {
+	case models.EntityTypeTask:
+		if t.taskSvc == nil || t.leaseCheck == nil {
+			return "", false, fmt.Errorf("gatepersist: task review rework dependencies are not configured")
+		}
+		result, err = t.taskSvc.TransitionReviewRework(ctx, entityKey, outcomeKey, targetAssertion, reason, agent, parent, t.leaseCheck)
+	case models.EntityTypeFeature:
+		if t.featureSvc == nil || t.leaseCheck == nil {
+			return "", false, fmt.Errorf("gatepersist: feature review rework dependencies are not configured")
+		}
+		result, err = t.featureSvc.TransitionReviewRework(ctx, entityKey, outcomeKey, targetAssertion, reason, agent, parent, t.leaseCheck)
+	default:
+		return "", false, fmt.Errorf("gatepersist: review rework is not supported for %s targets", entityType)
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return result.FromStatus, result.Transitioned, nil
 }
 
 // CurrentStatus implements StatusReader, reusing the same registry lookup
@@ -134,22 +187,17 @@ func (t *EntityServiceTransitioner) ResolveEntityID(ctx context.Context, entityT
 // advance_guard.enabled flag itself (shouldUseAdvanceGuard), so passing it
 // unconditionally is safe for legacy/unguarded deployments.
 //
-// A gate-result kickback is the coordinator-owned exception that can reopen a
-// completed target. Force only when the caller explicitly authorizes that
-// exception and the pre-transition status is terminal in that entity level's
-// configured workflow; non-terminal kickbacks retain ordinary route
-// validation.
+// Review kickbacks use TransitionReviewRework, which resolves an explicit
+// rework_outcomes route and verifies parent authority in the child transaction.
+// This ordinary transition path cannot reopen a terminal target.
 func (t *EntityServiceTransitioner) Transition(ctx context.Context, entityType models.EntityType, entityKey, targetStatus, reason, agent string, guard TransitionGuard) (string, bool, error) {
 	repo, err := t.registry.GetRepository(entityType)
 	if err != nil {
 		return "", false, fmt.Errorf("gatepersist: resolve repository for %s: %w", entityType, err)
 	}
 	scoped := t.entitySvc.ForLevel(string(entityType))
-	forceTerminalReopen := guard.ForceTerminalReopen && t.workflowSvc.ForLevel(string(entityType)).IsTerminalStatus(guard.FromStatus)
 	result, err := scoped.TransitionStatus(ctx, repo, entityType, entityKey, targetStatus,
 		services.TransitionOptions{
-			Force:                 forceTerminalReopen,
-			ForceTerminalReopen:   forceTerminalReopen,
 			GateAdmissionVerified: guard.AdmissionVerified,
 			Reason:                reason,
 			Agent:                 agent,

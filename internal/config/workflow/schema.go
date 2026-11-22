@@ -164,6 +164,13 @@ type Step struct {
 	// to the target step the engine should route to. Replaces status_flow (D2).
 	Outcomes map[string]string `json:"outcomes,omitempty"`
 
+	// ReworkOutcomes maps an external review outcome key to the destination
+	// used when a review reopens this entity from the current step. Unlike
+	// Outcomes, this is a dedicated review-rework route and may be configured
+	// on terminal or parking steps without making those steps generally
+	// advanceable.
+	ReworkOutcomes map[string]string `json:"rework_outcomes,omitempty"`
+
 	// Aliases lists old status names that collapse into this step. Drives the
 	// one-shot status migration, input compat shim, and history-read resolution
 	// (E35-F05, §7).

@@ -23,7 +23,7 @@ type OrchestratorAction struct {
 	// Optional — when empty, the run controller defaults to "anthropic" (Claude).
 	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
 
-	// Model specifies the model override for the dispatched agent (e.g., "o3", "claude-opus-4-5").
+	// Model optionally specifies a provider-specific model override for the dispatched agent.
 	// Optional — when empty, the agent uses its default model.
 	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 

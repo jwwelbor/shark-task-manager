@@ -98,7 +98,9 @@ ON PASS: recommended_outcome: pass.
 - Do NOT run Shark status commands yourself; the parent loop will advance the feature.
 ON FAIL: recommended_outcome: fail. This outcome's role is `kickback_rework` —
 `gate_result.kickbacks` must contain one entry per task that needs to reopen
-(`entity_key`: the task key, `target_status`: development, `reason`:
+(`entity_key`: the task key, `target_status`: the configured
+`rework_outcomes[fail]` destination for the task's current status (development
+in the shipped workflow), `reason`:
 "<specific failures>"):
 - For a missing or broken I-## contract test: reopen the producer task in this
   feature; the kickback's `reason` names each consuming feature that needs a

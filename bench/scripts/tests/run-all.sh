@@ -135,6 +135,7 @@ tests=(
 	"$SCRIPT_DIR/tc120_copilot_adapter_test.sh"
 	"$SCRIPT_DIR/tc121_copilot_usage_mapping_canary_test.sh"
 	"$SCRIPT_DIR/tc122_copilot_routing_identity_test.sh"
+	"$SCRIPT_DIR/tc123_b083_production_route_test.sh"
 	"$SCRIPT_DIR/tc123_copilot_runner_usage_test.sh"
 )
 
