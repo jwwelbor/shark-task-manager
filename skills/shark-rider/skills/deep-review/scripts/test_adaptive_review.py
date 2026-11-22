@@ -400,6 +400,57 @@ class AdaptiveReviewTests(unittest.TestCase):
                 self.assertEqual(proc.returncode, 2, name)
                 self.assertIn('INCOMPLETE', report.read_text(), name)
 
+    def test_cli_trace_stops_at_first_valid_candidate_packet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            trace = root / 'trace'
+            for host, preferred in [('claude', 'codex'), ('codex', 'claude')]:
+                for case in ('valid', 'nonzero', 'stale', 'both_stale'):
+                    with self.subTest(host=host, case=case):
+                        trace.write_text('')
+                        for cli in ('codex', 'claude'):
+                            packet = review_packet(scope)
+                            if case == 'both_stale' or (case == 'stale' and cli == preferred):
+                                packet['decisions']['candidate_identity']['commit'] = 'other'
+                            stub = root / cli
+                            fake_reviewer(stub, packet)
+                            lines = stub.read_text().splitlines(keepends=True)
+                            lines.insert(1, f'echo {cli} >> {shlex.quote(str(trace))}\n')
+                            if case == 'nonzero' and cli == preferred:
+                                lines.insert(2, 'exit 1\n')
+                            stub.write_text(''.join(lines))
+
+                        report = root / f'{host}-{case}.md'
+                        result = subprocess.run([
+                            sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                            '--prompt-file', str(prompt), '--project-root', str(repo),
+                            '--source-root', str(repo), '--diff-path', scope['diff_path'],
+                            '--scope-file', str(scope_file), '--base-commit', scope['base_commit'],
+                            '--review-output-path', str(report), '--host', host,
+                            '--codex-command', str(root / 'codex'), '--claude-command', str(root / 'claude'),
+                            '--no-workflow-available', '--no-agent-dispatch-available',
+                        ], text=True, capture_output=True)
+                        meta = json.loads(result.stdout)
+                        attempts = [preferred] if case == 'valid' else [preferred, host]
+                        self.assertEqual(trace.read_text().splitlines(), attempts)
+                        if case == 'both_stale':
+                            self.assertEqual(result.returncode, 2)
+                            self.assertIsNone(meta['adversarial_model'])
+                            self.assertEqual(meta['verdict'], 'INCOMPLETE')
+                            self.assertIn('INCOMPLETE', report.read_text())
+                            for cli in attempts:
+                                self.assertIn(f'{cli}: invalid structured review', meta['fallback_reason'])
+                        else:
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            self.assertEqual(meta['adversarial_model'], attempts[-1])
+                            self.assertEqual(meta['runner_mode'], 'adversarial-cli')
+                            self.assertEqual(meta['verdict'], 'PASS')
+                            if case == 'stale':
+                                self.assertIn(f'{preferred}: invalid structured review', meta['fallback_reason'])
+
     def test_cli_retries_comparable_host_cli_after_preferred_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
