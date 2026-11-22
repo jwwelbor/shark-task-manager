@@ -315,13 +315,15 @@ func writeTagsError(cmd *cobra.Command, code, message string) {
 	}
 }
 
+var tagServiceFactory = func() tagServiceIface { return cli.GetTagService() }
+
 // resolveTagService returns the injected svc (for tests) or the real service
 // (for production).
 func resolveTagService(svc tagServiceIface) tagServiceIface {
 	if svc != nil {
 		return svc
 	}
-	return cli.GetTagService()
+	return tagServiceFactory()
 }
 
 // Ensure *services.TagService satisfies tagServiceIface at compile time.

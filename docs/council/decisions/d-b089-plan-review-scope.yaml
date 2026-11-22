@@ -1,0 +1,27 @@
+artifact_id: d-b089-plan-review-scope
+type: decision
+status: resolved
+roles:
+  - architect
+  - tech-lead
+root_key: B089
+evidence:
+  - docs/plan/bugs/B089.plan-review-r1.md
+  - docs/plan/bugs/B089.repair-plan.md
+  - internal/cli/commands/change_test.go
+  - internal/cli/commands/b082_unified_change_create_test.go
+  - internal/cli/commands/tags_shared_test.go
+created_at: 2026-11-22T04:29:51Z
+updated_at: 2026-11-22T04:29:51Z
+next_action: Revise the repair plan and obtain independent plan approval before candidate review.
+body: >-
+  Keep B089 focused on verifying the size repair already delivered by B082, and
+  preserve regression evidence for the adjacent tag behavior changed by that
+  commit. F1 is covered by TestChangeCreate_TagFlag_PassesTagsToService and
+  TestUnifiedChangeCreate_TagsReachService; cite those caller-level assertions
+  in the revised plan. F2 remains a coverage gap because shared renderer tests
+  do not prove that each creation caller preserves and renders typed service
+  errors. Add focused caller-level regression assertions for the unified and
+  entity-first paths. Do not change runtime behavior unless those assertions
+  expose a defect; any such defect remains in scope because the delivered B082
+  patch changed this creation path.

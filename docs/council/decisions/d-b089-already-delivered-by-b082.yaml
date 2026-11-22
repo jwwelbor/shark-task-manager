@@ -1,0 +1,19 @@
+artifact_id: d-b089-already-delivered-by-b082
+type: decision
+status: resolved
+roles:
+  - architect
+root_key: B089
+evidence:
+  - docs/plan/bugs/B089.research-report.md
+  - docs/plan/bugs/B082.research-report.md
+  - docs/plan/bugs/B089.md
+created_at: 2026-11-22T04:17:58Z
+updated_at: 2026-11-22T04:17:58Z
+next_action: If the failure recurs, capture the exact executable path and version before reopening the implementation.
+body: >-
+  Do not make another source change for B089. Research reproduced both rejected
+  size spellings with an older project-root executable and confirmed that the
+  installed build matching current main accepts both as size 3. B082/PR #286
+  delivered the shared size-and-tag forwarding fix for both unified command
+  spellings. The original report does not identify which executable it used.
