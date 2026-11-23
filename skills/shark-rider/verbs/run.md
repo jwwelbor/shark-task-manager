@@ -366,10 +366,12 @@ the event stream and the final message. Run the worker in the background so
 the parent can poll `$EVENT_FILE` while it is still running, and keep stdout
 (the JSONL event stream) separate from stderr:
 
-The preflight table selects `openai/gpt-6.2-astra` for each listed default bug
-stage when Claude Code is unavailable. For one of those exact request tuples,
-the adapter sets `SELECTED_PROVIDER` and `SELECTED_MODEL` from that fixed
-mapping. For an exact Codex request, it may use the exact requested model.
+For a mapped fallback, the preflight selects the documented Codex CLI adapter
+and provider, then discovers the available model through that selected CLI's
+`config/read` interface. Set `SELECTED_MODEL` only to the discovered model and
+record the discovery evidence with the dispatch. Do not infer a model from the
+request tuple or a fixed compatibility table. For an exact Codex request, pass
+the exact requested model through the same explicit selector.
 Make the prompt, result and event paths absolute and unique to this invocation.
 Use the absolute `CODEX_BIN` resolved in preflight, its profile, environment
 and authorized sandbox. An omitted profile or sandbox uses the checked host
@@ -383,9 +385,9 @@ Use the producing worker's observation to establish which model ran.
 Do not use Codex's provider default for a mapped Anthropic fallback.
 
 ```bash
-# Use the authorized selections from this assignment's preflight. For the
-# six mapped tuples these are openai and gpt-6.2-astra. An exact request
-# keeps its own selection. An evidenced default omits the model flag.
+# Use the provider selected at preflight and the model discovered through the
+# selected CLI. An exact request keeps its requested model. Never substitute
+# a hard-coded mapped model or use an ambient default.
 CODEX_ROUTE_ARGS=(--config "model_provider=${SELECTED_PROVIDER:?}")
 if [[ -n ${SELECTED_PROFILE:-} ]]; then
   CODEX_ROUTE_ARGS+=(--profile "$SELECTED_PROFILE")
