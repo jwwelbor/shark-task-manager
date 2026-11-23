@@ -72,19 +72,24 @@ func b077SelectedCodexModel(t *testing.T, run string) string {
 
 func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
-	selectedModel := strings.ToLower(b077SelectedCodexModel(t, run))
 	selection := normalizeContractText(e36F04RawSection(t, run,
 		"### B077 default bug-stage Codex fallback mappings",
 		"### Claude Code Agent tool adapter"))
 	for _, invariant := range []string{
-		"host_worker_class=codex-cli",
-		"selected_provider=openai",
-		"selected_model=" + selectedModel,
+		"selected provider and host class",
+		"returned provider is openai",
+		"never pins a codex model id",
+		"same binary, selected working directory, profile, and environment",
+		"app-server initialization followed by config/read",
+		"record its concrete configured model as selected_model",
+		"explicit --model selector on every launch",
+		"capture the final argv",
+		"argv capture",
 		"compatibility mapping",
 		"does not claim that any codex model is equivalent to the requested anthropic model",
-		"never derived from the parent session, codex configuration default, or environment",
+		"do not derive the model from the parent session, environment, persona, or effort",
 		"table entry does not match",
-		"codex selector or worker-identity evidence path is unavailable",
+		"model discovery, explicit selection, argv capture, or worker-identity evidence is unavailable",
 		"reject before claim",
 		"codex exec --model",
 		"codex login status reports an authenticated session",
@@ -139,11 +144,13 @@ cat > "$REPO_ROOT/submitted-$provider"
 				"SELECTED_MODEL="+tc.model, "REQUESTED_MODEL="+tc.request, "REQUESTED_EFFORT="+tc.effort,
 				"SELECTED_SANDBOX=read-only", "CODEX_BIN="+filepath.Join(dir, "codex"), "SELECTED_PROFILE=",
 				"PROMPT_FILE="+filepath.Join(dir, "prompt"), "EVENT_FILE="+filepath.Join(dir, "events"),
+				"ARGV_FILE="+filepath.Join(dir, "argv-capture"),
 				"RESULT_FILE="+filepath.Join(dir, "result"))
 			output, err := cmd.CombinedOutput()
 			require.NoError(t, err, "%s", output)
-			args, err := os.ReadFile(filepath.Join(dir, "argv"))
+			args, err := os.ReadFile(filepath.Join(dir, "argv-capture"))
 			require.NoError(t, err)
+			assert.Contains(t, string(args), filepath.Join(dir, "codex")+"\x00exec\x00-C\x00"+workdir+"\x00")
 			assert.Contains(t, string(args), "--config\x00model_provider=openai\x00")
 			assert.Contains(t, string(args), "--model\x00"+tc.model+"\x00")
 			assert.Contains(t, string(args), "-C\x00"+workdir+"\x00")

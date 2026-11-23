@@ -214,34 +214,35 @@ Codex route separately.
 
 | entity_type | status | agent_type | requested_provider | requested_model | host_worker_class | selected_provider | selected_model | mapping_ref |
 |---|---|---|---|---|---|---|---|---|
-| bug | research | researcher | anthropic | haiku | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
-| bug | repair_plan | architect | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
-| bug | plan_review | tech-lead | anthropic | opus | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
-| bug | development | developer | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
-| bug | code_review | tech-lead | anthropic | opus | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
-| bug | qa | qa | anthropic | sonnet | codex-cli | openai | gpt-6.2-astra | B077-default-bug-anthropic-codex-v1 |
+| bug | research | researcher | anthropic | haiku | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
+| bug | repair_plan | architect | anthropic | sonnet | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
+| bug | plan_review | tech-lead | anthropic | opus | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
+| bug | development | developer | anthropic | sonnet | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
+| bug | code_review | tech-lead | anthropic | opus | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
+| bug | qa | qa | anthropic | sonnet | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
 
 These are the current Anthropic stage tuples in the embedded default bug
 workflow. The table applies only to the exact entity type, status, persona,
-provider, and model shown; it does not
-authorize a fallback for other entities, stages, personas, Anthropic models,
-or an empty model. The selected Codex model is a fixed policy value, never
-derived from the parent session, Codex configuration default, or environment.
-If the exact route or table entry does not match, or the Codex selector or
-worker-identity evidence path is unavailable, reject before claim with no
-worker result or status advance. On a matching tuple, the parent/adapter sets
-`selected_provider=openai`, `selected_model=gpt-6.2-astra`,
-`host_worker_class=codex-cli`, and the mapping reference before claiming.
-For either Codex CLI route, use the installed CLI's local configuration reader
-in the selected worker directory before claim. On CLI 0.170.0 use app-server
-initialization followed by `config/read` with that absolute `cwd`. Supply the
-same profile, environment and provider/model/effort overrides intended for
-the worker. In the configuration reader use `--config model=<model>` for
-the worker's explicit `--model` selection. For an evidenced provider default
-omit both model overrides. Require the returned provider to equal the selected
-provider, and verify the expected model and any explicit requested effort.
-A failed read, unsupported explicit effort, or conflicting result stops this
-assignment before claim. Keep only those bounded fields as preflight evidence.
+provider, and model shown; it does not authorize fallback for other entities,
+stages, personas, Anthropic models, or an empty model. The mapping fixes the
+selected provider and host class, but never pins a Codex model ID. Before claim,
+resolve the selected Codex executable and use that same binary, selected
+working directory, profile, and environment to perform app-server
+initialization followed by `config/read`. Record its concrete configured model
+as `selected_model` only when the returned provider is `openai` and the model
+is non-empty. This read discovers the model to select; it does not authorize
+launching with an implicit or ambient model. Pass the discovered value through
+the explicit `--model` selector on every launch and capture the final argv for
+that invocation. Verify the captured executable and argv contain the same
+selected model and provider overrides recorded by preflight. Do not derive the
+model from the parent session, environment, persona, or effort, and do not
+replace an absent or conflicting discovery result with a guessed model ID.
+If the exact route or table entry does not match, or model discovery, explicit
+selection, argv capture, or worker-identity evidence is unavailable, reject
+before claim with no worker result or status advance. A failed read,
+unsupported explicit effort, or conflicting provider/model result stops this
+assignment before claim. Keep only the bounded request, selected route,
+executable identity, and argv digest as preflight evidence.
 Before selecting this fallback, verify that the installed Codex CLI supports
 `codex exec --model`, `codex login status` reports an authenticated session,
 and persistent rollout records can be read from the configured Codex home.
@@ -392,20 +393,31 @@ fi
 if [[ -n ${SELECTED_SANDBOX:-} ]]; then
   CODEX_ROUTE_ARGS+=(--sandbox "$SELECTED_SANDBOX")
 fi
-if [[ -n ${REQUESTED_MODEL?missing keyed model field} ]]; then
-  CODEX_ROUTE_ARGS+=(--model "${SELECTED_MODEL:?missing selected model}")
+if [[ -n ${SELECTED_MODEL:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--model "$SELECTED_MODEL")
+else
+  echo "selected Codex model is missing" >&2
+  exit 1
 fi
 if [[ -n ${REQUESTED_EFFORT:-} ]]; then
   CODEX_ROUTE_ARGS+=(--config "model_reasoning_effort=$REQUESTED_EFFORT")
 fi
 (
   cd -- "${WORKDIR:?}" || exit 1
+  printf '%s\0' "${CODEX_BIN:?}" exec -C "$WORKDIR" \
+    "${CODEX_ROUTE_ARGS[@]}" --json --output-last-message "$RESULT_FILE" \
+    - > "$ARGV_FILE"
   exec timeout --foreground 900 "${CODEX_BIN:?}" exec -C "$WORKDIR" \
     "${CODEX_ROUTE_ARGS[@]}" --json --output-last-message "$RESULT_FILE" \
     - < "$PROMPT_FILE"
 ) > "$EVENT_FILE" 2> "$EVENT_FILE.stderr" &
 CODEX_PID=$!
 ```
+
+For each launch, persist the exact executable and NUL-delimited argv to the
+invocation's private `ARGV_FILE` immediately before `exec`; this capture is
+preflight/dispatch evidence, not a substitute for worker observation. Require
+its `--model` value and provider override to equal the selected route.
 
 For the B077 Codex CLI route, take `worker_id` from the `thread.started`
 event's `thread_id`. The event identifies the worker thread but contains no
