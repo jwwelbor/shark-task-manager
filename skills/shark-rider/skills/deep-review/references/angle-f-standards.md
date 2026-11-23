@@ -91,7 +91,7 @@ Flag in changed code only (not pre-existing):
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "CODING-STANDARD|NAMING|ERROR-HANDLING|TYPES|LOGGING|SECURITY",
       "summary": "one-sentence description",
       "diagnosis": "which standard is violated",

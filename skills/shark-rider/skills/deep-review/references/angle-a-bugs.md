@@ -74,7 +74,7 @@ Return a JSON object:
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "CORRECTNESS|WIRING|RISK|SECURITY",
       "summary": "one-sentence description",
       "diagnosis": "what is wrong and why",

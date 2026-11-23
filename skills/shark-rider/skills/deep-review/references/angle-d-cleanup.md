@@ -87,7 +87,7 @@ Name the simpler form explicitly.
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "DRY|COMPLEXITY|IDIOM|ALTITUDE|ARCHITECTURE|SIMPLIFICATION",
       "summary": "one-sentence description",
       "diagnosis": "what is duplicated / too complex / non-idiomatic",

@@ -24,12 +24,14 @@ type bugReviewDecision struct {
 	Rule        string `json:"rule"`
 	Summary     string `json:"summary"`
 	Diagnosis   string `json:"diagnosis"`
+	Impact      string `json:"impact"`
 	Disposition string `json:"disposition"`
 	Reason      string `json:"reason"`
 }
 type bugReviewDecisions struct {
-	CandidateIdentity bugReviewIdentity   `json:"candidate_identity"`
-	Findings          []bugReviewDecision `json:"findings"`
+	ReviewContractVersion int                 `json:"review_contract_version"`
+	CandidateIdentity     bugReviewIdentity   `json:"candidate_identity"`
+	Findings              []bugReviewDecision `json:"findings"`
 }
 
 func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict string) (map[bugFindingKey]bugReviewDecision, error) {
@@ -44,10 +46,16 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 	if packet.Findings == nil {
 		return nil, fmt.Errorf("review decisions findings missing")
 	}
+	if packet.ReviewContractVersion != 0 && packet.ReviewContractVersion != 2 {
+		return nil, fmt.Errorf("unsupported review contract version")
+	}
 	found := make(map[bugFindingKey]bugReviewDecision, len(packet.Findings))
 	for _, finding := range packet.Findings {
 		if err := validateBugReviewDecision(finding, verdict); err != nil {
 			return nil, err
+		}
+		if packet.ReviewContractVersion == 2 && (finding.Severity == "nit" || strings.TrimSpace(finding.Impact) == "") {
+			return nil, fmt.Errorf("impact-based review decision is missing impact or uses legacy nit severity")
 		}
 		key := bugFindingKey{finding.File, finding.Line, finding.Rule, finding.Summary, finding.Diagnosis}
 		if _, exists := found[key]; exists {
@@ -56,6 +64,14 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 		found[key] = finding
 	}
 	return found, nil
+}
+
+func bugReviewContractVersion(data []byte) int {
+	var packet struct {
+		Version int `json:"review_contract_version"`
+	}
+	_ = json.Unmarshal(data, &packet)
+	return packet.Version
 }
 func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 	if !validBugDecisionShape(f) {

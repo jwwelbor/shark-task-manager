@@ -27,6 +27,7 @@ type bugAngleFinding struct {
 	Rule      string `json:"rule"`
 	Summary   string `json:"summary"`
 	Diagnosis string `json:"diagnosis"`
+	Impact    string `json:"impact"`
 }
 type bugReviewIdentity struct {
 	Commit string `json:"commit"`
@@ -35,9 +36,10 @@ type bugReviewIdentity struct {
 	Plan   string `json:"repair_plan_sha256"`
 }
 type bugAngle struct {
-	CandidateIdentity bugReviewIdentity `json:"candidate_identity"`
-	ReviewedFiles     []string          `json:"reviewed_files"`
-	Findings          []bugAngleFinding `json:"findings"`
+	ReviewContractVersion int               `json:"review_contract_version"`
+	CandidateIdentity     bugReviewIdentity `json:"candidate_identity"`
+	ReviewedFiles         []string          `json:"reviewed_files"`
+	Findings              []bugAngleFinding `json:"findings"`
 }
 
 func (id bugReviewIdentity) matches(scope bugCandidateScope) bool {
@@ -104,7 +106,7 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 	if err := verifyReviewArtifactHash(header, "Angle results", angleData); err != nil {
 		return err
 	}
-	return validateBugReviewAngles(angleData, scope, decisions, verdict)
+	return validateBugReviewAngles(angleData, scope, decisions, verdict, bugReviewContractVersion(decisionData))
 }
 
 func requireBugFindingDecisions(body string, decisions map[bugFindingKey]bugReviewDecision) error {
@@ -165,6 +167,13 @@ func validateUniqueBugReviewHeader(header string) error {
 	for _, key := range []string{"runner_mode", "specialists_completed", "consolidator_completed"} {
 		if strings.Count(strings.ToLower(header), "`"+key+"=") != 1 {
 			return fmt.Errorf("review report has missing or duplicate %s metadata", key)
+		}
+	}
+	if strings.Contains(header, "**Review contract:** `2`") {
+		for _, key := range []string{"Requested model", "Verified effective model"} {
+			if !seen[strings.ToLower(key)] {
+				return fmt.Errorf("impact-based review report is missing %s metadata", key)
+			}
 		}
 	}
 	if len(bugReviewVerdict.FindAllStringSubmatch(header, -1)) != 1 {
@@ -283,15 +292,25 @@ func meaningfulBugReviewMetadata(value string) bool {
 	return value != "" && value != "none" && value != "unknown"
 }
 
-func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
+func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string, requiredVersion int) error {
 	var angles map[string]bugAngle
 	if err := json.Unmarshal(data, &angles); err != nil || len(angles) != 6 {
 		return fmt.Errorf("six angle results are required")
+	}
+	version := angles["a"].ReviewContractVersion
+	if version != 0 && version != 2 {
+		return fmt.Errorf("unsupported angle review contract version")
+	}
+	if version != requiredVersion {
+		return fmt.Errorf("angle and decision review contract versions differ")
 	}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
 		angle, found := angles[name]
 		if !found {
 			return fmt.Errorf("angle %s missing", name)
+		}
+		if angle.ReviewContractVersion != version {
+			return fmt.Errorf("angle review contract versions differ")
 		}
 		if err := validateBugReviewAngle(angle, scope, decisions, verdict); err != nil {
 			return fmt.Errorf("angle %s: %w", name, err)
@@ -316,6 +335,9 @@ func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions m
 		return fmt.Errorf("findings missing")
 	}
 	for _, finding := range angle.Findings {
+		if angle.ReviewContractVersion == 2 && (finding.Severity == "nit" || strings.TrimSpace(finding.Impact) == "") {
+			return fmt.Errorf("impact-based angle finding is missing impact or uses legacy nit severity")
+		}
 		if err := validateBugAngleFinding(finding, decisions, verdict); err != nil {
 			return err
 		}

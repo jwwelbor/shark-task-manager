@@ -65,7 +65,7 @@ For each counter-factual failure, this is a **blocker** if the AC is critical (t
     {
       "file": "path/to/test_file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "TESTS",
       "summary": "one-sentence description",
       "diagnosis": "what coverage gap or counter-factual failure exists",

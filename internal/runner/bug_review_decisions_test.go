@@ -26,7 +26,7 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	require.NoError(t, err)
 	decisions, err := validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
-	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
+	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS", bugReviewContractVersion(raw)), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "open", "reason": "not refuted"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
@@ -37,13 +37,31 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	require.NoError(t, err)
 	decisions, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
-	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
+	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS", bugReviewContractVersion(raw)), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "refuted", "reason": "call site proves it cannot occur"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
 	decisions, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
-	require.NoError(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"))
+	require.NoError(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS", bugReviewContractVersion(raw)))
+}
+
+func TestVersionTwoReviewContractRequiresImpact(t *testing.T) {
+	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff", RepairPlanSHA256: "plan"}
+	packet := map[string]any{
+		"review_contract_version": 2,
+		"candidate_identity":      map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff", "repair_plan_sha256": "plan"},
+		"findings":                []any{map[string]any{"file": "a.go", "line": 2, "severity": "non-blocker", "rule": "CONTRACT", "summary": "missing event", "diagnosis": "event is absent", "disposition": "triage", "reason": "route it"}},
+	}
+	raw, err := json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+	require.ErrorContains(t, err, "missing impact")
+	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "nit", "rule": "STYLE", "summary": "name preference", "diagnosis": "alternate name", "impact": "no impact", "disposition": "triage", "reason": "style"}}
+	raw, err = json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+	require.ErrorContains(t, err, "legacy nit severity")
 }
 
 func TestReviewDecisionConformanceFixtures(t *testing.T) {
@@ -73,7 +91,7 @@ func TestReviewDecisionConformanceFixtures(t *testing.T) {
 				if name == "a" {
 					findings = tc.RawFindings
 				}
-				angles[name] = map[string]any{"candidate_identity": fixture.Identity, "reviewed_files": append(append([]string{}, fixture.Files...), "context"), "findings": findings}
+				angles[name] = map[string]any{"review_contract_version": bugReviewContractVersion(tc.Decisions), "candidate_identity": fixture.Identity, "reviewed_files": append(append([]string{}, fixture.Files...), "context"), "findings": findings}
 			}
 			angleBytes, e := json.Marshal(angles)
 			require.NoError(t, e)
@@ -83,7 +101,7 @@ func TestReviewDecisionConformanceFixtures(t *testing.T) {
 			}
 			decisions, e := validateBugReviewDecisions(tc.Decisions, scope, verdict)
 			if e == nil {
-				e = validateBugReviewAngles(angleBytes, scope, decisions, verdict)
+				e = validateBugReviewAngles(angleBytes, scope, decisions, verdict, bugReviewContractVersion(tc.Decisions))
 			}
 			require.Equal(t, tc.Valid, e == nil, "error: %v", e)
 		})

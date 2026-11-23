@@ -60,6 +60,7 @@ const refsDir = `${skill_dir}/references`
 const FINDING_SCHEMA = {
   type: 'object',
   properties: {
+    review_contract_version: {type: 'integer', enum: [2]},
     candidate_identity: {
       type: 'object',
       properties: {commit: {type: 'string'}, tree: {type: 'string'}, diff_sha256: {type: 'string'}, repair_plan_sha256: {type: 'string'}},
@@ -72,14 +73,15 @@ const FINDING_SCHEMA = {
         properties: {
           file:      { type: 'string' },
           line:      { type: 'integer' },
-          severity:  { type: 'string', enum: ['blocker', 'non-blocker', 'nit'] },
+          severity:  { type: 'string', enum: ['blocker', 'non-blocker'] },
           rule:      { type: 'string' },
           summary:   { type: 'string' },
           diagnosis: { type: 'string' },
+          impact:    { type: 'string', minLength: 1 },
           evidence:  { type: 'string' },
           correction:{ type: 'string' },
         },
-        required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis'],
+        required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact'],
       },
     },
     reviewed_files: {
@@ -87,7 +89,7 @@ const FINDING_SCHEMA = {
       items: { type: 'string' },
     },
   },
-  required: ['candidate_identity', 'findings', 'reviewed_files'],
+  required: ['review_contract_version', 'candidate_identity', 'findings', 'reviewed_files'],
 }
 
 const CONSOLIDATION_SCHEMA = {
@@ -97,17 +99,18 @@ const CONSOLIDATION_SCHEMA = {
     decisions: {
       type: 'object',
       properties: {
+        review_contract_version: {type: 'integer', enum: [2]},
         candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
         findings: {type: 'array', items: {
           type: 'object',
           properties: {
             file: {type: 'string'}, line: {type: 'integer'}, severity: {type: 'string'},
-            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, disposition: {type: 'string'}, reason: {type: 'string'}, finding_id: {type: 'string'},
+            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, impact: {type: 'string', minLength: 1}, disposition: {type: 'string'}, reason: {type: 'string'}, finding_id: {type: 'string'},
           },
-          required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'disposition', 'reason'],
+          required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact', 'disposition', 'reason'],
         }},
       },
-      required: ['candidate_identity', 'findings'],
+      required: ['review_contract_version', 'candidate_identity', 'findings'],
     },
   },
   required: ['report', 'decisions'],
@@ -121,7 +124,7 @@ const CONSOLIDATION_SCHEMA = {
 function preamble(angleFile, extraContext) {
   const standardsLine = coding_standards_path
     ? `- CODING_STANDARDS_PATH: ${coding_standards_path}  ← read this for any standards citation`
-    : `- CODING_STANDARDS_PATH: (not found — all standards violations downgrade to opinion-only nits)`
+    : `- CODING_STANDARDS_PATH: (not found — do not claim standards violations; retain only independently evidenced impact)`
   return `CONTEXT (substitute these wherever the instructions say the placeholder name):
 - DIFF_PATH:      ${diff_path}
 - CANDIDATE_COMMIT: ${candidate_commit}
@@ -133,6 +136,7 @@ ${fileList}
 - PROJECT_ROOT:   ${project_root || '.'}
 ${diffScopeLine}
 ${standardsLine}
+REVIEW_CONTRACT_VERSION: 2. Each finding must include impact: an affected user/caller, behavior, invariant, documented standard or maintenance operation, plus its concrete consequence and evidence. Omit preference-only comments. Preserve original blocker and refuting evidence when withdrawn; an authorized stylistic downgrade is report-only with zero edits and zero tracker writes.
 ${extraContext || ''}
 
 Your detailed review instructions are in: ${refsDir}/${angleFile}
@@ -179,12 +183,12 @@ function validIdentity(identity) {
 
 function validFinding(f) {
   return f && typeof f.file === 'string' && f.file.length > 0 && Number.isInteger(f.line) && f.line > 0 &&
-    ['blocker', 'non-blocker', 'nit'].includes(f.severity) &&
-    ['rule', 'summary', 'diagnosis'].every(k => typeof f[k] === 'string' && f[k].length > 0)
+    ['blocker', 'non-blocker'].includes(f.severity) &&
+    ['rule', 'summary', 'diagnosis', 'impact'].every(k => typeof f[k] === 'string' && f[k].length > 0)
 }
 
 function validAngle(result) {
-  return result && validIdentity(result.candidate_identity) && Array.isArray(result.findings) &&
+  return result && result.review_contract_version === 2 && validIdentity(result.candidate_identity) && Array.isArray(result.findings) &&
     Array.isArray(result.reviewed_files) && changedFiles.every(f => result.reviewed_files.includes(f)) &&
     result.reviewed_files.every(f => typeof f === 'string') && result.findings.every(validFinding)
 }
@@ -259,7 +263,7 @@ function findingKey(f) {
 }
 
 function validDecisionSet(value) {
-  if (!value || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
+  if (!value || value.review_contract_version !== 2 || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
   return value.findings.every(validDecision) && new Set(value.findings.map(findingKey)).size === value.findings.length
 }
 

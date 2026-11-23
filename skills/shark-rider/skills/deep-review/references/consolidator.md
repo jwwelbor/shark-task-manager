@@ -52,32 +52,24 @@ For each finding, read the actual source file around the flagged line and the di
 
 Default to PLAUSIBLE for realistic runtime scenarios. Only REFUTE when the code makes it impossible. For every REFUTED blocker, retain a concise refutation naming the exact `file:line`, original summary, and `REFUTED`, with evidence; this permits the host to check that no blocking finding was silently dropped.
 
-**Do NOT refute on current-caller-reachability grounds.** A missing guard on an *exported* / public function, or missing shape-validation at a deserialization / external-input boundary (`JSON.parse`, file import, request body), is **not** "impossible" merely because every *present* caller happens to pass a valid value — future callers are unconstrained and the boundary is real. Downgrade such findings to nit or non-blocker if impact is low, but keep them. REFUTE is reserved for findings the code makes *logically* impossible (the guard already exists, or the branch is unreachable by construction), not findings that merely have no triggering caller today.
+**Do NOT refute on current-caller-reachability grounds.** A missing guard on an *exported* / public function, or missing shape-validation at a deserialization / external-input boundary (`JSON.parse`, file import, request body), is **not** "impossible" merely because every *present* caller happens to pass a valid value — future callers are unconstrained and the boundary is real. Retain these findings only when concrete user, behavior, invariant, security, documented-standard or maintenance impact is evidenced; otherwise omit preference-only feedback. REFUTE is reserved for findings the code makes *logically* impossible (the guard already exists, or the branch is unreachable by construction), not findings that merely have no triggering caller today.
 
-## Step 4: Triage labeling
+## Step 4: Impact-based finding admission and triage
 
-For each surviving finding, assign:
+A retained finding must name an affected user/caller, behavior, invariant, documented standard or maintenance operation; state its concrete consequence; and cite evidence. Omit preference-only comments. Preserve the original blocker and refutation evidence when withdrawn. Under the authorized report-only downgrade disposition, record the explanation with zero source edits and zero tracker writes. Substantive surviving findings continue through normal triage.
 
 | Label | Criteria |
 |---|---|
-| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new complexity over threshold, broad catch-all without justification, or a sibling pattern that violates the canonical craft rubric |
-| **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor DRY opportunity, broader-than-necessary but defensible change |
-| **Nit** | Stylistic preference, opinion-level, no standards citation |
+| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new complexity over threshold, broad catch-all without justification, or a sibling pattern that violates the impact-based craft criteria |
+| **Non-blocker** | Evidence-backed craft issue with an identifiable user, behavior, invariant, documented-standard or maintenance effect that does not violate a hard contract |
 
-## Step 5: Quality rubric
+The host routes each actionable non-blocker through the triage decision tree. A withdrawn/refuted blocker is not an actionable non-blocker and is not triaged.
 
-For each modified file, score 0–5 with one-sentence justification:
-- **Readability** — names, structure, flow
-- **Maintainability** — DRY, modularity, clear responsibilities
-- **Performance** — sensible algorithms, no obvious bottlenecks
-- **Testability** — pure functions, dependency injection, seams
-- **Standards Compliance** — adherence to cited standards docs
-
-Average ≤ 3 for any dimension → non-blocker triage. Average ≤ 2 → blocker.
+**Stable fingerprint.** Compute a fingerprint for every actionable non-blocker from the relative file path, rule category and normalized defect slug; do not include a line number.
 
 ## Step 6: Verdict
 
-- **PASS** — zero findings of any severity
+- **PASS** — zero actionable findings; withdrawn/refuted concerns remain explained but do not count as findings
 - **PASS-with-triage** — no blockers; non-blockers exist (host routes each through the triage skill's decision tree; tech-debt is only one possible outcome, never a default — see `skills/triage/SKILL.md`'s routing contract). If a triage attempt fails or can't complete (target entity won't accept new children, run is unattended and the decision tree's confirmation step has no one to answer it), the host falls back to a feature-level note instead of leaving the finding untracked — see `review-code.md` Step 12.
 - **FAIL** — one or more blockers; task returns to development
 
@@ -86,14 +78,14 @@ Average ≤ 3 for any dimension → non-blocker triage. Average ≤ 2 → blocke
 ## Output: Markdown report
 
 Alongside the Markdown, return candidate-bound `decisions` JSON with
-`candidate_identity` and a `findings` array. Each entry records `file`,
-positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty
-`reason`. Every raw finding needs a matching entry; use `refuted` only when
+`review_contract_version: 2`, `candidate_identity` and a `findings` array. Each entry records `file`,
+positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `impact`, `disposition`, and a nonempty
+`reason`. Preserve requested/effective model identity and any applicable cost/accounting metadata in the report evidence. Every raw finding needs a matching entry; use `refuted` only when
 the evidence disproves that exact finding. A pass cannot retain an open
 blocker. The decisions are machine-checked evidence and do not replace the
 reviewer's explanation in the report.
 
-If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 non-blockers / 0 nits, write a compact saved report only. Do NOT emit the full section set for a clean pass.
+If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 actionable non-blockers, write a compact saved report only. Do NOT emit the full section set for a clean pass.
 
 ### Compact PASS report (zero findings only)
 
@@ -119,11 +111,11 @@ For **PASS-with-triage** or **FAIL**, produce the full detailed report below. Om
 - What the diff accomplishes (1–2 lines)
 - Overall risk level
 - Verdict: **PASS** / **PASS-with-triage** / **FAIL**
-- Counts: X blockers / Y non-blockers triaged / Z nits
+- Counts: X blockers / Y actionable non-blockers triaged
 
 ### B. Findings Table
 
-| id | severity | file:line | rule | diagnosis | evidence | correction |
+| id | severity | file:line | rule | impact | diagnosis | evidence | correction |
 |---|---|---|---|---|---|---|
 
 `rule` is one of: `CORRECTNESS`, `WIRING`, `RISK`, `SECURITY`, `REMOVED-BEHAVIOR`, `SRP`, `OCP`, `LSP`, `DIP`, `CONTRACT`, `SIBLING`, `ROUNDTRIP`, `DRY`, `COMPLEXITY`, `IDIOM`, `ALTITUDE`, `ARCHITECTURE`, `TESTS`, `CODING-STANDARD`, `NAMING`, `ERROR-HANDLING`, `TYPES`, `LOGGING`
@@ -141,9 +133,6 @@ For each DRY finding: existing symbol + `file:line` + diff-ready refactor.
 - Flaky-risk tests
 - Mock-discipline issues
 
-### F. Quality Rubric
-| file | readability | maintainability | performance | testability | standards | notes |
-
 ### G. Risk Hotspots
 Short list, one per applicable category (security, concurrency, I/O, coupling, performance, architectural drift).
 
@@ -153,7 +142,7 @@ For each service-contract change: entrypoint → call chain → leaf with argume
 ### I. Triage Summary
 - **Blockers** (must fix before QA): numbered list
 - **Non-blockers to triage** (host routes each through the triage skill's decision tree): numbered list with `file:line + fingerprint + summary + fix_suggestion` — `fingerprint` is `<relative_file_path>#<rule>#<slug>` (rule category plus a short normalized defect slug, never the raw line number), so a rerun finding the same defect links the existing entity instead of duplicating it
-- **Nits** (no action required): bullet list
+- **Withdrawn findings**: original concern, refuting evidence and report-only disposition; zero edits and zero tracker writes
 
 ### J. Verdict
 **PASS** / **PASS-with-triage** / **FAIL**
@@ -170,7 +159,7 @@ One paragraph summarizing the state of the PR, what is good, and what must chang
 - [ ] Reuse search findings cite at least one grep result (even "no duplicates found")
 - [ ] If a structural sibling check was triggered, the sibling inventory table is in section C
 - [ ] Standards crosswalk cites real sections (no fabricated citations)
-- [ ] Rubric scores are justified with evidence
-- [ ] Verdict matches findings: PASS only if zero; PASS-with-triage if no blockers; FAIL otherwise
+- [ ] No per-file score or preference-only item creates a finding
+- [ ] Every finding has an impact, consequence and evidence; verdict matches actionable findings
 - [ ] Clean PASS returns only the compact PASS report, not the full section set
-- [ ] Do NOT block for: stylistic preferences within acceptable bounds, pre-existing issues the task didn't substantially worsen, minor optimizations, naming nits when standards are met, missing nice-to-have tests, file-organization preferences without concrete maintainability impact
+- [ ] Do NOT block for: pre-existing issues the task didn't substantially worsen, minor optimizations, missing nice-to-have tests, file-organization preferences without concrete maintainability impact

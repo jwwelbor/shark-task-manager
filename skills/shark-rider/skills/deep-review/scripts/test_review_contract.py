@@ -22,7 +22,7 @@ const run = new (Object.getPrototypeOf(async function(){}).constructor)('args','
 const fixture = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const test = fixture.cases.find(c => c.name === process.argv[3]);
 const id = fixture.identity;
-const angle = {candidate_identity:id, reviewed_files:['file','context'], findings:[]};
+const angle = {review_contract_version:2, candidate_identity:id, reviewed_files:['file','context'], findings:[]};
 const parallel = async () => [{...angle,findings:test.raw_findings}, angle, angle, angle, angle, angle];
 const agent = async () => ({report:'Scope: all candidate files and production callers. Findings: reviewed with evidence and disposition. VERDICT: '+(test.verdict || 'PASS'), decisions:test.decisions});
 const args = {diff_path:'diff',skill_dir:'skill',candidate_commit:id.commit,candidate_tree:id.tree,diff_sha256:id.diff_sha256,repair_plan_sha256:id.repair_plan_sha256,entity_type:'bug',repair_context:{plan:'plan',plan_revision:'sha256:'+id.repair_plan_sha256,research:'research',coverage:'coverage',prior_findings:[]},changed_files:fixture.files};

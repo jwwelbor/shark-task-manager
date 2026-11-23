@@ -19,7 +19,8 @@
           "diff_sha256": "diff",
           "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
-        "findings": []
+        "findings": [],
+        "review_contract_version": 2
       },
       "valid": true
     },
@@ -32,7 +33,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -42,7 +44,8 @@
           "diff_sha256": "diff",
           "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
-        "findings": []
+        "findings": [],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -55,7 +58,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -74,9 +78,11 @@
             "disposition": "open",
             "reason": "not refuted",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -89,7 +95,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -108,9 +115,11 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -123,7 +132,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -142,9 +152,11 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": true
     },
@@ -157,7 +169,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -176,7 +189,8 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           },
           {
             "file": "file",
@@ -186,9 +200,11 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -201,7 +217,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -220,9 +237,11 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -235,7 +254,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -254,9 +274,11 @@
             "disposition": "refuted",
             "reason": "NOT REFUTED",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -269,7 +291,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -288,9 +311,11 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -303,7 +328,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -322,9 +348,11 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -337,7 +365,8 @@
           "severity": "non-blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -347,7 +376,8 @@
           "diff_sha256": "diff",
           "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
-        "findings": []
+        "findings": [],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -360,7 +390,8 @@
           "severity": "non-blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -379,9 +410,11 @@
             "disposition": "open",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false
     },
@@ -394,7 +427,8 @@
           "severity": "non-blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -413,9 +447,11 @@
             "disposition": "refuted",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": true
     },
@@ -428,7 +464,8 @@
           "severity": "non-blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -447,9 +484,11 @@
             "disposition": "open",
             "reason": "evidence disproves it",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": true,
       "verdict": "PASS-with-triage"
@@ -463,7 +502,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -482,9 +522,11 @@
             "disposition": "open",
             "reason": "not refuted",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false,
       "verdict": "PASS-with-triage"
@@ -498,7 +540,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -517,9 +560,11 @@
             "disposition": "open",
             "reason": "Caller evidence bounds impact; retain for triage.",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": true,
       "verdict": "PASS-with-triage"
@@ -533,7 +578,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -552,9 +598,11 @@
             "disposition": "open",
             "reason": "Caller evidence bounds impact; retain for triage.",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false,
       "verdict": "PASS"
@@ -568,7 +616,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -587,9 +636,11 @@
             "disposition": "open",
             "reason": "   ",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false,
       "verdict": "PASS-with-triage"
@@ -603,7 +654,8 @@
           "severity": "blocker",
           "rule": "BUG",
           "summary": "broken",
-          "diagnosis": "wrong"
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
         }
       ],
       "decisions": {
@@ -622,9 +674,11 @@
             "disposition": "refuted",
             "reason": "Impact is low but finding is real.",
             "rule": "BUG",
-            "diagnosis": "wrong"
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation"
           }
-        ]
+        ],
+        "review_contract_version": 2
       },
       "valid": false,
       "verdict": "PASS-with-triage"

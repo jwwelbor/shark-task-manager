@@ -33,7 +33,7 @@ The report written to `code_review_report_path` should contain:
 3. Reuse opportunities
 4. Standards crosswalk
 5. Tests review
-6. Quality rubric
+6. Risk hotspots
 7. Risk hotspots
 8. Codex red-team
 9. Production caller chains

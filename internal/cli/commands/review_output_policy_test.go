@@ -143,7 +143,7 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 			name: "consolidator compact pass contract",
 			path: filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md"),
 			want: []string{
-				"If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 non-blockers / 0 nits, write a compact saved report only.",
+				"If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 actionable non-blockers, write a compact saved report only.",
 				"`0 defects found`",
 				"For **PASS-with-triage** or **FAIL**, produce the full detailed report below.",
 			},

@@ -370,15 +370,19 @@ def _matching_identity(identity, scope):
     return isinstance(identity, dict) and all(identity.get(key) == value for key, value in _review_identity(scope).items())
 
 
-def _valid_finding(finding, fields):
+def _valid_finding(finding, fields, *, require_impact=False):
     if not isinstance(finding, dict) or finding.get("severity") not in {"blocker", "non-blocker", "nit"}:
         return False
     if type(finding.get("line")) is not int or finding["line"] < 1:
         return False
-    return all(isinstance(finding.get(key), str) and finding[key] for key in fields)
+    if not all(isinstance(finding.get(key), str) and finding[key] for key in fields):
+        return False
+    return not require_impact or isinstance(finding.get("impact"), str) and bool(finding["impact"].strip())
 
 
 def _angle_findings(name, result, scope):
+    if not isinstance(result, dict) or result.get("review_contract_version") != 2:
+        raise ValueError(f"angle {name} uses an unsupported review contract")
     identity = result.get("candidate_identity") if isinstance(result, dict) else None
     if not _matching_identity(identity, scope):
         raise ValueError(f"angle {name} has missing or mismatched candidate identity")
@@ -387,7 +391,7 @@ def _angle_findings(name, result, scope):
     if not isinstance(files, list) or not all(isinstance(item, str) for item in files) or not set(scope["changed_files"]).issubset(files) or not isinstance(findings, list):
         raise ValueError(f"angle {name} has incomplete coverage or malformed findings")
     for finding in findings:
-        if not _valid_finding(finding, ("file", "rule", "summary", "diagnosis")):
+        if finding.get("severity") == "nit" or not _valid_finding(finding, ("file", "rule", "summary", "diagnosis"), require_impact=True):
             raise ValueError(f"angle {name} has malformed finding")
     return findings
 
@@ -407,7 +411,7 @@ def _finding_key(finding):
 
 
 def _validate_decision(finding, verdict):
-    if not _valid_finding(finding, ("file", "rule", "summary", "diagnosis", "disposition", "reason")):
+    if finding.get("severity") == "nit" or not _valid_finding(finding, ("file", "rule", "summary", "diagnosis", "disposition", "reason"), require_impact=True):
         raise ValueError("malformed review decision")
     if not finding["disposition"].strip() or not finding["reason"].strip():
         raise ValueError("review decision requires a disposition and reason")
@@ -438,6 +442,8 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
     """Bind explicit dispositions to the candidate and every reported blocker."""
     if not isinstance(decisions, dict) or not isinstance(decisions.get("candidate_identity"), dict):
         raise ValueError("review decisions require candidate identity")
+    if decisions.get("review_contract_version") != 2:
+        raise ValueError("review decisions require impact-based contract version 2")
     if not _matching_identity(decisions["candidate_identity"], scope):
         raise ValueError("review decisions identify a different candidate or plan")
     findings = decisions.get("findings")
@@ -504,6 +510,10 @@ def _display(metadata, key, fallback):
 
 
 def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
+    requested_model = metadata.get("requested_model")
+    if requested_model is None:
+        requested_model = ""
+    effective_model = metadata.get("effective_model") or "unknown"
     fields = [
         f"**Generated:** {metadata['generated']} · **Tool:** `/deep-review` ({metadata['runner_mode']}) · **Branch:** `{branch}`",
         f"**Runner metadata:** `runner_mode={metadata['runner_mode']}` `specialists_completed={metadata['specialists_completed']}` `consolidator_completed={metadata['consolidator_completed']}`",
@@ -516,7 +526,8 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
         f"**Retained scope SHA-256:** `{_display(metadata, 'scope_sha256', 'unavailable')}`",
         f"**Review decisions:** `{_display(metadata, 'retained_decisions', 'unavailable')}`",
         f"**Review decisions SHA-256:** `{_display(metadata, 'decisions_sha256', 'unavailable')}` · **Angle results SHA-256:** `{_display(metadata, 'angles_sha256', 'unavailable')}`",
-        f"**Requested model:** `{_display(metadata, 'requested_model', 'unknown')}` · **Verified effective model:** `{_display(metadata, 'effective_model', 'unknown')}`",
+        f"**Review contract:** `{metadata.get('review_contract_version', 2)}`",
+        f"**Requested model:** `{requested_model}` · **Verified effective model:** `{effective_model}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
     return "# Overall Code Review\n\n" + "\n".join(fields) + "\n\n---\n\n"
@@ -568,7 +579,8 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
 def _cli_prompt(args, scope):
     prompt = read_review_file(args.prompt_file, 2 * 1024 * 1024).decode("utf-8")
     prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity and findings). "
-    prompt += "Each finding must have file, positive integer line, severity, rule, summary, diagnosis, disposition and a nonempty reason. "
+    prompt += "Set review_contract_version to 2. Each finding must have file, positive integer line, severity (blocker or non-blocker), rule, summary, diagnosis, impact naming the affected user/caller, behavior, invariant, documented standard or maintenance operation and its consequence, evidence, disposition and a nonempty reason. Omit preference-only findings. "
+    prompt += "Preserve requested/effective model metadata and any existing cost/accounting metadata unchanged. "
     prompt += "Use disposition refuted only for a blocker conclusively disproved. Use an empty findings array only when none were found. "
     prompt += "When a report uses a FINDING_DETAIL footer, its F-number must be the matching retained decision's finding_id, and its severity and disposition must match. "
     return prompt + "The exact candidate_identity is: " + json.dumps(_review_identity(scope))
@@ -628,6 +640,7 @@ def run_cli(args: argparse.Namespace) -> int:
     now = datetime.now(timezone.utc).isoformat()
     base = {
         "generated": now,
+        "review_contract_version": 2,
         "runner_mode": choice["runner_mode"],
         "specialists_completed": 0,
         "consolidator_completed": False,
@@ -758,6 +771,7 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
 def _writer_metadata(args):
     return {
         "generated": datetime.now(timezone.utc).isoformat(),
+        "review_contract_version": 2,
         "runner_mode": args.runner_mode,
         "specialists_completed": args.specialists_completed,
         "consolidator_completed": args.consolidator_completed,

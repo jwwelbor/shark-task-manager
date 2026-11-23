@@ -65,7 +65,7 @@ Flag a **blocker** when the diff changes an established architecture or workflow
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "REMOVED-BEHAVIOR|SRP|OCP|LSP|ISP|DIP|ARCHITECTURE",
       "summary": "one-sentence description",
       "diagnosis": "what invariant or principle is violated",

@@ -87,7 +87,7 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "CONTRACT|SIBLING|ROUNDTRIP",
       "summary": "one-sentence description",
       "diagnosis": "what contract is broken, what sibling pattern is violated, or which write/read paths diverge",
