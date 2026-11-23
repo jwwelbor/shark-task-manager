@@ -162,7 +162,7 @@ const run = new (Object.getPrototypeOf(async function(){}).constructor)('args','
 const identity = {commit:scope.candidate_commit, tree:scope.candidate_tree, diff_sha256:scope.diff_sha256, repair_plan_sha256:scope.repair_plan_sha256};
 const angle = {candidate_identity:identity, reviewed_files:[...scope.changed_files,'supplemental-context'], findings:[]};
 const parallel = async () => Array(6).fill(angle);
-const agent = async () => ({report:'Scope: reviewed every changed file and associated callers. Findings: no blocking defects. **Verdict:** PASS', decisions:{candidate_identity:identity,findings:[]}});
+const agent = async () => ({report:'Scope: reviewed every changed file and associated callers. Findings: no blocking defects. **Verdict:** PASS', decisions:{candidate_identity:identity,reviewed_files:[...scope.changed_files],findings:[]}});
 const args = {...scope, skill_dir:'fixture', entity_type:'bug', repair_context:{plan:'plan',plan_revision:'sha256:'+scope.repair_plan_sha256,research:'research',coverage:'coverage',prior_findings:[]}};
 run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringify(r))).catch(e=>{console.error(e);process.exit(1)});
 `
@@ -266,6 +266,40 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliScopeHash := sha256.Sum256(cliScope)
 	cliScopeRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/cli-report.md.scope.json","summary":"sha256:%x"}`, cliScopeHash)
 	require.NoError(t, verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + decisionRef)}))
+	// QA replays the prior CLI receipt. A complete identity and refreshed hashes
+	// must not make a receipt pass when its reviewer inspected only one of the
+	// frozen changed files. Keep the original accepted receipt byte-for-byte.
+	cliDecisionBytes, err := os.ReadFile(cliReportPath + ".decisions.json")
+	require.NoError(t, err)
+	var cliDecisions map[string]any
+	require.NoError(t, json.Unmarshal(cliDecisionBytes, &cliDecisions))
+	require.GreaterOrEqual(t, len(captured.ChangedFiles), 2)
+	reviewed := cliDecisions["reviewed_files"].([]any)
+	for _, changed := range captured.ChangedFiles {
+		require.Contains(t, reviewed, changed)
+	}
+	cliDecisions["reviewed_files"] = []string{captured.ChangedFiles[0]}
+	partialDecisionBytes, err := json.Marshal(cliDecisions)
+	require.NoError(t, err)
+	partialDecisionPath := ".shark/qa-omission.decisions.json"
+	require.NoError(t, os.WriteFile(filepath.Join(root, partialDecisionPath), partialDecisionBytes, 0600))
+	partialDecisionHash := sha256.Sum256(partialDecisionBytes)
+	partialDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":"%s","summary":"sha256:%x"}`, partialDecisionPath, partialDecisionHash)
+	oldDecisionHash := sha256.Sum256(cliDecisionBytes)
+	partialReport := strings.Replace(string(cliReport), fmt.Sprintf("**Review decisions SHA-256:** `%x`", oldDecisionHash), fmt.Sprintf("**Review decisions SHA-256:** `%x`", partialDecisionHash), 1)
+	require.NotEqual(t, string(cliReport), partialReport)
+	partialReportPath := ".shark/qa-omission.md"
+	require.NoError(t, os.WriteFile(filepath.Join(root, partialReportPath), []byte(partialReport), 0600))
+	partialReportHash := sha256.Sum256([]byte(partialReport))
+	partialReportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, partialReportPath, partialReportHash)
+	err = verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "qa-omission"), EnvelopeJSON: envelope(cliScopeRef + "," + partialReportRef + "," + partialDecisionRef)})
+	require.ErrorContains(t, err, "coverage incomplete")
+	retainedCLIReport, err := os.ReadFile(cliReportPath)
+	require.NoError(t, err)
+	retainedCLIDecisions, err := os.ReadFile(cliReportPath + ".decisions.json")
+	require.NoError(t, err)
+	require.Equal(t, cliReport, retainedCLIReport)
+	require.Equal(t, cliDecisionBytes, retainedCLIDecisions)
 	for _, tc := range []struct{ old, replacement string }{
 		{"**Adversarial model:** `codex`", "**Adversarial model:** ``"},
 		{"**Adversarial model:** `codex`", "**Adversarial model:** `unknown`"},
