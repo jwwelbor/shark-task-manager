@@ -84,6 +84,10 @@ type GateIngestRequest struct {
 	// IngestGateResult owns deciding this the same way it already decides
 	// RetirementConfirmed.
 	RunConcluded bool
+	// ParentObservationInjected records that the host adapter appended
+	// parent-owned observations after the worker returned. It is not decoded
+	// from the worker envelope.
+	ParentObservationInjected bool
 }
 
 // GateIngestResult reports what IngestGateResult did, for the caller's own
@@ -193,25 +197,26 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 	}
 
 	persisted, err := req.Coordinator.Persist(ctx, gatepersist.Request{
-		RunDir:              runDir,
-		EvidenceRoot:        evidenceRoot,
-		PlanRoot:            planRoot,
-		PlanCommit:          planCommit,
-		PlanBlob:            planBlob,
-		RunID:               req.RunID,
-		EntityKey:           req.EntityKey,
-		EntityType:          req.EntityType,
-		SourceStatus:        req.SourceStatus,
-		Gate:                req.Gate,
-		Session:             req.Session,
-		EnvelopeJSON:        req.EnvelopeBytes,
-		Result:              result,
-		Role:                role,
-		OutcomeKey:          env.RecommendedOutcome,
-		Evidence:            evidenceJSON,
-		TargetStatus:        targetStatus,
-		RetirementConfirmed: req.RetirementConfirmed,
-		RunConcluded:        req.RunConcluded,
+		RunDir:                    runDir,
+		EvidenceRoot:              evidenceRoot,
+		PlanRoot:                  planRoot,
+		PlanCommit:                planCommit,
+		PlanBlob:                  planBlob,
+		RunID:                     req.RunID,
+		EntityKey:                 req.EntityKey,
+		EntityType:                req.EntityType,
+		SourceStatus:              req.SourceStatus,
+		Gate:                      req.Gate,
+		Session:                   req.Session,
+		EnvelopeJSON:              req.EnvelopeBytes,
+		Result:                    result,
+		Role:                      role,
+		OutcomeKey:                env.RecommendedOutcome,
+		Evidence:                  evidenceJSON,
+		TargetStatus:              targetStatus,
+		RetirementConfirmed:       req.RetirementConfirmed,
+		RunConcluded:              req.RunConcluded,
+		ParentObservationInjected: req.ParentObservationInjected,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gate ingestion: persist gate_result: %w", err)

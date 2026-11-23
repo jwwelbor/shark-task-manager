@@ -86,7 +86,7 @@ func validateBugEvidenceRef(ref workercontrol.EvidenceRef) ([]byte, error) {
 }
 func bugEvidenceLimit(kind string) int64 {
 	switch kind {
-	case "bug_review_scope", "bug_review_report", "bug_review_decisions", "bug_review_angles":
+	case "bug_review_scope", "bug_review_report", "bug_review_decisions", "bug_review_angles", "bug_review_material_impacts", "bug_review_material_dispositions", "bug_parent_triage_observation":
 		return projectdocs.MaxDocumentBytes
 	default:
 		return 2 * 1024 * 1024

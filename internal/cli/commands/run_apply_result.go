@@ -10,8 +10,12 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -25,13 +29,15 @@ import (
 )
 
 var (
-	runApplyResultPath string
-	runApplyRunID      string
+	runApplyResultPath             string
+	runApplyRunID                  string
+	runParentTriageObservationPath string
 )
 
 func init() {
 	runCmd.Flags().StringVar(&runApplyResultPath, "apply-result", "", "Path to a worker-control envelope file to ingest for this entity (T-E34-F05-004); requires --run-id and --session")
 	runCmd.Flags().StringVar(&runApplyRunID, "run-id", "", "Durable run_id for --apply-result")
+	runCmd.Flags().StringVar(&runParentTriageObservationPath, "parent-triage-observation", "", "Parent-created triage observation sidecar under this run's .shark/runs directory; never worker evidence")
 }
 
 // resolveApplyResultWorkflowService is the production wiring runApplyResult
@@ -139,16 +145,17 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 	}
 
 	result, err := applyResultIngest(cmd.Context(), applyResultDeps{
-		Transitioner: transitioner,
-		Coordinator:  coordinator,
-		ProjectRoot:  projectRoot,
-		WorkingDir:   runWorkDir,
-		RunID:        runApplyRunID,
-		EntityType:   entityType,
-		EntityKey:    entityKey,
-		SessionID:    runSession,
-		OutcomeRoles: applyResultOutcomeRolesOverride,
-		WorkflowSvc:  resolveApplyResultWorkflowService(entityType),
+		Transitioner:          transitioner,
+		Coordinator:           coordinator,
+		ProjectRoot:           projectRoot,
+		WorkingDir:            runWorkDir,
+		RunID:                 runApplyRunID,
+		EntityType:            entityType,
+		EntityKey:             entityKey,
+		SessionID:             runSession,
+		ParentObservationPath: runParentTriageObservationPath,
+		OutcomeRoles:          applyResultOutcomeRolesOverride,
+		WorkflowSvc:           resolveApplyResultWorkflowService(entityType),
 	}, envelopeBytes)
 	if err != nil {
 		return fmt.Errorf("apply-result ingestion failed: %w", err)
@@ -172,15 +179,16 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 // test). runApplyResult builds real ones from cli's global service
 // accessors and buildTransitioner.
 type applyResultDeps struct {
-	Transitioner runner.EntityTransitioner
-	Coordinator  *gatepersist.Coordinator
-	ProjectRoot  string
-	WorkingDir   string
-	RunID        string
-	EntityType   string
-	EntityKey    string
-	SessionID    string
-	OutcomeRoles map[string]gateresult.OutcomeRole
+	Transitioner          runner.EntityTransitioner
+	Coordinator           *gatepersist.Coordinator
+	ProjectRoot           string
+	WorkingDir            string
+	RunID                 string
+	EntityType            string
+	EntityKey             string
+	SessionID             string
+	ParentObservationPath string
+	OutcomeRoles          map[string]gateresult.OutcomeRole
 
 	// WorkflowSvc resolves whether the ingested gate result's target status
 	// is terminal, mirroring internal/runner/controller.go's
@@ -207,6 +215,23 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 	if deps.WorkflowSvc == nil {
 		return nil, fmt.Errorf("apply-result ingestion: WorkflowSvc dependency is required to resolve terminal status")
 	}
+	if deps.ParentObservationPath != "" {
+		var err error
+		envelopeBytes, err = attachParentTriageObservation(deps.ProjectRoot, deps.RunID, deps.ParentObservationPath, envelopeBytes)
+		if err != nil {
+			return nil, fmt.Errorf("attach parent triage observation: %w", err)
+		}
+	} else {
+		envelope, err := workercontrol.Decode(envelopeBytes)
+		if err != nil {
+			return nil, err
+		}
+		for _, ref := range envelope.Evidence {
+			if ref.Kind == "bug_parent_triage_observation" {
+				return nil, fmt.Errorf("worker envelope cannot supply parent triage observation")
+			}
+		}
+	}
 
 	nextInfo, err := deps.Transitioner.GetNextStatus(ctx, deps.EntityKey)
 	if err != nil {
@@ -224,18 +249,19 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 	}
 
 	baseReq := runner.GateIngestRequest{
-		EnvelopeBytes: envelopeBytes,
-		Coordinator:   deps.Coordinator,
-		ProjectRoot:   deps.ProjectRoot,
-		WorkingDir:    deps.WorkingDir,
-		RunID:         deps.RunID,
-		EntityKey:     deps.EntityKey,
-		EntityType:    models.EntityType(deps.EntityType),
-		SourceStatus:  nextInfo.CurrentStatus,
-		Gate:          nextInfo.CurrentStatus,
-		Session:       gatepersist.Session{ID: deps.SessionID},
-		OutcomeRoles:  outcomeRoles,
-		Outcomes:      nextInfo.Outcomes,
+		EnvelopeBytes:             envelopeBytes,
+		Coordinator:               deps.Coordinator,
+		ProjectRoot:               deps.ProjectRoot,
+		WorkingDir:                deps.WorkingDir,
+		RunID:                     deps.RunID,
+		EntityKey:                 deps.EntityKey,
+		EntityType:                models.EntityType(deps.EntityType),
+		SourceStatus:              nextInfo.CurrentStatus,
+		Gate:                      nextInfo.CurrentStatus,
+		Session:                   gatepersist.Session{ID: deps.SessionID},
+		OutcomeRoles:              outcomeRoles,
+		Outcomes:                  nextInfo.Outcomes,
+		ParentObservationInjected: deps.ParentObservationPath != "",
 	}
 
 	req := baseReq
@@ -268,6 +294,38 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 	}
 
 	return result, nil
+}
+
+func attachParentTriageObservation(projectRoot, runID, path string, envelopeBytes []byte) ([]byte, error) {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return nil, err
+	}
+	expectedPath := filepath.Join(runDir, "parent-triage-observation.json")
+	actualPath, err := filepath.Abs(path)
+	if err != nil || actualPath != expectedPath {
+		return nil, fmt.Errorf("parent observation must be at the run-scoped parent-triage-observation.json path")
+	}
+	data, err := gaterun.ReadBoundedRegularFile(actualPath, 64*1024)
+	if err != nil {
+		return nil, err
+	}
+	envelope, err := workercontrol.Decode(envelopeBytes)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range envelope.Evidence {
+		if ref.Kind == "bug_parent_triage_observation" {
+			return nil, fmt.Errorf("worker envelope cannot supply parent triage observation")
+		}
+	}
+	digest := sha256.Sum256(data)
+	relative, err := filepath.Rel(projectRoot, actualPath)
+	if err != nil {
+		return nil, err
+	}
+	envelope.Evidence = append(envelope.Evidence, workercontrol.EvidenceRef{Kind: "bug_parent_triage_observation", Pointer: filepath.ToSlash(relative), Summary: "sha256:" + hex.EncodeToString(digest[:])})
+	return json.Marshal(envelope)
 }
 
 type applyResultOutput struct {

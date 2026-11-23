@@ -95,7 +95,10 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 		return err
 	}
 	if !six {
-		return nil
+		if err := validateBugReviewMaterialImpacts(req, scope, header, body); err != nil {
+			return err
+		}
+		return validateBugParentTriageObservation(req, scope, decisions)
 	}
 	_, angleData, err := readBugEvidence(req, "bug_review_angles")
 	if err != nil {
@@ -104,7 +107,13 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 	if err := verifyReviewArtifactHash(header, "Angle results", angleData); err != nil {
 		return err
 	}
-	return validateBugReviewAngles(angleData, scope, decisions, verdict)
+	if err := validateBugReviewAngles(angleData, scope, decisions, verdict); err != nil {
+		return err
+	}
+	if err := validateBugReviewMaterialImpacts(req, scope, header, body); err != nil {
+		return err
+	}
+	return validateBugParentTriageObservation(req, scope, decisions)
 }
 
 func requireBugFindingDecisions(body string, decisions map[bugFindingKey]bugReviewDecision) error {

@@ -462,6 +462,13 @@ func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRo
 	priorRequest := req
 	priorRequest.EnvelopeJSON = data
 	priorRequest.EvidenceRoot = evidenceRoot
+	if spec.gate == "code_review" {
+		prior, decodeErr := workercontrol.Decode(data)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		priorRequest.ParentObservationInjected = hasBugEvidence(prior.Evidence, "bug_parent_triage_observation")
+	}
 	if spec.gate == "plan_review" {
 		return compareBugBaselines(req, priorRequest)
 	}
@@ -469,8 +476,21 @@ func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRo
 		if err := verifyBugReviewEvidence(priorRequest); err != nil {
 			return fmt.Errorf("prior code review evidence: %w", err)
 		}
+		for _, kind := range []string{"bug_review_material_impacts", "bug_review_material_dispositions", "bug_parent_triage_observation"} {
+			if hasBugEvidence(prior.Evidence, kind) && !matchingBugEvidence(current.Evidence, prior.Evidence, kind) {
+				return fmt.Errorf("current %s evidence was not approved at prior gate", kind)
+			}
+		}
 	}
 	return nil
+}
+func hasBugEvidence(evidence []workercontrol.EvidenceRef, kind string) bool {
+	for _, ref := range evidence {
+		if ref.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 func matchingBugEvidence(current, prior []workercontrol.EvidenceRef, kind string) bool {
 	for _, a := range current {

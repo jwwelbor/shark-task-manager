@@ -202,6 +202,33 @@ verb, not a separate command:
 shark run <entity-key> --apply-result <path-to-envelope-file> --run-id <run-id> --session <session-id>
 ```
 
+For a bug review that records a report-only Nit, the parent host writes its
+observed zero-edit, zero-tracker-write disposition to
+`.shark/runs/<run-id>/parent-triage-observation.json` and supplies that exact
+run-scoped file with `--parent-triage-observation`. The apply-result adapter
+adds a digest-bound `bug_parent_triage_observation` reference to the envelope
+before ingestion. The worker cannot supply this evidence; admission binds it
+to the candidate and finding IDs. Without the parent observation, a
+PASS-WITH-TRIAGE result containing a report-only Nit is rejected.
+
+The parent observation file has this bounded shape (candidate values and
+finding IDs come from the accepted review scope and decisions):
+
+```json
+{
+  "candidate_identity": {
+    "commit": "<full commit>",
+    "tree": "<tree hash>",
+    "diff_sha256": "<hex digest>",
+    "repair_plan_sha256": "<hex digest>"
+  },
+  "observed_by": "parent",
+  "actions": [
+    {"finding_id": "F-1", "action": "report_only", "edits": 0, "tracker_writes": 0}
+  ]
+}
+```
+
 All three flags are required together. Omitting `--session` fails with
 `--apply-result requires --session=<authorized-session-id>` before the file
 is even read. `--session` must name the **currently active** claim/lease

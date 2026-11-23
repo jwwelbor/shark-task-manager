@@ -29,7 +29,7 @@ func TestBugEvidenceLimitsDistinguishPlansAndReviewArtifacts(t *testing.T) {
 	require.NoError(t, file.Close())
 	_, err = readBoundedBugEvidence(root, "evidence", bugEvidenceLimit("bug_repair_plan"))
 	require.Error(t, err)
-	for _, kind := range []string{"bug_review_scope", "bug_review_report", "bug_review_decisions", "bug_review_angles"} {
+	for _, kind := range []string{"bug_review_scope", "bug_review_report", "bug_review_decisions", "bug_review_angles", "bug_review_material_impacts", "bug_review_material_dispositions"} {
 		_, err = readBoundedBugEvidence(root, "evidence", bugEvidenceLimit(kind))
 		require.NoError(t, err, kind)
 	}

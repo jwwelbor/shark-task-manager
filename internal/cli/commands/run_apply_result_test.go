@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,8 +16,32 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+func TestAttachParentTriageObservationIsRunScopedAndParentInjected(t *testing.T) {
+	root := t.TempDir()
+	runDir := filepath.Join(root, ".shark", "runs", "run-1")
+	require.NoError(t, os.MkdirAll(runDir, 0o700))
+	observation := []byte(`{"candidate_identity":{"commit":"c","tree":"t","diff_sha256":"d","repair_plan_sha256":"p"},"observed_by":"parent","actions":[]}`)
+	path := filepath.Join(runDir, "parent-triage-observation.json")
+	require.NoError(t, os.WriteFile(path, observation, 0o600))
+	envelope := []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"ok"}}`)
+	got, err := attachParentTriageObservation(root, "run-1", path, envelope)
+	require.NoError(t, err)
+	decoded, err := workercontrol.Decode(got)
+	require.NoError(t, err)
+	require.Len(t, decoded.Evidence, 1)
+	require.Equal(t, "bug_parent_triage_observation", decoded.Evidence[0].Kind)
+	require.Equal(t, ".shark/runs/run-1/parent-triage-observation.json", decoded.Evidence[0].Pointer)
+	require.Contains(t, decoded.Evidence[0].Summary, "sha256:")
+	_, err = attachParentTriageObservation(root, "run-1", filepath.Join(root, "worker.json"), envelope)
+	require.ErrorContains(t, err, "run-scoped")
+	workerEnvelope := []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_parent_triage_observation","pointer":"fake.json"}],"gate_result":{"schema_version":1,"summary":"ok"}}`)
+	_, err = attachParentTriageObservation(root, "run-1", path, workerEnvelope)
+	require.ErrorContains(t, err, "cannot supply parent")
+}
 
 // The fakes below are local, minimal implementations of
 // runner.EntityTransitioner and gatepersist's injected interfaces, built for

@@ -59,6 +59,18 @@ The parent loop owns the lease and every status transition. Per spawned step:
    never prevents release.
 5. Parent releases the lease on every success, failure, or exception path.
 
+For bug code review, inspect any candidate-bound `bug_review_material_dispositions`
+packet before accepting PASS-WITH-TRIAGE. When it records a report-only Nit,
+the parent itself must verify the original concern, evidence refuting its
+blocker rationale, and zero-edit/zero-tracker-write host disposition. Write
+that observation to the run-scoped
+`.shark/runs/<run-id>/parent-triage-observation.json`, bound to the frozen
+candidate and finding IDs, then pass it through the run result-application
+adapter with the parent-observation option. Never accept a
+worker-supplied `bug_parent_triage_observation` reference. The apply-result
+adapter injects the parent file into the accepted envelope; without it,
+admission rejects the downgraded-Nit result.
+
 The child never claims, advances, releases, or heartbeats.
 
 ## Roots vs collections
