@@ -22,7 +22,7 @@ const angle = {candidate_identity:{commit:'abc',tree:'tree',diff_sha256:'hash',r
 const parallel = async funcs => mode === 'context' ? Promise.all(funcs.map(f => f())) : mode === 'missing' ? [angle, angle, null, angle, angle, angle] :
   mode === 'malformed' ? [angle, angle, {}, angle, angle, angle] :
   mode === 'empty' ? [angle, angle, {...angle, reviewed_files: []}, angle, angle, angle] :
-  mode === 'partial_one_angle' ? [angle, angle, {...angle, reviewed_files: ['file']}, angle, angle, angle] :
+  mode === 'partial_one_angle' ? [angle, angle, {...angle, reviewed_files: ['file'], findings:[{file:'second', line:1, severity:'blocker', rule:'RISK', summary:'omitted file finding', diagnosis:'named by finding but not inspected'}]}, angle, angle, angle] :
   mode === 'identity' ? [angle, angle, {...angle, candidate_identity: {...angle.candidate_identity, tree:'wrong'}}, angle, angle, angle] :
   ['blocker','open','refuted','fail_missing','fail_open'].includes(mode) ? [{...angle, findings:[{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken'}]}, angle, angle, angle, angle, angle] : Array(6).fill(angle);
 const agent = async (prompt, options) => {

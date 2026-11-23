@@ -241,7 +241,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             angles = root / 'angles.json'
             angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
             decisions = root / 'decisions.json'
-            decisions.write_text(json.dumps({'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']), 'findings': []}))
+            decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
             body = root / 'body'
             body.write_text(review_packet(scope)['report'])
             report = root / 'report'

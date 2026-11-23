@@ -83,15 +83,15 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 		return err
 	}
 	verdict := bugReviewVerdict.FindStringSubmatch(header)[1]
-	decisions, err := validateBugReviewDecisions(decisionData, scope, verdict)
+	six, err := bugReviewRunnerIsSix(header)
+	if err != nil {
+		return err
+	}
+	decisions, err := validateBugReviewDecisions(decisionData, scope, verdict, !six)
 	if err != nil {
 		return err
 	}
 	if err := requireBugFindingDecisions(body, decisions); err != nil {
-		return err
-	}
-	six, err := bugReviewRunnerIsSix(header)
-	if err != nil {
 		return err
 	}
 	if !six {

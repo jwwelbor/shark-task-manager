@@ -33,7 +33,7 @@ type bugReviewDecisions struct {
 	Findings          []bugReviewDecision `json:"findings"`
 }
 
-func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict string) (map[bugFindingKey]bugReviewDecision, error) {
+func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict string, requireReviewedFiles bool) (map[bugFindingKey]bugReviewDecision, error) {
 	var packet bugReviewDecisions
 	if err := json.Unmarshal(data, &packet); err != nil {
 		return nil, fmt.Errorf("invalid review decisions: %w", err)
@@ -42,19 +42,21 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 	if !id.matches(scope) {
 		return nil, fmt.Errorf("review decisions candidate or plan mismatch")
 	}
-	if packet.ReviewedFiles == nil {
-		return nil, fmt.Errorf("review decisions reviewed_files missing")
-	}
-	inspected := make(map[string]bool, len(packet.ReviewedFiles))
-	for _, file := range packet.ReviewedFiles {
-		if strings.TrimSpace(file) == "" {
-			return nil, fmt.Errorf("review decisions reviewed_files contains an empty path")
+	if requireReviewedFiles {
+		if packet.ReviewedFiles == nil {
+			return nil, fmt.Errorf("review decisions reviewed_files missing")
 		}
-		inspected[file] = true
-	}
-	for _, file := range scope.ChangedFiles {
-		if !inspected[file] {
-			return nil, fmt.Errorf("review decisions coverage incomplete")
+		inspected := make(map[string]bool, len(packet.ReviewedFiles))
+		for _, file := range packet.ReviewedFiles {
+			if strings.TrimSpace(file) == "" {
+				return nil, fmt.Errorf("review decisions reviewed_files contains an empty path")
+			}
+			inspected[file] = true
+		}
+		for _, file := range scope.ChangedFiles {
+			if !inspected[file] {
+				return nil, fmt.Errorf("review decisions coverage incomplete")
+			}
 		}
 	}
 	if packet.Findings == nil {

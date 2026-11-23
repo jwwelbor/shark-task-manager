@@ -434,17 +434,25 @@ def _resolved_raw_blocker(decision, verdict):
     return verdict.upper() == "PASS-WITH-TRIAGE" and decision["disposition"] != "refuted"
 
 
-def validate_review_decisions(decisions: object, scope: dict[str, object], raw_findings: list[dict[str, object]], verdict: str) -> None:
+def validate_review_decisions(
+    decisions: object,
+    scope: dict[str, object],
+    raw_findings: list[dict[str, object]],
+    verdict: str,
+    *,
+    require_reviewed_files: bool = True,
+) -> None:
     """Bind explicit dispositions to the candidate and every reported blocker."""
     if not isinstance(decisions, dict) or not isinstance(decisions.get("candidate_identity"), dict):
         raise ValueError("review decisions require candidate identity")
     if not _matching_identity(decisions["candidate_identity"], scope):
         raise ValueError("review decisions identify a different candidate or plan")
-    reviewed_files = decisions.get("reviewed_files")
-    changed_files = scope.get("changed_files")
-    if (not isinstance(reviewed_files, list) or not all(isinstance(item, str) and item.strip() for item in reviewed_files)
-            or not isinstance(changed_files, list) or not set(changed_files).issubset(reviewed_files)):
-        raise ValueError("review decisions have incomplete reviewed_files coverage")
+    if require_reviewed_files:
+        reviewed_files = decisions.get("reviewed_files")
+        changed_files = scope.get("changed_files")
+        if (not isinstance(reviewed_files, list) or not all(isinstance(item, str) and item.strip() for item in reviewed_files)
+                or not isinstance(changed_files, list) or not set(changed_files).issubset(reviewed_files)):
+            raise ValueError("review decisions have incomplete reviewed_files coverage")
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
@@ -749,7 +757,14 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
         if not args.review_decisions or scope_error:
             raise ValueError("completed review requires candidate-bound decisions")
         decisions = json.loads(read_review_file(args.review_decisions, 32 * 1024 * 1024).decode("utf-8"))
-        validate_review_decisions(decisions, metadata["_scope"], findings, args.verdict)
+        is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
+        validate_review_decisions(
+            decisions,
+            metadata["_scope"],
+            findings,
+            args.verdict,
+            require_reviewed_files=not is_six,
+        )
         _require_finding_decision(body, decisions)
         metadata["_decisions"] = decisions
     except (OSError, ValueError, KeyError, TypeError):
