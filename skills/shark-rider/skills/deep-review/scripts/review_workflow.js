@@ -98,6 +98,7 @@ const CONSOLIDATION_SCHEMA = {
       type: 'object',
       properties: {
         candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
+        reviewed_files: {type: 'array', items: {type: 'string'}},
         findings: {type: 'array', items: {
           type: 'object',
           properties: {
@@ -107,7 +108,7 @@ const CONSOLIDATION_SCHEMA = {
           required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'disposition', 'reason'],
         }},
       },
-      required: ['candidate_identity', 'findings'],
+      required: ['candidate_identity', 'reviewed_files', 'findings'],
     },
   },
   required: ['report', 'decisions'],
@@ -234,7 +235,7 @@ ${specContext}
 Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
 
 Read that file completely, then execute the consolidation and produce the compact-or-detailed markdown report it specifies.
-Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity and findings). Each decision must include file, positive integer line, severity, rule, summary, diagnosis, disposition, and a nonempty reason. Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. If the report uses a FINDING_DETAIL footer, its F-number must match the retained decision's finding_id and its severity and disposition must match. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
+Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity, reviewed_files and findings). Set reviewed_files to the union of paths actually inspected by the six angles, using REVIEWED_FILES_REPORTED_BY_ANGLES as evidence, and confirm that every frozen changed file is covered. Never copy the changed-file manifest into reviewed_files when angle evidence omits a path. Each decision must include file, positive integer line, severity, rule, summary, diagnosis, disposition, and a nonempty reason. Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. If evidence refutes a blocker and leaves only a stylistic preference, retain the concern, evidence and report-only no-action disposition; do not route it through host triage. A surviving substantive finding follows normal triage. If the report uses a FINDING_DETAIL footer, its F-number must match the retained decision's finding_id and its severity and disposition must match. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
 }
 const consolidatorPreamble = makeConsolidatorPreamble()
 
@@ -259,7 +260,9 @@ function findingKey(f) {
 }
 
 function validDecisionSet(value) {
-  if (!value || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
+  if (!value || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings) ||
+      !Array.isArray(value.reviewed_files) || value.reviewed_files.some(f => typeof f !== 'string' || !f.trim()) ||
+      !changedFiles.every(f => value.reviewed_files.includes(f))) return false
   return value.findings.every(validDecision) && new Set(value.findings.map(findingKey)).size === value.findings.length
 }
 

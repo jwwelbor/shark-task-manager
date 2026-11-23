@@ -29,6 +29,7 @@ type bugReviewDecision struct {
 }
 type bugReviewDecisions struct {
 	CandidateIdentity bugReviewIdentity   `json:"candidate_identity"`
+	ReviewedFiles     []string            `json:"reviewed_files"`
 	Findings          []bugReviewDecision `json:"findings"`
 }
 
@@ -40,6 +41,21 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 	id := packet.CandidateIdentity
 	if !id.matches(scope) {
 		return nil, fmt.Errorf("review decisions candidate or plan mismatch")
+	}
+	if packet.ReviewedFiles == nil {
+		return nil, fmt.Errorf("review decisions reviewed_files missing")
+	}
+	inspected := make(map[string]bool, len(packet.ReviewedFiles))
+	for _, file := range packet.ReviewedFiles {
+		if strings.TrimSpace(file) == "" {
+			return nil, fmt.Errorf("review decisions reviewed_files contains an empty path")
+		}
+		inspected[file] = true
+	}
+	for _, file := range scope.ChangedFiles {
+		if !inspected[file] {
+			return nil, fmt.Errorf("review decisions coverage incomplete")
+		}
 	}
 	if packet.Findings == nil {
 		return nil, fmt.Errorf("review decisions findings missing")

@@ -21,7 +21,7 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	angles["a"] = map[string]any{"candidate_identity": identity, "reviewed_files": []string{"a.go"}, "findings": []any{blocker}}
 	rawAngles, err := json.Marshal(angles)
 	require.NoError(t, err)
-	packet := map[string]any{"candidate_identity": identity, "findings": []any{}}
+	packet := map[string]any{"candidate_identity": identity, "reviewed_files": []string{"a.go"}, "findings": []any{}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
 	decisions, err := validateBugReviewDecisions(raw, scope, "PASS")
@@ -44,6 +44,29 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	decisions, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
 	require.NoError(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"))
+}
+
+func TestReviewDecisionsRequireCompleteInspectedFileManifest(t *testing.T) {
+	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff", ChangedFiles: []string{"a.go", "b.go"}}
+	packet := map[string]any{
+		"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"},
+		"reviewed_files":     []string{"a.go", "context.go"},
+		"findings":           []any{},
+	}
+	raw, err := json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS")
+	require.ErrorContains(t, err, "coverage incomplete")
+	packet["reviewed_files"] = []string{"a.go", "b.go", "context.go"}
+	raw, err = json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS")
+	require.NoError(t, err)
+	delete(packet, "reviewed_files")
+	raw, err = json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS")
+	require.ErrorContains(t, err, "reviewed_files missing")
 }
 
 func TestReviewDecisionConformanceFixtures(t *testing.T) {
@@ -145,7 +168,7 @@ func TestReportFindingBindsToItsDecision(t *testing.T) {
 func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
 	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff"}
 	body := "FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage"
-	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "triage", "reason": "tracked"}}}
+	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "reviewed_files": []string{}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "triage", "reason": "tracked"}}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
 	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")

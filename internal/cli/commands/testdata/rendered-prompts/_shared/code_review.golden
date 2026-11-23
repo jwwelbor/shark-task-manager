@@ -192,13 +192,22 @@ retains the lease, heartbeats, transitions and result ingestion.
 
 Freeze the complete scope, including unaccepted predecessor changes. Bind the
 review to the candidate tree, diff hash and manifest. Bind the accepted plan
-revision when applicable; bug repair reviews require it.
+revision when applicable; bug repair reviews require it. The comparable CLI
+decisions artifact must declare `reviewed_files` from files the reviewer
+actually inspected, and must cover every path in the frozen manifest. The
+writer and QA verifier reject a missing declaration or any omitted manifest
+path; never infer inspected files from the manifest or report.
 Record runner mode, completed specialists, consolidation, actual reviewer model,
 fallback reason, base commit and diff path. Record requested and verified
 effective execution identity separately; explicitly mark unknown identity.
 If scope or candidate changes, obtain fresh evidence. Preserve disagreements;
 justify any downgraded blocker with evidence that it does not mask a test bug,
-wiring gap or regressed obligation. Incomplete evidence cannot pass.
+wiring gap or regressed obligation. When that evidence refutes the blocking
+concern and leaves only a stylistic preference, preserve the original concern,
+the refutation evidence and the host's report-only no-action disposition. This
+ends triage for that finding: make no edits and no tracker writes. Continue
+normal triage for any surviving substantive finding. Incomplete evidence
+cannot pass.
 
 ### Step 11: Quality rubric (0-5 per dimension)
 
@@ -221,6 +230,13 @@ For every finding, label it:
 | **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, severe complexity in new code | `blockers` — host fails the review |
 | **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
 | **Nit** | Stylistic preference, opinion-level, debatable | `nits` — host puts in report only |
+
+When evidence refutes the blocking concern and only a stylistic preference remains,
+retain the original concern and evidence for the severity change, put the
+remaining preference in `nits`, and record the host disposition as report-only
+with no action. The host must not send that finding through the triage skill or
+write a tracker entity for it. If evidence leaves a substantive issue, classify
+and route that issue normally.
 
 The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. The fix-now gate may resolve a finding in place with no entity created at all; that counts as triaged. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. If the host's triage attempt fails for any reason (e.g., the target entity is in a state that doesn't accept new children, or the run is unattended and the decision tree's confirmation step has no one to answer it), it falls back to a feature-level note — that's a host concern, not a craft concern.
 
@@ -290,7 +306,7 @@ From `production_caller_chains` (Step 5). One sub-section per service-contract c
 ### J. Verdict
 
 - **PASS** — no findings of any severity.
-- **PASS-with-triage** — no blockers; non-blockers exist (host triages).
+- **PASS-with-triage** — no blockers; substantive non-blockers exist (host triages).
 - **FAIL** — one or more blockers; task returns to development.
 
 For the full report skeleton, see `../context/code-review-reference.md`.

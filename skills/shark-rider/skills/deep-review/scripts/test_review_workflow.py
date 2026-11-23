@@ -34,7 +34,7 @@ const agent = async (prompt, options) => {
   if (mode === 'consolidator_error') throw Error('failed consolidation');
   const report = mode.startsWith('detail_') ? ('CURRENT_REVIEW_STATUS: COMPLETE\nScope: all files. Findings: validation issue retained. VERDICT: PASS-WITH-TRIAGE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage' + (mode === 'detail_multi' ? '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage' : '')) : mode === 'fixture' ? process.argv[3] : mode === 'short' ? 'VERDICT: PASS' : mode === 'conflict' ? 'Scope and coverage: all files and callers inspected. Findings: conflicting report. VERDICT: PASS then VERDICT: FAIL' : mode.startsWith('fail_') ? 'Reviewed scope: all candidate files. Findings: a blocking defect requires repair. **Verdict:** FAIL' : 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS';
   const findings = mode.startsWith('detail_') ? [{finding_id:mode === 'detail_unrelated' ? 'F-2' : 'F-1', file:'file', line:1, severity:'non-blocker', rule:'RISK', summary:'validation issue', diagnosis:'missing input check', disposition:mode === 'detail_case' ? 'Triage' : 'triage', reason:'tracked'}, ...(mode === 'detail_multi' ? [{finding_id:'F-2', file:'file', line:2, severity:'nit', rule:'STYLE', summary:'other issue', diagnosis:'other diagnosis', disposition:'triage', reason:'tracked'}] : [])] : ['open','refuted','fail_open'].includes(mode) ? [{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', disposition:mode === 'fail_open' ? 'open' : mode, reason:'evidence'}] : [];
-  return {report, decisions:{candidate_identity:angle.candidate_identity, findings}};
+  return {report, decisions:{candidate_identity:angle.candidate_identity, reviewed_files:mode === 'consolidator_missing_file' ? [] : ['file'], findings}};
 };
 run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'research-id', coverage:'coverage-id', prior_findings:[]}, changed_files:['file']}, () => {}, parallel, agent, () => {})
   .then(report => process.stdout.write(JSON.stringify({report, calls}))).catch(e => { console.error(e); process.exit(1); });
@@ -51,7 +51,7 @@ run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', cand
             with self.subTest(mode=mode):
                 proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
                 self.assertEqual(json.loads(proc.stdout)['report']['runner_mode'], expected)
-        for mode in ('missing', 'malformed', 'empty', 'identity', 'short', 'blocker', 'open', 'conflict', 'consolidator_error', 'refuted', 'complete', 'context', 'fail_missing', 'fail_open'):
+        for mode in ('missing', 'malformed', 'empty', 'identity', 'short', 'blocker', 'open', 'conflict', 'consolidator_error', 'consolidator_missing_file', 'refuted', 'complete', 'context', 'fail_missing', 'fail_open'):
             with self.subTest(mode=mode):
                 proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
                 result = json.loads(proc.stdout)
@@ -61,6 +61,6 @@ run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', cand
                     self.assertEqual(result['calls'], 7 if mode == 'context' else 1)
                 else:
                     self.assertIn('INCOMPLETE', result['report']['report'])
-                    self.assertEqual(result['calls'], 1 if mode in ('short', 'blocker', 'open', 'conflict', 'consolidator_error', 'fail_missing') else 0)
+                    self.assertEqual(result['calls'], 1 if mode in ('short', 'blocker', 'open', 'conflict', 'consolidator_error', 'consolidator_missing_file', 'fail_missing') else 0)
                     if mode == 'consolidator_error':
                         self.assertEqual(len(result['report']['angle_results']), 6)

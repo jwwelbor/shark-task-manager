@@ -440,6 +440,11 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
         raise ValueError("review decisions require candidate identity")
     if not _matching_identity(decisions["candidate_identity"], scope):
         raise ValueError("review decisions identify a different candidate or plan")
+    reviewed_files = decisions.get("reviewed_files")
+    changed_files = scope.get("changed_files")
+    if (not isinstance(reviewed_files, list) or not all(isinstance(item, str) and item.strip() for item in reviewed_files)
+            or not isinstance(changed_files, list) or not set(changed_files).issubset(reviewed_files)):
+        raise ValueError("review decisions have incomplete reviewed_files coverage")
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
@@ -567,7 +572,8 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
 
 def _cli_prompt(args, scope):
     prompt = read_review_file(args.prompt_file, 2 * 1024 * 1024).decode("utf-8")
-    prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity and findings). "
+    prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity, reviewed_files and findings). "
+    prompt += "decisions.reviewed_files must list every frozen changed file you actually opened or inspected; do not infer paths from the manifest. "
     prompt += "Each finding must have file, positive integer line, severity, rule, summary, diagnosis, disposition and a nonempty reason. "
     prompt += "Use disposition refuted only for a blocker conclusively disproved. Use an empty findings array only when none were found. "
     prompt += "When a report uses a FINDING_DETAIL footer, its F-number must be the matching retained decision's finding_id, and its severity and disposition must match. "

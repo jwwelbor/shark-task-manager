@@ -86,7 +86,7 @@ def scope_fixture(root):
 def review_packet(scope):
     identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
     return {'report': 'REVIEWED SCOPE: fixture files and coverage\nFINDINGS: none\nThe adversarial review is complete and evidence was checked.\nVERDICT: PASS',
-            'decisions': {'candidate_identity': identity, 'findings': []}}
+            'decisions': {'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']), 'findings': []}}
 
 
 def fake_reviewer(path, packet):
@@ -160,12 +160,12 @@ class AdaptiveReviewTests(unittest.TestCase):
 
 
     def test_crlf_footer_requires_matching_decision_and_nonclean_verdict(self):
-        scope = {'candidate_commit': 'commit', 'candidate_tree': 'tree', 'diff_sha256': 'diff'}
+        scope = {'candidate_commit': 'commit', 'candidate_tree': 'tree', 'diff_sha256': 'diff', 'changed_files': []}
         identity = {'commit': 'commit', 'tree': 'tree', 'diff_sha256': 'diff'}
         body = ('CURRENT_REVIEW_STATUS: COMPLETE\r\n'
                 'Scope: all candidate files reviewed. Findings: input defect. VERDICT: PASS\r\n'
                 'FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\r\n')
-        packet = {'report': body, 'decisions': {'candidate_identity': identity, 'findings': []}}
+        packet = {'report': body, 'decisions': {'candidate_identity': identity, 'reviewed_files': [], 'findings': []}}
         with self.assertRaises(ValueError):
             adaptive_review._parse_cli_packet(json.dumps(packet), scope)
         packet['report'] = body.replace('VERDICT: PASS', 'VERDICT: PASS-WITH-TRIAGE')
@@ -204,9 +204,9 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertFalse(valid_adversarial_output(bad))
 
     def test_review_decisions_require_explicit_refutation(self):
-        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd'}
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd', 'changed_files': ['a.go']}
         blocker = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong'}
-        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
+        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'reviewed_files': ['a.go'], 'findings': []}
         with self.assertRaises(ValueError):
             validate_review_decisions(decisions, scope, [blocker], 'PASS')
         decisions['findings'] = [{**blocker, 'disposition': 'open', 'reason': 'not refuted'}]
@@ -217,13 +217,21 @@ class AdaptiveReviewTests(unittest.TestCase):
         validate_review_decisions(decisions, scope, [blocker], 'PASS')
 
     def test_failed_review_keeps_every_raw_finding(self):
-        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd'}
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd', 'changed_files': ['a.go']}
         finding = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong'}
-        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
+        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'reviewed_files': ['a.go'], 'findings': []}
         with self.assertRaisesRegex(ValueError, 'no explicit disposition'):
             validate_review_decisions(decisions, scope, [finding], 'FAIL')
         decisions['findings'] = [{**finding, 'disposition': 'open', 'reason': 'still reproducible'}]
         validate_review_decisions(decisions, scope, [finding], 'FAIL')
+
+    def test_cli_decisions_reject_omitted_manifest_file(self):
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd', 'changed_files': ['one.go', 'two.go']}
+        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'reviewed_files': ['one.go'], 'findings': []}
+        with self.assertRaisesRegex(ValueError, 'incomplete reviewed_files coverage'):
+            validate_review_decisions(decisions, scope, [], 'PASS')
+        decisions['reviewed_files'].append('two.go')
+        validate_review_decisions(decisions, scope, [], 'PASS')
 
     def test_report_retains_validated_bytes_after_source_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,7 +241,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             angles = root / 'angles.json'
             angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
             decisions = root / 'decisions.json'
-            decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+            decisions.write_text(json.dumps({'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']), 'findings': []}))
             body = root / 'body'
             body.write_text(review_packet(scope)['report'])
             report = root / 'report'
@@ -349,6 +357,7 @@ class AdaptiveReviewTests(unittest.TestCase):
                         '#!/usr/bin/env python3\nfrom pathlib import Path\nimport json\n'
                         f'paths = {inspected!r}\npacket = {review_packet(scope)!r}\n'
                         'for path in paths: Path(path).read_text()\n'
+                        'packet["decisions"]["reviewed_files"] = paths\n'
                         'packet["report"] = ("Scope inspected: " + ", ".join(paths) + '
                         '"\\nChecks: read each listed file and checked its contents.'
                         '\\nFindings: 0 defects found.\\nVerdict: PASS")\n'

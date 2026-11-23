@@ -19,7 +19,10 @@
           "diff_sha256": "diff",
           "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
-        "findings": []
+        "findings": [],
+        "reviewed_files": [
+          "file"
+        ]
       },
       "valid": true
     },
@@ -42,7 +45,10 @@
           "diff_sha256": "diff",
           "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
-        "findings": []
+        "findings": [],
+        "reviewed_files": [
+          "file"
+        ]
       },
       "valid": false
     },
@@ -76,6 +82,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -110,6 +119,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -144,6 +156,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": true
@@ -188,6 +203,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -222,6 +240,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -256,6 +277,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -290,6 +314,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -324,6 +351,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -347,7 +377,10 @@
           "diff_sha256": "diff",
           "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
-        "findings": []
+        "findings": [],
+        "reviewed_files": [
+          "file"
+        ]
       },
       "valid": false
     },
@@ -381,6 +414,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false
@@ -415,6 +451,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": true
@@ -449,6 +488,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": true,
@@ -484,6 +526,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false,
@@ -519,6 +564,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": true,
@@ -554,6 +602,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false,
@@ -589,6 +640,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false,
@@ -624,6 +678,9 @@
             "rule": "BUG",
             "diagnosis": "wrong"
           }
+        ],
+        "reviewed_files": [
+          "file"
         ]
       },
       "valid": false,
