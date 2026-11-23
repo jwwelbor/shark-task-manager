@@ -426,6 +426,9 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	notes.items = append(notes.items, &models.EntityNote{ID: 10, Metadata: &partialMeta})
 	qaFrom, qaReason := "code_review", gatepersist.BoundTransitionReason("code_review", "pass", "historical-cli-review", partialDigest)
 	history.items = append(history.items, &models.EntityHistory{ID: 10, FromStatus: &qaFrom, ToStatus: "reviewed", Notes: &qaReason})
+	// The fake readers capture slice headers by value, so refresh admission after
+	// appending the historical approval and transition fixtures.
+	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)
 	priorResultBytes, err := os.ReadFile(filepath.Join(partialPriorDir, "result.json"))
 	require.NoError(t, err)
 	partialReportBytes, err := os.ReadFile(filepath.Join(root, partialReportPath))
@@ -437,7 +440,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	partialQARequest := gatepersist.Request{EntityType: models.EntityTypeBug, EntityKey: "B001", Gate: "qa", Role: gateresult.RoleSuccess, RunDir: filepath.Join(root, ".shark", "runs", "qa-partial-cli-replay"), EnvelopeJSON: partialQAEnvelope}
 	require.NoError(t, verifyBugPriorGate(context.Background(), partialQARequest, notes, history, bugPriorSpec{"plan_review", "bug_repair_plan"}, func(value string) string { return value }, defaultBugSuccessTarget), "the plan approval is valid")
 	require.ErrorContains(t, verifyBugPriorGate(context.Background(), partialQARequest, notes, history, bugPriorSpec{"code_review", "bug_review_scope"}, func(value string) string { return value }, resolve), "coverage incomplete")
-	require.ErrorContains(t, newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)(context.Background(), partialQARequest), "coverage incomplete")
+	require.ErrorContains(t, ingest("qa-partial-cli-replay", "qa", "resolved", partialQAEnvelope), "coverage incomplete")
 	require.Equal(t, "qa", status.status["B001"], "QA must not succeed from an incomplete historical receipt")
 	require.Len(t, written.notes, writtenBeforeReplay, "QA replay rejection must not record an approval")
 	retainedPriorResult, err := os.ReadFile(filepath.Join(partialPriorDir, "result.json"))
@@ -451,6 +454,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.Equal(t, partialDecisionBytesOnDisk, retainedPartialDecisionBytes)
 	notes.items = notes.items[:priorNotesCount]
 	history.items = history.items[:priorHistoryCount]
+	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)
 	require.NoError(t, os.WriteFile(reportPath, []byte("changed report"), 0600))
 	require.Error(t, ingest("tampered-report", "qa", "resolved", envelope(planRef+","+scopeRef)))
 	require.NoError(t, os.WriteFile(reportPath, reportBytes, 0600))
