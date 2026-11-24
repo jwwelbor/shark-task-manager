@@ -378,17 +378,35 @@ def _valid_finding(finding, fields):
     return all(isinstance(finding.get(key), str) and finding[key] for key in fields)
 
 
+def _check_reviewed_files(files, changed_files):
+    if not isinstance(files, list) or not isinstance(changed_files, list):
+        raise ValueError("invalid reviewed_files declaration")
+    for path in files:
+        if not isinstance(path, str):
+            raise ValueError("reviewed_files entries must be strings")
+        if any(part in {"", ".", ".."} for part in path.split("/")) or "\x00" in path:
+            raise ValueError(f"reviewed_files requires a repository-relative file path: {json.dumps(path)}")
+        try:
+            path.encode("utf-8", "surrogateescape")
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"invalid Git filename in reviewed_files: {json.dumps(path)}") from exc
+    missing = sorted(set(changed_files).difference(files))
+    if missing:
+        raise ValueError(f"incomplete reviewed_files coverage: {json.dumps(missing)}")
+
+
 def _angle_findings(name, result, scope):
     identity = result.get("candidate_identity") if isinstance(result, dict) else None
     if not _matching_identity(identity, scope):
         raise ValueError(f"angle {name} has missing or mismatched candidate identity")
     files = result.get("reviewed_files")
     findings = result.get("findings")
-    if not isinstance(files, list) or not all(isinstance(item, str) for item in files) or not isinstance(findings, list):
-        raise ValueError(f"angle {name} has incomplete coverage or malformed findings")
-    missing = sorted(set(scope["changed_files"]).difference(files))
-    if missing:
-        raise ValueError(f"angle {name} did not inspect: {', '.join(missing)}")
+    try:
+        _check_reviewed_files(files, scope["changed_files"])
+    except ValueError as exc:
+        raise ValueError(f"angle {name}: {exc}") from exc
+    if not isinstance(findings, list):
+        raise ValueError(f"angle {name} has malformed findings")
     for finding in findings:
         if not _valid_finding(finding, ("file", "rule", "summary", "diagnosis")):
             raise ValueError(f"angle {name} has malformed finding")
@@ -461,17 +479,7 @@ def validate_review_decisions(
     if not _matching_identity(decisions["candidate_identity"], scope):
         raise ValueError("review decisions identify a different candidate or plan")
     if require_reviewed_files:
-        reviewed_files = decisions.get("reviewed_files")
-        changed_files = scope.get("changed_files")
-        if (not isinstance(reviewed_files, list) or not all(isinstance(item, str) and item.strip() for item in reviewed_files)
-                or not isinstance(changed_files, list)):
-            raise ValueError("invalid reviewed_files declaration")
-        for path in reviewed_files:
-            if any(part in {"", ".", ".."} for part in path.split("/")) or "\x00" in path:
-                raise ValueError(f"reviewed_files requires a repository-relative file path: {path!r}")
-        missing = sorted(set(changed_files).difference(reviewed_files))
-        if missing:
-            raise ValueError(f"incomplete reviewed_files coverage: {', '.join(missing)}")
+        _check_reviewed_files(decisions.get("reviewed_files"), scope.get("changed_files"))
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
