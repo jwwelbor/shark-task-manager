@@ -458,6 +458,10 @@ def validate_review_decisions(
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
+    if verdict.upper() == "PASS-WITH-TRIAGE" and not any(
+        isinstance(finding, dict) and finding.get("disposition") != "refuted" for finding in findings
+    ):
+        raise ValueError("PASS-with-triage requires at least one retained finding")
     by_key = {}
     for finding in findings:
         _validate_decision(finding, verdict)

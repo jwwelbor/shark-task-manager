@@ -79,7 +79,7 @@ const angle = {candidate_identity:id, reviewed_files:['file','context'], finding
 const parallel = async () => [{...angle,findings:test.raw_findings}, angle, angle, angle, angle, angle];
 const agent = async () => ({report:'Scope: all candidate files and production callers. Findings: reviewed with evidence and disposition. VERDICT: '+(test.verdict || 'PASS'), decisions:test.decisions});
 const args = {diff_path:'diff',skill_dir:'skill',candidate_commit:id.commit,candidate_tree:id.tree,diff_sha256:id.diff_sha256,repair_plan_sha256:id.repair_plan_sha256,entity_type:'bug',repair_context:{plan:'plan',plan_revision:'sha256:'+id.repair_plan_sha256,research:'research',coverage:'coverage',prior_findings:[]},changed_files:fixture.files};
-run(args,()=>{},parallel,agent,()=>{}).then(r => process.stdout.write(JSON.stringify(r.runner_mode !== 'incomplete'))).catch(e => {console.error(e);process.exit(1)});
+run(args,()=>{},parallel,agent,()=>{}).then(r => process.stdout.write(JSON.stringify({complete:r.runner_mode !== 'incomplete',decisions:r.decisions}))).catch(e => {console.error(e);process.exit(1)});
 '''
         for case in FIXTURE['cases']:
             with self.subTest(case=case['name']):
@@ -90,4 +90,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r => process.stdout.write(JSON.strin
                     python_ok = False
                 proc = subprocess.run(['node', '-e', harness, str(HERE / 'review_workflow.js'), str(HERE / 'testdata' / 'decisions.json'), case['name']], check=True, capture_output=True, text=True)
                 self.assertEqual(python_ok, case['valid'])
-                self.assertEqual(json.loads(proc.stdout), case['valid'])
+                native_result = json.loads(proc.stdout)
+                self.assertEqual(native_result['complete'], case['valid'])
+                if case['name'] == 'nit_report_only':
+                    self.assertEqual(native_result['decisions']['findings'][0]['disposition'], 'report-only')

@@ -685,6 +685,132 @@
       },
       "valid": false,
       "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "empty_triage",
+      "raw_findings": [],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [],
+        "reviewed_files": ["file"]
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "refuted_only_triage",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "Counterevidence disproves the finding.",
+            "rule": "BUG",
+            "diagnosis": "wrong"
+          }
+        ],
+        "reviewed_files": ["file"]
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "nit_report_only",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "nit",
+          "rule": "STYLE",
+          "summary": "label preference",
+          "diagnosis": "preferred label differs"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "finding_id": "F-1",
+            "file": "file",
+            "line": 3,
+            "severity": "nit",
+            "summary": "label preference",
+            "disposition": "report-only",
+            "reason": "Owner disposition requires no action.",
+            "rule": "STYLE",
+            "diagnosis": "preferred label differs"
+          }
+        ],
+        "reviewed_files": ["file"]
+      },
+      "valid": true,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "nit_triage",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "nit",
+          "rule": "STYLE",
+          "summary": "label preference",
+          "diagnosis": "preferred label differs"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "finding_id": "F-1",
+            "file": "file",
+            "line": 3,
+            "severity": "nit",
+            "summary": "label preference",
+            "disposition": "triage",
+            "reason": "Open a follow-up item.",
+            "rule": "STYLE",
+            "diagnosis": "preferred label differs"
+          }
+        ],
+        "reviewed_files": ["file"]
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
     }
   ]
 }

@@ -277,6 +277,27 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliDecisionHash := sha256.Sum256(cliDecisionBytes)
 	cliDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/cli-report.md.decisions.json","summary":"sha256:%x"}`, cliDecisionHash)
 	require.NoError(t, verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + cliDecisionRef)}))
+	// A fully covered, hash-consistent receipt must not turn an empty review
+	// into successful triage. This verifier is also used when QA replays the
+	// prior code-review receipt.
+	var emptyTriageDecisions map[string]any
+	require.NoError(t, json.Unmarshal(cliDecisionBytes, &emptyTriageDecisions))
+	emptyTriageDecisions["findings"] = []any{}
+	emptyTriageDecisionBytes, err := json.Marshal(emptyTriageDecisions)
+	require.NoError(t, err)
+	emptyTriageDecisionHash := sha256.Sum256(emptyTriageDecisionBytes)
+	emptyTriageDecisionPath := ".shark/qa-empty-triage.decisions.json"
+	require.NoError(t, os.WriteFile(filepath.Join(root, emptyTriageDecisionPath), emptyTriageDecisionBytes, 0600))
+	emptyTriageDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":"%s","summary":"sha256:%x"}`, emptyTriageDecisionPath, emptyTriageDecisionHash)
+	oldCLIDecisionHash := sha256.Sum256(cliDecisionBytes)
+	emptyTriageReport := strings.ReplaceAll(string(cliReport), "PASS", "PASS-WITH-TRIAGE")
+	emptyTriageReport = strings.Replace(emptyTriageReport, fmt.Sprintf("`%x`", oldCLIDecisionHash), fmt.Sprintf("`%x`", emptyTriageDecisionHash), 1)
+	emptyTriageReportPath := ".shark/qa-empty-triage.md"
+	require.NoError(t, os.WriteFile(filepath.Join(root, emptyTriageReportPath), []byte(emptyTriageReport), 0600))
+	emptyTriageReportHash := sha256.Sum256([]byte(emptyTriageReport))
+	emptyTriageReportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, emptyTriageReportPath, emptyTriageReportHash)
+	err = verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "qa-empty-triage"), EnvelopeJSON: envelope(cliScopeRef + "," + emptyTriageReportRef + "," + emptyTriageDecisionRef)})
+	require.ErrorContains(t, err, "PASS-with-triage requires at least one retained finding")
 	// QA replays the prior CLI receipt. A complete identity and refreshed hashes
 	// must not make a receipt pass when its reviewer inspected only one of the
 	// frozen changed files. Keep the original accepted receipt byte-for-byte.

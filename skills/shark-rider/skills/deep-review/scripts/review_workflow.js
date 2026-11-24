@@ -253,6 +253,7 @@ const {report, decisions} = consolidationFields(consolidation)
 
 function validDecision(f) {
   return validFinding(f) && ['disposition', 'reason'].every(k => typeof f[k] === 'string' && f[k].trim().length > 0) &&
+    (f.severity !== 'nit' || f.disposition === 'report-only') &&
     !(f.severity === 'blocker' && f.disposition === 'refuted' && /\bnot\s+refuted\b/i.test(f.reason))
 }
 
@@ -299,7 +300,8 @@ function passingDecisions(verdict, values, raw) {
   if (raw.some(f => !values.some(d => matchingDecision(f, d, verdict)))) return false
   if (!verdict.startsWith('PASS')) return true
   if (values.some(f => f.severity === 'blocker' && f.disposition !== 'refuted')) return false
-  return verdict !== 'PASS' || !values.some(f => f.disposition !== 'refuted')
+  const retained = values.some(f => f.disposition !== 'refuted')
+  return verdict === 'PASS' ? !retained : retained
 }
 
 function contradictoryReport(body, verdict) {

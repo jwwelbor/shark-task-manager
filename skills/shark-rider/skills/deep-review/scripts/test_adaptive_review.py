@@ -582,6 +582,58 @@ class AdaptiveReviewTests(unittest.TestCase):
                         self.assertEqual(metadata['decisions_sha256'], decisions_digest)
                         self.assertRegex(saved_report, rf'Review decisions SHA-256:\*\* `{decisions_digest}`')
 
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_public_writers_reject_pass_with_triage_without_retained_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect the frozen candidate and return a complete review.')
+            packet = review_packet(scope)
+            packet['report'] = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
+                                'Scope: every changed file and relevant caller was inspected. '
+                                'Findings: none. The candidate satisfies the stated contract. '
+                                'VERDICT: PASS-WITH-TRIAGE')
+            packet['decisions']['findings'] = []
+            reviewer = root / 'reviewer'
+            fake_reviewer(reviewer, packet)
+            run_cli_report = root / 'run-cli.md'
+            run_cli = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                '--base-commit', scope['base_commit'], '--review-output-path', str(run_cli_report),
+                '--host', 'claude', '--codex-command', str(reviewer), '--claude-command', str(reviewer),
+                '--no-workflow-available', '--no-agent-dispatch-available',
+            ], capture_output=True, text=True)
+            run_cli_metadata = json.loads(run_cli.stdout)
+            self.assertEqual(run_cli_metadata['verdict'], 'INCOMPLETE', run_cli.stdout + run_cli.stderr)
+            self.assertEqual(run_cli.returncode, 2)
+            self.assertNotIn('VERDICT: PASS-WITH-TRIAGE', run_cli_report.read_text())
+
+            decisions = root / 'decisions.json'
+            decisions.write_text(json.dumps(packet['decisions']))
+            body = root / 'body.md'
+            body.write_text(packet['report'])
+            direct_report = root / 'write-report.md'
+            direct = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo),
+                '--review-output-path', str(direct_report), '--runner-mode', 'adversarial-cli',
+                '--specialists-completed', '0', '--consolidator-completed', 'true',
+                '--adversarial-model', 'codex', '--fallback-reason', 'fixture fallback',
+                '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
+                '--verdict', 'PASS-WITH-TRIAGE', '--scope-file', str(scope_file),
+                '--review-decisions', str(decisions),
+            ], capture_output=True, text=True)
+            direct_metadata = json.loads(direct.stdout)
+            self.assertEqual(direct_metadata['verdict'], 'INCOMPLETE', direct.stdout + direct.stderr)
+            self.assertEqual(direct.returncode, 2)
+            saved = direct_report.read_text()
+            self.assertIn('**Verdict:** INCOMPLETE', saved)
+            self.assertIn('VERDICT: INCOMPLETE', saved)
+            self.assertNotIn('VERDICT: PASS-WITH-TRIAGE', saved)
+
     def test_cli_pass_with_open_blocker_is_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

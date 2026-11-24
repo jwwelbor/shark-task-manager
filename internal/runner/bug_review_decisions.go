@@ -51,15 +51,20 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 		return nil, fmt.Errorf("review decisions findings missing")
 	}
 	found := make(map[bugFindingKey]bugReviewDecision, len(packet.Findings))
+	retainedFinding := false
 	for _, finding := range packet.Findings {
 		if err := validateBugReviewDecision(finding, verdict); err != nil {
 			return nil, err
 		}
+		retainedFinding = retainedFinding || finding.Disposition != "refuted"
 		key := bugFindingKey{finding.File, finding.Line, finding.Rule, finding.Summary, finding.Diagnosis}
 		if _, exists := found[key]; exists {
 			return nil, fmt.Errorf("duplicate review decision")
 		}
 		found[key] = finding
+	}
+	if strings.EqualFold(verdict, "PASS-WITH-TRIAGE") && !retainedFinding {
+		return nil, fmt.Errorf("PASS-with-triage requires at least one retained finding")
 	}
 	return found, nil
 }
