@@ -1,7 +1,10 @@
 """Shared acceptance fixtures for native and persisted review decisions."""
 import json
 from pathlib import Path
+import os
+import shutil
 import subprocess
+import tempfile
 import unittest
 
 from adaptive_review import validate_review_decisions
@@ -11,10 +14,42 @@ FIXTURE = json.loads((HERE / 'testdata' / 'decisions.json').read_text())
 
 
 class ReviewContractTests(unittest.TestCase):
-    def test_skill_paths_are_bound_to_the_selected_source_root(self):
+    def test_skill_helpers_use_loaded_installation_with_spaces_and_decoy_repo(self):
         skill = (HERE.parent / 'SKILL.md').read_text()
-        self.assertIn('skill_dir="$source_root/skills/shark-rider/skills/deep-review"', skill)
+        self.assertIn('DEEP_REVIEW_SKILL_DIR', skill)
+        self.assertIn('scripts/resolve_skill_dir.sh', skill)
         self.assertNotIn('/home/jwwel/.claude/skills/shark-rider/skills/deep-review', skill)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = root / 'active skill installation with spaces' / 'deep-review'
+            shutil.copytree(HERE.parent, active)
+            repository = root / 'separate reviewed repository'
+            decoy = repository / 'skills/shark-rider/skills/deep-review'
+            (decoy / 'scripts').mkdir(parents=True)
+            (decoy / 'SKILL.md').write_text('decoy')
+            (decoy / 'scripts/get_diff.sh').write_text('decoy helper')
+            result = subprocess.run(
+                ['bash', str(active / 'scripts/resolve_skill_dir.sh')],
+                cwd=repository,
+                env={**os.environ, 'DEEP_REVIEW_SKILL_DIR': str(active)},
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            resolved = Path(result.stdout.strip())
+            self.assertEqual(resolved, active.resolve())
+            self.assertNotEqual((resolved / 'scripts/get_diff.sh').read_text(), (decoy / 'scripts/get_diff.sh').read_text())
+            missing_reference = active / 'references/angle-f-standards.md'
+            missing_reference.unlink()
+            missing = subprocess.run(
+                ['bash', str(active / 'scripts/resolve_skill_dir.sh')],
+                cwd=repository,
+                env={**os.environ, 'DEEP_REVIEW_SKILL_DIR': str(active)},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn('missing required file', missing.stderr)
 
     def test_python_and_native_share_decision_contract(self):
         identity = FIXTURE['identity']

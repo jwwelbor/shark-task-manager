@@ -434,6 +434,43 @@ class AdaptiveReviewTests(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout)['verdict'], expected, result.stdout + result.stderr)
                     self.assertEqual(result.returncode, 0 if not omitted else 2)
 
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_public_cli_writer_requires_complete_reviewed_file_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            (repo / 'second').write_text('second changed file')
+            subprocess.run(['git', 'add', 'second'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'add second file'], cwd=repo, check=True)
+            scope_bytes = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo)
+            scope_file.write_bytes(scope_bytes)
+            scope = json.loads(scope_bytes)
+            identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'],
+                        'diff_sha256': scope['diff_sha256']}
+            body = root / 'body'
+            body.write_text('Scope: source and second were inspected. Findings: none. '
+                            'The frozen candidate and relevant callers were checked. VERDICT: PASS')
+            decisions_path = root / 'decisions.json'
+            decisions = {'candidate_identity': identity, 'findings': []}
+            for omitted, expected in [(False, 'PASS'), (True, 'INCOMPLETE')]:
+                with self.subTest(omitted=omitted):
+                    decisions['reviewed_files'] = ['source'] if omitted else ['source', 'second']
+                    decisions_path.write_text(json.dumps(decisions))
+                    report = root / f'cli-writer-{omitted}.md'
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                        '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo),
+                        '--review-output-path', str(report), '--runner-mode', 'adversarial-cli',
+                        '--specialists-completed', '0', '--consolidator-completed', 'true',
+                        '--adversarial-model', 'codex', '--fallback-reason', 'native review unavailable',
+                        '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
+                        '--verdict', 'PASS', '--scope-file', str(scope_file), '--review-decisions', str(decisions_path),
+                    ], capture_output=True, text=True)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata['verdict'], expected, result.stdout + result.stderr)
+                    self.assertEqual(result.returncode, 0 if not omitted else 2)
+                    self.assertTrue(report.exists())
+
     def test_cli_pass_with_open_blocker_is_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

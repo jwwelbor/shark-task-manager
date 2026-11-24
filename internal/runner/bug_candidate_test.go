@@ -370,6 +370,22 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		_, e := IngestGateResult(context.Background(), GateIngestRequest{EnvelopeBytes: result, Coordinator: coord, ProjectRoot: root, RunID: run, EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: gate, Gate: gate, Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": target}})
 		return e
 	}
+	cliAdmission := func(run string, refs string) (*fakeTransitioner, *fakeNoteWriter, error) {
+		cliStatus := &fakeTransitioner{status: map[string]string{"B001": "code_review"}}
+		cliWritten := &fakeNoteWriter{}
+		cliCoordinator := gatepersist.NewCoordinator(cliWritten, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}}, cliStatus, cliStatus, &fakeLeaseReleaser{}, cliStatus)
+		cliCoordinator.Admission = NewBugGateAdmission(notes, history)
+		_, e := IngestGateResult(context.Background(), GateIngestRequest{EnvelopeBytes: envelope(planRef + "," + refs), Coordinator: cliCoordinator, ProjectRoot: root, RunID: run, EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: "code_review", Gate: "code_review", Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": "qa"}})
+		return cliStatus, cliWritten, e
+	}
+	completeCLIStatus, completeCLIWritten, err := cliAdmission("cli-complete-admission", cliScopeRef+","+cliRef+","+cliDecisionRef)
+	require.NoError(t, err)
+	require.Equal(t, "qa", completeCLIStatus.status["B001"])
+	require.Len(t, completeCLIWritten.notes, 1)
+	partialCLIStatus, partialCLIWritten, err := cliAdmission("cli-partial-admission", cliScopeRef+","+partialReportRef+","+partialDecisionRef)
+	require.ErrorContains(t, err, "coverage incomplete")
+	require.Equal(t, "code_review", partialCLIStatus.status["B001"])
+	require.Empty(t, partialCLIWritten.notes)
 	require.Error(t, ingest("missing-scope", "code_review", "qa", envelope(planRef)))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("stale\n"), 0600))
 	require.Error(t, ingest("stale-scope", "code_review", "qa", envelope(planRef+","+scopeRef)))

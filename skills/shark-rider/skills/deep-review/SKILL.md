@@ -82,10 +82,20 @@ On Windows, snapshot inventory delegates its confined filesystem reads to the in
 
 ## Capture the review scope
 
+Before navigating to the reviewed repository or entering a snapshot, set
+`DEEP_REVIEW_SKILL_DIR` to the absolute directory containing the `SKILL.md`
+that the host loaded for this invocation. Use the path from the host's skill
+catalog or invocation context; when the host does not expose it, supply that
+absolute path explicitly. Do not infer this installation from the repository
+being reviewed or from a candidate snapshot. The resolver checks that the
+required scripts and angle references exist and fails before dispatch if the
+installation is incomplete.
+
 ```bash
+export DEEP_REVIEW_SKILL_DIR="<absolute directory containing the loaded SKILL.md>"
+skill_dir="$(bash "${DEEP_REVIEW_SKILL_DIR:?set the loaded skill directory first}/scripts/resolve_skill_dir.sh")"
 project_root=$(git rev-parse --show-toplevel)
 source_root="$project_root"  # Preserve this original root if reviewing a snapshot.
-skill_dir="$source_root/skills/shark-rider/skills/deep-review"
 REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 
