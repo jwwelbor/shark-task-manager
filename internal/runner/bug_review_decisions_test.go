@@ -62,6 +62,13 @@ func TestReviewDecisionsRequireCompleteInspectedFileManifest(t *testing.T) {
 	require.NoError(t, err)
 	_, err = validateBugReviewDecisions(raw, scope, "PASS", true)
 	require.NoError(t, err)
+	for _, path := range []string{"/outside.go", "../outside.go", "x/../../outside.go"} {
+		packet["reviewed_files"] = []string{"a.go", "b.go", path}
+		raw, err := json.Marshal(packet)
+		require.NoError(t, err)
+		_, err = validateBugReviewDecisions(raw, scope, "PASS", true)
+		require.ErrorContains(t, err, path)
+	}
 	delete(packet, "reviewed_files")
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)

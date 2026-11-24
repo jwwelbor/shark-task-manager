@@ -3,6 +3,7 @@ package runner
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"regexp"
 	"strings"
 )
@@ -47,12 +48,16 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 			return nil, err
 		}
 	}
-	if packet.Findings == nil {
+	return indexBugReviewFindings(packet.Findings, verdict)
+}
+
+func indexBugReviewFindings(findings []bugReviewDecision, verdict string) (map[bugFindingKey]bugReviewDecision, error) {
+	if findings == nil {
 		return nil, fmt.Errorf("review decisions findings missing")
 	}
-	found := make(map[bugFindingKey]bugReviewDecision, len(packet.Findings))
+	found := make(map[bugFindingKey]bugReviewDecision, len(findings))
 	retainedFinding := false
-	for _, finding := range packet.Findings {
+	for _, finding := range findings {
 		if err := validateBugReviewDecision(finding, verdict); err != nil {
 			return nil, err
 		}
@@ -75,14 +80,14 @@ func validateBugReviewedFiles(reviewedFiles, changedFiles []string) error {
 	}
 	inspected := make(map[string]bool, len(reviewedFiles))
 	for _, file := range reviewedFiles {
-		if strings.TrimSpace(file) == "" {
-			return fmt.Errorf("review decisions reviewed_files contains an empty path")
+		if !fs.ValidPath(file) || file == "." || strings.TrimSpace(file) == "" || strings.ContainsRune(file, 0) {
+			return fmt.Errorf("review decisions reviewed_files requires a repository-relative file path: %q", file)
 		}
 		inspected[file] = true
 	}
 	for _, file := range changedFiles {
 		if !inspected[file] {
-			return fmt.Errorf("review decisions coverage incomplete")
+			return fmt.Errorf("review decisions coverage incomplete: missing %q", file)
 		}
 	}
 	return nil
