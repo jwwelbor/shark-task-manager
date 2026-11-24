@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -39,7 +40,7 @@ class BoundedReviewerTest(unittest.TestCase):
         script = "import sys; sys.stdout.write('x' * (9 * 1024 * 1024)); sys.stdout.flush()"
         result = run_bounded_reviewer([sys.executable, '-c', script], None, 5)
         self.assertNotEqual(result.returncode, 0)
-        self.assertLessEqual(len(result.stdout.encode()), 8 * 1024 * 1024)
+        self.assertLessEqual(len(result.stdout), 8 * 1024 * 1024)
 
     @unittest.skipIf(os.name == 'nt', 'uses POSIX process groups')
     def test_closed_output_pipes_do_not_bypass_timeout(self):
@@ -86,7 +87,7 @@ def scope_fixture(root):
 def review_packet(scope):
     identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
     return {'report': 'REVIEWED SCOPE: fixture files and coverage\nFINDINGS: none\nThe adversarial review is complete and evidence was checked.\nVERDICT: PASS',
-            'decisions': {'candidate_identity': identity, 'findings': []}}
+            'decisions': {'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']), 'findings': []}}
 
 
 def fake_reviewer(path, packet):
@@ -95,6 +96,96 @@ def fake_reviewer(path, packet):
 
 
 class AdaptiveReviewTests(unittest.TestCase):
+    @unittest.skipIf(os.name == 'nt', 'uses byte filenames and executable fixtures')
+    def test_cli_selects_only_utf8_packets_and_attributes_the_selected_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect the frozen changes.')
+            attempts = root / 'attempts'
+            replacement = b'caf\xef\xbf\xbd.txt'
+            raw_byte = b'caf\xe9.txt'
+            for filename in (replacement, raw_byte):
+                base = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
+                (repo / os.fsdecode(filename)).write_text('review this change')
+                subprocess.run(['git', 'add', '--', filename], cwd=repo, check=True)
+                subprocess.run(['git', 'commit', '-qm', 'change named file'], cwd=repo, check=True)
+                capture = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo,
+                                                  env={**os.environ, 'REVIEW_BASE': base})
+                scope_file.write_bytes(capture)
+                scope = json.loads(capture)
+                self.assertEqual([os.fsencode(p) for p in scope['changed_files']], [filename])
+
+                def reviewer(cli, spelling):
+                    path = root / cli
+                    packet = review_packet(scope)
+                    packet['report'] += '\nReview supplied by ' + cli
+                    packet['decisions']['reviewed_files'] = ['WIRE_NAME']
+                    if cli == 'claude':
+                        packet['decisions']['reviewed_files'].append('source')
+                    wire = json.dumps(packet).encode().replace(b'WIRE_NAME', spelling)
+                    path.write_text(
+                        '#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n'
+                        f'with open({filename!r}, "rb") as f: assert f.read() == b"review this change"\n'
+                        + ('assert Path("source").read_text() == "new"\n' if cli == 'claude' else '')
+                        + f'with open({str(attempts)!r}, "a") as f: print({cli!r}, file=f)\n'
+                        + f'sys.stdout.buffer.write({wire!r})\nsys.stderr.buffer.write(bytes([233]))\n')
+                    path.chmod(0o700)
+                    return path
+
+                exact = filename if filename == replacement else br'caf\udce9.txt'
+                cases = [('literal-or-escaped', exact, raw_byte, 'codex'),
+                         ('fallback', raw_byte, exact, 'claude'),
+                         ('verified-fallback', raw_byte, exact, 'claude'),
+                         ('both-malformed', raw_byte, raw_byte, None),
+                         ('restored', exact, raw_byte, 'codex')]
+                if filename == replacement:
+                    cases.append(('different-byte', br'caf\udce9.txt', br'caf\udce9.txt', None))
+                for case, preferred, fallback, selected in cases:
+                    with self.subTest(filename=filename, case=case):
+                        attempts.write_text('')
+                        report = root / (filename.hex() + '-' + case + '.md')
+                        result = subprocess.run([sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                            '--project-root', str(repo), '--source-root', str(repo), '--base-commit', base,
+                            '--scope-file', str(scope_file), '--diff-path', scope['diff_path'],
+                            '--prompt-file', str(prompt), '--review-output-path', str(report),
+                            '--no-workflow-available', '--no-agent-dispatch-available', '--host', 'claude',
+                            '--requested-model', 'requested', '--effective-model', 'verified-preferred',
+                            *(['--fallback-effective-model', 'verified-second'] if case == 'verified-fallback' else []),
+                            '--codex-command', str(reviewer('codex', preferred)),
+                            '--claude-command', str(reviewer('claude', fallback))], capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0 if selected else 2, result.stderr)
+                        metadata = json.loads(result.stdout)
+                        saved = report.read_text()
+                        self.assertEqual(attempts.read_text().splitlines(),
+                                         ['codex'] if selected == 'codex' else ['codex', 'claude'])
+                        self.assertEqual(metadata['verdict'], 'PASS' if selected else 'INCOMPLETE')
+                        self.assertEqual(metadata['specialists_completed'], 0)
+                        self.assertEqual(metadata['consolidator_completed'], selected is not None)
+                        self.assertEqual(metadata['adversarial_model'], selected)
+                        self.assertEqual(metadata['requested_model'], 'requested')
+                        self.assertIn('**Requested model:** `requested`', saved)
+                        self.assertIn(f"**Verdict:** {metadata['verdict']}", saved)
+                        if selected:
+                            model = 'verified-preferred' if selected == 'codex' else None
+                            if case == 'verified-fallback':
+                                model = 'verified-second'
+                            self.assertEqual(metadata['effective_model'], model)
+                            self.assertIn(f"**Verified effective model:** `{model or 'unknown'}`", saved)
+                            self.assertIn('Review supplied by ' + selected, saved)
+                            sidecar = Path(metadata['retained_decisions']).read_bytes()
+                            self.assertEqual(hashlib.sha256(sidecar).hexdigest(), metadata['decisions_sha256'])
+                            self.assertIn(metadata['decisions_sha256'], saved)
+                            self.assertEqual([os.fsencode(p) for p in json.loads(sidecar)['reviewed_files']],
+                                             [filename] + ([b'source'] if selected == 'claude' else []))
+                        else:
+                            self.assertNotIn('retained_decisions', metadata)
+                        if case in ('fallback', 'verified-fallback', 'both-malformed', 'different-byte'):
+                            reason = 'coverage' if case == 'different-byte' else 'utf-8'
+                            self.assertIn(reason, metadata['fallback_reason'].lower())
+                            self.assertIn(reason, saved.lower())
+
     @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
     def test_scope_timeout_produces_structured_failure_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -160,12 +251,12 @@ class AdaptiveReviewTests(unittest.TestCase):
 
 
     def test_crlf_footer_requires_matching_decision_and_nonclean_verdict(self):
-        scope = {'candidate_commit': 'commit', 'candidate_tree': 'tree', 'diff_sha256': 'diff'}
+        scope = {'candidate_commit': 'commit', 'candidate_tree': 'tree', 'diff_sha256': 'diff', 'changed_files': ['app.go', 'other.go']}
         identity = {'commit': 'commit', 'tree': 'tree', 'diff_sha256': 'diff'}
         body = ('CURRENT_REVIEW_STATUS: COMPLETE\r\n'
                 'Scope: all candidate files reviewed. Findings: input defect. VERDICT: PASS\r\n'
                 'FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\r\n')
-        packet = {'report': body, 'decisions': {'candidate_identity': identity, 'findings': []}}
+        packet = {'report': body, 'decisions': {'candidate_identity': identity, 'reviewed_files': ['app.go', 'other.go'], 'findings': []}}
         with self.assertRaises(ValueError):
             adaptive_review._parse_cli_packet(json.dumps(packet), scope)
         packet['report'] = body.replace('VERDICT: PASS', 'VERDICT: PASS-WITH-TRIAGE')

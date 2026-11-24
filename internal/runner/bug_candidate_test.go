@@ -38,6 +38,20 @@ func TestBugEvidenceLimitsDistinguishPlansAndReviewArtifacts(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestBugCandidateScopePreservesGitNamesBeforeUnicodeDecoding(t *testing.T) {
+	// The same path tokens occur in the candidate, successor delta and snapshot marker.
+	const names = `["caf\u00e9","caf\udce9","caf\ufffd","caf\\udce9","caf\ud800\udce9"]`
+	expected := []string{"café", "caf\xe9", "caf\uFFFD", `caf\udce9`, "caf\U000100E9"}
+	var scope bugCandidateScope
+	data := []byte(`{"changed_files":` + names + `,"source_snapshot":{"selected_paths":` + names + `}}`)
+	require.NoError(t, json.Unmarshal(data, &scope))
+	require.Equal(t, expected, []string(scope.ChangedFiles))
+	require.Equal(t, expected, []string(scope.Source.SelectedPaths))
+	for _, invalid := range []string{`"\ud800"`, `"\udc01"`, `"\u0000"`, `""`, `"../outside"`, string([]byte{'"', 0xe9, '"'})} {
+		require.Error(t, json.Unmarshal([]byte(`{"changed_files":[`+invalid+`]}`), &scope), "%q", invalid)
+	}
+}
+
 func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) string {
@@ -57,6 +71,8 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	base := strings.TrimSpace(git("rev-parse", "HEAD"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("unaccepted predecessor\n"), 0600))
 	git("add", "change.txt")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "leaf.txt"), []byte("independent leaf"), 0600))
+	git("add", "leaf.txt")
 	git("commit", "-m", "unaccepted predecessor")
 	laterBase := strings.TrimSpace(git("rev-parse", "HEAD"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("candidate\n"), 0600))
@@ -73,7 +89,7 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	require.NoError(t, err, string(out))
 	cmd = exec.Command("bash", filepath.Join(scripts, "get_diff.sh"))
 	cmd.Dir = snapshot
-	cmd.Env = append(os.Environ(), "REVIEW_BASE="+base, "REVIEW_SOURCE_METADATA="+metadata)
+	cmd.Env = append(os.Environ(), "REVIEW_BASE="+base, "REVIEW_PREDECESSOR_COMMIT="+laterBase, "REVIEW_SOURCE_METADATA="+metadata)
 	scope, err := cmd.Output()
 	require.NoError(t, err)
 	require.NoError(t, verifyBugCandidate(context.Background(), root, scope))
@@ -152,6 +168,42 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	require.NoError(t, json.Unmarshal(scope, &captured))
 	var rawScope map[string]any
 	require.NoError(t, json.Unmarshal(scope, &rawScope))
+	envelope := func(refs string) []byte {
+		return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"approved"}}`, refs))
+	}
+	// Challenge the parent reader directly with a newly hash-bound scope. The
+	// full baseline manifest, Git objects, plan identity and snapshot stay valid.
+	delta, ok := rawScope["successor_delta"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, laterBase, delta["predecessor_commit"])
+	git("tag", "-a", "predecessor-alias", "-m", "same commit, different object", laterBase)
+	tagObject := strings.TrimSpace(git("rev-parse", "predecessor-alias"))
+	for field, changed := range map[string]any{
+		"changed_files": []string{}, "predecessor_commit": tagObject,
+		"predecessor_tree": captured.CandidateTree, "diff_sha256": strings.Repeat("0", 64),
+	} {
+		t.Run("successor_delta_"+field, func(t *testing.T) {
+			original := delta[field]
+			delta[field] = changed
+			altered, err := json.Marshal(rawScope)
+			delta[field] = original
+			require.NoError(t, err)
+			path := ".shark/delta-" + field + ".json"
+			require.NoError(t, os.WriteFile(filepath.Join(root, path), altered, 0600))
+			ref := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":%q,"summary":"sha256:%x"}`, path, sha256.Sum256(altered))
+			_, err = readBugReviewScope(context.Background(), gatepersist.Request{
+				RunDir: filepath.Join(root, ".shark", "runs", "delta-"+field), EnvelopeJSON: envelope(planRef + "," + ref),
+			})
+			require.ErrorContains(t, err, "successor delta")
+		})
+	}
+	for _, invalid := range []any{nil, map[string]any{"unexpected": "member"}} {
+		rawScope["successor_delta"] = invalid
+		challenge, err := json.Marshal(rawScope)
+		require.NoError(t, err)
+		require.ErrorContains(t, verifyBugCandidate(context.Background(), root, challenge), "successor delta")
+	}
+	rawScope["successor_delta"] = delta
 	// Execute the native Workflow with deterministic specialist stubs, then
 	// feed its actual result through the Python writer and Go admission.
 	nativeHarness := `
@@ -203,9 +255,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	reportHash, anglesHash := sha256.Sum256(reportBytes), sha256.Sum256(angleBytes)
 	reportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/report.md","summary":"sha256:%x"}`, reportHash)
 	anglesRef := fmt.Sprintf(`{"kind":"bug_review_angles","pointer":".shark/angles.json","summary":"sha256:%x"}`, anglesHash)
-	envelope := func(refs string) []byte {
-		return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"approved"}}`, refs))
-	}
+
 	for i, extra := range []string{
 		"**Verdict:** FAIL",
 		"**Runner metadata:** `runner_mode=incomplete` `specialists_completed=2` `consolidator_completed=False`",
@@ -253,8 +303,21 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.ErrorContains(t, err, "plan revision differs")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "docs/plan/plan.md"), plan, 0600))
 	// The comparable CLI path must also interoperate with the report writer.
+	var cliPacket map[string]any
+	require.NoError(t, json.Unmarshal(nativeResult.Decisions, &cliPacket))
+	var inspected []string
+	for _, name := range []string{"change.txt", "docs/plan/plan.md", "leaf.txt"} {
+		_, err := os.ReadFile(filepath.Join(snapshot, name))
+		require.NoError(t, err)
+		inspected = append(inspected, name)
+	}
+	cliPacket["reviewed_files"] = inspected
+	cliDecisionBytes, err := json.Marshal(cliPacket)
+	require.NoError(t, err)
+	cliDecisionPath := filepath.Join(root, ".shark", "cli-decisions.json")
+	require.NoError(t, os.WriteFile(cliDecisionPath, cliDecisionBytes, 0600))
 	cliReportPath := filepath.Join(root, ".shark", "cli-report.md")
-	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", decisionPath)
+	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", cliDecisionPath)
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	cliReport, err := os.ReadFile(cliReportPath)
@@ -265,7 +328,22 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, err)
 	cliScopeHash := sha256.Sum256(cliScope)
 	cliScopeRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/cli-report.md.scope.json","summary":"sha256:%x"}`, cliScopeHash)
-	require.NoError(t, verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + decisionRef)}))
+	cliDecisionBytes, err = os.ReadFile(cliReportPath + ".decisions.json")
+	require.NoError(t, err)
+	cliDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/cli-report.md.decisions.json","summary":"sha256:%x"}`, sha256.Sum256(cliDecisionBytes))
+	require.NoError(t, verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + cliDecisionRef)}))
+	t.Run("cli_declaration_omits_predecessor_file", func(t *testing.T) {
+		cliPacket["reviewed_files"] = []string{"docs/plan/plan.md", "change.txt"}
+		partial, err := json.Marshal(cliPacket)
+		require.NoError(t, err)
+		badReport := strings.Replace(string(cliReport), fmt.Sprintf("%x", sha256.Sum256(cliDecisionBytes)), fmt.Sprintf("%x", sha256.Sum256(partial)), 1)
+		require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "partial-cli-decisions.json"), partial, 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "partial-cli-report.md"), []byte(badReport), 0600))
+		partialRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/partial-cli-decisions.json","summary":"sha256:%x"}`, sha256.Sum256(partial))
+		reportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/partial-cli-report.md","summary":"sha256:%x"}`, sha256.Sum256([]byte(badReport)))
+		err = verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "partial-cli"), EnvelopeJSON: envelope(cliScopeRef + "," + reportRef + "," + partialRef)})
+		require.ErrorContains(t, err, "leaf.txt")
+	})
 	for _, tc := range []struct{ old, replacement string }{
 		{"**Adversarial model:** `codex`", "**Adversarial model:** ``"},
 		{"**Adversarial model:** `codex`", "**Adversarial model:** `unknown`"},
@@ -277,7 +355,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		require.NoError(t, os.WriteFile(cliReportPath, mutated, 0600))
 		mutatedHash := sha256.Sum256(mutated)
 		mutatedRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/cli-report.md","summary":"sha256:%x"}`, mutatedHash)
-		err := verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + mutatedRef + "," + decisionRef)})
+		err := verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + mutatedRef + "," + cliDecisionRef)})
 		require.ErrorContains(t, err, "review runner is incomplete")
 	}
 	require.NoError(t, os.WriteFile(cliReportPath, cliReport, 0600))

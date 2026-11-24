@@ -89,6 +89,15 @@ skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
 REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 
+When the parent provides a verified predecessor receipt, set
+`REVIEW_PREDECESSOR_COMMIT` to its full candidate commit before capture.
+The optional `successor_delta` records that commit and tree, the ordered paths
+changed since then and the SHA-256 of the binary diff. Use those two commits
+to inspect the changes, including files since restored to the approved baseline.
+The original `changed_files` still defines the full gate manifest. An
+unavailable comparison requires fresh review. Credit for a previous inspection
+also requires the parent-verified receipt, history and obligation evidence.
+
 Capture treats untracked files under the designated Shark project's `.shark/runs/`
 as runtime artifacts; tracked changes there and all other source changes remain
 in scope. If the Shark project is nested below the Git root, set

@@ -21,12 +21,12 @@ var bugCLIModel = regexp.MustCompile("\\*\\*Adversarial model:\\*\\*[ \\t]*`([^`
 var bugCLIFallback = regexp.MustCompile(`\*\*Fallback reason:\*\*[ \t]*([^·\r\n]*)`)
 
 type bugAngleFinding struct {
-	Severity  string `json:"severity"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	Rule      string `json:"rule"`
-	Summary   string `json:"summary"`
-	Diagnosis string `json:"diagnosis"`
+	Severity  string        `json:"severity"`
+	File      reviewGitPath `json:"file"`
+	Line      int           `json:"line"`
+	Rule      string        `json:"rule"`
+	Summary   string        `json:"summary"`
+	Diagnosis string        `json:"diagnosis"`
 }
 type bugReviewIdentity struct {
 	Commit string `json:"commit"`
@@ -36,7 +36,7 @@ type bugReviewIdentity struct {
 }
 type bugAngle struct {
 	CandidateIdentity bugReviewIdentity `json:"candidate_identity"`
-	ReviewedFiles     []string          `json:"reviewed_files"`
+	ReviewedFiles     reviewGitPaths    `json:"reviewed_files"`
 	Findings          []bugAngleFinding `json:"findings"`
 }
 
@@ -83,37 +83,37 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 		return err
 	}
 	verdict := bugReviewVerdict.FindStringSubmatch(header)[1]
-	decisions, err := validateBugReviewDecisions(decisionData, scope, verdict)
+	six, err := bugReviewRunnerIsSix(header)
+	if err != nil {
+		return err
+	}
+	decisions, err := validateBugReviewDecisions(decisionData, scope, verdict, !six)
 	if err != nil {
 		return err
 	}
 	if err := requireBugFindingDecisions(body, decisions); err != nil {
 		return err
 	}
-	six, err := bugReviewRunnerIsSix(header)
-	if err != nil {
-		return err
-	}
-	if !six {
-		if err := validateBugReviewMaterialImpacts(req, scope, header, body); err != nil {
+	if six {
+		if err := verifyBugAngleArtifact(req, scope, header, decisions, verdict); err != nil {
 			return err
 		}
-		return validateBugParentTriageObservation(req, scope, decisions)
-	}
-	_, angleData, err := readBugEvidence(req, "bug_review_angles")
-	if err != nil {
-		return err
-	}
-	if err := verifyReviewArtifactHash(header, "Angle results", angleData); err != nil {
-		return err
-	}
-	if err := validateBugReviewAngles(angleData, scope, decisions, verdict); err != nil {
-		return err
 	}
 	if err := validateBugReviewMaterialImpacts(req, scope, header, body); err != nil {
 		return err
 	}
 	return validateBugParentTriageObservation(req, scope, decisions)
+}
+
+func verifyBugAngleArtifact(req gatepersist.Request, scope bugCandidateScope, header string, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
+	_, data, err := readBugEvidence(req, "bug_review_angles")
+	if err != nil {
+		return err
+	}
+	if err := verifyReviewArtifactHash(header, "Angle results", data); err != nil {
+		return err
+	}
+	return validateBugReviewAngles(data, scope, decisions, verdict)
 }
 
 func requireBugFindingDecisions(body string, decisions map[bugFindingKey]bugReviewDecision) error {
@@ -312,14 +312,8 @@ func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions m
 	if !angle.CandidateIdentity.matches(scope) {
 		return fmt.Errorf("candidate mismatch")
 	}
-	got := map[string]bool{}
-	for _, file := range angle.ReviewedFiles {
-		got[file] = true
-	}
-	for _, file := range scope.ChangedFiles {
-		if !got[file] {
-			return fmt.Errorf("coverage incomplete")
-		}
+	if err := verifyDeclaredReviewPaths(angle.ReviewedFiles, scope.ChangedFiles); err != nil {
+		return err
 	}
 	if angle.Findings == nil {
 		return fmt.Errorf("findings missing")
@@ -331,6 +325,27 @@ func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions m
 	}
 	return nil
 }
+func verifyDeclaredReviewPaths(inspected, required []string) error {
+	if inspected == nil {
+		return fmt.Errorf("reviewed_files missing")
+	}
+	seen := make(map[string]bool, len(inspected))
+	for _, path := range inspected {
+		for _, part := range strings.Split(path, "/") {
+			if part == "" || part == "." || part == ".." {
+				return fmt.Errorf("invalid reviewed_files path %q", path)
+			}
+		}
+		seen[path] = true
+	}
+	for _, path := range required {
+		if !seen[path] {
+			return fmt.Errorf("coverage incomplete: missing %q", path)
+		}
+	}
+	return nil
+}
+
 func validateBugAngleFinding(f bugAngleFinding, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
 	if !validBugAngleFinding(f) {
 		return fmt.Errorf("finding malformed")
