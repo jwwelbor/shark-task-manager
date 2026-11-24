@@ -285,6 +285,64 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertIn('Adversarial model:', report.read_text())
             self.assertIn('`codex`', report.read_text())
 
+    def test_cli_retry_retains_attempts_without_promoting_unbound_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            invalid = root / 'invalid-reviewer'
+            invalid.write_text("#!/bin/sh\nprintf '%s\\n' 'not a packet'\n")
+            invalid.chmod(invalid.stat().st_mode | stat.S_IXUSR)
+            valid = root / 'valid-reviewer'
+            fake_reviewer(valid, review_packet(scope))
+            report = root / 'report.md'
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'codex',
+                '--claude-command', str(invalid), '--codex-command', str(valid), '--effective-model', 'unbound-marker',
+                '--no-workflow-available', '--no-agent-dispatch-available',
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            metadata = json.loads(result.stdout)
+            self.assertIsNone(metadata['effective_model'])
+            self.assertEqual(len(metadata['attempts']), 2)
+            self.assertEqual([item['cli'] for item in metadata['attempts']], ['claude', 'codex'])
+            self.assertEqual([item['outcome'] for item in metadata['attempts']], ['invalid_packet', 'accepted'])
+            for attempt in metadata['attempts']:
+                self.assertIsNone(attempt['observed_provider'])
+                self.assertIsNone(attempt['observed_model'])
+                self.assertIsNone(attempt['usage'])
+                self.assertIsNone(attempt['cost'])
+            self.assertNotIn('unbound-marker', report.read_text())
+            attempts_path = Path(str(report) + '.attempts.json')
+            retained = json.loads(attempts_path.read_text())
+            self.assertEqual(retained, metadata['attempts'])
+
+    def test_write_report_does_not_promote_unbound_effective_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            body = root / 'body.md'
+            body.write_text(review_packet(scope)['report'])
+            decisions = root / 'decisions.json'
+            decisions.write_text(json.dumps(review_packet(scope)['decisions']))
+            report = root / 'report.md'
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report),
+                '--runner-mode', 'adversarial-cli', '--specialists-completed', '0', '--consolidator-completed', 'true',
+                '--adversarial-model', 'codex', '--fallback-reason', 'fixture fallback', '--verdict', 'PASS',
+                '--effective-model', 'unbound-marker', '--review-decisions', str(decisions),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            metadata = json.loads(result.stdout)
+            self.assertIsNone(metadata['effective_model'])
+            self.assertNotIn('unbound-marker', report.read_text())
+            self.assertIn('**Verified effective model:** `unknown`', report.read_text())
+
     def test_cli_writer_requires_model_and_fallback_reason(self):
         for model, reason in [('', 'unavailable'), ('unknown', 'unavailable'), ('codex', ''), ('codex', 'none'), ('codex', '`unknown`'), ('codex', '` none `')]:
             args = argparse.Namespace(runner_mode='adversarial-cli', specialists_completed=0,

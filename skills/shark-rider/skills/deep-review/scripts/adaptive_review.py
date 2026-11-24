@@ -516,6 +516,7 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
         f"**Retained scope SHA-256:** `{_display(metadata, 'scope_sha256', 'unavailable')}`",
         f"**Review decisions:** `{_display(metadata, 'retained_decisions', 'unavailable')}`",
         f"**Review decisions SHA-256:** `{_display(metadata, 'decisions_sha256', 'unavailable')}` · **Angle results SHA-256:** `{_display(metadata, 'angles_sha256', 'unavailable')}`",
+        f"**CLI attempt records:** `{_display(metadata, 'retained_attempts', 'unavailable')}` · **SHA-256:** `{_display(metadata, 'attempts_sha256', 'unavailable')}`",
         f"**Requested model:** `{_display(metadata, 'requested_model', 'unknown')}` · **Verified effective model:** `{_display(metadata, 'effective_model', 'unknown')}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
@@ -548,6 +549,13 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
             _write_new_bytes(retained_angles, data)
             metadata["retained_angles"] = str(retained_angles.resolve())
             metadata["angles_sha256"] = hashlib.sha256(data).hexdigest()
+        attempts = metadata.get("attempts")
+        if attempts is not None:
+            retained_attempts = Path(str(path) + ".attempts.json")
+            data = (json.dumps(attempts, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
+            _write_new_bytes(retained_attempts, data)
+            metadata["retained_attempts"] = str(retained_attempts.resolve())
+            metadata["attempts_sha256"] = hashlib.sha256(data).hexdigest()
         scope = metadata.pop("_scope", None)
         if scope is not None:
             retained = dict(scope)
@@ -599,22 +607,46 @@ def _parse_cli_packet(output, scope):
 
 def _try_cli_candidates(args, candidates, prompt, scope):
     failures = []
+    attempts = []
     for model in candidates:
         override = args.claude_command if model == "claude" else args.codex_command
+        argv = _cli_argv(model, override, prompt)
+        attempt = {
+            "attempt": len(attempts) + 1,
+            "cli": model,
+            "executable": argv[0],
+            "exit_status": None,
+            "outcome": "launch_failed",
+            "failure_reason": None,
+            "worker_id": None,
+            "observed_provider": None,
+            "observed_model": None,
+            "usage": None,
+            "cost": None,
+        }
+        attempts.append(attempt)
         try:
-            completed = run_bounded_reviewer(_cli_argv(model, override, prompt), args.project_root, args.timeout)
+            completed = run_bounded_reviewer(argv, args.project_root, args.timeout)
         except (OSError, subprocess.TimeoutExpired) as exc:
+            attempt["failure_reason"] = type(exc).__name__
             failures.append(f"{model}: {type(exc).__name__}: {exc}")
             continue
+        attempt["exit_status"] = completed.returncode
         if completed.returncode != 0:
+            attempt["outcome"] = "nonzero_exit"
+            attempt["failure_reason"] = f"non-zero exit status {completed.returncode}"
             failures.append(f"{model}: non-zero exit status {completed.returncode}")
             continue
         try:
             output, decisions = _parse_cli_packet(completed.stdout or "", scope)
-            return output, decisions, model, failures
+            attempt["outcome"] = "accepted"
+            attempt["failure_reason"] = None
+            return output, decisions, model, failures, attempts
         except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as exc:
+            attempt["outcome"] = "invalid_packet"
+            attempt["failure_reason"] = type(exc).__name__
             failures.append(f"{model}: invalid structured review: {exc}")
-    return "", None, None, failures
+    return "", None, None, failures, attempts
 
 
 def run_cli(args: argparse.Namespace) -> int:
@@ -638,7 +670,9 @@ def run_cli(args: argparse.Namespace) -> int:
         "verdict": "INCOMPLETE",
     }
     base["requested_model"] = args.requested_model
-    base["effective_model"] = args.effective_model
+    # The CLI name and caller-supplied model label do not attest the model that
+    # produced a particular review packet.
+    base["effective_model"] = None
     scope_error = bind_scope(base, args)
     if scope_error:
         persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
@@ -665,7 +699,8 @@ def run_cli(args: argparse.Namespace) -> int:
         persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
-    output, selected_decisions, selected_model, failures = _try_cli_candidates(args, candidates, prompt, scope)
+    output, selected_decisions, selected_model, failures, attempts = _try_cli_candidates(args, candidates, prompt, scope)
+    base["attempts"] = attempts
 
     if not output:
         base["adversarial_model"] = None
@@ -767,7 +802,8 @@ def _writer_metadata(args):
         "diff_path": args.diff_path,
         "verdict": args.verdict,
         "requested_model": args.requested_model,
-        "effective_model": args.effective_model,
+        # Keep legacy CLI compatibility, but never promote this unbound scalar.
+        "effective_model": None,
     }
 
 
