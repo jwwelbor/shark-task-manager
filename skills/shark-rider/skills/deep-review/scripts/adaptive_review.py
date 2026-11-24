@@ -684,6 +684,8 @@ def run_cli(args: argparse.Namespace) -> int:
     output, selected_decisions, selected_model, failures = _try_cli_candidates(args, candidates, prompt, scope)
 
     if not output:
+        base["runner_mode"] = "incomplete"
+        base["verdict"] = "INCOMPLETE"
         base["adversarial_model"] = None
         base["fallback_reason"] = "; ".join(
             [str(choice["fallback_reason"]), *failures]
@@ -708,6 +710,8 @@ def run_cli(args: argparse.Namespace) -> int:
     )
     scope_error = bind_scope(base, args)
     if scope_error:
+        base["runner_mode"] = "incomplete"
+        base["verdict"] = "INCOMPLETE"
         persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
@@ -759,6 +763,9 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
         if not args.review_decisions or scope_error:
             raise ValueError("completed review requires candidate-bound decisions")
         decisions = json.loads(read_review_file(args.review_decisions, 32 * 1024 * 1024).decode("utf-8"))
+        # Keep the parseable attempt beside an incomplete report as evidence of
+        # the exact declared paths that failed coverage validation.
+        metadata["_decisions"] = decisions
         is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
         validate_review_decisions(
             decisions,
@@ -768,7 +775,6 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
             require_reviewed_files=not is_six,
         )
         _require_finding_decision(body, decisions)
-        metadata["_decisions"] = decisions
     except (OSError, ValueError, KeyError, TypeError):
         if passing:
             invalid_pass = True
