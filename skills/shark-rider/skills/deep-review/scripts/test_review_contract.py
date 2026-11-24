@@ -11,10 +11,16 @@ FIXTURE = json.loads((HERE / 'testdata' / 'decisions.json').read_text())
 
 
 class ReviewContractTests(unittest.TestCase):
+    def test_skill_paths_are_bound_to_the_selected_source_root(self):
+        skill = (HERE.parent / 'SKILL.md').read_text()
+        self.assertIn('skill_dir="$source_root/skills/shark-rider/skills/deep-review"', skill)
+        self.assertNotIn('/home/jwwel/.claude/skills/shark-rider/skills/deep-review', skill)
+
     def test_python_and_native_share_decision_contract(self):
         identity = FIXTURE['identity']
         scope = {'candidate_commit': identity['commit'], 'candidate_tree': identity['tree'],
-                 'diff_sha256': identity['diff_sha256'], 'repair_plan_sha256': identity['repair_plan_sha256']}
+                 'diff_sha256': identity['diff_sha256'], 'repair_plan_sha256': identity['repair_plan_sha256'],
+                 'changed_files': FIXTURE['files']}
         harness = r'''
 const fs = require('fs');
 const source = fs.readFileSync(process.argv[1], 'utf8');
@@ -31,7 +37,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r => process.stdout.write(JSON.strin
         for case in FIXTURE['cases']:
             with self.subTest(case=case['name']):
                 try:
-                    validate_review_decisions(case['decisions'], scope, case['raw_findings'], case.get('verdict', 'PASS'))
+                    validate_review_decisions(case['decisions'], scope, case['raw_findings'], case.get('verdict', 'PASS'), require_reviewed_files=False)
                     python_ok = True
                 except ValueError:
                     python_ok = False

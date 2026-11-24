@@ -85,7 +85,7 @@ On Windows, snapshot inventory delegates its confined filesystem reads to the in
 ```bash
 project_root=$(git rev-parse --show-toplevel)
 source_root="$project_root"  # Preserve this original root if reviewing a snapshot.
-skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
+skill_dir="$source_root/skills/shark-rider/skills/deep-review"
 REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 

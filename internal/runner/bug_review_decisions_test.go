@@ -83,6 +83,27 @@ func TestSixAngleDecisionsUsePerAngleCoverageInsteadOfConsolidatedManifest(t *te
 	require.ErrorContains(t, err, "reviewed_files missing", "CLI packets still require their consolidated manifest")
 }
 
+func TestSixAngleCoverageRejectsFindingFromAnOmittedPath(t *testing.T) {
+	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff", ChangedFiles: []string{"one.go", "two.go"}}
+	identity := map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}
+	angles := map[string]any{}
+	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
+		angles[name] = map[string]any{"candidate_identity": identity, "reviewed_files": []string{"one.go", "two.go"}, "findings": []any{}}
+	}
+	angles["a"] = map[string]any{"candidate_identity": identity, "reviewed_files": []string{"one.go", "two.go"}, "findings": []any{
+		map[string]any{"file": "two.go", "line": 4, "severity": "nit", "rule": "STYLE", "summary": "label", "diagnosis": "unclear label"},
+	}}
+	decisions := map[bugFindingKey]bugReviewDecision{{File: "two.go", Line: 4, Rule: "STYLE", Summary: "label", Diagnosis: "unclear label"}: {Severity: "nit", Disposition: "report-only", Reason: "owner decision requires no action"}}
+	data, err := json.Marshal(angles)
+	require.NoError(t, err)
+	require.NoError(t, validateBugReviewAngles(data, scope, decisions, "PASS-WITH-TRIAGE"))
+
+	angles["a"].(map[string]any)["reviewed_files"] = []string{"one.go"}
+	data, err = json.Marshal(angles)
+	require.NoError(t, err)
+	require.ErrorContains(t, validateBugReviewAngles(data, scope, decisions, "PASS-WITH-TRIAGE"), "coverage incomplete")
+}
+
 func TestReviewDecisionConformanceFixtures(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
@@ -172,8 +193,8 @@ func TestReportFindingBindsToItsDecision(t *testing.T) {
 	related.Disposition = "Triage"
 	require.Error(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
 	related.Disposition = "triage"
-	other.FindingID, other.Severity = "F-2", "nit"
-	multi := body + "\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage"
+	other.FindingID, other.Severity, other.Disposition = "F-2", "nit", "report-only"
+	multi := body + "\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | report-only"
 	require.True(t, statusSafeBody("CURRENT_REVIEW_STATUS: COMPLETE\nScope and findings: complete. VERDICT: PASS-WITH-TRIAGE\n"+multi))
 	require.NoError(t, requireBugFindingDecisions(multi, map[bugFindingKey]bugReviewDecision{{File: "related"}: related, {File: "other"}: other}))
 	require.Error(t, requireBugFindingDecisions(body+"\n"+body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
@@ -182,12 +203,17 @@ func TestReportFindingBindsToItsDecision(t *testing.T) {
 func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
 	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff"}
 	body := "FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage"
-	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "reviewed_files": []string{}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "triage", "reason": "tracked"}}}
+	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "reviewed_files": []string{}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "report-only", "reason": "owner decision requires no action"}}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
 	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", true)
 	require.NoError(t, err)
 	require.Error(t, requireBugFindingDecisions(body, decisions))
+	packet["findings"].([]any)[0].(map[string]any)["disposition"] = "triage"
+	raw, err = json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", true)
+	require.ErrorContains(t, err, "nit disposition must be report-only")
 	packet["findings"] = []any{map[string]any{"finding_id": "F-1", "file": "app.go", "line": 2, "severity": "non-blocker", "rule": "INPUT", "summary": "validation", "diagnosis": "missing check", "disposition": "triage", "reason": "tracked"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)

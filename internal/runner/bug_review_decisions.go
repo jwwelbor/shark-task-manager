@@ -43,20 +43,8 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 		return nil, fmt.Errorf("review decisions candidate or plan mismatch")
 	}
 	if requireReviewedFiles {
-		if packet.ReviewedFiles == nil {
-			return nil, fmt.Errorf("review decisions reviewed_files missing")
-		}
-		inspected := make(map[string]bool, len(packet.ReviewedFiles))
-		for _, file := range packet.ReviewedFiles {
-			if strings.TrimSpace(file) == "" {
-				return nil, fmt.Errorf("review decisions reviewed_files contains an empty path")
-			}
-			inspected[file] = true
-		}
-		for _, file := range scope.ChangedFiles {
-			if !inspected[file] {
-				return nil, fmt.Errorf("review decisions coverage incomplete")
-			}
+		if err := validateBugReviewedFiles(packet.ReviewedFiles, scope.ChangedFiles); err != nil {
+			return nil, err
 		}
 	}
 	if packet.Findings == nil {
@@ -75,6 +63,26 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 	}
 	return found, nil
 }
+
+func validateBugReviewedFiles(reviewedFiles, changedFiles []string) error {
+	if reviewedFiles == nil {
+		return fmt.Errorf("review decisions reviewed_files missing")
+	}
+	inspected := make(map[string]bool, len(reviewedFiles))
+	for _, file := range reviewedFiles {
+		if strings.TrimSpace(file) == "" {
+			return fmt.Errorf("review decisions reviewed_files contains an empty path")
+		}
+		inspected[file] = true
+	}
+	for _, file := range changedFiles {
+		if !inspected[file] {
+			return fmt.Errorf("review decisions coverage incomplete")
+		}
+	}
+	return nil
+}
+
 func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 	if !validBugDecisionShape(f) {
 		return fmt.Errorf("malformed review decision")
@@ -87,7 +95,11 @@ func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 		if bugNegatedRefutation.MatchString(f.Reason) {
 			return fmt.Errorf("refutation reason contradicts its disposition")
 		}
-	case "non-blocker", "nit":
+	case "non-blocker":
+	case "nit":
+		if f.Disposition != "report-only" {
+			return fmt.Errorf("nit disposition must be report-only")
+		}
 	default:
 		return fmt.Errorf("invalid review decision severity")
 	}

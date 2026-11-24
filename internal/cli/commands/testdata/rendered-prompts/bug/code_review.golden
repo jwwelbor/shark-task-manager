@@ -314,7 +314,7 @@ From `production_caller_chains` (Step 5). One sub-section per service-contract c
 ### J. Verdict
 
 - **PASS** — no findings of any severity.
-- **PASS-with-triage** — no blockers; substantive non-blockers exist (host triages).
+- **PASS-with-triage** — no blockers; substantive non-blockers or report-only Nits remain. The host triages substantive non-blockers; report-only Nits have no action and create no tracker item.
 - **FAIL** — one or more blockers; task returns to development.
 
 For the full report skeleton, see `../context/code-review-reference.md`.
@@ -363,7 +363,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - [ ] **For each service-contract change in the diff, `production_caller_chains` names entrypoint → call chain → leaf** (Step 5).
 - [ ] **`counter_factual_per_ac` has one entry per AC** (Step 8.5) — flag missing coverage as blocker on critical ACs.
 - [ ] **Any downgraded blocker has an evidence-based justification** (Step 10).
-- [ ] Verdict matches findings: PASS only if zero findings of any severity; PASS-with-triage if no blockers; FAIL otherwise.
+- [ ] Verdict matches findings: PASS only if zero findings; PASS-with-triage if no blockers and at least one substantive non-blocker or report-only Nit remains; FAIL if any blocker remains.
 - [ ] Report file exists at `code_review_report_path`.
 
 ## Edge cases

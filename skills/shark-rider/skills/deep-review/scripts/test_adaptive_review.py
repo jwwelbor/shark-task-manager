@@ -151,12 +151,21 @@ class AdaptiveReviewTests(unittest.TestCase):
         adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}]})
         with self.assertRaisesRegex(ValueError, 'retained decision'):
             adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'Triage'}]})
-        multi = body + '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-2 | nit | triage'
-        decisions = {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}, {'finding_id': 'F-2', 'severity': 'nit', 'disposition': 'triage'}]}
+        multi = body + '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-2 | nit | report-only'
+        decisions = {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}, {'finding_id': 'F-2', 'severity': 'nit', 'disposition': 'report-only'}]}
         self.assertTrue(adaptive_review.valid_review_report(multi, 'PASS-WITH-TRIAGE'))
         adaptive_review._require_finding_decision(multi, decisions)
         with self.assertRaisesRegex(ValueError, 'unique'):
             adaptive_review._require_finding_decision(body + '\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage', decisions)
+
+    def test_nit_decisions_are_report_only(self):
+        finding = {'file': 'app.go', 'line': 2, 'severity': 'nit', 'rule': 'STYLE',
+                   'summary': 'label', 'diagnosis': 'unclear label', 'disposition': 'triage',
+                   'reason': 'owner decision requires no action'}
+        with self.assertRaisesRegex(ValueError, 'nit disposition must be report-only'):
+            adaptive_review._validate_decision(finding, 'PASS-WITH-TRIAGE')
+        finding['disposition'] = 'report-only'
+        adaptive_review._validate_decision(finding, 'PASS-WITH-TRIAGE')
 
 
     def test_crlf_footer_requires_matching_decision_and_nonclean_verdict(self):
@@ -175,12 +184,12 @@ class AdaptiveReviewTests(unittest.TestCase):
             'severity': 'non-blocker', 'rule': 'INPUT', 'summary': 'validation',
             'diagnosis': 'missing check', 'disposition': 'triage', 'reason': 'tracked'}]
         self.assertEqual(adaptive_review._parse_cli_packet(json.dumps(packet), scope)[0], packet['report'])
-        packet['report'] += 'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage\r\n'
+        packet['report'] += 'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | report-only\r\n'
         with self.assertRaises(ValueError):
             adaptive_review._parse_cli_packet(json.dumps(packet), scope)
         packet['decisions']['findings'].append({'finding_id': 'F-2', 'file': 'other.go', 'line': 3,
             'severity': 'nit', 'rule': 'STYLE', 'summary': 'other issue',
-            'diagnosis': 'incorrect label', 'disposition': 'triage', 'reason': 'tracked'})
+            'diagnosis': 'incorrect label', 'disposition': 'report-only', 'reason': 'owner decision requires no action'})
         self.assertEqual(adaptive_review._parse_cli_packet(json.dumps(packet), scope)[0], packet['report'])
 
     def test_capability_ladder(self):
@@ -354,7 +363,8 @@ class AdaptiveReviewTests(unittest.TestCase):
                 with self.subTest(inspected=inspected):
                     reviewer = root / 'reviewer'
                     reviewer.write_text(
-                        '#!/usr/bin/env python3\nfrom pathlib import Path\nimport json\n'
+                        '#!/usr/bin/env python3\nfrom pathlib import Path\nimport json, sys\n'
+                        'assert "decisions.reviewed_files must list every frozen changed file" in sys.argv[-1]\n'
                         f'paths = {inspected!r}\npacket = {review_packet(scope)!r}\n'
                         'for path in paths: Path(path).read_text()\n'
                         'packet["decisions"]["reviewed_files"] = paths\n'
@@ -376,6 +386,53 @@ class AdaptiveReviewTests(unittest.TestCase):
                     metadata = json.loads(result.stdout)
                     self.assertEqual(metadata['verdict'], expected, report.read_text())
                     self.assertEqual(result.returncode, 0 if expected == 'PASS' else 2)
+
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_public_writer_rejects_angle_finding_from_unreviewed_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            (repo / 'second').write_text('second changed file')
+            subprocess.run(['git', 'add', 'second'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'add second file'], cwd=repo, check=True)
+            scope_bytes = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo)
+            scope_file.write_bytes(scope_bytes)
+            scope = json.loads(scope_bytes)
+            identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'],
+                        'diff_sha256': scope['diff_sha256']}
+            raw_finding = {'file': 'second', 'line': 1, 'severity': 'nit', 'rule': 'STYLE',
+                           'summary': 'label', 'diagnosis': 'unclear label'}
+            angles = {name: {'candidate_identity': identity, 'reviewed_files': ['source', 'second'], 'findings': []}
+                      for name in 'abcdef'}
+            angles['a']['findings'] = [raw_finding]
+            decisions = {'candidate_identity': identity, 'findings': [{**raw_finding, 'finding_id': 'F-1',
+                         'disposition': 'report-only', 'reason': 'owner decision requires no action'}]}
+            body = root / 'body'
+            body.write_text('CURRENT_REVIEW_STATUS: COMPLETE\nScope: all changed files were inspected. Findings: one report-only nit. '
+                            'The review checked candidate evidence and coverage. VERDICT: PASS-WITH-TRIAGE\n'
+                            'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-1 | nit | report-only')
+            angle_file, decision_file = root / 'angles.json', root / 'decisions.json'
+            angle_file.write_text(json.dumps(angles))
+            decision_file.write_text(json.dumps(decisions))
+            for omitted, expected in [(False, 'PASS-WITH-TRIAGE'), (True, 'INCOMPLETE')]:
+                with self.subTest(omitted=omitted):
+                    current = json.loads(angle_file.read_text())
+                    if omitted:
+                        current['a']['reviewed_files'] = ['source']
+                    angle_file.write_text(json.dumps(current))
+                    report = root / f'writer-{omitted}.md'
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                        '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo),
+                        '--review-output-path', str(report), '--runner-mode', 'dispatched-six-angle',
+                        '--specialists-completed', '6', '--consolidator-completed', 'true',
+                        '--fallback-reason', 'agent dispatch used for fixture',
+                        '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
+                        '--verdict', 'PASS-WITH-TRIAGE', '--scope-file', str(scope_file),
+                        '--angle-results', str(angle_file), '--review-decisions', str(decision_file),
+                    ], capture_output=True, text=True)
+                    self.assertEqual(json.loads(result.stdout)['verdict'], expected, result.stdout + result.stderr)
+                    self.assertEqual(result.returncode, 0 if not omitted else 2)
 
     def test_cli_pass_with_open_blocker_is_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
