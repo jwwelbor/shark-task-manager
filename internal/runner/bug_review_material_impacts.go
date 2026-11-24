@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
-	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -85,51 +85,19 @@ type bugParentTriageAction struct {
 	TrackerWrites int    `json:"tracker_writes"`
 }
 
-func validateBugReviewMaterialImpacts(req gatepersist.Request, scope bugCandidateScope, header, body string) error {
-	envelope, err := workercontrol.Decode(req.EnvelopeJSON)
-	if err != nil {
-		return err
-	}
-	expectedCount, dispositionCount := 0, 0
-	for _, ref := range envelope.Evidence {
-		switch ref.Kind {
-		case "bug_review_material_impacts":
-			expectedCount++
-		case "bug_review_material_dispositions":
-			dispositionCount++
-		}
-	}
-	if expectedCount == 0 && dispositionCount == 0 {
-		// Reviews with no material decisions need no separate impact evidence.
-		if len(materialDecisionMarkers(body)) != 0 || strings.Contains(header, "Expected material impacts SHA-256") || strings.Contains(header, "Material dispositions SHA-256") {
-			return fmt.Errorf("material decision evidence requires both expected impacts and dispositions")
-		}
-		return nil
-	}
-	if expectedCount != 1 || dispositionCount != 1 {
-		return fmt.Errorf("material decision evidence requires both expected impacts and dispositions")
-	}
-	_, expectedData, err := readBugEvidence(req, "bug_review_material_impacts")
-	if err != nil {
-		return err
-	}
-	_, dispositionData, err := readBugEvidence(req, "bug_review_material_dispositions")
-	if err != nil {
-		return err
-	}
-	if err := verifyReviewArtifactHash(header, "Expected material impacts", expectedData); err != nil {
-		return err
-	}
-	if err := verifyReviewArtifactHash(header, "Material dispositions", dispositionData); err != nil {
+func validateBugReviewMaterialImpacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string) error {
+	markers := materialDecisionMarkers(body)
+	present, err := materialPacketsPresent(req, header, markers)
+	if err != nil || !present {
 		return err
 	}
 	var expected bugReviewMaterialImpacts
-	if err := decodeStrict(expectedData, &expected); err != nil {
-		return fmt.Errorf("invalid expected material impacts: %w", err)
+	if err := readMaterialPacket(req, header, "bug_review_material_impacts", "Expected material impacts", &expected); err != nil {
+		return err
 	}
 	var submitted bugReviewMaterialDispositions
-	if err := decodeStrict(dispositionData, &submitted); err != nil {
-		return fmt.Errorf("invalid material dispositions: %w", err)
+	if err := readMaterialPacket(req, header, "bug_review_material_dispositions", "Material dispositions", &submitted); err != nil {
+		return err
 	}
 	if !expected.CandidateIdentity.matches(scope) || !submitted.CandidateIdentity.matches(scope) {
 		return fmt.Errorf("material decision evidence candidate mismatch")
@@ -137,22 +105,68 @@ func validateBugReviewMaterialImpacts(req gatepersist.Request, scope bugCandidat
 	if len(expected.Decisions) == 0 || len(expected.Decisions) != len(submitted.Decisions) {
 		return fmt.Errorf("material decision disposition set is incomplete")
 	}
-	dispositions := make(map[string]bugReviewMaterialDisposition, len(submitted.Decisions))
-	for _, item := range submitted.Decisions {
+	dispositions, err := indexMaterialDispositions(submitted.Decisions)
+	if err != nil {
+		return err
+	}
+	return verifyMaterialDecisionSet(ctx, scope, expected.Decisions, dispositions, markers)
+}
+
+func materialPacketsPresent(req gatepersist.Request, header string, markers map[string]bool) (bool, error) {
+	envelope, err := workercontrol.Decode(req.EnvelopeJSON)
+	if err != nil {
+		return false, err
+	}
+	counts := make(map[string]int)
+	for _, ref := range envelope.Evidence {
+		counts[ref.Kind]++
+	}
+	impacts, dispositions := counts["bug_review_material_impacts"], counts["bug_review_material_dispositions"]
+	if impacts == 1 && dispositions == 1 {
+		return true, nil
+	}
+	declared := len(markers) > 0 || strings.Contains(header, "Expected material impacts SHA-256") || strings.Contains(header, "Material dispositions SHA-256")
+	if impacts != 0 || dispositions != 0 || declared {
+		return false, fmt.Errorf("material decision evidence requires both expected impacts and dispositions")
+	}
+	return false, nil
+}
+
+func readMaterialPacket(req gatepersist.Request, header, kind, label string, target any) error {
+	_, data, err := readBugEvidence(req, kind)
+	if err != nil {
+		return err
+	}
+	if err := verifyReviewArtifactHash(header, label, data); err != nil {
+		return err
+	}
+	if err := decodeStrict(data, target); err != nil {
+		return fmt.Errorf("invalid %s: %w", strings.ToLower(label), err)
+	}
+	return nil
+}
+
+func indexMaterialDispositions(submitted []bugReviewMaterialDisposition) (map[string]bugReviewMaterialDisposition, error) {
+	dispositions := make(map[string]bugReviewMaterialDisposition, len(submitted))
+	for _, item := range submitted {
 		if strings.TrimSpace(item.DecisionID) == "" {
-			return fmt.Errorf("material disposition decision identity is missing")
+			return nil, fmt.Errorf("material disposition decision identity is missing")
 		}
 		if _, ok := dispositions[item.DecisionID]; ok {
-			return fmt.Errorf("duplicate material disposition decision")
+			return nil, fmt.Errorf("duplicate material disposition decision")
 		}
 		dispositions[item.DecisionID] = item
 	}
-	seenDecisions := make(map[string]bool, len(expected.Decisions))
-	for _, decision := range expected.Decisions {
+	return dispositions, nil
+}
+
+func verifyMaterialDecisionSet(ctx context.Context, scope bugCandidateScope, expected []bugReviewMaterialDecision, dispositions map[string]bugReviewMaterialDisposition, markers map[string]bool) error {
+	seenDecisions := make(map[string]bool, len(expected))
+	for _, decision := range expected {
 		if err := validateBugReviewMaterialDecision(decision); err != nil {
 			return err
 		}
-		if err := verifyBugMaterialDecisionSource(scope, decision); err != nil {
+		if err := verifyBugMaterialDecisionSource(ctx, scope, decision); err != nil {
 			return err
 		}
 		if seenDecisions[decision.DecisionID] {
@@ -167,20 +181,8 @@ func validateBugReviewMaterialImpacts(req gatepersist.Request, scope bugCandidat
 			return err
 		}
 	}
-	markers := materialDecisionMarkers(body)
-	if len(markers) != len(seenDecisions) {
+	if !maps.Equal(markers, seenDecisions) {
 		return fmt.Errorf("frozen report material decisions do not match expected impact set")
-	}
-	for id := range markers {
-		if !seenDecisions[id] {
-			return fmt.Errorf("frozen report material decisions do not match expected impact set")
-		}
-	}
-	// Reject worker-supplied dispositions for decisions outside the frozen set.
-	for id := range dispositions {
-		if !seenDecisions[id] {
-			return fmt.Errorf("material disposition has no frozen decision")
-		}
 	}
 	return nil
 }
@@ -197,23 +199,6 @@ func materialDecisionMarkers(body string) map[string]bool {
 		}
 	}
 	return markers
-}
-
-func verifyBugMaterialDecisionSource(scope bugCandidateScope, decision bugReviewMaterialDecision) error {
-	root, _, err := candidateRepository(context.Background(), scope.ProjectRoot)
-	if err != nil {
-		return fmt.Errorf("resolve material decision source repository: %w", err)
-	}
-	path := filepath.ToSlash(decision.SourcePointer)
-	data, err := gitutil.Command(context.Background(), "-C", root, "show", scope.CandidateCommit+":"+path).Output()
-	if err != nil {
-		return fmt.Errorf("read material decision source from frozen candidate: %w", err)
-	}
-	digest := sha256.Sum256(data)
-	if !strings.EqualFold(hex.EncodeToString(digest[:]), decision.SourceSHA256) {
-		return fmt.Errorf("material decision source digest does not match frozen candidate")
-	}
-	return nil
 }
 
 func validateBugParentTriageObservation(req gatepersist.Request, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision) error {

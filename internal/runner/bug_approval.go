@@ -275,7 +275,7 @@ func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gate
 		return err
 	}
 	if req.Gate == "code_review" {
-		return verifyBugReviewEvidence(req)
+		return verifyBugReviewEvidence(ctx, req)
 	}
 	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope"}, normalize, resolve)
 }
@@ -315,7 +315,7 @@ func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gate
 			return err
 		}
 	}
-	if err := compareBugApprovalEvidence(req, data, evidenceRoot, spec); err != nil {
+	if err := compareBugApprovalEvidence(ctx, req, data, evidenceRoot, spec); err != nil {
 		return err
 	}
 	return nil
@@ -447,7 +447,7 @@ func validateApprovalEnvelope(data []byte, entityKey, outcome string) error {
 	return nil
 }
 
-func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRoot string, spec bugPriorSpec) error {
+func compareBugApprovalEvidence(ctx context.Context, req gatepersist.Request, data []byte, evidenceRoot string, spec bugPriorSpec) error {
 	current, err := workercontrol.Decode(req.EnvelopeJSON)
 	if err != nil {
 		return err
@@ -462,18 +462,12 @@ func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRo
 	priorRequest := req
 	priorRequest.EnvelopeJSON = data
 	priorRequest.EvidenceRoot = evidenceRoot
-	if spec.gate == "code_review" {
-		prior, decodeErr := workercontrol.Decode(data)
-		if decodeErr != nil {
-			return decodeErr
-		}
-		priorRequest.ParentObservationInjected = hasBugEvidence(prior.Evidence, "bug_parent_triage_observation")
-	}
 	if spec.gate == "plan_review" {
 		return compareBugBaselines(req, priorRequest)
 	}
 	if spec.gate == "code_review" {
-		if err := verifyBugReviewEvidence(priorRequest); err != nil {
+		priorRequest.ParentObservationInjected = hasBugEvidence(prior.Evidence, "bug_parent_triage_observation")
+		if err := verifyBugReviewEvidence(ctx, priorRequest); err != nil {
 			return fmt.Errorf("prior code review evidence: %w", err)
 		}
 		for _, kind := range []string{"bug_review_material_impacts", "bug_review_material_dispositions", "bug_parent_triage_observation"} {

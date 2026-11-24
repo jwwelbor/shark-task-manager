@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -45,7 +46,7 @@ func (id bugReviewIdentity) matches(scope bugCandidateScope) bool {
 }
 
 // verifyBugReviewEvidence validates retained review artifacts without judging their substantive quality.
-func verifyBugReviewEvidence(req gatepersist.Request) error {
+func verifyBugReviewEvidence(ctx context.Context, req gatepersist.Request) error {
 	_, scopeData, err := readBugEvidence(req, "bug_review_scope")
 	if err != nil {
 		return err
@@ -71,10 +72,10 @@ func verifyBugReviewEvidence(req gatepersist.Request) error {
 	if err := validateBugReviewBody(header, body); err != nil {
 		return err
 	}
-	return validateBugReviewArtifacts(req, scope, header, body)
+	return validateBugReviewArtifacts(ctx, req, scope, header, body)
 }
 
-func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope, header, body string) error {
+func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string) error {
 	_, decisionData, err := readBugEvidence(req, "bug_review_decisions")
 	if err != nil {
 		return err
@@ -99,7 +100,7 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 			return err
 		}
 	}
-	if err := validateBugReviewMaterialImpacts(req, scope, header, body); err != nil {
+	if err := validateBugReviewMaterialImpacts(ctx, req, scope, header, body); err != nil {
 		return err
 	}
 	return validateBugParentTriageObservation(req, scope, decisions)

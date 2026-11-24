@@ -77,38 +77,38 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 	}
 	t.Run("complete member set passes", func(t *testing.T) {
 		req, scope, header, body := makeReq(expected, dispositions)
-		require.NoError(t, validateBugReviewMaterialImpacts(req, scope, header, body))
+		require.NoError(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body))
 	})
 	t.Run("omitted artifact is rejected", func(t *testing.T) {
 		got := dispositions
 		got.Decisions = append([]bugReviewMaterialDisposition(nil), dispositions.Decisions...)
 		got.Decisions[0].Artifacts = append([]bugReviewArtifactDisposition(nil), dispositions.Decisions[0].Artifacts[:1]...)
 		req, scope, header, body := makeReq(expected, got)
-		require.ErrorContains(t, validateBugReviewMaterialImpacts(req, scope, header, body), "DEC-1: missing artifact disposition for docs/test-plan.md")
+		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body), "DEC-1: missing artifact disposition for docs/test-plan.md")
 	})
 	t.Run("omitted criterion is rejected", func(t *testing.T) {
 		got := dispositions
 		got.Decisions = append([]bugReviewMaterialDisposition(nil), dispositions.Decisions...)
 		got.Decisions[0].Criteria = append([]bugReviewCriterionDisposition(nil), dispositions.Decisions[0].Criteria[:1]...)
 		req, scope, header, body := makeReq(expected, got)
-		require.ErrorContains(t, validateBugReviewMaterialImpacts(req, scope, header, body), "DEC-1: missing criterion disposition for E01-F01 internal/handler.go AC-2")
+		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body), "DEC-1: missing criterion disposition for E01-F01 internal/handler.go AC-2")
 	})
 	t.Run("missing one sidecar is rejected", func(t *testing.T) {
 		req, scope, header, body := makeReq(expected, dispositions)
 		env := map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []map[string]string{{"kind": "bug_review_material_impacts", "pointer": "docs/expected.json", "summary": "sha256:" + fmt.Sprintf("%x", sha256.Sum256(mustJSON(t, expected)))}}, "gate_result": map[string]any{"schema_version": 1, "summary": "test"}}
 		req.EnvelopeJSON = mustJSON(t, env)
-		require.ErrorContains(t, validateBugReviewMaterialImpacts(req, scope, header, body), "requires both")
+		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body), "requires both")
 	})
 	t.Run("report marker cannot omit both sidecars", func(t *testing.T) {
 		req := gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"test"}}`)}
-		require.ErrorContains(t, validateBugReviewMaterialImpacts(req, bugCandidateScope{}, "", "MATERIAL_DECISION: DEC-1"), "requires both")
+		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), req, bugCandidateScope{}, "", "MATERIAL_DECISION: DEC-1"), "requires both")
 	})
 	t.Run("decision source is bound to the frozen tree", func(t *testing.T) {
 		bad := expected
 		bad.Decisions = append([]bugReviewMaterialDecision(nil), expected.Decisions...)
 		bad.Decisions[0].SourceSHA256 = strings.Repeat("0", 64)
 		req, scope, header, body := makeReq(bad, dispositions)
-		require.ErrorContains(t, validateBugReviewMaterialImpacts(req, scope, header, body), "source digest does not match")
+		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body), "source digest does not match")
 	})
 }
 
@@ -248,12 +248,32 @@ func testMaterialDispositionAdmission(t *testing.T, root string, scope bugCandid
 				written := &fakeNoteWriter{}
 				coord := gatepersist.NewCoordinator(written, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"qa": true, "resolved": true, "code_review": true}}, status, status, &fakeLeaseReleaser{}, status)
 				coord.Admission = NewBugGateAdmission(notes, history)
-				_, err := IngestGateResult(context.Background(), GateIngestRequest{
+				request := GateIngestRequest{
 					EnvelopeBytes: result, Coordinator: coord, ProjectRoot: root, RunID: trial.name + "-" + gate,
 					EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: gate, Gate: gate,
 					Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
 					Outcomes: map[string]string{"pass": target},
-				})
+				}
+				if trial.name == "complete" {
+					for _, challenge := range []string{"cancel", "overflow"} {
+						t.Run(challenge+"_frozen_source", func(t *testing.T) {
+							err := ingestMaterialSourceStream(t, request, scope, decision.SourcePointer, challenge)
+							if challenge == "cancel" {
+								require.ErrorIs(t, err, context.Canceled)
+							} else {
+								require.ErrorContains(t, err, fmt.Sprintf("%d bytes expected, read %d", len(plan), len(plan)+1))
+							}
+							require.Empty(t, written.notes)
+							require.Equal(t, gate, status.status["B001"])
+						})
+					}
+				}
+				var err error
+				if trial.name == "complete" {
+					err = ingestMaterialSourceStream(t, request, scope, decision.SourcePointer, "release")
+				} else {
+					_, err = IngestGateResult(context.Background(), request)
+				}
 				if trial.want != "" {
 					require.ErrorContains(t, err, trial.want)
 					require.Empty(t, written.notes)
