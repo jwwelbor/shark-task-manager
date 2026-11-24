@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -149,6 +150,57 @@ class ReviewFilenameTests(unittest.TestCase):
         digest = hashlib.sha256(data).hexdigest()
         self.assertEqual(digest, metadata[kind + "_sha256"])
         self.assertIn(digest, saved)
+
+    def assert_cli_manifest_delivered(self):
+        expected = self.git("diff", "--name-only", "-z", self.scope["base_commit"],
+                            self.scope["candidate_commit"]).split(b"\0")[:-1]
+        reads = [[name.hex(), (self.repo / os.fsdecode(name)).read_bytes().hex()] for name in expected]
+        for retry in (False, True):
+            with self.subTest(names=expected, retry=retry):
+                packet = self.root / "reply.json"
+                packet.write_text(json.dumps(review_packet(self.scope)))
+                attempts = self.root / "attempts"
+                attempts.write_text("")
+                commands = []
+                for cli in ("codex", "claude"):
+                    exit_status = int(retry and cli == "codex")
+                    command = shlex.join([sys.executable, str(HERE / "testdata" / "inspect_cli_manifest.py"),
+                                          cli, str(attempts), str(packet), str(exit_status)])
+                    commands.extend(["--" + cli + "-command", command])
+                self.run_number += 1
+                result = subprocess.run([
+                    sys.executable, str(HERE / "adaptive_review.py"), "run-cli",
+                    "--no-workflow-available", "--no-agent-dispatch-available", "--host", "claude",
+                    "--prompt-file", str(self.prompt), "--scope-file", self.scope_file.name,
+                    "--diff-path", self.scope["diff_path"], "--base-commit", self.scope["base_commit"],
+                    "--project-root", str(self.repo), "--source-root", str(self.repo),
+                    "--review-output-path", str(self.root / f"manifest-{self.run_number}.md"),
+                    *commands], cwd=self.root, capture_output=True, check=True)
+                producers = ["codex", "claude"] if retry else ["codex"]
+                self.assertEqual(json.loads(result.stdout)["adversarial_model"], producers[-1])
+                observed = [json.loads(line) for line in attempts.read_text().splitlines()]
+                self.assertEqual(observed, [[producer, reads] for producer in producers])
+
+    def test_each_cli_attempt_receives_the_frozen_git_manifest(self):
+        # The first two manifests have the same count and newline-joined text.
+        fixtures = ([b"alpha", b"beta\ngamma"], [b"alpha\nbeta", b"gamma"],
+                    [b" ", b'quote"', br"back\slash", b"caf\xe9", "caf\ufffd".encode()])
+        for names in fixtures:
+            self.commit_names(names)
+            self.assert_cli_manifest_delivered()
+
+    def test_cli_retry_receives_unchanged_predecessor_file_in_full_scope(self):
+        self.commit_names([b"edited", b"prior-only"])
+        base, predecessor = self.scope["base_commit"], self.scope["candidate_commit"]
+        self.commit_names([b"edited"])
+        capture = subprocess.check_output(["bash", str(HERE / "get_diff.sh")], cwd=self.repo,
+                                          env={**os.environ, "REVIEW_BASE": base,
+                                               "REVIEW_PREDECESSOR_COMMIT": predecessor})
+        self.scope_file.write_bytes(capture)
+        self.scope = json.loads(capture)
+        self.assertEqual(self.scope["successor_delta"]["changed_files"], ["edited"])
+        self.assertEqual(self.scope["changed_files"], ["edited", "prior-only"])
+        self.assert_cli_manifest_delivered()
 
     def test_requested_and_effective_models_round_trip_at_both_cli_writers(self):
         self.commit_names([b"ordinary", b" "])

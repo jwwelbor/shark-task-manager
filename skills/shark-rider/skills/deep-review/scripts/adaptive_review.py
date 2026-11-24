@@ -349,7 +349,8 @@ def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | N
     try:
         if not args.scope_file:
             raise ValueError("captured scope is required")
-        scope = json.loads(read_review_file(args.scope_file, 32 * 1024 * 1024).decode("utf-8"))
+        scope_bytes = read_review_file(args.scope_file, 32 * 1024 * 1024)
+        scope = json.loads(scope_bytes.decode("utf-8"))
         captured = {}
         validate_scope(scope, args.base_commit, args.diff_path, args.project_root, args.source_root, args.shark_project_root, captured)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -361,6 +362,7 @@ def bind_scope(metadata: dict[str, object], args: argparse.Namespace) -> str | N
         metadata[key] = scope[key]
     metadata["repair_plan_sha256"] = scope.get("repair_plan_sha256")
     metadata["_scope"] = scope
+    metadata["_capture_sha256"] = hashlib.sha256(scope_bytes).hexdigest()
     metadata["_diff_bytes"] = captured["diff"]
     return None
 
@@ -582,6 +584,7 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
     # Reserve the report first: exclusive creation also rejects a final symlink.
     # A partial write stays visible for diagnosis and cannot replace old evidence.
     with path.open("x", encoding="utf-8") as report:
+        metadata.pop("_capture_sha256", None)
         decisions = metadata.pop("_decisions", None)
         if decisions is not None:
             retained_decisions = Path(str(path) + ".decisions.json")
@@ -613,8 +616,14 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
         report.write(content)
 
 
-def _cli_prompt(args, scope):
+def _cli_prompt(args, scope, capture_sha256):
     prompt = read_review_file(args.prompt_file, 2 * 1024 * 1024).decode("utf-8")
+    reference = {"path": str(Path(args.scope_file).resolve()), "sha256": capture_sha256}
+    prompt += "\nFROZEN_SCOPE_REFERENCE: " + json.dumps(reference) + "\n"
+    prompt += "Read this capture and verify its SHA-256 before inspecting the candidate. "
+    prompt += "Its ordered changed_files JSON array gives the exact required Git paths. "
+    prompt += "Preserve literal filenames, including escaped newlines and Git filename bytes. "
+    prompt += "If the reference cannot be verified, report an incomplete inspection. "
     prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity, reviewed_files and findings). "
     prompt += "decisions.reviewed_files must list every frozen changed file you actually opened or inspected; do not infer paths from the manifest. "
     prompt += "Each finding must have file, positive integer line, severity, rule, summary, diagnosis, disposition and a nonempty reason. "
@@ -709,7 +718,7 @@ def run_cli(args: argparse.Namespace) -> int:
     preferred = str(choice["adversarial_model"])
     candidates = cli_candidates(caps, args.host, preferred)
     try:
-        prompt = _cli_prompt(args, scope)
+        prompt = _cli_prompt(args, scope, base["_capture_sha256"])
     except (OSError, ValueError, UnicodeError) as exc:
         base["runner_mode"] = "incomplete"
         base["fallback_reason"] = f"review prompt unavailable: {exc}"

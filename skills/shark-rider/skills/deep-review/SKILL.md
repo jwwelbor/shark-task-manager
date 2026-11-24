@@ -195,8 +195,11 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 
 ## Runner 3: alternate/comparable-model CLI
 
-Build one read-only adversarial prompt containing the diff path, complete changed-file list,
-standards path, task context, and the following required output contract:
+Build one read-only adversarial prompt containing the diff path, standards path,
+task context, and the following output contract. The runner supplies each
+attempt with the absolute path and digest of the validated scope file. The
+reviewer reads its `changed_files` array for the exact frozen Git names and
+declares its own inspections in `decisions.reviewed_files`.
 
 ```text
 Return a JSON object containing `report` (the Markdown review, including
