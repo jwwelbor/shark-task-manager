@@ -159,7 +159,7 @@ class AdaptiveReviewTests(unittest.TestCase):
                 scope = json.loads(capture)
                 self.assertEqual([os.fsencode(p) for p in scope['changed_files']], [filename])
 
-                def reviewer(cli, spelling):
+                def reviewer(cli, spelling, diagnostic):
                     path = root / cli
                     packet = review_packet(scope)
                     packet['report'] += '\nReview supplied by ' + cli
@@ -172,7 +172,7 @@ class AdaptiveReviewTests(unittest.TestCase):
                         f'with open({filename!r}, "rb") as f: assert f.read() == b"review this change"\n'
                         + ('assert Path("source").read_text() == "new"\n' if cli == 'claude' else '')
                         + f'with open({str(attempts)!r}, "a") as f: print({cli!r}, file=f)\n'
-                        + f'sys.stdout.buffer.write({wire!r})\nsys.stderr.buffer.write(bytes([233]))\n')
+                        + f'sys.stdout.buffer.write({wire!r})\nsys.stderr.buffer.write({diagnostic!r})\n')
                     path.chmod(0o700)
                     return path
 
@@ -183,11 +183,20 @@ class AdaptiveReviewTests(unittest.TestCase):
                          ('both-malformed', raw_byte, raw_byte, None),
                          ('restored', exact, raw_byte, 'codex')]
                 if filename == replacement:
+                    cases.append(('both-usable', exact, exact, 'codex'))
                     cases.append(('different-byte', br'caf\udce9.txt', br'caf\udce9.txt', None))
-                for case, preferred, fallback, selected in cases:
-                    with self.subTest(filename=filename, case=case):
+                # R40 F3: change only the producing attempt's stderr, keeping both
+                # stdout packets and the other attempt's diagnostic unchanged.
+                trials = [(*case, b'\xe9') for case in cases]
+                if filename == replacement:
+                    paired = {'literal-or-escaped', 'both-usable', 'verified-fallback'}
+                    trials.extend((*case, b'') for case in cases if case[0] in paired)
+                for case, preferred, fallback, selected, diagnostic in trials:
+                    with self.subTest(filename=filename, case=case, diagnostic=diagnostic):
                         attempts.write_text('')
-                        report = root / (filename.hex() + '-' + case + '.md')
+                        report = root / f'{filename.hex()}-{case}-{diagnostic.hex()}.md'
+                        preferred_cli = reviewer('codex', preferred, diagnostic if selected != 'claude' else b'')
+                        fallback_cli = reviewer('claude', fallback, diagnostic if selected == 'claude' else b'')
                         result = subprocess.run([sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
                             '--project-root', str(repo), '--source-root', str(repo), '--base-commit', base,
                             '--scope-file', str(scope_file), '--diff-path', scope['diff_path'],
@@ -195,8 +204,8 @@ class AdaptiveReviewTests(unittest.TestCase):
                             '--no-workflow-available', '--no-agent-dispatch-available', '--host', 'claude',
                             '--requested-model', 'requested', '--effective-model', 'verified-preferred',
                             *(['--fallback-effective-model', 'verified-second'] if case == 'verified-fallback' else []),
-                            '--codex-command', str(reviewer('codex', preferred)),
-                            '--claude-command', str(reviewer('claude', fallback))], capture_output=True, text=True)
+                            '--codex-command', str(preferred_cli), '--claude-command', str(fallback_cli)],
+                            capture_output=True, text=True)
                         self.assertEqual(result.returncode, 0 if selected else 2, result.stderr)
                         metadata = json.loads(result.stdout)
                         saved = report.read_text()
@@ -205,6 +214,9 @@ class AdaptiveReviewTests(unittest.TestCase):
                         self.assertEqual(metadata['verdict'], 'PASS' if selected else 'INCOMPLETE')
                         self.assertEqual(metadata['specialists_completed'], 0)
                         self.assertEqual(metadata['consolidator_completed'], selected is not None)
+                        self.assertIn('`specialists_completed=0`', saved)
+                        self.assertIn(f'`consolidator_completed={selected is not None}`', saved)
+                        self.assertIsNone(metadata.get('cost'))
                         self.assertEqual(metadata['adversarial_model'], selected)
                         self.assertEqual(metadata['requested_model'], 'requested')
                         self.assertIn('**Requested model:** `requested`', saved)
@@ -214,7 +226,12 @@ class AdaptiveReviewTests(unittest.TestCase):
                             if case == 'verified-fallback':
                                 model = 'verified-second'
                             self.assertEqual(metadata['effective_model'], model)
+                            self.assertIn(f'**Adversarial model:** `{selected}`', saved)
                             self.assertIn(f"**Verified effective model:** `{model or 'unknown'}`", saved)
+                            if selected == 'claude':
+                                self.assertIn('codex: invalid structured review', metadata['fallback_reason'])
+                                self.assertIn('using claude CLI', metadata['fallback_reason'])
+                                self.assertIn(metadata['fallback_reason'], saved)
                             self.assertIn('Review supplied by ' + selected, saved)
                             sidecar = Path(metadata['retained_decisions']).read_bytes()
                             self.assertEqual(hashlib.sha256(sidecar).hexdigest(), metadata['decisions_sha256'])
