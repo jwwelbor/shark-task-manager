@@ -46,11 +46,20 @@ requireBugContext()
 function effectiveEffort() { return effort || undefined }
 const reviewEffort = effectiveEffort()
 
+function validGitPath(path) {
+  // Unicode mode treats a valid surrogate pair as one scalar. An isolated
+  // DC80–DCFF represents a Git filename byte under the wire contract.
+  return typeof path === 'string' && !/[\0\uD800-\uDC7F\uDD00-\uDFFF]/u.test(path) &&
+    path.split('/').every(part => part !== '' && part !== '.' && part !== '..')
+}
+
 function listChangedFiles() {
-  return Array.isArray(changed_files) ? changed_files : String(changed_files || '').split('\n').filter(Boolean)
+  if (Array.isArray(changed_files) && changed_files.every(validGitPath)) return changed_files
+  if (validGitPath(changed_files) && !changed_files.includes('\n')) return [changed_files]
+  throw new Error('changed_files requires an exact Git filename array for this scope')
 }
 const changedFiles = listChangedFiles()
-const fileList = changedFiles.join('\n')
+const fileList = JSON.stringify(changedFiles)
 function scopeDescription() {
   return {count: changed_file_count || changedFiles.length, line: `- DIFF_SHORTSTAT: ${diff_shortstat || '(not provided)'}`}
 }
@@ -98,6 +107,7 @@ const CONSOLIDATION_SCHEMA = {
       type: 'object',
       properties: {
         candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
+        reviewed_files: FINDING_SCHEMA.properties.reviewed_files,
         findings: {type: 'array', items: {
           type: 'object',
           properties: {
@@ -183,26 +193,42 @@ function validFinding(f) {
     ['rule', 'summary', 'diagnosis'].every(k => typeof f[k] === 'string' && f[k].length > 0)
 }
 
-function validAngle(result) {
-  return result && validIdentity(result.candidate_identity) && Array.isArray(result.findings) &&
-    Array.isArray(result.reviewed_files) && changedFiles.every(f => result.reviewed_files.includes(f)) &&
-    result.reviewed_files.every(f => typeof f === 'string') && result.findings.every(validFinding)
+function fileCoverageError(files) {
+  if (!Array.isArray(files)) return 'missing reviewed_files declaration'
+  for (const file of files) {
+    if (!validGitPath(file)) return 'invalid reviewed path ' + JSON.stringify(file)
+  }
+  const inspected = new Set(files)
+  const missing = changedFiles.filter(file => !inspected.has(file))
+  return missing.length ? 'missing required paths ' + JSON.stringify(missing) : ''
 }
 
-function summarizeAngles(results) {
-  if (!Array.isArray(results)) return {completed: 0, retainedAngles: null}
-  return {
-    completed: results.filter(validAngle).length,
-    retainedAngles: Object.fromEntries('abcdef'.split('').flatMap((name, i) => results[i] == null ? [] : [[name, results[i]]])),
-  }
+function angleError(result) {
+  if (!result || !validIdentity(result.candidate_identity)) return 'missing or incorrect candidate identity'
+  if (!Array.isArray(result.findings) || !result.findings.every(validFinding)) return 'malformed findings'
+  return fileCoverageError(result.reviewed_files)
 }
-const {completed, retainedAngles} = summarizeAngles(angleResults)
+
+if (!Array.isArray(angleResults)) {
+  return {report: 'INCOMPLETE: specialist dispatch returned no result vector.', runner_mode: 'incomplete',
+    specialists_completed: 'unknown', consolidator_completed: false, angle_results: null}
+}
+const retainedAngles = {}
+const errors = []
+let completed = 0
+for (const [index, label] of Array.from('abcdef').entries()) {
+  const result = angleResults[index]
+  if (result != null) retainedAngles[label] = result
+  const error = angleError(result)
+  if (error) errors.push(`angle ${label}: ${error}`)
+  else completed++
+}
 if (completed !== 6 || angleResults.length !== 6) {
-  return {report: `INCOMPLETE: ${completed} of 6 specialist results were valid; consolidation was not run.`, runner_mode: "incomplete", specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
+  return {report: `INCOMPLETE: ${completed} of 6 specialist results were valid; consolidation was not run. ${errors.join(' ')}`,
+    runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
 }
 
 const allFindings = angleResults.flatMap(r => r.findings)
-const reviewedFiles = [...new Set(angleResults.flatMap(r => r.reviewed_files))]
 
 log(`Collected ${allFindings.length} candidate findings across angles A–F`)
 
@@ -223,12 +249,10 @@ function makeConsolidatorPreamble() {
 - CHANGED_FILE_COUNT: ${changedFileCount}
 - CHANGED_FILES:
 ${fileList}
-- REVIEWED_FILES_REPORTED_BY_ANGLES:
-${reviewedFiles.length ? reviewedFiles.join('\n') : '(none reported)'}
+- ANGLE_RESULTS:
+${JSON.stringify(retainedAngles)}
 - PROJECT_ROOT:   ${project_root || '.'}
 ${diffScopeLine}
-- ALL_FINDINGS (${allFindings.length} candidates from 6 parallel angles):
-${JSON.stringify(allFindings, null, 2)}
 ${specContext}
 
 Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
@@ -260,6 +284,7 @@ function findingKey(f) {
 
 function validDecisionSet(value) {
   if (!value || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
+  if (value.reviewed_files !== undefined && fileCoverageError(value.reviewed_files)) return false
   return value.findings.every(validDecision) && new Set(value.findings.map(findingKey)).size === value.findings.length
 }
 
