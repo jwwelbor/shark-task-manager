@@ -10,6 +10,7 @@ from uuid import uuid4
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -27,6 +28,8 @@ def record_cli():
             if request["method"] == "config/read":
                 config = json.loads((directory / "response").read_text())
                 record("read", params=request["params"], response=config)
+                if os.environ.get("STALL_READ") == "1":
+                    time.sleep(30)
                 print(json.dumps(dict(id=request["id"], result=dict(config=config))), flush=True)
         return
     if argv[0] == "exec":
@@ -55,14 +58,18 @@ def record_cli():
                     "".join(json.dumps(item) + "\n" for item in observed))
             print(json.dumps(event))
             sys.exit(1)
-        config = json.loads((directory / "response").read_text())
+        # The receiving process applies its own profile and argv. The discovery
+        # response may be wrong, so it cannot stand in for the worker observation.
+        overrides = dict(argv[i + 1].split("=", 1) for i, arg in enumerate(argv) if arg == "--config")
+        provider = overrides.get("model_provider", "other-provider")
+        model = argv[argv.index("--model") + 1] if "--model" in argv else os.environ["DEFAULT_MODEL"]
         events = [dict(type="thread.started", thread_id=thread), dict(type="turn.started"),
                   dict(type="turn.completed", usage={"input_tokens":7})]
         for event in events:
             print(json.dumps(event))
-        records = [("session_meta", dict(id=thread, model_provider="openai")),
-                   ("turn_context", dict(turn_id=turn, model=os.environ.get("OBSERVED") or config["model"],
-                                         effort=config.get("model_reasoning_effort"))),
+        records = [("session_meta", dict(id=thread, model_provider=provider)),
+                   ("turn_context", dict(turn_id=turn, model=os.environ.get("OBSERVED") or model,
+                                         effort=overrides.get("model_reasoning_effort", "xhigh"))),
                    ("event_msg", dict(type="task_complete", turn_id=turn))]
         rollout = Path(os.environ["CODEX_HOME"]) / "sessions" / ("rollout-fixture-" + thread + ".jsonl")
         rollout.parent.mkdir(parents=True, exist_ok=True)
@@ -148,11 +155,18 @@ Verify each selection.
         self.workflow = self.work / "shark-data/workflow/bug.yaml"
         self.template = self.workflow.read_text()
         wrapper = self.directory / "shark"
-        wrapper.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$CASE/counts"\nexec "$B077_SHARK" "$@"\n')
+        wrapper.write_text("""#!/bin/sh
+set -eu
+printf '%s\\n' "$1" >> "$CASE/counts"
+if [ "$1" = release ] && [ -f "$CASE/takeover" ]; then
+    "$B077_SHARK" claim B001 --force --by successor --session successor --field session_id >/dev/null
+fi
+exec "$B077_SHARK" "$@"
+""")
         wrapper.chmod(0o700)
 
     def submit(self, request, returned, *, mapped=False, effort="low", default="", observable=True,
-               observed="", denied=False, known=False, dropped=False):
+               observed="", denied=False, known=False, dropped=False, stall=False, prior_model="stale"):
         path = self.directory
         before, stage = self.template.split("  research:\n")
         provider = "anthropic" if mapped else "openai"
@@ -164,17 +178,18 @@ Verify each selection.
         self.assertEqual((provider, request, effort), (keyed["provider"], keyed["model"], keyed.get("effort", "")))
         (path / "request").write_text(json.dumps(keyed))
         (path / "response").write_text(json.dumps(returned))
-        for name in ("calls", "counts", "route"):
+        self.route_file = path / ("route-" + str(uuid4()) + ".json")
+        for name in ("calls", "counts"):
             (path / name).unlink(missing_ok=True)
         env = dict(os.environ, CASE=str(path), PATH=str(path)+os.pathsep+os.environ["PATH"],
                    CODEX_HOME=str(path/"codex-home"), ENTITY_KEY="B001", CLAUDE_SID="fixture",
                    REPO_ROOT=str(self.work), SELECTED_HARNESS="codex", SELECTED_VERSION="fixture-version",
-                   DENIED=str(int(denied)), KNOWN_COST=str(int(known)), DROP_ARG=str(int(dropped)), OBSERVED=observed, OUTCOME="pass", CURRENT_FILE=str(path/"current"),
+                   STALL_READ=str(int(stall)), DENIED=str(int(denied)), KNOWN_COST=str(int(known)), DROP_ARG=str(int(dropped)), OBSERVED=observed, OUTCOME="pass", CURRENT_FILE=str(path/"current"),
                    OBSERVATION_FILE=str(path/"observation"), CODEX_BIN=str(self.cli), SELECTED_PROVIDER="openai",
-                   REQUESTED_MODEL=request, REQUESTED_EFFORT=effort, SELECTED_MODEL="stale",
+                   REQUESTED_MODEL=request, REQUESTED_EFFORT=effort, SELECTED_MODEL=prior_model,
                    DEFAULT_MODEL=default, MAPPING_REF=MAPPING if mapped else "", OBSERVATION_READY=str(int(observable)),
                    RIDER_ROOT=str(RIDER), REQUEST_FILE=str(path / "request"), SELECTED_PROFILE="fixture",
-                   WORKDIR=str(self.work), ROUTE_FILE=str(path / "route"), SELECTED_SANDBOX="read-only",
+                   WORKDIR=str(self.work), ROUTE_FILE=str(self.route_file), SELECTED_SANDBOX="read-only",
                    PROMPT_FILE=str(path / "prompt"), ARGV_FILE=str(path / "argv"), RESULT_FILE=str(path / "result"),
                    EVENT_FILE=str(path / "events"))
         result = subprocess.run(["bash", "-eu", "-c", commands()], env=env, cwd=self.work, capture_output=True)
@@ -191,7 +206,8 @@ Verify each selection.
         expected_effort = ["model_reasoning_effort=" + effort] if effort else []
         self.assertEqual(expected_effort, [x for x in calls[0]["argv"] if x.startswith("model_reasoning_effort=")])
         self.stderr = (result.stdout + result.stderr).decode()
-        return calls, json.loads((path / "route").read_text()), result.returncode
+        self.assertTrue(self.route_file.stat().st_size, "preflight ended without an attempt receipt")
+        return calls, json.loads(self.route_file.read_text()), result.returncode
 
     def test_success(self):
         for request, model, mapped, default in (("haiku", "one", True, ""), ("haiku", "two", True, ""),
@@ -250,10 +266,45 @@ Verify each selection.
                     self.assertEqual(({"input_tokens": 11}, 0.25), (receipt["usage"], receipt["cost"]))
                 elif denied:
                     self.assertFalse({"usage", "cost"} & receipt.keys())
+                if dropped:
+                    self.assertEqual({"input_tokens": 7}, receipt.get("usage"))
+                    self.assertEqual("current", receipt.get("attempt_model"))
                 if denied or dropped:
                     self.assertNotIn("effective_model", receipt)
                 else:
                     self.assertEqual(observed, receipt["effective_model"])
+
+    def test_denied_after_takeover(self):
+        self.shark("bug", "create", "unrelated holder")
+        self.shark("claim", "B002", "--by", "unrelated", "--session", "unrelated")
+        (self.directory / "takeover").touch()
+        calls, _, rc = self.submit("haiku", dict(model_provider="openai", model="found",
+                                                 model_reasoning_effort="low"), mapped=True, denied=True)
+        self.assertNotEqual(0, rc)
+        self.assertEqual(["read", "exec"], [c["method"] for c in calls])
+        effects = (self.directory / "counts").read_text().splitlines()
+        self.assertEqual((1, 1, 0), (effects.count("claim"), effects.count("release"), effects.count("status")))
+        with sqlite3.connect(self.work / "shark-tasks.db") as db:
+            rows = db.execute("select entity_key, session_id from entity_claims order by entity_key").fetchall()
+        self.assertEqual([("B001", "successor"), ("B002", "unrelated")], rows)
+        self.assertEqual("research", json.loads(self.shark("get", "B001", "--json").stdout)["status"])
+
+    def test_unanswered_read(self):
+        # Keep the real timeout and signals. Shorten the reader deadline in this fixture.
+        timeout = shutil.which("timeout")
+        wrapper = self.directory / "timeout"
+        wrapper.write_text('#!/bin/bash\nif [[ $1 == -k && $3 == 15 ]]; then shift 3; '
+                           'exec "' + timeout + '" -k 2 1 "$@"; fi\nexec "' + timeout + '" "$@"\n')
+        wrapper.chmod(0o700)
+        calls, receipt, rc = self.submit("haiku", {}, mapped=True, stall=True)
+        self.assertNotEqual(0, rc)
+        self.assertEqual(["read"], [c["method"] for c in calls])
+        self.assertFalse((self.directory / "counts").exists())
+        self.assertEqual(("preflight", "unverified", "anthropic", "haiku", "codex-cli", MAPPING),
+                         tuple(receipt[k] for k in ("phase", "route_status", "requested_provider",
+                                                   "requested_model", "host_worker_class", "mapping_ref")))
+        self.assertEqual(str(self.route_file), receipt["evidence_ref"])
+        self.assertFalse({"selected_provider", "selected_model", "effective_model", "worker_id"} & receipt.keys())
 
     def test_refusal(self):
         for request, model, mapped in (("haiku", "found", True), ("pin", "pin", False), ("", "default", False)):
@@ -278,6 +329,37 @@ Verify each selection.
         _, receipt, rc = self.submit("haiku", good, mapped=True, observable=False)
         self.assertNotEqual(0, rc)
         self.assertEqual(good["model"], receipt["selected_model"])
+
+    def test_partial_selection_after_success(self):
+        config = dict(model_provider="openai", model="first", model_reasoning_effort="low")
+        _, first, rc = self.submit("haiku", config, mapped=True)
+        self.assertEqual(0, rc, self.stderr)
+        self.shark("status", "set", "B001", "research", "--force", "--reason", "reset isolated fixture")
+        del config["model"]
+        for change in ({}, {"model": ""}, {"model": "second"}):
+            with self.subTest(change=change):
+                returned = config | change
+                calls, receipt, rc = self.submit("haiku", returned, mapped=True,
+                                                 observable=change.get("model") != "second",
+                                                 prior_model=first["selected_model"])
+                self.assertNotEqual(0, rc)
+                self.assertEqual(["read"], [call["method"] for call in calls])
+                self.assertEqual("unverified", receipt["route_status"])
+                self.assertEqual(("anthropic", "haiku", MAPPING, "codex-cli", "openai"),
+                                 tuple(receipt[k] for k in ("requested_provider", "requested_model",
+                                                           "mapping_ref", "host_worker_class", "selected_provider")))
+                reference = json.loads(Path(receipt["evidence_ref"]).read_text())
+                self.assertNotEqual(first["evidence_ref"], receipt["evidence_ref"])
+                self.assertEqual(first, json.loads(Path(first["evidence_ref"]).read_text()))
+                self.assertEqual(returned, reference["readback"])
+                self.assertEqual((str(self.cli), "fixture"), (reference["executable"], reference["profile"]))
+                if change.get("model"):
+                    self.assertEqual("second", receipt["selected_model"])
+                else:
+                    self.assertNotIn("selected_model", receipt)
+                self.assertFalse({"worker_id", "host_session_id", "session_id", "effective_model",
+                                  "effective_provider"} & receipt.keys())
+                self.assertFalse((self.directory / "counts").exists())
 
 
 if __name__ == "__main__":

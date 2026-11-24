@@ -27,10 +27,9 @@ def argv_agrees(capture, selection, result_file):
     return capture.read_bytes().split(b"\0") == [arg.encode() for arg in expected]
 
 
-def observe(events, home, selection, receipt, exit_status):
+def observe(events, home, selection, receipt, *, rejected):
     threads = []
     started = completed = 0
-    failed = exit_status != 0
     for event in records(events):
         kind = event.get("type")
         if kind == "thread.started":
@@ -39,7 +38,7 @@ def observe(events, home, selection, receipt, exit_status):
             started += 1
         elif kind in ("turn.completed", "turn.failed", "error"):
             completed += kind == "turn.completed"
-            failed |= kind != "turn.completed"
+            rejected |= kind != "turn.completed"
             if "usage" in event:
                 receipt["usage"] = event["usage"]
             if "cost" in event:
@@ -68,7 +67,7 @@ def observe(events, home, selection, receipt, exit_status):
             efforts.add(data.get("effort"))
         elif item.get("type") == "event_msg" and data.get("type") == "task_complete":
             completions.append(data.get("turn_id"))
-    if failed:
+    if rejected:
         # Identity of a failed attempt is diagnostic only. There is no admitted result.
         if len(providers) == 1 and all(providers):
             receipt["attempt_provider"] = providers.pop()
@@ -106,10 +105,14 @@ def main():
         selection = json.loads(args.selection.read_text())
         for key in ("host_worker_class", "requested_provider", "requested_model", "selected_provider", "selected_model"):
             receipt[key] = selection[key]
-        if argv_agrees(args.argv, selection, args.result_file):
-            receipt["route_status"] = observe(args.events, args.home, selection, receipt, args.worker_exit)
-        else:
+        try:
+            matched = argv_agrees(args.argv, selection, args.result_file)
+        except OSError:
+            matched = False
+        if not matched:
             receipt["reason"] = "captured invocation differs from selected route"
+        receipt["route_status"] = observe(args.events, args.home, selection, receipt,
+                                          rejected=args.worker_exit != 0 or not matched)
     except (OSError, KeyError, TypeError, ValueError, AttributeError):
         # A missing or unsupported record cannot establish a producing identity.
         receipt["reason"] = "unreadable or invalid invocation metadata"

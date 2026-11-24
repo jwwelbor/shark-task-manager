@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+import signal
 import subprocess
 import sys
 
@@ -10,11 +11,17 @@ class ConfigReadError(ValueError):
     pass
 
 
+def read_timed_out(signum, frame):
+    raise ConfigReadError("selected CLI configuration read timed out")
+
+
 def read_reply(server, request):
     server.stdin.write(json.dumps(request) + "\n")
     server.stdin.flush()
     for line in server.stdout:
         reply = json.loads(line)
+        if not isinstance(reply, dict):
+            raise ConfigReadError("selected CLI returned an invalid response")
         if reply.get("id") == request["id"]:
             if not isinstance(reply.get("result"), dict):
                 raise ConfigReadError("selected CLI refused " + request["method"])
@@ -84,6 +91,8 @@ def main():
     if request.get("effort"):
         record["effort"] = request["effort"]
     try:
+        # Rider's timeout sends SIGTERM while the reader awaits the selected CLI.
+        signal.signal(signal.SIGTERM, read_timed_out)
         select(args, request, record)
     except (ConfigReadError, OSError, UnicodeError, json.JSONDecodeError) as error:
         record["route_status"] = "unverified"
