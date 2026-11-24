@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 import json
 import os
@@ -28,10 +29,11 @@ run(fixture.args, () => {}, dispatch, agent, () => {}).then(
 """
 
 
-def exercise(paths, *, encoded=False, no_vector=False, missing=None, manifest=None, extra=None, consolidated=None):
-    identity = {"commit": "commit", "tree": "tree", "diff_sha256": "digest"}
+def exercise(paths, *, encoded=False, no_vector=False, missing=None, manifest=None, extra=None, consolidated=None, scope=None):
     args = {"changed_files": paths if manifest is None else manifest, "diff_path": "diff", "candidate_commit": "commit",
             "candidate_tree": "tree", "diff_sha256": "digest", "skill_dir": str(SCRIPT.parent.parent)}
+    args.update(scope or {})
+    identity = {"commit": args["candidate_commit"], "tree": args["candidate_tree"], "diff_sha256": args["diff_sha256"]}
     packets = {}
     decisions = []
     for index, label in enumerate("abcdef"):
@@ -58,6 +60,52 @@ def exercise(paths, *, encoded=False, no_vector=False, missing=None, manifest=No
 
 
 class NativeHandoffTest(unittest.TestCase):
+    def test_restored_policy_reaches_each_reviewer_outside_current_manifest(self):
+        # R40 Capture/Impact: a restored input still changes an unchanged wrapper's output.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def git(*args):
+                return subprocess.check_output(["git", "-c", "user.name=Fixture", "-c",
+                                                "user.email=f@example.invalid", "-c", "commit.gpgsign=false",
+                                                "-c", "core.hooksPath=/dev/null", *args], cwd=root)
+
+            git("init", "-q")
+            for name in ("policy", "wrapper", "leaf"):
+                (root / name).write_text("base")
+            git("add", ".")
+            git("commit", "-qm", "baseline")
+            base = git("rev-parse", "HEAD").decode().strip()
+            (root / "wrapper").write_text("cat policy\n")
+            (root / "policy").write_text("first")
+            (root / "leaf").write_text("independent")
+            git("commit", "-qam", "first review")
+            prior = git("rev-parse", "HEAD").decode().strip()
+            self.assertEqual(subprocess.check_output(["sh", "wrapper"], cwd=root), b"first")
+            git("restore", "--source", base, "--", "policy")
+            git("commit", "-qam", "restore policy")
+            self.assertEqual(subprocess.check_output(["sh", "wrapper"], cwd=root), b"base")
+            scope = json.loads(subprocess.check_output(["bash", str(SCRIPT.with_name("get_diff.sh"))],
+                               cwd=root, env=dict(os.environ, REVIEW_BASE=base, REVIEW_PREDECESSOR_COMMIT=prior)))
+            self.assertEqual(scope["changed_files"], ["leaf", "wrapper"])
+            expected_delta = {
+                "predecessor_commit": prior,
+                "predecessor_tree": git("rev-parse", prior + "^{tree}").decode().strip(),
+                "changed_files": ["policy"],
+                "diff_sha256": hashlib.sha256(git("diff", "--no-ext-diff", "--binary", prior, "HEAD")).hexdigest(),
+            }
+            observed, _ = exercise(scope["changed_files"], scope=scope)
+            self.assertEqual(len(observed["calls"]), 7)
+            for call in observed["calls"]:
+                with self.subTest(recipient=call["label"]):
+                    prompt = call["prompt"]
+                    self.assertIn("- SUCCESSOR_DELTA:", prompt)
+                    delta, _ = json.JSONDecoder().raw_decode(prompt.split("- SUCCESSOR_DELTA:", 1)[1].lstrip())
+                    self.assertEqual(delta, expected_delta)
+                    self.assertIn("- BASE_COMMIT: " + base, prompt)
+                    manifest, _ = json.JSONDecoder().raw_decode(prompt.split("- CHANGED_FILES:", 1)[1].lstrip())
+                    self.assertEqual(manifest, ["leaf", "wrapper"])
+
     def test_each_recipient_gets_git_manifest_and_consolidator_gets_original_packets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -82,6 +130,7 @@ class NativeHandoffTest(unittest.TestCase):
                 self.assertEqual(len(calls), 7)
                 for call in calls:
                     with self.subTest(group=group, recipient=call["label"]):
+                        self.assertNotIn("- SUCCESSOR_DELTA:", call["prompt"])
                         after = call["prompt"].split("- CHANGED_FILES:", 1)[1].lstrip()
                         self.assertTrue(after.startswith("["), "expected a lossless JSON file list")
                         self.assertEqual(json.JSONDecoder().raw_decode(after)[0], paths)

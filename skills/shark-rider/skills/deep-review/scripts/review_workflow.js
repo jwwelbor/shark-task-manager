@@ -9,7 +9,7 @@ export const meta = {
 
 // ─── Args ────────────────────────────────────────────────────────────────────
 // Required: diff_path, changed_files (array), project_root, skill_dir
-// Optional scope metadata: changed_file_count, diff_shortstat
+// Optional scope metadata: changed_file_count, diff_shortstat, successor_delta
 // Optional: task_spec_path, feature_prd_path, acceptance_criteria (array of {ac_id, text})
 
 // Some hosts deliver `args` as a JSON-encoded string rather than a parsed
@@ -60,6 +60,11 @@ function listChangedFiles() {
 }
 const changedFiles = listChangedFiles()
 const fileList = JSON.stringify(changedFiles)
+let comparisonContext = `- BASE_COMMIT: ${base_commit || '(not provided)'}`
+if (input.successor_delta) {
+  comparisonContext += `\n- SUCCESSOR_DELTA: ${JSON.stringify(input.successor_delta)}
+Inspect changes from predecessor_commit to CANDIDATE_COMMIT and trace their effects, including inputs restored to baseline. CHANGED_FILES is the full review manifest. Credit for prior work requires independent verification.`
+}
 function scopeDescription() {
   return {count: changed_file_count || changedFiles.length, line: `- DIFF_SHORTSTAT: ${diff_shortstat || '(not provided)'}`}
 }
@@ -134,6 +139,7 @@ function preamble(angleFile, extraContext) {
     : `- CODING_STANDARDS_PATH: (not found — all standards violations downgrade to opinion-only nits)`
   return `CONTEXT (substitute these wherever the instructions say the placeholder name):
 - DIFF_PATH:      ${diff_path}
+${comparisonContext}
 - CANDIDATE_COMMIT: ${candidate_commit}
 - CANDIDATE_TREE: ${candidate_tree}
 - DIFF_SHA256: ${diff_sha256}
@@ -241,7 +247,7 @@ function makeConsolidatorPreamble() {
 - EVIDENCE_MODE: canonical-six-angle
 - SPECIALISTS_COMPLETED: 6
 - CONSOLIDATOR_COMPLETED: true
-- BASE_COMMIT: ${base_commit || '(not provided)'}
+${comparisonContext}
 - CANDIDATE_COMMIT: ${candidate_commit}
 - CANDIDATE_TREE: ${candidate_tree}
 - DIFF_SHA256: ${diff_sha256}

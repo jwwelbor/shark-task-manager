@@ -138,6 +138,10 @@ baseline when specified; otherwise omit it to use the merge base.
 Retain `candidate_commit`, `candidate_tree`, `diff_sha256`, `diff_path`, `base_commit`, `changed_files`, `changed_file_count`, `diff_shortstat`,
 `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Review the complete
 changed-file list unless the user explicitly narrows scope.
+When capture supplies `successor_delta`, pass that object intact with the full scope to
+the native workflow, each host specialist and the consolidator. Use its predecessor
+commit and the frozen candidate to inspect changed inputs, including a path restored
+to baseline. Trace the effects on callers in the full review manifest.
 
 ## Runner 1: native Workflow
 
@@ -181,7 +185,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    preferred alternate CLI is unavailable, not when a six-angle dispatch is
    incomplete.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
-   captured scope (`diff_path`, `base_commit`), the complete changed-file
+   captured scope (including `diff_path`, `base_commit` and any `successor_delta`), the complete changed-file
    manifest as CHANGED_FILES, and ANGLE_RESULTS keyed by the six producing invocations (a through f). Preserve the original packets, including each ordered declaration, findings and supporting observations. Require the consolidator to verify
    coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; retain and route any downgraded finding through the triage decision tree. A downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
 5. Persist with `scripts/adaptive_review.py write-report`, passing the
