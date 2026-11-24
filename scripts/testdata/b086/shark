@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Record commands from the scratch project's ordinary Shark entry point."""
+
+from pathlib import Path
+import sys
+
+case = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(case / 'libexec'))
+from observe import run
+
+sys.exit(run(case, 'shark', sys.argv[1:]))

@@ -1,0 +1,161 @@
+"""Tool-entry recorders for the first grant pair. The host owns every disposition."""
+
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import uuid
+
+from prepare import digest
+
+TRIAGE = 'catalog/shark-rider/skills/triage/SKILL.md'
+REVIEW = 'catalog/shark-rider/skills/deep-review/SKILL.md'
+CONSOLIDATOR = 'catalog/shark-rider/skills/deep-review/references/consolidator.md'
+WORKFLOW = 'embedded/quality/workflows/review-code.md'
+HANDOFF = {TRIAGE, REVIEW, CONSOLIDATOR, WORKFLOW}
+
+
+def append(path, record):
+    with path.open('a', encoding='utf-8') as stream:
+        stream.write(json.dumps(record) + '\n')
+
+
+def pinned(case, relative, manifest):
+    path = (case / relative).resolve(strict=True)
+    if not path.is_relative_to(case) or digest(path) != manifest['prepared_files'][relative]:
+        raise ValueError(f'prepared file changed: {relative}')
+    return path
+
+
+def read_policy(case, relative, manifest):
+    if relative == WORKFLOW:
+        binary = pinned(case, 'libexec/shark', manifest)
+        content = subprocess.check_output([binary, 'skill', 'get', 'quality',
+                                           'workflows/review-code.md', '--raw'], cwd=case / 'project')
+        expected = manifest['embedded_workflow_sha256']
+        origin = f'{binary} skill get quality workflows/review-code.md --raw'
+    else:
+        if not relative.startswith('catalog/') or relative not in manifest['prepared_files']:
+            raise ValueError('file is outside the private catalog')
+        path = pinned(case, relative, manifest)
+        origin, content, expected = str(path), path.read_bytes(), manifest['prepared_files'][relative]
+    if hashlib.sha256(content).hexdigest() != expected:
+        raise ValueError('loaded policy differs from prepared source')
+    return content, {'file': relative, 'origin': origin, 'sha256': expected}
+
+
+def tracker_args(argv, project, database, config):
+    # The first pair needs ordinary reads and task creation only. Record every refused invocation.
+    words = []
+    forwarded = []
+    values = {'--config': config, '--db': database}
+    seen = set()
+    args = iter(argv)
+    for arg in args:
+        name, equals, inline = arg.partition('=')
+        if name in values or name in ('--description', '--title', '--field', '--priority', '--epic', '--feature', '--type', '--note-type'):
+            value = inline if equals else next(args, None)
+            if not value or value.startswith('-'):
+                raise ValueError(f'missing {name} value')
+            if name in values:
+                if name in seen or (project / value).resolve() != values[name]:
+                    raise ValueError(f'refusing {name} destination: {value}')
+                seen.add(name)
+            else:
+                forwarded.extend([name, value])
+        elif arg in ('--json', '--no-color'):
+            forwarded.append(arg)
+        elif arg.startswith('-'):
+            raise ValueError(f'unsupported first-pair option: {arg}')
+        else:
+            words.append(arg)
+            forwarded.append(arg)
+    if not words:
+        raise ValueError('missing tracker operation')
+    create = words[:2] in (['task', 'create'], ['create', 'task'])
+    read = words[0] in {'list', 'get', 'progress'} or words[:2] == ['notes', 'search']
+    if len(words) > 1 and words[0] in {'bug', 'task', 'feature', 'epic', 'change', 'tech-debt', 'idea'}:
+        read = read or words[1] in {'list', 'get'}
+    association = words[:2] == ['notes', 'add'] or words[:3] == ['task', 'note', 'add']
+    if not (create or read or association):
+        raise ValueError(f'unsupported first-pair command: {words[:2]}')
+    operation = 'create' if create else 'associate' if association else 'read'
+    return [*forwarded, '--config', str(config), '--db', str(database)], operation
+
+
+def tracker(case, manifest, binding, argv, log, event):
+    project = case / 'project'
+    config = pinned(case, 'project/.sharkconfig.json', manifest)
+    pinned(case, 'project/shark', manifest)
+    binary = pinned(case, 'libexec/shark', manifest)
+    database = (project / 'shark-tasks.db').resolve(strict=True)
+    stat = database.stat()
+    if database.parent != project or [stat.st_dev, stat.st_ino] != binding['db_inode']:
+        raise ValueError('database no longer matches prepared case')
+    args, operation = tracker_args(argv, project, database, config)
+    if not manifest['packet']:
+        raise ValueError('missing retained packet')
+    for name, expected in manifest['packet']['files'].items():
+        path = (case / 'packet' / name).resolve(strict=True)
+        if not path.is_relative_to(case / 'packet') or digest(path) != expected:
+            raise ValueError('retained packet changed')
+    loads = [json.loads(line) for line in log.read_text().splitlines()]
+    observed = {e['file'] for e in loads if e['run_id'] == binding['run_id']
+                and e.get('tool') == 'read' and e.get('outcome') == 'loaded'}
+    if not HANDOFF.issubset(observed):
+        raise ValueError('private review handoff reads incomplete')
+    for relative in HANDOFF - {WORKFLOW}:
+        pinned(case, relative, manifest)
+    append(log, dict(event, event='forward', database=str(database), operation=operation))
+    try:
+        result = subprocess.run([binary, *args], cwd=project, capture_output=True)
+    except OSError as error:
+        append(log, dict(event, event='result', outcome='launch_failed', reason=str(error)))
+        return 1
+    append(log, dict(event, event='result', outcome='exited', forwarded=True,
+                     exit_code=result.returncode, stdout=result.stdout.decode(),
+                     stderr=result.stderr.decode()))
+    sys.stdout.buffer.write(result.stdout)
+    sys.stderr.buffer.write(result.stderr)
+    return result.returncode
+
+
+def run(case, tool, argv):
+    case = case.resolve(strict=True)
+    manifest = json.loads((case.parent / 'preparation.json').read_bytes())
+    binding = manifest['bindings'][case.name]
+    observations = case / 'observations'
+    observations.mkdir(exist_ok=True)
+    log = observations / 'tools.jsonl'
+    workflow_read = tool == 'shark' and argv == ['skill', 'get', 'quality', 'workflows/review-code.md', '--raw']
+    event = {'run_id': binding['run_id'], 'invocation': str(uuid.uuid4()),
+             'tool': 'read' if workflow_read else tool}
+    append(log, dict(event, event='entry', argv=argv))
+    try:
+        if workflow_read or (tool == 'read' and len(argv) == 1):
+            content, detail = read_policy(case, WORKFLOW if workflow_read else argv[0], manifest)
+            sys.stdout.buffer.write(content)
+            sys.stdout.buffer.flush()
+            append(log, dict(event, event='result', outcome='loaded', **detail))
+        elif tool in {'parent', 'disposition'}:
+            message = json.load(sys.stdin)
+            append(observations / (tool + '.jsonl'), dict(event, message=message))
+            append(log, dict(event, event='result', outcome='received'))
+        elif tool == 'shark':
+            return tracker(case, manifest, binding, argv, log, event)
+        elif tool in {'ci', 'merge', 'review'}:
+            raise ValueError('recording endpoint: external execution disabled for grant pair')
+        else:
+            raise ValueError('unknown fixture tool or arguments')
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        append(log, dict(event, event='result', outcome='refused', forwarded=False, reason=str(error)))
+        print(error, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        sys.exit('usage: observe.py CASE read|shark|parent|disposition|ci|merge|review [ARGS...]')
+    sys.exit(run(Path(sys.argv[1]), sys.argv[2], sys.argv[3:]))
