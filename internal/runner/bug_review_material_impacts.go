@@ -290,34 +290,64 @@ func validateBugReviewMaterialDecision(decision bugReviewMaterialDecision) error
 }
 
 func compareBugReviewMaterialMembers(expected bugReviewMaterialDecision, actual bugReviewMaterialDisposition) error {
-	if len(expected.AffectedArtifacts) != len(actual.Artifacts) || len(expected.AffectedCriteria) != len(actual.Criteria) {
-		return fmt.Errorf("material decision dispositions do not cover every expected member")
+	if err := compareMaterialArtifacts(expected, actual.Artifacts); err != nil {
+		return err
 	}
-	artifacts := make(map[string]bugReviewArtifactDisposition, len(actual.Artifacts))
-	for _, item := range actual.Artifacts {
-		if item.Path == "" || (item.Disposition != "amended" && item.Disposition != "tracked_follow_up") || item.EvidencePointer == "" || !filepath.IsLocal(item.EvidencePointer) || artifacts[item.Path].Path != "" {
-			return fmt.Errorf("material artifact disposition is invalid")
+	return compareMaterialCriteria(expected, actual.Criteria)
+}
+
+func compareMaterialArtifacts(expected bugReviewMaterialDecision, submitted []bugReviewArtifactDisposition) error {
+	seen := make(map[string]bool, len(submitted))
+	for _, item := range submitted {
+		if item.Path == "" || seen[item.Path] || !filepath.IsLocal(item.EvidencePointer) {
+			return fmt.Errorf("%s: invalid or duplicate artifact disposition for %s", expected.DecisionID, item.Path)
 		}
-		artifacts[item.Path] = item
+		if item.Disposition != "amended" && item.Disposition != "tracked_follow_up" {
+			return fmt.Errorf("%s: invalid artifact disposition for %s", expected.DecisionID, item.Path)
+		}
+		seen[item.Path] = true
 	}
 	for _, item := range expected.AffectedArtifacts {
-		if _, ok := artifacts[item.Path]; !ok {
-			return fmt.Errorf("material artifact disposition is missing")
+		if !seen[item.Path] {
+			return fmt.Errorf("%s: missing artifact disposition for %s", expected.DecisionID, item.Path)
 		}
+		delete(seen, item.Path)
 	}
-	criteria := make(map[string]bugReviewCriterionDisposition, len(actual.Criteria))
-	for _, item := range actual.Criteria {
-		key := item.EntityKey + "\x00" + item.ProductionCallerPath + "\x00" + item.AcceptanceCriterionID
-		if item.EntityKey == "" || !filepath.IsLocal(item.ProductionCallerPath) || item.ProductionCallerPath == "" || item.AcceptanceCriterionID == "" || (item.Disposition != "regression_pass" && item.Disposition != "tracked_follow_up") || item.EvidencePointer == "" || !filepath.IsLocal(item.EvidencePointer) || criteria[key].AcceptanceCriterionID != "" {
-			return fmt.Errorf("material criterion disposition is invalid")
+	for path := range seen {
+		return fmt.Errorf("%s: unexpected artifact disposition for %s", expected.DecisionID, path)
+	}
+	return nil
+}
+
+type materialCriterionKey struct {
+	owner, caller, criterion string
+}
+
+func (k materialCriterionKey) String() string {
+	return k.owner + " " + k.caller + " " + k.criterion
+}
+
+func compareMaterialCriteria(expected bugReviewMaterialDecision, submitted []bugReviewCriterionDisposition) error {
+	seen := make(map[materialCriterionKey]bool, len(submitted))
+	for _, item := range submitted {
+		key := materialCriterionKey{item.EntityKey, item.ProductionCallerPath, item.AcceptanceCriterionID}
+		if seen[key] || !filepath.IsLocal(item.EvidencePointer) {
+			return fmt.Errorf("%s: invalid or duplicate criterion disposition for %s", expected.DecisionID, key)
 		}
-		criteria[key] = item
+		if item.Disposition != "regression_pass" && item.Disposition != "tracked_follow_up" {
+			return fmt.Errorf("%s: invalid criterion disposition for %s", expected.DecisionID, key)
+		}
+		seen[key] = true
 	}
 	for _, item := range expected.AffectedCriteria {
-		key := item.EntityKey + "\x00" + item.ProductionCallerPath + "\x00" + item.AcceptanceCriterionID
-		if _, ok := criteria[key]; !ok {
-			return fmt.Errorf("material criterion disposition is missing")
+		key := materialCriterionKey{item.EntityKey, item.ProductionCallerPath, item.AcceptanceCriterionID}
+		if !seen[key] {
+			return fmt.Errorf("%s: missing criterion disposition for %s", expected.DecisionID, key)
 		}
+		delete(seen, key)
+	}
+	for key := range seen {
+		return fmt.Errorf("%s: unexpected criterion disposition for %s", expected.DecisionID, key)
 	}
 	return nil
 }

@@ -66,7 +66,8 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	git("config", "commit.gpgsign", "false")
 	git("config", "core.hooksPath", t.TempDir())
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("base\n"), 0600))
-	git("add", "change.txt")
+	installMaterialDecisionFixture(t, root)
+	git("add", "change.txt", "spec.md", "test-plan.md", "caller.py")
 	git("commit", "-m", "base")
 	base := strings.TrimSpace(git("rev-parse", "HEAD"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("unaccepted predecessor\n"), 0600))
@@ -76,7 +77,7 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	git("commit", "-m", "unaccepted predecessor")
 	laterBase := strings.TrimSpace(git("rev-parse", "HEAD"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("candidate\n"), 0600))
-	plan := []byte("approved plan\n")
+	plan := []byte("DEC-1: spec.md and test-plan.md require the E01-F01 caller.py to preserve zero (AC-1) and positive quantities (AC-2).\n")
 	commitTestBugPlan(t, root, "docs/plan/plan.md", plan)
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
@@ -405,6 +406,9 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		_, e := IngestGateResult(context.Background(), GateIngestRequest{EnvelopeBytes: result, Coordinator: coord, ProjectRoot: root, RunID: run, EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: gate, Gate: gate, Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": target}})
 		return e
 	}
+	t.Run("material_dispositions", func(t *testing.T) {
+		testMaterialDispositionAdmission(t, root, captured, plan, string(reportBytes), planRef+","+scopeRef, anglesRef+","+decisionRef, notes, history)
+	})
 	require.Error(t, ingest("missing-scope", "code_review", "qa", envelope(planRef)))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("stale\n"), 0600))
 	require.Error(t, ingest("stale-scope", "code_review", "qa", envelope(planRef+","+scopeRef)))
