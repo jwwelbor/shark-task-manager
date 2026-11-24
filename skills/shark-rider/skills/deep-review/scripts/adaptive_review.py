@@ -649,10 +649,16 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
             _write_new_bytes(retained_angles, data)
             metadata["retained_angles"] = str(retained_angles.resolve())
             metadata["angles_sha256"] = hashlib.sha256(data).hexdigest()
+        if metadata.pop("_retain_exact_body", False):
+            retained_body = Path(str(path) + ".body.txt")
+            _write_new_bytes(retained_body, body.encode("utf-8"))
+            metadata["retained_body"] = str(retained_body.resolve())
         attempts = metadata.get("attempts")
         if attempts is not None:
             retained_attempts = Path(str(path) + ".attempts.json")
-            data = (json.dumps(attempts, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
+            data = metadata.pop("_attempt_bytes", None)
+            if data is None:
+                data = (json.dumps(attempts, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
             _write_new_bytes(retained_attempts, data)
             metadata["retained_attempts"] = str(retained_attempts.resolve())
             metadata["attempts_sha256"] = hashlib.sha256(data).hexdigest()
@@ -690,6 +696,12 @@ def _require_finding_decision(body, decisions):
         related = [f for f in decisions["findings"] if f.get("finding_id") == finding_id]
         if len(related) != 1 or related[0].get("severity") != severity.lower() or related[0].get("disposition") != disposition.lower() or disposition.lower() == "refuted":
             raise ValueError("report finding requires its matching retained decision")
+
+
+def _packet_sha256(report, decisions):
+    packet = json.dumps({"report": report, "decisions": decisions}, sort_keys=True,
+                        separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(packet.encode("utf-8")).hexdigest()
 
 
 def _parse_cli_packet(output, scope):
@@ -767,6 +779,8 @@ def _try_cli_candidates(args, candidates, prompt, scope):
             continue
         try:
             output, decisions = _parse_cli_packet(output, scope)
+            attempt["packet_sha256"] = _packet_sha256(output, decisions)
+            attempt["requested_model"] = args.requested_model
             attempt["outcome"] = "accepted"
             attempt["failure_reason"] = None
             return output, decisions, model, failures, attempts
@@ -886,6 +900,8 @@ def run_cli(args: argparse.Namespace) -> int:
         persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
+    accepted_attempt["fallback_reason"] = base["fallback_reason"]
+    base["_retain_exact_body"] = True
     base["_decisions"] = selected_decisions
     persist_report(Path(args.review_output_path), output, base, args.branch)
     print(json.dumps({**base, "report_path": args.review_output_path, "exit_status": 0}))
@@ -952,10 +968,13 @@ def _writer_metadata(args):
     }
 
 
-def _read_attempt_receipts(path: str | None) -> tuple[list[dict[str, object]], dict[str, object] | None]:
-    if not path:
-        return [], None
-    value = json.loads(read_review_file(path, 32 * 1024 * 1024).decode("utf-8"))
+def _bind_cli_publication(args, metadata, body):
+    if not args.attempts_file or not re.fullmatch(r"[0-9a-f]{64}", args.expected_attempts_sha256 or ""):
+        raise ValueError("missing or invalid producer execution reference")
+    data = read_review_file(args.attempts_file, 32 * 1024 * 1024)
+    if hashlib.sha256(data).hexdigest() != args.expected_attempts_sha256:
+        raise ValueError("attempt file differs from the selected producer execution")
+    value = json.loads(data.decode("utf-8"))
     if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
         raise ValueError("attempt receipts must be a JSON array of objects")
     accepted = [item for item in value if item.get("outcome") == "accepted"]
@@ -965,14 +984,33 @@ def _read_attempt_receipts(path: str | None) -> tuple[list[dict[str, object]], d
     required = ("attempt_ref", "worker_id", "observed_provider", "observed_model", "evidence_ref")
     if any(not isinstance(winner.get(key), str) or not winner[key].strip() for key in required):
         raise ValueError("accepted attempt lacks worker-correlated identity evidence")
-    return value, winner
+    if winner.get("cli") != args.adversarial_model:
+        raise ValueError("selected CLI differs from the accepted invocation")
+    if winner.get("packet_sha256") != _packet_sha256(body, metadata["_decisions"]):
+        raise ValueError("report or decisions differ from the accepted packet")
+    if "requested_model" not in winner or not isinstance(winner["requested_model"], (str, type(None))):
+        raise ValueError("missing or invalid original model request")
+    if args.requested_model is not None and args.requested_model != winner["requested_model"]:
+        raise ValueError("requested model differs from the producer request")
+    reason = winner.get("fallback_reason")
+    if not _meaningful(reason):
+        raise ValueError("accepted receipt lacks the producer's fallback reason")
+    if args.fallback_reason is not None and args.fallback_reason != reason:
+        raise ValueError("fallback reason differs from the producer decision")
+    metadata.update(_attempt_bytes=data, attempts=value, effective_provider=winner["observed_provider"],
+                    effective_model=winner["observed_model"], cost=winner.get("cost"),
+                    usage=winner.get("usage"), requested_model=winner["requested_model"], fallback_reason=reason)
+
+
+def _meaningful(value):
+    return isinstance(value, str) and value.strip().strip("`").strip().lower() not in {"", "none", "unknown"}
 
 
 def _writer_runner_state(args, metadata, scope_error, incomplete_six):
-    def meaningful(value):
-        return bool(value and str(value).strip().strip("`").strip().lower() not in {"", "none", "unknown"})
-    incomplete_cli = args.runner_mode == "adversarial-cli" and (args.specialists_completed != 0 or not args.consolidator_completed or not meaningful(args.adversarial_model) or not meaningful(args.fallback_reason))
-    incomplete_dispatched = args.runner_mode == "dispatched-six-angle" and not meaningful(args.fallback_reason)
+    incomplete_cli = args.runner_mode == "adversarial-cli" and (
+        args.specialists_completed != 0 or not args.consolidator_completed
+        or not _meaningful(args.adversarial_model) or not _meaningful(metadata.get("fallback_reason")))
+    incomplete_dispatched = args.runner_mode == "dispatched-six-angle" and not _meaningful(args.fallback_reason)
     diagnostic = args.runner_mode in {"manual-diagnostic", "incomplete"}
     invalid_verdict = args.verdict.upper() not in {"PASS", "PASS-WITH-TRIAGE", "FAIL"}
     incomplete = any((scope_error, incomplete_six, incomplete_cli, incomplete_dispatched, diagnostic, invalid_verdict))
@@ -997,23 +1035,8 @@ def _finish_written_report(args, metadata, body, scope_error, invalid):
 def write_report(args: argparse.Namespace) -> int:
     """Persist Workflow/dispatch output using the same metadata contract as CLI fallback."""
     metadata = _writer_metadata(args)
-    if args.runner_mode == "adversarial-cli":
-        try:
-            attempts, winner = _read_attempt_receipts(args.attempts_file)
-            if winner is None or winner.get("cli") != args.adversarial_model:
-                raise ValueError("CLI report is not bound to its accepted invocation")
-            metadata["attempts"] = attempts
-            metadata["effective_provider"] = winner["observed_provider"]
-            metadata["effective_model"] = winner["observed_model"]
-            metadata["usage"] = winner.get("usage")
-            metadata["cost"] = winner.get("cost")
-        except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
-            metadata["fallback_reason"] = "CLI attempt receipts are unavailable or invalid"
-            metadata["verdict"] = "INCOMPLETE"
     scope_error = bind_scope(metadata, args)
     angle_findings, incomplete_six = _writer_angles(args, metadata, scope_error)
-    incomplete = _writer_runner_state(args, metadata, scope_error, incomplete_six)
-    incomplete = incomplete or (args.runner_mode == "adversarial-cli" and metadata.get("verdict") == "INCOMPLETE")
     try:
         body = read_review_file(args.body_file, 32 * 1024 * 1024).decode("utf-8")
     except (OSError, ValueError, UnicodeError) as exc:
@@ -1023,6 +1046,20 @@ def write_report(args: argparse.Namespace) -> int:
         _finish_written_report(args, metadata, "**INCOMPLETE** — " + metadata["fallback_reason"], scope_error, False)
         return 2
     invalid = any(_writer_decisions(args, metadata, scope_error, angle_findings, body))
+    if args.runner_mode == "adversarial-cli":
+        try:
+            if scope_error or invalid or "_decisions" not in metadata:
+                raise ValueError(scope_error or "report body or review decisions are incomplete or contradictory")
+            if args.specialists_completed != 0 or not args.consolidator_completed or not _meaningful(args.adversarial_model):
+                raise ValueError("invalid CLI runner metadata")
+            _bind_cli_publication(args, metadata, body)
+        except (OSError, ValueError) as exc:
+            metadata.pop("_decisions", None)
+            metadata.update(verdict="INCOMPLETE", runner_mode="incomplete", requested_model=None,
+                            fallback_reason=f"CLI publication failed: {exc}")
+            _finish_written_report(args, metadata, "**INCOMPLETE** — " + metadata["fallback_reason"], scope_error, False)
+            return 2
+    incomplete = _writer_runner_state(args, metadata, scope_error, incomplete_six)
     _finish_written_report(args, metadata, body, scope_error, invalid)
     return 2 if incomplete or invalid else 0
 
@@ -1093,6 +1130,7 @@ def parser() -> argparse.ArgumentParser:
     write.add_argument("--requested-model")
     write.add_argument("--effective-model")
     write.add_argument("--attempts-file")
+    write.add_argument("--expected-attempts-sha256")
     return p
 
 

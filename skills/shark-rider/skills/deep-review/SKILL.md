@@ -194,15 +194,28 @@ scope, findings and verdict) and `decisions` (the same candidate-bound
 findings and disposition object required for six-angle consolidation).
 ```
 
-Select and run it with:
+Reserve a new job directory for each invocation. Keep its absolute path with the
+selected review. Pass the upstream requested model when supplied, including an
+explicit empty string. The job caller runs `adaptive_review.py run-cli`, captures
+its result and verifies that the returned report and sidecar paths belong to
+the assigned destination before saving the ready reference.
 
 ```bash
-python3 "$skill_dir/scripts/adaptive_review.py" select --host "${DEEP_REVIEW_HOST:-unknown}"
-python3 "$skill_dir/scripts/adaptive_review.py" run-cli \
-  --prompt-file /path/to/adversarial-prompt.txt \
-  --project-root "$project_root" --source-root "$source_root" --diff-path "$diff_path" --base-commit "$base_commit" \
-  --review-output-path "$review_output_path" --scope-file /tmp/deep-review-scope.json --host "${DEEP_REVIEW_HOST:-unknown}" \
-  --require-verified-identity
+request_args=()
+if [[ -v requested_model ]]; then request_args=(--requested-model "$requested_model"); fi
+scope_args=(--project-root "$project_root" --source-root "$source_root"
+  --diff-path "$diff_path" --base-commit "$base_commit" --scope-file "$scope_file")
+python3 "$skill_dir/scripts/cli_review_job.py" produce "$job_dir" \
+  "${scope_args[@]}" "${request_args[@]}" --prompt-file "$prompt_file" --host "${DEEP_REVIEW_HOST:-unknown}"
+```
+
+The producer's `report_path` is the completed report. For a companion report,
+use the same saved job on immediate publication or after restart. Supply a fresh
+output destination and the same frozen scope.
+
+```bash
+python3 "$skill_dir/scripts/cli_review_job.py" publish "$job_dir" \
+  "${scope_args[@]}" --review-output-path "$review_output_path"
 ```
 
 The runner tries the preferred opposite-host CLI first, then any installed
@@ -218,10 +231,14 @@ The native Codex command emits JSONL events. The runner joins its `thread.starte
 ID to the matching persistent rollout before it records the provider, producing
 model, usage, or cost. Native Claude output uses JSON. The runner keeps every
 attempt's receipt with that attempt, including attempts rejected before a later
-CLI succeeds. Missing fields stay unknown. If you call `write-report` for an
-adversarial CLI result, pass the retained attempt array with `--attempts-file`;
-the writer returns `INCOMPLETE` when the accepted invocation has no correlated
-worker identity.
+CLI succeeds. Missing fields stay unknown. Publication passes the producer’s
+exact UTF-8 body, validated decisions, original `--attempts-file` and saved
+`--expected-attempts-sha256` to `write-report`. The writer checks both the
+selected execution and its accepted packet before crediting the reviewer.
+Its header and JSON use the original request and final fallback reason from
+that receipt. Optional companion flags assert exact agreement. A missing or
+conflicting reference produces INCOMPLETE. Preserve the producer job for
+diagnosis and resume publication without another reviewer invocation.
 
 ## Runner 4: manual diagnostic
 

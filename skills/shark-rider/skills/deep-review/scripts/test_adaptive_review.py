@@ -656,13 +656,13 @@ print(json.dumps({'session_id':'claude-attempt-1','provider':'anthropic','model'
             command = result.args[:]
             command[command.index(str(report))] = str(accepted_report)
             command.extend(['--attempts-file', str(attempts_file)])
-            accepted = subprocess.run(command, capture_output=True, text=True)
-            self.assertEqual(accepted.returncode, 0, accepted.stderr)
-            accepted_metadata = json.loads(accepted.stdout)
-            self.assertEqual(accepted_metadata['effective_provider'], 'openai')
-            self.assertEqual(accepted_metadata['effective_model'], 'gpt-6.2-astra')
-            self.assertEqual(accepted_metadata['usage'], {'input_tokens': 11})
-            self.assertEqual(accepted_metadata['cost'], 0.02)
+            legacy = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(legacy.returncode, 2, legacy.stdout)
+            rejected = json.loads(legacy.stdout)
+            self.assertEqual(rejected['verdict'], 'INCOMPLETE')
+            self.assertIsNone(rejected['effective_model'])
+            self.assertNotIn('attempts', rejected)
+            self.assertNotIn('0.02', accepted_report.read_text())
 
     def test_cli_writer_requires_model_and_fallback_reason(self):
         for model, reason in [('', 'unavailable'), ('unknown', 'unavailable'), ('codex', ''), ('codex', 'none'), ('codex', '`unknown`'), ('codex', '` none `')]:
