@@ -184,10 +184,15 @@ function validFinding(f) {
     ['rule', 'summary', 'diagnosis'].every(k => typeof f[k] === 'string' && f[k].length > 0)
 }
 
+function validReviewedFiles(files) {
+  return Array.isArray(files) && files.every(file => typeof file === 'string' &&
+    !file.includes('\0') && file.split('/').every(part => part !== '' && part !== '.' && part !== '..')) &&
+    changedFiles.every(file => files.includes(file))
+}
+
 function validAngle(result) {
   return result && validIdentity(result.candidate_identity) && Array.isArray(result.findings) &&
-    Array.isArray(result.reviewed_files) && changedFiles.every(f => result.reviewed_files.includes(f)) &&
-    result.reviewed_files.every(f => typeof f === 'string') && result.findings.every(validFinding)
+    validReviewedFiles(result.reviewed_files) && result.findings.every(validFinding)
 }
 
 function summarizeAngles(results) {
@@ -202,7 +207,7 @@ if (!Array.isArray(angleResults) || completed !== 6 || angleResults.length !== 6
   const errors = Object.entries(retainedAngles || {}).flatMap(([angle, packet]) => {
     if (!Array.isArray(packet.reviewed_files)) return [`angle ${angle}: missing reviewed_files`]
     const missing = changedFiles.filter(file => !packet.reviewed_files.includes(file))
-    return missing.length ? [`angle ${angle}: missing ${missing.join(', ')}`] : []
+    return missing.length ? [`angle ${angle}: missing ${missing.map(file => JSON.stringify(file)).join(', ')}`] : []
   })
   const reason = [`${completed} of 6 specialist results were valid; consolidation was not run.`, ...errors].join(' ')
   return {report: `INCOMPLETE: ${reason}`, runner_mode: "incomplete", specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
@@ -266,9 +271,7 @@ function findingKey(f) {
 
 function validDecisionSet(value) {
   if (!value || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings) ||
-      (value.reviewed_files !== undefined && (!Array.isArray(value.reviewed_files) ||
-        value.reviewed_files.some(f => typeof f !== 'string' || !f.trim()) ||
-        !changedFiles.every(f => value.reviewed_files.includes(f))))) return false
+      (value.reviewed_files !== undefined && !validReviewedFiles(value.reviewed_files))) return false
   return value.findings.every(validDecision) && new Set(value.findings.map(findingKey)).size === value.findings.length
 }
 

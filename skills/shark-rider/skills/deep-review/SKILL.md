@@ -74,7 +74,8 @@ full candidate, stop and report incomplete. Pass the captured JSON as
 `--scope-file`, the trusted reviewed-worktree `--project-root`, and the independently established original repository `--source-root` to `adaptive_review.py run-cli` or `write-report`; the writer
 revalidates candidate, diff and manifest and persists their identities. Pass
 `--requested-model` and `--effective-model` only when known; absent values are
-recorded as unknown.
+recorded as unknown. On `run-cli`, `--effective-model` describes the first eligible CLI. Supply
+`--fallback-effective-model` only when the host independently verified the model for the second CLI.
 
 For a bug, set `REVIEW_BASE` to the independently approved `bug_review_baseline` commit and `REVIEW_PLAN_SHA256` to the 64 lowercase hex characters of the approved plan digest before capture. Every angle must include that digest as `candidate_identity.repair_plan_sha256`; supply the same scope field and `repair_context.plan_revision` (`sha256:<digest>`) to the native workflow. A report for a different plan revision or baseline cannot satisfy the gate.
 

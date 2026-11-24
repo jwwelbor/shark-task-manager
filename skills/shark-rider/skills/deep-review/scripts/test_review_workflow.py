@@ -2,6 +2,7 @@ import itertools
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 from adaptive_review import valid_adversarial_output, valid_review_report
@@ -75,6 +76,76 @@ run(input.args, ()=>{}, tasks => Promise.all(tasks.map(task => task())), agent, 
                 self.assertFalse(result['consolidator_completed'])
                 self.assertIn('angle b', result['report'].lower())
                 self.assertIn(path, result['report'])
+
+    def test_optional_consolidator_manifest_preserves_literal_git_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args):
+                return subprocess.check_output(['git', '-c', 'user.name=Test', '-c',
+                    'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', *args], cwd=root)
+            git('init', '-q')
+            git('commit', '--allow-empty', '-qm', 'base')
+            for name in (' ', 'ordinary'):
+                (root / name).write_text('changed')
+            git('add', '--', ' ', 'ordinary')
+            git('commit', '-qm', 'candidate')
+            names = git('diff', '--name-only', '-z', 'HEAD^', 'HEAD')
+            self.assertEqual(names, b' \0ordinary\0')
+            paths = names.decode().split('\0')[:-1]
+            args = {'changed_files': paths, 'candidate_commit': git('rev-parse', 'HEAD').decode().strip(),
+                    'candidate_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                    'diff_path': 'diff', 'diff_sha256': 'digest', 'skill_dir': str(SCRIPT.parent.parent)}
+            harness = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const run = new (Object.getPrototypeOf(async function() {}).constructor)(
+    'args', 'phase', 'parallel', 'agent', 'log', src.slice(src.indexOf('// ─── Args')));
+const {args, optional, bFiles} = JSON.parse(fs.readFileSync(0, 'utf8'));
+const identity = {commit: args.candidate_commit, tree: args.candidate_tree, diff_sha256: args.diff_sha256};
+const calls = [];
+const agent = async (_, options) => {
+    calls.push(options.label);
+    if (options.label === 'consolidator') {
+        return {report: 'Scope: both changed files were inspected. Findings: 0 defects found after inspecting both files. Verdict: PASS',
+                decisions: {candidate_identity: identity, findings: [], ...optional}};
+    }
+    return {candidate_identity: identity, findings: [],
+            reviewed_files: options.label.startsWith('B:') ? bFiles : args.changed_files};
+};
+run(args, () => {}, tasks => Promise.all(tasks.map(task => task())), agent, () => {})
+    .then(result => process.stdout.write(JSON.stringify({calls, result})));
+'''
+            def check(optional, complete=True, missing_b=False):
+                trial = {'args': args, 'optional': optional, 'bFiles': ['ordinary'] if missing_b else paths}
+                output = json.loads(subprocess.check_output(['node', '-e', harness, str(SCRIPT)],
+                                    input=json.dumps(trial), text=True))
+                result = output['result']
+                self.assertEqual(len(output['calls']), 6 if missing_b else 7)
+                self.assertEqual(output['calls'].count('consolidator'), 0 if missing_b else 1)
+                self.assertEqual(result['specialists_completed'], 5 if missing_b else 6)
+                self.assertEqual(result['consolidator_completed'], complete)
+                self.assertEqual(result['runner_mode'], 'canonical-six-angle' if complete else 'incomplete')
+                if complete:
+                    self.assertIn('Verdict: PASS', result['report'])
+                    self.assertEqual({k: v for k, v in result['decisions'].items() if k == 'reviewed_files'}, optional)
+                else:
+                    self.assertIn('INCOMPLETE', result['report'])
+                if missing_b:
+                    self.assertIn('angle b', result['report'].lower())
+                    self.assertIn('" "', result['report'])
+
+            full = {'reviewed_files': paths}
+            check({})
+            with self.subTest(valid='space'):
+                check(full)
+            check({})
+            for bad in (['ordinary'], 'ordinary', ['', 'ordinary'], paths + ['../outside']):
+                with self.subTest(invalid=bad):
+                    check({'reviewed_files': bad}, complete=False)
+                    check(full)
+            with self.subTest(missing='B'):
+                check(full, complete=False, missing_b=True)
+                check(full)
 
     def test_partial_and_malformed_results_never_reach_consolidator(self):
         harness = r'''

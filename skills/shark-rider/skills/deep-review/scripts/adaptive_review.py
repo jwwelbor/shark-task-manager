@@ -98,7 +98,7 @@ def run_bounded_reviewer(argv, cwd, timeout):
             process.wait()
         return subprocess.CompletedProcess(
             argv, 1 if exceeded or timed_out else process.returncode,
-            bytes(buffers[process.stdout]).decode("utf-8", errors="replace"),
+            bytes(buffers[process.stdout]),
             bytes(buffers[process.stderr]).decode("utf-8", errors="replace"),
         )
     finally:
@@ -659,7 +659,7 @@ def _try_cli_candidates(args, candidates, prompt, scope):
             failures.append(f"{model}: non-zero exit status {completed.returncode}")
             continue
         try:
-            output, decisions = _parse_cli_packet(completed.stdout or "", scope)
+            output, decisions = _parse_cli_packet(completed.stdout.decode("utf-8"), scope)
             return output, decisions, model, failures
         except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as exc:
             failures.append(f"{model}: invalid structured review: {exc}")
@@ -687,7 +687,7 @@ def run_cli(args: argparse.Namespace) -> int:
         "verdict": "INCOMPLETE",
     }
     base["requested_model"] = args.requested_model
-    base["effective_model"] = args.effective_model
+    base["effective_model"] = None
     scope_error = bind_scope(base, args)
     if scope_error:
         persist_report(Path(args.review_output_path), _incomplete_report_body(scope_error), base, args.branch)
@@ -732,6 +732,7 @@ def run_cli(args: argparse.Namespace) -> int:
     base.update(
         {
             "adversarial_model": selected_model,
+            "effective_model": args.effective_model if selected_model == preferred else args.fallback_effective_model,
             "specialists_completed": 0,
             "consolidator_completed": True,
             "verdict": verdict,
@@ -921,7 +922,8 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--branch", default="unknown")
     run.add_argument("--scope-file")
     run.add_argument("--requested-model")
-    run.add_argument("--effective-model")
+    run.add_argument("--effective-model", help="host-verified model for the first eligible CLI attempt")
+    run.add_argument("--fallback-effective-model", help="host-verified model for the second CLI attempt")
     run.add_argument("--host", choices=["codex", "claude", "unknown"], default=None)
     run.add_argument("--timeout", type=float, default=600)
     run.add_argument("--workflow-available", action=argparse.BooleanOptionalAction, default=None)
