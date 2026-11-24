@@ -384,22 +384,33 @@ def _angle_findings(name, result, scope):
         raise ValueError(f"angle {name} has missing or mismatched candidate identity")
     files = result.get("reviewed_files")
     findings = result.get("findings")
-    if not isinstance(files, list) or not all(isinstance(item, str) for item in files) or not set(scope["changed_files"]).issubset(files) or not isinstance(findings, list):
+    if not isinstance(files, list) or not all(isinstance(item, str) for item in files) or not isinstance(findings, list):
         raise ValueError(f"angle {name} has incomplete coverage or malformed findings")
+    missing = sorted(set(scope["changed_files"]).difference(files))
+    if missing:
+        raise ValueError(f"angle {name} did not inspect: {', '.join(missing)}")
     for finding in findings:
         if not _valid_finding(finding, ("file", "rule", "summary", "diagnosis")):
             raise ValueError(f"angle {name} has malformed finding")
     return findings
 
 
-def validate_six_angles(data: bytes, scope: dict[str, object]) -> list[dict[str, object]]:
-    """Validate actual per-angle evidence before claiming six completed angles."""
-    if not data:
-        raise ValueError("six-angle results are required")
-    angles = json.loads(data.decode("utf-8"))
-    if not isinstance(angles, dict) or set(angles) != set("abcdef"):
-        raise ValueError("six distinct angle results are required")
-    return [finding for name, result in angles.items() for finding in _angle_findings(name, result, scope)]
+def inspect_angle_packets(data, scope):
+    """Count independently validated packets, retaining reasons for every gap."""
+    packets = json.loads(data)
+    if not isinstance(packets, dict):
+        raise ValueError("expected an object keyed by specialist a through f")
+    findings, errors = [], []
+    completed = 0
+    for name in "abcdef":
+        try:
+            findings.extend(_angle_findings(name, packets.get(name), scope))
+            completed += 1
+        except ValueError as exc:
+            errors.append(str(exc))
+    if set(packets).difference("abcdef"):
+        errors.append("unexpected specialist identity")
+    return findings, completed, errors
 
 
 def _finding_key(finding):
@@ -453,8 +464,14 @@ def validate_review_decisions(
         reviewed_files = decisions.get("reviewed_files")
         changed_files = scope.get("changed_files")
         if (not isinstance(reviewed_files, list) or not all(isinstance(item, str) and item.strip() for item in reviewed_files)
-                or not isinstance(changed_files, list) or not set(changed_files).issubset(reviewed_files)):
-            raise ValueError("review decisions have incomplete reviewed_files coverage")
+                or not isinstance(changed_files, list)):
+            raise ValueError("invalid reviewed_files declaration")
+        for path in reviewed_files:
+            if any(part in {"", ".", ".."} for part in path.split("/")) or "\x00" in path:
+                raise ValueError(f"reviewed_files requires a repository-relative file path: {path!r}")
+        missing = sorted(set(changed_files).difference(reviewed_files))
+        if missing:
+            raise ValueError(f"incomplete reviewed_files coverage: {', '.join(missing)}")
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
@@ -559,6 +576,8 @@ def _write_new_bytes(path, data):
 
 
 def persist_report(path: Path, body: str, metadata: dict[str, object], branch: str = "unknown") -> None:
+    if metadata["verdict"] == "INCOMPLETE":
+        metadata["consolidator_completed"] = False
     path.parent.mkdir(parents=True, exist_ok=True)
     # Reserve the report first: exclusive creation also rejects a final symlink.
     # A partial write stays visible for diagnosis and cannot replace old evidence.
@@ -744,22 +763,24 @@ def run_cli(args: argparse.Namespace) -> int:
 
 def _writer_angles(args, metadata, scope_error):
     is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
-    incomplete = is_six and (args.specialists_completed != 6 or not args.consolidator_completed)
+    claimed_complete = args.specialists_completed == 6 and args.consolidator_completed
     try:
         if args.angle_results:
-            # Retain exactly the bytes checked, including partial evidence.
             metadata["_angle_bytes"] = read_review_file(args.angle_results, 32 * 1024 * 1024)
+        if not is_six or scope_error:
+            return [], is_six
+        if not args.angle_results:
+            raise ValueError("six-angle results are required")
+        findings, completed, errors = inspect_angle_packets(metadata["_angle_bytes"], metadata["_scope"])
     except (OSError, ValueError) as exc:
         metadata["fallback_reason"] = f"angle evidence unavailable: {exc}"
-        return [], is_six
-    if not is_six or scope_error or incomplete:
-        return [], incomplete
-    try:
-        findings = validate_six_angles(metadata.get("_angle_bytes"), metadata["_scope"])
-        return findings, False
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        metadata["fallback_reason"] = f"angle evidence invalid: {exc}"
+        if is_six:
+            metadata["specialists_completed"] = "unknown"
         return [], True
+    metadata["specialists_completed"] = completed
+    if errors:
+        metadata["fallback_reason"] = "; ".join(errors)
+    return findings, bool(errors) or not claimed_complete
 
 
 def _writer_decisions(args, metadata, scope_error, findings, body):
@@ -767,6 +788,8 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
     failing = args.verdict.upper() == "FAIL"
     invalid_pass = passing and not valid_passing_report(body, args.verdict)
     invalid_fail = failing and not valid_review_report(body, "FAIL")
+    if invalid_pass or invalid_fail:
+        metadata["fallback_reason"] = "report body is incomplete or contradicts the declared verdict"
     if not (passing or failing):
         return invalid_pass, invalid_fail
     try:
@@ -785,11 +808,11 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
             require_reviewed_files=not is_six,
         )
         _require_finding_decision(body, decisions)
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        metadata["fallback_reason"] = f"invalid review decisions: {exc}"
         if passing:
             invalid_pass = True
         else:
-            metadata["fallback_reason"] = "failed review decisions were unavailable or malformed"
             invalid_fail = True
     return invalid_pass, invalid_fail
 
@@ -826,14 +849,14 @@ def _writer_runner_state(args, metadata, scope_error, incomplete_six):
     return bool(incomplete)
 
 
-def _finish_written_report(args, metadata, body, scope_error, invalid):
+def _finish_written_report(args, metadata, body, invalid):
     if invalid:
         metadata["runner_mode"] = "incomplete"
         metadata["verdict"] = "INCOMPLETE"
-        if not scope_error:
-            metadata["fallback_reason"] = "report body or review decisions are incomplete or contradictory"
+
     if metadata["verdict"] == "INCOMPLETE":
-        reason = metadata.get("fallback_reason") or "review evidence is incomplete or diagnostic"
+        reason = metadata.get("fallback_reason") or "report body or review decisions are incomplete or contradictory"
+        metadata["fallback_reason"] = reason
         body = _incomplete_report_body(str(reason))
     persist_report(Path(args.review_output_path), body, metadata, args.branch)
     print(json.dumps({**metadata, "report_path": args.review_output_path}))
@@ -851,10 +874,13 @@ def write_report(args: argparse.Namespace) -> int:
         metadata["runner_mode"] = "incomplete"
         metadata["verdict"] = "INCOMPLETE"
         metadata["fallback_reason"] = f"review body unavailable: {exc}"
-        _finish_written_report(args, metadata, "**INCOMPLETE** — " + metadata["fallback_reason"], scope_error, False)
+        _finish_written_report(args, metadata, "", False)
         return 2
+    runner_error = metadata.get("fallback_reason") if incomplete else None
     invalid = any(_writer_decisions(args, metadata, scope_error, angle_findings, body))
-    _finish_written_report(args, metadata, body, scope_error, incomplete or invalid)
+    if runner_error:
+        metadata["fallback_reason"] = runner_error
+    _finish_written_report(args, metadata, body, incomplete or invalid)
     return 2 if incomplete or invalid else 0
 
 

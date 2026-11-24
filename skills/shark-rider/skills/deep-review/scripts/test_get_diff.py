@@ -253,6 +253,7 @@ class CaptureScopeTest(unittest.TestCase):
                 contradictory_fail = run_writer(failed_writer, capture_output=True, text=True)
                 self.assertEqual(contradictory_fail.returncode, 2)
                 self.assertEqual(json.loads(contradictory_fail.stdout)['verdict'], 'INCOMPLETE')
+                self.assertIn('report body', json.loads(contradictory_fail.stdout)['fallback_reason'])
                 decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
                 body_path.write_text('Reviewed scope: all candidate files. Findings: none. Detailed checks confirmed complete coverage. VERDICT: PASS')
                 partial = writer.copy()
@@ -260,7 +261,12 @@ class CaptureScopeTest(unittest.TestCase):
                 incomplete = run_writer(partial, capture_output=True, text=True)
                 self.assertEqual(incomplete.returncode, 2)
                 self.assertEqual(json.loads(incomplete.stdout)['verdict'], 'INCOMPLETE')
+                # Six independently validated packets remain countable even when
+                # the caller supplies a contradictory completion claim.
+                self.assertEqual(json.loads(incomplete.stdout)['specialists_completed'], 6)
                 partial[partial.index('5')] = 'unknown'
+                packet_arg = partial.index('--angle-results')
+                del partial[packet_arg:packet_arg + 2]
                 unknown = run_writer(partial, capture_output=True, text=True)
                 self.assertEqual(unknown.returncode, 2)
                 self.assertEqual(json.loads(unknown.stdout)['specialists_completed'], 'unknown')

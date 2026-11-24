@@ -269,6 +269,17 @@ class AdaptiveReviewTests(unittest.TestCase):
         decisions['reviewed_files'].append('two.go')
         validate_review_decisions(decisions, scope, [], 'PASS')
 
+    def test_supplemental_context_must_be_a_repository_relative_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, scope, _ = scope_fixture(Path(tmp))
+            packet = review_packet(scope)
+            for path in ('/outside.go', '../outside.go', 'x/../../outside.go'):
+                with self.subTest(path=path):
+                    packet['decisions']['reviewed_files'] = [*scope['changed_files'], path]
+                    with self.assertRaisesRegex(ValueError, 'repository-relative') as caught:
+                        adaptive_review._parse_cli_packet(json.dumps(packet), scope)
+                    self.assertIn(path, str(caught.exception))
+
     def test_report_retains_validated_bytes_after_source_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -352,25 +363,48 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertEqual(metadata['verdict'], 'INCOMPLETE')
             self.assertEqual(metadata['runner_mode'], 'incomplete')
 
-    def test_cli_rejects_scope_replacement_during_review(self):
+    def test_final_scope_must_remain_readable_and_identical(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo, scope, scope_file = scope_fixture(root)
             prompt = root / 'prompt.txt'
             prompt.write_text('review')
-            fake = root / 'reviewer'
+            reviewer = root / 'reviewer'
             changed = {**scope, 'repair_plan_sha256': 'a' * 64}
-            fake.write_text("#!/bin/sh\nprintf '%s' " + shlex.quote(json.dumps(changed)) + ' > ' + shlex.quote(str(scope_file)) +
-                            "\nprintf '%s\\n' " + shlex.quote(json.dumps(review_packet(scope))) + "\n")
-            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-            result = subprocess.run([
-                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
-                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(root / 'report'),
-                '--host', 'claude', '--codex-command', str(fake), '--no-workflow-available', '--no-agent-dispatch-available',
-            ], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
+            for name, final_bytes, diagnostic in (
+                ('unreadable', None, 'scope validation failed'),
+                ('changed', json.dumps(changed), 'captured scope changed'),
+                ('identical', json.dumps(scope), None),
+            ):
+                with self.subTest(name=name):
+                    scope_file.write_text(json.dumps(scope))
+                    reviewer.write_text(
+                        '#!/usr/bin/env python3\nimport json\nfrom pathlib import Path\n'
+                        f'path = Path({str(scope_file)!r})\n'
+                        + ('path.unlink()\n' if final_bytes is None else f'path.write_text({final_bytes!r})\n')
+                        + f'print(json.dumps({review_packet(scope)!r}))\n'
+                    )
+                    reviewer.chmod(0o700)
+                    report = root / name
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                        '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                        '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                        '--base-commit', scope['base_commit'], '--review-output-path', str(report),
+                        '--host', 'claude', '--codex-command', str(reviewer), '--no-workflow-available',
+                        '--no-agent-dispatch-available',
+                    ], capture_output=True, text=True)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(result.returncode, 2 if diagnostic else 0)
+                    self.assertEqual(metadata['verdict'], 'INCOMPLETE' if diagnostic else 'PASS')
+                    self.assertEqual(metadata['specialists_completed'], 0)
+                    self.assertEqual(metadata['consolidator_completed'], diagnostic is None)
+                    saved = report.read_text()
+                    self.assertIn(f'`specialists_completed=0` `consolidator_completed={diagnostic is None}`', saved)
+                    self.assertIn(f"**Verdict:** {metadata['verdict']}", saved)
+                    if diagnostic:
+                        self.assertIn(diagnostic, metadata['fallback_reason'])
+                        self.assertIn(diagnostic, saved)
 
     @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
     def test_cli_inspection_must_cover_the_frozen_manifest(self):
@@ -520,6 +554,15 @@ class AdaptiveReviewTests(unittest.TestCase):
                     ], capture_output=True, text=True)
                     self.assertEqual(json.loads(result.stdout)['verdict'], expected, result.stdout + result.stderr)
                     self.assertEqual(result.returncode, 0 if not omitted else 2)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata['specialists_completed'], 5 if omitted else 6)
+                    self.assertEqual(metadata['consolidator_completed'], not omitted)
+                    self.assertIn(f"`specialists_completed={metadata['specialists_completed']}`", report.read_text())
+                    self.assertIn(f"`consolidator_completed={not omitted}`", report.read_text())
+                    if omitted:
+                        self.assertIn('angle a', metadata['fallback_reason'])
+                        self.assertIn('second', metadata['fallback_reason'])
+                        self.assertIn(metadata['fallback_reason'], report.read_text())
                     if omitted:
                         saved_report = report.read_text().split("---", 1)[1]
                         self.assertIn('CURRENT_REVIEW_STATUS: INCOMPLETE', saved_report)
@@ -565,7 +608,11 @@ class AdaptiveReviewTests(unittest.TestCase):
                         self.assertEqual(metadata['runner_mode'], 'incomplete' if omitted else 'adversarial-cli')
                         self.assertEqual(result.returncode, 2 if omitted else 0)
                         self.assertEqual(metadata['specialists_completed'], 0)
-                        self.assertTrue(metadata['consolidator_completed'])
+                        self.assertEqual(metadata['consolidator_completed'], not omitted)
+                        self.assertIn(f'`consolidator_completed={not omitted}`', report.read_text())
+                        if omitted:
+                            self.assertIn(scope['changed_files'][1], metadata['fallback_reason'])
+                            self.assertIn(metadata['fallback_reason'], report.read_text())
                         self.assertTrue(report.exists())
                         saved_report = report.read_text()
                         self.assertIn(f'**Verdict:** {expected}', saved_report)
