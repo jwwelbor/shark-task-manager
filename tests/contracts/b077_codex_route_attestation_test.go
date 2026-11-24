@@ -55,21 +55,6 @@ func TestB077PreflightAllowsOnlyDocumentedCompatibleRoutes(t *testing.T) {
 	}
 }
 
-func b077SelectedCodexModel(t *testing.T, run string) string {
-	t.Helper()
-	selection := e36F04RawSection(t, run,
-		"### B077 default bug-stage Codex fallback mappings",
-		"### Claude Code Agent tool adapter")
-	rows := b077MarkdownTableRows(t, selection, "| status |")
-	require.NotEmpty(t, rows, "B077 must document Codex fallback mappings")
-	model := strings.TrimSpace(rows[0]["selected_model"])
-	require.NotEmpty(t, model, "B077 fallback mapping must select a model")
-	for _, row := range rows {
-		require.Equal(t, model, strings.TrimSpace(row["selected_model"]), "B077 fallback mappings must use one selected model")
-	}
-	return model
-}
-
 func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
 	selection := normalizeContractText(e36F04RawSection(t, run,
@@ -103,71 +88,17 @@ func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 	// TestB077RecordingCodexReceivesSelectedRoute executes the launch and checks the expanded arguments.
 }
 
-// C01/C02/C15: run Rider's actual launch command. The recording Codex
-// executable starts in a competing provider's configuration.
+// C01-C05: execute the Rider preflight and launch blocks against a recording CLI.
 func TestB077RecordingCodexReceivesSelectedRoute(t *testing.T) {
-	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
-	selectedModel := b077SelectedCodexModel(t, run)
-	section := e36F04RawSection(t, run, "### Long-running Codex CLI adapter", "### Mid-run consultation")
-	_, excerpt, found := strings.Cut(section, "```bash\n")
-	require.True(t, found)
-	launch, _, found := strings.Cut(excerpt, "\n```")
-	require.True(t, found)
-
-	for _, tc := range []struct{ name, request, model, effort string }{
-		{"mapped explicit effort", "opus", selectedModel, "low"},
-		{"exact explicit effort", "different-exact-model", "different-exact-model", "low"},
-		{"mapped omitted effort", "opus", selectedModel, ""},
-		{"exact omitted effort", "different-exact-model", "different-exact-model", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			workdir := filepath.Join(dir, "worker checkout")
-			require.NoError(t, os.Mkdir(workdir, 0700))
-			prompt := []byte("Quoted '$' 🙂\nsecond line  \n")
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "prompt"), prompt, 0600))
-			const recorder = `#!/bin/bash
-set -eu
-provider=other
-for arg; do
-    case "$arg" in model_provider=*) provider=${arg#model_provider=} ;; esac
-done
-printf '%s\0' "$@" > "$REPO_ROOT/argv"
-pwd > "$REPO_ROOT/cwd"
-cat > "$REPO_ROOT/submitted-$provider"
-`
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "codex"), []byte(recorder), 0700))
-			cmd := exec.Command("bash", "-eu", "-c", launch+"\nwait \"$CODEX_PID\"")
-			cmd.Dir = dir
-			cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"),
-				"REPO_ROOT="+dir, "WORKDIR="+workdir, "SELECTED_PROVIDER=openai",
-				"SELECTED_MODEL="+tc.model, "REQUESTED_MODEL="+tc.request, "REQUESTED_EFFORT="+tc.effort,
-				"SELECTED_SANDBOX=read-only", "CODEX_BIN="+filepath.Join(dir, "codex"), "SELECTED_PROFILE=",
-				"PROMPT_FILE="+filepath.Join(dir, "prompt"), "EVENT_FILE="+filepath.Join(dir, "events"),
-				"ARGV_FILE="+filepath.Join(dir, "argv-capture"),
-				"RESULT_FILE="+filepath.Join(dir, "result"))
-			output, err := cmd.CombinedOutput()
-			require.NoError(t, err, "%s", output)
-			args, err := os.ReadFile(filepath.Join(dir, "argv-capture"))
-			require.NoError(t, err)
-			assert.Contains(t, string(args), filepath.Join(dir, "codex")+"\x00exec\x00-C\x00"+workdir+"\x00")
-			assert.Contains(t, string(args), "--config\x00model_provider=openai\x00")
-			assert.Contains(t, string(args), "--model\x00"+tc.model+"\x00")
-			assert.Contains(t, string(args), "-C\x00"+workdir+"\x00")
-			if tc.effort == "" {
-				assert.NotContains(t, string(args), "model_reasoning_effort=")
-			} else {
-				assert.Contains(t, string(args), "--config\x00model_reasoning_effort="+tc.effort+"\x00")
-			}
-			cwd, err := os.ReadFile(filepath.Join(dir, "cwd"))
-			require.NoError(t, err)
-			assert.Equal(t, workdir+"\n", string(cwd))
-			assert.NoFileExists(t, filepath.Join(dir, "submitted-other"))
-			received, err := os.ReadFile(filepath.Join(dir, "submitted-openai"))
-			require.NoError(t, err)
-			assert.Equal(t, prompt, received)
-		})
-	}
+	binary := filepath.Join(t.TempDir(), "shark")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
+	build.Dir = filepath.Join("..", "..")
+	built, err := build.CombinedOutput()
+	require.NoError(t, err, "%s", built)
+	cmd := exec.Command("python3", "testdata/b077_codex_route.py")
+	cmd.Env = append(os.Environ(), "B077_SHARK="+binary)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", output)
 }
 
 func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
@@ -183,7 +114,7 @@ func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte(workflowText), &workflow))
 
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
-	selectedModel := strings.ToLower(b077SelectedCodexModel(t, run))
+	selectedModel := "discovered model from selected cli config/read"
 	selection := e36F04RawSection(t, run,
 		"### B077 default bug-stage Codex fallback mappings",
 		"### Claude Code Agent tool adapter")
@@ -373,9 +304,9 @@ func b077ExpectedRouteStates(base, selected, worker, effective []string) []b077R
 			disposition: []string{"reject before claim", "do not spawn", "no status advance"},
 		}},
 		{name: "preflight/unverified", state: b077RouteState{
-			required:    append(append([]string{}, base...), selected...),
+			required:    base,
 			forbidden:   []string{"worker_id", "host_session_id", "effective_provider", "effective_model"},
-			evidence:    []string{"explicit selected route exists", "identity-capture evidence is missing or inconclusive"},
+			evidence:    []string{"selected_provider", "selected_model", "missing", "observation"},
 			disposition: []string{"reject before claim", "do not spawn", "no status advance"},
 		}},
 		{name: "post-dispatch/verified", state: b077RouteState{

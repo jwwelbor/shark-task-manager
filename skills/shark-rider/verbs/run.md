@@ -251,10 +251,65 @@ been checked; the current host evidence is `codex-cli 0.170.0`. These are
 local capability checks and make no model/API call. If any check fails, reject
 before claim.
 
+For each selected Codex CLI route, run this preflight block before claim. Use
+the same shell and selected environment through launch. Set `REQUEST_FILE`
+to this assignment's keyed response, `RIDER_ROOT` to the loaded Rider skill,
+`CODEX_BIN` to the selected absolute executable and `ROUTE_FILE` to a fresh
+private file for this attempt. Set `MAPPING_REF` only for a matching table
+entry after the exact Claude route is unavailable. For an empty exact request
+supply `DEFAULT_MODEL` from the independently documented rule for this CLI
+and profile. Set `OBSERVATION_READY=1` only after checking the producing-turn
+observation channel. Check support for the requested effort before invoking
+the reader. These inputs come from this dispatch's capability check.
+
+```bash
+unset SELECTED_MODEL
+REQUESTED_MODEL=$(jq -er '.model | strings' "$REQUEST_FILE") || exit 1
+REQUESTED_EFFORT=$(jq -er '.effort // "" | strings' "$REQUEST_FILE") || exit 1
+reader_args=(--request "$REQUEST_FILE" --cli "${CODEX_BIN:?}" --cwd "${WORKDIR:?}"
+  --provider "${SELECTED_PROVIDER:?}" --profile "${SELECTED_PROFILE:-}"
+  --sandbox "${SELECTED_SANDBOX:-}" --mapping "${MAPPING_REF:-}" --default-model "${DEFAULT_MODEL:-}"
+  --evidence-ref "$ROUTE_FILE")
+if [[ ${OBSERVATION_READY:-0} == 1 ]]; then reader_args+=(--observable); fi
+timeout -k 2 15 python3 "$RIDER_ROOT/scripts/read-codex-route.py" \
+  "${reader_args[@]}" > "$ROUTE_FILE" || exit 1
+SELECTED_MODEL=$(jq -er '.selected_model | strings | select(length > 0)' "$ROUTE_FILE") || exit 1
+```
+
+A failed reader ends this assignment before any claim, submission or fallback.
+Publish its bounded preflight rejection. On a timeout or unreadable receipt,
+report preflight/unverified with the original request, class and this attempt's
+evidence reference. Include only fields established by this read. A matched
+provider with no discovered model carries only the provider. A completed
+selection with an unavailable observation channel carries the pair. A named
+profile unsupported by the reader cannot authorize a launch under that profile.
+
+Set `ENTITY_KEY` to the concrete key from the keyed response. Set
+`SELECTED_HARNESS=codex` for Codex CLI or native Codex and `claude` for Claude
+Agent. Use the checked version and the preflighted model. The harness spelling
+is what selects the corresponding Shark template branch.
+
 Claim the concrete entity returned by Shark:
 
 ```bash
-SID=$(shark claim {response.entity_key} --by "$CLAUDE_SID" --field session_id)
+claim_args=(--by "$CLAUDE_SID" --field session_id)
+if [[ -n ${SELECTED_HARNESS:-} ]]; then
+  claim_args+=(--harness "$SELECTED_HARNESS" --harness-version "${SELECTED_VERSION:?}"
+               --harness-model "${SELECTED_MODEL:?}")
+fi
+SID=$(shark claim "$ENTITY_KEY" "${claim_args[@]}") || exit 1
+# This shell owns one assignment. Only clean up on an unsuccessful exit.
+retire_failed_assignment() {
+  local rc=$?
+  if (( rc != 0 )); then
+    if [[ -n ${SUPERVISOR_PID:-} ]]; then
+      kill "$SUPERVISOR_PID" 2>/dev/null || true
+      wait "$SUPERVISOR_PID" 2>/dev/null || true
+    fi
+    shark release "$ENTITY_KEY" --session "$SID" >&2
+  fi
+}
+trap retire_failed_assignment EXIT
 ```
 
 Before spawning the worker, start a parent-owned lease supervisor for this
@@ -265,7 +320,9 @@ lease supervisor, not the liveness event stream and not a worker
 responsibility.
 
 - Start the supervisor before spawning the worker and keep it running through
-  the worker's entire execution and any consultation.
+  the worker's entire execution and any consultation. Bind its handle to this
+  assignment. For the shell supervisor, keep its original child PID in
+  `SUPERVISOR_PID` and clear the variable as soon as the supervisor is reaped.
 - Treat any heartbeat failure as lease loss: stop the worker immediately, do
   not deliver its handoff, and do not apply the result. A stale handoff is
   context for a fresh keyed dispatch only; do not re-claim automatically under
@@ -278,6 +335,26 @@ responsibility.
 - Release the session-scoped claim on every terminal or failure path when the
   session still matches; a lost or reissued lease is safely left to the next
   keyed dispatch and must never be used to authorize a write.
+
+For every initial or replacement bug, refresh the assignment after starting
+the supervisor, immediately before submission. Use fresh private paths for
+`CURRENT_FILE` and `PROMPT_FILE`. Run the following commands in the parent
+project. On any failed check retire this assignment and its supervisor and
+release only its still-matching session. Discard its files. A fresh keyed
+selection and preflight are required for another attempt.
+
+```bash
+shark heartbeat "$ENTITY_KEY" --session "$SID" >/dev/null || exit 1
+shark next "$ENTITY_KEY" --workdir "$WORKDIR" --prompt-out "$PROMPT_FILE" --json > "$CURRENT_FILE" || exit 1
+jq -e --slurpfile old "$REQUEST_FILE" --arg family "$SELECTED_HARNESS" \
+  --arg version "$SELECTED_VERSION" --arg model "$SELECTED_MODEL" '
+    def assignment: with_entries(select(.key | IN("entity_key","entity_type","status","action","agent_type","provider","model","effort")));
+    .action == "spawn_agent" and assignment == ($old[0] | assignment)
+    and .harness == $family and .harness_version == $version and .harness_model == $model
+  ' "$CURRENT_FILE" >/dev/null || exit 1
+[[ $(sha256sum < "$PROMPT_FILE" | cut -d" " -f1) == "$(jq -r .prompt_sha256 "$CURRENT_FILE")" ]] || exit 1
+[[ $(wc -c < "$PROMPT_FILE") -eq $(jq -r .prompt_bytes "$CURRENT_FILE") ]] || exit 1
+```
 
 Spawn the host worker using a host-safe adapter:
 
@@ -395,11 +472,8 @@ fi
 if [[ -n ${SELECTED_SANDBOX:-} ]]; then
   CODEX_ROUTE_ARGS+=(--sandbox "$SELECTED_SANDBOX")
 fi
-if [[ -n ${SELECTED_MODEL:-} ]]; then
-  CODEX_ROUTE_ARGS+=(--model "$SELECTED_MODEL")
-else
-  echo "selected Codex model is missing" >&2
-  exit 1
+if [[ -n ${MAPPING_REF:-} || -n ${REQUESTED_MODEL:-} ]]; then
+  CODEX_ROUTE_ARGS+=(--model "${SELECTED_MODEL:?missing preflight selection}")
 fi
 if [[ -n ${REQUESTED_EFFORT:-} ]]; then
   CODEX_ROUTE_ARGS+=(--config "model_reasoning_effort=$REQUESTED_EFFORT")
@@ -419,7 +493,9 @@ CODEX_PID=$!
 For each launch, persist the exact executable and NUL-delimited argv to the
 invocation's private `ARGV_FILE` immediately before `exec`; this capture is
 preflight/dispatch evidence, not a substitute for worker observation. Require
-its `--model` value and provider override to equal the selected route.
+the selected provider override on every launch. Require exactly one matching
+model selector for a mapped request or an explicit pin. An exact default
+requires its documented selection and no model override in the captured argv.
 
 For the B077 Codex CLI route, take `worker_id` from the `thread.started`
 event's `thread_id`. The event identifies the worker thread but contains no
@@ -427,7 +503,10 @@ effective model. Correlate that exact ID to a persisted Codex rollout under
 `$CODEX_HOME/sessions` (or `$HOME/.codex/sessions` when `CODEX_HOME` is unset):
 the rollout's `session_meta.payload.id` must equal the event's `thread_id`.
 Read `effective_provider` from `session_meta.payload.model_provider` and
-`effective_model` from each `turn_context.payload.model` in that same rollout.
+`effective_model` from each `turn_context.payload.model` in the turn that produced this
+message. Correlate that turn to this invocation. Compare its recorded effort
+independently with every explicit request. Missing or conflicting observations
+within the producing turn, or an ambiguous turn join, leave it unverified.
 Require both values and require them to match `SELECTED_PROVIDER` and
 `SELECTED_MODEL`. Missing or ambiguous metadata is `unverified`; an observed
 different provider or model is `mismatch`; conflicting records for one ID are
@@ -450,9 +529,33 @@ Use elapsed time to estimate progress; do not infer completion from a
 heartbeat. The JSONL file is a durable, trackable worker heartbeat. Only the
 worker's terminal result in `$RESULT_FILE` authorizes a workflow transition.
 Wait for the worker to finish (`wait "$CODEX_PID"`) before reading
-`$RESULT_FILE`. If the 15-minute limit expires, record the event-log path and
+`$RESULT_FILE`. On model-access denial or another nonzero exit, ignore any final file, keep
+the attempt's attributable receipt, observed identity, usage and cost (missing
+fields stay unknown), stop its supervisor and release only the original
+session if still held. Make zero alternate submissions or automatic retries.
+If the 15-minute limit expires, record the event-log path and
 its last event in a blocker note, release the lease, and do not advance the
 workflow.
+
+At the Codex completion boundary for a fresh `exec`, wait for this invocation,
+then verify its event stream against its persistent rollout before either
+result handler reads the file. Set `OBSERVATION_FILE` to a private path unique
+to this invocation. The existing failure cleanup stops the supervisor, retires
+the original handle and releases only the matching lease. Preserve the event
+reference and any known failed-attempt accounting. An error or timeout ends
+the dispatch even when a previous or early final message exists. For a resumed
+session, independently bind the new turn using the resume adapter's own
+invocation boundaries. Refuse ambiguous turn attribution.
+
+```bash
+worker_exit=0
+wait "$CODEX_PID" || worker_exit=$?
+python3 "$RIDER_ROOT/scripts/observe-codex-turn.py" "$EVENT_FILE" \
+  "${CODEX_HOME:-$HOME/.codex}" "$ROUTE_FILE" "$ARGV_FILE" "$RESULT_FILE" \
+  --worker-exit "$worker_exit" > "$OBSERVATION_FILE" || exit 1
+EFFECTIVE_PROVIDER=$(jq -er .effective_provider "$OBSERVATION_FILE") || exit 1
+EFFECTIVE_MODEL=$(jq -er .effective_model "$OBSERVATION_FILE") || exit 1
+```
 
 ### Mid-run consultation (`kind: question` / `kind: needs_council`)
 
@@ -564,13 +667,13 @@ the workflow prompts emit, apply them in this order, then advance:
 5. **Advance by the resolved outcome**, attributing the transition to the
    agent that did the work (this populates `entity_history.changed_by`):
    ```bash
-   shark status advance {response.entity_key} --outcome <key> \
+   shark status advance "$ENTITY_KEY" --outcome "$OUTCOME" --workdir "$WORKDIR" \
      --session "$SID" --from-status "{response.status}" \
-     --agent "{response.agent_type}@{response.provider}/{response.model}"
+     --agent "$(jq -er .agent_type "$REQUEST_FILE")@${EFFECTIVE_PROVIDER:?}/${EFFECTIVE_MODEL:?}"
    ```
    The outcome is workflow-configured: do not substitute a hard-coded status
    or coerce a valid semantic outcome to `pass` or `fail`. Include
-   `--session`/`--from-status` when `.sharkconfig.json` enables `advance_guard`
+   `--session`/`--from-status` on each claimed legacy advance, including when `advance_guard` is disabled
    (see the route-based workflow guide, §2).
    For bug research dispatched in a linked worktree, include `--workdir`
    with the worker's actual working directory so Shark validates the report

@@ -71,7 +71,7 @@ worker class, provider/model, and reasoning effort as distinct values:
 | `requested_provider` | Exact `provider` value from `shark next <key> --json` |
 | `requested_model` | Exact `model` value from `shark next <key> --json`; retain an empty value when no override was requested |
 | `selected_provider` | Provider explicitly selected by the host route policy; absent when no supported route is selected |
-| `selected_model` | Model explicitly selected by the host route policy and passed through its selector; never inferred from the parent or copied into effective fields |
+| `selected_model` | Concrete model established by this attempt. A pin or mapped discovery is passed through its selector. An exact default uses no model override. Omit this field when discovery yields no model; never inferred from the parent or copied into effective fields |
 | `host_worker_class` | Host execution adapter selected for this worker (native host or CLI); never the Shark persona or model |
 | `effort` | Exact requested reasoning-effort setting, kept separate from provider/model selection |
 | `effective_provider` | Provider independently observed for this worker; present for `verified` and `mismatch`, absent for `unverified` |
@@ -121,16 +121,16 @@ requested an effort override.
 | Phase | route_status | Required fields | Forbidden fields | Evidence | Launch disposition |
 |---|---|---|---|---|---|
 | preflight | unsupported | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `evidence_ref` | `selected_provider`, `selected_model`, `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | Evidence proves no exact host selector, documented provider default, or documented compatible fallback exists. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
-| preflight | unverified | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `evidence_ref` | `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | An explicit selected route exists, but compatibility, selector, default, or identity-capture evidence is missing or inconclusive. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
+| preflight | unverified | `route_status`, `requested_provider`, `requested_model`, `host_worker_class`, `evidence_ref` | `worker_id`, `host_session_id`, `effective_provider`, `effective_model` | Record selected_provider only when confirmed. Omit selected_model for missing or empty discovery. Retain the selected pair if observation capability alone is missing. Link the request and bounded readback for this attempt. | Reject before claim; do not spawn. No worker result, no claim, and no status advance; parent stops and reports. |
 | post-dispatch | verified | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | An explicit selector chooses the requested route or documented compatible fallback, and worker-correlated observed provider and model match the selected provider and model. If `requested_model` is empty, the documented provider default is selected and its concrete effective model is observed. | Launch permitted after preflight; a worker result may enter its existing envelope path. |
 | post-dispatch | unverified | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `worker_id`, `evidence_ref` | `effective_provider`, `effective_model` | The selector was used but worker-correlated observation is missing or inconclusive; do not infer effective fields. | Reject the worker result, stop the worker when supported, and do not advance. |
 | post-dispatch | mismatch | `route_status`, `requested_provider`, `requested_model`, `selected_provider`, `selected_model`, `host_worker_class`, `worker_id`, `effective_provider`, `effective_model`, `evidence_ref` | none | Worker-correlated observed provider or model differs from the selected provider or model; retain both observed fields to show the mismatch. | Reject the worker result, stop the worker when supported, and do not advance. |
 
 `unsupported` means capability evidence establishes there is no usable exact,
 default, or documented compatible host route; no selected identity fields are
-present. `unverified` in preflight means the adapter selected a route under an
-explicit policy, so both selected fields are present, but required selector or
-identity-capture evidence is absent or inconclusive. Both preflight states
+present. `unverified` in preflight means the adapter could establish only the selection fields backed by this
+attempt. A missing model is omitted. A completed selection with missing
+observation capability retains both fields. Both preflight states
 reject before claim or spawn; neither has a worker control envelope/result,
 claim, or status advance. A post-dispatch `unverified` state records the
 selected route and launched worker identity but has no independently observed
