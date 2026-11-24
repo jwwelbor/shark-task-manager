@@ -152,6 +152,13 @@ triage. Persist the returned body with `adaptive_review.py write-report` and:
 
 The native result contains `report`, `angle_results`, and `decisions`; save these separately and pass the latter two with `--angle-results` and `--review-decisions` to `write-report`. For host dispatch, assemble the six returned objects under keys `a` through `f` and ask the consolidator for its candidate-bound decisions. Do not substitute caller-supplied counts for these artifacts. Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
 
+For an incomplete native or host-dispatched review, pass the failure diagnostic
+with `--fallback-reason` and every returned angle packet with `--angle-results`.
+Preserve the producing labels even when some packets fail validation. The writer
+checks their candidate and coverage before recording the specialist count. If
+dispatch returned no observations, omit the angle file and pass
+`--specialists-completed unknown`.
+
 ```text
 runner_mode=canonical-six-angle
 specialists_completed=6

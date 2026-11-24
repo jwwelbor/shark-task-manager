@@ -776,25 +776,35 @@ def run_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _record_angle_count(args, metadata, completed, errors):
+    metadata["specialists_completed"] = completed
+    if args.runner_mode == "incomplete":
+        if args.specialists_completed != completed:
+            errors.append(f"handoff claimed specialists_completed={args.specialists_completed}, "
+                          f"verified specialist count: {completed}")
+        if metadata["fallback_reason"]:
+            errors.insert(0, metadata["fallback_reason"])
+    if errors:
+        metadata["fallback_reason"] = "; ".join(errors)
+
+
 def _writer_angles(args, metadata, scope_error):
     is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
-    claimed_complete = args.specialists_completed == 6 and args.consolidator_completed
+    check_packets = is_six or (args.runner_mode == "incomplete" and args.angle_results is not None)
     try:
         if args.angle_results:
             metadata["_angle_bytes"] = read_review_file(args.angle_results, 32 * 1024 * 1024)
-        if not is_six or scope_error:
+        if scope_error or not check_packets:
             return [], is_six
         if not args.angle_results:
             raise ValueError("six-angle results are required")
         findings, completed, errors = inspect_angle_packets(metadata["_angle_bytes"], metadata["_scope"])
     except (OSError, ValueError) as exc:
-        metadata["fallback_reason"] = f"angle evidence unavailable: {exc}"
-        if is_six:
-            metadata["specialists_completed"] = "unknown"
+        count = "unknown" if check_packets else args.specialists_completed
+        _record_angle_count(args, metadata, count, [f"angle evidence unavailable: {exc}"])
         return [], True
-    metadata["specialists_completed"] = completed
-    if errors:
-        metadata["fallback_reason"] = "; ".join(errors)
+    _record_angle_count(args, metadata, completed, errors)
+    claimed_complete = args.specialists_completed == 6 and args.consolidator_completed
     return findings, bool(errors) or not claimed_complete
 
 

@@ -96,6 +96,48 @@ def fake_reviewer(path, packet):
 
 
 class AdaptiveReviewTests(unittest.TestCase):
+    def test_incomplete_writer_counts_the_retained_specialist_replies(self):
+        # B087 F3: a failed consolidation does not undo completed inspections.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            reply = review_packet(scope)['decisions']
+            body = root / 'body.md'
+            reason = 'consolidator returned a malformed report'
+            body.write_text('INCOMPLETE: ' + reason)
+            angle_file = root / 'angles.json'
+            for usable, claimed in [(6, 0), (6, 'unknown'), (6, 6), (5, 6), (0, 'unknown'), (None, 0)]:
+                with self.subTest(usable=usable, claimed=claimed):
+                    packets = None
+                    expected = 'unknown' if usable is None else usable
+                    if usable is not None:
+                        packets = {label: reply if i < usable else {} for i, label in enumerate('abcdef')}
+                    angle_file.write_text(json.dumps(packets))
+                    report = root / f'report-{usable}-{claimed}.md'
+                    diagnostic = reason if usable == 6 else 'specialist dispatch incomplete'
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                        '--runner-mode', 'incomplete', '--specialists-completed', str(claimed),
+                        '--consolidator-completed', 'false', '--verdict', 'INCOMPLETE',
+                        '--angle-results', str(angle_file), '--fallback-reason', diagnostic,
+                        '--body-file', str(body), '--review-output-path', str(report),
+                        '--scope-file', str(scope_file), '--project-root', str(repo),
+                        '--source-root', str(repo), '--diff-path', scope['diff_path'],
+                        '--base-commit', scope['base_commit'],
+                    ], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata['specialists_completed'], expected)
+                    self.assertIs(metadata['consolidator_completed'], False)
+                    self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+                    self.assertEqual(Path(metadata['retained_angles']).read_bytes(), angle_file.read_bytes())
+                    saved = report.read_text()
+                    self.assertIn(f'`specialists_completed={expected}`', saved)
+                    self.assertIn(diagnostic, metadata['fallback_reason'])
+                    if claimed != expected:
+                        self.assertIn(f'specialists_completed={claimed}', metadata['fallback_reason'])
+                        self.assertIn(metadata['fallback_reason'], saved)
+
     @unittest.skipIf(os.name == 'nt', 'uses byte filenames and executable fixtures')
     def test_cli_selects_only_utf8_packets_and_attributes_the_selected_attempt(self):
         with tempfile.TemporaryDirectory() as tmp:
