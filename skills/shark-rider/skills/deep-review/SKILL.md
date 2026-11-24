@@ -201,7 +201,8 @@ python3 "$skill_dir/scripts/adaptive_review.py" select --host "${DEEP_REVIEW_HOS
 python3 "$skill_dir/scripts/adaptive_review.py" run-cli \
   --prompt-file /path/to/adversarial-prompt.txt \
   --project-root "$project_root" --source-root "$source_root" --diff-path "$diff_path" --base-commit "$base_commit" \
-  --review-output-path "$review_output_path" --scope-file /tmp/deep-review-scope.json --host "${DEEP_REVIEW_HOST:-unknown}"
+  --review-output-path "$review_output_path" --scope-file /tmp/deep-review-scope.json --host "${DEEP_REVIEW_HOST:-unknown}" \
+  --require-verified-identity
 ```
 
 The runner tries the preferred opposite-host CLI first, then any installed
@@ -212,6 +213,15 @@ produced the valid result in `adversarial_model`,
 complete adversarial result validates. A successful fallback is not a
 six-angle review and must be reported as `adversarial-cli` with the fallback
 reason retained.
+
+The native Codex command emits JSONL events. The runner joins its `thread.started`
+ID to the matching persistent rollout before it records the provider, producing
+model, usage, or cost. Native Claude output uses JSON. The runner keeps every
+attempt's receipt with that attempt, including attempts rejected before a later
+CLI succeeds. Missing fields stay unknown. If you call `write-report` for an
+adversarial CLI result, pass the retained attempt array with `--attempts-file`;
+the writer returns `INCOMPLETE` when the accepted invocation has no correlated
+worker identity.
 
 ## Runner 4: manual diagnostic
 

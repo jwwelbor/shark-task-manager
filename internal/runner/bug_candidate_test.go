@@ -254,7 +254,10 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, os.WriteFile(filepath.Join(root, "docs/plan/plan.md"), plan, 0600))
 	// The comparable CLI path must also interoperate with the report writer.
 	cliReportPath := filepath.Join(root, ".shark", "cli-report.md")
-	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", decisionPath)
+	cliAttemptsPath := filepath.Join(root, ".shark", "cli-attempts.json")
+	cliAttempts := []byte(`[{"attempt":1,"attempt_ref":"deep-review-cli:1","cli":"codex","outcome":"accepted","worker_id":"01a1f016-33fa-7d53-8a1b-1d1c1ee52e05","observed_provider":"openai","observed_model":"gpt-6.2-astra","evidence_ref":"codex-rollout:01a1f016-33fa-7d53-8a1b-1d1c1ee52e05"}]`)
+	require.NoError(t, os.WriteFile(cliAttemptsPath, cliAttempts, 0600))
+	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", decisionPath, "--attempts-file", cliAttemptsPath)
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	cliReport, err := os.ReadFile(cliReportPath)

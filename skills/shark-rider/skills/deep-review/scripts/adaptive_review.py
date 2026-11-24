@@ -26,6 +26,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import UUID
 
 from source_inventory import source_inventory
 from safe_review_io import MAX_ARTIFACT_BYTES, read_review_file
@@ -202,8 +203,107 @@ def _cli_argv(model: str, override: str | None, prompt: str) -> list[str]:
     if override:
         return [*shlex.split(override), prompt]
     if model == "codex":
-        return ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", prompt]
-    return ["claude", "-p", prompt, "--permission-mode", "plan", "--output-format", "text"]
+        return ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json", prompt]
+    return ["claude", "-p", prompt, "--permission-mode", "plan", "--output-format", "json"]
+
+
+def _claude_attempt_receipt(output: str) -> tuple[str | None, dict[str, object]]:
+    result = json.loads(output)
+    if not isinstance(result, dict):
+        raise ValueError("Claude result is not an object")
+    worker_id = result.get("session_id")
+    provider = result.get("provider")
+    model = result.get("model")
+    packet = result.get("result")
+    receipt = {
+        "worker_id": worker_id if isinstance(worker_id, str) and worker_id else None,
+        "observed_provider": provider if isinstance(provider, str) and provider else None,
+        "observed_model": model if isinstance(model, str) and model else None,
+        "usage": result.get("usage"),
+        "cost": result.get("total_cost_usd"),
+        "disposition": "observed" if all(isinstance(value, str) and value for value in (worker_id, provider, model)) else "partial",
+    }
+    return (packet if isinstance(packet, str) else None), receipt
+
+
+def _jsonl_records(path: Path, limit: int = MAX_REVIEW_OUTPUT_BYTES) -> list[dict[str, object]]:
+    raw = read_review_file(path, limit).decode("utf-8")
+    records = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError("Codex event or rollout record is not an object")
+        records.append(value)
+    return records
+
+
+def _codex_attempt_receipt(events: Path, codex_home: Path) -> tuple[str | None, dict[str, object]]:
+    """Bind a Codex CLI packet and accounting to the worker started by this invocation."""
+    event_records = _jsonl_records(events)
+    packet_items = [record.get("item", {}).get("text") for record in event_records
+                    if record.get("type") == "item.completed" and isinstance(record.get("item"), dict)
+                    and record["item"].get("type") == "agent_message"]
+    packet = packet_items[0] if len(packet_items) == 1 and isinstance(packet_items[0], str) else None
+    usage = next((record["usage"] for record in reversed(event_records) if "usage" in record), None)
+    cost = next((record["cost"] for record in reversed(event_records) if "cost" in record), None)
+    receipt: dict[str, object] = {
+        "worker_id": None,
+        "attempt_provider": None,
+        "attempt_model": None,
+        "observed_provider": None,
+        "observed_model": None,
+        "usage": usage,
+        "cost": cost,
+        "disposition": "unverified",
+        "turn_id": None,
+    }
+    started = [record.get("thread_id") for record in event_records if record.get("type") == "thread.started"]
+    if len(started) != 1 or not isinstance(started[0], str):
+        return packet, receipt
+    worker_id = started[0]
+    try:
+        valid_worker_id = str(UUID(worker_id)) == worker_id
+    except ValueError:
+        valid_worker_id = False
+    if not valid_worker_id:
+        return packet, receipt
+    receipt["worker_id"] = worker_id
+    if sum(record.get("type") == "turn.started" for record in event_records) != 1:
+        return packet, receipt
+
+    rollout_paths = list((codex_home / "sessions").rglob(f"rollout-*-{worker_id}.jsonl"))
+    if len(rollout_paths) != 1:
+        return packet, receipt
+    rollout_records = _jsonl_records(rollout_paths[0])
+    session_ids = [record.get("payload", {}).get("id") for record in rollout_records
+                   if record.get("type") == "session_meta" and isinstance(record.get("payload"), dict)]
+    if session_ids != [worker_id]:
+        return packet, receipt
+
+    turns = [record.get("payload") for record in rollout_records
+             if record.get("type") == "turn_context" and isinstance(record.get("payload"), dict)]
+    providers = {record.get("payload", {}).get("model_provider") for record in rollout_records
+                 if record.get("type") == "session_meta" and isinstance(record.get("payload"), dict)}
+    if len(providers) == 1 and all(providers):
+        receipt["attempt_provider"] = next(iter(providers))
+    if len(turns) == 1 and turns[0].get("model"):
+        receipt["attempt_model"] = turns[0]["model"]
+    completions = [record.get("payload", {}).get("turn_id") for record in rollout_records
+                   if record.get("type") == "event_msg" and isinstance(record.get("payload"), dict)
+                   and record["payload"].get("type") == "task_complete"]
+    turn_id = completions[-1] if len(completions) == 1 else None
+    producing = [turn for turn in turns if turn.get("turn_id") == turn_id] if turn_id else []
+    completed_events = [record.get("turn_id") for record in event_records if record.get("type") == "turn.completed"]
+    if completed_events and (len(completed_events) != 1 or completed_events[0] != turn_id):
+        return packet, receipt
+    receipt["turn_id"] = turn_id
+    if len(providers) == 1 and all(providers) and len(producing) == 1 and producing[0].get("model"):
+        receipt["observed_provider"] = next(iter(providers))
+        receipt["observed_model"] = producing[0]["model"]
+        receipt["disposition"] = "observed"
+    return packet, receipt
 
 
 def _scope_git(root, *args, env=None):
@@ -517,7 +617,7 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
         f"**Review decisions:** `{_display(metadata, 'retained_decisions', 'unavailable')}`",
         f"**Review decisions SHA-256:** `{_display(metadata, 'decisions_sha256', 'unavailable')}` · **Angle results SHA-256:** `{_display(metadata, 'angles_sha256', 'unavailable')}`",
         f"**CLI attempt records:** `{_display(metadata, 'retained_attempts', 'unavailable')}` · **SHA-256:** `{_display(metadata, 'attempts_sha256', 'unavailable')}`",
-        f"**Requested model:** `{_display(metadata, 'requested_model', 'unknown')}` · **Verified effective model:** `{_display(metadata, 'effective_model', 'unknown')}`",
+        f"**Requested model:** `{_display(metadata, 'requested_model', 'unknown')}` · **Verified effective route:** `{_display(metadata, 'effective_provider', 'unknown')}/{_display(metadata, 'effective_model', 'unknown')}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
     return "# Overall Code Review\n\n" + "\n".join(fields) + "\n\n---\n\n"
@@ -613,6 +713,7 @@ def _try_cli_candidates(args, candidates, prompt, scope):
         argv = _cli_argv(model, override, prompt)
         attempt = {
             "attempt": len(attempts) + 1,
+            "attempt_ref": f"deep-review-cli:{len(attempts) + 1}",
             "cli": model,
             "executable": argv[0],
             "exit_status": None,
@@ -632,13 +733,40 @@ def _try_cli_candidates(args, candidates, prompt, scope):
             failures.append(f"{model}: {type(exc).__name__}: {exc}")
             continue
         attempt["exit_status"] = completed.returncode
+        output = completed.stdout or ""
+        if model == "codex" and not override:
+            try:
+                codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+                with tempfile.TemporaryDirectory(prefix="shark-review-codex-events-") as event_dir:
+                    event_path = Path(event_dir) / "events.jsonl"
+                    event_path.write_text(output, encoding="utf-8")
+                    packet_output, receipt = _codex_attempt_receipt(event_path, codex_home)
+                output = packet_output or ""
+                attempt.update(receipt)
+                if receipt.get("worker_id"):
+                    attempt["evidence_ref"] = f"codex-rollout:{receipt['worker_id']}"
+            except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+                attempt["receipt_error"] = type(exc).__name__
+        elif model == "claude" and not override:
+            try:
+                output, receipt = _claude_attempt_receipt(output)
+                attempt.update(receipt)
+                if receipt.get("worker_id"):
+                    attempt["evidence_ref"] = f"claude-session:{receipt['worker_id']}"
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                attempt["receipt_error"] = type(exc).__name__
         if completed.returncode != 0:
             attempt["outcome"] = "nonzero_exit"
             attempt["failure_reason"] = f"non-zero exit status {completed.returncode}"
             failures.append(f"{model}: non-zero exit status {completed.returncode}")
             continue
+        if model == "codex" and not override and attempt.get("disposition") != "observed":
+            attempt["outcome"] = "unverified_identity"
+            attempt["failure_reason"] = "Codex worker identity was not correlated to this invocation"
+            failures.append(f"{model}: worker identity was unverified")
+            continue
         try:
-            output, decisions = _parse_cli_packet(completed.stdout or "", scope)
+            output, decisions = _parse_cli_packet(output, scope)
             attempt["outcome"] = "accepted"
             attempt["failure_reason"] = None
             return output, decisions, model, failures, attempts
@@ -712,6 +840,18 @@ def run_cli(args: argparse.Namespace) -> int:
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
 
+    accepted_attempt = next((attempt for attempt in attempts if attempt.get("outcome") == "accepted"), None)
+    if args.require_verified_identity and (not accepted_attempt or any(
+        not isinstance(accepted_attempt.get(key), str) or not accepted_attempt[key].strip()
+        for key in ("worker_id", "observed_provider", "observed_model", "evidence_ref")
+    )):
+        base["runner_mode"] = "incomplete"
+        base["fallback_reason"] = "accepted CLI result lacks a correlated worker identity"
+        body = "## Review status\n\n**INCOMPLETE** — " + base["fallback_reason"] + "."
+        persist_report(Path(args.review_output_path), body, base, args.branch)
+        print(json.dumps({**base, "report_path": args.review_output_path}))
+        return 2
+
     verdict = VERDICT_RE.search(output).group(1).upper()
     if failures:
         base["fallback_reason"] = "; ".join(
@@ -725,6 +865,11 @@ def run_cli(args: argparse.Namespace) -> int:
             "verdict": verdict,
         }
     )
+    if accepted_attempt:
+        base["effective_provider"] = accepted_attempt.get("observed_provider")
+        base["effective_model"] = accepted_attempt.get("observed_model")
+        base["usage"] = accepted_attempt.get("usage")
+        base["cost"] = accepted_attempt.get("cost")
     scope_error = bind_scope(base, args)
     if scope_error:
         persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
@@ -807,6 +952,22 @@ def _writer_metadata(args):
     }
 
 
+def _read_attempt_receipts(path: str | None) -> tuple[list[dict[str, object]], dict[str, object] | None]:
+    if not path:
+        return [], None
+    value = json.loads(read_review_file(path, 32 * 1024 * 1024).decode("utf-8"))
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError("attempt receipts must be a JSON array of objects")
+    accepted = [item for item in value if item.get("outcome") == "accepted"]
+    if len(accepted) != 1:
+        raise ValueError("attempt receipts must identify exactly one accepted invocation")
+    winner = accepted[0]
+    required = ("attempt_ref", "worker_id", "observed_provider", "observed_model", "evidence_ref")
+    if any(not isinstance(winner.get(key), str) or not winner[key].strip() for key in required):
+        raise ValueError("accepted attempt lacks worker-correlated identity evidence")
+    return value, winner
+
+
 def _writer_runner_state(args, metadata, scope_error, incomplete_six):
     def meaningful(value):
         return bool(value and str(value).strip().strip("`").strip().lower() not in {"", "none", "unknown"})
@@ -836,9 +997,23 @@ def _finish_written_report(args, metadata, body, scope_error, invalid):
 def write_report(args: argparse.Namespace) -> int:
     """Persist Workflow/dispatch output using the same metadata contract as CLI fallback."""
     metadata = _writer_metadata(args)
+    if args.runner_mode == "adversarial-cli":
+        try:
+            attempts, winner = _read_attempt_receipts(args.attempts_file)
+            if winner is None or winner.get("cli") != args.adversarial_model:
+                raise ValueError("CLI report is not bound to its accepted invocation")
+            metadata["attempts"] = attempts
+            metadata["effective_provider"] = winner["observed_provider"]
+            metadata["effective_model"] = winner["observed_model"]
+            metadata["usage"] = winner.get("usage")
+            metadata["cost"] = winner.get("cost")
+        except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+            metadata["fallback_reason"] = "CLI attempt receipts are unavailable or invalid"
+            metadata["verdict"] = "INCOMPLETE"
     scope_error = bind_scope(metadata, args)
     angle_findings, incomplete_six = _writer_angles(args, metadata, scope_error)
     incomplete = _writer_runner_state(args, metadata, scope_error, incomplete_six)
+    incomplete = incomplete or (args.runner_mode == "adversarial-cli" and metadata.get("verdict") == "INCOMPLETE")
     try:
         body = read_review_file(args.body_file, 32 * 1024 * 1024).decode("utf-8")
     except (OSError, ValueError, UnicodeError) as exc:
@@ -890,6 +1065,7 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--scope-file")
     run.add_argument("--requested-model")
     run.add_argument("--effective-model")
+    run.add_argument("--require-verified-identity", action="store_true")
     run.add_argument("--host", choices=["codex", "claude", "unknown"], default=None)
     run.add_argument("--timeout", type=float, default=600)
     run.add_argument("--workflow-available", action=argparse.BooleanOptionalAction, default=None)
@@ -916,6 +1092,7 @@ def parser() -> argparse.ArgumentParser:
     write.add_argument("--review-decisions")
     write.add_argument("--requested-model")
     write.add_argument("--effective-model")
+    write.add_argument("--attempts-file")
     return p
 
 
