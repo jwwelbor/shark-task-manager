@@ -1,3 +1,4 @@
+import itertools
 import json
 from pathlib import Path
 import subprocess
@@ -9,6 +10,72 @@ SCRIPT = Path(__file__).with_name('review_workflow.js')
 
 
 class NativeWorkflowTest(unittest.TestCase):
+    def test_consolidator_receives_ordered_inspections_and_observations_by_angle(self):
+        paths = ['retired.txt', 'source', 'tests']
+        identity = {'commit': 'commit', 'tree': 'tree', 'diff_sha256': 'digest'}
+        packets = {}
+        for label, order in zip('abcdef', itertools.permutations(paths)):
+            packets[label] = {
+                'candidate_identity': identity, 'reviewed_files': order,
+                'findings': [{'file': 'source', 'line': 1, 'severity': 'blocker',
+                              'rule': 'CORRECTNESS', 'summary': 'wrong total',
+                              'diagnosis': 'returned 1', 'evidence': f'operation {label}'}],
+            }
+        harness = r'''
+const fs = require('fs');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const run = new (Object.getPrototypeOf(async function(){}).constructor)(
+    'args', 'phase', 'parallel', 'agent', 'log', source.slice(source.indexOf('// ─── Args')));
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+const calls = [];
+const agent = async (prompt, options) => {
+    calls.push({prompt, options});
+    if (options.label !== 'consolidator') return input.packets[options.label[0].toLowerCase()];
+    return {report: 'Scope: all three changed files inspected. Findings: 0 defects found after checking all callers. VERDICT: PASS',
+            decisions: {candidate_identity: input.packets.a.candidate_identity, findings: []}};
+};
+run(input.args, ()=>{}, tasks => Promise.all(tasks.map(task => task())), agent, ()=>{})
+    .then(result => process.stdout.write(JSON.stringify({calls, result})));
+'''
+        def exercise(angles, **options):
+            args = dict(diff_path='diff', skill_dir='skill', candidate_commit='commit',
+                        candidate_tree='tree', diff_sha256='digest', changed_files=paths, **options)
+            result = subprocess.run(['node', '-e', harness, str(SCRIPT)],
+                                    input=json.dumps({'args': args, 'packets': angles}),
+                                    capture_output=True, text=True, check=True)
+            return json.loads(result.stdout)
+
+        observed = exercise(packets, effort='medium')
+        calls = observed['calls']
+        self.assertEqual([call['options']['effort'] for call in calls], ['medium'] * 7)
+        prompt = calls[-1]['prompt']
+        marker = '- ANGLE_RESULTS:'
+        with self.subTest(handoff='labeled specialist results'):
+            self.assertIn(marker, prompt)
+            delivered, _ = json.JSONDecoder().raw_decode(prompt.split(marker, 1)[1].lstrip())
+            self.assertEqual(delivered, json.loads(json.dumps(packets)))
+        clean = {label: dict(packet, findings=[]) for label, packet in packets.items()}
+        observed = exercise(clean)
+        self.assertEqual(len(observed['calls']), 7)
+        self.assertTrue(all('effort' not in call['options'] for call in observed['calls']))
+        with self.subTest(handoff='consolidation schema'):
+            schema = observed['calls'][-1]['options']['schema']['properties']['decisions']
+            self.assertNotIn('reviewed_files', schema['required'])
+        with self.subTest(handoff='six angle declarations suffice'):
+            self.assertEqual(observed['result']['runner_mode'], 'canonical-six-angle')
+            self.assertTrue(observed['result']['consolidator_completed'])
+        for path in paths:
+            with self.subTest(missing=path):
+                incomplete = dict(clean, b=dict(clean['b'], reviewed_files=[p for p in paths if p != path]))
+                observed = exercise(incomplete)
+                self.assertEqual(len(observed['calls']), 6)
+                result = observed['result']
+                self.assertEqual(result['runner_mode'], 'incomplete')
+                self.assertEqual(result['specialists_completed'], 5)
+                self.assertFalse(result['consolidator_completed'])
+                self.assertIn('angle b', result['report'].lower())
+                self.assertIn(path, result['report'])
+
     def test_partial_and_malformed_results_never_reach_consolidator(self):
         harness = r'''
 const fs = require('fs');
