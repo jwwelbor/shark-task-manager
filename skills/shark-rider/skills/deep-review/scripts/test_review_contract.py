@@ -14,6 +14,18 @@ FIXTURE = json.loads((HERE / 'testdata' / 'decisions.json').read_text())
 
 
 class ReviewContractTests(unittest.TestCase):
+    def test_native_and_standalone_consolidators_allow_report_only_nit_verdict(self):
+        contract = (HERE.parent / 'references' / 'consolidator.md').read_text()
+        workflow = (HERE / 'review_workflow.js').read_text()
+        expected = 'pass-with-triage'
+        for label, source in (('standalone', contract), ('native', workflow)):
+            source = source.lower()
+            with self.subTest(source=label):
+                self.assertIn(expected, source)
+                self.assertIn('report-only nits', source)
+                self.assertIn('tracker work', source)
+                self.assertIn('substantive non-blockers', source)
+
     def test_skill_helpers_use_loaded_installation_with_spaces_and_decoy_repo(self):
         skill = (HERE.parent / 'SKILL.md').read_text()
         self.assertIn('DEEP_REVIEW_SKILL_DIR', skill)

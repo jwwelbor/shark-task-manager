@@ -537,6 +537,16 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
     return "# Overall Code Review\n\n" + "\n".join(fields) + "\n\n---\n\n"
 
 
+def _incomplete_report_body(reason: str) -> str:
+    return (
+        "CURRENT_REVIEW_STATUS: INCOMPLETE\n"
+        "Scope: the submitted review was not accepted as a complete candidate-bound review.\n"
+        "Findings: no findings from this attempt are accepted as current review findings.\n"
+        f"Reason: {reason}\n"
+        "VERDICT: INCOMPLETE"
+    )
+
+
 def _write_new_bytes(path, data):
     if len(data) > MAX_ARTIFACT_BYTES:
         raise ValueError("retained review artifact exceeds size limit")
@@ -657,15 +667,11 @@ def run_cli(args: argparse.Namespace) -> int:
     base["effective_model"] = args.effective_model
     scope_error = bind_scope(base, args)
     if scope_error:
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
+        persist_report(Path(args.review_output_path), _incomplete_report_body(scope_error), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     if choice["runner_mode"] != "adversarial-cli":
-        body = (
-            "## Review status\n\n"
-            "**INCOMPLETE** — no out-of-band automated reviewer was available for this run. "
-            "Manual review is diagnostic only and cannot satisfy the pre-merge gate."
-        )
+        body = _incomplete_report_body("no out-of-band automated reviewer was available; manual review is diagnostic only")
         persist_report(Path(args.review_output_path), body, base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
@@ -678,7 +684,7 @@ def run_cli(args: argparse.Namespace) -> int:
     except (OSError, ValueError, UnicodeError) as exc:
         base["runner_mode"] = "incomplete"
         base["fallback_reason"] = f"review prompt unavailable: {exc}"
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
+        persist_report(Path(args.review_output_path), _incomplete_report_body(base["fallback_reason"]), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     output, selected_decisions, selected_model, failures = _try_cli_candidates(args, candidates, prompt, scope)
@@ -690,7 +696,7 @@ def run_cli(args: argparse.Namespace) -> int:
         base["fallback_reason"] = "; ".join(
             [str(choice["fallback_reason"]), *failures]
         )
-        body = "## Review status\n\n**INCOMPLETE** — alternate-model CLI did not produce a complete review."
+        body = _incomplete_report_body("alternate-model CLI did not produce a complete review")
         persist_report(Path(args.review_output_path), body, base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
@@ -712,7 +718,7 @@ def run_cli(args: argparse.Namespace) -> int:
     if scope_error:
         base["runner_mode"] = "incomplete"
         base["verdict"] = "INCOMPLETE"
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
+        persist_report(Path(args.review_output_path), _incomplete_report_body(scope_error), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     try:
@@ -723,7 +729,7 @@ def run_cli(args: argparse.Namespace) -> int:
         base["runner_mode"] = "incomplete"
         base["verdict"] = "INCOMPLETE"
         base["fallback_reason"] = f"review decisions no longer match the validated scope: {exc}"
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
+        persist_report(Path(args.review_output_path), _incomplete_report_body(base["fallback_reason"]), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     base["_decisions"] = selected_decisions
@@ -822,6 +828,9 @@ def _finish_written_report(args, metadata, body, scope_error, invalid):
         metadata["verdict"] = "INCOMPLETE"
         if not scope_error:
             metadata["fallback_reason"] = "report body or review decisions are incomplete or contradictory"
+    if metadata["verdict"] == "INCOMPLETE":
+        reason = metadata.get("fallback_reason") or "review evidence is incomplete or diagnostic"
+        body = _incomplete_report_body(str(reason))
     persist_report(Path(args.review_output_path), body, metadata, args.branch)
     print(json.dumps({**metadata, "report_path": args.review_output_path}))
 
@@ -841,7 +850,7 @@ def write_report(args: argparse.Namespace) -> int:
         _finish_written_report(args, metadata, "**INCOMPLETE** — " + metadata["fallback_reason"], scope_error, False)
         return 2
     invalid = any(_writer_decisions(args, metadata, scope_error, angle_findings, body))
-    _finish_written_report(args, metadata, body, scope_error, invalid)
+    _finish_written_report(args, metadata, body, scope_error, incomplete or invalid)
     return 2 if incomplete or invalid else 0
 
 

@@ -460,6 +460,12 @@ class AdaptiveReviewTests(unittest.TestCase):
                         saved_report = report.read_text()
                         self.assertIn(f'**Verdict:** {expected}', saved_report)
                         self.assertIn(f'`runner_mode={metadata["runner_mode"]}`', saved_report)
+                        if omitted:
+                            current_body = saved_report.split("---", 1)[1]
+                            self.assertIn('CURRENT_REVIEW_STATUS: INCOMPLETE', current_body)
+                            self.assertIn('VERDICT: INCOMPLETE', current_body)
+                            self.assertNotRegex(current_body, r'CURRENT_REVIEW_STATUS:\s*COMPLETE')
+                            self.assertNotRegex(current_body, r'VERDICT\s*:?\s*PASS(?:-WITH-TRIAGE)?\b')
                         if not omitted:
                             decisions_path = Path(metadata['retained_decisions'])
                             decisions_bytes = decisions_path.read_bytes()
@@ -514,6 +520,12 @@ class AdaptiveReviewTests(unittest.TestCase):
                     ], capture_output=True, text=True)
                     self.assertEqual(json.loads(result.stdout)['verdict'], expected, result.stdout + result.stderr)
                     self.assertEqual(result.returncode, 0 if not omitted else 2)
+                    if omitted:
+                        saved_report = report.read_text().split("---", 1)[1]
+                        self.assertIn('CURRENT_REVIEW_STATUS: INCOMPLETE', saved_report)
+                        self.assertIn('VERDICT: INCOMPLETE', saved_report)
+                        self.assertNotRegex(saved_report, r'CURRENT_REVIEW_STATUS:\s*COMPLETE')
+                        self.assertNotRegex(saved_report, r'VERDICT\s*:?\s*PASS(?:-WITH-TRIAGE)?\b')
 
     @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
     def test_public_cli_writer_requires_complete_reviewed_file_manifest(self):
@@ -558,6 +570,12 @@ class AdaptiveReviewTests(unittest.TestCase):
                         saved_report = report.read_text()
                         self.assertIn(f'**Verdict:** {expected}', saved_report)
                         self.assertIn(f'`runner_mode={metadata["runner_mode"]}`', saved_report)
+                        if omitted:
+                            current_body = saved_report.split("---", 1)[1]
+                            self.assertIn('CURRENT_REVIEW_STATUS: INCOMPLETE', current_body)
+                            self.assertIn('VERDICT: INCOMPLETE', current_body)
+                            self.assertNotRegex(current_body, r'CURRENT_REVIEW_STATUS:\s*COMPLETE')
+                            self.assertNotRegex(current_body, r'VERDICT\s*:?\s*PASS(?:-WITH-TRIAGE)?\b')
                         decisions_bytes = Path(metadata['retained_decisions']).read_bytes()
                         decisions_digest = hashlib.sha256(decisions_bytes).hexdigest()
                         self.assertEqual(json.loads(decisions_bytes), decisions)

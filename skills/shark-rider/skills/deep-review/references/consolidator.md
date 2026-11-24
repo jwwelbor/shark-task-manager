@@ -78,7 +78,7 @@ Average ≤ 3 for any dimension → non-blocker triage. Average ≤ 2 → blocke
 ## Step 6: Verdict
 
 - **PASS** — zero findings of any severity
-- **PASS-with-triage** — no blockers; non-blockers exist (host routes each through the triage skill's decision tree; tech-debt is only one possible outcome, never a default — see `skills/triage/SKILL.md`'s routing contract). If a triage attempt fails or can't complete (target entity won't accept new children, run is unattended and the decision tree's confirmation step has no one to answer it), the host falls back to a feature-level note instead of leaving the finding untracked — see `review-code.md` Step 12.
+- **PASS-with-triage** — no blockers; substantive non-blockers exist, or one or more retained report-only Nits remain. Route each substantive non-blocker through the triage skill's decision tree; tech-debt is only one possible outcome, never a default — see `skills/triage/SKILL.md`'s routing contract. Report-only Nits create no tracker work and do not enter host triage. If a triage attempt fails or can't complete (target entity won't accept new children, run is unattended and the decision tree's confirmation step has no one to answer it), the host falls back to a feature-level note instead of leaving the finding untracked — see `review-code.md` Step 12.
 - **FAIL** — one or more blockers; task returns to development
 
 ---
@@ -171,6 +171,6 @@ One paragraph summarizing the state of the PR, what is good, and what must chang
 - [ ] If a structural sibling check was triggered, the sibling inventory table is in section C
 - [ ] Standards crosswalk cites real sections (no fabricated citations)
 - [ ] Rubric scores are justified with evidence
-- [ ] Verdict matches findings: PASS only if zero; PASS-with-triage if no blockers; FAIL otherwise
+- [ ] Verdict matches findings: PASS only if zero; PASS-with-triage if no blockers and a substantive non-blocker or report-only Nit remains; FAIL otherwise
 - [ ] Clean PASS returns only the compact PASS report, not the full section set
 - [ ] Do NOT block for: stylistic preferences within acceptable bounds, pre-existing issues the task didn't substantially worsen, minor optimizations, naming nits when standards are met, missing nice-to-have tests, file-organization preferences without concrete maintainability impact
