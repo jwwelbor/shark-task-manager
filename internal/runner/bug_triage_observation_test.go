@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,6 +23,13 @@ import (
 // raw blockers whose reconciled decisions each require a host observation.
 func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateScope, originalReport string, originalAngles []byte, scopeRefs string, planNotes bugApprovalNotes, planHistory bugApprovalHistory) {
 	t.Helper()
+	// Review artifacts live in the worker checkout. Only the parent run owns
+	// the action observation and gate history, including when QA replays them.
+	parent := filepath.Join(t.TempDir(), "parent")
+	out, err := exec.Command("git", "-C", root, "worktree", "add", "--detach", parent, "HEAD").CombinedOutput()
+	require.NoError(t, err, string(out))
+	planRun := filepath.Join(".shark", "runs", "approved-plan")
+	require.NoError(t, os.CopyFS(filepath.Join(parent, planRun), os.DirFS(filepath.Join(root, planRun))))
 	identity := bugReviewIdentity{scope.CandidateCommit, scope.CandidateTree, scope.DiffSHA256, scope.RepairPlanSHA256}
 	var angles map[string]bugAngle
 	require.NoError(t, json.Unmarshal(originalAngles, &angles))
@@ -36,14 +45,14 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 			Summary: raw.Summary, Diagnosis: raw.Diagnosis, Severity: "nit", Disposition: "report_only", Reason: "The guide permits both spellings.",
 		})
 	}
-	save := func(path, kind string, data []byte) string {
-		full := filepath.Join(root, path)
+	save := func(project, path, kind string, data []byte) string {
+		full := filepath.Join(project, path)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0700))
 		require.NoError(t, os.WriteFile(full, data, 0600))
 		return fmt.Sprintf(`{"kind":%q,"pointer":%q,"summary":"sha256:%x"}`, kind, path, sha256.Sum256(data))
 	}
 	angleData := mustJSON(t, angles)
-	angleRef := save(".shark/triage-angles.json", "bug_review_angles", angleData)
+	angleRef := save(root, ".shark/triage-angles.json", "bug_review_angles", angleData)
 	header, _, ok := strings.Cut(originalReport, "\n---\n")
 	require.True(t, ok)
 	header = strings.Replace(header, fmt.Sprintf("%x", sha256.Sum256(originalAngles)), fmt.Sprintf("%x", sha256.Sum256(angleData)), 1)
@@ -56,6 +65,11 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 
 	for _, trial := range []triageObservationTrial{
 		{name: "observed-zeros"},
+		{name: "qa-other-pointer"},
+		{name: "qa-other-digest"},
+		{name: "qa-extra-observation"},
+		{name: "worker-copy-only", want: "open evidence"},
+		{name: "other-parent-run", want: "original review run"},
 		{name: "hyphenated-withdrawal"},
 		{name: "omitted-hyphenated-observation", want: "missing report-only observation for F-2"},
 		{"absent-edits", "edits", "omit", "F-1: report-only requires observed edits of zero"},
@@ -72,51 +86,99 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 		t.Run(trial.name, func(t *testing.T) {
 			decisions, actions := trial.packetAndActions(packet)
 			decisionData := mustJSON(t, decisions)
-			decisionRef := save(".shark/"+trial.name+"/decisions.json", "bug_review_decisions", decisionData)
+			decisionRef := save(root, ".shark/"+trial.name+"/decisions.json", "bug_review_decisions", decisionData)
 			bound := strings.Replace(header, fmt.Sprintf("%x", sha256.Sum256(oldDecisions)), fmt.Sprintf("%x", sha256.Sum256(decisionData)), 1)
 			report := bound + "\n---\nScope: all changed files. Findings: F-1 at change.txt:1 and F-2 at leaf.txt:1 alleged a mandatory spelling. The guide permits both at each site. Both withdrawals are report-only. Verdict: PASS-WITH-TRIAGE.\n"
-			reportRef := save(".shark/"+trial.name+"/report.md", "bug_review_report", []byte(report))
+			reportRef := save(root, ".shark/"+trial.name+"/report.md", "bug_review_report", []byte(report))
 			observation := mustJSON(t, map[string]any{"candidate_identity": identity, "observed_by": "parent", "actions": actions})
 			reviewID := "observation-" + trial.name
-			observationPath := ".shark/runs/" + reviewID + "/parent-triage-observation.json"
-			observationRef := save(observationPath, "bug_parent_triage_observation", observation)
+			saveObservation := func(runID string) string {
+				project := parent
+				switch trial.name {
+				case "worker-copy-only":
+					project = root
+				case "other-parent-run":
+					runID += "-other"
+				}
+				return save(project, ".shark/runs/"+runID+"/parent-triage-observation.json", "bug_parent_triage_observation", observation)
+			}
+			observationRef := saveObservation(reviewID)
 			sharedRefs := scopeRefs + "," + observationRef
 			prior := envelope(strings.Join([]string{sharedRefs, reportRef, angleRef, decisionRef}, ","))
-			for _, gate := range []string{"code_review", "qa"} {
-				t.Run(gate, func(t *testing.T) {
+			gates := []string{"code_review", "qa"}
+			if trial.name == "observed-zeros" || trial.name == "qa-other-pointer" {
+				gates = append(gates, "qa-blocked")
+			}
+			for _, entry := range gates {
+				t.Run(entry, func(t *testing.T) {
+					gate := entry
+					blocked := entry == "qa-blocked"
+					if blocked {
+						gate = "qa"
+					}
 					notes, history := planNotes, planHistory
 					run, target, result := reviewID, "qa", prior
 					if gate == "qa" {
 						run, target = reviewID+"-qa", "resolved"
 						// Current ingestion has its own operation directory. Seed QA
 						// independently using copies of the original gate artifacts.
-						seedID := reviewID + "-prior"
-						seedRef := save(".shark/runs/"+seedID+"/parent-triage-observation.json", "bug_parent_triage_observation", observation)
+						if blocked {
+							run += "-blocked"
+						}
+						seedID := run + "-prior"
+						seedRef := saveObservation(seedID)
 						seeded := []byte(strings.Replace(string(prior), observationRef, seedRef, 1))
-						seedMaterialReview(t, root, seedID, seeded, &notes, &history)
-						result = envelope(scopeRefs + "," + seedRef)
+						seedMaterialReviewAt(t, parent, root, seedID, seeded, &notes, &history)
+						qaRefs := scopeRefs + "," + seedRef
+						switch trial.name {
+						case "qa-other-pointer":
+							qaRefs = scopeRefs + "," + observationRef
+						case "qa-other-digest":
+							qaRefs = strings.Replace(qaRefs, fmt.Sprintf("%x", sha256.Sum256(observation)), strings.Repeat("0", 64), 1)
+						case "qa-extra-observation":
+							qaRefs += "," + observationRef
+						}
+						result = envelope(qaRefs)
+						if blocked {
+							target = "blocked"
+							result = []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"blocked","evidence":[%s],"gate_result":{"schema_version":1,"summary":"QA input unavailable","no_kickback_reason":"Missing external input"}}`, qaRefs))
+						}
 						t.Cleanup(func() {
-							stored, exists, err := gaterun.ReadResult(filepath.Join(root, ".shark/runs", seedID))
+							stored, exists, err := gaterun.ReadResult(filepath.Join(parent, ".shark/runs", seedID))
 							require.NoError(t, err)
 							require.True(t, exists)
 							require.Equal(t, seeded, stored)
-							after, err := os.ReadFile(filepath.Join(root, ".shark/runs", seedID, "parent-triage-observation.json"))
+							var ref workercontrol.EvidenceRef
+							require.NoError(t, json.Unmarshal([]byte(seedRef), &ref))
+							source := parent
+							if trial.name == "worker-copy-only" {
+								source = root
+							}
+							after, err := os.ReadFile(filepath.Join(source, ref.Pointer))
 							require.NoError(t, err)
 							require.Equal(t, observation, after)
 						})
+					}
+					passTarget := target
+					if blocked {
+						passTarget = "resolved"
 					}
 					status := &fakeTransitioner{status: map[string]string{"B001": gate}}
 					written := &fakeNoteWriter{}
 					coord := gatepersist.NewCoordinator(written, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{target: true, gate: true}}, status, status, &fakeLeaseReleaser{}, status)
 					coord.Admission = NewBugGateAdmission(notes, history)
 					_, err := IngestGateResult(context.Background(), GateIngestRequest{
-						ProjectRoot: root, RunID: run, Gate: gate, SourceStatus: gate, Coordinator: coord, EnvelopeBytes: result,
+						ProjectRoot: parent, WorkingDir: root, RunID: run, Gate: gate, SourceStatus: gate, Coordinator: coord, EnvelopeBytes: result,
 						EntityKey: "B001", EntityType: models.EntityTypeBug, Session: gatepersist.Session{ID: "parent"},
-						Outcomes: map[string]string{"pass": target}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+						Outcomes: map[string]string{"pass": passTarget, "blocked": "blocked"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess, "blocked": gateresult.RoleBlocked},
 						ParentObservationInjected: gate == "code_review",
 					})
-					if trial.want != "" {
-						require.ErrorContains(t, err, trial.want)
+					want := trial.want
+					if gate == "qa" && strings.HasPrefix(trial.name, "qa-") {
+						want = "bug_parent_triage_observation"
+					}
+					if want != "" {
+						require.ErrorContains(t, err, want)
 						require.Empty(t, written.notes)
 						require.Equal(t, gate, status.status["B001"])
 						return
@@ -124,7 +186,7 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 					require.NoError(t, err)
 					require.Len(t, written.notes, 1)
 					require.Equal(t, target, status.status["B001"])
-					stored, exists, err := gaterun.ReadResult(filepath.Join(root, ".shark/runs", run))
+					stored, exists, err := gaterun.ReadResult(filepath.Join(parent, ".shark/runs", run))
 					require.NoError(t, err)
 					require.True(t, exists)
 					require.Equal(t, result, stored)

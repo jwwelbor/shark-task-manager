@@ -31,11 +31,9 @@ func readBugEvidence(req gatepersist.Request, kind string) (workercontrol.Eviden
 	if err != nil {
 		return ref, nil, err
 	}
-	roots := []string{bugEvidenceProject(req)}
-	// Plan documents and local plan reviews may be retained in either the
-	// worker project or the parent project; the digest selects the revision.
-	if req.EvidenceRoot != "" && (kind == "bug_repair_plan" || kind == "plan_review_report") {
-		roots = append(roots, filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir))))
+	roots, err := bugEvidenceRoots(req, ref)
+	if err != nil {
+		return ref, nil, err
 	}
 	var readErr error
 	for _, root := range roots {
@@ -52,18 +50,40 @@ func readBugEvidence(req gatepersist.Request, kind string) (workercontrol.Eviden
 	}
 	return ref, nil, readErr
 }
+
+func bugEvidenceRoots(req gatepersist.Request, ref workercontrol.EvidenceRef) ([]string, error) {
+	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	switch ref.Kind {
+	case "bug_parent_triage_observation":
+		want := filepath.ToSlash(filepath.Join(".shark", "runs", filepath.Base(req.RunDir), "parent-triage-observation.json"))
+		if ref.Pointer != want {
+			return nil, fmt.Errorf("host observation must belong to the original review run at %s", want)
+		}
+		return []string{parent}, nil
+	case "bug_repair_plan", "plan_review_report":
+		if req.EvidenceRoot != "" {
+			return []string{req.EvidenceRoot, parent}, nil
+		}
+	}
+	return []string{bugEvidenceProject(req)}, nil
+}
+
 func findBugEvidence(req gatepersist.Request, kind string) (workercontrol.EvidenceRef, error) {
 	envelope, err := workercontrol.Decode(req.EnvelopeJSON)
 	if err != nil {
 		return workercontrol.EvidenceRef{}, err
 	}
+	return selectBugEvidence(envelope.Evidence, kind)
+}
+
+func selectBugEvidence(refs []workercontrol.EvidenceRef, kind string) (workercontrol.EvidenceRef, error) {
 	var found *workercontrol.EvidenceRef
-	for i := range envelope.Evidence {
-		if envelope.Evidence[i].Kind == kind {
+	for i := range refs {
+		if refs[i].Kind == kind {
 			if found != nil {
 				return workercontrol.EvidenceRef{}, fmt.Errorf("exactly one %s reference is required", kind)
 			}
-			found = &envelope.Evidence[i]
+			found = &refs[i]
 		}
 	}
 	if found == nil {

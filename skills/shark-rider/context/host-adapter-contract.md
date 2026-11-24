@@ -209,7 +209,10 @@ run-scoped file with `--parent-triage-observation`. The apply-result adapter
 adds a digest-bound `bug_parent_triage_observation` reference to the envelope
 before ingestion. The worker cannot supply this evidence; admission binds it
 to the candidate and finding IDs. Without the parent observation, a
-PASS-WITH-TRIAGE result containing a report-only Nit is rejected.
+PASS-WITH-TRIAGE result containing a report-only Nit is rejected. At QA the
+worker cites the original reference in its envelope. Admission resolves the
+applied review from parent history and reads the observation in that review’s
+parent run directory, including when the source lives in a linked checkout.
 
 The parent observation file has this bounded shape (candidate values and
 finding IDs come from the accepted review scope and decisions):

@@ -138,8 +138,8 @@ func IngestGateResult(ctx context.Context, req GateIngestRequest) (*GateIngestRe
 	if !ok {
 		return nil, fmt.Errorf("gate ingestion: recommended_outcome %q has no configured outcome role", env.RecommendedOutcome)
 	}
-	if err := gateresult.ValidateRole(role, result, req.EntityKey); err != nil {
-		return nil, fmt.Errorf("gate ingestion: validate gate_result against outcome role %q: %w", role, err)
+	if err := validateWorkerHandoff(req, role, result, env.Evidence); err != nil {
+		return nil, err
 	}
 	if req.EntityType == models.EntityTypeBug && req.Gate == "plan_review" && role == gateresult.RoleSuccess && req.Coordinator.BeforeTransition == nil {
 		return nil, fmt.Errorf("gate ingestion: bug plan approval requires snapshot preparation")
@@ -239,4 +239,28 @@ func marshalEvidence(evidence []workercontrol.EvidenceRef) ([]byte, error) {
 		return nil, nil
 	}
 	return json.Marshal(evidence)
+}
+
+// The worker can cite an observation at QA only as a reference to an
+// independently verified applied review. It cannot create a new observation.
+func validateWorkerHandoff(req GateIngestRequest, role gateresult.OutcomeRole, result *gateresult.GateResult, refs []workercontrol.EvidenceRef) error {
+	if err := gateresult.ValidateRole(role, result, req.EntityKey); err != nil {
+		return fmt.Errorf("gate ingestion: validate gate_result against outcome role %q: %w", role, err)
+	}
+	if !hasBugEvidence(refs, "bug_parent_triage_observation") {
+		return nil
+	}
+	if req.EntityType == models.EntityTypeBug {
+		switch req.Gate {
+		case "code_review":
+			if req.ParentObservationInjected {
+				return nil
+			}
+		case "qa":
+			if !req.ParentObservationInjected && req.Coordinator.Admission != nil {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("worker envelope cannot supply parent triage observation outside verified QA replay")
 }

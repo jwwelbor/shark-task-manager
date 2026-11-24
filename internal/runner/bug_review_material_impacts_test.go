@@ -129,10 +129,10 @@ func TestValidateBugParentTriageObservationRequiresParentReportOnlyReceipt(t *te
 	decisions := map[bugFindingKey]bugReviewDecision{key: {FindingID: "F-1", Severity: "nit", Disposition: "report_only"}}
 	writeObservation := func(value any) gatepersist.Request {
 		data := mustJSON(t, value)
-		path := filepath.Join(root, "triage.json")
+		path := filepath.Join(runDir, "parent-triage-observation.json")
 		require.NoError(t, os.WriteFile(path, data, 0o600))
 		digest := sha256.Sum256(data)
-		envelope := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_parent_triage_observation","pointer":"triage.json","summary":"sha256:%x"}],"gate_result":{"schema_version":1,"summary":"test"}}`, digest))
+		envelope := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_parent_triage_observation","pointer":".shark/runs/review/parent-triage-observation.json","summary":"sha256:%x"}],"gate_result":{"schema_version":1,"summary":"test"}}`, digest))
 		return gatepersist.Request{RunDir: runDir, EnvelopeJSON: envelope, ParentObservationInjected: true}
 	}
 	require.ErrorContains(t, validateBugParentTriageObservation(gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(`{"kind":"final","evidence":[]}`)}, scope, decisions), "receipt is required")
@@ -313,13 +313,18 @@ func materialReviewHashes(t *testing.T, root, run, trial string) map[string][sha
 
 func seedMaterialReview(t *testing.T, root, run string, result []byte, notes *bugApprovalNotes, history *bugApprovalHistory) {
 	t.Helper()
+	seedMaterialReviewAt(t, root, "", run, result, notes, history)
+}
+
+func seedMaterialReviewAt(t *testing.T, root, evidenceRoot, run string, result []byte, notes *bugApprovalNotes, history *bugApprovalHistory) {
+	t.Helper()
 	gate := "code_review"
 	digest, err := gaterun.ComputeOperationDigest("B001", "bug", gate, gate, result)
 	require.NoError(t, err)
 	dir, err := gaterun.RunDir(root, run)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0700))
-	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: run, EntityKey: "B001", EntityType: "bug", SourceStatus: gate, Gate: gate, OperationDigest: digest})
+	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: run, EntityKey: "B001", EntityType: "bug", SourceStatus: gate, Gate: gate, OperationDigest: digest, EvidenceRoot: evidenceRoot})
 	require.NoError(t, err)
 	_, err = gaterun.CreateResult(dir, result)
 	require.NoError(t, err)

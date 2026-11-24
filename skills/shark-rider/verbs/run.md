@@ -69,7 +69,9 @@ candidate and finding IDs, then pass it through the run result-application
 adapter with the parent-observation option. Never accept a
 worker-supplied `bug_parent_triage_observation` reference. The apply-result
 adapter injects the parent file into the accepted envelope; without it,
-admission rejects the downgraded-Nit result.
+admission rejects the downgraded-Nit result. At bug QA, forward the observation
+reference from the accepted code review. Omit the parent-observation option
+on this call. QA verifies the original review run, pointer and digest.
 
 The child never claims, advances, releases, or heartbeats.
 

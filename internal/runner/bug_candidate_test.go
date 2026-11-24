@@ -446,6 +446,9 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.Error(t, ingest("stale-qa", "qa", "resolved", envelope(planRef+","+scopeRef)))
 	require.Equal(t, "qa", status.status["B001"])
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("candidate\n"), 0600))
+	unapprovedObservation := `{"kind":"bug_parent_triage_observation","pointer":".shark/runs/reviewed/parent-triage-observation.json","summary":"sha256:` + strings.Repeat("a", 64) + `"}`
+	require.ErrorContains(t, ingest("unapproved-qa-observation", "qa", "resolved", envelope(planRef+","+scopeRef+","+unapprovedObservation)), "bug_parent_triage_observation")
+	require.Equal(t, "qa", status.status["B001"])
 	require.NoError(t, ingest("valid-qa", "qa", "resolved", envelope(planRef+","+scopeRef)))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("changed after review\n"), 0600))
 	require.Error(t, verifyBugCandidate(context.Background(), root, scope))

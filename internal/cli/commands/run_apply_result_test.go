@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,6 +43,40 @@ func TestAttachParentTriageObservationIsRunScopedAndParentInjected(t *testing.T)
 	workerEnvelope := []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_parent_triage_observation","pointer":"fake.json"}],"gate_result":{"schema_version":1,"summary":"ok"}}`)
 	_, err = attachParentTriageObservation(root, "run-1", path, workerEnvelope)
 	require.ErrorContains(t, err, "cannot supply parent")
+}
+
+// QA forwards the exact accepted review reference as ordinary replay input.
+func TestApplyResultQAForwardsOriginalReviewObservationToAdmission(t *testing.T) {
+	root := t.TempDir()
+	key := "B001"
+	pointer := ".shark/runs/original-review/parent-triage-observation.json"
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("original observation")))
+	ref := workercontrol.EvidenceRef{Kind: "bug_parent_triage_observation", Pointer: pointer, Summary: digest}
+	raw, err := json.Marshal(ref)
+	require.NoError(t, err)
+	result := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"checked"}}`, raw))
+	status := &fakeParityTransition{status: map[string]string{key: "qa"}}
+	coord := gatepersist.NewCoordinator(&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{}, fakeParityStatusValidator{}, status, status, fakeParityLeaseReleaser{}, status)
+	coord.Admission = func(_ context.Context, req gatepersist.Request) error {
+		require.Equal(t, "successor-qa", req.RunID)
+		require.False(t, req.ParentObservationInjected)
+		env, err := workercontrol.Decode(req.EnvelopeJSON)
+		require.NoError(t, err)
+		require.Equal(t, []workercontrol.EvidenceRef{ref}, env.Evidence)
+		return nil
+	}
+	transitioner := &fakeParityTransitioner{
+		status:       status.status,
+		outcomes:     map[string]string{"pass": "resolved"},
+		outcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	got, err := applyResultIngest(context.Background(), applyResultDeps{
+		ProjectRoot: root, RunID: "successor-qa", EntityKey: key, EntityType: "bug", SessionID: "parent",
+		Coordinator: coord, Transitioner: transitioner, WorkflowSvc: fakeTerminalStatusChecker{},
+	}, result)
+	require.NoError(t, err)
+	require.True(t, got.Transitioned)
+	require.Equal(t, "resolved", status.status[key])
 }
 
 // The fakes below are local, minimal implementations of

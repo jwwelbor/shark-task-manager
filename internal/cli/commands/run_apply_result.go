@@ -221,16 +221,6 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		if err != nil {
 			return nil, fmt.Errorf("attach parent triage observation: %w", err)
 		}
-	} else {
-		envelope, err := workercontrol.Decode(envelopeBytes)
-		if err != nil {
-			return nil, err
-		}
-		for _, ref := range envelope.Evidence {
-			if ref.Kind == "bug_parent_triage_observation" {
-				return nil, fmt.Errorf("worker envelope cannot supply parent triage observation")
-			}
-		}
 	}
 
 	nextInfo, err := deps.Transitioner.GetNextStatus(ctx, deps.EntityKey)
