@@ -136,13 +136,14 @@ func TestValidateBugParentTriageObservationRequiresParentReportOnlyReceipt(t *te
 		return gatepersist.Request{RunDir: runDir, EnvelopeJSON: envelope, ParentObservationInjected: true}
 	}
 	require.ErrorContains(t, validateBugParentTriageObservation(gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(`{"kind":"final","evidence":[]}`)}, scope, decisions), "receipt is required")
-	valid := bugParentTriageObservation{CandidateIdentity: bugReviewIdentity{Commit: "c", Tree: "t", Diff: "d", Plan: "p"}, ObservedBy: "parent", Actions: []bugParentTriageAction{{FindingID: "F-1", Action: "report_only"}}}
+	zero, one := 0, 1
+	valid := bugParentTriageObservation{CandidateIdentity: bugReviewIdentity{Commit: "c", Tree: "t", Diff: "d", Plan: "p"}, ObservedBy: "parent", Actions: []bugParentTriageAction{{FindingID: "F-1", Action: "report_only", Edits: &zero, TrackerWrites: &zero}}}
 	require.NoError(t, validateBugParentTriageObservation(writeObservation(valid), scope, decisions))
 	untrusted := writeObservation(valid)
 	untrusted.ParentObservationInjected = false
 	require.ErrorContains(t, validateBugParentTriageObservation(untrusted, scope, decisions), "parent-observed")
-	valid.Actions[0].Edits = 1
-	require.ErrorContains(t, validateBugParentTriageObservation(writeObservation(valid), scope, decisions), "does not prove report-only")
+	valid.Actions[0].Edits = &one
+	require.ErrorContains(t, validateBugParentTriageObservation(writeObservation(valid), scope, decisions), "F-1: report-only requires observed edits of zero")
 }
 
 func installMaterialDecisionFixture(t *testing.T, root string) {

@@ -81,8 +81,8 @@ type bugParentTriageObservation struct {
 type bugParentTriageAction struct {
 	FindingID     string `json:"finding_id"`
 	Action        string `json:"action"`
-	Edits         int    `json:"edits"`
-	TrackerWrites int    `json:"tracker_writes"`
+	Edits         *int   `json:"edits"`
+	TrackerWrites *int   `json:"tracker_writes"`
 }
 
 func validateBugReviewMaterialImpacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string) error {
@@ -202,35 +202,77 @@ func materialDecisionMarkers(body string) map[string]bool {
 }
 
 func validateBugParentTriageObservation(req gatepersist.Request, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision) error {
-	required := make(map[string]bool)
-	for _, decision := range decisions {
-		if decision.Severity == "nit" && decision.Disposition == "report_only" {
-			required[decision.FindingID] = true
-		}
-	}
-	if len(required) == 0 {
-		return nil
+	observedByID, err := reportOnlyFindingIDs(decisions)
+	if err != nil || len(observedByID) == 0 {
+		return err
 	}
 	if !req.ParentObservationInjected {
 		return fmt.Errorf("parent-observed report-only triage receipt is required")
 	}
 	_, data, err := readBugEvidence(req, "bug_parent_triage_observation")
 	if err != nil {
-		return fmt.Errorf("parent-observed report-only triage receipt is required")
+		return fmt.Errorf("parent-observed report-only triage receipt is required: %w", err)
 	}
 	var observation bugParentTriageObservation
 	if err := decodeStrict(data, &observation); err != nil {
 		return fmt.Errorf("invalid parent triage observation: %w", err)
 	}
-	if !observation.CandidateIdentity.matches(scope) || observation.ObservedBy != "parent" || len(observation.Actions) != len(required) {
+	if !observation.CandidateIdentity.matches(scope) || observation.ObservedBy != "parent" {
 		return fmt.Errorf("parent triage observation does not match frozen findings")
 	}
-	seen := make(map[string]bool, len(observation.Actions))
-	for _, action := range observation.Actions {
-		if !required[action.FindingID] || seen[action.FindingID] || action.Action != "report_only" || action.Edits != 0 || action.TrackerWrites != 0 {
-			return fmt.Errorf("parent triage observation does not prove report-only disposition")
+	return checkReportOnlyActions(observedByID, observation.Actions)
+}
+
+func reportOnlyFindingIDs(decisions map[bugFindingKey]bugReviewDecision) (map[string]bool, error) {
+	observedByID := make(map[string]bool)
+	for _, decision := range decisions {
+		// The Rider writer uses report-only. Earlier B087 packets used report_only.
+		if decision.Severity != "nit" || (decision.Disposition != "report-only" && decision.Disposition != "report_only") {
+			continue
 		}
-		seen[action.FindingID] = true
+		id := decision.FindingID
+		if strings.TrimSpace(id) == "" {
+			return nil, fmt.Errorf("report-only finding ID is required")
+		}
+		if _, exists := observedByID[id]; exists {
+			return nil, fmt.Errorf("duplicate report-only finding ID %s", id)
+		}
+		observedByID[id] = false
+	}
+	return observedByID, nil
+}
+
+func checkReportOnlyActions(observedByID map[string]bool, actions []bugParentTriageAction) error {
+	for _, action := range actions {
+		observed, expected := observedByID[action.FindingID]
+		if !expected {
+			return fmt.Errorf("unexpected report-only observation for %q", action.FindingID)
+		}
+		if observed {
+			return fmt.Errorf("duplicate report-only observation for %s", action.FindingID)
+		}
+		if err := action.verifyReportOnly(); err != nil {
+			return err
+		}
+		observedByID[action.FindingID] = true
+	}
+	for id, observed := range observedByID {
+		if !observed {
+			return fmt.Errorf("missing report-only observation for %s", id)
+		}
+	}
+	return nil
+}
+
+func (action bugParentTriageAction) verifyReportOnly() error {
+	if action.Action != "report_only" {
+		return fmt.Errorf("%s: expected report_only host action", action.FindingID)
+	}
+	if action.Edits == nil || *action.Edits != 0 {
+		return fmt.Errorf("%s: report-only requires observed edits of zero", action.FindingID)
+	}
+	if action.TrackerWrites == nil || *action.TrackerWrites != 0 {
+		return fmt.Errorf("%s: report-only requires observed tracker_writes of zero", action.FindingID)
 	}
 	return nil
 }
@@ -249,24 +291,35 @@ func decodeStrict(data []byte, target any) error {
 }
 
 func validateBugReviewMaterialDecision(decision bugReviewMaterialDecision) error {
-	if strings.TrimSpace(decision.DecisionID) == "" || !filepath.IsLocal(decision.SourcePointer) || decision.SourcePointer == "" {
+	if strings.TrimSpace(decision.DecisionID) == "" || !filepath.IsLocal(decision.SourcePointer) {
 		return fmt.Errorf("material decision source identity is invalid")
 	}
 	digest, err := hex.DecodeString(decision.SourceSHA256)
 	if err != nil || len(digest) != sha256.Size || len(decision.AffectedArtifacts) == 0 && len(decision.AffectedCriteria) == 0 {
 		return fmt.Errorf("material decision source or expected members are invalid")
 	}
-	artifacts := make(map[string]bool, len(decision.AffectedArtifacts))
-	for _, artifact := range decision.AffectedArtifacts {
-		if !filepath.IsLocal(artifact.Path) || artifact.Path == "" || strings.TrimSpace(artifact.InvalidatedText) == "" || artifacts[artifact.Path] {
+	if err := validateMaterialArtifacts(decision.AffectedArtifacts); err != nil {
+		return err
+	}
+	return validateMaterialCriteria(decision.AffectedCriteria)
+}
+
+func validateMaterialArtifacts(affected []bugReviewMaterialArtifact) error {
+	artifacts := make(map[string]bool, len(affected))
+	for _, artifact := range affected {
+		if !filepath.IsLocal(artifact.Path) || strings.TrimSpace(artifact.InvalidatedText) == "" || artifacts[artifact.Path] {
 			return fmt.Errorf("material decision artifact set is invalid")
 		}
 		artifacts[artifact.Path] = true
 	}
-	criteria := make(map[string]bool, len(decision.AffectedCriteria))
-	for _, criterion := range decision.AffectedCriteria {
-		key := criterion.EntityKey + "\x00" + criterion.ProductionCallerPath + "\x00" + criterion.AcceptanceCriterionID
-		if criterion.EntityKey == "" || !filepath.IsLocal(criterion.ProductionCallerPath) || criterion.ProductionCallerPath == "" || criterion.AcceptanceCriterionID == "" || strings.TrimSpace(criterion.Assertion) == "" || criteria[key] {
+	return nil
+}
+
+func validateMaterialCriteria(affected []bugReviewMaterialCriterion) error {
+	criteria := make(map[materialCriterionKey]bool, len(affected))
+	for _, criterion := range affected {
+		key := materialCriterionKey{criterion.EntityKey, criterion.ProductionCallerPath, criterion.AcceptanceCriterionID}
+		if criterion.EntityKey == "" || !filepath.IsLocal(criterion.ProductionCallerPath) || criterion.AcceptanceCriterionID == "" || strings.TrimSpace(criterion.Assertion) == "" || criteria[key] {
 			return fmt.Errorf("material decision acceptance criterion set is invalid")
 		}
 		criteria[key] = true

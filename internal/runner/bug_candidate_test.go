@@ -406,6 +406,9 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		_, e := IngestGateResult(context.Background(), GateIngestRequest{EnvelopeBytes: result, Coordinator: coord, ProjectRoot: root, RunID: run, EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: gate, Gate: gate, Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": target}})
 		return e
 	}
+	t.Run("report_only_observations", func(t *testing.T) {
+		testReportOnlyObservations(t, root, captured, string(reportBytes), angleBytes, planRef+","+scopeRef, notes, history)
+	})
 	t.Run("material_dispositions", func(t *testing.T) {
 		testMaterialDispositionAdmission(t, root, captured, plan, string(reportBytes), planRef+","+scopeRef, anglesRef+","+decisionRef, notes, history)
 	})
