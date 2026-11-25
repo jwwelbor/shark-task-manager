@@ -62,7 +62,7 @@ def seed_project(source, staging, binary_digest):
     return scratch
 
 
-def prepare(root, finish, retained=None):
+def prepare(root, finish, retained=None, synthetic=False):
     root = root.resolve(strict=True)
     checkout = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=root, capture_output=True)
     if not root.is_relative_to(Path('/tmp').resolve()) or any(root.iterdir()) or checkout.returncode == 0:
@@ -70,6 +70,7 @@ def prepare(root, finish, retained=None):
     if digest(finish / 'SKILL.md') != FINISH_DIGEST:
         raise ValueError('owning finish-feature differs from the reviewed source')
     packet_files, packet_receipt = {}, None
+    intake = None
     if retained:
         from packet import read_input
         report, report_hash, repository, candidate = retained
@@ -80,12 +81,15 @@ def prepare(root, finish, retained=None):
         source.mkdir()
         binary_digest = build_policy(source)
         seed = seed_project(source, staging, binary_digest)
+        if synthetic:
+            from synthetic import generate
+            packet_files, packet_receipt, intake = generate(root / 'review-source', seed, source)
         catalog = staging / 'catalog'
         fixture = Path(__file__).resolve().parent
         libexec = staging / 'libexec'
         libexec.mkdir()
         (seed / 'shark').rename(libexec / 'shark')
-        for module in ('observe.py', 'prepare.py'):
+        for module in ('observe.py', 'prepare.py', 'intake.py'):
             shutil.copy2(fixture / module, libexec / module)
         shutil.copyfile(fixture / 'shark', seed / 'shark')
         (seed / 'shark').chmod(0o755)
@@ -110,6 +114,8 @@ def prepare(root, finish, retained=None):
                 },
             }
             (case / 'grant.json').write_text(json.dumps(dispatch, indent=2) + '\n')
+            if intake:
+                (case / 'history.json').write_text(json.dumps(intake['history']))
             if packet_files:
                 (case / 'packet').mkdir()
                 for name, data in packet_files.items():
@@ -127,7 +133,7 @@ def prepare(root, finish, retained=None):
                     'fixture_commit': output(['git', 'rev-parse', 'HEAD'], ROOT).decode().strip(),
                     'fixture_files': {p.name: digest(p) for p in Path(__file__).parent.glob('*.py')},
                     'prepare_sha256': digest(Path(__file__)), 'cases': cases,
-                    'bindings': bindings, 'packet': packet_receipt,
+                    'bindings': bindings, 'packet': packet_receipt, 'review_intake': intake,
                     'embedded_workflow_sha256': digest(source / 'internal/sharkdata/default_data' / WORKFLOW),
                     'prepared_files': files, 'seed_database_sha256': digest(seed / 'shark-tasks.db')}
     destination = root / 'preparation.json'
@@ -140,7 +146,9 @@ if __name__ == '__main__':
     parser.add_argument('directory', type=Path)
     parser.add_argument('--finish-feature', type=Path,
                         default=Path.home() / '.claude/skills/finish-feature')
-    parser.add_argument('--retained', nargs=4, metavar=('REPORT', 'SHA256', 'REPOSITORY', 'COMMIT'),
-                        help='stage the original report and sidecars in each case after verification')
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument('--synthetic', action='store_true')
+    input_group.add_argument('--retained', nargs=4, metavar=('REPORT', 'SHA256', 'REPOSITORY', 'COMMIT'),
+                             help='stage the original report and sidecars in each case after verification')
     args = parser.parse_args()
-    print(prepare(args.directory, args.finish_feature, args.retained))
+    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic))

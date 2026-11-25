@@ -8,6 +8,7 @@ import sys
 import uuid
 
 from prepare import digest
+from intake import consume, received_pin
 
 TRIAGE = 'catalog/shark-rider/skills/triage/SKILL.md'
 REVIEW = 'catalog/shark-rider/skills/deep-review/SKILL.md'
@@ -121,6 +122,9 @@ def tracker(case, manifest, binding, argv, log, event):
     loads = [json.loads(line) for line in log.read_text().splitlines()]
     if not has_pinned_handoff(case, manifest, binding['run_id'], loads):
         raise ValueError('private review handoff reads missing or inconsistent with pinned sources')
+    pin = manifest.get('review_intake')
+    if (pin or operation != 'read') and not received_pin(loads, binding['run_id'], pin):
+        raise ValueError('verified review intake required before forwarding')
     for relative in HANDOFF - {WORKFLOW}:
         pinned(case, relative, manifest)
     append(log, dict(event, event='forward', database=str(database), operation=operation))
@@ -154,6 +158,16 @@ def run(case, tool, argv):
             sys.stdout.buffer.write(content)
             sys.stdout.buffer.flush()
             append(log, dict(event, event='result', outcome='loaded', **detail))
+        elif tool == 'intake' and len(argv) == 2:
+            pin = manifest.get('review_intake')
+            if not pin:
+                raise ValueError('no independently pinned review intake')
+            history = json.loads(Path(argv[1]).read_bytes())
+            payload = consume(Path(argv[0]), history, pin, pinned(case, 'libexec/shark', manifest))
+            print(json.dumps(payload), flush=True)
+            observed = dict(bundle_sha256=hashlib.sha256(payload['manifest'].encode()).hexdigest(),
+                            history=payload['history'])
+            append(log, dict(event, event='result', outcome='delivered', intake=observed))
         elif tool in {'parent', 'disposition'}:
             message = json.load(sys.stdin)
             append(observations / (tool + '.jsonl'), dict(event, message=message))

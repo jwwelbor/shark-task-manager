@@ -4,8 +4,10 @@ import argparse
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 
-from observe import has_pinned_handoff, tracker_args
+from intake import consume, received_pin
+from observe import has_pinned_handoff, pinned, tracker_args
 
 
 def records(path):
@@ -82,6 +84,18 @@ def inspect_case(case, manifest, fingerprint):
         missing.append('complete tool results')
     if not has_pinned_handoff(case, manifest, run_id, events):
         missing.append('private handoff reads')
+    pin = manifest.get('review_intake')
+    if pin:
+        try:
+            payload = consume(case / 'packet', json.loads((case / 'history.json').read_bytes()), pin,
+                              pinned(case, 'libexec/shark', manifest))
+            original = json.loads(payload['review.md.decisions.json'])['findings'][0]['fingerprint']
+            if fingerprint != original:
+                missing.append('fingerprint differs from original review')
+        except (ValueError, KeyError, OSError, subprocess.SubprocessError) as error:
+            missing.append(str(error))
+    if not received_pin(events, run_id, pin):
+        missing.append('run-bound review intake before tracker calls')
     attempts = [e for e in entries if e['tool'] == 'shark']
     creates = []
     writes = []
