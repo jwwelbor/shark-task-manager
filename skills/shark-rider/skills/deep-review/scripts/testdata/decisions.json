@@ -34,7 +34,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -59,7 +60,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -79,7 +81,8 @@
             "reason": "not refuted",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -96,7 +99,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -116,7 +120,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -133,7 +138,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -153,7 +159,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -170,7 +177,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -190,7 +198,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           },
           {
             "file": "file",
@@ -201,7 +210,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -218,7 +228,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -238,7 +249,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -255,7 +267,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -275,7 +288,8 @@
             "reason": "NOT REFUTED",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -292,7 +306,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -312,7 +327,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -329,7 +345,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -349,7 +366,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -366,7 +384,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -391,7 +410,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -411,7 +431,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -428,7 +449,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -448,7 +470,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -465,7 +488,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -485,7 +509,8 @@
             "reason": "evidence disproves it",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -503,7 +528,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -523,7 +549,8 @@
             "reason": "not refuted",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -541,7 +568,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -561,7 +589,8 @@
             "reason": "Caller evidence bounds impact; retain for triage.",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -579,7 +608,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -599,7 +629,8 @@
             "reason": "Caller evidence bounds impact; retain for triage.",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -617,7 +648,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -637,7 +669,8 @@
             "reason": "   ",
             "rule": "BUG",
             "diagnosis": "wrong",
-            "impact": "fixture impact for contract validation"
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
           }
         ],
         "review_contract_version": 2
@@ -655,7 +688,8 @@
           "rule": "BUG",
           "summary": "broken",
           "diagnosis": "wrong",
-          "impact": "fixture impact for contract validation"
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
         }
       ],
       "decisions": {
@@ -675,6 +709,125 @@
             "reason": "Impact is low but finding is real.",
             "rule": "BUG",
             "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
+          }
+        ],
+        "review_contract_version": 2
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "raw_findings_without_evidence",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
+          }
+        ],
+        "review_contract_version": 2
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "raw_findings_without_impact",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong",
+          "impact": "  ",
+          "evidence": "the fixture call returned 7 for 7 + 3"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
+          }
+        ],
+        "review_contract_version": 2
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "decisions_without_evidence",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong",
             "impact": "fixture impact for contract validation"
           }
         ],
@@ -682,6 +835,102 @@
       },
       "valid": false,
       "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "decisions_without_impact",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "non-blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "non-blocker",
+            "summary": "broken",
+            "disposition": "open",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong",
+            "impact": "  ",
+            "evidence": "the fixture call returned 7 for 7 + 3"
+          }
+        ],
+        "review_contract_version": 2
+      },
+      "valid": false,
+      "verdict": "PASS-with-triage"
+    },
+    {
+      "name": "empty_cannot_authorize_triage",
+      "raw_findings": [],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [],
+        "review_contract_version": 2
+      },
+      "valid": false,
+      "verdict": "PASS-WITH-TRIAGE"
+    },
+    {
+      "name": "only_refutation_cannot_authorize_triage",
+      "raw_findings": [
+        {
+          "file": "file",
+          "line": 3,
+          "severity": "blocker",
+          "rule": "BUG",
+          "summary": "broken",
+          "diagnosis": "wrong",
+          "impact": "fixture impact for contract validation",
+          "evidence": "the fixture call returned 7 for 7 + 3"
+        }
+      ],
+      "decisions": {
+        "candidate_identity": {
+          "commit": "commit",
+          "tree": "tree",
+          "diff_sha256": "diff",
+          "repair_plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "findings": [
+          {
+            "file": "file",
+            "line": 3,
+            "severity": "blocker",
+            "summary": "broken",
+            "disposition": "refuted",
+            "reason": "evidence disproves it",
+            "rule": "BUG",
+            "diagnosis": "wrong",
+            "impact": "fixture impact for contract validation",
+            "evidence": "the fixture call returned 7 for 7 + 3"
+          }
+        ],
+        "review_contract_version": 2
+      },
+      "valid": false,
+      "verdict": "PASS-WITH-TRIAGE"
     }
   ]
 }

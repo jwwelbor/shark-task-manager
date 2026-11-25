@@ -83,9 +83,11 @@ def main():
         commit = git('-c', 'commit.gpgsign=false', 'commit-tree', tree, '-p', head,
                      env=env, input='Shark isolated review snapshot v1\n')
     git('worktree', 'add', '--detach', str(destination), commit)
+    # Git path bytes use UTF-8 with surrogateescape in the JSON protocol, regardless of the argv locale.
+    selected_paths = [os.fsencode(path).decode("utf-8", "surrogateescape") for path in args.paths]
     metadata = {'project_root': str(destination), 'source_root': str(root), 'runtime_project': project,
                 'source_commit': head, 'candidate_commit': commit, 'candidate_tree': tree,
-                'selected_paths': args.paths, 'selected_index_sha256': hashlib.sha256(staged_diff).hexdigest(),
+                'selected_paths': selected_paths, 'selected_index_sha256': hashlib.sha256(staged_diff).hexdigest(),
                 'source_inventory_sha256': inventory}
     # A worktree-local marker survives an ordinary amend/reword of the
     # synthetic commit; its subject alone is not durable provenance.

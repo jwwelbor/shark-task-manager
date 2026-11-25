@@ -247,3 +247,41 @@ func TestConsolidatorNonBlockersCarryStableFingerprint(t *testing.T) {
 		t.Errorf("%s: the Triage Summary's non-blockers-to-triage line must declare a `fingerprint` field for stable cross-run deduplication", path)
 	}
 }
+
+func TestCraftFindingRuleSetAndReferencedReportSkeleton(t *testing.T) {
+	prompts := findRepoPromptsDir(t)
+	renderer, err := templates.NewOrchestratorRenderer(prompts)
+	require.NoError(t, err)
+	expected := strings.Fields("ALTITUDE ARCH ARCHITECTURE CODING-STANDARD COMPLEXITY CONTRACT CORRECTNESS DIP DRY ERROR-HANDLING IDIOM ISP LOGGING LSP NAMING OCP REMOVED-BEHAVIOR RISK ROUNDTRIP SECURITY SIBLING SIMPLIFICATION SRP TESTS TYPES WIRING YAGNI")
+	checkRules := func(t *testing.T, reportContract string) {
+		t.Helper()
+		_, list, ok := strings.Cut(reportContract, "`rule` is one of: ")
+		require.True(t, ok, "missing Section B rule contract")
+		line, _, _ := strings.Cut(list, "\n")
+		names := strings.Split(strings.TrimSuffix(line, "."), ", ")
+		for i := range names {
+			names[i] = strings.Trim(names[i], "`")
+		}
+		require.ElementsMatch(t, expected, names)
+	}
+	for _, entity := range []string{"_shared", "bug", "change", "feature"} {
+		t.Run(entity, func(t *testing.T) {
+			rendered, err := renderer.Render(entity+"/code_review.md", goldenVars())
+			require.NoError(t, err)
+			checkRules(t, rendered)
+			_, reference, ok := strings.Cut(rendered, "For the full report skeleton, see `")
+			require.True(t, ok)
+			relative, _, ok := strings.Cut(reference, "`")
+			require.True(t, ok)
+			workflowDir := filepath.Join(filepath.Dir(prompts), "skills", "quality", "workflows")
+			skeleton, err := os.ReadFile(filepath.Join(workflowDir, relative))
+			require.NoError(t, err)
+			require.Contains(t, string(skeleton), "0 defects found")
+			require.Contains(t, string(skeleton), "G2")
+			require.NotContains(t, string(skeleton), "Codex red-team")
+		})
+	}
+	caller, err := os.ReadFile(filepath.Join(prompts, "..", "..", "..", "..", "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md"))
+	require.NoError(t, err)
+	checkRules(t, string(caller))
+}

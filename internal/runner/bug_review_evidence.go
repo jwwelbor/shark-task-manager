@@ -21,13 +21,14 @@ var bugCLIModel = regexp.MustCompile("\\*\\*Adversarial model:\\*\\*[ \\t]*`([^`
 var bugCLIFallback = regexp.MustCompile(`\*\*Fallback reason:\*\*[ \t]*([^·\r\n]*)`)
 
 type bugAngleFinding struct {
-	Severity  string `json:"severity"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	Rule      string `json:"rule"`
-	Summary   string `json:"summary"`
-	Diagnosis string `json:"diagnosis"`
-	Impact    string `json:"impact"`
+	Severity  string        `json:"severity"`
+	File      reviewGitPath `json:"file"`
+	Line      int           `json:"line"`
+	Rule      string        `json:"rule"`
+	Summary   string        `json:"summary"`
+	Diagnosis string        `json:"diagnosis"`
+	Impact    string        `json:"impact"`
+	Evidence  string        `json:"evidence"`
 }
 type bugReviewIdentity struct {
 	Commit string `json:"commit"`
@@ -38,7 +39,7 @@ type bugReviewIdentity struct {
 type bugAngle struct {
 	ReviewContractVersion int               `json:"review_contract_version"`
 	CandidateIdentity     bugReviewIdentity `json:"candidate_identity"`
-	ReviewedFiles         []string          `json:"reviewed_files"`
+	ReviewedFiles         reviewGitPaths    `json:"reviewed_files"`
 	Findings              []bugAngleFinding `json:"findings"`
 }
 
@@ -89,7 +90,7 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 	if err != nil {
 		return err
 	}
-	if err := requireBugFindingDecisions(body, decisions); err != nil {
+	if err := requireBugFindingDecisions(body, decisions.byFinding); err != nil {
 		return err
 	}
 	six, err := bugReviewRunnerIsSix(header)
@@ -97,7 +98,7 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 		return err
 	}
 	if !six {
-		return nil
+		return validateBugReviewedFiles(decisions.reviewedFiles, scope.ChangedFiles)
 	}
 	_, angleData, err := readBugEvidence(req, "bug_review_angles")
 	if err != nil {
@@ -106,7 +107,7 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 	if err := verifyReviewArtifactHash(header, "Angle results", angleData); err != nil {
 		return err
 	}
-	return validateBugReviewAngles(angleData, scope, decisions, verdict, bugReviewContractVersion(decisionData))
+	return validateBugReviewAngles(angleData, scope, decisions, verdict)
 }
 
 func requireBugFindingDecisions(body string, decisions map[bugFindingKey]bugReviewDecision) error {
@@ -292,7 +293,7 @@ func meaningfulBugReviewMetadata(value string) bool {
 	return value != "" && value != "none" && value != "unknown"
 }
 
-func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string, requiredVersion int) error {
+func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions *bugReviewDecisionIndex, verdict string) error {
 	var angles map[string]bugAngle
 	if err := json.Unmarshal(data, &angles); err != nil || len(angles) != 6 {
 		return fmt.Errorf("six angle results are required")
@@ -301,7 +302,7 @@ func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map
 	if version != 0 && version != 2 {
 		return fmt.Errorf("unsupported angle review contract version")
 	}
-	if version != requiredVersion {
+	if version != decisions.version {
 		return fmt.Errorf("angle and decision review contract versions differ")
 	}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
@@ -312,7 +313,7 @@ func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map
 		if angle.ReviewContractVersion != version {
 			return fmt.Errorf("angle review contract versions differ")
 		}
-		if err := validateBugReviewAngle(angle, scope, decisions, verdict); err != nil {
+		if err := validateBugReviewAngle(angle, scope, decisions.byFinding, verdict); err != nil {
 			return fmt.Errorf("angle %s: %w", name, err)
 		}
 	}
@@ -322,21 +323,15 @@ func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions m
 	if !angle.CandidateIdentity.matches(scope) {
 		return fmt.Errorf("candidate mismatch")
 	}
-	got := map[string]bool{}
-	for _, file := range angle.ReviewedFiles {
-		got[file] = true
-	}
-	for _, file := range scope.ChangedFiles {
-		if !got[file] {
-			return fmt.Errorf("coverage incomplete")
-		}
+	if err := validateBugReviewedFiles(angle.ReviewedFiles, scope.ChangedFiles); err != nil {
+		return err
 	}
 	if angle.Findings == nil {
 		return fmt.Errorf("findings missing")
 	}
 	for _, finding := range angle.Findings {
-		if angle.ReviewContractVersion == 2 && (finding.Severity == "nit" || strings.TrimSpace(finding.Impact) == "") {
-			return fmt.Errorf("impact-based angle finding is missing impact or uses legacy nit severity")
+		if err := validateFindingSupport(angle.ReviewContractVersion, finding.Severity, finding.Impact, finding.Evidence); err != nil {
+			return err
 		}
 		if err := validateBugAngleFinding(finding, decisions, verdict); err != nil {
 			return err
@@ -348,12 +343,12 @@ func validateBugAngleFinding(f bugAngleFinding, decisions map[bugFindingKey]bugR
 	if !validBugAngleFinding(f) {
 		return fmt.Errorf("finding malformed")
 	}
-	decision, found := decisions[bugFindingKey{f.File, f.Line, f.Rule, f.Summary, f.Diagnosis}]
+	decision, found := decisions[bugFindingKey{string(f.File), f.Line, f.Rule, f.Summary, f.Diagnosis}]
 	if !found {
 		if f.Severity == "blocker" {
 			return fmt.Errorf("unresolved blocker")
 		}
-		return fmt.Errorf("finding has no explicit disposition")
+		return fmt.Errorf("finding has no explicit disposition at %s:%d", quoteReviewGitPath(string(f.File)), f.Line)
 	}
 	if f.Severity == "blocker" && !resolvedBugRawBlocker(decision, verdict) {
 		return fmt.Errorf("unresolved blocker")
@@ -372,4 +367,20 @@ func validBugAngleFinding(f bugAngleFinding) bool {
 		return false
 	}
 	return f.File != "" && f.Line > 0 && f.Rule != "" && f.Summary != "" && f.Diagnosis != ""
+}
+
+func validateBugReviewedFiles(reviewedFiles, changedFiles []string) error {
+	if reviewedFiles == nil {
+		return fmt.Errorf("reviewed_files missing")
+	}
+	inspected := make(map[string]bool, len(reviewedFiles))
+	for _, file := range reviewedFiles {
+		inspected[file] = true
+	}
+	for _, file := range changedFiles {
+		if !inspected[file] {
+			return fmt.Errorf("coverage incomplete: missing %s", quoteReviewGitPath(file))
+		}
+	}
+	return nil
 }

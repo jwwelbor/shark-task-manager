@@ -162,6 +162,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    Give every agent the complete captured scope, its one assigned angle
    prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
+   Give each recipient the captured `changed_files` array as JSON in `CHANGED_FILES`, preserving order and exact filenames.
    Keep the same frozen candidate and scope for every angle, regardless of
    scheduling; do not consolidate until all six results have arrived.
 3. Wait for all six results. If any result is missing, malformed, timed out, has a mismatched candidate identity,
@@ -171,9 +172,9 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    preferred alternate CLI is unavailable, not when a six-angle dispatch is
    incomplete.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
-   captured scope (`diff_path`, `base_commit`), the complete changed-file
-   list, and all six specialist results. Require the consolidator to verify
-   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; retain and route any downgraded finding through the triage decision tree. A downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
+   captured scope (`diff_path`, `base_commit`), the same JSON array in `CHANGED_FILES`,
+   and `ANGLE_RESULTS`, the six original validated packets keyed by `a` through `f`. Preserve each packet’s ordered inspection list and every finding’s site, literal rule, diagnosis, impact and supporting observation. Require the consolidator to verify
+   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; record the original concern and contrary evidence. If only a preference remains, record the host’s report-only disposition and end triage for that finding with zero source edits and tracker writes. Route a substantive remainder through normal triage. A downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
 5. Persist with `scripts/adaptive_review.py write-report`, passing the
    captured `base_commit` and `diff_path` and the consolidator's verdict. If
    all six specialist results and the consolidator are valid, use

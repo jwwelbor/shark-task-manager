@@ -81,6 +81,7 @@ Name the simpler form explicitly.
 
 ```json
 {
+  "review_contract_version": 2,
   "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
@@ -91,6 +92,7 @@ Name the simpler form explicitly.
       "rule": "DRY|COMPLEXITY|IDIOM|ALTITUDE|ARCHITECTURE|SIMPLIFICATION",
       "summary": "one-sentence description",
       "diagnosis": "what is duplicated / too complex / non-idiomatic",
+      "impact": "affected user, behavior, invariant, required standard or maintenance task and its concrete consequence",
       "evidence": "grep result or code excerpt",
       "correction": "concrete cost if left as-is, and the preferred alternative"
     }
@@ -100,4 +102,4 @@ Name the simpler form explicitly.
 
 Correctness bugs always outrank cleanup — focus on genuine issues with concrete cost, not style preferences.
 
-Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+For a clean review, keep contract version 2, the captured identity and the inspection list, and return an empty findings array. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

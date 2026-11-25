@@ -98,7 +98,7 @@ def run_bounded_reviewer(argv, cwd, timeout):
             process.wait()
         return subprocess.CompletedProcess(
             argv, 1 if exceeded or timed_out else process.returncode,
-            bytes(buffers[process.stdout]).decode("utf-8", errors="replace"),
+            bytes(buffers[process.stdout]),
             bytes(buffers[process.stderr]).decode("utf-8", errors="replace"),
         )
     finally:
@@ -238,7 +238,7 @@ def _validate_scope_diff(scope, base_commit, diff_path, root, candidate):
     expected_diff = _scope_git(root, "diff", "--no-ext-diff", "--binary", base_commit, candidate)
     if diff != expected_diff or hashlib.sha256(diff).hexdigest() != scope["diff_sha256"]:
         raise ValueError("diff changed since scope capture")
-    manifest = [os.fsdecode(p) for p in _scope_git(root, "diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
+    manifest = [p.decode("utf-8", "surrogateescape") for p in _scope_git(root, "diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
     if manifest != scope["changed_files"] or len(manifest) != scope["changed_file_count"]:
         raise ValueError("scope manifest does not match candidate")
     return diff
@@ -279,9 +279,10 @@ def _snapshot_paths(source):
         raise ValueError("invalid source snapshot paths")
     prefix = runtime_prefix(source.get("runtime_project", "."))
     worktrees = registered_worktrees(source["source_root"], source.get("runtime_project", "."))
-    if any(selection_overlaps_runtime(os.fsencode(p), reserved) for p in paths for reserved in [prefix, *worktrees]):
+    git_paths = [p.encode("utf-8", "surrogateescape") for p in paths]
+    if any(selection_overlaps_runtime(p, reserved) for p in git_paths for reserved in [prefix, *worktrees]):
         raise ValueError("runtime artifacts cannot be selected as source")
-    return paths
+    return [os.fsdecode(p) for p in git_paths]
 
 
 def _validate_snapshot_content(source, tree):
@@ -370,14 +371,31 @@ def _matching_identity(identity, scope):
     return isinstance(identity, dict) and all(identity.get(key) == value for key, value in _review_identity(scope).items())
 
 
-def _valid_finding(finding, fields, *, require_impact=False):
-    if not isinstance(finding, dict) or finding.get("severity") not in {"blocker", "non-blocker", "nit"}:
+def _valid_finding(finding, fields):
+    if not isinstance(finding, dict) or finding.get("severity") not in ("blocker", "non-blocker"):
         return False
     if type(finding.get("line")) is not int or finding["line"] < 1:
         return False
     if not all(isinstance(finding.get(key), str) and finding[key] for key in fields):
         return False
-    return not require_impact or isinstance(finding.get("impact"), str) and bool(finding["impact"].strip())
+    return all(isinstance(finding.get(key), str) and finding[key].strip() for key in ("impact", "evidence"))
+
+
+def _check_reviewed_files(files, changed_files):
+    if not isinstance(files, list) or not isinstance(changed_files, list):
+        raise ValueError("invalid reviewed_files declaration")
+    for path in files:
+        if not isinstance(path, str):
+            raise ValueError("reviewed_files entries must be strings")
+        if any(part in {"", ".", ".."} for part in path.split("/")) or "\x00" in path:
+            raise ValueError(f"reviewed_files requires a repository-relative file path: {json.dumps(path)}")
+        try:
+            path.encode("utf-8", "surrogateescape")
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"invalid Git filename in reviewed_files: {json.dumps(path)}") from exc
+    missing = sorted(set(changed_files).difference(files))
+    if missing:
+        raise ValueError(f"incomplete reviewed_files coverage: {json.dumps(missing)}")
 
 
 def _angle_findings(name, result, scope):
@@ -388,22 +406,34 @@ def _angle_findings(name, result, scope):
         raise ValueError(f"angle {name} has missing or mismatched candidate identity")
     files = result.get("reviewed_files")
     findings = result.get("findings")
-    if not isinstance(files, list) or not all(isinstance(item, str) for item in files) or not set(scope["changed_files"]).issubset(files) or not isinstance(findings, list):
-        raise ValueError(f"angle {name} has incomplete coverage or malformed findings")
+    try:
+        _check_reviewed_files(files, scope["changed_files"])
+    except ValueError as exc:
+        raise ValueError(f"angle {name}: {exc}") from exc
+    if not isinstance(findings, list):
+        raise ValueError(f"angle {name} has malformed findings")
     for finding in findings:
-        if finding.get("severity") == "nit" or not _valid_finding(finding, ("file", "rule", "summary", "diagnosis"), require_impact=True):
+        if not _valid_finding(finding, ("file", "rule", "summary", "diagnosis")):
             raise ValueError(f"angle {name} has malformed finding")
     return findings
 
 
-def validate_six_angles(data: bytes, scope: dict[str, object]) -> list[dict[str, object]]:
-    """Validate actual per-angle evidence before claiming six completed angles."""
-    if not data:
-        raise ValueError("six-angle results are required")
-    angles = json.loads(data.decode("utf-8"))
-    if not isinstance(angles, dict) or set(angles) != set("abcdef"):
-        raise ValueError("six distinct angle results are required")
-    return [finding for name, result in angles.items() for finding in _angle_findings(name, result, scope)]
+def inspect_angle_packets(data, scope):
+    """Count independently validated packets, retaining reasons for every gap."""
+    packets = json.loads(data.decode("utf-8"))
+    if not isinstance(packets, dict):
+        raise ValueError("expected an object keyed by specialist a through f")
+    findings, errors = [], []
+    completed = 0
+    for name in "abcdef":
+        try:
+            findings.extend(_angle_findings(name, packets.get(name), scope))
+            completed += 1
+        except ValueError as exc:
+            errors.append(str(exc))
+    if set(packets).difference("abcdef"):
+        errors.append("unexpected specialist identity")
+    return findings, completed, errors
 
 
 def _finding_key(finding):
@@ -411,7 +441,7 @@ def _finding_key(finding):
 
 
 def _validate_decision(finding, verdict):
-    if finding.get("severity") == "nit" or not _valid_finding(finding, ("file", "rule", "summary", "diagnosis", "disposition", "reason"), require_impact=True):
+    if not _valid_finding(finding, ("file", "rule", "summary", "diagnosis", "disposition", "reason")):
         raise ValueError("malformed review decision")
     if not finding["disposition"].strip() or not finding["reason"].strip():
         raise ValueError("review decision requires a disposition and reason")
@@ -438,7 +468,7 @@ def _resolved_raw_blocker(decision, verdict):
     return verdict.upper() == "PASS-WITH-TRIAGE" and decision["disposition"] != "refuted"
 
 
-def validate_review_decisions(decisions: object, scope: dict[str, object], raw_findings: list[dict[str, object]], verdict: str) -> None:
+def validate_review_decisions(decisions: object, scope: dict[str, object], raw_findings: list[dict[str, object]], verdict: str, *, require_reviewed_files=False) -> None:
     """Bind explicit dispositions to the candidate and every reported blocker."""
     if not isinstance(decisions, dict) or not isinstance(decisions.get("candidate_identity"), dict):
         raise ValueError("review decisions require candidate identity")
@@ -446,6 +476,8 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
         raise ValueError("review decisions require impact-based contract version 2")
     if not _matching_identity(decisions["candidate_identity"], scope):
         raise ValueError("review decisions identify a different candidate or plan")
+    if require_reviewed_files or "reviewed_files" in decisions:
+        _check_reviewed_files(decisions.get("reviewed_files"), scope["changed_files"])
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
@@ -457,6 +489,10 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
             raise ValueError("duplicate review decision")
         by_key[key] = finding
     _check_raw_findings(raw_findings, by_key, verdict)
+    if verdict.upper() == "PASS-WITH-TRIAGE" and not any(
+        f["disposition"] not in {"excluded", "refuted"} for f in findings
+    ):
+        raise ValueError("PASS-with-triage requires an actionable finding or a report-only withdrawal")
 
 
 FINDING_DETAIL_RE = re.compile(r"^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$", re.I | re.M | re.ASCII)
@@ -512,7 +548,7 @@ def _display(metadata, key, fallback):
 def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
     requested_model = metadata.get("requested_model")
     if requested_model is None:
-        requested_model = ""
+        requested_model = "unknown"
     effective_model = metadata.get("effective_model") or "unknown"
     fields = [
         f"**Generated:** {metadata['generated']} · **Tool:** `/deep-review` ({metadata['runner_mode']}) · **Branch:** `{branch}`",
@@ -540,8 +576,20 @@ def _write_new_bytes(path, data):
         output.write(data)
 
 
+def _incomplete_report_body(reason: str) -> str:
+    return (
+        "CURRENT_REVIEW_STATUS: INCOMPLETE\n"
+        "Scope: the submitted review was not accepted as a complete candidate-bound review.\n"
+        "Findings: no findings from this attempt are accepted as current review findings.\n"
+        f"Reason: {reason}\n"
+        "VERDICT: INCOMPLETE"
+    )
+
+
 def persist_report(path: Path, body: str, metadata: dict[str, object], branch: str = "unknown") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if metadata["verdict"] == "INCOMPLETE":
+        metadata["consolidator_completed"] = False
     # Reserve the report first: exclusive creation also rejects a final symlink.
     # A partial write stays visible for diagnosis and cannot replace old evidence.
     with path.open("x", encoding="utf-8") as report:
@@ -578,6 +626,8 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
 
 def _cli_prompt(args, scope):
     prompt = read_review_file(args.prompt_file, 2 * 1024 * 1024).decode("utf-8")
+    prompt = "- CHANGED_FILES:\n" + json.dumps(scope["changed_files"]) + "\n" + prompt
+    prompt += "\nList the exact paths you inspected in decisions.reviewed_files. Use the captured Git filename spellings."
     prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity and findings). "
     prompt += "Set review_contract_version to 2. Each finding must have file, positive integer line, severity (blocker or non-blocker), rule, summary, diagnosis, impact naming the affected user/caller, behavior, invariant, documented standard or maintenance operation and its consequence, evidence, disposition and a nonempty reason. Omit preference-only findings. "
     prompt += "Preserve requested/effective model metadata and any existing cost/accounting metadata unchanged. "
@@ -598,11 +648,13 @@ def _require_finding_decision(body, decisions):
 
 def _parse_cli_packet(output, scope):
     packet = json.loads(output.strip())
+    if not isinstance(packet, dict):
+        raise ValueError("review packet must be an object")
     report, decisions = packet["report"], packet["decisions"]
     if not isinstance(report, str) or not valid_adversarial_output(report):
         raise ValueError("malformed report")
     verdict = VERDICT_RE.search(report).group(1).upper()
-    validate_review_decisions(decisions, scope, [], verdict)
+    validate_review_decisions(decisions, scope, [], verdict, require_reviewed_files=True)
     _require_finding_decision(report, decisions)
     if not valid_review_report(report, verdict):
         raise ValueError("incomplete or contradictory report")
@@ -622,7 +674,7 @@ def _try_cli_candidates(args, candidates, prompt, scope):
             failures.append(f"{model}: non-zero exit status {completed.returncode}")
             continue
         try:
-            output, decisions = _parse_cli_packet(completed.stdout or "", scope)
+            output, decisions = _parse_cli_packet(completed.stdout.decode("utf-8"), scope)
             return output, decisions, model, failures
         except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as exc:
             failures.append(f"{model}: invalid structured review: {exc}")
@@ -639,8 +691,8 @@ def run_cli(args: argparse.Namespace) -> int:
     choice = select_runner(caps, args.host)
     now = datetime.now(timezone.utc).isoformat()
     base = {
-        "generated": now,
         "review_contract_version": 2,
+        "generated": now,
         "runner_mode": choice["runner_mode"],
         "specialists_completed": 0,
         "consolidator_completed": False,
@@ -651,18 +703,14 @@ def run_cli(args: argparse.Namespace) -> int:
         "verdict": "INCOMPLETE",
     }
     base["requested_model"] = args.requested_model
-    base["effective_model"] = args.effective_model
+    base["effective_model"] = None
     scope_error = bind_scope(base, args)
     if scope_error:
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
+        persist_report(Path(args.review_output_path), _incomplete_report_body(scope_error), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     if choice["runner_mode"] != "adversarial-cli":
-        body = (
-            "## Review status\n\n"
-            "**INCOMPLETE** — no out-of-band automated reviewer was available for this run. "
-            "Manual review is diagnostic only and cannot satisfy the pre-merge gate."
-        )
+        body = _incomplete_report_body("no out-of-band automated reviewer was available; manual review is diagnostic only")
         persist_report(Path(args.review_output_path), body, base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
@@ -675,17 +723,19 @@ def run_cli(args: argparse.Namespace) -> int:
     except (OSError, ValueError, UnicodeError) as exc:
         base["runner_mode"] = "incomplete"
         base["fallback_reason"] = f"review prompt unavailable: {exc}"
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
+        persist_report(Path(args.review_output_path), _incomplete_report_body(base["fallback_reason"]), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     output, selected_decisions, selected_model, failures = _try_cli_candidates(args, candidates, prompt, scope)
 
     if not output:
+        base["runner_mode"] = "incomplete"
+        base["verdict"] = "INCOMPLETE"
         base["adversarial_model"] = None
         base["fallback_reason"] = "; ".join(
             [str(choice["fallback_reason"]), *failures]
         )
-        body = "## Review status\n\n**INCOMPLETE** — alternate-model CLI did not produce a complete review."
+        body = _incomplete_report_body("alternate-model CLI did not produce a complete review")
         persist_report(Path(args.review_output_path), body, base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
@@ -698,6 +748,7 @@ def run_cli(args: argparse.Namespace) -> int:
     base.update(
         {
             "adversarial_model": selected_model,
+            "effective_model": args.effective_model if selected_model == preferred else args.fallback_effective_model,
             "specialists_completed": 0,
             "consolidator_completed": True,
             "verdict": verdict,
@@ -705,18 +756,20 @@ def run_cli(args: argparse.Namespace) -> int:
     )
     scope_error = bind_scope(base, args)
     if scope_error:
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + scope_error, base, args.branch)
+        base["runner_mode"] = "incomplete"
+        base["verdict"] = "INCOMPLETE"
+        persist_report(Path(args.review_output_path), _incomplete_report_body(scope_error), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     try:
         if scope != base["_scope"]:
             raise ValueError("captured scope changed during review")
-        validate_review_decisions(selected_decisions, base["_scope"], [], verdict)
+        validate_review_decisions(selected_decisions, base["_scope"], [], verdict, require_reviewed_files=True)
     except (ValueError, KeyError, TypeError) as exc:
         base["runner_mode"] = "incomplete"
         base["verdict"] = "INCOMPLETE"
         base["fallback_reason"] = f"review decisions no longer match the validated scope: {exc}"
-        persist_report(Path(args.review_output_path), "**INCOMPLETE** — " + base["fallback_reason"], base, args.branch)
+        persist_report(Path(args.review_output_path), _incomplete_report_body(base["fallback_reason"]), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
         return 2
     base["_decisions"] = selected_decisions
@@ -727,22 +780,27 @@ def run_cli(args: argparse.Namespace) -> int:
 
 def _writer_angles(args, metadata, scope_error):
     is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
-    incomplete = is_six and (args.specialists_completed != 6 or not args.consolidator_completed)
+    claimed_complete = args.specialists_completed == 6 and args.consolidator_completed
     try:
         if args.angle_results:
-            # Retain exactly the bytes checked, including partial evidence.
             metadata["_angle_bytes"] = read_review_file(args.angle_results, 32 * 1024 * 1024)
+        if not is_six or scope_error:
+            return [], is_six
+        if not args.angle_results:
+            raise ValueError("six-angle results are required")
+        findings, completed, errors = inspect_angle_packets(metadata["_angle_bytes"], metadata["_scope"])
     except (OSError, ValueError) as exc:
         metadata["fallback_reason"] = f"angle evidence unavailable: {exc}"
-        return [], is_six
-    if not is_six or scope_error or incomplete:
-        return [], incomplete
-    try:
-        findings = validate_six_angles(metadata.get("_angle_bytes"), metadata["_scope"])
-        return findings, False
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        metadata["fallback_reason"] = f"angle evidence invalid: {exc}"
+        if is_six:
+            metadata["specialists_completed"] = "unknown"
         return [], True
+    # Retained sidecars can disprove a completion claim. They cannot upgrade
+    # the number of completions observed by this dispatch.
+    if isinstance(args.specialists_completed, int):
+        metadata["specialists_completed"] = min(args.specialists_completed, completed)
+    if errors:
+        metadata["fallback_reason"] = "; ".join(errors)
+    return findings, bool(errors) or not claimed_complete
 
 
 def _writer_decisions(args, metadata, scope_error, findings, body):
@@ -750,20 +808,31 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
     failing = args.verdict.upper() == "FAIL"
     invalid_pass = passing and not valid_passing_report(body, args.verdict)
     invalid_fail = failing and not valid_review_report(body, "FAIL")
+    if invalid_pass or invalid_fail:
+        metadata["fallback_reason"] = "report body is incomplete or contradicts the declared verdict"
     if not (passing or failing):
         return invalid_pass, invalid_fail
     try:
         if not args.review_decisions or scope_error:
             raise ValueError("completed review requires candidate-bound decisions")
         decisions = json.loads(read_review_file(args.review_decisions, 32 * 1024 * 1024).decode("utf-8"))
-        validate_review_decisions(decisions, metadata["_scope"], findings, args.verdict)
-        _require_finding_decision(body, decisions)
+        # Keep the parseable attempt beside an incomplete report as evidence of
+        # the exact declared paths that failed coverage validation.
         metadata["_decisions"] = decisions
-    except (OSError, ValueError, KeyError, TypeError):
+        is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
+        validate_review_decisions(
+            decisions,
+            metadata["_scope"],
+            findings,
+            args.verdict,
+            require_reviewed_files=not is_six,
+        )
+        _require_finding_decision(body, decisions)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        metadata["fallback_reason"] = f"invalid review decisions: {exc}"
         if passing:
             invalid_pass = True
         else:
-            metadata["fallback_reason"] = "failed review decisions were unavailable or malformed"
             invalid_fail = True
     return invalid_pass, invalid_fail
 
@@ -801,12 +870,15 @@ def _writer_runner_state(args, metadata, scope_error, incomplete_six):
     return bool(incomplete)
 
 
-def _finish_written_report(args, metadata, body, scope_error, invalid):
+def _finish_written_report(args, metadata, body, invalid):
     if invalid:
         metadata["runner_mode"] = "incomplete"
         metadata["verdict"] = "INCOMPLETE"
-        if not scope_error:
-            metadata["fallback_reason"] = "report body or review decisions are incomplete or contradictory"
+
+    if metadata["verdict"] == "INCOMPLETE":
+        reason = metadata.get("fallback_reason") or "report body or review decisions are incomplete or contradictory"
+        metadata["fallback_reason"] = reason
+        body = _incomplete_report_body(str(reason))
     persist_report(Path(args.review_output_path), body, metadata, args.branch)
     print(json.dumps({**metadata, "report_path": args.review_output_path}))
 
@@ -823,10 +895,13 @@ def write_report(args: argparse.Namespace) -> int:
         metadata["runner_mode"] = "incomplete"
         metadata["verdict"] = "INCOMPLETE"
         metadata["fallback_reason"] = f"review body unavailable: {exc}"
-        _finish_written_report(args, metadata, "**INCOMPLETE** — " + metadata["fallback_reason"], scope_error, False)
+        _finish_written_report(args, metadata, "", False)
         return 2
+    runner_error = metadata.get("fallback_reason") if incomplete else None
     invalid = any(_writer_decisions(args, metadata, scope_error, angle_findings, body))
-    _finish_written_report(args, metadata, body, scope_error, invalid)
+    if runner_error:
+        metadata["fallback_reason"] = runner_error
+    _finish_written_report(args, metadata, body, incomplete or invalid)
     return 2 if incomplete or invalid else 0
 
 
@@ -867,7 +942,8 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--branch", default="unknown")
     run.add_argument("--scope-file")
     run.add_argument("--requested-model")
-    run.add_argument("--effective-model")
+    run.add_argument("--effective-model", help="Verified identity of the initially selected CLI")
+    run.add_argument("--fallback-effective-model", help="Verified identity of the fallback CLI, when observed")
     run.add_argument("--host", choices=["codex", "claude", "unknown"], default=None)
     run.add_argument("--timeout", type=float, default=600)
     run.add_argument("--workflow-available", action=argparse.BooleanOptionalAction, default=None)

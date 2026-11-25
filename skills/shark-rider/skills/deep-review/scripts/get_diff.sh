@@ -143,7 +143,7 @@ from bounded_git import run as run_bounded_git
 diff_path = os.environ["DIFF_PATH"]
 project_root = os.environ["PROJECT_ROOT"]
 coding_standards_path = os.environ.get("CODING_STANDARDS_PATH", "")
-changed_files = [os.fsdecode(p) for p in run_bounded_git(["git", "-c", "core.fsmonitor=false", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]], check=True, capture_output=True).stdout.split(b"\0") if p]
+changed_files = [p.decode("utf-8", "surrogateescape") for p in run_bounded_git(["git", "-c", "core.fsmonitor=false", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]], check=True, capture_output=True).stdout.split(b"\0") if p]
 scope = {
   "diff_path": diff_path,
   "changed_files": changed_files,

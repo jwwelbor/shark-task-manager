@@ -46,11 +46,11 @@ requireBugContext()
 function effectiveEffort() { return effort || undefined }
 const reviewEffort = effectiveEffort()
 
-function listChangedFiles() {
-  return Array.isArray(changed_files) ? changed_files : String(changed_files || '').split('\n').filter(Boolean)
+if (!Array.isArray(changed_files) || !changed_files.every(validPath)) {
+  return {report: 'INCOMPLETE: changed_files must be a JSON array of safe filenames.', runner_mode: 'incomplete', specialists_completed: 0, consolidator_completed: false, angle_results: null}
 }
-const changedFiles = listChangedFiles()
-const fileList = changedFiles.join('\n')
+const changedFiles = changed_files
+const fileList = JSON.stringify(changedFiles)
 function scopeDescription() {
   return {count: changed_file_count || changedFiles.length, line: `- DIFF_SHORTSTAT: ${diff_shortstat || '(not provided)'}`}
 }
@@ -81,7 +81,7 @@ const FINDING_SCHEMA = {
           evidence:  { type: 'string' },
           correction:{ type: 'string' },
         },
-        required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact'],
+        required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact', 'evidence'],
       },
     },
     reviewed_files: {
@@ -101,13 +101,14 @@ const CONSOLIDATION_SCHEMA = {
       properties: {
         review_contract_version: {type: 'integer', enum: [2]},
         candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
+        reviewed_files: FINDING_SCHEMA.properties.reviewed_files,
         findings: {type: 'array', items: {
           type: 'object',
           properties: {
             file: {type: 'string'}, line: {type: 'integer'}, severity: {type: 'string'},
-            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, impact: {type: 'string', minLength: 1}, disposition: {type: 'string'}, reason: {type: 'string'}, finding_id: {type: 'string'},
+            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, impact: {type: 'string', minLength: 1}, evidence: {type: 'string', minLength: 1}, disposition: {type: 'string'}, reason: {type: 'string'}, finding_id: {type: 'string'},
           },
-          required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact', 'disposition', 'reason'],
+          required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact', 'evidence', 'disposition', 'reason'],
         }},
       },
       required: ['review_contract_version', 'candidate_identity', 'findings'],
@@ -184,17 +185,36 @@ function validIdentity(identity) {
 function validFinding(f) {
   return f && typeof f.file === 'string' && f.file.length > 0 && Number.isInteger(f.line) && f.line > 0 &&
     ['blocker', 'non-blocker'].includes(f.severity) &&
-    ['rule', 'summary', 'diagnosis', 'impact'].every(k => typeof f[k] === 'string' && f[k].length > 0)
+    ['rule', 'summary', 'diagnosis', 'impact', 'evidence'].every(k => typeof f[k] === 'string' && f[k].trim().length > 0)
+}
+
+function validPath(file) {
+  if (typeof file !== 'string' || file.includes('\0') || file.split('/').some(part => !part || part === '.' || part === '..')) return false
+  // A paired surrogate is a Unicode scalar. Only DC80–DCFF can stand alone as a Git byte.
+  for (const character of file) {
+    const code = character.codePointAt(0)
+    if (code >= 0xd800 && code <= 0xdfff && !(code >= 0xdc80 && code <= 0xdcff)) return false
+  }
+  return true
+}
+
+function coverageError(files) {
+  if (!Array.isArray(files)) return 'missing or malformed reviewed_files'
+  for (const file of files) {
+    if (!validPath(file)) return 'invalid reviewed_files member ' + JSON.stringify(file)
+  }
+  const reviewed = new Set(files)
+  const missing = changedFiles.filter(file => !reviewed.has(file))
+  return missing.length ? 'missing ' + JSON.stringify(missing) : ''
 }
 
 function validAngle(result) {
   return result && result.review_contract_version === 2 && validIdentity(result.candidate_identity) && Array.isArray(result.findings) &&
-    Array.isArray(result.reviewed_files) && changedFiles.every(f => result.reviewed_files.includes(f)) &&
-    result.reviewed_files.every(f => typeof f === 'string') && result.findings.every(validFinding)
+    !coverageError(result.reviewed_files) && result.findings.every(validFinding)
 }
 
 function summarizeAngles(results) {
-  if (!Array.isArray(results)) return {completed: 0, retainedAngles: null}
+  if (!Array.isArray(results)) return {completed: 'unknown', retainedAngles: null}
   return {
     completed: results.filter(validAngle).length,
     retainedAngles: Object.fromEntries('abcdef'.split('').flatMap((name, i) => results[i] == null ? [] : [[name, results[i]]])),
@@ -202,11 +222,14 @@ function summarizeAngles(results) {
 }
 const {completed, retainedAngles} = summarizeAngles(angleResults)
 if (completed !== 6 || angleResults.length !== 6) {
-  return {report: `INCOMPLETE: ${completed} of 6 specialist results were valid; consolidation was not run.`, runner_mode: "incomplete", specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
+  const gaps = Object.entries(retainedAngles || {}).flatMap(([label, result]) => {
+    const reason = coverageError(result.reviewed_files)
+    return reason ? ['angle ' + label + ': ' + reason] : []
+  })
+  return {report: `INCOMPLETE: ${completed} of 6 specialist results were valid; consolidation was not run. ${gaps.join(' ')}`.trimEnd(), runner_mode: "incomplete", specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
 }
 
 const allFindings = angleResults.flatMap(r => r.findings)
-const reviewedFiles = [...new Set(angleResults.flatMap(r => r.reviewed_files))]
 
 log(`Collected ${allFindings.length} candidate findings across angles A–F`)
 
@@ -227,18 +250,16 @@ function makeConsolidatorPreamble() {
 - CHANGED_FILE_COUNT: ${changedFileCount}
 - CHANGED_FILES:
 ${fileList}
-- REVIEWED_FILES_REPORTED_BY_ANGLES:
-${reviewedFiles.length ? reviewedFiles.join('\n') : '(none reported)'}
+- ANGLE_RESULTS:
+${JSON.stringify(retainedAngles, null, 2)}
 - PROJECT_ROOT:   ${project_root || '.'}
 ${diffScopeLine}
-- ALL_FINDINGS (${allFindings.length} candidates from 6 parallel angles):
-${JSON.stringify(allFindings, null, 2)}
 ${specContext}
 
 Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
 
 Read that file completely, then execute the consolidation and produce the compact-or-detailed markdown report it specifies.
-Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity and findings). Each decision must include file, positive integer line, severity, rule, summary, diagnosis, disposition, and a nonempty reason. Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. If the report uses a FINDING_DETAIL footer, its F-number must match the retained decision's finding_id and its severity and disposition must match. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
+Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity and findings). Each decision must include file, positive integer line, severity, rule, summary, diagnosis, impact, supporting evidence, disposition, and a nonempty reason. Preserve the original angle and observation for each member of a grouped finding. Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. If the report uses a FINDING_DETAIL footer, its F-number must match the retained decision's finding_id and its severity and disposition must match. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
 }
 const consolidatorPreamble = makeConsolidatorPreamble()
 
@@ -264,6 +285,7 @@ function findingKey(f) {
 
 function validDecisionSet(value) {
   if (!value || value.review_contract_version !== 2 || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
+  if (Object.hasOwn(value, 'reviewed_files') && coverageError(value.reviewed_files)) return false
   return value.findings.every(validDecision) && new Set(value.findings.map(findingKey)).size === value.findings.length
 }
 
@@ -299,7 +321,8 @@ function passingDecisions(verdict, values, raw) {
   if (raw.some(f => !values.some(d => matchingDecision(f, d, verdict)))) return false
   if (!verdict.startsWith('PASS')) return true
   if (values.some(f => f.severity === 'blocker' && f.disposition !== 'refuted')) return false
-  return verdict !== 'PASS' || !values.some(f => f.disposition !== 'refuted')
+  if (verdict === 'PASS-WITH-TRIAGE') return values.some(f => !['excluded', 'refuted'].includes(f.disposition))
+  return !values.some(f => f.disposition !== 'refuted')
 }
 
 function contradictoryReport(body, verdict) {
@@ -321,6 +344,7 @@ function validConsolidation(body, value, raw) {
 }
 
 if (!validConsolidation(report, decisions, allFindings)) {
-  return {report: 'INCOMPLETE: consolidator returned missing or malformed report.', runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
+  const reason = decisions && Object.hasOwn(decisions, 'reviewed_files') && coverageError(decisions.reviewed_files)
+  return {report: 'INCOMPLETE: consolidator returned ' + (reason || 'missing or malformed report.'), runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
 }
 return {report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions, angle_results: retainedAngles}

@@ -26,21 +26,21 @@ type bugCandidateScope struct {
 	CandidateTree    string             `json:"candidate_tree"`
 	DiffSHA256       string             `json:"diff_sha256"`
 	RepairPlanSHA256 string             `json:"repair_plan_sha256"`
-	ChangedFiles     []string           `json:"changed_files"`
+	ChangedFiles     reviewGitPaths     `json:"changed_files"`
 	ChangedFileCount int                `json:"changed_file_count"`
 	Source           *bugSourceSnapshot `json:"source_snapshot"`
 }
 
 type bugSourceSnapshot struct {
-	ProjectRoot           string   `json:"project_root"`
-	SourceRoot            string   `json:"source_root"`
-	RuntimeProject        string   `json:"runtime_project"`
-	SourceCommit          string   `json:"source_commit"`
-	CandidateCommit       string   `json:"candidate_commit"`
-	CandidateTree         string   `json:"candidate_tree"`
-	SelectedPaths         []string `json:"selected_paths"`
-	SelectedIndexSHA256   string   `json:"selected_index_sha256"`
-	SourceInventorySHA256 string   `json:"source_inventory_sha256"`
+	ProjectRoot           string         `json:"project_root"`
+	SourceRoot            string         `json:"source_root"`
+	RuntimeProject        string         `json:"runtime_project"`
+	SourceCommit          string         `json:"source_commit"`
+	CandidateCommit       string         `json:"candidate_commit"`
+	CandidateTree         string         `json:"candidate_tree"`
+	SelectedPaths         reviewGitPaths `json:"selected_paths"`
+	SelectedIndexSHA256   string         `json:"selected_index_sha256"`
+	SourceInventorySHA256 string         `json:"source_inventory_sha256"`
 }
 
 func (s *bugSourceSnapshot) UnmarshalJSON(data []byte) error {
@@ -172,13 +172,19 @@ func validateBugChangedFiles(scope bugCandidateScope, run bugGitRunner) error {
 			paths = append(paths, string(name))
 		}
 	}
-	if len(paths) != scope.ChangedFileCount || len(paths) != len(scope.ChangedFiles) {
-		return fmt.Errorf("candidate manifest mismatch")
-	}
-	for i := range paths {
-		if paths[i] != scope.ChangedFiles[i] {
-			return fmt.Errorf("candidate manifest mismatch")
+	for i, want := range paths {
+		if i >= len(scope.ChangedFiles) {
+			return fmt.Errorf("candidate manifest mismatch: missing %s", quoteReviewGitPath(want))
 		}
+		if got := scope.ChangedFiles[i]; want != got {
+			return fmt.Errorf("candidate manifest mismatch at index %d: Git has %s, scope has %s", i, quoteReviewGitPath(want), quoteReviewGitPath(got))
+		}
+	}
+	if len(scope.ChangedFiles) > len(paths) {
+		return fmt.Errorf("candidate manifest mismatch: unexpected %s", quoteReviewGitPath(scope.ChangedFiles[len(paths)]))
+	}
+	if len(paths) != scope.ChangedFileCount {
+		return fmt.Errorf("candidate manifest mismatch: Git has %d paths, scope declares %d", len(paths), scope.ChangedFileCount)
 	}
 	return nil
 }

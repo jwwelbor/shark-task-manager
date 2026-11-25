@@ -81,6 +81,7 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
 
 ```json
 {
+  "review_contract_version": 2,
   "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
@@ -91,6 +92,7 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
       "rule": "CONTRACT|SIBLING|ROUNDTRIP",
       "summary": "one-sentence description",
       "diagnosis": "what contract is broken, what sibling pattern is violated, or which write/read paths diverge",
+      "impact": "affected user, behavior, invariant, required standard or maintenance task and its concrete consequence",
       "evidence": "grep output or code showing the issue",
       "correction": "concrete fix"
     }
@@ -98,4 +100,4 @@ Include both the write-site `file:line` and the read-site `file:line` in any fin
 }
 ```
 
-Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+For a clean review, keep contract version 2, the captured identity and the inspection list, and return an empty findings array. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

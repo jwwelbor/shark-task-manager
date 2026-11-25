@@ -17,24 +17,32 @@ type bugFindingKey struct {
 	Diagnosis string
 }
 type bugReviewDecision struct {
-	FindingID   string `json:"finding_id"`
-	File        string `json:"file"`
-	Line        int    `json:"line"`
-	Severity    string `json:"severity"`
-	Rule        string `json:"rule"`
-	Summary     string `json:"summary"`
-	Diagnosis   string `json:"diagnosis"`
-	Impact      string `json:"impact"`
-	Disposition string `json:"disposition"`
-	Reason      string `json:"reason"`
+	FindingID   string        `json:"finding_id"`
+	File        reviewGitPath `json:"file"`
+	Line        int           `json:"line"`
+	Severity    string        `json:"severity"`
+	Rule        string        `json:"rule"`
+	Summary     string        `json:"summary"`
+	Diagnosis   string        `json:"diagnosis"`
+	Impact      string        `json:"impact"`
+	Evidence    string        `json:"evidence"`
+	Disposition string        `json:"disposition"`
+	Reason      string        `json:"reason"`
 }
 type bugReviewDecisions struct {
 	ReviewContractVersion int                 `json:"review_contract_version"`
 	CandidateIdentity     bugReviewIdentity   `json:"candidate_identity"`
+	ReviewedFiles         reviewGitPaths      `json:"reviewed_files"`
 	Findings              []bugReviewDecision `json:"findings"`
 }
 
-func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict string) (map[bugFindingKey]bugReviewDecision, error) {
+type bugReviewDecisionIndex struct {
+	version       int
+	byFinding     map[bugFindingKey]bugReviewDecision
+	reviewedFiles reviewGitPaths
+}
+
+func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict string) (*bugReviewDecisionIndex, error) {
 	var packet bugReviewDecisions
 	if err := json.Unmarshal(data, &packet); err != nil {
 		return nil, fmt.Errorf("invalid review decisions: %w", err)
@@ -49,15 +57,35 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 	if packet.ReviewContractVersion != 0 && packet.ReviewContractVersion != 2 {
 		return nil, fmt.Errorf("unsupported review contract version")
 	}
+	found, err := indexBugReviewDecisions(packet, verdict)
+	if err != nil {
+		return nil, err
+	}
+	if packet.ReviewContractVersion == 2 && strings.EqualFold(verdict, "PASS-WITH-TRIAGE") && !hasBugTriageBasis(found) {
+		return nil, fmt.Errorf("PASS-with-triage requires at least one retained finding with an actionable or report-only disposition")
+	}
+	return &bugReviewDecisionIndex{version: packet.ReviewContractVersion, byFinding: found, reviewedFiles: packet.ReviewedFiles}, nil
+}
+
+func hasBugTriageBasis(found map[bugFindingKey]bugReviewDecision) bool {
+	for _, finding := range found {
+		if finding.Disposition != "refuted" && finding.Disposition != "excluded" {
+			return true
+		}
+	}
+	return false
+}
+
+func indexBugReviewDecisions(packet bugReviewDecisions, verdict string) (map[bugFindingKey]bugReviewDecision, error) {
 	found := make(map[bugFindingKey]bugReviewDecision, len(packet.Findings))
 	for _, finding := range packet.Findings {
 		if err := validateBugReviewDecision(finding, verdict); err != nil {
 			return nil, err
 		}
-		if packet.ReviewContractVersion == 2 && (finding.Severity == "nit" || strings.TrimSpace(finding.Impact) == "") {
-			return nil, fmt.Errorf("impact-based review decision is missing impact or uses legacy nit severity")
+		if err := validateFindingSupport(packet.ReviewContractVersion, finding.Severity, finding.Impact, finding.Evidence); err != nil {
+			return nil, err
 		}
-		key := bugFindingKey{finding.File, finding.Line, finding.Rule, finding.Summary, finding.Diagnosis}
+		key := bugFindingKey{string(finding.File), finding.Line, finding.Rule, finding.Summary, finding.Diagnosis}
 		if _, exists := found[key]; exists {
 			return nil, fmt.Errorf("duplicate review decision")
 		}
@@ -66,13 +94,23 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 	return found, nil
 }
 
-func bugReviewContractVersion(data []byte) int {
-	var packet struct {
-		Version int `json:"review_contract_version"`
+// Previously applied legacy packets predate the impact and evidence fields.
+func validateFindingSupport(version int, severity, impact, evidence string) error {
+	if version != 2 {
+		return nil
 	}
-	_ = json.Unmarshal(data, &packet)
-	return packet.Version
+	if severity == "nit" {
+		return fmt.Errorf("current finding uses legacy nit severity")
+	}
+	if strings.TrimSpace(impact) == "" {
+		return fmt.Errorf("current finding is missing impact")
+	}
+	if strings.TrimSpace(evidence) == "" {
+		return fmt.Errorf("current finding is missing supporting evidence")
+	}
+	return nil
 }
+
 func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 	if !validBugDecisionShape(f) {
 		return fmt.Errorf("malformed review decision")

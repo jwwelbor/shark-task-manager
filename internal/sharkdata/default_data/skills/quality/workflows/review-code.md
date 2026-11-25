@@ -94,7 +94,7 @@ Findings: list each duplicated logic with the existing code's location, severity
 
 ### Step 3: Standards crosswalk (required citations)
 
-For each finding in this phase, cite the **specific section** of the project's standards docs that the code violates. **No citation = the finding is opinion, not a standards violation.**
+For each finding in this phase, cite the **specific section** of the project's standards docs that the code violates. When a clause is unavailable or unrelated, report the gap in the crosswalk. A demonstrated failure of a documented input or acceptance criterion still warrants a correctness finding with the expected and observed results.
 
 For each violation: `{file:line} — {rule} — {coding-standards.md §X.Y "quoted clause"}`.
 
@@ -239,7 +239,7 @@ The host is responsible for routing every entry in `non_blockers_to_triage` thro
 
 ## Required output structure (report content)
 
-Write the report to `code_review_report_path`. All sections required:
+Write the report to `code_review_report_path`. Select the form after checking the frozen scope and the disposition of every claim. Complete clean reviews use the compact form in the referenced skeleton. Use the following detailed sections for an unresolved blocker, an actionable non-blocker or an evidenced report-only withdrawal. Mark any inapplicable section. An incomplete review yields INCOMPLETE.
 
 ### A. Executive summary (≤ 10 lines)
 
@@ -252,9 +252,11 @@ Write the report to `code_review_report_path`. All sections required:
 
 | id | severity | file:line | rule | impact | diagnosis | evidence | correction |
 |---|---|---|---|---|---|---|
-| 1 | blocker | path/to/file.py:42 | DRY | duplicates `existing_helper()` | `existing_helper()` at lib/helpers.py:18 | replace with import + call |
+| 1 | blocker | path/to/file.py:42 | DRY | policy rotation requires two edits | duplicate registration | `existing_helper()` at lib/helpers.py:18 | replace with import + call |
 
-`rule` is one of: `DRY`, `SRP`, `OCP`, `YAGNI`, `ARCH`, `CODING-STANDARD`, `IDIOM`, `COMPLEXITY`, `RISK`, `TESTS`.
+`rule` is one of: `ALTITUDE`, `ARCH`, `ARCHITECTURE`, `CODING-STANDARD`, `COMPLEXITY`, `CONTRACT`, `CORRECTNESS`, `DIP`, `DRY`, `ERROR-HANDLING`, `IDIOM`, `ISP`, `LOGGING`, `LSP`, `NAMING`, `OCP`, `REMOVED-BEHAVIOR`, `RISK`, `ROUNDTRIP`, `SECURITY`, `SIBLING`, `SIMPLIFICATION`, `SRP`, `TESTS`, `TYPES`, `WIRING`, `YAGNI`.
+
+Carry the original literal rule into the decision, triage item and stable fingerprint. For a grouped finding use the representative rule for triage and preserve each contributing rule, origin and observation in its own decision.
 
 ### C. Reuse opportunities
 
@@ -295,8 +297,8 @@ From `production_caller_chains` (Step 5). One sub-section per service-contract c
 
 ### J. Verdict
 
-- **PASS** — no actionable findings; withdrawn/refuted concerns remain explained but do not count as findings.
-- **PASS-with-triage** — no blockers; non-blockers exist (host triages).
+- **PASS** — complete coverage with zero actionable findings and zero report-only withdrawals. Include a concise account for each fully disproved blocker with its original concern, exact location, `REFUTED` label and contrary evidence.
+- **PASS-with-triage** — no open blockers, and at least one actionable non-blocker or documented withdrawal of a prior blocker to a stylistic remainder. Record the host disposition for each.
 - **FAIL** — one or more blockers; task returns to development.
 
 For the full report skeleton, see `../context/code-review-reference.md`.

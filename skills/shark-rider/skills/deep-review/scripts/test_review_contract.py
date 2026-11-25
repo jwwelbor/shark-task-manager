@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import unittest
 
-from adaptive_review import validate_review_decisions
+from adaptive_review import validate_review_decisions, inspect_angle_packets
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = json.loads((HERE / 'testdata' / 'decisions.json').read_text())
@@ -14,7 +14,7 @@ class ReviewContractTests(unittest.TestCase):
     def test_python_and_native_share_decision_contract(self):
         identity = FIXTURE['identity']
         scope = {'candidate_commit': identity['commit'], 'candidate_tree': identity['tree'],
-                 'diff_sha256': identity['diff_sha256'], 'repair_plan_sha256': identity['repair_plan_sha256']}
+                 'diff_sha256': identity['diff_sha256'], 'repair_plan_sha256': identity['repair_plan_sha256'], 'changed_files': FIXTURE['files']}
         harness = r'''
 const fs = require('fs');
 const source = fs.readFileSync(process.argv[1], 'utf8');
@@ -31,7 +31,13 @@ run(args,()=>{},parallel,agent,()=>{}).then(r => process.stdout.write(JSON.strin
         for case in FIXTURE['cases']:
             with self.subTest(case=case['name']):
                 try:
-                    validate_review_decisions(case['decisions'], scope, case['raw_findings'], case.get('verdict', 'PASS'))
+                    angles = {label: {'review_contract_version': 2, 'candidate_identity': identity,
+                                      'reviewed_files': FIXTURE['files'], 'findings': []} for label in 'abcdef'}
+                    angles['a']['findings'] = case['raw_findings']
+                    raw, _, errors = inspect_angle_packets(json.dumps(angles).encode(), scope)
+                    if errors:
+                        raise ValueError('; '.join(errors))
+                    validate_review_decisions(case['decisions'], scope, raw, case.get('verdict', 'PASS'))
                     python_ok = True
                 except ValueError:
                     python_ok = False

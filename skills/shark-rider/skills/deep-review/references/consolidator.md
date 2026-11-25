@@ -5,11 +5,11 @@ complete adversarial alternate-model review. You have been given:
 - An EVIDENCE_MODE (`canonical-six-angle`, `dispatched-six-angle`, or `adversarial-cli`)
 - SPECIALISTS_COMPLETED and CONSOLIDATOR_COMPLETED metadata
 - A diff file path (DIFF_PATH)
-- The complete changed file list (CHANGED_FILES)
-- The files the review angles reported opening or inspecting (REVIEWED_FILES_REPORTED_BY_ANGLES)
-- All candidate findings as JSON (ALL_FINDINGS)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
+- For a six-angle review, ANGLE_RESULTS keyed by a through f. Each packet carries its own ordered reviewed_files and findings with supporting observations.
+- For a CLI review, the selected reviewer’s decisions and inspected-file declaration.
 
-Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES, REVIEWED_FILES_REPORTED_BY_ANGLES, or ALL_FINDINGS.
+Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES or ANGLE_RESULTS.
 
 ## Evidence-mode rule
 
@@ -32,7 +32,7 @@ Before processing findings, do a 5-line gut check on the diff:
 - Is the diff size plausible? (Flag if >2000 lines changed — recommend splitting)
 - Are there unrelated modifications mixed in?
 
-**Coverage check (mandatory).** Every file in CHANGED_FILES must be addressed by at least one angle's findings or by REVIEWED_FILES_REPORTED_BY_ANGLES. Build the set of files the angles actually touched and diff it against CHANGED_FILES. If any changed file has **zero** coverage from all six angles, flag it as a **coverage gap** — name the unreviewed file(s), record a non-blocker finding, and lower confidence in the verdict accordingly. A clean PASS is only valid when every changed file was actually reviewed. (A review that passes a feature while never opening a heavily-changed file is how production bugs ship.)
+**Coverage check (mandatory).** Before ranking findings, compare CHANGED_FILES with each named angle’s reviewed_files. For a CLI review use the selected reviewer’s own declaration. Keep deleted paths in the manifest and inspect their removed lines in DIFF_PATH or the captured base commit. Return INCOMPLETE on any missing declaration or path and identify the reviewer and missing evidence. Findings, other angles and a consolidator’s own list cannot fill the gap.
 
 **Architectural defensibility check (mandatory).** For any finding or diff section that changes how an existing capability is implemented, wired, configured, persisted, validated, rendered, or tested, state whether the change is defensible to another architect and whether it is the smallest change needed for the desired behavior unless the PR explicitly declares a refactor. Unjustified fundamental changes are blockers when they alter production behavior or create migration cost; otherwise they are non-blocker triage.
 
@@ -40,7 +40,7 @@ If the diff is clearly wrong (wrong branch, massive accidental change), return a
 
 ## Step 2: Deduplicate
 
-Group findings that refer to the same issue (same file + line + root cause). Keep the most informative version. Note which angles flagged it.
+Group observations only when they establish the same root cause. Publish one representative finding with the original site, contributing angles and each member’s evidence. Keep a distinct decision for each source member, including when two packets contain identical file, line, rule, summary and diagnosis. Carry the representative correction to triage once.
 
 ## Step 3: Verify each unique finding
 
@@ -70,7 +70,7 @@ The host routes each actionable non-blocker through the triage decision tree. A 
 ## Step 6: Verdict
 
 - **PASS** — zero actionable findings; withdrawn/refuted concerns remain explained but do not count as findings
-- **PASS-with-triage** — no blockers; non-blockers exist (host routes each through the triage skill's decision tree; tech-debt is only one possible outcome, never a default — see `skills/triage/SKILL.md`'s routing contract). If a triage attempt fails or can't complete (target entity won't accept new children, run is unattended and the decision tree's confirmation step has no one to answer it), the host falls back to a feature-level note instead of leaving the finding untracked — see `review-code.md` Step 12.
+- **PASS-with-triage** — no open blockers; an actionable non-blocker or documented report-only withdrawal remains (host routes each through the triage skill's decision tree; tech-debt is only one possible outcome, never a default — see `skills/triage/SKILL.md`'s routing contract). If a triage attempt fails or can't complete (target entity won't accept new children, run is unattended and the decision tree's confirmation step has no one to answer it), the host falls back to a feature-level note instead of leaving the finding untracked — see `review-code.md` Step 12.
 - **FAIL** — one or more blockers; task returns to development
 
 ---
@@ -96,7 +96,7 @@ Produce only these sections:
 - Overall risk level
 - Verdict: **PASS**
 - Reviewed scope: changed file count, reviewed file count / coverage result
-- Checks performed: 6 angles + consolidator, standards path if relevant
+- Checks performed: actual selected runner’s checks, standards path if relevant
 - Duration if known
 - `0 defects found`
 
@@ -118,7 +118,9 @@ For **PASS-with-triage** or **FAIL**, produce the full detailed report below. Om
 | id | severity | file:line | rule | impact | diagnosis | evidence | correction |
 |---|---|---|---|---|---|---|
 
-`rule` is one of: `CORRECTNESS`, `WIRING`, `RISK`, `SECURITY`, `REMOVED-BEHAVIOR`, `SRP`, `OCP`, `LSP`, `DIP`, `CONTRACT`, `SIBLING`, `ROUNDTRIP`, `DRY`, `COMPLEXITY`, `IDIOM`, `ALTITUDE`, `ARCHITECTURE`, `TESTS`, `CODING-STANDARD`, `NAMING`, `ERROR-HANDLING`, `TYPES`, `LOGGING`
+`rule` is one of: `ALTITUDE`, `ARCH`, `ARCHITECTURE`, `CODING-STANDARD`, `COMPLEXITY`, `CONTRACT`, `CORRECTNESS`, `DIP`, `DRY`, `ERROR-HANDLING`, `IDIOM`, `ISP`, `LOGGING`, `LSP`, `NAMING`, `OCP`, `REMOVED-BEHAVIOR`, `RISK`, `ROUNDTRIP`, `SECURITY`, `SIBLING`, `SIMPLIFICATION`, `SRP`, `TESTS`, `TYPES`, `WIRING`, `YAGNI`.
+
+Carry the original literal rule into the decision, triage item and stable fingerprint. For a grouped finding use the representative rule for triage and preserve each contributing rule, origin and observation in its own decision.
 
 ### C. Reuse Opportunities
 For each DRY finding: existing symbol + `file:line` + diff-ready refactor.
