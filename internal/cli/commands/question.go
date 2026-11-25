@@ -444,7 +444,14 @@ func runQuestionResolve(cmd *cobra.Command, args []string) error {
 	if kind != "no_lasting_consequence" && strings.TrimSpace(pointer) == "" {
 		return fmt.Errorf("--resolution-pointer is required")
 	}
-	q, err := getQuestionService().Resolve(cmd.Context(), services.ResolveQuestionInput{Key: strings.ToUpper(args[0]), Owner: owner, Kind: kind, Pointer: pointer})
+	var session string
+	if cmd.Flags().Changed("session") {
+		session, err = requiredQuestionString(cmd, "session")
+		if err != nil {
+			return err
+		}
+	}
+	q, err := getQuestionService().Resolve(cmd.Context(), services.ResolveQuestionInput{Key: strings.ToUpper(args[0]), Owner: owner, Kind: kind, Pointer: pointer, SessionID: session})
 	if err != nil {
 		return withQuestionOwnerMismatchHint(err)
 	}
@@ -534,6 +541,7 @@ func init() {
 	questionRespondCmd.Flags().String("responder", "", "Current responder identity")
 	questionRespondCmd.Flags().String("summary", "", "Bounded response summary")
 	questionRespondCmd.Flags().String("evidence-pointer", "", "Local evidence pointer")
+	questionResolveCmd.Flags().String("session", "", "Require the live Question session that recorded the final response")
 	questionResolveCmd.Flags().String("resolution-owner", "", "Configured resolution owner")
 	questionResolveCmd.Flags().String("owner", "", "Deprecated alias for --resolution-owner")
 	questionResolveCmd.Flags().String("resolution-kind", "", "Resolution classification; see the command help for valid values")

@@ -292,7 +292,12 @@ is what selects the corresponding Shark template branch.
 Claim the concrete entity returned by Shark:
 
 ```bash
-claim_args=(--by "$CLAUDE_SID" --field session_id)
+claim_by=$CLAUDE_SID
+entity_type=$(jq -er '.entity_type | strings' "$REQUEST_FILE") || exit 1
+if [[ $entity_type == question ]]; then
+  claim_by=$(jq -er '.current_responder | strings | select(length > 0)' "$REQUEST_FILE") || exit 1
+fi
+claim_args=(--by "$claim_by" --field session_id)
 if [[ -n ${SELECTED_HARNESS:-} ]]; then
   claim_args+=(--harness "$SELECTED_HARNESS" --harness-version "${SELECTED_VERSION:?}"
                --harness-model "${SELECTED_MODEL:?}")
@@ -355,6 +360,11 @@ jq -e --slurpfile old "$REQUEST_FILE" --arg family "$SELECTED_HARNESS" \
 [[ $(sha256sum < "$PROMPT_FILE" | cut -d" " -f1) == "$(jq -r .prompt_sha256 "$CURRENT_FILE")" ]] || exit 1
 [[ $(wc -c < "$PROMPT_FILE") -eq $(jq -r .prompt_bytes "$CURRENT_FILE") ]] || exit 1
 ```
+
+For a Question, use the pre-submit check in the retrieved
+`workflows/route-question.md` for every responder, including a replacement.
+Its focused E39 read and session-qualified heartbeat run under the current
+Question claim. Submit the scoped prompt from the original keyed response.
 
 Spawn the host worker using a host-safe adapter:
 

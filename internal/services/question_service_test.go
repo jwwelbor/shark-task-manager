@@ -87,7 +87,7 @@ func (r *mockQuestionRepository) NoteExists(ctx context.Context, id string) (boo
 	return true, nil
 }
 
-func (r *mockQuestionRepository) Resolve(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, kind string) error {
+func (r *mockQuestionRepository) Resolve(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, kind string, _ *questionrepo.ResponderLease) error {
 	if r.resolveFn == nil {
 		return errors.New("unexpected Resolve call")
 	}
@@ -101,7 +101,7 @@ func (r *mockQuestionRepository) Withdraw(ctx context.Context, id int64, expecte
 	return r.withdrawFn(ctx, id, expectedStatus, status, expectedContextData, contextData, owner, reason)
 }
 
-func (r *mockQuestionRepository) RecordResponse(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, responder string) error {
+func (r *mockQuestionRepository) RecordResponse(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, responder, _ string) error {
 	if r.recordResponseFn == nil {
 		return errors.New("unexpected RecordResponse call")
 	}
@@ -1094,6 +1094,8 @@ type fakeQuestionClaimReader struct {
 	// leave this nil and get the claim-presence-derived default below.
 	claimable *bool
 }
+
+func (f fakeQuestionClaimReader) TTL() time.Duration { return DefaultClaimTTL }
 
 func (f fakeQuestionClaimReader) Get(context.Context, string, string) (*models.EntityClaim, error) {
 	return f.claim, nil

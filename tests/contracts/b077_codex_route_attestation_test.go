@@ -90,12 +90,21 @@ func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 
 // C01-C05: execute the Rider preflight and launch blocks against a recording CLI.
 func TestB077RecordingCodexReceivesSelectedRoute(t *testing.T) {
+	runB077ProcedureFixture(t, "b077_codex_route.py")
+}
+
+func TestB077QuestionResponderHandover(t *testing.T) {
+	runB077ProcedureFixture(t, "b077_question_route.py")
+}
+
+func runB077ProcedureFixture(t *testing.T, fixture string) {
+	t.Helper()
 	binary := filepath.Join(t.TempDir(), "shark")
 	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
 	build.Dir = filepath.Join("..", "..")
 	built, err := build.CombinedOutput()
 	require.NoError(t, err, "%s", built)
-	cmd := exec.Command("python3", "testdata/b077_codex_route.py")
+	cmd := exec.Command("python3", filepath.Join("testdata", fixture))
 	cmd.Env = append(os.Environ(), "B077_SHARK="+binary)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)

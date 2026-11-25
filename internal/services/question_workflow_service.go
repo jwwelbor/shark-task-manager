@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
 )
 
 // ConfigureWorkflowInput is the only F02 input that may create pending
@@ -22,7 +23,7 @@ type ConfigureWorkflowInput struct {
 }
 
 // RecordQuestionResponseInput is the bounded successful-response shape. The
-// lease session is checked before this value reaches the Question transaction.
+// Question transaction checks the same session and responder at the write.
 type RecordQuestionResponseInput struct {
 	Key             string
 	SessionID       string
@@ -33,7 +34,7 @@ type RecordQuestionResponseInput struct {
 
 // ResolveQuestionInput closes a fully answered Question with its classified,
 // already-local resolution evidence. It does not carry any linked-work mutation.
-type ResolveQuestionInput struct{ Key, Owner, Kind, Pointer string }
+type ResolveQuestionInput struct{ Key, Owner, Kind, Pointer, SessionID string }
 
 // WithdrawQuestionInput closes an eligible Question with a bounded reason.
 type WithdrawQuestionInput struct{ Key, Owner, Reason string }
@@ -109,19 +110,8 @@ func (s *QuestionService) RecordResponse(ctx context.Context, input RecordQuesti
 	if input.SessionID == "" || input.Responder == "" {
 		return nil, questionValidationError(errors.New("record Question response: session and responder are required"))
 	}
-	// Swept for the stale-lease-as-live-input defect class (T-E34-F01-003
-	// rework) and judged out of class: this raw claimReader.Get is an
-	// identity/authorization check (does the caller's session+responder match
-	// the row that exists), not a liveness check. It does not need
-	// IsClaimable/IsExpired for correctness — if the lease had actually been
-	// reclaimed by a different session (e.g. after a TTL sweep + a new
-	// claim), claim.SessionID would differ from input.SessionID and this
-	// still correctly rejects the write. An expired-but-unswept claim whose
-	// SessionID/ClaimedBy still match is the original worker completing its
-	// in-flight response before the parent loop releases the lease
-	// (RecordResponse's own doc comment above) — accepting that write is the
-	// intended grace period, not the "renders a stale identity as live"
-	// failure mode HarnessResolver.Resolve and GetNextStatus's IsClaimed had.
+	// E39 allows an expired, unswept responder to finish its answer. Check
+	// ownership here for the caller and again in the update to cover takeover.
 	claim, err := s.claimReader.Get(ctx, string(models.EntityTypeQuestion), question.Key)
 	if err != nil {
 		return nil, fmt.Errorf("record Question response %s: load claim: %w", question.Key, err)
@@ -151,7 +141,7 @@ func (s *QuestionService) RecordResponse(ctx context.Context, input RecordQuesti
 	if state.CurrentResponder() == "" {
 		nextStatus = models.QuestionStatusReadyForResolution
 	}
-	if err := s.repo.RecordResponse(ctx, question.ID, question.Status, nextStatus, question.ContextData, encoded, input.Responder); err != nil {
+	if err := s.repo.RecordResponse(ctx, question.ID, question.Status, nextStatus, question.ContextData, encoded, input.Responder, input.SessionID); err != nil {
 		return nil, fmt.Errorf("record Question response %s: %w", question.Key, classifyQuestionTransitionError(err))
 	}
 	question.ContextData, question.Status = encoded, nextStatus
@@ -201,7 +191,18 @@ func (s *QuestionService) Resolve(ctx context.Context, input ResolveQuestionInpu
 	if err != nil {
 		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, err)
 	}
-	if err := s.repo.Resolve(ctx, question.ID, question.Status, models.QuestionStatusResolved, question.ContextData, encoded, input.Owner, kind); err != nil {
+	var lease *questionrepo.ResponderLease
+	if input.SessionID != "" {
+		final := state.Responses[len(state.Responses)-1]
+		if final.SessionID != input.SessionID {
+			return nil, questionConflictError(errors.New("resolution session did not record the final response"))
+		}
+		if s.claimReader == nil {
+			return nil, errors.New("resolve Question under responder session: claim reader is required")
+		}
+		lease = &questionrepo.ResponderLease{SessionID: input.SessionID, Responder: final.Responder, TTL: s.claimReader.TTL()}
+	}
+	if err := s.repo.Resolve(ctx, question.ID, question.Status, models.QuestionStatusResolved, question.ContextData, encoded, input.Owner, kind, lease); err != nil {
 		return nil, fmt.Errorf("resolve Question %s: %w", question.Key, classifyQuestionTransitionError(err))
 	}
 	question.ContextData, question.Status = encoded, models.QuestionStatusResolved

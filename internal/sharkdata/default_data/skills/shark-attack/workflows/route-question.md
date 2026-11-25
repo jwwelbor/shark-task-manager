@@ -67,6 +67,39 @@ heartbeat for the whole consultation — that lease is a separate concern from
 the Question's lease and is owned exactly as the rest of this protocol
 already documents.
 
+For each initial, serial or permitted replacement responder, keep the original
+keyed response in `REQUEST_FILE`. Preflight that responder's route and claim
+the Question with `--by` set to its `current_responder`. Keep the returned
+Question session in `SID`. Run this check in the owning project immediately
+before submitting the original keyed prompt. Both the solo parent and the
+team coordinator use this check. A held-key `next` pauses, so page through
+E39's current assignments while the Question session is held.
+
+```bash
+set -o pipefail
+qkey=$(jq -er 'select(.entity_type == "question" and .action == "spawn_agent") | .entity_key' "$REQUEST_FILE") || exit 1
+stage=$(jq -er '.status | select(. == "open" or . == "answering")' "$REQUEST_FILE") || exit 1
+responder=$(jq -er '.current_responder | strings | select(length > 0)' "$REQUEST_FILE") || exit 1
+offset=0
+while :; do
+  page=$(shark question open-by-responder "$responder" --limit 100 --offset "$offset" --json) || exit 1
+  if jq -e --arg key "$qkey" --arg stage "$stage" 'type == "array" and any(.[]; .key == $key and .status == $stage)' <<<"$page" >/dev/null; then
+    break
+  fi
+  jq -e 'type == "array" and length == 100' <<<"$page" >/dev/null || exit 1
+  offset=$((offset + 100))
+done
+shark claims --json | jq -e --arg key "$qkey" --arg sid "${SID:?}" --arg by "$responder" '
+  type == "array" and any(.[]; .entity_type == "question" and .entity_key == $key and .session_id == $sid and .claimed_by == $by)
+' >/dev/null || exit 1
+shark heartbeat "$qkey" --session "$SID" >/dev/null || exit 1
+```
+
+On refusal, discard this assignment, retire its supervisor and release only
+its matching Question session. The asking lease and consultation deadline
+continue. A new attempt starts with a fresh keyed selection and preflight.
+Only the scoped keyed prompt reaches the responder.
+
 ## Respond
 
 The **parent** — never the worker — transcribes the responder's answer.
@@ -89,22 +122,44 @@ precisely the structural enforcement of "transcripts and rendered prompts
 never become council evidence." F09 adds no second validator for this; it
 reuses the one E39 already owns.
 
-Once every configured responder has completed, the Question moves itself to
-its ready-for-resolution status on its own — no separate parent action is
-needed to notice that everyone has answered.
+Read the successful response's compact status. While it is `answering`,
+release this responder's Question session with `shark release Q### --session
+<SID> --json` and require `released` to be true. Return to Route with a fresh
+keyed selection and normal claim, including after an `answering` to
+`answering` response. At `ready_for_resolution`, hold the final responder's
+session through resolution. A failed response or release stops continuation.
 
 ## Resolve
 
-`question resolve Q### --resolution-owner <resolution-owner> --resolution-kind <kind>
---resolution-pointer <pointer>` closes the Question (REQ-F-006) once every
-responder has completed. The owner must match the identity
-`configure-workflow` set; classification and destination validation happen
-before the Question transitions, reusing the same destination checks E39
-already runs — F09 adds nothing new here either.
+The parent runs `question resolve Q###` as the configured resolution owner
+with the final responder's Question session. Keep `REQUEST_FILE` and `SID`
+from that dispatch. Set `RESOLUTION_KIND` and `RESOLUTION_POINTER` to the
+authorized destination and `ANSWER_FILE` to a fresh private path. The owner
+read supplies the bounded answer and its evidence pointer for delivery.
 
-Resolving is what releases the gate: once `Q###` is `resolved`, the
-`question_blocks` predicate this file's Gate section relies on no longer
-qualifies, and the dispatched entity's next status-advance attempt succeeds.
+```bash
+set -o pipefail
+qkey=$(jq -er '.entity_key' "$REQUEST_FILE") || exit 1
+responder=$(jq -er '.current_responder' "$REQUEST_FILE") || exit 1
+shark question resolve "$qkey" --session "${SID:?}" --resolution-owner "${RESOLUTION_OWNER:?}" \
+  --resolution-kind "${RESOLUTION_KIND:?}" --resolution-pointer "${RESOLUTION_POINTER?}" --json >/dev/null || exit 1
+shark release "$qkey" --session "$SID" --json | jq -e '.released == true' >/dev/null || exit 1
+shark question full "$qkey" --actor "$RESOLUTION_OWNER" --json | jq -e \
+  --arg key "$qkey" --arg owner "$RESOLUTION_OWNER" --arg kind "$RESOLUTION_KIND" \
+  --arg ptr "$RESOLUTION_POINTER" --arg sid "$SID" --arg by "$responder" '
+  select(.key == $key and .status == "resolved" and .resolution_owner == $owner
+         and .resolution_kind == $kind and (.resolution_pointer // "") == $ptr)
+  | [.responses[] | select(.session_id == $sid and .responder == $by)]
+  | select(length == 1) | .[0] | {summary, evidence_pointer}
+' > "${ANSWER_FILE:?}" || exit 1
+```
+
+A refused resolution or owner read ends continuation. Perform scoped failure
+cleanup and withhold the handoff. On success the parent checks the asking
+lease immediately before delivery under `workflows/resume.md`. In team mode
+the coordinator supplies the bounded projection to the delivery teammate,
+who holds the asking lease. The answer and evidence pointer come from the
+successful owner read.
 
 ## Result
 

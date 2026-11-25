@@ -526,6 +526,16 @@ func TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108(t *testing.T) {
 			},
 		},
 		{
+			name:        "resolve under the final Question lease",
+			args:        []string{"resolve", "q001", "--resolution-owner", "owner", "--resolution-kind", "no_lasting_consequence", "--session", "session-a"},
+			missingArgs: [][]string{{"resolve", "q001", "--resolution-owner", "owner", "--resolution-kind", "no_lasting_consequence", "--session="}},
+			assertInput: func(t *testing.T, stub *questionListServiceStub) {
+				if got := stub.resolveIn; got == nil || got.Owner != "owner" || got.Key != "Q001" || got.SessionID != "session-a" {
+					t.Fatalf("session-qualified Resolve input = %#v", got)
+				}
+			},
+		},
+		{
 			name: "resolve",
 			args: []string{"resolve", "q001", "--resolution-owner", "owner", "--resolution-kind", "feature_change", "--resolution-pointer", "E39-F03"},
 			missingArgs: [][]string{
