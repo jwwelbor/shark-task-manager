@@ -5,7 +5,7 @@ complete adversarial alternate-model review. You have been given:
 - An EVIDENCE_MODE (`canonical-six-angle`, `dispatched-six-angle`, or `adversarial-cli`)
 - SPECIALISTS_COMPLETED and CONSOLIDATOR_COMPLETED metadata
 - A diff file path (DIFF_PATH)
-- The complete changed file list (CHANGED_FILES)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
 - For a six-angle review, ANGLE_RESULTS keyed by a through f. Each packet carries its own ordered reviewed_files and findings with supporting observations.
 - For a CLI review, the selected reviewer’s decisions and inspected-file declaration.
 

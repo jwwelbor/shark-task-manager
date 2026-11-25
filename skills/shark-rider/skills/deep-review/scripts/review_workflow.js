@@ -46,11 +46,12 @@ requireBugContext()
 function effectiveEffort() { return effort || undefined }
 const reviewEffort = effectiveEffort()
 
-function listChangedFiles() {
-  return Array.isArray(changed_files) ? changed_files : String(changed_files || '').split('\n').filter(Boolean)
+if (!Array.isArray(changed_files) || !changed_files.every(file => typeof file === 'string')) {
+  return {report: 'INCOMPLETE: changed_files must be the captured JSON array of filenames.',
+    runner_mode: 'incomplete', specialists_completed: 0, consolidator_completed: false, angle_results: null}
 }
-const changedFiles = listChangedFiles()
-const fileList = changedFiles.join('\n')
+const changedFiles = changed_files
+const fileList = JSON.stringify(changedFiles)
 function scopeDescription() {
   return {count: changed_file_count || changedFiles.length, line: `- DIFF_SHORTSTAT: ${diff_shortstat || '(not provided)'}`}
 }

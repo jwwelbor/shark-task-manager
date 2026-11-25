@@ -173,6 +173,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    Give every agent the complete captured scope, its one assigned angle
    prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
+   Set each recipient’s `CHANGED_FILES` field to the captured `changed_files` array serialized as JSON. Preserve order and the exact filename strings.
    Include deleted paths and supply the frozen diff or exact base object so each reviewer can read removed lines. Keep the same frozen candidate and scope for every angle, regardless of
    scheduling; do not consolidate until all six results have arrived.
 3. Wait for all six results. If any result is missing, malformed, timed out, has a mismatched candidate identity,
@@ -182,8 +183,8 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    preferred alternate CLI is unavailable, not when a six-angle dispatch is
    incomplete.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
-   captured scope (`diff_path`, `base_commit`), the complete changed-file
-   list, and `ANGLE_RESULTS`, the original packets keyed by `a` through `f`. Keep each ordered list and its supporting observations with its source angle. Require the consolidator to verify
+   captured scope (`diff_path`, `base_commit`), the same captured JSON array in `CHANGED_FILES`,
+   and `ANGLE_RESULTS`, the original packets keyed by `a` through `f`. Keep each ordered list and its supporting observations with its source angle. Require the consolidator to verify
    coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array. The six original lists establish coverage. Each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason. If evidence refutes the blocking concern and leaves only a stylistic preference, preserve the original concern and refutation evidence, classify the remainder as a Nit, and record a report-only no-action disposition; do not run host triage or write to Shark for that finding. A surviving substantive finding follows normal triage. A substantive downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
 5. Persist with `scripts/adaptive_review.py write-report`, passing the
    captured `base_commit` and `diff_path` and the consolidator's verdict. If
@@ -196,8 +197,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 
 ## Runner 3: alternate/comparable-model CLI
 
-Build one read-only adversarial prompt containing the diff path, complete changed-file list,
-standards path, task context, and the following required output contract:
+Build one read-only adversarial prompt containing the diff path, standards path, task context, and the following required output contract. The runner supplies `CHANGED_FILES` from the frozen scope as a JSON array of exact repository-relative filenames to each executable it invokes.
 
 ```text
 Return a JSON object containing `report` (the Markdown review, including

@@ -238,7 +238,7 @@ def _validate_scope_diff(scope, base_commit, diff_path, root, candidate):
     expected_diff = _scope_git(root, "diff", "--no-ext-diff", "--binary", base_commit, candidate)
     if diff != expected_diff or hashlib.sha256(diff).hexdigest() != scope["diff_sha256"]:
         raise ValueError("diff changed since scope capture")
-    manifest = [os.fsdecode(p) for p in _scope_git(root, "diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
+    manifest = [p.decode("utf-8", "surrogateescape") for p in _scope_git(root, "diff", "--name-only", "-z", base_commit, candidate).split(b"\0") if p]
     if manifest != scope["changed_files"] or len(manifest) != scope["changed_file_count"]:
         raise ValueError("scope manifest does not match candidate")
     return diff
@@ -279,9 +279,10 @@ def _snapshot_paths(source):
         raise ValueError("invalid source snapshot paths")
     prefix = runtime_prefix(source.get("runtime_project", "."))
     worktrees = registered_worktrees(source["source_root"], source.get("runtime_project", "."))
-    if any(selection_overlaps_runtime(os.fsencode(p), reserved) for p in paths for reserved in [prefix, *worktrees]):
+    git_paths = [p.encode("utf-8", "surrogateescape") for p in paths]
+    if any(selection_overlaps_runtime(p, reserved) for p in git_paths for reserved in [prefix, *worktrees]):
         raise ValueError("runtime artifacts cannot be selected as source")
-    return paths
+    return [os.fsdecode(p) for p in git_paths]
 
 
 def _validate_snapshot_content(source, tree):
@@ -623,6 +624,8 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
 
 def _cli_prompt(args, scope):
     prompt = read_review_file(args.prompt_file, 2 * 1024 * 1024).decode("utf-8")
+    prompt = "- CHANGED_FILES:\n" + json.dumps(scope["changed_files"]) + "\n" + prompt
+    prompt += "\nRead CHANGED_FILES as a JSON array of exact repository-relative filenames."
     prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity, reviewed_files and findings). "
     prompt += "decisions.reviewed_files must list every frozen changed file you actually opened or inspected; do not infer paths from the manifest. "
     prompt += "Each finding must have file, positive integer line, severity, rule, summary, diagnosis, disposition and a nonempty reason. "
