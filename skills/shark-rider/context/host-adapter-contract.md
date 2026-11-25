@@ -107,7 +107,13 @@ Never use `session_id` as host identity or correlation. Correlate host evidence
 through `worker_id` and, when needed, the distinct `host_session_id`. Never
 copy requested or selected values into effective fields to imply verification.
 `effort` is the exact requested value when present and remains separate from
-route selection.
+route selection. For a mapped Codex worker, preserve the resolved
+`selected_effort` even when the request omits effort. Compare it with the
+producing turn's independently observed `effective_effort`. The outer receipt
+carries the path and SHA-256 of this assignment's bounded preflight decision,
+including its exact Claude check, Codex authentication, catalog facts,
+comparison and confirmed pin. Uncertain catalog evidence yields unverified.
+A complete catalog containing only known unsuitable choices yields unsupported.
 
 Route attestation is ephemeral adapter metadata and does not expand the
 durable provenance fields above. The phase/status matrix is normative. Every

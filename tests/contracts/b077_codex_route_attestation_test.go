@@ -62,11 +62,11 @@ func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 		"### Claude Code Agent tool adapter"))
 	for _, invariant := range []string{
 		"selected provider and host class",
-		"returned provider is openai",
+		"confirm that concrete pin",
 		"never pins a codex model id",
 		"same binary, selected working directory, profile, and environment",
 		"app-server initialization followed by config/read",
-		"record its concrete configured model as selected_model",
+		"treat the configured model as a preference",
 		"explicit --model selector on every launch",
 		"capture the final argv",
 		"argv capture",
@@ -90,7 +90,7 @@ func TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel(t *testing.T) {
 
 // C01-C05: execute the Rider preflight and launch blocks against a recording CLI.
 func TestB077RecordingCodexReceivesSelectedRoute(t *testing.T) {
-	runB077ProcedureFixture(t, "b077_codex_route.py")
+	runB077ProcedureFixture(t, "b077_codex_route.py", "b077_catalog_cases.py")
 }
 
 func TestB077QuestionResponderHandover(t *testing.T) {
@@ -101,17 +101,21 @@ func TestB077WorkerExclusivity(t *testing.T) {
 	runB077ProcedureFixture(t, "b077_worker_exclusivity.py")
 }
 
-func runB077ProcedureFixture(t *testing.T, fixture string) {
+func runB077ProcedureFixture(t *testing.T, fixtures ...string) {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "shark")
 	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, "./cmd/shark")
 	build.Dir = filepath.Join("..", "..")
 	built, err := build.CombinedOutput()
 	require.NoError(t, err, "%s", built)
-	cmd := exec.Command("python3", filepath.Join("testdata", fixture))
-	cmd.Env = append(os.Environ(), "B077_SHARK="+binary)
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "%s", output)
+	for _, fixture := range fixtures {
+		t.Run(fixture, func(t *testing.T) {
+			cmd := exec.Command("python3", filepath.Join("testdata", fixture))
+			cmd.Env = append(os.Environ(), "B077_SHARK="+binary)
+			output, err := cmd.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+		})
+	}
 }
 
 func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
@@ -127,7 +131,7 @@ func TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte(workflowText), &workflow))
 
 	run := readF09RepositoryFile(t, "skills/shark-rider/verbs/run.md")
-	selectedModel := "discovered model from selected cli config/read"
+	selectedModel := "catalog-qualified model confirmed by selected cli"
 	selection := e36F04RawSection(t, run,
 		"### B077 default bug-stage Codex fallback mappings",
 		"### Claude Code Agent tool adapter")

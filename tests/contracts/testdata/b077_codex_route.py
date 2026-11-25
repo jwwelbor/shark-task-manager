@@ -20,22 +20,43 @@ def record_cli():
     def record(method, **fields):
         with (directory / "calls").open("a") as output:
             print(json.dumps(dict(method=method, argv=argv, cwd=os.getcwd(), **fields)), file=output)
+    if argv[-2:] == ["login","status"] or argv[-1:] == ["--version"]:
+        with (directory / "local-checks").open("a") as out:
+            print(json.dumps(dict(executable=sys.argv[0],argv=argv,cwd=os.getcwd())),file=out)
+        if argv[-1] == "--version":
+            print("fixture-version")
+        elif os.environ.get("RECORDER_LOGIN") != "authenticated":
+            sys.exit(1)
+        return
     if "app-server" in argv:
         for line in sys.stdin:
             request = json.loads(line)
+            if request.get("method") not in ("initialize", "initialized", "config/read", "model/list"):
+                record("unexpected", request_method=request.get("method"))
+                sys.exit(1)
             if request["method"] == "initialize":
                 print(json.dumps(dict(id=request["id"], result={})), flush=True)
             if request["method"] == "config/read":
                 config = json.loads((directory / "response").read_text())
+                if any(a.startswith("model=") for a in argv) and (directory / "confirmation").exists():
+                    pin = next(a[6:] for a in argv if a.startswith("model="))
+                    config = json.loads((directory / "confirmation").read_text())
+                    config.setdefault("model", pin)
                 record("read", params=request["params"], response=config)
                 if os.environ.get("STALL_READ") == "1":
                     time.sleep(30)
                 print(json.dumps(dict(id=request["id"], result=dict(config=config))), flush=True)
+            if request["method"] == "model/list":
+                pages = json.loads((directory / "pages").read_bytes())
+                cursor = request["params"].get("cursor") or "0"
+                page = pages[int(cursor)]
+                record("catalog", params=request["params"], response=page)
+                print(json.dumps(dict(id=request["id"], result=page)), flush=True)
         return
     if argv[0] == "exec":
         prompt = sys.stdin.read()
         with sqlite3.connect(Path.cwd() / "shark-tasks.db") as db:
-            claim = db.execute("select harness, harness_version, harness_model from entity_claims where entity_key='B001'").fetchone()
+            claim = db.execute("select harness, harness_version, harness_model, session_id from entity_claims where entity_key='B001'").fetchone()
         if os.environ.get("DROP_ARG") == "1":
             capture = Path(os.environ["ARGV_FILE"])
             fields = capture.read_bytes().split(b"\0")
@@ -43,7 +64,7 @@ def record_cli():
             del fields[index:index+2]
             capture.write_bytes(b"\0".join(fields))
         thread, turn = str(uuid4()), str(uuid4())
-        record("exec", prompt=prompt, claim=claim, thread=thread)
+        record("exec", prompt=prompt, claim=claim[:3], session=claim[3], thread=thread, turn=turn)
         if os.environ.get("DENIED") == "1":
             event = dict(type="turn.failed", error={"message":"model access denied"})
             if os.environ.get("KNOWN_COST") == "1":
@@ -69,13 +90,14 @@ def record_cli():
             print(json.dumps(event))
         records = [("session_meta", dict(id=thread, model_provider=provider)),
                    ("turn_context", dict(turn_id=turn, model=os.environ.get("OBSERVED") or model,
-                                         effort=overrides.get("model_reasoning_effort", "xhigh"))),
+                                         effort=os.environ.get("OBSERVED_EFFORT", overrides.get("model_reasoning_effort", "xhigh")))),
                    ("event_msg", dict(type="task_complete", turn_id=turn))]
         rollout = Path(os.environ["CODEX_HOME"]) / "sessions" / ("rollout-fixture-" + thread + ".jsonl")
         rollout.parent.mkdir(parents=True, exist_ok=True)
         rollout.write_text("".join(json.dumps(dict(type=t, payload=v)) + "\n" for t,v in records))
-        Path(argv[argv.index("--output-last-message")+1]).write_text("RECOMMENDED OUTCOME: pass\n")
+        Path(argv[argv.index("--output-last-message")+1]).write_text((directory / "worker-output").read_text())
         return
+    record("unexpected")
     raise ValueError(argv)
 
 
@@ -88,7 +110,13 @@ RIDER = ROOT / "skills/shark-rider"
 MAPPING = "B077-default-bug-anthropic-codex-v1"
 
 
-def commands():
+def catalog_row(model, description="Fast and affordable model for easier tasks.", **changes):
+    return dict(dict(model=model, id=model, description=description, hidden=False, isDefault=False,
+                     supportedReasoningEfforts=[{"reasoningEffort": value} for value in ("low", "high", "xhigh")],
+                     defaultReasoningEffort="high"), **changes)
+
+
+def commands(structured=False):
     run = (RIDER / "verbs/run.md").read_text()
     preclaim = run.split("### B077 default bug-stage", 1)[1].split("Claim the concrete entity", 1)[0]
     preflight = preclaim.split("```bash\n", 1)[1].split("\n```", 1)[0] if "```bash\n" in preclaim else ""
@@ -99,13 +127,17 @@ def commands():
     refresh = run.split("For every initial or replacement bug, refresh", 1)[1]
     wait = run.split("At the Codex completion boundary", 1)[1]
     apply = block(run.split("5. **Advance by the resolved outcome**", 1)[1])
+    if structured:
+        apply_section = run.split("3. Call the shared ingestion", 1)[1].split("4. Release", 1)[0]
+        return "\n".join([preflight, claim, block(refresh), launch, block(wait),
+                          block(apply_section), 'shark release "$ENTITY_KEY" --session "$SID" --outcome needs_research'])
     return "\n".join([preflight, claim, block(refresh), launch, block(wait),
                       'OUTCOME=$(sed -n "s/^RECOMMENDED OUTCOME: //p" "$RESULT_FILE")',
                       apply.replace("{response.status}", "research"),
                       'shark release "$ENTITY_KEY" --session "$SID" --outcome "$OUTCOME"'])
 
 
-class RiderCLI(unittest.TestCase):
+class RiderFixture(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -158,6 +190,9 @@ Verify each selection.
         wrapper.write_text("""#!/bin/sh
 set -eu
 printf '%s\\n' "$1" >> "$CASE/counts"
+if [ "$1" = run ]; then
+    printf '%s\\0' "$@" > "$CASE/apply-argv"
+fi
 if [ "$1" = release ] && [ -f "$CASE/takeover" ]; then
     "$B077_SHARK" claim B001 --force --by successor --session successor --field session_id >/dev/null
 fi
@@ -166,20 +201,38 @@ exec "$B077_SHARK" "$@"
         wrapper.chmod(0o700)
 
     def submit(self, request, returned, *, mapped=False, effort="low", default="", observable=True,
-               observed="", denied=False, known=False, dropped=False, stall=False, prior_model="stale"):
+               observed="", denied=False, known=False, dropped=False, stall=False, prior_model="stale",
+               stage_name="research", pages=None, confirmation=None, observed_effort=None,
+               claude_auth="unavailable", claude_eligibility="unavailable", codex_auth="authenticated"):
         path = self.directory
-        before, stage = self.template.split("  research:\n")
+        stage_header = "  " + stage_name + ":\n"
+        before, stage = self.template.split(stage_header)
+
         provider = "anthropic" if mapped else "openai"
         stage = stage.replace("    provider: anthropic", "    provider: " + provider)
-        stage = stage.replace("    model: haiku", "    model: " + json.dumps(request)
-                              + ("\n    effort: " + effort if effort else ""))
-        self.workflow.write_text(before + "  research:\n" + stage)
+        stage = re.sub(r"    model: [^\n]+", lambda match: "    model: " + json.dumps(request)
+                              + ("\n    effort: " + effort if effort else ""), stage, count=1)
+        self.workflow.write_text(before + stage_header + stage)
         keyed = json.loads(self.shark("next", "B001", "--workdir", str(self.work), "--json").stdout)
         self.assertEqual((provider, request, effort), (keyed["provider"], keyed["model"], keyed.get("effort", "")))
+        (path / "worker-output").write_text("RECOMMENDED OUTCOME: pass\n" if stage_name == "research" else
+            json.dumps(dict(kind="final", recommended_outcome="needs_research",
+                            gate_result=dict(schema_version=1, summary="Revisit fixture research",
+                                findings=[dict(severity="blocker", disposition="open", class_key="route-check",
+                                    fingerprint="fixture-research", class_statement="Recorded fixture needs research.")],
+                                kickbacks=[]))))
+        if pages is None:
+            pages = [dict(data=[catalog_row(returned.get("model", "fixture"))], nextCursor=None)]
+        (path / "pages").write_text(json.dumps(pages))
+        if mapped:
+            confirm = {k: v for k, v in returned.items() if k != "model"} if confirmation is None else confirmation
+            (path / "confirmation").write_text(json.dumps(confirm))
+        else:
+            (path / "confirmation").unlink(missing_ok=True)
         (path / "request").write_text(json.dumps(keyed))
         (path / "response").write_text(json.dumps(returned))
         self.route_file = path / ("route-" + str(uuid4()) + ".json")
-        for name in ("calls", "counts"):
+        for name in ("calls", "counts", "local-checks", "apply-argv"):
             (path / name).unlink(missing_ok=True)
         env = dict(os.environ, CASE=str(path), PATH=str(path)+os.pathsep+os.environ["PATH"],
                    CODEX_HOME=str(path/"codex-home"), ENTITY_KEY="B001", CLAUDE_SID="fixture",
@@ -192,45 +245,56 @@ exec "$B077_SHARK" "$@"
                    WORKDIR=str(self.work), ROUTE_FILE=str(self.route_file), SELECTED_SANDBOX="read-only",
                    PROMPT_FILE=str(path / "prompt"), ARGV_FILE=str(path / "argv"), RESULT_FILE=str(path / "result"),
                    EVENT_FILE=str(path / "events"))
-        result = subprocess.run(["bash", "-eu", "-c", commands()], env=env, cwd=self.work, capture_output=True)
+        env.update(EXACT_CLAUDE_AUTH=claude_auth, EXACT_CLAUDE_ELIGIBILITY=claude_eligibility,
+                   RECORDER_LOGIN=codex_auth,
+                   EXACT_CLAUDE_REASON="authentication_failed" if claude_auth=="failed" else "host_unavailable", RUN_ID="recording-" + str(uuid4()))
+        if observed_effort is not None:
+            env["OBSERVED_EFFORT"] = observed_effort
+        result = subprocess.run(["bash", "-eu", "-c", commands(stage_name != "research")], env=env, cwd=self.work, capture_output=True)
         calls = [json.loads(line) for line in (path / "calls").read_text().splitlines()] if (path / "calls").exists() else []
         self.assertFalse((path / "decoy-used").exists())
-        self.assertTrue(calls, result.stderr)
-        self.assertEqual("read", calls[0]["method"], "first boundary must be fresh local discovery")
-        self.assertEqual(str(self.work), calls[0]["params"]["cwd"])
-        self.assertEqual(str(self.work), calls[0]["cwd"])
-        self.assertIn("fixture", calls[0]["argv"])
-        self.assertIn("model_provider=openai", calls[0]["argv"])
-        self.assertEqual(["model=" + request] if request and not mapped else [],
-                         [x for x in calls[0]["argv"] if x.startswith("model=")])
-        expected_effort = ["model_reasoning_effort=" + effort] if effort else []
-        self.assertEqual(expected_effort, [x for x in calls[0]["argv"] if x.startswith("model_reasoning_effort=")])
+        if calls:
+            self.assertEqual("read", calls[0]["method"], "first boundary must be fresh local discovery")
+            self.assertEqual(str(self.work), calls[0]["params"]["cwd"])
+            self.assertEqual(str(self.work), calls[0]["cwd"])
+            self.assertIn("fixture", calls[0]["argv"])
+            self.assertIn("model_provider=openai", calls[0]["argv"])
+            self.assertEqual(["model=" + request] if request and not mapped else [],
+                             [x for x in calls[0]["argv"] if x.startswith("model=")])
+            expected_effort = ["model_reasoning_effort=" + effort] if effort else []
+            self.assertEqual(expected_effort, [x for x in calls[0]["argv"] if x.startswith("model_reasoning_effort=")])
         self.stderr = (result.stdout + result.stderr).decode()
         self.assertTrue(self.route_file.stat().st_size, "preflight ended without an attempt receipt")
         return calls, json.loads(self.route_file.read_text()), result.returncode
 
+
+class RiderCLI(RiderFixture):
     def test_success(self):
-        for request, model, mapped, default in (("haiku", "one", True, ""), ("haiku", "two", True, ""),
-                                                ("pinned", "pinned", False, ""), ("", "default", False, "default")):
+        for request, model, mapped, default in (
+            ("haiku", "one", True, ""),
+            ("haiku", "two", True, ""),
+            ("pinned", "pinned", False, ""),
+            ("", "default", False, "default"),
+        ):
             for effort in ("low", ""):
                 with self.subTest(request=request, model=model, effort=effort):
                     config = dict(model_provider="openai", model=model, model_reasoning_effort=effort or "xhigh")
                     calls, receipt, rc = self.submit(request, config, mapped=mapped, default=default, effort=effort)
                     self.assertEqual(0, rc, self.stderr)
                     self.assertEqual(model, receipt["selected_model"])
-                    self.assertEqual(["read", "exec"], [c["method"] for c in calls])
+                    self.assertEqual(["read", "catalog", "read", "exec"] if mapped else ["read", "exec"], [c["method"] for c in calls])
                     current = json.loads((self.directory/"current").read_text())
                     self.assertEqual("repair_plan", json.loads(self.shark("get", "B001", "--json").stdout)["status"])
                     with sqlite3.connect(self.work / "shark-tasks.db") as db:
                         actor = db.execute("select changed_by from entity_history order by id desc limit 1").fetchone()[0]
                     self.assertEqual("researcher@openai/" + model, actor)
                     self.shark("status", "set", "B001", "research", "--force", "--reason", "reset isolated fixture")
-                    self.assertEqual(current["prompt"], calls[1]["prompt"])
-                    self.assertEqual(["codex", "fixture-version", model], calls[1]["claim"])
+                    self.assertEqual(current["prompt"], calls[-1]["prompt"])
+                    self.assertEqual(["codex", "fixture-version", model], calls[-1]["claim"])
                     history = json.loads(self.shark("status", "history", "B001", "--json").stdout)
                     self.assertIn("researcher@openai/" + model, [h.get("agent") for h in history["history"]])
-                    self.assertEqual(str(self.work), calls[1]["cwd"])
-                    argv = calls[1]["argv"]
+                    self.assertEqual(str(self.work), calls[-1]["cwd"])
+                    argv = calls[-1]["argv"]
                     capture = (self.directory / "argv").read_bytes().decode().split("\0")
                     self.assertEqual([str(self.cli), *argv, ""], capture)
                     self.assertIn("model_provider=openai", argv)
@@ -251,7 +315,7 @@ exec "$B077_SHARK" "$@"
                                            model_reasoning_effort="low"), mapped=True, denied=denied,
                                            observed=observed, known=known, dropped=dropped)
                 self.assertNotEqual(0, rc)
-                self.assertEqual(["read", "exec"], [c["method"] for c in calls])
+                self.assertEqual(["read", "catalog", "read", "exec"], [c["method"] for c in calls])
                 commands = (self.directory / "counts").read_text().splitlines()
                 self.assertEqual(1, commands.count("claim"))
                 self.assertEqual(1, commands.count("release"))
@@ -281,7 +345,7 @@ exec "$B077_SHARK" "$@"
         calls, _, rc = self.submit("haiku", dict(model_provider="openai", model="found",
                                                  model_reasoning_effort="low"), mapped=True, denied=True)
         self.assertNotEqual(0, rc)
-        self.assertEqual(["read", "exec"], [c["method"] for c in calls])
+        self.assertEqual(["read", "catalog", "read", "exec"], [c["method"] for c in calls])
         effects = (self.directory / "counts").read_text().splitlines()
         self.assertEqual((1, 1, 0), (effects.count("claim"), effects.count("release"), effects.count("status")))
         with sqlite3.connect(self.work / "shark-tasks.db") as db:
@@ -384,7 +448,7 @@ exec "$B077_SHARK" "$@"
                                                  observable=change.get("model") != "second",
                                                  prior_model=first["selected_model"])
                 self.assertNotEqual(0, rc)
-                self.assertEqual(["read"], [call["method"] for call in calls])
+                self.assertEqual(["read", "catalog", "read"] if change.get("model") else ["read"], [call["method"] for call in calls])
                 self.assertEqual("unverified", receipt["route_status"])
                 self.assertEqual(("anthropic", "haiku", MAPPING, "codex-cli", "openai"),
                                  tuple(receipt[k] for k in ("requested_provider", "requested_model",

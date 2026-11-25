@@ -240,12 +240,12 @@ Codex route separately.
 
 | entity_type | status | agent_type | requested_provider | requested_model | host_worker_class | selected_provider | selected_model | mapping_ref |
 |---|---|---|---|---|---|---|---|---|
-| bug | research | researcher | anthropic | haiku | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
-| bug | repair_plan | architect | anthropic | sonnet | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
-| bug | plan_review | tech-lead | anthropic | opus | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
-| bug | development | developer | anthropic | sonnet | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
-| bug | code_review | tech-lead | anthropic | opus | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
-| bug | qa | qa | anthropic | sonnet | codex-cli | openai | discovered model from selected CLI config/read | B077-default-bug-anthropic-codex-v1 |
+| bug | research | researcher | anthropic | haiku | codex-cli | openai | catalog-qualified model confirmed by selected CLI | B077-default-bug-anthropic-codex-v1 |
+| bug | repair_plan | architect | anthropic | sonnet | codex-cli | openai | catalog-qualified model confirmed by selected CLI | B077-default-bug-anthropic-codex-v1 |
+| bug | plan_review | tech-lead | anthropic | opus | codex-cli | openai | catalog-qualified model confirmed by selected CLI | B077-default-bug-anthropic-codex-v1 |
+| bug | development | developer | anthropic | sonnet | codex-cli | openai | catalog-qualified model confirmed by selected CLI | B077-default-bug-anthropic-codex-v1 |
+| bug | code_review | tech-lead | anthropic | opus | codex-cli | openai | catalog-qualified model confirmed by selected CLI | B077-default-bug-anthropic-codex-v1 |
+| bug | qa | qa | anthropic | sonnet | codex-cli | openai | catalog-qualified model confirmed by selected CLI | B077-default-bug-anthropic-codex-v1 |
 
 These are the current Anthropic stage tuples in the embedded default bug
 workflow. The table applies only to the exact entity type, status, persona,
@@ -254,10 +254,12 @@ stages, personas, Anthropic models, or an empty model. The mapping fixes the
 selected provider and host class, but never pins a Codex model ID. Before claim,
 resolve the selected Codex executable and use that same binary, selected
 working directory, profile, and environment to perform app-server
-initialization followed by `config/read`. Record its concrete configured model
-as `selected_model` only when the returned provider is `openai` and the model
-is non-empty. This read discovers the model to select; it does not authorize
-launching with an implicit or ambient model. Pass the discovered value through
+initialization followed by `config/read`. Treat the configured model as a preference. For the six mapped tuples,
+enumerate the same executable's visible `model/list` catalog through the final
+page and compare complete descriptions and supported efforts. Prefer a qualified
+configured model, then a qualified catalog default, then the first qualifying
+selector in lexical order. Confirm that concrete pin with a second local
+configuration read before claim. Pass the discovered value through
 the explicit `--model` selector on every launch and capture the final argv for
 that invocation. Verify the captured executable and argv contain the same
 selected model and provider overrides recorded by preflight. Do not derive the
@@ -286,7 +288,16 @@ entry after the exact Claude route is unavailable. For an empty exact request
 supply `DEFAULT_MODEL` from the independently documented rule for this CLI
 and profile. Set `OBSERVATION_READY=1` only after checking the producing-turn
 observation channel. Check support for the requested effort before invoking
-the reader. These inputs come from this dispatch's capability check.
+the reader. For a mapped request set `EXACT_CLAUDE_AUTH` to the observed authenticated,
+failed or unavailable result, and `EXACT_CLAUDE_ELIGIBILITY` to unavailable or
+unusable only when the exact-route check establishes that outcome. An eligible
+exact route uses Claude. Set `EXACT_CLAUDE_REASON` from that check to
+`host_unavailable`, `authentication_failed`, `selector_unavailable`,
+`observation_unavailable`, `alias_unresolved` or `adapter_failed`. The reader
+checks `SELECTED_VERSION` and executes the selected CLI's own login check
+in the worker context. Allocate a fresh private `OBSERVATION_FILE` before
+preflight for the final route receipt. Keep the sanitized, attempt-specific
+decision at its original path for the lifetime of the receipt.
 
 ```bash
 unset SELECTED_MODEL
@@ -295,10 +306,31 @@ REQUESTED_EFFORT=$(jq -er '.effort // "" | strings' "$REQUEST_FILE") || exit 1
 reader_args=(--request "$REQUEST_FILE" --cli "${CODEX_BIN:?}" --cwd "${WORKDIR:?}"
   --provider "${SELECTED_PROVIDER:?}" --profile "${SELECTED_PROFILE:-}"
   --sandbox "${SELECTED_SANDBOX:-}" --mapping "${MAPPING_REF:-}" --default-model "${DEFAULT_MODEL:-}"
+  --cli-version "${SELECTED_VERSION:-}" --claude-auth "${EXACT_CLAUDE_AUTH:-}"
+  --claude-eligibility "${EXACT_CLAUDE_ELIGIBILITY:-}" --claude-reason "${EXACT_CLAUDE_REASON:-}"
   --evidence-ref "$ROUTE_FILE")
 if [[ ${OBSERVATION_READY:-0} == 1 ]]; then reader_args+=(--observable); fi
+reader_exit=0
 timeout -k 2 15 python3 "$RIDER_ROOT/scripts/read-codex-route.py" \
-  "${reader_args[@]}" > "$ROUTE_FILE" || exit 1
+  "${reader_args[@]}" > "$ROUTE_FILE" || reader_exit=$?
+if ! jq -e 'type == "object" and has("requested_model")' "$ROUTE_FILE" >/dev/null; then
+  reader_exit=1
+  jq --arg ref "$ROUTE_FILE" --arg mapping "${MAPPING_REF:-}" \
+    '{phase:"preflight", route_status:"unverified", host_worker_class:"codex-cli",
+      requested_provider:.provider, requested_model:.model, evidence_ref:$ref,
+      request:({entity_type,entity_key,status,action,agent_type,provider,model}
+               + (if has("effort") then {effort} else {} end)),
+      reason:"selected CLI reader exited without a complete decision"}
+     + (if $mapping != "" then {mapping_ref:$mapping} else {} end)' \
+    "$REQUEST_FILE" > "$ROUTE_FILE" || exit 1
+fi
+DECISION_SHA256=$(sha256sum < "$ROUTE_FILE" | cut -d" " -f1) || exit 1
+if (( reader_exit != 0 )); then
+  jq --arg ref "$ROUTE_FILE" --arg digest "$DECISION_SHA256" \
+    '. + {evidence_ref:$ref, attempt_sha256:$digest, decision_reason:.reason}' \
+    "$ROUTE_FILE" > "${OBSERVATION_FILE:?}"
+  exit 1
+fi
 SELECTED_MODEL=$(jq -er '.selected_model | strings | select(length > 0)' "$ROUTE_FILE") || exit 1
 ```
 
@@ -588,7 +620,7 @@ worker_exit=0
 wait "$CODEX_PID" || worker_exit=$?
 python3 "$RIDER_ROOT/scripts/observe-codex-turn.py" "$EVENT_FILE" \
   "${CODEX_HOME:-$HOME/.codex}" "$ROUTE_FILE" "$ARGV_FILE" "$RESULT_FILE" \
-  --worker-exit "$worker_exit" > "$OBSERVATION_FILE" || exit 1
+  --worker-exit "$worker_exit" --decision-sha256 "$DECISION_SHA256" > "$OBSERVATION_FILE" || exit 1
 EFFECTIVE_PROVIDER=$(jq -er .effective_provider "$OBSERVATION_FILE") || exit 1
 EFFECTIVE_MODEL=$(jq -er .effective_model "$OBSERVATION_FILE") || exit 1
 ```
@@ -647,7 +679,13 @@ already validates and persists for the core runner. Instead:
    transition) on any validation error.
    If a bug worker used a selected working directory, include the same
    `--workdir "$WORKDIR"` in the `shark run --apply-result` call so evidence
-   is resolved in the selected checkout.
+   is resolved in the selected checkout. With the durable run ID already
+   assigned and the admitted envelope at its private path, apply the result:
+
+   ```bash
+   shark run "$ENTITY_KEY" --apply-result "$RESULT_FILE" --run-id "$RUN_ID" \
+     --workdir "$WORKDIR" --session "$SID" || exit 1
+   ```
 4. Release the lease with the ingested outcome. For a bug, if the resulting
    status equals the dispatched status, stop this invocation and report the
    unresolved stage. Otherwise return to Step 1 with the original `{KEY}`.

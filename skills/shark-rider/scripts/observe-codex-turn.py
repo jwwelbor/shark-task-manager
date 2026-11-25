@@ -1,5 +1,6 @@
 """Correlate one fresh codex exec with its sole completed rollout turn."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -87,13 +88,14 @@ def observe(events, home, selection, receipt, *, rejected):
         return "unverified"
     if len(providers) != 1 or len(models) != 1 or not all(providers) or not all(models):
         return "unverified"
-    if "effort" in selection and (len(efforts) != 1 or not all(efforts)):
+    expected_effort = selection["selected_effort"] if selection.get("mapping_ref") else selection.get("effort")
+    if expected_effort and (len(efforts) != 1 or not all(efforts)):
         return "unverified"
     provider, model = providers.pop(), models.pop()
     receipt.update(turn_id=completions[0], effective_model=model, effective_provider=provider)
-    if "effort" in selection:
+    if expected_effort:
         receipt["effective_effort"] = efforts.pop()
-        if receipt["effective_effort"] != selection["effort"]:
+        if receipt["effective_effort"] != expected_effort:
             return "mismatch"
     if (provider, model) != (selection["selected_provider"], selection["selected_model"]):
         return "mismatch"
@@ -105,11 +107,28 @@ def main():
     for name in ("events", "home", "selection", "argv", "result_file"):
         parser.add_argument(name, type=Path)
     parser.add_argument("--worker-exit", type=int, required=True)
+    parser.add_argument("--decision-sha256")
     args = parser.parse_args()
     receipt = dict(phase="post-dispatch", route_status="unverified", evidence_ref=str(args.events))
     receipt["exit_status"] = args.worker_exit
     try:
-        selection = json.loads(args.selection.read_text())
+        selection_bytes = args.selection.read_bytes()
+        selection = json.loads(selection_bytes)
+        if selection.get("mapping_ref") or args.decision_sha256:
+            if hashlib.sha256(selection_bytes).hexdigest() != args.decision_sha256:
+                raise ValueError("selection changed after preflight")
+            receipt.update(evidence_ref=str(args.selection), attempt_sha256=args.decision_sha256,
+                           decision_reason=selection.get("reason"))
+            if selection.get("mapping_ref"):
+                proof = Path(selection["decision_ref"])
+                if proof != Path(str(args.selection) + ".decision.json"):
+                    raise ValueError("unexpected mapping decision path")
+                if hashlib.sha256(proof.read_bytes()).hexdigest() != selection["decision_sha256"]:
+                    raise ValueError("mapping decision changed after preflight")
+                receipt.update(decision_ref=str(proof), decision_sha256=selection["decision_sha256"])
+            for key in ("mapping_ref", "selected_effort", "effort"):
+                if key in selection:
+                    receipt[key] = selection[key]
         for key in ("host_worker_class", "requested_provider", "requested_model", "selected_provider", "selected_model"):
             receipt[key] = selection[key]
         try:
