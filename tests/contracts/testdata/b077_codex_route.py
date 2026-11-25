@@ -57,6 +57,11 @@ def record_cli():
         prompt = sys.stdin.read()
         with sqlite3.connect(Path.cwd() / "shark-tasks.db") as db:
             claim = db.execute("select harness, harness_version, harness_model, session_id from entity_claims where entity_key='B001'").fetchone()
+        if target := os.environ.get("B077_RECORDING_CORRUPTION"):
+            attempt = Path(os.environ["ROUTE_FILE"])
+            destination = attempt if target == "attempt" else Path(str(attempt) + ".decision.json")
+            changed = json.loads(destination.read_bytes())
+            destination.write_text(json.dumps(dict(changed, extra="/fixture/untrusted")))
         if os.environ.get("DROP_ARG") == "1":
             capture = Path(os.environ["ARGV_FILE"])
             fields = capture.read_bytes().split(b"\0")

@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import unittest
+from unittest.mock import patch
 
 from b077_codex_route import RiderFixture, catalog_row
 
@@ -676,6 +677,20 @@ class CatalogCases(RiderFixture):
         self.assertNotEqual(0, rc)
         for file in (self.route_file, Path(decision["decision_ref"]), self.directory / "observation"):
             self.assertNotIn(marker, file.read_text())
+
+    def test_changed_decision_cannot_publish_untrusted_evidence(self):
+        config = dict(model_provider="openai", model="B", model_reasoning_effort="high")
+        for target in ("attempt", "decision"):
+            with self.subTest(target=target), patch.dict(os.environ, B077_RECORDING_CORRUPTION=target):
+                calls, _, rc = self.submit("haiku", config, mapped=True, effort="high")
+                self.assertNotEqual(0, rc)
+                self.assertEqual(1, sum(call["method"]=="exec" for call in calls))
+                final = json.loads((self.directory/"observation").read_bytes())
+                self.assertEqual("unverified", final["route_status"])
+                self.assertNotIn("effective_model", final)
+                self.assertNotIn("decision_ref",final)
+                self.assertEqual("#/reason",final["evidence_ref"])
+                self.assertNotIn("status",(self.directory/"counts").read_text().splitlines())
 
     def test_parent_reads_authentication_from_selected_executable(self):
         config = dict(model_provider="openai", model="B", model_reasoning_effort="high")

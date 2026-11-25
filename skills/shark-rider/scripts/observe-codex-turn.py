@@ -109,7 +109,7 @@ def main():
     parser.add_argument("--worker-exit", type=int, required=True)
     parser.add_argument("--decision-sha256")
     args = parser.parse_args()
-    receipt = dict(phase="post-dispatch", route_status="unverified", evidence_ref=str(args.events))
+    receipt = dict(phase="post-dispatch", route_status="unverified", evidence_ref="#/reason")
     receipt["exit_status"] = args.worker_exit
     try:
         selection_bytes = args.selection.read_bytes()
@@ -117,8 +117,6 @@ def main():
         if selection.get("mapping_ref") or args.decision_sha256:
             if hashlib.sha256(selection_bytes).hexdigest() != args.decision_sha256:
                 raise ValueError("selection changed after preflight")
-            receipt.update(evidence_ref=str(args.selection), attempt_sha256=args.decision_sha256,
-                           decision_reason=selection.get("reason"))
             if selection.get("mapping_ref"):
                 proof = Path(selection["decision_ref"])
                 if proof != Path(str(args.selection) + ".decision.json"):
@@ -129,6 +127,8 @@ def main():
             for key in ("mapping_ref", "selected_effort", "effort"):
                 if key in selection:
                     receipt[key] = selection[key]
+            receipt.update(attempt_sha256=args.decision_sha256, decision_reason=selection.get("reason"))
+        receipt["evidence_ref"] = str(args.selection)
         for key in ("host_worker_class", "requested_provider", "requested_model", "selected_provider", "selected_model"):
             receipt[key] = selection[key]
         try:
