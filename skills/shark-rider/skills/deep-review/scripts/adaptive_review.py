@@ -549,6 +549,9 @@ def _display(metadata, key, fallback):
 
 
 def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
+    requested_model = metadata.get("requested_model")
+    if requested_model is None:
+        requested_model = "unknown"
     fields = [
         f"**Generated:** {metadata['generated']} · **Tool:** `/deep-review` ({metadata['runner_mode']}) · **Branch:** `{branch}`",
         f"**Runner metadata:** `runner_mode={metadata['runner_mode']}` `specialists_completed={metadata['specialists_completed']}` `consolidator_completed={metadata['consolidator_completed']}`",
@@ -561,7 +564,7 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
         f"**Retained scope SHA-256:** `{_display(metadata, 'scope_sha256', 'unavailable')}`",
         f"**Review decisions:** `{_display(metadata, 'retained_decisions', 'unavailable')}`",
         f"**Review decisions SHA-256:** `{_display(metadata, 'decisions_sha256', 'unavailable')}` · **Angle results SHA-256:** `{_display(metadata, 'angles_sha256', 'unavailable')}`",
-        f"**Requested model:** `{_display(metadata, 'requested_model', 'unknown')}` · **Verified effective model:** `{_display(metadata, 'effective_model', 'unknown')}`",
+        f"**Requested model:** `{requested_model}` · **Verified effective model:** `{_display(metadata, 'effective_model', 'unknown')}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
     return "# Overall Code Review\n\n" + "\n".join(fields) + "\n\n---\n\n"

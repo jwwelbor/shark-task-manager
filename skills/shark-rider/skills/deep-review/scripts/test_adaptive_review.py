@@ -122,6 +122,51 @@ def fake_reviewer(path, packet):
 
 
 class AdaptiveReviewTests(unittest.TestCase):
+    @unittest.skipIf(os.name == 'nt', 'uses an executable reviewer fixture')
+    def test_public_writers_preserve_the_requested_and_observed_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            packet = review_packet(scope)
+            reviewer = root / "codex"
+            fake_reviewer(reviewer, packet)
+            body, decisions, prompt = (root / name for name in ("body", "decisions", "prompt"))
+            body.write_text(packet["report"])
+            decisions.write_text(json.dumps(packet["decisions"]))
+            prompt.write_text("Review the captured changes.")
+            entries = {
+                "run-cli": ["--codex-command", str(reviewer), "--host", "claude",
+                            "--no-workflow-available", "--no-agent-dispatch-available",
+                            "--prompt-file", str(prompt)],
+                "write-report": ["--body-file", str(body), "--review-decisions", str(decisions),
+                                 "--runner-mode", "adversarial-cli", "--adversarial-model", "codex",
+                                 "--fallback-reason", "dispatch unavailable", "--specialists-completed", "0",
+                                 "--consolidator-completed", "true", "--verdict", "PASS"],
+            }
+            for entry, options in entries.items():
+                for requested in (None, "", "requested-test"):
+                    for observed in (None, "observed-test"):
+                        with self.subTest(entry=entry, requested=requested, observed=observed):
+                            report = root / f"{entry}-{requested}-{observed}.md"
+                            argv = [sys.executable, str(HERE / "adaptive_review.py"), entry, *options,
+                                    "--project-root", str(repo), "--source-root", str(repo),
+                                    "--base-commit", scope["base_commit"], "--scope-file", str(scope_file),
+                                    "--diff-path", scope["diff_path"], "--review-output-path", str(report)]
+                            if requested is not None:
+                                argv.extend(["--requested-model", requested])
+                            if observed is not None:
+                                argv.extend(["--effective-model", observed])
+                            run = subprocess.run(argv, capture_output=True, text=True)
+                            self.assertEqual(run.returncode, 0, (argv, run.stderr, run.stdout))
+                            result = json.loads(run.stdout)
+                            self.assertEqual(result["verdict"], "PASS")
+                            self.assertEqual(result["requested_model"], requested)
+                            self.assertEqual(result["effective_model"], observed)
+                            request_label = "unknown" if requested is None else requested
+                            self.assertIn(f"**Requested model:** `{request_label}` · "
+                                          f"**Verified effective model:** `{observed or 'unknown'}`",
+                                          report.read_text().split("\n---\n", 1)[0])
+
     @unittest.skipIf(os.name == 'nt', 'uses byte filenames and executable fixtures')
     def test_cli_selects_only_utf8_packets_and_attributes_the_selected_attempt(self):
         with tempfile.TemporaryDirectory() as tmp:
