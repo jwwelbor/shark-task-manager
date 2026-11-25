@@ -662,7 +662,8 @@ the workflow prompts emit, apply them in this order, then advance:
    line (or the `outcome` field of a JSON return). Any outcome key defined
    for the current step is valid — `shark status advance` rejects unknown
    keys, so pass the worker's key through verbatim rather than coercing it to
-   pass/fail/blocked. For a missing outcome, select `blocked` and use the bounded response tail for the session-qualified blocker note in step 3.
+   pass/fail/blocked. No outcome at all → treat as `blocked` and record a
+   blocker note quoting the tail of the response, using step 3’s session-qualified insert.
 2. **Establish terminal completion before advancing.** Apply this to every
    terminal envelope: `final`, `blocked_external`, and `failed`. An awaited
    foreground worker satisfies the check when its invocation exits after
