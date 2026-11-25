@@ -9,6 +9,7 @@ complete the review, run-cli retries an installed comparable CLI.
 
 from __future__ import annotations
 
+from collections import Counter
 import argparse
 import hashlib
 import json
@@ -427,7 +428,7 @@ def inspect_angle_packets(data, scope):
     completed = 0
     for name in "abcdef":
         try:
-            findings.extend(_angle_findings(name, packets.get(name), scope))
+            findings.extend(dict(finding, origin=name) for finding in _angle_findings(name, packets.get(name), scope))
             completed += 1
         except ValueError as exc:
             errors.append(str(exc))
@@ -453,13 +454,50 @@ def _validate_decision(finding, verdict):
         raise ValueError("refutation reason contradicts its disposition")
 
 
+SPECIALIST_ORIGINS = tuple("abcdef")
+
+
+def _index_decisions(findings, verdict, cli):
+    indexed, ids = {}, set()
+    for decision in findings:
+        _validate_decision(decision, verdict)
+        origin = decision.get("origin", "")
+        allowed = ("", "single-reviewer") if cli else ("", "consolidator", *SPECIALIST_ORIGINS)
+        if origin not in allowed:
+            raise ValueError(f"invalid review decision origin {origin!r}")
+        member = decision.get("finding_id")
+        if origin in SPECIALIST_ORIGINS and (not isinstance(member, str) or not member.strip()):
+            raise ValueError(f"angle {origin} decision requires a finding_id")
+        if member is not None:
+            if not isinstance(member, str) or not member.strip() or member in ids:
+                raise ValueError(f"invalid or duplicate review finding_id {member!r}")
+            ids.add(member)
+        site = _finding_key(decision)
+        key = (site, origin, decision["evidence"] if origin in SPECIALIST_ORIGINS else "")
+        if key in indexed:
+            raise ValueError(f"duplicate review decision for {origin or 'finding'} at {site[0]!r}:{site[1]}")
+        indexed[key] = decision
+    return indexed
+
+
 def _check_raw_findings(raw_findings, by_key, verdict):
+    counts = Counter(_finding_key(finding) for finding in raw_findings)
+    remaining = by_key.copy()
     for finding in raw_findings:
-        decision = by_key.get(_finding_key(finding))
-        if not decision:
-            raise ValueError("raw finding has no explicit disposition")
+        site = _finding_key(finding)
+        origin = finding.get("origin", "")
+        decision = remaining.pop((site, origin, finding["evidence"]), None)
+        if decision is None and counts[site] == 1:
+            decision = remaining.pop((site, "", ""), None)
+        if decision is None or decision["evidence"] != finding["evidence"]:
+            raise ValueError(f"angle {origin} raw finding has no explicit disposition matching its observation at {site[0]!r}:{site[1]}")
         if verdict.upper().startswith("PASS") and finding["severity"] == "blocker" and not _resolved_raw_blocker(decision, verdict):
             raise ValueError("raw blocker has no refutation or justified downgrade")
+    for (site, origin, _), decision in remaining.items():
+        if not origin and counts[site]:
+            raise ValueError(f"ambiguous extra decision at {site[0]!r}:{site[1]}")
+        if origin in SPECIALIST_ORIGINS:
+            raise ValueError(f"angle {origin} has no raw observation for {decision['finding_id']} at {site[0]!r}:{site[1]}")
 
 
 def _resolved_raw_blocker(decision, verdict):
@@ -481,13 +519,7 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
-    by_key = {}
-    for finding in findings:
-        _validate_decision(finding, verdict)
-        key = _finding_key(finding)
-        if key in by_key:
-            raise ValueError("duplicate review decision")
-        by_key[key] = finding
+    by_key = _index_decisions(findings, verdict, require_reviewed_files)
     _check_raw_findings(raw_findings, by_key, verdict)
     if verdict.upper() == "PASS-WITH-TRIAGE" and not any(
         f["disposition"] not in {"excluded", "refuted"} for f in findings

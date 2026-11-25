@@ -15,19 +15,22 @@ type bugFindingKey struct {
 	Rule      string
 	Summary   string
 	Diagnosis string
+	Origin    string
+	Evidence  string
 }
 type bugReviewDecision struct {
-	FindingID   string        `json:"finding_id"`
-	File        reviewGitPath `json:"file"`
-	Line        int           `json:"line"`
-	Severity    string        `json:"severity"`
-	Rule        string        `json:"rule"`
-	Summary     string        `json:"summary"`
-	Diagnosis   string        `json:"diagnosis"`
-	Impact      string        `json:"impact"`
-	Evidence    string        `json:"evidence"`
-	Disposition string        `json:"disposition"`
-	Reason      string        `json:"reason"`
+	Origin      json.RawMessage `json:"origin,omitempty"`
+	FindingID   string          `json:"finding_id"`
+	File        reviewGitPath   `json:"file"`
+	Line        int             `json:"line"`
+	Severity    string          `json:"severity"`
+	Rule        string          `json:"rule"`
+	Summary     string          `json:"summary"`
+	Diagnosis   string          `json:"diagnosis"`
+	Impact      string          `json:"impact"`
+	Evidence    string          `json:"evidence"`
+	Disposition string          `json:"disposition"`
+	Reason      string          `json:"reason"`
 }
 type bugReviewDecisions struct {
 	ReviewContractVersion int                 `json:"review_contract_version"`
@@ -76,8 +79,55 @@ func hasBugTriageBasis(found map[bugFindingKey]bugReviewDecision) bool {
 	return false
 }
 
+func isReviewAngle(origin string) bool {
+	return len(origin) == 1 && strings.Contains("abcdef", origin)
+}
+
+// Older packets could carry arbitrary extensions under this name.
+func currentDecisionOrigin(raw json.RawMessage) (string, error) {
+	if raw == nil {
+		return "", nil
+	}
+	var origin *string
+	if err := json.Unmarshal(raw, &origin); err != nil || origin == nil {
+		return "", fmt.Errorf("review decision origin must be a string")
+	}
+	switch *origin {
+	case "", "consolidator", "single-reviewer", "a", "b", "c", "d", "e", "f":
+		return *origin, nil
+	default:
+		return "", fmt.Errorf("invalid review decision origin %q", *origin)
+	}
+}
+
+func decisionSourceKey(f bugReviewDecision, version int, ids map[string]bool) (bugFindingKey, error) {
+	key := bugFindingKey{File: string(f.File), Line: f.Line, Rule: f.Rule, Summary: f.Summary, Diagnosis: f.Diagnosis}
+	if version != 2 {
+		return key, nil
+	}
+	origin, err := currentDecisionOrigin(f.Origin)
+	if err != nil {
+		return key, err
+	}
+	key.Origin = origin
+	if isReviewAngle(origin) {
+		if strings.TrimSpace(f.FindingID) == "" {
+			return key, fmt.Errorf("angle %s decision requires a finding_id", origin)
+		}
+		key.Evidence = f.Evidence
+	}
+	if f.FindingID != "" {
+		if ids[f.FindingID] {
+			return key, fmt.Errorf("duplicate review finding_id %q", f.FindingID)
+		}
+		ids[f.FindingID] = true
+	}
+	return key, nil
+}
+
 func indexBugReviewDecisions(packet bugReviewDecisions, verdict string) (map[bugFindingKey]bugReviewDecision, error) {
 	found := make(map[bugFindingKey]bugReviewDecision, len(packet.Findings))
+	ids := make(map[string]bool)
 	for _, finding := range packet.Findings {
 		if err := validateBugReviewDecision(finding, verdict); err != nil {
 			return nil, err
@@ -85,9 +135,12 @@ func indexBugReviewDecisions(packet bugReviewDecisions, verdict string) (map[bug
 		if err := validateFindingSupport(packet.ReviewContractVersion, finding.Severity, finding.Impact, finding.Evidence); err != nil {
 			return nil, err
 		}
-		key := bugFindingKey{string(finding.File), finding.Line, finding.Rule, finding.Summary, finding.Diagnosis}
+		key, err := decisionSourceKey(finding, packet.ReviewContractVersion, ids)
+		if err != nil {
+			return nil, err
+		}
 		if _, exists := found[key]; exists {
-			return nil, fmt.Errorf("duplicate review decision")
+			return nil, fmt.Errorf("duplicate review decision for angle %q at %s:%d", key.Origin, quoteReviewGitPath(key.File), key.Line)
 		}
 		found[key] = finding
 	}
@@ -135,4 +188,13 @@ func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 
 func validBugDecisionShape(f bugReviewDecision) bool {
 	return f.File != "" && f.Line > 0 && f.Rule != "" && f.Summary != "" && f.Diagnosis != "" && strings.TrimSpace(f.Disposition) != "" && strings.TrimSpace(f.Reason) != ""
+}
+
+func (decisions *bugReviewDecisionIndex) validateCLI(scope bugCandidateScope) error {
+	for key := range decisions.byFinding {
+		if key.Origin != "" && key.Origin != "single-reviewer" {
+			return fmt.Errorf("CLI review cannot supply angle or consolidator decision %q", key.Origin)
+		}
+	}
+	return validateBugReviewedFiles(decisions.reviewedFiles, scope.ChangedFiles)
 }

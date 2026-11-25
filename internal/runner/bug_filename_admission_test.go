@@ -54,6 +54,15 @@ func seedFilenameReview(t *testing.T, root, run string, result []byte, notes *bu
 }
 
 func TestBugReviewFilenameAdmission(t *testing.T) {
+	runReviewAdmissionCases(t, "filename", 27)
+}
+
+func TestGroupedSourceAdmission(t *testing.T) {
+	runReviewAdmissionCases(t, "grouped", 22)
+}
+
+func runReviewAdmissionCases(t *testing.T, suite string, count int) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("requires POSIX byte filenames")
 	}
@@ -71,15 +80,16 @@ func TestBugReviewFilenameAdmission(t *testing.T) {
 	planNotes, planHistory := seedReviewTestPlan(t, root, filenameTestEnvelope(t, approved), plan)
 	_, file, _, _ := runtime.Caller(0)
 	scripts := filepath.Join(filepath.Dir(file), "../../skills/shark-rider/skills/deep-review/scripts")
-	cmd := exec.Command("python3", filepath.Join(filepath.Dir(file), "testdata/filename_receipts.py"), root, scripts, baseline, planDigest)
+	cmd := exec.Command("python3", filepath.Join(filepath.Dir(file), "testdata/filename_receipts.py"), root, scripts, baseline, planDigest, suite)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(output))
 	var cases []struct {
-		Name string
-		Refs []workercontrol.EvidenceRef
+		Name          string
+		ExpectedError string `json:"expected_error"`
+		Refs          []workercontrol.EvidenceRef
 	}
 	require.NoError(t, json.Unmarshal(output, &cases))
-	require.Len(t, cases, 27)
+	require.Len(t, cases, count)
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			notes, history := planNotes, planHistory
@@ -106,7 +116,12 @@ func TestBugReviewFilenameAdmission(t *testing.T) {
 					coord.Admission = NewBugGateAdmission(gateNotes, gateHistory)
 					_, err := IngestGateResult(context.Background(), GateIngestRequest{EnvelopeBytes: result, Coordinator: coord, ProjectRoot: root, RunID: gate + "-" + tc.Name, EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: gate, Gate: gate, Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": target}})
 					switch {
-					case strings.HasSuffix(tc.Name, "complete"), strings.HasSuffix(tc.Name, "restored"), strings.HasSuffix(tc.Name, "-optional-omitted"):
+					case suite == "grouped" && tc.ExpectedError != "":
+						require.ErrorContains(t, err, tc.ExpectedError)
+						if gate == "qa" {
+							require.ErrorContains(t, err, "prior code review evidence")
+						}
+					case suite == "grouped", strings.HasSuffix(tc.Name, "complete"), strings.HasSuffix(tc.Name, "restored"), strings.HasSuffix(tc.Name, "-optional-omitted"):
 						require.NoError(t, err)
 						require.Equal(t, target, status.status["B001"])
 						require.Len(t, written.notes, 1)

@@ -98,7 +98,7 @@ func validateBugReviewArtifacts(req gatepersist.Request, scope bugCandidateScope
 		return err
 	}
 	if !six {
-		return validateBugReviewedFiles(decisions.reviewedFiles, scope.ChangedFiles)
+		return decisions.validateCLI(scope)
 	}
 	_, angleData, err := readBugEvidence(req, "bug_review_angles")
 	if err != nil {
@@ -305,6 +305,7 @@ func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions *bu
 	if version != decisions.version {
 		return fmt.Errorf("angle and decision review contract versions differ")
 	}
+	matches := newBugAngleMatcher(angles, decisions)
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
 		angle, found := angles[name]
 		if !found {
@@ -313,13 +314,69 @@ func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions *bu
 		if angle.ReviewContractVersion != version {
 			return fmt.Errorf("angle review contract versions differ")
 		}
-		if err := validateBugReviewAngle(angle, scope, decisions.byFinding, verdict); err != nil {
+		if err := validateBugReviewAngle(name, angle, scope, matches, verdict); err != nil {
 			return fmt.Errorf("angle %s: %w", name, err)
+		}
+	}
+	return matches.checkRemaining()
+}
+
+func (f bugAngleFinding) site() bugFindingKey {
+	return bugFindingKey{File: string(f.File), Line: f.Line, Rule: f.Rule, Summary: f.Summary, Diagnosis: f.Diagnosis}
+}
+
+type bugAngleMatcher struct {
+	decisions  *bugReviewDecisionIndex
+	siteCounts map[bugFindingKey]int
+	matched    map[bugFindingKey]bool
+}
+
+func newBugAngleMatcher(angles map[string]bugAngle, decisions *bugReviewDecisionIndex) *bugAngleMatcher {
+	counts := make(map[bugFindingKey]int)
+	for _, angle := range angles {
+		for _, finding := range angle.Findings {
+			counts[finding.site()]++
+		}
+	}
+	return &bugAngleMatcher{decisions: decisions, siteCounts: counts, matched: make(map[bugFindingKey]bool)}
+}
+
+func (m *bugAngleMatcher) match(origin string, f bugAngleFinding) (bugReviewDecision, bool) {
+	site := f.site()
+	key := site
+	if m.decisions.version == 0 {
+		decision, ok := m.decisions.byFinding[key]
+		return decision, ok
+	}
+	key.Origin, key.Evidence = origin, f.Evidence
+	decision, ok := m.decisions.byFinding[key]
+	if !ok && m.siteCounts[site] == 1 {
+		key = site
+		decision, ok = m.decisions.byFinding[key]
+	}
+	if !ok || m.matched[key] || decision.Evidence != f.Evidence {
+		return bugReviewDecision{}, false
+	}
+	m.matched[key] = true
+	return decision, true
+}
+
+func (m *bugAngleMatcher) checkRemaining() error {
+	if m.decisions.version == 0 {
+		return nil
+	}
+	for key, decision := range m.decisions.byFinding {
+		if key.Origin == "" && !m.matched[key] && m.siteCounts[key] > 0 {
+			return fmt.Errorf("ambiguous extra decision %s at %s:%d", decision.FindingID, quoteReviewGitPath(key.File), key.Line)
+		}
+		if key.Origin == "single-reviewer" || (isReviewAngle(key.Origin) && !m.matched[key]) {
+			return fmt.Errorf("angle %s has no raw observation for %s at %s:%d", key.Origin, decision.FindingID, quoteReviewGitPath(key.File), key.Line)
 		}
 	}
 	return nil
 }
-func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
+
+func validateBugReviewAngle(name string, angle bugAngle, scope bugCandidateScope, matches *bugAngleMatcher, verdict string) error {
 	if !angle.CandidateIdentity.matches(scope) {
 		return fmt.Errorf("candidate mismatch")
 	}
@@ -333,17 +390,17 @@ func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions m
 		if err := validateFindingSupport(angle.ReviewContractVersion, finding.Severity, finding.Impact, finding.Evidence); err != nil {
 			return err
 		}
-		if err := validateBugAngleFinding(finding, decisions, verdict); err != nil {
+		if err := validateBugAngleFinding(name, finding, matches, verdict); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-func validateBugAngleFinding(f bugAngleFinding, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
+func validateBugAngleFinding(name string, f bugAngleFinding, matches *bugAngleMatcher, verdict string) error {
 	if !validBugAngleFinding(f) {
 		return fmt.Errorf("finding malformed")
 	}
-	decision, found := decisions[bugFindingKey{string(f.File), f.Line, f.Rule, f.Summary, f.Diagnosis}]
+	decision, found := matches.match(name, f)
 	if !found {
 		if f.Severity == "blocker" {
 			return fmt.Errorf("unresolved blocker")

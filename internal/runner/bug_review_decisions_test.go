@@ -39,6 +39,37 @@ func TestReviewPathsDistinguishAByteFromTheReplacementCharacter(t *testing.T) {
 	require.ErrorContains(t, validateBugReviewAngles(raw, scope, decisions, "PASS-WITH-TRIAGE"), "no explicit disposition")
 }
 
+func TestDecisionOriginBelongsToCurrentContract(t *testing.T) {
+	scope := bugCandidateScope{CandidateCommit: "c", CandidateTree: "t", DiffSHA256: "d"}
+	finding := map[string]any{"file": "rotation.go", "line": 1, "rule": "ARCHITECTURE", "severity": "non-blocker",
+		"summary": "duplicate registration", "diagnosis": "two registrations", "impact": "two edits",
+		"evidence": "rotation guide", "disposition": "triage", "reason": "two manual edits"}
+	packet := map[string]any{"candidate_identity": map[string]string{"commit": "c", "tree": "t", "diff_sha256": "d"}, "findings": []any{finding}}
+	for _, test := range []struct {
+		name    string
+		version int
+		origin  any
+		valid   bool
+	}{
+		{"legacy ignores extension", 0, map[string]string{"label": "angle"}, true},
+		{"current rejects null", 2, nil, false},
+		{"current accepts consolidator", 2, "consolidator", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			finding["origin"] = test.origin
+			packet["review_contract_version"] = test.version
+			raw, err := json.Marshal(packet)
+			require.NoError(t, err)
+			_, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "origin")
+			}
+		})
+	}
+}
+
 func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff", RepairPlanSHA256: "plan", ChangedFiles: []string{"a.go"}}
 	identity := map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff", "repair_plan_sha256": "plan"}

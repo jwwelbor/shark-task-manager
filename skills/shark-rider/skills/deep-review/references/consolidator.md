@@ -40,7 +40,7 @@ If the diff is clearly wrong (wrong branch, massive accidental change), return a
 
 ## Step 2: Deduplicate
 
-Group observations only when they establish the same root cause. Publish one representative finding with the original site, contributing angles and each member’s evidence. Keep a distinct decision for each source member, including when two packets contain identical file, line, rule, summary and diagnosis. Carry the representative correction to triage once.
+Group observations only when they establish the same root cause. Publish one representative finding with the original site, contributing angles and each member’s evidence. Give each specialist decision a unique `finding_id`, set `origin` to its original lowercase packet label (`a` through `f`), and copy its original `evidence`. Give a consolidator-only decision the origin `consolidator`. Keep a distinct decision for each source member, including when two packets contain identical file, line, rule, summary and diagnosis. Carry the representative correction to triage once.
 
 ## Step 3: Verify each unique finding
 

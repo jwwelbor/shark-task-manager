@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 root, scripts = map(Path, sys.argv[1:3])
-base, plan_digest = sys.argv[3:]
+base, plan_digest, suite = sys.argv[3:]
 directory = root / ".shark" / "byte-receipts"
 directory.mkdir()
 
@@ -81,6 +81,24 @@ def variants(mode):
     def trial(case, paths):
         return {"name": f"{mode}-{case}", "refs": [reference(k, p) for k, p in paths.items()]}
 
+    if suite == "grouped":
+        # Feed each semantic variant to admission independently of writer rejection.
+        sys.path.insert(0, str(scripts / "testdata"))
+        from grouped_findings import grouped_cases
+        for case, labeled, markdown, decisions, error in grouped_cases(identity, inspected, "café.txt"):
+            trial_report = directory / f"{mode}-{case}.md"
+            paths = {"scope": artifacts["scope"], "report": trial_report}
+            header, _, _ = report.read_text().partition("\n---\n")
+            for kind, packet_value in (("angles", labeled), ("decisions", decisions)):
+                original = artifacts[kind]
+                paths[kind] = Path(f"{trial_report}.{kind}.json")
+                save(paths[kind], packet_value)
+                header = header.replace(str(original), str(paths[kind])).replace(
+                    sha(original.read_bytes()), sha(paths[kind].read_bytes()))
+            trial_report.write_text(header.replace("**Verdict:** PASS", "**Verdict:** PASS-WITH-TRIAGE") +
+                                    "\n---\n" + markdown + "\n")
+            yield dict(trial(case, paths), expected_error=error)
+        return
     yield trial("complete", artifacts)
     reviewer_field = "decisions" if cli else "angles"
     for field in ("scope", reviewer_field):
@@ -119,6 +137,8 @@ def variants(mode):
 
 try:
     modes = ("canonical-six-angle", "dispatched-six-angle", "adversarial-cli")
+    if suite == "grouped":
+        modes = modes[:2]
     print(json.dumps([case for mode in modes for case in variants(mode)]))
 finally:
     Path(scope["diff_path"]).unlink()
