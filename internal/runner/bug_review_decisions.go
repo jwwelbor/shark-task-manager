@@ -3,7 +3,6 @@ package runner
 import (
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"regexp"
 	"strings"
 )
@@ -11,26 +10,26 @@ import (
 var bugNegatedRefutation = regexp.MustCompile(`(?i)\bnot\s+refuted\b`)
 
 type bugFindingKey struct {
-	File      string
+	File      reviewGitPath
 	Line      int
 	Rule      string
 	Summary   string
 	Diagnosis string
 }
 type bugReviewDecision struct {
-	FindingID   string `json:"finding_id"`
-	File        string `json:"file"`
-	Line        int    `json:"line"`
-	Severity    string `json:"severity"`
-	Rule        string `json:"rule"`
-	Summary     string `json:"summary"`
-	Diagnosis   string `json:"diagnosis"`
-	Disposition string `json:"disposition"`
-	Reason      string `json:"reason"`
+	FindingID   string        `json:"finding_id"`
+	File        reviewGitPath `json:"file"`
+	Line        int           `json:"line"`
+	Severity    string        `json:"severity"`
+	Rule        string        `json:"rule"`
+	Summary     string        `json:"summary"`
+	Diagnosis   string        `json:"diagnosis"`
+	Disposition string        `json:"disposition"`
+	Reason      string        `json:"reason"`
 }
 type bugReviewDecisions struct {
 	CandidateIdentity bugReviewIdentity   `json:"candidate_identity"`
-	ReviewedFiles     []string            `json:"reviewed_files"`
+	ReviewedFiles     reviewGitPaths      `json:"reviewed_files"`
 	Findings          []bugReviewDecision `json:"findings"`
 }
 
@@ -80,14 +79,11 @@ func validateBugReviewedFiles(reviewedFiles, changedFiles []string) error {
 	}
 	inspected := make(map[string]bool, len(reviewedFiles))
 	for _, file := range reviewedFiles {
-		if !fs.ValidPath(file) || file == "." || strings.TrimSpace(file) == "" || strings.ContainsRune(file, 0) {
-			return fmt.Errorf("review decisions reviewed_files requires a repository-relative file path: %q", file)
-		}
 		inspected[file] = true
 	}
 	for _, file := range changedFiles {
 		if !inspected[file] {
-			return fmt.Errorf("review decisions coverage incomplete: missing %q", file)
+			return fmt.Errorf("review decisions coverage incomplete: missing %s", quoteReviewGitPath(file))
 		}
 	}
 	return nil

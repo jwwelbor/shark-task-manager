@@ -355,34 +355,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	refreshedRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/refreshed-scope.json","summary":"sha256:%x"}`, refreshedHash)
 	err = verifyBugReviewEvidence(gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "old-report"), EnvelopeJSON: envelope(refreshedRef + "," + reportRef + "," + anglesRef + "," + decisionRef)})
 	require.ErrorContains(t, err, "Retained scope digest does not match report")
-	prior := envelope(planRef)
-	dir, err := gaterun.RunDir(root, "approved-plan")
-	require.NoError(t, err)
-	lock, err := gaterun.AcquireRunLock(dir, 0)
-	require.NoError(t, err)
-	require.NoError(t, lock.Release())
-	planRoot, planCommit, planBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EnvelopeJSON: prior})
-	require.NoError(t, err)
-	digest, err := gaterun.ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", prior, planRoot, planCommit, planBlob)
-	require.NoError(t, err)
-	require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "approved-plan", PlanCommit: planCommit}))
-	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved-plan", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, PlanRoot: planRoot, PlanCommit: planCommit, PlanBlob: planBlob})
-	require.NoError(t, err)
-	_, err = gaterun.CreateResult(dir, prior)
-	require.NoError(t, err)
-	_, err = gaterun.CreateApprovedPlan(dir, plan)
-	require.NoError(t, err)
-	state := gaterun.NewOperationState("approved-plan", "B001", "bug", "plan_review", "plan_review", digest)
-	state.AdmissionVersion = gatepersist.BoundAdmissionVersion
-	require.NoError(t, state.MarkPersistenceComplete())
-	require.NoError(t, state.MarkTransitionApplied())
-	require.NoError(t, state.Save(dir))
-	metaBytes, err := json.Marshal(map[string]string{"gate": "plan_review", "role": "success", "outcome_key": "pass", "run_id": "approved-plan", "operation_digest": digest})
-	require.NoError(t, err)
-	meta := string(metaBytes)
-	notes := bugApprovalNotes{items: []*models.EntityNote{{ID: 1, Metadata: &meta}}}
-	from, reason := "plan_review", gatepersist.BoundTransitionReason("plan_review", "pass", "approved-plan", digest)
-	history := bugApprovalHistory{items: []*models.EntityHistory{{ID: 1, FromStatus: &from, ToStatus: "development", Notes: &reason}}}
+	notes, history := seedReviewTestPlan(t, root, envelope(planRef), plan)
 	status := &fakeTransitioner{status: map[string]string{"B001": "code_review"}}
 	written := &fakeNoteWriter{}
 	coord := gatepersist.NewCoordinator(written, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true, "resolved": true}}, status, status, &fakeLeaseReleaser{}, status)
@@ -440,7 +413,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	partialPrior := envelope(planRef + "," + cliScopeRef + "," + partialReportRef + "," + partialDecisionRef)
 	partialPriorDir, err := gaterun.RunDir(root, "historical-cli-review")
 	require.NoError(t, err)
-	lock, err = gaterun.AcquireRunLock(partialPriorDir, 0)
+	lock, err := gaterun.AcquireRunLock(partialPriorDir, 0)
 	require.NoError(t, err)
 	require.NoError(t, lock.Release())
 	partialPlanRoot, partialPlanCommit, partialPlanBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: partialPriorDir, EnvelopeJSON: partialPrior})
@@ -571,4 +544,62 @@ func TestBugCandidateScopesNestedProjectRuntimeWithoutHidingSource(t *testing.T)
 	require.NoError(t, os.WriteFile(filepath.Join(otherRuntime, "other"), []byte("unrelated"), 0600))
 	require.ErrorContains(t, verifyBugCandidate(context.Background(), project, scope), "candidate worktree changed")
 	require.Error(t, validate(project))
+}
+
+func TestSnapshotAdmissionPreservesSelectedGitBytes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires POSIX byte filenames")
+	}
+	root := t.TempDir()
+	commitTestBugPlan(t, root, "docs/plan/plan.md", []byte("approved plan\n"))
+	base, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
+	require.NoError(t, err)
+	paths := []string{"caf\xe9.txt", "café.txt", "caf�.txt", `caf\udce9.txt`, "caf𐃩.txt", " "}
+	for i, path := range paths {
+		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(fmt.Sprintf("value %d\n", i)), 0600))
+	}
+	_, file, _, _ := runtime.Caller(0)
+	scripts := filepath.Join(filepath.Dir(file), "../../skills/shark-rider/skills/deep-review/scripts")
+	snapshot, metadata := filepath.Join(t.TempDir(), "snapshot"), filepath.Join(t.TempDir(), "source.json")
+	args := []string{filepath.Join(scripts, "prepare_candidate.py"), "--project-root", root, "--destination", snapshot, "--metadata-file", metadata}
+	out, err := exec.Command("python3", append(args, paths...)...).CombinedOutput()
+	require.NoError(t, err, string(out))
+	capture := exec.Command("bash", filepath.Join(scripts, "get_diff.sh"))
+	capture.Dir = snapshot
+	capture.Env = append(os.Environ(), "REVIEW_BASE="+strings.TrimSpace(string(base)), "REVIEW_SOURCE_METADATA="+metadata)
+	scope, err := capture.Output()
+	require.NoError(t, err)
+	require.NoError(t, verifyBugCandidate(context.Background(), root, scope))
+}
+
+func seedReviewTestPlan(t *testing.T, root string, prior, plan []byte) (bugApprovalNotes, bugApprovalHistory) {
+	t.Helper()
+	dir, err := gaterun.RunDir(root, "approved-plan")
+	require.NoError(t, err)
+	lock, err := gaterun.AcquireRunLock(dir, 0)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+	planRoot, planCommit, planBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EnvelopeJSON: prior})
+	require.NoError(t, err)
+	digest, err := gaterun.ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", prior, planRoot, planCommit, planBlob)
+	require.NoError(t, err)
+	require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "approved-plan", PlanCommit: planCommit}))
+	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved-plan", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, PlanRoot: planRoot, PlanCommit: planCommit, PlanBlob: planBlob})
+	require.NoError(t, err)
+	_, err = gaterun.CreateResult(dir, prior)
+	require.NoError(t, err)
+	_, err = gaterun.CreateApprovedPlan(dir, plan)
+	require.NoError(t, err)
+	state := gaterun.NewOperationState("approved-plan", "B001", "bug", "plan_review", "plan_review", digest)
+	state.AdmissionVersion = gatepersist.BoundAdmissionVersion
+	require.NoError(t, state.MarkPersistenceComplete())
+	require.NoError(t, state.MarkTransitionApplied())
+	require.NoError(t, state.Save(dir))
+	metaBytes, err := json.Marshal(map[string]string{"gate": "plan_review", "role": "success", "outcome_key": "pass", "run_id": "approved-plan", "operation_digest": digest})
+	require.NoError(t, err)
+	meta := string(metaBytes)
+	notes := bugApprovalNotes{items: []*models.EntityNote{{ID: 1, Metadata: &meta}}}
+	from, reason := "plan_review", gatepersist.BoundTransitionReason("plan_review", "pass", "approved-plan", digest)
+	history := bugApprovalHistory{items: []*models.EntityHistory{{ID: 1, FromStatus: &from, ToStatus: "development", Notes: &reason}}}
+	return notes, history
 }

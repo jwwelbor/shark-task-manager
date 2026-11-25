@@ -21,12 +21,12 @@ var bugCLIModel = regexp.MustCompile("\\*\\*Adversarial model:\\*\\*[ \\t]*`([^`
 var bugCLIFallback = regexp.MustCompile(`\*\*Fallback reason:\*\*[ \t]*([^·\r\n]*)`)
 
 type bugAngleFinding struct {
-	Severity  string `json:"severity"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	Rule      string `json:"rule"`
-	Summary   string `json:"summary"`
-	Diagnosis string `json:"diagnosis"`
+	Severity  string        `json:"severity"`
+	File      reviewGitPath `json:"file"`
+	Line      int           `json:"line"`
+	Rule      string        `json:"rule"`
+	Summary   string        `json:"summary"`
+	Diagnosis string        `json:"diagnosis"`
 }
 type bugReviewIdentity struct {
 	Commit string `json:"commit"`
@@ -36,7 +36,7 @@ type bugReviewIdentity struct {
 }
 type bugAngle struct {
 	CandidateIdentity bugReviewIdentity `json:"candidate_identity"`
-	ReviewedFiles     []string          `json:"reviewed_files"`
+	ReviewedFiles     reviewGitPaths    `json:"reviewed_files"`
 	Findings          []bugAngleFinding `json:"findings"`
 }
 
@@ -284,14 +284,18 @@ func meaningfulBugReviewMetadata(value string) bool {
 }
 
 func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
-	var angles map[string]bugAngle
+	var angles map[string]json.RawMessage
 	if err := json.Unmarshal(data, &angles); err != nil || len(angles) != 6 {
 		return fmt.Errorf("six angle results are required")
 	}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
-		angle, found := angles[name]
+		raw, found := angles[name]
 		if !found {
 			return fmt.Errorf("angle %s missing", name)
+		}
+		var angle bugAngle
+		if err := json.Unmarshal(raw, &angle); err != nil {
+			return fmt.Errorf("angle %s: %w", name, err)
 		}
 		if err := validateBugReviewAngle(angle, scope, decisions, verdict); err != nil {
 			return fmt.Errorf("angle %s: %w", name, err)
@@ -303,14 +307,8 @@ func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions m
 	if !angle.CandidateIdentity.matches(scope) {
 		return fmt.Errorf("candidate mismatch")
 	}
-	got := map[string]bool{}
-	for _, file := range angle.ReviewedFiles {
-		got[file] = true
-	}
-	for _, file := range scope.ChangedFiles {
-		if !got[file] {
-			return fmt.Errorf("coverage incomplete")
-		}
+	if err := validateBugReviewedFiles(angle.ReviewedFiles, scope.ChangedFiles); err != nil {
+		return err
 	}
 	if angle.Findings == nil {
 		return fmt.Errorf("findings missing")
