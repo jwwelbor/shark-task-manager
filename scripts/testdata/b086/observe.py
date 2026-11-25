@@ -14,6 +14,7 @@ REVIEW = 'catalog/shark-rider/skills/deep-review/SKILL.md'
 CONSOLIDATOR = 'catalog/shark-rider/skills/deep-review/references/consolidator.md'
 WORKFLOW = 'embedded/quality/workflows/review-code.md'
 HANDOFF = {TRIAGE, REVIEW, CONSOLIDATOR, WORKFLOW}
+WORKFLOW_ARGS = ['skill', 'get', 'quality', 'workflows/review-code.md', '--raw']
 
 
 def append(path, record):
@@ -31,10 +32,9 @@ def pinned(case, relative, manifest):
 def read_policy(case, relative, manifest):
     if relative == WORKFLOW:
         binary = pinned(case, 'libexec/shark', manifest)
-        content = subprocess.check_output([binary, 'skill', 'get', 'quality',
-                                           'workflows/review-code.md', '--raw'], cwd=case / 'project')
+        content = subprocess.check_output([binary, *WORKFLOW_ARGS], cwd=case / 'project')
         expected = manifest['embedded_workflow_sha256']
-        origin = f'{binary} skill get quality workflows/review-code.md --raw'
+        origin = ' '.join([str(binary), *WORKFLOW_ARGS])
     else:
         if not relative.startswith('catalog/') or relative not in manifest['prepared_files']:
             raise ValueError('file is outside the private catalog')
@@ -43,6 +43,24 @@ def read_policy(case, relative, manifest):
     if hashlib.sha256(content).hexdigest() != expected:
         raise ValueError('loaded policy differs from prepared source')
     return content, {'file': relative, 'origin': origin, 'sha256': expected}
+
+
+def has_pinned_handoff(case, manifest, run_id, events):
+    expected = {name: (str(case / name), manifest['prepared_files'][name])
+                for name in HANDOFF - {WORKFLOW}}
+    expected[WORKFLOW] = (' '.join([str(case / 'libexec/shark'), *WORKFLOW_ARGS]),
+                          manifest['embedded_workflow_sha256'])
+    loaded = set()
+    for event in events:
+        if (event.get('run_id') != run_id or event.get('tool') != 'read'
+                or event.get('event') != 'result' or event.get('outcome') != 'loaded'):
+            continue
+        name = event.get('file')
+        if name in expected:
+            if (event.get('origin'), event.get('sha256')) != expected[name]:
+                return False
+            loaded.add(name)
+    return loaded == HANDOFF
 
 
 def tracker_args(argv, project, database, config):
@@ -101,10 +119,8 @@ def tracker(case, manifest, binding, argv, log, event):
         if not path.is_relative_to(case / 'packet') or digest(path) != expected:
             raise ValueError('retained packet changed')
     loads = [json.loads(line) for line in log.read_text().splitlines()]
-    observed = {e['file'] for e in loads if e['run_id'] == binding['run_id']
-                and e.get('tool') == 'read' and e.get('outcome') == 'loaded'}
-    if not HANDOFF.issubset(observed):
-        raise ValueError('private review handoff reads incomplete')
+    if not has_pinned_handoff(case, manifest, binding['run_id'], loads):
+        raise ValueError('private review handoff reads missing or inconsistent with pinned sources')
     for relative in HANDOFF - {WORKFLOW}:
         pinned(case, relative, manifest)
     append(log, dict(event, event='forward', database=str(database), operation=operation))
@@ -128,7 +144,7 @@ def run(case, tool, argv):
     observations = case / 'observations'
     observations.mkdir(exist_ok=True)
     log = observations / 'tools.jsonl'
-    workflow_read = tool == 'shark' and argv == ['skill', 'get', 'quality', 'workflows/review-code.md', '--raw']
+    workflow_read = tool == 'shark' and argv == WORKFLOW_ARGS
     event = {'run_id': binding['run_id'], 'invocation': str(uuid.uuid4()),
              'tool': 'read' if workflow_read else tool}
     append(log, dict(event, event='entry', argv=argv))

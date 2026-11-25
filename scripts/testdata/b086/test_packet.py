@@ -15,25 +15,30 @@ import adaptive_review as review
 from test_adaptive_review import scope_fixture
 
 
+def write_test_packet(root):
+    repo, scope, _ = scope_fixture(root)
+    report = root / 'original.md'
+    body = ('VERDICT: PASS-with-triage\nReviewed scope includes the source file. '
+            'Findings include an optional usage example for that feature.')
+    decision = dict(file='source', line=1, rule='DOCS', severity='non-blocker',
+                    summary='Missing usage example', diagnosis='Existing example omits the new option',
+                    reason='Existing usage remains documented', disposition='triage')
+    meta = dict(scope, generated='fixture', runner_mode='adversarial-cli',
+                specialists_completed=0, consolidator_completed=True, verdict='PASS-with-triage',
+                adversarial_model='test stub', _scope=scope,
+                _diff_bytes=Path(scope['diff_path']).read_bytes(),
+                _decisions={'candidate_identity': review._review_identity(scope),
+                            'findings': [decision]})
+    review.persist_report(report, body, meta)
+    report_hash = hashlib.sha256(report.read_bytes()).hexdigest()
+    return repo, scope, report, report_hash
+
+
 class PacketIntake(unittest.TestCase):
     def test_only_the_original_scope_and_report_can_enter_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            repo, scope, _ = scope_fixture(root)
-            report = root / 'original.md'
-            body = ('VERDICT: PASS-with-triage\nReviewed scope includes the source file. '
-                    'Findings include an optional usage example for that feature.')
-            decision = dict(file='source', line=1, rule='DOCS', severity='non-blocker',
-                            summary='Missing usage example', diagnosis='Existing example omits the new option',
-                            reason='Existing usage remains documented', disposition='triage')
-            meta = dict(scope, generated='fixture', runner_mode='adversarial-cli',
-                        specialists_completed=0, consolidator_completed=True, verdict='PASS-with-triage',
-                        adversarial_model='test stub', _scope=scope,
-                        _diff_bytes=Path(scope['diff_path']).read_bytes(),
-                        _decisions={'candidate_identity': review._review_identity(scope),
-                                    'findings': [decision]})
-            review.persist_report(report, body, meta)
-            report_hash = hashlib.sha256(report.read_bytes()).hexdigest()
+            repo, scope, report, report_hash = write_test_packet(root)
             command = [sys.executable, str(HERE / 'packet.py'), str(report), report_hash,
                        str(repo), scope['candidate_commit']]
             result = subprocess.run(command, text=True, capture_output=True)

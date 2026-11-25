@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from observe import HANDOFF, tracker_args
+from observe import has_pinned_handoff, tracker_args
 
 
 def records(path):
@@ -80,8 +80,7 @@ def inspect_case(case, manifest, fingerprint):
     results = {e['invocation']: e for e in events if e['event'] == 'result'}
     if len(results) != len(entries) or any(e['invocation'] not in results for e in entries):
         missing.append('complete tool results')
-    loaded = {e['file'] for e in results.values() if e.get('outcome') == 'loaded'}
-    if not HANDOFF.issubset(loaded):
+    if not has_pinned_handoff(case, manifest, run_id, events):
         missing.append('private handoff reads')
     attempts = [e for e in entries if e['tool'] == 'shark']
     creates = []
