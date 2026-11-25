@@ -289,6 +289,47 @@ exec "$B077_SHARK" "$@"
         self.assertEqual([("B001", "successor"), ("B002", "unrelated")], rows)
         self.assertEqual("research", json.loads(self.shark("get", "B001", "--json").stdout)["status"])
 
+    def test_legacy_worker_notes_require_the_live_session(self):
+        # C21. Execute the note commands published by Rider against the note store.
+        procedure = (RIDER / "verbs/run.md").read_text()
+        section = procedure.split("3. **Persist notes.**", 1)[1].split("4. **", 1)[0]
+        commands = re.findall(r"^\s*(shark create note [^\n]+)", section, re.MULTILINE)
+        expected_types = ["blocker", "decision", "comment", "comment"]
+        self.assertEqual(len(expected_types), len(commands))
+        env = dict(os.environ, PATH=str(self.directory) + os.pathsep + os.environ["PATH"],
+                   CASE=str(self.directory), SID="author", SHARK_CLAIM_TTL_SECONDS="90")
+        for state in ("live", "expired", "no-expiry", "reissued"):
+            config_path = self.work / ".sharkconfig.json"
+            config = json.loads(config_path.read_bytes())
+            config["claim_ttl_seconds"] = 0 if state == "no-expiry" else 90
+            config_path.write_text(json.dumps(config))
+            allowed = state in ("live", "no-expiry")
+            self.shark("claim", "B001", "--by", "parent", "--session", "author", "--force")
+            with sqlite3.connect(self.work / "shark-tasks.db") as db:
+                if state in ("expired", "no-expiry"):
+                    db.execute("update entity_claims set last_heartbeat=datetime('now','-1 day')")
+            if state == "reissued":
+                self.shark("claim", "B001", "--by", "other", "--session", "successor", "--force")
+            for index, command in enumerate(commands):
+                with self.subTest(state=state, command=index):
+                    marker = f"worker-{state}-{index}"
+                    cmd = command.replace("{response.entity_key}", "B001")
+                    cmd = re.sub(r'"<[^"]+>"', '"' + marker + '"', cmd)
+                    result = subprocess.run(["bash", "-eu", "-c", cmd], env=env, cwd=self.work, capture_output=True)
+                    with sqlite3.connect(self.work / "shark-tasks.db") as db:
+                        notes = db.execute("select note_type from entity_notes where content=?", (marker,)).fetchall()
+                        holder, = db.execute("select session_id from entity_claims where entity_key='B001'").fetchone()
+                    self.assertEqual("successor" if state == "reissued" else "author", holder)
+                    self.assertEqual([(expected_types[index],)] if allowed else [], notes)
+                    self.assertEqual(allowed, result.returncode == 0, result.stderr)
+        self.shark("create", "note", "B001", "ordinary direct caller")
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.shark("create", "note", "B001", "explicit empty session", "--session=")
+        with sqlite3.connect(self.work / "shark-tasks.db") as db:
+            notes = db.execute("select content from entity_notes where content in (?, ?)",
+                               ("ordinary direct caller", "explicit empty session")).fetchall()
+        self.assertEqual([("ordinary direct caller",)], notes)
+
     def test_unanswered_read(self):
         # Keep the real timeout and signals. Shorten the reader deadline in this fixture.
         timeout = shutil.which("timeout")

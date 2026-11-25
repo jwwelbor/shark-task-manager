@@ -618,7 +618,7 @@ lapse while a responder is pending.
   `workflows/council.md`; do not duplicate its threshold or procedure here.
 - **`kind: blocked_external` or `kind: failed`** — no `RECOMMENDED OUTCOME:`
   line follows. Treat it exactly like the "No outcome at all" case below:
-  record a blocker note quoting the envelope's `evidence`, then advance
+  use the session-qualified blocker note in step 3 below with the envelope's bounded evidence, then advance
   with outcome `blocked`.
 
 ### `gate_result_v1` steps — shared ingestion CLI, not directive parsing
@@ -662,8 +662,7 @@ the workflow prompts emit, apply them in this order, then advance:
    line (or the `outcome` field of a JSON return). Any outcome key defined
    for the current step is valid — `shark status advance` rejects unknown
    keys, so pass the worker's key through verbatim rather than coercing it to
-   pass/fail/blocked. No outcome at all → treat as `blocked` and record a
-   blocker note quoting the tail of the response.
+   pass/fail/blocked. For a missing outcome, select `blocked` and use the bounded response tail for the session-qualified blocker note in step 3.
 2. **Establish terminal completion before advancing.** Apply this to every
    terminal envelope: `final`, `blocked_external`, and `failed`. An awaited
    foreground worker satisfies the check when its invocation exits after
@@ -675,19 +674,24 @@ the workflow prompts emit, apply them in this order, then advance:
    evidence, release the Shark lease, and stop. Do not advance the workflow
    or claim that later idle notifications are suppressed. See
    `context/host-adapter-contract.md` for the provider-neutral boundary.
-3. **Persist notes.**
+3. **Persist notes.** Use the session that authorized this worker for each insert.
+   If an insert fails, stop handling the result and perform session-scoped failure cleanup.
+   - For a failed worker, external blocker or missing outcome, persist its bounded evidence or response tail:
+     ```bash
+     shark create note {response.entity_key} "<worker evidence>" --type blocker --session "$SID" || exit 1
+     ```
    - A `COMPLEXITY NOTE: <text>` line (complexity-triage steps) must be
      stored as a decision so later steps can read the tier:
      ```bash
-     shark create note {response.entity_key} "<text>" --type decision
+     shark create note {response.entity_key} "<text>" --type decision --session "$SID" || exit 1
      ```
    - A `PARENT NOTE: <text>` line records the gate result:
      ```bash
-     shark create note {response.entity_key} "<text>" --type comment
+     shark create note {response.entity_key} "<text>" --type comment --session "$SID" || exit 1
      ```
    - Any other `note` the worker returned:
      ```bash
-     shark create note {response.entity_key} "<note>" --type comment
+     shark create note {response.entity_key} "<note>" --type comment --session "$SID" || exit 1
      ```
 4. **Apply structured review kickbacks through the coordinator.** Preserve the
    worker's full `gate_result` and its `recommended_outcome` for the existing
