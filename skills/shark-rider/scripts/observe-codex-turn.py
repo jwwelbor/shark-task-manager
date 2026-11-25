@@ -30,6 +30,7 @@ def argv_agrees(capture, selection, result_file):
 def observe(events, home, selection, receipt, *, rejected):
     threads = []
     started = completed = 0
+    completion_turn_ids = []
     for event in records(events):
         kind = event.get("type")
         if kind == "thread.started":
@@ -39,6 +40,8 @@ def observe(events, home, selection, receipt, *, rejected):
         elif kind in ("turn.completed", "turn.failed", "error"):
             completed += kind == "turn.completed"
             rejected |= kind != "turn.completed"
+            if kind == "turn.completed":
+                completion_turn_ids.append(event.get("turn_id"))
             if "usage" in event:
                 receipt["usage"] = event["usage"]
             if "cost" in event:
@@ -76,7 +79,11 @@ def observe(events, home, selection, receipt, *, rejected):
         return "unverified"
     if completed != 1:
         return "unverified"
-    if len(completions) != 1 or not completions[0] or turns != {completions[0]}:
+    if (len(completion_turn_ids) != 1
+            or len(completions) != 1 or not completions[0]
+            or (completion_turn_ids[0] is not None
+                and completion_turn_ids[0] != completions[0])
+            or turns != {completions[0]}):
         return "unverified"
     if len(providers) != 1 or len(models) != 1 or not all(providers) or not all(models):
         return "unverified"
