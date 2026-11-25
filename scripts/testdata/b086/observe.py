@@ -36,6 +36,25 @@ def read_policy(case, relative, manifest):
         content = subprocess.check_output([binary, *WORKFLOW_ARGS], cwd=case / 'project')
         expected = manifest['embedded_workflow_sha256']
         origin = ' '.join([str(binary), *WORKFLOW_ARGS])
+    elif relative.startswith('project/.agents/skills/'):
+        path = (case / relative).resolve(strict=True)
+        if not path.is_relative_to(case / 'project/.agents/skills'):
+            raise ValueError('private skill path escapes the case catalog')
+        tail = relative.removeprefix('project/.agents/skills/')
+        if tail.startswith('shark-rider/'):
+            catalog_relative = 'catalog/shark-rider/' + tail.removeprefix('shark-rider/')
+        elif tail.startswith('finish-feature/'):
+            catalog_relative = 'catalog/finish-feature/' + tail.removeprefix('finish-feature/')
+        else:
+            raise ValueError('skill is outside the private catalog')
+        if catalog_relative not in manifest['prepared_files']:
+            raise ValueError('private skill file is not pinned')
+        content = path.read_bytes()
+        expected = manifest['prepared_files'][relative]
+        if expected != manifest['prepared_files'][catalog_relative]:
+            raise ValueError('private skill digest differs from pinned catalog')
+        origin = str(path)
+        relative = catalog_relative
     else:
         if not relative.startswith('catalog/') or relative not in manifest['prepared_files']:
             raise ValueError('file is outside the private catalog')
@@ -47,8 +66,11 @@ def read_policy(case, relative, manifest):
 
 
 def has_pinned_handoff(case, manifest, run_id, events):
-    expected = {name: (str(case / name), manifest['prepared_files'][name])
-                for name in HANDOFF - {WORKFLOW}}
+    expected = {}
+    for name in HANDOFF - {WORKFLOW}:
+        tail = name.removeprefix('catalog/')
+        expected[name] = (str(case / 'project/.agents/skills' / tail),
+                          manifest['prepared_files'][name])
     expected[WORKFLOW] = (' '.join([str(case / 'libexec/shark'), *WORKFLOW_ARGS]),
                           manifest['embedded_workflow_sha256'])
     loaded = set()
@@ -93,7 +115,8 @@ def tracker_args(argv, project, database, config):
     if not words:
         raise ValueError('missing tracker operation')
     create = words[:2] in (['task', 'create'], ['create', 'task'])
-    read = words[0] in {'list', 'get', 'progress'} or words[:2] == ['notes', 'search']
+    read = words[0] in {'list', 'get', 'progress', 'history', 'search'} or words[:2] == ['notes', 'search']
+    read = read or words[:2] == ['status', 'history']
     if len(words) > 1 and words[0] in {'bug', 'task', 'feature', 'epic', 'change', 'tech-debt', 'idea'}:
         read = read or words[1] in {'list', 'get'}
     association = words[:2] == ['notes', 'add'] or words[:3] == ['task', 'note', 'add']

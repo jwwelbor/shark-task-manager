@@ -1,5 +1,6 @@
 """Verifier diagnostics are distinct from independent host execution evidence."""
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -9,11 +10,45 @@ import unittest
 
 from observe import CONSOLIDATOR, REVIEW, TRIAGE, WORKFLOW
 from test_packet import write_test_packet
+from verify import host_receipt
 
 HERE = Path(__file__).resolve().parent
 
 
 class Verify(unittest.TestCase):
+    def test_native_host_receipt_is_bound_to_private_skills_and_forbids_nested_provider(self):
+        with tempfile.TemporaryDirectory() as temp:
+            case = Path(temp) / 'grant-a'
+            observations = case / 'observations'
+            observations.mkdir(parents=True)
+            run_id = 'run-a'
+            rider_hash = hashlib.sha256(b'rider-bytes').hexdigest()
+            finish_hash = hashlib.sha256(b'finish-bytes').hexdigest()
+            setup = {'run_id': run_id, 'runtime': 'codex-cli', 'runtime_version': 'codex-cli test',
+                     'model': 'gpt-6.2-astra', 'skills': {
+                         'shark-rider': {'loaded_path': str(case / 'project/.agents/skills/shark-rider/SKILL.md'),
+                                         'source_sha256': rider_hash, 'loaded_sha256': rider_hash},
+                         'finish-feature': {'loaded_path': str(case / 'project/.agents/skills/finish-feature/SKILL.md'),
+                                            'source_sha256': finish_hash, 'loaded_sha256': finish_hash}}}
+            (observations / 'host-setup.json').write_text(json.dumps(setup))
+            (observations / 'host-result.json').write_text(json.dumps({'run_id': run_id, 'exit_code': 0}))
+            trace = [{'type': 'b086_host_run', 'run_id': run_id, 'runtime': 'codex-cli',
+                      'model': 'gpt-6.2-astra'},
+                     {'type': 'item.started', 'item': {'type': 'command_execution',
+                                                        'command': 'python3 observe.py read private-skill'}}]
+            (observations / 'host.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in trace))
+            events = [{'run_id': run_id, 'tool': 'read', 'event': 'result', 'outcome': 'loaded',
+                       'file': 'catalog/shark-rider/SKILL.md'},
+                      {'run_id': run_id, 'tool': 'read', 'event': 'result', 'outcome': 'loaded',
+                       'file': 'catalog/finish-feature/SKILL.md'}]
+            manifest = {'prepared_files': {'catalog/shark-rider/SKILL.md': rider_hash,
+                                           'catalog/finish-feature/SKILL.md': finish_hash}}
+            self.assertTrue(host_receipt(case, manifest, events, run_id))
+            trace.append({'type': 'item.started', 'item': {'type': 'command_execution',
+                                                           'command': 'codex exec --model gpt-6.2-astra'}})
+            (observations / 'host.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in trace))
+            self.assertFalse(host_receipt(case, manifest, events, run_id))
+
     def test_tracker_and_verifier_require_pinned_handoff_reads(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'pair'
@@ -29,7 +64,9 @@ class Verify(unittest.TestCase):
                 subprocess.run(['./shark', 'skill', 'get', 'quality', 'workflows/review-code.md', '--raw'],
                                cwd=project, check=True, capture_output=True)
                 for relative in (TRIAGE, REVIEW, CONSOLIDATOR):
-                    subprocess.run([sys.executable, str(HERE / 'observe.py'), case, 'read', relative],
+                    private_path = 'project/.agents/skills/shark-rider/' + relative.removeprefix(
+                        'catalog/shark-rider/')
+                    subprocess.run([sys.executable, str(HERE / 'observe.py'), case, 'read', private_path],
                                    check=True, capture_output=True)
                 log = case / 'observations/tools.jsonl'
                 original = log.read_bytes()

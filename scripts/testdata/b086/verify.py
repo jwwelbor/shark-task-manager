@@ -14,6 +14,49 @@ def records(path):
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
+def host_receipt(case, manifest, events, run_id):
+    observations = case / 'observations'
+    setup_path = observations / 'host-setup.json'
+    result_path = observations / 'host-result.json'
+    trace_path = observations / 'host.jsonl'
+    if not setup_path.exists() or not result_path.exists() or not trace_path.exists():
+        return False
+    setup = json.loads(setup_path.read_bytes())
+    result = json.loads(result_path.read_bytes())
+    trace = records(trace_path)
+    if (setup.get('run_id') != run_id or result.get('run_id') != run_id
+            or result.get('exit_code') != 0 or setup.get('runtime') != 'codex-cli'
+            or not setup.get('runtime_version') or not setup.get('model')):
+        return False
+    if not trace or trace[0] != {'type': 'b086_host_run', 'run_id': run_id,
+                                 'runtime': 'codex-cli', 'model': setup['model']}:
+        return False
+    recorder_commands = [event for event in trace if event.get('type') == 'item.started'
+                         and event.get('item', {}).get('type') == 'command_execution'
+                         and 'observe.py' in event.get('item', {}).get('command', '')]
+    if not recorder_commands:
+        return False
+    commands = [event.get('item', {}).get('command', '') for event in trace
+                if event.get('type') == 'item.started'
+                and event.get('item', {}).get('type') == 'command_execution']
+    if any('codex' in command or 'claude' in command.lower() for command in commands):
+        return False
+    skills = setup.get('skills', {})
+    for name, source in [('shark-rider', 'catalog/shark-rider/SKILL.md'),
+                         ('finish-feature', 'catalog/finish-feature/SKILL.md')]:
+        skill = skills.get(name, {})
+        expected_path = case / 'project/.agents/skills' / name / 'SKILL.md'
+        if (skill.get('loaded_path') != str(expected_path)
+                or skill.get('source_sha256') != manifest['prepared_files'][source]
+                or skill.get('loaded_sha256') != manifest['prepared_files'][source]
+                or skill.get('source_sha256') != skill.get('loaded_sha256')):
+            return False
+    successful_reads = {event.get('file') for event in events
+                        if event.get('run_id') == run_id and event.get('tool') == 'read'
+                        and event.get('event') == 'result' and event.get('outcome') == 'loaded'}
+    return {'catalog/shark-rider/SKILL.md', 'catalog/finish-feature/SKILL.md'} <= successful_reads
+
+
 def read_children(database, binding):
     stat = database.stat()
     if binding['db_inode'] != [stat.st_dev, stat.st_ino]:
@@ -39,10 +82,16 @@ def defer_readback(children, receipts, events, project, fingerprint):
     child = children[0]
     receipt = receipts[0]
     decision = receipt['message']
-    if not isinstance(decision, dict) or any(decision.get(field) != expected for field, expected in {
-        'disposition': 'Defer', 'fingerprint': fingerprint, 'key': child['key'], 'type': 'task',
-        'feature': child['feature'], 'project': str(project), 'scope': child['title'],
+    if not isinstance(decision, dict):
+        return False
+    disposition = decision.get('disposition', decision.get('decision'))
+    if disposition != 'Defer' or any(decision.get(field) != expected for field, expected in {
+        'fingerprint': fingerprint, 'key': child['key'], 'type': 'task',
+        'parent': child['feature'], 'project': str(project),
     }.items()) or not str(decision.get('reason') or '').strip():
+        return False
+    scope = str(decision.get('scope') or '').strip()
+    if not scope or not (child['description'] or '').startswith(scope):
         return False
     created = False
     reads = set()
@@ -55,7 +104,8 @@ def defer_readback(children, receipts, events, project, fingerprint):
                 reads.add(event['invocation'])
         if event['event'] == 'result' and event['invocation'] in reads and event.get('exit_code') == 0:
             output = event['stdout']
-            verified |= child['key'] in output and fingerprint in output and child['title'] in output
+            verified |= (child['key'] in output and fingerprint in output and child['title'] in output
+                         and (child['description'] or '') in output)
         if event['event'] == 'result' and event['tool'] == 'disposition' and event.get('outcome') == 'received':
             return verified and event['invocation'] == receipt['invocation']
     return False
@@ -84,6 +134,8 @@ def inspect_case(case, manifest, fingerprint):
         missing.append('complete tool results')
     if not has_pinned_handoff(case, manifest, run_id, events):
         missing.append('private handoff reads')
+    if not host_receipt(case, manifest, events, run_id):
+        missing.append('run-bound native host and private-skill receipt')
     pin = manifest.get('review_intake')
     if pin:
         try:
@@ -132,7 +184,7 @@ def inspect_case(case, manifest, fingerprint):
                    and r['message'].get('fingerprint') == fingerprint
                    and r['message'].get('requested_feature') == 'E01-F01'
                    and 'E01-F01' in str(r['message'].get('missing_permission', ''))
-                   and str(r['message'].get('parent_action') or '').strip()
+                   and str(r['message'].get('requested_parent_action') or '').strip()
                    for r in inbox):
             missing.append('received wrong-feature escalation')
     return {'run_id': run_id, 'scope': 'tracker and parent observations only', 'children': children,

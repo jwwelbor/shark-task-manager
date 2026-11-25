@@ -27,7 +27,12 @@ class Intake(unittest.TestCase):
             for name in manifest['cases']:
                 case = pair / name
                 for policy in [WORKFLOW, TRIAGE, REVIEW, CONSOLIDATOR]:
-                    subprocess.run([sys.executable, HERE / 'observe.py', case, 'read', policy],
+                    if policy == WORKFLOW:
+                        private_policy = policy
+                    else:
+                        private_policy = 'project/.agents/skills/shark-rider/' + policy.removeprefix(
+                            'catalog/shark-rider/')
+                    subprocess.run([sys.executable, HERE / 'observe.py', case, 'read', private_policy],
                                    check=True, capture_output=True)
                 result = subprocess.run(['./shark', 'create', 'task', 'E01-F01', 'Example'],
                                         cwd=case / 'project', capture_output=True)

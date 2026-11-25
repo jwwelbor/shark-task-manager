@@ -1,0 +1,120 @@
+{
+  "applied_review": {
+    "entity": "B001",
+    "operation_digest": "6b186167d4a5af03c06d56610d7e6db799ecdd6fa833ce9553b4ef562c3a80e0",
+    "project": "/tmp/b086-r14-host-final-20261125/review-source",
+    "run_id": "fixture-code_review-ef055490eae8441083aa4cc3c1719471"
+  },
+  "bundle_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
+  "candidate": "c6bde86451f62fe9255d811bfd9096f78b541481",
+  "cases": {
+    "grant-a": {
+      "disposition_receipts": 1,
+      "exit_code": 0,
+      "intake": {
+        "bundle_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "6b186167d4a5af03c06d56610d7e6db799ecdd6fa833ce9553b4ef562c3a80e0",
+          "project": "/tmp/b086-r14-host-final-20261125/review-source",
+          "run_id": "fixture-code_review-ef055490eae8441083aa4cc3c1719471"
+        }
+      },
+      "parent_receipts": 0,
+      "private_skills": {
+        "finish-feature": {
+          "loaded_path": "/tmp/b086-r14-host-final-20261125/grant-a/project/.agents/skills/finish-feature/SKILL.md",
+          "loaded_sha256": "40bf2773d43fd2b90237d9fabb20ffcca138e3bd0b073b75b8fe2214066854fd",
+          "source": "/tmp/b086-r14-host-final-20261125/grant-a/catalog/finish-feature",
+          "source_sha256": "40bf2773d43fd2b90237d9fabb20ffcca138e3bd0b073b75b8fe2214066854fd"
+        },
+        "shark-rider": {
+          "loaded_path": "/tmp/b086-r14-host-final-20261125/grant-a/project/.agents/skills/shark-rider/SKILL.md",
+          "loaded_sha256": "9100435b882b51bdb414453dadbf1670843bed980c4626be8becc524ba3e92bb",
+          "source": "/tmp/b086-r14-host-final-20261125/grant-a/catalog/shark-rider",
+          "source_sha256": "9100435b882b51bdb414453dadbf1670843bed980c4626be8becc524ba3e92bb"
+        }
+      },
+      "project": "/tmp/b086-r14-host-final-20261125/grant-a/project",
+      "requested_model": "gpt-6.2-astra",
+      "review_ci_merge_entries": [],
+      "run_id": "628a7520-7b81-4a5f-b451-1e386858a929",
+      "runner_source_sha256": "06d4a37988a0ecd306ef4b39b81839991b9870523e7371fbab4c3f586c682152",
+      "runtime": "codex-cli",
+      "runtime_version": "codex-cli 0.172.0",
+      "tracker_write_forwards": 1,
+      "verification": {
+        "children": [
+          {
+            "description": "Show the alphabetical output of feature-a list in docs/feature-a.md. docs/feature-a.md#DOCS#worked-example",
+            "feature": "E01-F01",
+            "key": "T-E01-F01-001",
+            "notes": [],
+            "title": "Add a worked example of Feature A\u2019s alphabetical list order"
+          }
+        ],
+        "missing": [],
+        "run_id": "628a7520-7b81-4a5f-b451-1e386858a929",
+        "scope": "tracker and parent observations only",
+        "status": "observed"
+      }
+    },
+    "grant-b": {
+      "disposition_receipts": 0,
+      "exit_code": 0,
+      "intake": {
+        "bundle_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "6b186167d4a5af03c06d56610d7e6db799ecdd6fa833ce9553b4ef562c3a80e0",
+          "project": "/tmp/b086-r14-host-final-20261125/review-source",
+          "run_id": "fixture-code_review-ef055490eae8441083aa4cc3c1719471"
+        }
+      },
+      "parent_receipts": 1,
+      "private_skills": {
+        "finish-feature": {
+          "loaded_path": "/tmp/b086-r14-host-final-20261125/grant-b/project/.agents/skills/finish-feature/SKILL.md",
+          "loaded_sha256": "40bf2773d43fd2b90237d9fabb20ffcca138e3bd0b073b75b8fe2214066854fd",
+          "source": "/tmp/b086-r14-host-final-20261125/grant-b/catalog/finish-feature",
+          "source_sha256": "40bf2773d43fd2b90237d9fabb20ffcca138e3bd0b073b75b8fe2214066854fd"
+        },
+        "shark-rider": {
+          "loaded_path": "/tmp/b086-r14-host-final-20261125/grant-b/project/.agents/skills/shark-rider/SKILL.md",
+          "loaded_sha256": "9100435b882b51bdb414453dadbf1670843bed980c4626be8becc524ba3e92bb",
+          "source": "/tmp/b086-r14-host-final-20261125/grant-b/catalog/shark-rider",
+          "source_sha256": "9100435b882b51bdb414453dadbf1670843bed980c4626be8becc524ba3e92bb"
+        }
+      },
+      "project": "/tmp/b086-r14-host-final-20261125/grant-b/project",
+      "requested_model": "gpt-6.2-astra",
+      "review_ci_merge_entries": [],
+      "run_id": "98d0d497-9cae-487f-ae87-f24dd5cf8f54",
+      "runner_source_sha256": "84c8d0984df6b9c4a2f5ab8984a93c43b0bb5cc60d5227dedd40751d2d39fe8c",
+      "runtime": "codex-cli",
+      "runtime_version": "codex-cli 0.172.0",
+      "tracker_write_forwards": 0,
+      "verification": {
+        "children": [],
+        "missing": [],
+        "run_id": "98d0d497-9cae-487f-ae87-f24dd5cf8f54",
+        "scope": "tracker and parent observations only",
+        "status": "observed"
+      }
+    }
+  },
+  "diagnostic_attempts": [
+    {
+      "case": "grant-b",
+      "reason": "The first prompt required a disposition receipt after escalation; preserved separately and not counted.",
+      "result": "rejected by verifier",
+      "run_id": "50ba6863-c513-4e02-aad5-d8681b593a26"
+    }
+  ],
+  "fixture_commit": "5a9bbcb18789a6c22048f5b83bb568b935412d97",
+  "packet_manifest_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
+  "policy_commit": "73910684da8db7e4a045ddc5a22577c160eef328",
+  "review_baseline": "1d78ad660f2c55dd188465785b61723a3b7e6a6c",
+  "runner_source_note": "Grant A used the host.py digest captured in the original preparation manifest. Grant B used the host.py digest of the launcher active at its run; that source is the branch file archived in the deliverable commit.",
+  "schema_version": 1
+}

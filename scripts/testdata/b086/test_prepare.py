@@ -53,6 +53,8 @@ class GrantPairSetup(unittest.TestCase):
                     self.assertEqual(hashlib.sha256(private.read_bytes()).hexdigest(), digest)
                 self.assertIn('catalog/shark-rider/skills/triage/SKILL.md', manifest['prepared_files'])
                 self.assertIn('catalog/finish-feature/SKILL.md', manifest['prepared_files'])
+                self.assertIn('project/.agents/skills/shark-rider/SKILL.md', manifest['prepared_files'])
+                self.assertIn('project/.agents/skills/finish-feature/SKILL.md', manifest['prepared_files'])
                 self.assertIn('project/shark', manifest['prepared_files'])
             self.assertEqual(inputs, ['E01-F01', 'E01-F02'])
             self.assertEqual(*common_dispatches)

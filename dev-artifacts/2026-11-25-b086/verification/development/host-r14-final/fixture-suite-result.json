@@ -1,0 +1,7 @@
+{
+  "command": "python3 -m unittest discover -s scripts/testdata/b086 -p test_*.py",
+  "duration_seconds": 98.654,
+  "exit_code": 0,
+  "result": "OK",
+  "tests": 14
+}

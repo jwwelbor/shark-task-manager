@@ -104,6 +104,10 @@ def prepare(root, finish, retained=None, synthetic=False):
             shutil.copytree(seed, case / 'project')
             shutil.copytree(libexec, case / 'libexec')
             shutil.copytree(catalog, case / 'catalog')
+            private_skills = case / 'project/.agents/skills'
+            private_skills.mkdir(parents=True)
+            shutil.copytree(case / 'catalog/shark-rider', private_skills / 'shark-rider')
+            shutil.copytree(case / 'catalog/finish-feature', private_skills / 'finish-feature')
             dispatch = {
                 'mode': 'unattended', 'requested_feature': 'E01-F01',
                 'create_task_under': grant, 'edit_authority': False,
@@ -129,6 +133,10 @@ def prepare(root, finish, retained=None, synthetic=False):
         files.update({str(path.relative_to(staging)): digest(path) for path in libexec.glob('*.py')})
         files.update({str(path.relative_to(staging)): digest(path)
                       for path in catalog.rglob('*') if path.is_file()})
+        for case_name in cases:
+            case = root / case_name
+            files.update({str(path.relative_to(case)): digest(path)
+                          for path in (case / 'project/.agents/skills').rglob('*') if path.is_file()})
         manifest = {'policy_commit': POLICY, 'review_baseline': BASELINE,
                     'fixture_commit': output(['git', 'rev-parse', 'HEAD'], ROOT).decode().strip(),
                     'fixture_files': {p.name: digest(p) for p in Path(__file__).parent.glob('*.py')},
