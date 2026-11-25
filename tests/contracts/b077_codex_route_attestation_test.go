@@ -97,6 +97,10 @@ func TestB077QuestionResponderHandover(t *testing.T) {
 	runB077ProcedureFixture(t, "b077_question_route.py")
 }
 
+func TestB077WorkerExclusivity(t *testing.T) {
+	runB077ProcedureFixture(t, "b077_worker_exclusivity.py")
+}
+
 func runB077ProcedureFixture(t *testing.T, fixture string) {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "shark")

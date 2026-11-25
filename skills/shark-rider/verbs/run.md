@@ -131,17 +131,43 @@ request/result field set an adapter exchanges with the parent.
 
 ### `spawn_agent`
 
-**Exclusivity pre-flight.** Before claiming, confirm no host worker from a
-prior dispatch against this same `entity_key` is still alive (`ListAgents`
-for an in-process/teammate adapter; the provider's own process/session list
-otherwise). A worker that reported a terminal result or went idle is not
-necessarily terminated — an idle notification only means it has nothing
-queued this turn, not that its process has ended, and it can resume acting
-(on this entity or an adjacent one it noticed) without a new dispatch from
-you. If one is found, stop it (`TaskStop` or the provider's equivalent)
-before spawning a new worker for this key — two live workers editing the
-same entity/worktree race each other and can silently duplicate or
-contradict work.
+**Exclusivity pre-flight.** Inspect the host inventory for the keyed entity
+before claiming it. Use `ListAgents` or the provider's process/session
+inventory. If the inventory is empty, continue to route preflight and the
+normal non-force claim. A claim conflict ends this attempt before submission.
+
+For each visible worker, obtain its original, non-reusable host handle and
+the Shark session bound to that handle at dispatch (`HOST_HANDLE` and
+`HOST_WORKER_SID`). Read the entity, session and handle of the retired
+dispatch independently from the parent's original launch and confirmed
+retirement, such as its successful session-qualified release. Set
+`RETIRED_KEY`, `RETIRED_SID` and `RETIRED_HANDLE` only from that record.
+An idle notification, a terminal message, an entity match or a PID alone
+cannot establish retirement. If the inventory or attribution is inconclusive,
+preserve the worker and report unresolved exclusivity before claiming.
+
+Run this guard in the parent project for each visible worker. Bind
+`host_stop` and `host_confirm_exit` to the provider's stop and exit check
+on the supplied original handle. A live holder, unavailable operation,
+failed stop or unconfirmed exit ends the attempt before any new launch.
+The Shark CLI may return JSON null for an empty claim list.
+
+```bash
+[[ -n ${HOST_HANDLE:-} && -n ${HOST_WORKER_SID:-} &&
+   ${RETIRED_KEY:-} == "${ENTITY_KEY:?}" &&
+   ${RETIRED_HANDLE:-} == "$HOST_HANDLE" &&
+   ${RETIRED_SID:-} == "$HOST_WORKER_SID" ]] || exit 1
+current_claims=$(shark claims --json) || exit 1
+jq -es --arg key "$ENTITY_KEY" '
+  length == 1 and (.[0] | . == null or
+    (type == "array" and all(.[]; (.entity_key | type) == "string" and .entity_key != $key)))
+' <<<"$current_claims" >/dev/null || exit 1
+host_stop "$HOST_HANDLE" && host_confirm_exit "$HOST_HANDLE" || exit 1
+```
+
+Continue only after confirming exit for every attributable lingering worker.
+A competing parent can still acquire the lease after inspection. Use the
+ordinary claim below and preserve the winner on conflict.
 
 > Recorded failure (2026-09-15): three prior resumptions' workers for the
 > same task stayed alive well after their idle notifications, and one
