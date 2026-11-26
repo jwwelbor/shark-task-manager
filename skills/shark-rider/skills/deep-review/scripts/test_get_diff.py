@@ -424,6 +424,9 @@ class CaptureScopeTest(unittest.TestCase):
                 incomplete = run_writer(partial, capture_output=True, text=True)
                 self.assertEqual(incomplete.returncode, 2)
                 self.assertEqual(json.loads(incomplete.stdout)['verdict'], 'INCOMPLETE')
+                # Six independently validated packets remain countable even when
+                # the caller supplies a contradictory completion claim.
+                self.assertEqual(json.loads(incomplete.stdout)['specialists_completed'], 6)
                 partial[partial.index('5')] = 'unknown'
                 packet_arg = partial.index('--angle-results')
                 del partial[packet_arg:packet_arg + 2]

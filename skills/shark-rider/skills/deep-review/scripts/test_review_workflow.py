@@ -148,6 +148,32 @@ run(args, () => {}, tasks => Promise.all(tasks.map(task => task())), agent, () =
             check({'reviewed_files': [' ']}, complete=False, missing_b=True)
             check({'reviewed_files': [' ']})
 
+    def test_missing_result_vector_is_unknown_not_zero_specialists(self):
+        """B085/5272: a dispatch with no result vector differs from six replies that were all null."""
+        harness = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', src.slice(src.indexOf('// ─── Args')));
+const mode = process.argv[2];
+const parallel = async () => mode === 'undefined' ? undefined : mode === 'null' ? null : mode === 'object' ? {} : mode === 'string' ? 'x' : mode === 'throw' ? (() => { throw Error('dispatch down') })() : Array(6).fill(null);
+let calls = 0;
+const agent = async () => { calls++; throw Error('must not consolidate') };
+run({diff_path:'d', skill_dir:'s', candidate_commit:'c', candidate_tree:'t', diff_sha256:'h', changed_files:['f']}, () => {}, parallel, agent, () => {})
+  .then(report => process.stdout.write(JSON.stringify({report, calls}))).catch(e => { console.error(e); process.exit(1); });
+'''
+        for mode, expected in [('undefined', 'unknown'), ('null', 'unknown'), ('object', 'unknown'), ('string', 'unknown'),
+                               ('throw', 'unknown'), ('six-null', 0)]:
+            with self.subTest(mode=mode):
+                proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
+                observed = json.loads(proc.stdout)
+                result = observed['report']
+                self.assertEqual(observed['calls'], 0)
+                self.assertEqual(result['runner_mode'], 'incomplete')
+                self.assertEqual(result['specialists_completed'], expected)
+                self.assertFalse(result['consolidator_completed'])
+                self.assertTrue(result['report'].startswith('INCOMPLETE'))
+
     def test_partial_and_malformed_results_never_reach_consolidator(self):
         harness = r'''
 const fs = require('fs');
@@ -162,6 +188,7 @@ const angle = {review_contract_version:2, candidate_identity:{commit:'abc',tree:
 const parallel = async funcs => mode.startsWith('context') ? Promise.all(funcs.map(f => f())) : mode === 'missing' ? [angle, angle, null, angle, angle, angle] :
   mode === 'malformed' ? [angle, angle, {}, angle, angle, angle] :
   mode === 'empty' ? [angle, angle, {...angle, reviewed_files: []}, angle, angle, angle] :
+  mode === 'partial_one_angle' ? [angle, angle, {...angle, reviewed_files: ['file'], findings:[{file:'second', line:1, severity:'blocker', rule:'RISK', summary:'omitted file finding', diagnosis:'named by finding but not inspected'}]}, angle, angle, angle] :
   mode === 'identity' ? [angle, angle, {...angle, candidate_identity: {...angle.candidate_identity, tree:'wrong'}}, angle, angle, angle] :
   ['blocker','open','refuted','fail_missing','fail_open'].includes(mode) ? [{...angle, findings:[{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', impact:'wrong total delivered', evidence:'adding 7 and 3 returned 7'}]}, angle, angle, angle, angle, angle] : Array(6).fill(angle);
 const agent = async (prompt, options) => {
@@ -209,7 +236,7 @@ run({effort: mode === 'context_max' ? 'max' : undefined, diff_path:'/tmp/diff', 
             with self.subTest(mode=mode):
                 proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
                 self.assertEqual(json.loads(proc.stdout)['report']['runner_mode'], expected)
-        for mode in ('missing', 'malformed', 'empty', 'identity', 'short', 'blocker', 'open', 'conflict', 'consolidator_error', 'refuted', 'complete', 'context', 'fail_missing', 'fail_open'):
+        for mode in ('missing', 'malformed', 'empty', 'partial_one_angle', 'identity', 'short', 'blocker', 'open', 'conflict', 'consolidator_error', 'refuted', 'complete', 'context', 'fail_missing', 'fail_open'):
             with self.subTest(mode=mode):
                 proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
                 result = json.loads(proc.stdout)

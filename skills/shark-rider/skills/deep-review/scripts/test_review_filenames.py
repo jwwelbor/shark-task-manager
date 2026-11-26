@@ -151,6 +151,110 @@ class ReviewFilenameTests(unittest.TestCase):
         self.assertEqual(digest, metadata[kind + "_sha256"])
         self.assertIn(digest, saved)
 
+    def test_scope_and_snapshot_use_the_same_git_names_across_filesystem_encodings(self):
+        names = [b"caf\xe9", "café".encode(), "caf\ufffd".encode(), br"caf\udce9", "caf\U000100e9".encode()]
+        self.commit_names(names)
+        base = self.scope["candidate_commit"]
+        for name in names:
+            with open(os.fsencode(self.repo) + b"/" + name, "ab") as f:
+                f.write(b"selected")
+        envs = [{**os.environ, "LC_ALL": "C", "PYTHONCOERCECLOCALE": "0", "PYTHONUTF8": mode}
+                for mode in ("0", "1")]
+        observed_encodings = [subprocess.check_output(
+            [sys.executable, "-c", "import sys; print(sys.getfilesystemencoding())"], env=env, text=True
+        ).strip() for env in envs]
+        self.assertEqual(observed_encodings, ["ascii", "utf-8"])
+        expected = [name.decode("utf-8", "surrogateescape") for name in names]
+        for index, producer in enumerate(envs):
+            snapshot = self.root / f"snapshot-{index}"
+            metadata = self.root / f"source-{index}.json"
+            subprocess.run([sys.executable, str(HERE / "prepare_candidate.py"), "--project-root", self.repo,
+                            "--destination", snapshot, "--metadata-file", metadata, *names],
+                           env=producer, check=True, capture_output=True)
+            marker = subprocess.check_output(["git", "rev-parse", "--git-path", "shark-review-source.json"],
+                                             cwd=snapshot, text=True).strip()
+            with self.subTest(producer=observed_encodings[index]):
+                self.assertEqual(json.loads(metadata.read_bytes())["selected_paths"], expected)
+                self.assertEqual(json.loads((snapshot / marker).read_bytes())["selected_paths"], expected)
+            changed = subprocess.check_output(["git", "diff", "--name-only", "-z", base, "HEAD"],
+                                              cwd=snapshot).split(b"\0")[:-1]
+            for name in names:
+                with open(os.fsencode(snapshot) + b"/" + name, "rb") as f:
+                    self.assertEqual(f.read(), name + b"selected")
+            for host, consumer in zip(observed_encodings, envs):
+                capture = subprocess.check_output(["bash", str(HERE / "get_diff.sh")], cwd=snapshot,
+                          env={**consumer, "REVIEW_BASE": base, "REVIEW_SOURCE_METADATA": str(metadata)})
+                self.scope_file.write_bytes(capture)
+                with self.subTest(producer=index, capture=host):
+                    self.assertEqual(json.loads(capture)["changed_files"],
+                                     [name.decode("utf-8", "surrogateescape") for name in changed])
+                for reader, env in zip(observed_encodings, envs):
+                    with self.subTest(producer=index, capture=host, reader=reader):
+                        verified = subprocess.run([sys.executable, str(HERE / "adaptive_review.py"),
+                            "validate-scope", "--scope-file", self.scope_file,
+                            "--project-root", snapshot, "--source-root", self.repo],
+                            env=env, capture_output=True, text=True)
+                        self.assertEqual(verified.returncode, 0, (verified.stdout, verified.stderr))
+                        self.assertTrue(json.loads(verified.stdout)["valid"])
+
+    def colliding_manifests(self):
+        # Both pairs flatten to the same lines, and all decoy paths exist in both trees.
+        common = [br'literal\file', b'quoted"file']
+        pairs = [[b'alpha', b'beta\ngamma'], [b'alpha\nbeta', b'gamma']]
+        self.commit_names(common + pairs[0] + pairs[1])
+        base = self.scope["candidate_commit"]
+        for pair in pairs:
+            self.git("checkout", "-q", "--detach", base)
+            self.commit_names(pair + common)
+            expected = self.git("diff", "--name-only", "-z", base, "HEAD").split(b"\0")[:-1]
+            yield [name.decode() for name in expected]
+
+    def test_native_recipients_receive_exact_git_manifest(self):
+        harness = r"""
+const fs = require('fs');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const run = new (Object.getPrototypeOf(async function() {}).constructor)(
+    'args', 'phase', 'parallel', 'agent', 'log', source.slice(source.indexOf('// ─── Args')));
+const {scope, packet} = JSON.parse(fs.readFileSync(0, 'utf8'));
+const calls = [];
+async function reviewer(prompt, {label}) {
+    const field = prompt.split('- CHANGED_FILES:\n')[1].split('\n- ')[0];
+    const observation = {label, field};
+    calls.push(observation);
+    try {
+        observation.contents = JSON.parse(field).map(name => fs.readFileSync(name, 'utf8'));
+    } catch (error) {
+        observation.readError = error.message;
+    }
+    return label === 'consolidator' ? packet : packet.decisions;
+}
+run(scope, () => {}, tasks => Promise.all(tasks.map(task => task())), reviewer, () => {})
+    .then(result => process.stdout.write(JSON.stringify({result, calls})));
+"""
+        for expected in self.colliding_manifests():
+            trial = {"scope": {**self.scope, "skill_dir": str(HERE.parent)},
+                     "packet": review_packet(self.scope)}
+            output = subprocess.check_output(["node", "-e", harness, str(HERE / "review_workflow.js")],
+                                             input=json.dumps(trial), text=True, cwd=self.repo)
+            observed = json.loads(output)
+            labels = [call["label"].split(":")[0] for call in observed["calls"]]
+            self.assertEqual(labels, [*"ABCDEF", "consolidator"])
+            self.assertTrue(observed["result"]["consolidator_completed"])
+            for call in observed["calls"]:
+                with self.subTest(candidate=self.scope["candidate_commit"], recipient=call["label"]):
+                    self.assertNotIn("readError", call, call["field"])
+                    self.assertEqual(json.loads(call["field"]), expected)
+                    self.assertEqual(call["contents"], [name * 2 for name in expected])
+
+            trial["scope"]["changed_files"] = "\n".join(expected)
+            output = subprocess.check_output(["node", "-e", harness, str(HERE / "review_workflow.js")],
+                                             input=json.dumps(trial), text=True, cwd=self.repo)
+            rejected = json.loads(output)
+            with self.subTest(invalid_input="newline-delimited manifest"):
+                self.assertEqual(rejected["calls"], [])
+                self.assertEqual(rejected["result"]["runner_mode"], "incomplete")
+                self.assertIn("changed_files", rejected["result"]["report"])
+
     def assert_cli_manifest_delivered(self):
         expected = self.git("diff", "--name-only", "-z", self.scope["base_commit"],
                             self.scope["candidate_commit"]).split(b"\0")[:-1]

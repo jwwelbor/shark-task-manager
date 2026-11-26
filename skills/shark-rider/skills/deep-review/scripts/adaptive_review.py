@@ -538,6 +538,8 @@ def _validate_decision(finding, verdict):
         raise ValueError("malformed review decision")
     if not finding["disposition"].strip() or not finding["reason"].strip():
         raise ValueError("review decision requires a disposition and reason")
+    if finding["severity"] == "nit" and finding["disposition"] != "report-only":
+        raise ValueError("nit disposition must be report-only")
     if verdict.upper().startswith("PASS") and finding["severity"] == "blocker" and finding["disposition"] != "refuted":
         raise ValueError("passing review contains an unresolved blocker")
     if verdict.upper() == "PASS" and finding["disposition"] != "refuted":
@@ -720,6 +722,8 @@ def _incomplete_report_body(reason: str) -> str:
 
 
 def persist_report(path: Path, body: str, metadata: dict[str, object], branch: str = "unknown") -> None:
+    if metadata["verdict"] == "INCOMPLETE":
+        metadata["consolidator_completed"] = False
     path.parent.mkdir(parents=True, exist_ok=True)
     if metadata["verdict"] == "INCOMPLETE":
         metadata["consolidator_completed"] = False

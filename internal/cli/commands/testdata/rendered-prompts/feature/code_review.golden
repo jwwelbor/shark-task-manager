@@ -203,13 +203,22 @@ retains the lease, heartbeats, transitions and result ingestion.
 
 Freeze the complete scope, including unaccepted predecessor changes. Bind the
 review to the candidate tree, diff hash and manifest. Bind the accepted plan
-revision when applicable; bug repair reviews require it.
+revision when applicable; bug repair reviews require it. The comparable CLI
+decisions artifact must declare `reviewed_files` from files the reviewer
+actually inspected, and must cover every path in the frozen manifest. The
+writer and QA verifier reject a missing declaration or any omitted manifest
+path; never infer inspected files from the manifest or report.
 Record runner mode, completed specialists, consolidation, actual reviewer model,
 fallback reason, base commit and diff path. Record requested and verified
 effective execution identity separately; explicitly mark unknown identity.
 If scope or candidate changes, obtain fresh evidence. Preserve disagreements;
 justify any downgraded blocker with evidence that it does not mask a test bug,
-wiring gap or regressed obligation. Incomplete evidence cannot pass.
+wiring gap or regressed obligation. When that evidence refutes the blocking
+concern and leaves only a stylistic preference, preserve the original concern,
+the refutation evidence and the host's report-only no-action disposition. This
+ends triage for that finding: make no edits and no tracker writes. Continue
+normal triage for any surviving substantive finding. Incomplete evidence
+cannot pass.
 
 ### Step 11: Evidence-based finding admission
 

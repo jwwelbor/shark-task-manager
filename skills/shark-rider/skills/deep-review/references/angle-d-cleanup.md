@@ -4,7 +4,7 @@ Apply the canonical quality craft rubric for shared thresholds and severity when
 
 You are performing a cleanup and quality review. You have been given:
 - A diff file path (DIFF_PATH)
-- A list of changed files (CHANGED_FILES)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
 - A project root (PROJECT_ROOT)
 
 Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES, or PROJECT_ROOT.
@@ -29,7 +29,7 @@ Assess reuse severity using the canonical quality craft rubric.
 
 ## Part 2: Complexity & size hotspots
 
-Run tooling where available:
+Run tooling where available. In these examples, pass the applicable decoded filenames from CHANGED_FILES as separate arguments, preserving the bytes of each name. Prefix each relative filename with `./` when passing it to the tool.
 
 ```bash
 # Python

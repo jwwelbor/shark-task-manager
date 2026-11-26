@@ -56,9 +56,15 @@ function validGitPath(path) {
 function listChangedFiles() {
   if (Array.isArray(changed_files) && changed_files.every(validGitPath)) return changed_files
   if (validGitPath(changed_files) && !changed_files.includes('\n')) return [changed_files]
-  throw new Error('changed_files requires an exact Git filename array for this scope')
+  throw new Error('changed_files must be the captured JSON array of exact Git filenames')
 }
-const changedFiles = listChangedFiles()
+let changedFiles
+try {
+  changedFiles = listChangedFiles()
+} catch (error) {
+  return {report: `INCOMPLETE: ${error.message}.`, runner_mode: 'incomplete', specialists_completed: 0,
+    consolidator_completed: false, angle_results: null}
+}
 const fileList = JSON.stringify(changedFiles)
 let comparisonContext = `- BASE_COMMIT: ${base_commit || '(not provided)'}`
 if (input.successor_delta) {
@@ -356,6 +362,7 @@ const {report, decisions} = consolidationFields(consolidation)
 
 function validDecision(f) {
   return validFinding(f) && ['disposition', 'reason'].every(k => typeof f[k] === 'string' && f[k].trim().length > 0) &&
+    (f.severity !== 'nit' || f.disposition === 'report-only') &&
     !(f.severity === 'blocker' && f.disposition === 'refuted' && /\bnot\s+refuted\b/i.test(f.reason))
 }
 

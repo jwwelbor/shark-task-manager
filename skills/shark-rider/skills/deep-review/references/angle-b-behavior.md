@@ -4,7 +4,7 @@ Apply the canonical quality craft rubric for shared thresholds and severity when
 
 You are performing a removed-behavior and architecture review. You have been given:
 - A diff file path (DIFF_PATH)
-- A list of changed files (CHANGED_FILES)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
 - A project root (PROJECT_ROOT)
 
 These values are in your context preamble. Substitute them wherever these instructions say DIFF_PATH, CHANGED_FILES, or PROJECT_ROOT.

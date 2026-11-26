@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 )
 
 var bugReviewVerdict = regexp.MustCompile(`(?i)\bVERDICT\s*:?\s*\*{0,2}\s*:?\s*(PASS(?:-WITH-TRIAGE)?|FAIL)\b`)
@@ -97,6 +98,11 @@ func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, sc
 	decisions, err := validateBugReviewDecisions(decisionData, scope, verdict)
 	if err != nil {
 		return err
+	}
+	if decisions.version == 0 {
+		if err := requireHistoricalReview(req); err != nil {
+			return err
+		}
 	}
 	if err := requireBugFindingDecisions(body, decisions.byFinding); err != nil {
 		return err
@@ -480,4 +486,16 @@ func validBugAngleFinding(f bugAngleFinding) bool {
 		return false
 	}
 	return f.File != "" && f.Line > 0 && f.Rule != "" && f.Summary != "" && f.Diagnosis != ""
+}
+
+// requireHistoricalReview admits an unversioned packet only for an operation
+// that the parent already applied under the pre-v2 provenance contract. A
+// pending journal, a missing journal or a run admitted under the current
+// contract grants no such eligibility.
+func requireHistoricalReview(req gatepersist.Request) error {
+	state, exists, err := gaterun.LoadOperationState(req.RunDir)
+	if err != nil || !exists || state.PersistenceState != gaterun.PersistenceStateTransitioned || state.AdmissionVersion != gatepersist.BoundAdmissionVersion {
+		return fmt.Errorf("unversioned review packet requires review_contract_version 2: only a review applied before that contract is eligible")
+	}
+	return nil
 }

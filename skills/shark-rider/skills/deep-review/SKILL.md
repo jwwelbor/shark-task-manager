@@ -74,7 +74,8 @@ full candidate, stop and report incomplete. Pass the captured JSON as
 `--scope-file`, the trusted reviewed-worktree `--project-root`, and the independently established original repository `--source-root` to `adaptive_review.py run-cli` or `write-report`; the writer
 revalidates candidate, diff and manifest and persists their identities. Pass
 `--requested-model` and `--effective-model` only when known; absent values are
-recorded as unknown.
+recorded as unknown. On `run-cli`, `--effective-model` describes the first eligible CLI. Supply
+`--fallback-effective-model` only when the host independently verified the model for the second CLI.
 
 For a bug, set `REVIEW_BASE` to the independently approved `bug_review_baseline` commit and `REVIEW_PLAN_SHA256` to the 64 lowercase hex characters of the approved plan digest before capture. Every angle must include that digest as `candidate_identity.repair_plan_sha256`; supply the same scope field and `repair_context.plan_revision` (`sha256:<digest>`) to the native workflow. A report for a different plan revision or baseline cannot satisfy the gate.
 
@@ -82,10 +83,20 @@ On Windows, snapshot inventory delegates its confined filesystem reads to the in
 
 ## Capture the review scope
 
+Before navigating to the reviewed repository or entering a snapshot, set
+`DEEP_REVIEW_SKILL_DIR` to the absolute directory containing the `SKILL.md`
+that the host loaded for this invocation. Use the path from the host's skill
+catalog or invocation context; when the host does not expose it, supply that
+absolute path explicitly. Do not infer this installation from the repository
+being reviewed or from a candidate snapshot. The resolver checks that the
+required scripts and angle references exist and fails before dispatch if the
+installation is incomplete.
+
 ```bash
+export DEEP_REVIEW_SKILL_DIR="<absolute directory containing the loaded SKILL.md>"
+skill_dir="$(bash "${DEEP_REVIEW_SKILL_DIR:?set the loaded skill directory first}/scripts/resolve_skill_dir.sh")"
 project_root=$(git rev-parse --show-toplevel)
 source_root="$project_root"  # Preserve this original root if reviewing a snapshot.
-skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
 REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
 
@@ -191,6 +202,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
    Pass `changed_files` as the exact JSON array from capture or a reference that resolves to it in the recipient’s checkout. Preserve array order and literal Git names.
+   Include deleted paths and supply the frozen diff or exact base object so each reviewer can read removed lines.
    Keep the same frozen candidate and scope for every angle, regardless of
    scheduling; do not consolidate until all six results have arrived.
 3. Wait for all six results. If any result is missing, malformed, timed out, has a mismatched candidate identity,

@@ -13,6 +13,16 @@ import (
 // BoundAdmissionVersion identifies operations with run-bound transition history.
 const BoundAdmissionVersion = 1
 
+// CurrentAdmissionVersion marks operations admitted under the current review
+// contract. Their review packets must carry the current contract version, which
+// distinguishes them from the unversioned receipts of BoundAdmissionVersion.
+const CurrentAdmissionVersion = 2
+
+// IsBoundAdmission reports whether an operation records run-bound history.
+func IsBoundAdmission(version int) bool {
+	return version == BoundAdmissionVersion || version == CurrentAdmissionVersion
+}
+
 func needsBoundAdmission(c *Coordinator, req Request) bool {
 	return c.Admission != nil && req.EntityType == models.EntityTypeBug && req.Role == gateresult.RoleSuccess
 }
@@ -27,7 +37,7 @@ func (c *Coordinator) markBoundAdmission(req Request, state *gaterun.OperationSt
 	if !needsBoundAdmission(c, req) || state.PersistenceState != gaterun.PersistenceStatePending || state.AdmissionVersion != 0 {
 		return nil
 	}
-	state.AdmissionVersion = BoundAdmissionVersion
+	state.AdmissionVersion = CurrentAdmissionVersion
 	if err := state.Save(req.RunDir); err != nil {
 		return fmt.Errorf("gatepersist: save admission version: %w", err)
 	}
@@ -35,7 +45,7 @@ func (c *Coordinator) markBoundAdmission(req Request, state *gaterun.OperationSt
 }
 
 func (c *Coordinator) requireBoundTransition(ctx context.Context, req Request, state *gaterun.OperationState) error {
-	if state.AdmissionVersion != BoundAdmissionVersion {
+	if !IsBoundAdmission(state.AdmissionVersion) {
 		return nil
 	}
 	entries, err := c.History.GetHistory(ctx, req.EntityType, req.EntityKey)

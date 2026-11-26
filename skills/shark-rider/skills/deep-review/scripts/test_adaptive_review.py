@@ -6,6 +6,7 @@ import io
 import hashlib
 import json
 import os
+import re
 import shlex
 import stat
 import subprocess
@@ -91,12 +92,81 @@ def review_packet(scope):
             'decisions': {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']), 'findings': []}}
 
 
+def verdict_packet(scope, verdict):
+    identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
+    if verdict == 'PASS':
+        report = ('Scope: every changed file and related caller was inspected. Findings: none. '
+                  'The frozen candidate was checked against the complete manifest. VERDICT: PASS')
+        finding = None
+    elif verdict == 'PASS-WITH-TRIAGE':
+        report = ('CURRENT_REVIEW_STATUS: COMPLETE\nScope: every changed file and related caller was inspected. '
+                  'Findings: one substantive validation issue is retained. VERDICT: PASS-WITH-TRIAGE\n'
+                  'FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage')
+        finding = {'finding_id': 'F-1', 'file': 'source', 'line': 1, 'severity': 'non-blocker',
+                   'rule': 'INPUT', 'summary': 'validation issue', 'diagnosis': 'required input is unchecked', 'impact': 'caller accepts malformed input', 'evidence': 'empty input returned success',
+                   'disposition': 'triage', 'reason': 'tracked for host triage'}
+    else:
+        report = ('CURRENT_REVIEW_STATUS: COMPLETE\nScope: every changed file and related caller was inspected. '
+                  'Findings: a blocking validation defect remains. VERDICT: FAIL\n'
+                  'FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | blocker | open')
+        finding = {'finding_id': 'F-1', 'file': 'source', 'line': 1, 'severity': 'blocker',
+                   'rule': 'INPUT', 'summary': 'validation defect', 'diagnosis': 'required input is unchecked', 'impact': 'caller accepts malformed input', 'evidence': 'empty input returned success',
+                   'disposition': 'open', 'reason': 'candidate evidence confirms the defect'}
+    decisions = {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']),
+                 'findings': [] if finding is None else [finding]}
+    return {'report': report, 'decisions': decisions}
+
+
 def fake_reviewer(path, packet):
     path.write_text("#!/bin/sh\nprintf '%s\\n' " + shlex.quote(json.dumps(packet)) + "\n")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
 class AdaptiveReviewTests(unittest.TestCase):
+    @unittest.skipIf(os.name == 'nt', 'uses an executable reviewer fixture')
+    def test_public_writers_preserve_the_requested_and_observed_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            packet = review_packet(scope)
+            reviewer = root / "codex"
+            fake_reviewer(reviewer, packet)
+            body, decisions, prompt = (root / name for name in ("body", "decisions", "prompt"))
+            body.write_text(packet["report"])
+            decisions.write_text(json.dumps(packet["decisions"]))
+            prompt.write_text("Review the captured changes.")
+            entries = {
+                "run-cli": ["--codex-command", str(reviewer), "--host", "claude",
+                            "--no-workflow-available", "--no-agent-dispatch-available",
+                            "--prompt-file", str(prompt)],
+                "write-report": ["--body-file", str(body), "--review-decisions", str(decisions),
+                                 "--runner-mode", "adversarial-cli", "--adversarial-model", "codex",
+                                 "--fallback-reason", "dispatch unavailable", "--specialists-completed", "0",
+                                 "--consolidator-completed", "true", "--verdict", "PASS"],
+            }
+            for entry, options in entries.items():
+                for requested in (None, "", "requested-test"):
+                    for observed in (None, "observed-test"):
+                        with self.subTest(entry=entry, requested=requested, observed=observed):
+                            report = root / f"{entry}-{requested}-{observed}.md"
+                            argv = [sys.executable, str(HERE / "adaptive_review.py"), entry, *options,
+                                    "--project-root", str(repo), "--source-root", str(repo),
+                                    "--base-commit", scope["base_commit"], "--scope-file", str(scope_file),
+                                    "--diff-path", scope["diff_path"], "--review-output-path", str(report)]
+                            if requested is not None:
+                                argv.extend(["--requested-model", requested])
+                            if observed is not None:
+                                argv.extend(["--effective-model", observed])
+                            run = subprocess.run(argv, capture_output=True, text=True)
+                            self.assertEqual(run.returncode, 0, (argv, run.stderr, run.stdout))
+                            result = json.loads(run.stdout)
+                            self.assertEqual(result["verdict"], "PASS")
+                            self.assertEqual(result["requested_model"], requested)
+                            self.assertEqual(result["effective_model"], observed)
+                            request_label = "unknown" if requested is None else requested
+                            self.assertIn(f"**Requested model:** `{request_label}` · "
+                                          f"**Verified effective model:** `{observed or 'unknown'}`",
+                                          report.read_text().split("\n---\n", 1)[0])
     def test_incomplete_writer_counts_the_retained_specialist_replies(self):
         # B087 F3: a failed consolidation does not undo completed inspections.
         with tempfile.TemporaryDirectory() as tmp:
@@ -603,13 +673,12 @@ class AdaptiveReviewTests(unittest.TestCase):
         adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}]})
         with self.assertRaisesRegex(ValueError, 'retained decision'):
             adaptive_review._require_finding_decision(body, {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'Triage'}]})
-        multi = body + '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-2 | nit | triage'
-        decisions = {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}, {'finding_id': 'F-2', 'severity': 'nit', 'disposition': 'triage'}]}
+        multi = body + '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-2 | nit | report-only'
+        decisions = {'findings': [{'finding_id': 'F-1', 'severity': 'non-blocker', 'disposition': 'triage'}, {'finding_id': 'F-2', 'severity': 'nit', 'disposition': 'report-only'}]}
         self.assertTrue(adaptive_review.valid_review_report(multi, 'PASS-WITH-TRIAGE'))
         adaptive_review._require_finding_decision(multi, decisions)
         with self.assertRaisesRegex(ValueError, 'unique'):
             adaptive_review._require_finding_decision(body + '\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage', decisions)
-
 
     def test_crlf_footer_requires_matching_decision_and_nonclean_verdict(self):
         scope = {'candidate_commit': 'commit', 'candidate_tree': 'tree', 'diff_sha256': 'diff', 'changed_files': ['app.go', 'other.go']}
@@ -627,7 +696,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             'severity': 'non-blocker', 'rule': 'INPUT', 'summary': 'validation',
             'diagnosis': 'missing check', 'evidence': 'empty input returned success', 'impact': 'caller accepts malformed external input', 'disposition': 'triage', 'reason': 'tracked'}]
         self.assertEqual(adaptive_review._parse_cli_packet(json.dumps(packet), scope)[0], packet['report'])
-        packet['report'] += 'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage\r\n'
+        packet['report'] += 'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | report-only\r\n'
         with self.assertRaises(ValueError):
             adaptive_review._parse_cli_packet(json.dumps(packet), scope)
         packet['decisions']['findings'].append({'finding_id': 'F-2', 'file': 'other.go', 'line': 3,
@@ -677,6 +746,25 @@ class AdaptiveReviewTests(unittest.TestCase):
             validate_review_decisions(decisions, scope, [finding], 'FAIL')
         decisions['findings'] = [{**finding, 'disposition': 'open', 'reason': 'still reproducible'}]
         validate_review_decisions(decisions, scope, [finding], 'FAIL')
+
+    def test_cli_decisions_reject_omitted_manifest_file(self):
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd', 'changed_files': ['one.go', 'two.go']}
+        decisions = {'review_contract_version': 2, 'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'reviewed_files': ['one.go'], 'findings': []}
+        with self.assertRaisesRegex(ValueError, 'incomplete reviewed_files coverage'):
+            validate_review_decisions(decisions, scope, [], 'PASS', require_reviewed_files=True)
+        decisions['reviewed_files'].append('two.go')
+        validate_review_decisions(decisions, scope, [], 'PASS', require_reviewed_files=True)
+
+    def test_supplemental_context_must_be_a_repository_relative_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, scope, _ = scope_fixture(Path(tmp))
+            packet = review_packet(scope)
+            for path in ('/outside.go', '../outside.go', 'x/../../outside.go'):
+                with self.subTest(path=path):
+                    packet['decisions']['reviewed_files'] = [*scope['changed_files'], path]
+                    with self.assertRaisesRegex(ValueError, 'repository-relative') as caught:
+                        adaptive_review._parse_cli_packet(json.dumps(packet), scope)
+                    self.assertIn(path, str(caught.exception))
 
     def test_report_retains_validated_bytes_after_source_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -761,25 +849,324 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertEqual(metadata['verdict'], 'INCOMPLETE')
             self.assertEqual(metadata['runner_mode'], 'incomplete')
 
-    def test_cli_rejects_scope_replacement_during_review(self):
+    def test_final_scope_must_remain_readable_and_identical(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo, scope, scope_file = scope_fixture(root)
             prompt = root / 'prompt.txt'
             prompt.write_text('review')
-            fake = root / 'reviewer'
+            reviewer = root / 'reviewer'
             changed = {**scope, 'repair_plan_sha256': 'a' * 64}
-            fake.write_text("#!/bin/sh\nprintf '%s' " + shlex.quote(json.dumps(changed)) + ' > ' + shlex.quote(str(scope_file)) +
-                            "\nprintf '%s\\n' " + shlex.quote(json.dumps(review_packet(scope))) + "\n")
-            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-            result = subprocess.run([
+            for name, final_bytes, diagnostic in (
+                ('unreadable', None, 'scope validation failed'),
+                ('changed', json.dumps(changed), 'captured scope changed'),
+                ('identical', json.dumps(scope), None),
+            ):
+                with self.subTest(name=name):
+                    scope_file.write_text(json.dumps(scope))
+                    reviewer.write_text(
+                        '#!/usr/bin/env python3\nimport json\nfrom pathlib import Path\n'
+                        f'path = Path({str(scope_file)!r})\n'
+                        + ('path.unlink()\n' if final_bytes is None else f'path.write_text({final_bytes!r})\n')
+                        + f'print(json.dumps({review_packet(scope)!r}))\n'
+                    )
+                    reviewer.chmod(0o700)
+                    report = root / name
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                        '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                        '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                        '--base-commit', scope['base_commit'], '--review-output-path', str(report),
+                        '--host', 'claude', '--codex-command', str(reviewer), '--no-workflow-available',
+                        '--no-agent-dispatch-available',
+                    ], capture_output=True, text=True)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(result.returncode, 2 if diagnostic else 0)
+                    self.assertEqual(metadata['verdict'], 'INCOMPLETE' if diagnostic else 'PASS')
+                    self.assertEqual(metadata['specialists_completed'], 0)
+                    self.assertEqual(metadata['consolidator_completed'], diagnostic is None)
+                    saved = report.read_text()
+                    self.assertIn(f'`specialists_completed=0` `consolidator_completed={diagnostic is None}`', saved)
+                    self.assertIn(f"**Verdict:** {metadata['verdict']}", saved)
+                    if diagnostic:
+                        self.assertIn(diagnostic, metadata['fallback_reason'])
+                        self.assertIn(diagnostic, saved)
+
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_cli_inspection_must_cover_the_frozen_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            (repo / 'second').write_text('second changed file')
+            subprocess.run(['git', 'add', 'second'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'add second file'], cwd=repo, check=True)
+            capture = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo)
+            scope_file.write_bytes(capture)
+            scope = json.loads(capture)
+            self.assertEqual(set(scope['changed_files']), {'source', 'second'})
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect every changed file: source and second.')
+            for inspected, expected in [(['source', 'second'], 'PASS'), (['source'], 'INCOMPLETE')]:
+                with self.subTest(inspected=inspected):
+                    reviewer = root / 'reviewer'
+                    reviewer.write_text(
+                        '#!/usr/bin/env python3\nfrom pathlib import Path\nimport json, sys\n'
+                        'assert "decisions.reviewed_files must list every frozen changed file" in sys.argv[-1]\n'
+                        f'paths = {inspected!r}\npacket = {review_packet(scope)!r}\n'
+                        'for path in paths: Path(path).read_text()\n'
+                        'packet["decisions"]["reviewed_files"] = paths\n'
+                        'packet["report"] = ("Scope inspected: " + ", ".join(paths) + '
+                        '"\\nChecks: read each listed file and checked its contents.'
+                        '\\nFindings: 0 defects found.\\nVerdict: PASS")\n'
+                        'print(json.dumps(packet))\n'
+                    )
+                    reviewer.chmod(0o700)
+                    report = root / f'report-{len(inspected)}.md'
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                        '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                        '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                        '--base-commit', scope['base_commit'], '--review-output-path', str(report),
+                        '--host', 'claude', '--codex-command', str(reviewer), '--claude-command', str(reviewer),
+                        '--no-workflow-available', '--no-agent-dispatch-available',
+                    ], capture_output=True, text=True)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata['verdict'], expected, report.read_text())
+                    self.assertEqual(result.returncode, 0 if expected == 'PASS' else 2)
+
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_run_cli_verdict_matrix_requires_every_frozen_file_and_retains_valid_decisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            (repo / 'second').write_text('second changed file')
+            subprocess.run(['git', 'add', 'second'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'add second file'], cwd=repo, check=True)
+            scope_bytes = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo)
+            scope_file.write_bytes(scope_bytes)
+            scope = json.loads(scope_bytes)
+            self.assertEqual(set(scope['changed_files']), {'source', 'second'})
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect the frozen manifest and relevant callers.')
+            for verdict in ('PASS', 'PASS-WITH-TRIAGE', 'FAIL'):
+                for omitted in (False, True):
+                    with self.subTest(verdict=verdict, omitted=omitted):
+                        packet = verdict_packet(scope, verdict)
+                        if omitted:
+                            packet['decisions']['reviewed_files'] = [scope['changed_files'][0]]
+                        reviewer = root / 'reviewer'
+                        reviewer.write_text(
+                            '#!/usr/bin/env python3\nfrom pathlib import Path\nimport json, sys\n'
+                            'assert "decisions.reviewed_files must list every frozen changed file" in sys.argv[-1]\n'
+                            f'packet = json.loads({json.dumps(json.dumps(packet))})\n'
+                            'for path in packet["decisions"]["reviewed_files"]: Path(path).read_text()\n'
+                            'print(json.dumps(packet))\n'
+                        )
+                        reviewer.chmod(0o700)
+                        report = root / f'run-cli-{verdict}-{omitted}.md'
+                        result = subprocess.run([
+                            sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                            '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                            '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                            '--base-commit', scope['base_commit'], '--review-output-path', str(report),
+                            '--host', 'claude', '--codex-command', str(reviewer), '--claude-command', str(reviewer),
+                            '--no-workflow-available', '--no-agent-dispatch-available',
+                        ], capture_output=True, text=True)
+                        metadata = json.loads(result.stdout)
+                        expected = 'INCOMPLETE' if omitted else verdict
+                        self.assertEqual(metadata['verdict'], expected, result.stdout + result.stderr)
+                        self.assertEqual(metadata['runner_mode'], 'incomplete' if omitted else 'adversarial-cli')
+                        self.assertEqual(result.returncode, 2 if omitted else 0)
+                        saved_report = report.read_text()
+                        self.assertIn(f'**Verdict:** {expected}', saved_report)
+                        self.assertIn(f'`runner_mode={metadata["runner_mode"]}`', saved_report)
+                        if omitted:
+                            current_body = saved_report.split("---", 1)[1]
+                            self.assertIn('CURRENT_REVIEW_STATUS: INCOMPLETE', current_body)
+                            self.assertIn('VERDICT: INCOMPLETE', current_body)
+                            self.assertNotRegex(current_body, r'CURRENT_REVIEW_STATUS:\s*COMPLETE')
+                            self.assertNotRegex(current_body, r'VERDICT\s*:?\s*PASS(?:-WITH-TRIAGE)?\b')
+                        if not omitted:
+                            decisions_path = Path(metadata['retained_decisions'])
+                            decisions_bytes = decisions_path.read_bytes()
+                            decisions_digest = hashlib.sha256(decisions_bytes).hexdigest()
+                            self.assertEqual(json.loads(decisions_bytes), packet['decisions'])
+                            self.assertEqual(metadata['decisions_sha256'], decisions_digest)
+                            self.assertRegex(saved_report, rf'Review decisions SHA-256:\*\* `{decisions_digest}`')
+
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_public_writer_rejects_angle_finding_from_unreviewed_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            (repo / 'second').write_text('second changed file')
+            subprocess.run(['git', 'add', 'second'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'add second file'], cwd=repo, check=True)
+            scope_bytes = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo)
+            scope_file.write_bytes(scope_bytes)
+            scope = json.loads(scope_bytes)
+            identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'],
+                        'diff_sha256': scope['diff_sha256']}
+            raw_finding = {'file': 'second', 'line': 1, 'severity': 'non-blocker', 'rule': 'INPUT',
+                           'summary': 'label', 'diagnosis': 'unclear label', 'impact': 'caller sees a misleading label',
+                           'evidence': 'the label differs from the documented name'}
+            angles = {name: {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': ['source', 'second'], 'findings': []}
+                      for name in 'abcdef'}
+            angles['a']['findings'] = [raw_finding]
+            decisions = {'review_contract_version': 2, 'candidate_identity': identity, 'findings': [{**raw_finding, 'finding_id': 'F-1', 'origin': 'a',
+                         'disposition': 'triage', 'reason': 'tracked for host triage'}]}
+            body = root / 'body'
+            body.write_text('CURRENT_REVIEW_STATUS: COMPLETE\nScope: all changed files were inspected. Findings: one substantive non-blocker. '
+                            'The review checked candidate evidence and coverage. VERDICT: PASS-WITH-TRIAGE\n'
+                            'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-1 | non-blocker | triage')
+            angle_file, decision_file = root / 'angles.json', root / 'decisions.json'
+            angle_file.write_text(json.dumps(angles))
+            decision_file.write_text(json.dumps(decisions))
+            for omitted, expected in [(False, 'PASS-WITH-TRIAGE'), (True, 'INCOMPLETE')]:
+                with self.subTest(omitted=omitted):
+                    current = json.loads(angle_file.read_text())
+                    if omitted:
+                        current['a']['reviewed_files'] = ['source']
+                    angle_file.write_text(json.dumps(current))
+                    report = root / f'writer-{omitted}.md'
+                    result = subprocess.run([
+                        sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                        '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo),
+                        '--review-output-path', str(report), '--runner-mode', 'dispatched-six-angle',
+                        '--specialists-completed', '6', '--consolidator-completed', 'true',
+                        '--fallback-reason', 'agent dispatch used for fixture',
+                        '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
+                        '--verdict', 'PASS-WITH-TRIAGE', '--scope-file', str(scope_file),
+                        '--angle-results', str(angle_file), '--review-decisions', str(decision_file),
+                    ], capture_output=True, text=True)
+                    self.assertEqual(json.loads(result.stdout)['verdict'], expected, result.stdout + result.stderr)
+                    self.assertEqual(result.returncode, 0 if not omitted else 2)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata['specialists_completed'], 5 if omitted else 6)
+                    self.assertEqual(metadata['consolidator_completed'], not omitted)
+                    self.assertIn(f"`specialists_completed={metadata['specialists_completed']}`", report.read_text())
+                    self.assertIn(f"`consolidator_completed={not omitted}`", report.read_text())
+                    if omitted:
+                        self.assertIn('angle a', metadata['fallback_reason'])
+                        self.assertIn('second', metadata['fallback_reason'])
+                        self.assertIn(metadata['fallback_reason'], report.read_text())
+                    if omitted:
+                        saved_report = report.read_text().split("---", 1)[1]
+                        self.assertIn('CURRENT_REVIEW_STATUS: INCOMPLETE', saved_report)
+                        self.assertIn('VERDICT: INCOMPLETE', saved_report)
+                        self.assertNotRegex(saved_report, r'CURRENT_REVIEW_STATUS:\s*COMPLETE')
+                        self.assertNotRegex(saved_report, r'VERDICT\s*:?\s*PASS(?:-WITH-TRIAGE)?\b')
+
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_public_cli_writer_requires_complete_reviewed_file_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            (repo / 'second').write_text('second changed file')
+            subprocess.run(['git', 'add', 'second'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'add second file'], cwd=repo, check=True)
+            scope_bytes = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo)
+            scope_file.write_bytes(scope_bytes)
+            scope = json.loads(scope_bytes)
+            decisions_path = root / 'decisions.json'
+            for verdict in ('PASS', 'PASS-WITH-TRIAGE', 'FAIL'):
+                packet = verdict_packet(scope, verdict)
+                for omitted in (False, True):
+                    with self.subTest(verdict=verdict, omitted=omitted):
+                        decisions = json.loads(json.dumps(packet['decisions']))
+                        if omitted:
+                            decisions['reviewed_files'] = [scope['changed_files'][0]]
+                        decisions_path.write_text(json.dumps(decisions))
+                        body = root / f'body-{verdict}-{omitted}.md'
+                        body.write_text(packet['report'])
+                        report = root / f'cli-writer-{verdict}-{omitted}.md'
+                        expected = 'INCOMPLETE' if omitted else verdict
+                        result = subprocess.run([
+                            sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                            '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo),
+                            '--review-output-path', str(report), '--runner-mode', 'adversarial-cli',
+                            '--specialists-completed', '0', '--consolidator-completed', 'true',
+                            '--adversarial-model', 'codex', '--fallback-reason', 'native review unavailable',
+                            '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
+                            '--verdict', verdict, '--scope-file', str(scope_file), '--review-decisions', str(decisions_path),
+                        ], capture_output=True, text=True)
+                        metadata = json.loads(result.stdout)
+                        self.assertEqual(metadata['verdict'], expected, result.stdout + result.stderr)
+                        self.assertEqual(metadata['runner_mode'], 'incomplete' if omitted else 'adversarial-cli')
+                        self.assertEqual(result.returncode, 2 if omitted else 0)
+                        self.assertEqual(metadata['specialists_completed'], 0)
+                        self.assertEqual(metadata['consolidator_completed'], not omitted)
+                        self.assertIn(f'`consolidator_completed={not omitted}`', report.read_text())
+                        if omitted:
+                            self.assertIn(scope['changed_files'][1], metadata['fallback_reason'])
+                            self.assertIn(metadata['fallback_reason'], report.read_text())
+                        self.assertTrue(report.exists())
+                        saved_report = report.read_text()
+                        self.assertIn(f'**Verdict:** {expected}', saved_report)
+                        self.assertIn(f'`runner_mode={metadata["runner_mode"]}`', saved_report)
+                        if omitted:
+                            current_body = saved_report.split("---", 1)[1]
+                            self.assertIn('CURRENT_REVIEW_STATUS: INCOMPLETE', current_body)
+                            self.assertIn('VERDICT: INCOMPLETE', current_body)
+                            self.assertNotRegex(current_body, r'CURRENT_REVIEW_STATUS:\s*COMPLETE')
+                            self.assertNotRegex(current_body, r'VERDICT\s*:?\s*PASS(?:-WITH-TRIAGE)?\b')
+                        decisions_bytes = Path(metadata['retained_decisions']).read_bytes()
+                        decisions_digest = hashlib.sha256(decisions_bytes).hexdigest()
+                        self.assertEqual(json.loads(decisions_bytes), decisions)
+                        self.assertEqual(metadata['decisions_sha256'], decisions_digest)
+                        self.assertRegex(saved_report, rf'Review decisions SHA-256:\*\* `{decisions_digest}`')
+
+    @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
+    def test_public_writers_reject_pass_with_triage_without_retained_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect the frozen candidate and return a complete review.')
+            packet = review_packet(scope)
+            packet['report'] = ('CURRENT_REVIEW_STATUS: COMPLETE\n'
+                                'Scope: every changed file and relevant caller was inspected. '
+                                'Findings: none. The candidate satisfies the stated contract. '
+                                'VERDICT: PASS-WITH-TRIAGE')
+            packet['decisions']['findings'] = []
+            reviewer = root / 'reviewer'
+            fake_reviewer(reviewer, packet)
+            run_cli_report = root / 'run-cli.md'
+            run_cli = subprocess.run([
                 sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
-                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
-                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(root / 'report'),
-                '--host', 'claude', '--codex-command', str(fake), '--no-workflow-available', '--no-agent-dispatch-available',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                '--base-commit', scope['base_commit'], '--review-output-path', str(run_cli_report),
+                '--host', 'claude', '--codex-command', str(reviewer), '--claude-command', str(reviewer),
+                '--no-workflow-available', '--no-agent-dispatch-available',
             ], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
+            run_cli_metadata = json.loads(run_cli.stdout)
+            self.assertEqual(run_cli_metadata['verdict'], 'INCOMPLETE', run_cli.stdout + run_cli.stderr)
+            self.assertEqual(run_cli.returncode, 2)
+            self.assertNotIn('VERDICT: PASS-WITH-TRIAGE', run_cli_report.read_text())
+
+            decisions = root / 'decisions.json'
+            decisions.write_text(json.dumps(packet['decisions']))
+            body = root / 'body.md'
+            body.write_text(packet['report'])
+            direct_report = root / 'write-report.md'
+            direct = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo),
+                '--review-output-path', str(direct_report), '--runner-mode', 'adversarial-cli',
+                '--specialists-completed', '0', '--consolidator-completed', 'true',
+                '--adversarial-model', 'codex', '--fallback-reason', 'fixture fallback',
+                '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
+                '--verdict', 'PASS-WITH-TRIAGE', '--scope-file', str(scope_file),
+                '--review-decisions', str(decisions),
+            ], capture_output=True, text=True)
+            direct_metadata = json.loads(direct.stdout)
+            self.assertEqual(direct_metadata['verdict'], 'INCOMPLETE', direct.stdout + direct.stderr)
+            self.assertEqual(direct.returncode, 2)
+            saved = direct_report.read_text()
+            self.assertIn('**Verdict:** INCOMPLETE', saved)
+            self.assertIn('VERDICT: INCOMPLETE', saved)
+            self.assertNotIn('VERDICT: PASS-WITH-TRIAGE', saved)
 
     def test_cli_pass_with_open_blocker_is_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -944,6 +1331,112 @@ class AdaptiveReviewTests(unittest.TestCase):
             ], env=env, capture_output=True, text=True, check=False)
             self.assertEqual(proc.returncode, 2)
             self.assertIn('runner_mode=incomplete', report.read_text())
+
+
+class CliPerStreamByteLimitTest(unittest.TestCase):
+    """B085/5301: each reviewer stream has its own inclusive 8,388,608-byte allowance."""
+    LIMIT = 8388608  # oracle fixed independently of adaptive_review.MAX_REVIEW_OUTPUT_BYTES
+
+    def _run(self, root, repo, scope, scope_file, specs, tag):
+        """specs maps cli -> dict(stdout_len, stderr_len, exit, malformed)."""
+        prompt = root / 'prompt'
+        prompt.write_text('Inspect the frozen changes.')
+        attempts = root / 'attempts'
+        attempts.write_text('')
+
+        def reviewer(cli):
+            spec = specs[cli]
+            packet = review_packet(scope)
+            packet['report'] += '\nReview supplied by ' + cli
+            if cli == 'claude':
+                packet['decisions']['reviewed_files'].append('README-' + cli)
+            wire = b'not json' if spec.get('malformed') else json.dumps(packet).encode()
+            if spec.get('stdout_len'):
+                wire = wire + b' ' * (spec['stdout_len'] - len(wire))
+            path = root / cli
+            path.write_text(
+                '#!/usr/bin/env python3\nimport os, sys\n'
+                'with open("source", "rb") as f: assert f.read() == b"new"\n'
+                f'with open({str(attempts)!r}, "a") as f: print({cli!r}, file=f)\n'
+                f'os.write(1, {wire!r})\n'
+                f'os.write(2, bytes([233]) * {spec.get("stderr_len", 0)})\n'
+                f'sys.exit({spec.get("exit", 0)})\n')
+            path.chmod(0o700)
+            return path
+
+        report = root / (tag + '.md')
+        result = subprocess.run([sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+            '--project-root', str(repo), '--source-root', str(repo), '--base-commit', scope['base_commit'],
+            '--scope-file', str(scope_file), '--diff-path', scope['diff_path'], '--prompt-file', str(prompt),
+            '--review-output-path', str(report), '--no-workflow-available', '--no-agent-dispatch-available',
+            '--host', 'claude', '--requested-model', 'requested', '--effective-model', 'verified-preferred',
+            '--fallback-effective-model', 'verified-second',
+            '--codex-command', str(reviewer('codex')), '--claude-command', str(reviewer('claude'))],
+            capture_output=True, text=True)
+        return result, json.loads(result.stdout), report.read_text(), attempts.read_text().split()
+
+    def _expect(self, run, calls, selected):
+        result, metadata, saved, seen = run
+        self.assertEqual(seen, calls)
+        self.assertEqual(metadata['specialists_completed'], 0)
+        if selected is None:
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+            self.assertFalse(metadata['consolidator_completed'])
+            self.assertIsNone(metadata['adversarial_model'])
+            self.assertIsNone(metadata['effective_model'])
+            self.assertNotIn('retained_decisions', metadata)
+            self.assertIn('**Verdict:** INCOMPLETE', saved)
+            self.assertNotIn('Review supplied by', saved)
+            return
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(metadata['verdict'], 'PASS')
+        self.assertTrue(metadata['consolidator_completed'])
+        self.assertEqual(metadata['adversarial_model'], selected)
+        self.assertEqual(metadata['requested_model'], 'requested')
+        self.assertEqual(metadata['effective_model'], 'verified-preferred' if selected == 'codex' else 'verified-second')
+        self.assertIn('Review supplied by ' + selected, saved)
+        self.assertNotIn('Review supplied by ' + ('claude' if selected == 'codex' else 'codex'), saved)
+        sidecar = Path(metadata['retained_decisions']).read_bytes()
+        self.assertEqual(hashlib.sha256(sidecar).hexdigest(), metadata['decisions_sha256'])
+        self.assertIn(metadata['decisions_sha256'], saved)
+        # Only the selected reviewer's own declaration is retained.
+        self.assertEqual('README-claude' in json.loads(sidecar)['reviewed_files'], selected == 'claude')
+
+    @unittest.skipIf(os.name == 'nt', 'uses POSIX process groups and executable fixtures')
+    def test_each_stream_has_its_own_inclusive_limit_at_cli_selection(self):
+        L = self.LIMIT
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+
+            def check(tag, specs, calls, selected):
+                with self.subTest(case=tag):
+                    self._expect(self._run(root, repo, scope, scope_file, specs, tag), calls, selected)
+
+            ok = {}
+            # 1. preferred stderr: exactly at the limit wins despite stdout+stderr exceeding it; one byte over falls back.
+            check('preferred-stderr-at-limit', {'codex': {'stderr_len': L}, 'claude': ok}, ['codex'], 'codex')
+            check('preferred-stderr-over', {'codex': {'stderr_len': L + 1}, 'claude': ok}, ['codex', 'claude'], 'claude')
+            # 2. alternate boundary, behind each independent preferred failure.
+            for name, failure in (('nonzero', {'exit': 3}), ('malformed', {'malformed': True})):
+                check(name + '-alternate-stderr-at-limit', {'codex': failure, 'claude': {'stderr_len': L}},
+                      ['codex', 'claude'], 'claude')
+                check(name + '-alternate-stderr-over', {'codex': failure, 'claude': {'stderr_len': L + 1}},
+                      ['codex', 'claude'], None)
+            check('both-stderr-over', {'codex': {'stderr_len': L + 1}, 'claude': {'stderr_len': L + 1}},
+                  ['codex', 'claude'], None)
+            check('restored-producer', {'codex': {'stderr_len': L}, 'claude': {'stderr_len': L + 1}}, ['codex'], 'codex')
+            # 3. stdout allowance is independent: legal JSON whitespace padding to exactly the limit.
+            check('preferred-stdout-at-limit', {'codex': {'stdout_len': L}, 'claude': ok}, ['codex'], 'codex')
+            check('preferred-stdout-over', {'codex': {'stdout_len': L + 1}, 'claude': ok}, ['codex', 'claude'], 'claude')
+            check('alternate-stdout-at-limit', {'codex': {'exit': 3}, 'claude': {'stdout_len': L}},
+                  ['codex', 'claude'], 'claude')
+            check('alternate-stdout-over', {'codex': {'exit': 3}, 'claude': {'stdout_len': L + 1}},
+                  ['codex', 'claude'], None)
+            check('both-streams-at-limit', {'codex': {'stdout_len': L, 'stderr_len': L}, 'claude': ok}, ['codex'], 'codex')
+            check('both-streams-at-limit-alternate', {'codex': {'exit': 3}, 'claude': {'stdout_len': L, 'stderr_len': L}},
+                  ['codex', 'claude'], 'claude')
 
 
 if __name__ == '__main__':

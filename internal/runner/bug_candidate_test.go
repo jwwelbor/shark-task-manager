@@ -420,6 +420,22 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		_, e := IngestGateResult(context.Background(), GateIngestRequest{EnvelopeBytes: result, Coordinator: coord, ProjectRoot: root, RunID: run, EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: gate, Gate: gate, Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": target}})
 		return e
 	}
+	cliAdmission := func(run string, refs string) (*fakeTransitioner, *fakeNoteWriter, error) {
+		cliStatus := &fakeTransitioner{status: map[string]string{"B001": "code_review"}}
+		cliWritten := &fakeNoteWriter{}
+		cliCoordinator := gatepersist.NewCoordinator(cliWritten, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true}}, cliStatus, cliStatus, &fakeLeaseReleaser{}, cliStatus)
+		cliCoordinator.Admission = NewBugGateAdmission(notes, history)
+		_, e := IngestGateResult(context.Background(), GateIngestRequest{EnvelopeBytes: envelope(planRef + "," + refs + "," + materialRefs), Coordinator: cliCoordinator, ProjectRoot: root, RunID: run, EntityKey: "B001", EntityType: models.EntityTypeBug, SourceStatus: "code_review", Gate: "code_review", Session: gatepersist.Session{ID: "parent"}, OutcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess}, Outcomes: map[string]string{"pass": "qa"}})
+		return cliStatus, cliWritten, e
+	}
+	completeCLIStatus, completeCLIWritten, err := cliAdmission("cli-complete-admission", cliScopeRef+","+cliRef+","+cliDecisionRef)
+	require.NoError(t, err)
+	require.Equal(t, "qa", completeCLIStatus.status["B001"])
+	require.Len(t, completeCLIWritten.notes, 1)
+	partialCLIStatus, partialCLIWritten, err := cliAdmission("cli-partial-admission", cliScopeRef+","+partialReportRef+","+partialDecisionRef)
+	require.ErrorContains(t, err, "coverage incomplete")
+	require.Equal(t, "code_review", partialCLIStatus.status["B001"])
+	require.Empty(t, partialCLIWritten.notes)
 	t.Run("report_only_observations", func(t *testing.T) {
 		testReportOnlyObservations(t, root, captured, string(reportBytes), angleBytes, planRef+","+scopeRef+","+materialRefs, notes, history)
 	})
@@ -452,6 +468,64 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		}
 		return defaultBugSuccessTarget(gate, outcome)
 	}
+	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve, nil)
+	// Seed a committed historical code-review approval whose receipt has a
+	// complete identity and refreshed hashes but an incomplete CLI file list.
+	// This models a receipt accepted before the current QA replay validator.
+	partialPrior := envelope(planRef + "," + cliScopeRef + "," + partialReportRef + "," + partialDecisionRef)
+	partialPriorDir, err := gaterun.RunDir(root, "historical-cli-review")
+	require.NoError(t, err)
+	lock, err := gaterun.AcquireRunLock(partialPriorDir, 0)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+	partialPlanRoot, partialPlanCommit, partialPlanBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: partialPriorDir, EnvelopeJSON: partialPrior})
+	require.NoError(t, err)
+	partialDigest, err := gaterun.ComputeBoundOperationDigest("B001", "bug", "code_review", "code_review", partialPrior, partialPlanRoot, partialPlanCommit, partialPlanBlob)
+	require.NoError(t, err)
+	_, err = gaterun.CreateIdentity(partialPriorDir, gaterun.RunIdentity{RunID: "historical-cli-review", EntityKey: "B001", EntityType: "bug", SourceStatus: "code_review", Gate: "code_review", OperationDigest: partialDigest, PlanRoot: partialPlanRoot, PlanCommit: partialPlanCommit, PlanBlob: partialPlanBlob})
+	require.NoError(t, err)
+	_, err = gaterun.CreateResult(partialPriorDir, partialPrior)
+	require.NoError(t, err)
+	partialState := gaterun.NewOperationState("historical-cli-review", "B001", "bug", "code_review", "code_review", partialDigest)
+	partialState.AdmissionVersion = gatepersist.BoundAdmissionVersion
+	require.NoError(t, partialState.MarkPersistenceComplete())
+	require.NoError(t, partialState.MarkTransitionApplied())
+	require.NoError(t, partialState.Save(partialPriorDir))
+	partialMetaBytes, err := json.Marshal(map[string]string{"gate": "code_review", "role": "success", "outcome_key": "pass", "run_id": "historical-cli-review", "operation_digest": partialDigest})
+	require.NoError(t, err)
+	partialMeta := string(partialMetaBytes)
+	priorNotesCount, priorHistoryCount := len(notes.items), len(history.items)
+	notes.items = append(notes.items, &models.EntityNote{ID: 10, Metadata: &partialMeta})
+	qaFrom, qaReason := "code_review", gatepersist.BoundTransitionReason("code_review", "pass", "historical-cli-review", partialDigest)
+	history.items = append(history.items, &models.EntityHistory{ID: 10, FromStatus: &qaFrom, ToStatus: "reviewed", Notes: &qaReason})
+	// The fake readers capture slice headers by value, so refresh admission after
+	// appending the historical approval and transition fixtures.
+	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve, nil)
+	priorResultBytes, err := os.ReadFile(filepath.Join(partialPriorDir, "result.json"))
+	require.NoError(t, err)
+	partialReportBytes, err := os.ReadFile(filepath.Join(root, partialReportPath))
+	require.NoError(t, err)
+	partialDecisionBytesOnDisk, err := os.ReadFile(filepath.Join(root, partialDecisionPath))
+	require.NoError(t, err)
+	writtenBeforeReplay := len(written.notes)
+	partialQAEnvelope := envelope(planRef + "," + cliScopeRef)
+	partialQARequest := gatepersist.Request{EntityType: models.EntityTypeBug, EntityKey: "B001", Gate: "qa", Role: gateresult.RoleSuccess, RunDir: filepath.Join(root, ".shark", "runs", "qa-partial-cli-replay"), EnvelopeJSON: partialQAEnvelope}
+	require.NoError(t, verifyBugPriorGate(context.Background(), partialQARequest, notes, history, bugPriorSpec{"plan_review", "bug_repair_plan"}, func(value string) string { return value }, defaultBugSuccessTarget), "the plan approval is valid")
+	require.ErrorContains(t, verifyBugPriorGate(context.Background(), partialQARequest, notes, history, bugPriorSpec{"code_review", "bug_review_scope"}, func(value string) string { return value }, resolve), "coverage incomplete")
+	require.ErrorContains(t, ingest("qa-partial-cli-replay", "qa", "resolved", partialQAEnvelope), "coverage incomplete")
+	require.Equal(t, "qa", status.status["B001"], "QA must not succeed from an incomplete historical receipt")
+	require.Len(t, written.notes, writtenBeforeReplay, "QA replay rejection must not record an approval")
+	retainedPriorResult, err := os.ReadFile(filepath.Join(partialPriorDir, "result.json"))
+	require.NoError(t, err)
+	require.Equal(t, priorResultBytes, retainedPriorResult, "historical approval receipt must remain unchanged")
+	retainedPartialReport, err := os.ReadFile(filepath.Join(root, partialReportPath))
+	require.NoError(t, err)
+	require.Equal(t, partialReportBytes, retainedPartialReport)
+	retainedPartialDecisionBytes, err := os.ReadFile(filepath.Join(root, partialDecisionPath))
+	require.NoError(t, err)
+	require.Equal(t, partialDecisionBytesOnDisk, retainedPartialDecisionBytes)
+	notes.items = notes.items[:priorNotesCount]
+	history.items = history.items[:priorHistoryCount]
 	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve, nil)
 	require.NoError(t, os.WriteFile(reportPath, []byte("changed report"), 0600))
 	require.Error(t, ingest("tampered-report", "qa", "resolved", envelope(planRef+","+scopeRef)))
@@ -535,6 +609,32 @@ func TestBugCandidateScopesNestedProjectRuntimeWithoutHidingSource(t *testing.T)
 	require.NoError(t, os.WriteFile(filepath.Join(otherRuntime, "other"), []byte("unrelated"), 0600))
 	require.ErrorContains(t, verifyBugCandidate(context.Background(), project, scope), "candidate worktree changed")
 	require.Error(t, validate(project))
+}
+
+func TestSnapshotAdmissionPreservesSelectedGitBytes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires POSIX byte filenames")
+	}
+	root := t.TempDir()
+	commitTestBugPlan(t, root, "docs/plan/plan.md", []byte("approved plan\n"))
+	base, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
+	require.NoError(t, err)
+	paths := []string{"caf\xe9.txt", "café.txt", "caf�.txt", `caf\udce9.txt`, "caf𐃩.txt", " "}
+	for i, path := range paths {
+		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(fmt.Sprintf("value %d\n", i)), 0600))
+	}
+	_, file, _, _ := runtime.Caller(0)
+	scripts := filepath.Join(filepath.Dir(file), "../../skills/shark-rider/skills/deep-review/scripts")
+	snapshot, metadata := filepath.Join(t.TempDir(), "snapshot"), filepath.Join(t.TempDir(), "source.json")
+	args := []string{filepath.Join(scripts, "prepare_candidate.py"), "--project-root", root, "--destination", snapshot, "--metadata-file", metadata}
+	out, err := exec.Command("python3", append(args, paths...)...).CombinedOutput()
+	require.NoError(t, err, string(out))
+	capture := exec.Command("bash", filepath.Join(scripts, "get_diff.sh"))
+	capture.Dir = snapshot
+	capture.Env = append(os.Environ(), "REVIEW_BASE="+strings.TrimSpace(string(base)), "REVIEW_SOURCE_METADATA="+metadata)
+	scope, err := capture.Output()
+	require.NoError(t, err)
+	require.NoError(t, verifyBugCandidate(context.Background(), root, scope))
 }
 
 func seedReviewTestPlan(t *testing.T, root string, prior, plan []byte) (bugApprovalNotes, bugApprovalHistory) {

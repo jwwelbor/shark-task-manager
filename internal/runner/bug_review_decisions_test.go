@@ -81,7 +81,7 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	angles["a"] = map[string]any{"candidate_identity": identity, "reviewed_files": []string{"a.go"}, "findings": []any{blocker}}
 	rawAngles, err := json.Marshal(angles)
 	require.NoError(t, err)
-	packet := map[string]any{"candidate_identity": identity, "findings": []any{}}
+	packet := map[string]any{"candidate_identity": identity, "reviewed_files": []string{"a.go"}, "findings": []any{}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
 	decisions, err := validateBugReviewDecisions(raw, scope, "PASS")
@@ -213,8 +213,8 @@ func TestReportFindingBindsToItsDecision(t *testing.T) {
 	related.Disposition = "Triage"
 	require.Error(t, requireBugFindingDecisions(body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
 	related.Disposition = "triage"
-	other.FindingID, other.Severity = "F-2", "nit"
-	multi := body + "\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage"
+	other.FindingID, other.Severity, other.Disposition = "F-2", "nit", "report-only"
+	multi := body + "\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | report-only"
 	require.True(t, statusSafeBody("CURRENT_REVIEW_STATUS: COMPLETE\nScope and findings: complete. VERDICT: PASS-WITH-TRIAGE\n"+multi))
 	require.NoError(t, requireBugFindingDecisions(multi, map[bugFindingKey]bugReviewDecision{{File: "related"}: related, {File: "other"}: other}))
 	require.Error(t, requireBugFindingDecisions(body+"\n"+body, map[bugFindingKey]bugReviewDecision{{File: "related"}: related}))
@@ -223,7 +223,7 @@ func TestReportFindingBindsToItsDecision(t *testing.T) {
 func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
 	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff"}
 	body := "FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage"
-	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "triage", "reason": "tracked"}}}
+	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "reviewed_files": []string{}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "report-only", "reason": "owner decision requires no action"}}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
 	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
@@ -235,4 +235,43 @@ func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
 	decisions, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
 	require.NoError(t, err)
 	require.NoError(t, requireBugFindingDecisions(body, decisions.byFinding))
+}
+
+func TestReviewFileDeclarationUsesGitPathComponents(t *testing.T) {
+	scope := bugCandidateScope{ChangedFiles: []string{" "}}
+	for _, tc := range []struct{ member, wantError string }{
+		{`" "`, ""}, {`"missing"`, "coverage incomplete"},
+		{`" ","a//b"`, "repository-relative"}, {`" ","a/./b"`, "repository-relative"},
+		{`" ","a/../b"`, "repository-relative"}, {`" ","end/"`, "repository-relative"},
+		{`" ",""`, "repository-relative"}, {`" ","/absolute"`, "repository-relative"},
+		{`" ","a\u0000b"`, "repository-relative"},
+		{`" ","a\\b","caf\udce9","caf\u00e9","caf\ufffd","caf\\udce9","\ud800\udce9"`, ""},
+		{`" ","\ud800"`, "surrogate"}, {`" ","\udc00"`, "surrogate"},
+		{`" ","\udc80\udfff"`, "surrogate"}, {"\" \",\"\xe9\"", "UTF-8"},
+	} {
+		t.Run(tc.member, func(t *testing.T) {
+			packet := []byte(`{"candidate_identity":{},"findings":[],"reviewed_files":[` + tc.member + `]}`)
+			err := validateCLIDecisions(packet, scope)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestMissingGitPathDiagnosticPreservesOriginalMember(t *testing.T) {
+	scope := bugCandidateScope{ChangedFiles: []string{"caf\xe9.txt"}}
+	packet := []byte(`{"candidate_identity":{},"reviewed_files":["caf\ufffd.txt"],"findings":[]}`)
+	err := validateCLIDecisions(packet, scope)
+	require.ErrorContains(t, err, `"caf\udce9.txt"`)
+}
+
+func validateCLIDecisions(packet []byte, scope bugCandidateScope) error {
+	decisions, err := validateBugReviewDecisions(packet, scope, "PASS")
+	if err != nil {
+		return err
+	}
+	return decisions.validateCLI(scope)
 }
