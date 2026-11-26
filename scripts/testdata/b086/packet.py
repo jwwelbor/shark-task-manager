@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / 'skills/shark-rider/skills/deep-review/scripts'))
 import adaptive_review as review
 
 
-def read_input(report, report_hash, repository, commit, require_actionable=True):
+def read_input(report, report_hash, repository, commit, require_actionable=True, mandatory=False):
     artifacts = {'review.md': review.read_review_file(report, review.MAX_ARTIFACT_BYTES)}
     if hashlib.sha256(artifacts['review.md']).hexdigest() != report_hash:
         raise ValueError('retained report digest differs')
@@ -67,7 +67,11 @@ def read_input(report, report_hash, repository, commit, require_actionable=True)
                    and decisions['findings'][0]['severity'] == 'nit'
                    and decisions['findings'][0]['disposition'] == 'no-action'
                    and raw and any(f['severity'] == 'blocker' for f in raw))
-    if (require_actionable and not actionable) or (not require_actionable and not report_only):
+    if mandatory:
+        # A fix-now decision is the reviewer's mandatory work; it is a separate packet class, never a triage one.
+        if len(decisions['findings']) != 1 or decisions['findings'][0]['disposition'] != 'fix-now':
+            raise ValueError('mandatory packet requires one surviving fix-now finding')
+    elif (require_actionable and not actionable) or (not require_actionable and not report_only):
         raise ValueError('grant pair requires a surviving actionable finding')
     receipt = {'report_sha256': report_hash, 'replay_candidate': commit, 'replay_tree': tree,
                'replay_diff_sha256': scope['diff_sha256'], 'runner_mode': mode,

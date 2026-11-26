@@ -80,7 +80,12 @@ def seed_project(source, staging, binary_digest):
 
 EXPECT_FIX = {'fix', 'time-ok', 'repeat-other'}
 EXPECT_DEFER = {'budget-dispatch', 'budget-project', 'budget-consumed', 'time-short'}
-EDIT_KINDS = EXPECT_FIX | EXPECT_DEFER | {'repeat-same'}
+# Mandatory work (a fix-now finding): the host repairs it or leaves it pending with the parent; it never defers.
+MUST_FIX = {'must-fix', 'must-time-ok'}
+MUST_PENDING = {'must-budget-dispatch', 'must-budget-project', 'must-budget-consumed', 'must-time-short',
+                'must-noauth'}
+EXPECT_FIX |= MUST_FIX
+EDIT_KINDS = EXPECT_FIX | EXPECT_DEFER | MUST_PENDING | {'repeat-same'}
 POLICIES = {
     'policy-allow': {'review_admission': 'A complete adversarial-cli review is admitted for CI when its label, '
                                          'candidate and verified dispositions are preserved.'},
@@ -98,6 +103,7 @@ FINGERPRINT = FILE + '#DOCS#worked-example'
 
 def scenario_budget(kind, budget):
     """Vary only the named allowance; fixture values set no project policy."""
+    kind = kind.removeprefix('must-')
     if kind in ('time-ok', 'time-short'):
         budget.update(dispatch_remaining_attempts=1, project_total_attempts=3, project_consumed_attempts=1,
                       available_minutes=12 if kind == 'time-ok' else 9,
@@ -160,8 +166,12 @@ def make_workspace(case, source):
     target = case / 'candidate' / FILE
     target.parent.mkdir(parents=True)
     shutil.copyfile(source / FILE, target)
+    text = target.read_text()
+    # The repair of the mandatory finding replaces the wrong line; every other line must survive.
+    mandatory = 'random' in text
     state = {'file': FILE, 'sha256': digest(target), 'mtime_ns': target.stat().st_mtime_ns,
-             'lines': target.read_text().splitlines()}
+             'check': 'default-order' if mandatory else 'example',
+             'lines': [line for line in text.splitlines() if not (mandatory and 'random' in line)]}
     target.chmod(0o444)
     target.parent.chmod(0o555)
     (case / 'workspace.json').write_text(json.dumps(
@@ -252,7 +262,9 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
             if kind_now in EDIT_KINDS:
                 if not synthetic:
                     raise ValueError('edit scenarios need the synthetic packet')
-                dispatch['edit_authority'] = True
+                dispatch['edit_authority'] = kind_now != 'must-noauth'
+                if kind_now.startswith('must-') and synthetic_variant != 'mandatory':
+                    raise ValueError('mandatory scenarios need the mandatory synthetic variant')
                 scenario_budget(kind_now, dispatch['budget'])
                 workspace = make_workspace(case, root / 'review-source')
                 if kind_now.startswith('repeat-'):
@@ -334,7 +346,7 @@ if __name__ == '__main__':
                         help='stage a third case from the matching grant for the subsequent refusal replay')
     parser.add_argument('--scenario', action='append', default=[], metavar='NAME:KIND',
                         help='stage an extra case from the matching grant: ' + ', '.join(sorted(SCENARIOS)))
-    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial'],
+    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial', 'mandatory'],
                         default='worked-example', help='choose the synthetic reviewer finding')
     parser.add_argument('--policy-commit', default=POLICY,
                         help='pinned Shark policy source commit; default is the approved fixture policy')

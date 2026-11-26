@@ -71,6 +71,20 @@ class SyntheticControls(unittest.TestCase):
         provenance = json.loads(artifacts['provenance.json'])
         self.assertEqual(provenance['scenario'], 'stylistic downgrade report-only')
 
+    def test_mandatory_fix_now_is_its_own_packet_class_and_triage_packets_still_refuse_it(self):
+        project = self.root / 'mandatory'
+        artifacts, _, pin = generate(project, self.seed, self.source, 'mandatory')
+        decisions = json.loads(artifacts['review.md.decisions.json'])['findings']
+        self.assertEqual([(d['disposition'], d['fingerprint']) for d in decisions],
+                         [('fix-now', 'docs/feature-a.md#DOCS#incorrect-default')])
+        self.assertEqual(json.loads(artifacts['provenance.json'])['scenario'],
+                         'mandatory incorrect default order under Feature A')
+        report = project / 'fixture-review/review.md'
+        scope = json.loads((project / 'fixture-review/review.md.scope.json').read_bytes())
+        with self.assertRaisesRegex(ValueError, 'surviving actionable finding'):
+            read_input(report, digest(report), project, scope['candidate_commit'])
+        self.assertEqual(pin['history']['entity'], 'B001')
+
     def test_each_intake_refuses_a_different_valid_packet_or_operation(self):
         root = self.root / 'intake-pair'
         root.mkdir()

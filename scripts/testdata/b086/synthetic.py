@@ -54,7 +54,7 @@ def git_fixture(project, variant):
     with (project / '.git/info/exclude').open('a') as exclude:
         exclude.write('!/docs/plan/bugs/B001.repair-plan.md\n')
     with (project / FILE).open('a') as doc:
-        if variant == 'fix-now':
+        if variant in ('fix-now', 'mandatory'):
             doc.write('The default order is random.\n')
         else:
             doc.write('The default order is alphabetical.\n')
@@ -82,7 +82,7 @@ def writer(project, bundle, scripts, base, variant, policy=POLICY):
         finding.update(summary='Prefer a longer section title', severity='blocker',
                        diagnosis='The title could be more descriptive, but the current title already names Feature A.',
                        fingerprint=FILE + '#DOCS#section-title')
-    elif variant == 'fix-now':
+    elif variant in ('fix-now', 'mandatory'):
         finding.update(summary='Correct the documented default order', diagnosis='The plan requires alphabetical order.',
                        fingerprint=FILE + '#DOCS#incorrect-default')
     decision = dict(finding, disposition='triage', reason=WHY)
@@ -91,7 +91,7 @@ def writer(project, bundle, scripts, base, variant, policy=POLICY):
     elif variant == 'style-downgrade':
         decision.update(severity='nit', disposition='no-action',
                         reason='The current title names Feature A, and no project standard requires a longer title.')
-    elif variant == 'fix-now':
+    elif variant in ('fix-now', 'mandatory'):
         decision.update(disposition='fix-now', reason='The default is part of the accepted behavior.')
     write_json(inputs / 'angles.json', {angle: dict(candidate_identity=identity, reviewed_files=scope['changed_files'],
                                                      findings=[finding] if angle == 'a' else [])
@@ -119,6 +119,7 @@ def writer(project, bundle, scripts, base, variant, policy=POLICY):
     trace = inputs / 'writer.trace'
     execute(['strace', '-f', '-qq', '-s', '256', '-e', 'trace=execve,connect', '-o', trace, *args], project)
     provenance = {'scenario': ('stylistic downgrade report-only' if variant == 'style-downgrade'
+                               else 'mandatory incorrect default order under Feature A' if variant == 'mandatory'
                                else 'optional worked example under Feature A'), 'policy_source': policy,
                   'b086_baseline': BASELINE, 'b086_plan_sha256': digest(Path(__file__).resolve().parents[3] /
                                                                        'docs/plan/bugs/B086.repair-plan.md'),
@@ -182,7 +183,8 @@ def generate(project, seed, source, variant=None, policy=POLICY):
     provenance['setup_trace_sha256'] = digest(setup_trace)
     write_json(bundle / 'provenance.json', provenance)
     artifacts, packet = read_input(bundle / 'review.md', digest(bundle / 'review.md'), project,
-                                   scope['candidate_commit'], require_actionable=variant != 'style-downgrade')
+                                   scope['candidate_commit'], require_actionable=variant != 'style-downgrade',
+                                   mandatory=variant == 'mandatory')
     artifacts['provenance.json'] = (bundle / 'provenance.json').read_bytes()
     names = {name: digest(bundle / name) for name in artifacts}
     write_json(bundle / 'manifest.json', names)

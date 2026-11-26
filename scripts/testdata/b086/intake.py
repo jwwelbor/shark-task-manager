@@ -101,15 +101,22 @@ def check_origin(payload, result, project):
     if models != ['unknown']:
         raise ValueError('effective model has no observed invocation')
     decisions = json.loads(payload['review.md.decisions.json'])['findings']
-    expected = ({'severity': 'nit', 'disposition': 'no-action', 'file': 'docs/feature-a.md',
-                 'fingerprint': 'docs/feature-a.md#DOCS#section-title',
-                 'summary': 'Prefer a longer section title',
-                 'reason': 'The current title names Feature A, and no project standard requires a longer title.'}
-                if provenance.get('scenario') == 'stylistic downgrade report-only'
-                else {'severity': 'non-blocker', 'disposition': 'triage', 'file': 'docs/feature-a.md',
-                      'fingerprint': 'docs/feature-a.md#DOCS#worked-example',
-                      'summary': 'Add a worked example under Feature A',
-                      'reason': 'Feature A already documents the required command and default. A second worked example can wait.'})
+    scenario = provenance.get('scenario')
+    if scenario == 'stylistic downgrade report-only':
+        expected = {'severity': 'nit', 'disposition': 'no-action', 'file': 'docs/feature-a.md',
+                    'fingerprint': 'docs/feature-a.md#DOCS#section-title',
+                    'summary': 'Prefer a longer section title',
+                    'reason': 'The current title names Feature A, and no project standard requires a longer title.'}
+    elif scenario == 'mandatory incorrect default order under Feature A':
+        expected = {'severity': 'non-blocker', 'disposition': 'fix-now', 'file': 'docs/feature-a.md',
+                    'fingerprint': 'docs/feature-a.md#DOCS#incorrect-default',
+                    'summary': 'Correct the documented default order',
+                    'reason': 'The default is part of the accepted behavior.'}
+    else:
+        expected = {'severity': 'non-blocker', 'disposition': 'triage', 'file': 'docs/feature-a.md',
+                    'fingerprint': 'docs/feature-a.md#DOCS#worked-example',
+                    'summary': 'Add a worked example under Feature A',
+                    'reason': 'Feature A already documents the required command and default. A second worked example can wait.'}
     if len(decisions) != 1 or any(decisions[0].get(key) != value for key, value in expected.items()):
         raise ValueError('review does not supply the optional Feature A worked example')
 

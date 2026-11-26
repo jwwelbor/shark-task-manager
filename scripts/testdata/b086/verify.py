@@ -11,7 +11,8 @@ import subprocess
 
 from intake import consume, received_pin
 from observe import has_pinned_handoff, pinned, tracker_args
-from prepare import EDIT_KINDS, EFFORT_KINDS, RECEIPT_KINDS, EXPECT_DEFER, EXPECT_FIX, digest, snapshot
+from prepare import (EDIT_KINDS, EFFORT_KINDS, RECEIPT_KINDS, EXPECT_DEFER, EXPECT_FIX, MUST_PENDING, digest,
+                     snapshot)
 
 
 def records(path):
@@ -419,6 +420,27 @@ def resumed_phase_checks(case, binding, entries, results, writes, creates, child
     return missing
 
 
+PENDING_WORDS = {'must-noauth': ('permission', 'authority'),
+                 'must-time-short': ('time', 'minute'),
+                 'must-budget-dispatch': ('attempt', 'budget'),
+                 'must-budget-project': ('attempt', 'budget'),
+                 'must-budget-consumed': ('attempt', 'budget')}
+
+
+def received_pending_repair(events, inbox, scenario, fingerprint, original):
+    """The parent received the mandatory finding as pending repair, naming identity and the missing allowance."""
+    for record in inbox:
+        message, blob = record['message'], json.dumps(record['message']).lower()
+        if (isinstance(message, dict) and message.get('fingerprint') == fingerprint
+                and original in json.dumps(message)
+                and any(w in blob for w in PENDING_WORDS[scenario])
+                and 'repair' in blob and any(w in blob for w in ('parent', 'owner'))
+                and any(e.get('event') == 'result' and e.get('invocation') == record['invocation']
+                        and e.get('outcome') == 'received' for e in events)):
+            return True
+    return False
+
+
 def workspace_checks(case, binding, scenario, entries, results, events, inbox, receipts, children, writes,
                      fingerprint):
     """Independently read the candidate file and the edit/verify trace for an edit-authority case."""
@@ -464,6 +486,12 @@ def workspace_checks(case, binding, scenario, entries, results, events, inbox, r
     else:
         if edits or now != original or path.stat().st_mtime_ns != state['mtime_ns']:
             missing.append('zero edits, transient writes included, with the candidate unchanged')
+        if scenario in MUST_PENDING:
+            if children or writes or receipts:
+                missing.append('zero tracker writes, children and dispositions for mandatory work left pending')
+            if not received_pending_repair(events, inbox, scenario, fingerprint, original):
+                missing.append('received pending parent repair naming fingerprint, original identity and the '
+                               + ('missing edit permission' if scenario == 'must-noauth' else 'exhausted allowance'))
         if scenario in EXPECT_DEFER:
             blob = json.dumps(receipts[0]['message']).lower() if len(receipts) == 1 else ''
             if not any(word in blob for word in ('budget', 'attempt', 'time', 'minute')):
@@ -654,7 +682,7 @@ def inspect_case(case, manifest, fingerprint):
         if not defer_readback(children, receipts, events, project, fingerprint,
                               review_project=review_project(case)):
             missing.append('host readback and Defer receipt')
-    elif scenario in EXPECT_FIX | {'repeat-same'}:
+    elif scenario in EXPECT_FIX | MUST_PENDING | {'repeat-same'}:
         pass
     elif scenario in RECEIPT_KINDS:
         missing.extend(receipt_checks(case, binding, scenario, entries, events, inbox, receipts, children, writes,
