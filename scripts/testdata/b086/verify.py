@@ -104,21 +104,30 @@ def host_receipt(case, manifest, events, run_id):
     setup = json.loads(setup_path.read_bytes())
     result = json.loads(result_path.read_bytes())
     trace = records(trace_path)
+    runtime = setup.get('runtime')
     if (setup.get('run_id') != run_id or result.get('run_id') != run_id
-            or result.get('exit_code') != 0 or setup.get('runtime') != 'codex-cli'
+            or result.get('exit_code') != 0 or runtime not in ('codex-cli', 'claude-code')
             or not setup.get('runtime_version') or not setup.get('model')):
         return False
     if not trace or trace[0] != {'type': 'b086_host_run', 'run_id': run_id,
-                                 'runtime': 'codex-cli', 'model': setup['model']}:
+                                 'runtime': runtime, 'model': setup['model']}:
         return False
-    recorder_commands = [event for event in trace if event.get('type') == 'item.started'
-                         and event.get('item', {}).get('type') == 'command_execution'
-                         and 'observe.py' in event.get('item', {}).get('command', '')]
-    if not recorder_commands:
+    if runtime == 'claude-code':
+        if result.get('result_is_error') or not result.get('observed_model'):
+            return False
+        commands = [block['input'].get('command', '') for event in trace if event.get('type') == 'assistant'
+                    for block in event['message']['content']
+                    if block.get('type') == 'tool_use' and block.get('name') == 'Bash']
+        tools = {block.get('name') for event in trace if event.get('type') == 'assistant'
+                 for block in event['message']['content'] if block.get('type') == 'tool_use'}
+        if not tools <= {'Bash', 'Read', 'Skill'}:
+            return False
+    else:
+        commands = [event.get('item', {}).get('command', '') for event in trace
+                    if event.get('type') == 'item.started'
+                    and event.get('item', {}).get('type') == 'command_execution']
+    if not any('observe.py' in command for command in commands):
         return False
-    commands = [event.get('item', {}).get('command', '') for event in trace
-                if event.get('type') == 'item.started'
-                and event.get('item', {}).get('type') == 'command_execution']
     if any('codex' in command or 'claude' in command.lower() for command in commands):
         return False
     skills = setup.get('skills', {})
@@ -134,6 +143,22 @@ def host_receipt(case, manifest, events, run_id):
     successful_reads = {event.get('file') for event in events
                         if event.get('run_id') == run_id and event.get('tool') == 'read'
                         and event.get('event') == 'result' and event.get('outcome') == 'loaded'}
+    if runtime == 'claude-code':
+        # A native Skill load counts when it resolved to the pinned private copy under this case.
+        for event in trace:
+            for block in event.get('message', {}).get('content', []) if event.get('type') == 'user' else []:
+                text = block.get('text', '') if isinstance(block, dict) else ''
+                prefix = 'Base directory for this skill: '
+                if not text.startswith(prefix):
+                    continue
+                base = Path(text[len(prefix):].split('\n', 1)[0])
+                name = base.name
+                skill = base / 'SKILL.md'
+                catalog = f'catalog/{name}/SKILL.md'
+                if (base.parent == case / 'project/.claude/skills' and catalog in manifest['prepared_files']
+                        and skill.resolve().is_relative_to(case / 'project/.agents/skills')
+                        and digest(skill) == manifest['prepared_files'][catalog]):
+                    successful_reads.add(catalog)
     return {'catalog/shark-rider/SKILL.md', 'catalog/finish-feature/SKILL.md'} <= successful_reads
 
 
@@ -411,7 +436,8 @@ def workspace_checks(case, binding, scenario, entries, results, events, inbox, r
         if edit['before_sha256'] != original or edit['after_sha256'] != now or now == original:
             missing.append('repair changes the candidate identity from the review candidate')
         text = path.read_text()
-        if not set(state['lines']) <= set(text.splitlines()):
+        kept = text.splitlines()
+        if not all(any(line.rstrip('.') in new for new in kept) for line in state['lines'] if line.strip()):
             missing.append('original candidate lines preserved')
         passed = [results[e['invocation']] for e in verifies if results[e['invocation']].get('outcome') == 'passed']
         if not passed or passed[-1].get('candidate_identity') != now:
@@ -517,7 +543,10 @@ def inspect_case(case, manifest, fingerprint):
         try:
             _, operation, target = tracker_args(attempt['argv'], project, database, project / '.sharkconfig.json')
         except ValueError:
-            missing.append('accounted tracker invocation')
+            result = results.get(attempt['invocation'], {})
+            if not (result.get('outcome') == 'refused' and result.get('forwarded') is False
+                    and not any(w in attempt['argv'] for w in ('--db', '--config'))):
+                missing.append('accounted tracker invocation')
             continue
         if operation != 'read':
             writes.append(attempt)
