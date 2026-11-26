@@ -1162,7 +1162,7 @@ func TestTC005_17Row9IndependenceIsClassificationOnlyNotOperationalEquivalence(t
 		t.Fatalf("TC-005-17 operating-model.md must not claim Direct executes a parallel dispatch operationally equivalent to Batch/Council (found %q) — direct.md always dispatches exactly one worker regardless of resolved topology", forbidden)
 	}
 
-	if !strings.Contains(content, "`direct.md`") || !strings.Contains(content, "classification-time property") {
+	if !strings.Contains(content, "`skills/shark-attack/workflows/direct.md`") || !strings.Contains(content, "classification-time property") {
 		t.Fatalf("TC-005-17 operating-model.md must explicitly connect row 9's independence claim to direct.md's actual (classification-only, no-execution-effect) behavior")
 	}
 

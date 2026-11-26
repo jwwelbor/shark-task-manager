@@ -8,7 +8,7 @@ inputs:
   - existing_constraints: list of legacy systems / existing infrastructure constraints
   - integration_requirements: list of integrations (legacy, third-party, data migration)
   - project_stage: enum {mvp, prototype, production, enterprise}
-  - integration_patterns_path: absolute path to integration-patterns.md context
+  - integration_patterns_path: absolute path to skills/architecture/context/patterns/integration-patterns.md context
   - system_design_path: absolute path where system-design.md should be written
   - design_decisions_path: absolute path where system-design-design-decisions.md should be written
   - operations_guide_path: absolute path where system-design-operations-guide.md should be written

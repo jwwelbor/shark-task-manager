@@ -12,7 +12,7 @@ outputs:
   - prior_designs: array of prior TD, DEC, Question, note, spec, or standard pointers considered
   - searched_count: number of candidate sites evaluated
   - matching_count: number of class instances found
-  - instances: array of {fingerprint, site_pointer, disposition, evidence}
+  - instances: array of {fingerprint, site_pointer, disposition, evidence_pointers}
   - fixed_count: matching instances repaired
   - dispositioned_count: matching instances covered by cited decisions
   - open_count: matching instances still open
@@ -123,7 +123,7 @@ Every entry in `instances` carries:
   was found.
 - `disposition`: `fixed`, `dispositioned`, or `open` (see Enumeration
   procedure).
-- `evidence`: the concrete proof for the disposition — the diff hunk for
+- `evidence_pointers`: the concrete proof for the disposition — the diff hunk for
   `fixed`, the decision pointer for `dispositioned`, or the reproduction
   detail for `open`.
 
@@ -151,7 +151,7 @@ or a spec/standards-documented pattern — implement that design, or a fix
 compatible with it. Diverging from a recorded design is only valid when the
 divergence is justified by durable evidence (new evidence, a changed
 requirement, a contradicting spec/standards update); cite that evidence in
-the instance's `evidence` field. A repair that silently does something
+the instance's `evidence_pointers` array. A repair that silently does something
 different from a recorded prior design, with no cited justification, does
 not satisfy this section — implementing an incompatible fix and citing no
 divergence evidence is itself a class instance of "the rework guessed instead
@@ -183,7 +183,7 @@ classification — recurrence is decided by fingerprint, `class_key`, and scope
 membership, never by "this is the Nth time we've seen a finding here."
 
 Recurrence has no dedicated I-03 field — it is recorded inside the matched
-instance's existing `evidence` string: state the recurrence explicitly (e.g.
+instance's existing `evidence_pointers` entries: state the recurrence explicitly (e.g.
 "recurrence of `<fingerprint>` from `<prior class_key>`, completed
 `<search_scope>` reference") rather than only describing the current-round
 repro. This keeps `instances[].disposition` inside `{fixed, dispositioned,
@@ -200,7 +200,7 @@ contract from a single consumer.
 matches a fingerprint already covered by a dated, owner-grounded acceptance
 decision, and no material new evidence changes the risk since that decision:
 mark the instance `dispositioned` (not `open`, not `severity_conflict`) with
-`evidence` citing the accepting decision's pointer. Report it in `instances`
+`evidence_pointers` citing the accepting decision's pointer. Report it in `instances`
 so it stays visible to reviewers, but it does not block advancement and does
 not route through Question or council — the decision already stands. This is
 the disposition-preservation default; only escalate when new evidence
@@ -225,7 +225,7 @@ disposition — the sweep's own `instances[].disposition` stays within
 `{fixed, dispositioned, open}` so `fixed_count + dispositioned_count +
 open_count = matching_count` keeps reconciling cleanly (see Enumeration
 procedure, above). Record the conflicted instance as `open` inside
-`instances` (pending the outer conflict's resolution, with `evidence`
+`instances` (pending the outer conflict's resolution, with `evidence_pointers`
 pointing at the conflict), and have the calling gate add or update a
 `Finding` in its own `GateResult.findings` array with `disposition:
 severity_conflict` and a `disposition_pointer` back to this instance's
@@ -242,7 +242,8 @@ constraint, or an equivalent automated check discovered from the project's
 own toolchain and standards inputs (never a hardcoded tool name; use the
 guard commands already available to the calling gate's render context).
 Prefer the narrowest guard that actually exercises the defect shape over a
-broad rule that happens to also cover it.
+broad rule that happens to also cover it. Record the guard object with
+`kind`, `implementation_pointer`, `counterfactual_pointer`, and `status`.
 
 ## Structural guard closure
 
@@ -313,16 +314,16 @@ produces.
       and `open_count` are all present and consistent, including on a
       zero-result pass.
 - [ ] Every entry in `instances` has a `fingerprint`, `site_pointer`,
-      `disposition`, and `evidence`.
+      `disposition`, and `evidence_pointers`.
 - [ ] Backward-looking rework either implemented a recorded compatible prior
-      design or cited, in `evidence`, the durable evidence that justifies
+      design or cited, in `evidence_pointers`, the durable evidence that justifies
       diverging from it — for every instance where a prior design or
       disposition was found during the search.
 - [ ] Recurrence classification used fingerprint, `class_key`, and scope
       membership only (both `class_key` match and scope membership required
       for a new fingerprint) — no round-count field appears anywhere.
 - [ ] Any instance classified as recurrence states that explicitly in its
-      `evidence` field (fingerprint/class_key/scope it recurs from) — no new
+      `evidence_pointers` entries (fingerprint/class_key/scope it recurs from) — no new
       I-03 field is used to record it.
 - [ ] Any severity conflict is routed to `question-management` or the
       multi-specialist council deliberation workflow (not resolved

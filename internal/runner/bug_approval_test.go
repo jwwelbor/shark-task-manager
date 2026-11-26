@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 	"github.com/stretchr/testify/require"
 )
 
@@ -181,6 +182,20 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			}
 			if mode == "baseline_changed" {
 				baseline = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+			if mode == "valid" {
+				// Dispatch must hand downstream workers the approval's own
+				// entries: admission compares pointer and summary exactly.
+				approved, approvedErr := ApprovedBugPlan(context.Background(), root, "", "B001", notes, history, nil, defaultBugSuccessTarget)
+				require.NoError(t, approvedErr)
+				require.Equal(t, []workercontrol.EvidenceRef{
+					{Kind: "bug_repair_plan", Pointer: "docs/plan/plan.md", Summary: fmt.Sprintf("sha256:%x", hash)},
+					{Kind: "bug_review_baseline", Pointer: baseline},
+				}, approved.Evidence)
+			}
+			if mode == "missing_baseline" {
+				_, approvedErr := ApprovedBugPlan(context.Background(), root, "", "B001", notes, history, nil, defaultBugSuccessTarget)
+				require.Error(t, approvedErr)
 			}
 			status := &fakeTransitioner{status: map[string]string{"B001": "development"}}
 			written := &fakeNoteWriter{}

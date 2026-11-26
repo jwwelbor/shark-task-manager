@@ -288,6 +288,10 @@ type PromptAssemblyInput struct {
 	// AgentType is Shark metadata naming the specialist persona to inline.
 	AgentType string
 
+	// WorkingDir is the worker directory the parent selected; empty means the
+	// worker inherits the parent's directory.
+	WorkingDir string
+
 	// Vars are the entity placeholders used by both workflow prompt rendering
 	// and agent persona rendering.
 	Vars map[string]string
@@ -1473,6 +1477,7 @@ func (c *RunController) handleSpawnAgent(
 		Instruction: action.Instruction,
 		AgentType:   action.AgentType,
 		Vars:        vars,
+		WorkingDir:  opts.WorkingDir,
 	})
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{

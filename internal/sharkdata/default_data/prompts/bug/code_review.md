@@ -22,3 +22,16 @@ unless new evidence invalidates them.
 The fail outcome's role is `route_rework`. Return pass only when all checks and complete current evidence pass; otherwise choose the earliest invalidated stage as above. The parent applies the outcome.
 
 {{template "_gate_result_directive" .}}
+
+REQUIRED OUTER EVIDENCE for a success outcome of this step (this replaces the empty array shown above; replace every `<...>` placeholder, and copy parent-supplied approved entries exactly):
+
+```
+  "evidence": [
+    {"kind": "bug_repair_plan", "pointer": "<project-relative plan file>", "summary": "sha256:<hex digest of the plan>"},
+    {"kind": "bug_review_baseline", "pointer": "<full commit hash of the plan's review baseline>"},
+    {"kind": "bug_review_scope", "pointer": "<project-relative scope sidecar>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_report", "pointer": "<project-relative deep-review report>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_decisions", "pointer": "<project-relative decisions JSON>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_angles", "pointer": "<project-relative angle results; six-angle reviews only>", "summary": "sha256:<hex digest of its bytes>"}
+  ]
+```

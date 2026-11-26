@@ -71,11 +71,11 @@ independently of each other. `Direct` classifies with both `Sequential`
 not itself forbid a parallel-topology classification; the axes are
 independent in **both** directions, not just in the `Batch`/`Council` →
 parallel direction. That independence is a classification-time property
-only: only `Batch` and `Council` dispatch procedures (`batch.md`,
-`council.md`, via `execute-wave.md`) actually consult the resolved
-topology to shape a wave. `Direct`'s own dispatch procedure (`direct.md`)
+only: only `Batch` and `Council` dispatch procedures (`skills/shark-attack/workflows/batch.md`,
+`skills/shark-attack/workflows/council.md`, via `skills/shark-attack/workflows/execute-wave.md`) actually consult the resolved
+topology to shape a wave. `Direct`'s own dispatch procedure (`skills/shark-attack/workflows/direct.md`)
 never consults it — a single bounded entity has no wave to shape, so
-`direct.md` always dispatches exactly one worker regardless of which
+`skills/shark-attack/workflows/direct.md` always dispatches exactly one worker regardless of which
 topology row 9 classifies.
 
 | # | Requested coordination | Requested topology | Ownership evidence recorded? | Isolation evidence recorded? | Resolved topology |
@@ -88,7 +88,7 @@ topology row 9 classifies.
 | 6 | Batch | Parallel with isolation | yes | yes | Parallel with isolation (isolation still required — ownership alone is insufficient for an isolation-requesting row) |
 | 7 | Council | Sequential | n/a | n/a | Sequential |
 | 8 | Council | Parallel with ownership | yes | no | Parallel with ownership |
-| 9 | Direct | Parallel with ownership | yes | no | Parallel with ownership (classification only — proves the axes are independent in both directions; `direct.md` still dispatches exactly one worker, since a single bounded entity has no wave to shape) |
+| 9 | Direct | Parallel with ownership | yes | no | Parallel with ownership (classification only — proves the axes are independent in both directions; `skills/shark-attack/workflows/direct.md` still dispatches exactly one worker, since a single bounded entity has no wave to shape) |
 
 Rows 3 and 5 are the two independent degrade-to-`Sequential` paths: row 3
 degrades because ownership evidence is missing, row 5 degrades because

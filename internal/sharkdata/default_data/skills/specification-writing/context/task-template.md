@@ -32,7 +32,7 @@ size: XS|S|M|L|XL|XXL  # story points: 1|2|3|5|8|13
 
 **The feature test plan (`09-test-plan.md`) is the authoritative source for acceptance criteria. Do not restate ACs in this file — reference the TC-IDs you must satisfy.**
 
-Each TC entry in the test plan already specifies (per `quality/workflows/test-planning.md` Step 5.8):
+Each TC entry in the test plan already specifies (per `skills/quality/workflows/test-planning.md` Step 5.8):
 - the production caller entrypoint and argument shape the test must drive
 - the lowest allowed mock seam
 - forbidden mocks (seams that hid prior bugs)

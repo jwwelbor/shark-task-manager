@@ -48,7 +48,7 @@ PART 2 — AC + WIRING VERIFICATION (SIMPLE/STANDARD only — COMPLEX verifies t
   staged-edge evidence is an automatic FAIL.
 
 PART 3 — SCOPED TEST RUN (SIMPLE/STANDARD only):
-- Run the project's format + lint (from `docs/architecture/tech-stack.md` **Quality Gate** section, or infer from the repo)
+- Run the project's format + lint (from `CLAUDE.md`, `AGENTS.md`, `docs/architecture/tech-stack.md` **Quality Gate** section, `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets)
 - Targeted unit tests: union changed files from the diff and task Scope sections, map to their test counterparts, run those plus any tests named in the test-plan ACs
 - Targeted integration tests only if the changeset crosses an integration seam (migration, endpoint, service contract, I-##/X-## contract)
 - DO NOT run the full integration suite or a separate spec-fidelity red-team (UAT owns that review); the independent craft review above still follows the host capability ladder.

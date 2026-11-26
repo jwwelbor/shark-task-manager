@@ -3,6 +3,7 @@ package templates
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -31,6 +32,10 @@ const IncludeSizeWarnBytes = 50 * 1024 // 50KB
 //	{{include:  prompts/_partials/_advance.md  }}
 //	{{augment: skills/architecture/SKILL.md}}
 var includeDirectivePattern = regexp.MustCompile(`\{\{\s*(include|augment)\s*:\s*([^}\s]+(?:\s+[^}\s]+)*?)\s*\}\}`)
+
+// skillRelativePathPattern spots a body that mentions a sibling file or
+// directory of its skill.
+var skillRelativePathPattern = regexp.MustCompile(`(?:^|[^\w./-])(?:\.\./|(?:\.\./)*(?:workflows|context|references|assets|scripts)/)`)
 
 // IncludeResolver resolves {{include:}} (and {{augment:}}) directives against
 // a Shark 2.0 data root. Override resolution: a file at
@@ -159,13 +164,29 @@ func (r *IncludeResolver) resolveDepth(content string, depth int, visited map[st
 			firstErr = err
 			return match
 		}
-		return nested
+		return bundledSkillNote(path, body) + nested
 	})
 
 	if firstErr != nil {
 		return "", firstErr
 	}
 	return result, nil
+}
+
+// bundledSkillNote tells a worker how to read the files an inlined skill
+// mentions: once the body is inlined its location is gone, and the relative
+// paths would otherwise look like project files. Non-skill includes get no note.
+func bundledSkillNote(includePath, body string) string {
+	parts := strings.Split(path.Clean(strings.TrimSpace(includePath)), "/")
+	if len(parts) < 3 || parts[0] != "skills" || path.Ext(includePath) != ".md" || !skillRelativePathPattern.MatchString(body) {
+		return ""
+	}
+	name := parts[1]
+	note := fmt.Sprintf("> Bundled `%s` skill: the relative paths below are not project files. Read them with `shark skill get %s <path>`.", name, name)
+	if dir := strings.Join(parts[2:len(parts)-1], "/"); dir != "" {
+		note += fmt.Sprintf(" A path starting `../` is relative to `%s/` (for example, read `../context/foo.md` with `shark skill get %s context/foo.md`).", dir, name)
+	}
+	return note + "\n\n"
 }
 
 // resolveContent resolves an include path to its content using the hybrid

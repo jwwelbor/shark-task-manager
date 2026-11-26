@@ -1,5 +1,7 @@
 Review features for epic E07-F01: "Sample feature for golden test".
 
+DURABLE SOURCES: do not cite host agent memory ("see project memory", memory file names) as a source. Later workers run elsewhere and cannot read it. Write the needed instruction into the document, or cite a committed file.
+
 Check for existing feature review report at docs/review/E07/E07-F01/E07-F01-feature-review.md. If report exists with PASS verdict, advance immediately. If FAIL, send back to decomposition.
 
 ---
@@ -141,10 +143,34 @@ Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOT
 }
 ```
 
-The nested `gate_result` shape is validated and typed in `internal/gateresult`
-(see its doc comment for the full field list — `findings[]`,
-`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
-not restate it. Two rules this step's outcomes commonly need:
+The empty arrays above are illustrative. If this prompt requires outer
+`evidence` entries, include them; each is an object with `kind`, `pointer` and
+`summary`.
+
+`gate_result` fields (unknown fields are rejected):
+
+| Object | Field | Rule |
+|---|---|---|
+| result | `schema_version` | `1` |
+| result | `summary` | required, 1000 B max |
+| result | `no_kickback_reason` | 1000 B max |
+| `findings[]` | `severity` | required, 256 B max |
+| `findings[]` | `class_key` | required, 256 B max |
+| `findings[]` | `class_statement` | required, 1000 B max |
+| `findings[]` | `fingerprint` | required, 256 B max |
+| `findings[]` | `disposition` | required: `open`, `fixed`, `already_dispositioned`, `severity_conflict` or `not_reproducible` |
+| `findings[]` | `disposition_pointer` | 2048 B max; required for `already_dispositioned` and `severity_conflict` |
+| `findings[]` | `affected_ids` | optional strings, 256 B max each |
+| `findings[]` | `evidence_pointers` | optional strings, 2048 B max each |
+| `kickbacks[]` | `entity_key` | required, 256 B max |
+| `kickbacks[]` | `target_status` | required, 256 B max |
+| `kickbacks[]` | `reason` | required, 1000 B max |
+
+Every array holds at most 100 items and the whole `gate_result` at most
+256 KiB. Omit `remediation_sweeps` and `change_impacts` unless this prompt or
+a skill it names defines their contents for this step.
+
+Rules this step's outcomes commonly need:
 
 For each `kickbacks[]` entry, `target_status` is required by GateResult v1
 but is only a compatibility assertion. Read the target entity's current
@@ -173,6 +199,6 @@ submit that kickback; report the missing route and return a blocked result.
   every other GateResult field constraint is enforced the same way
   regardless of which role this outcome carries.
 
-Write your full narrative report to the file this step already directs
-(unchanged); the envelope's `summary` is a compact verdict statement, not a
-duplicate of that report.
+If this step names or requires a report file, write the full narrative there
+and keep `summary` a compact verdict statement. Otherwise the structured
+findings and `summary` are the record; do not invent a report location.

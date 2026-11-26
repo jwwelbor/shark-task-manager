@@ -53,7 +53,7 @@ filled in, not left blank on the assumption a reader will infer them.
 ## Technique selection from state shape
 
 When `specification.md` declares a closed lifecycle table for a field,
-`test_planning.md` must select the **state-transition / decision-table**
+The feature test-planning step must select the **state-transition / decision-table**
 technique for that field's test cases — not an ad-hoc equivalence-partitioning
 pass that happens to touch the field.
 
@@ -130,7 +130,17 @@ has not satisfied this section, even if its own local tests pass.
 
 Resolving a Question, tech-debt item, change card, or ADR that changes
 already-implemented or already-specified behavior must produce one I-04
-`ChangeImpactSet` (shape: architecture.md#i-04-changeimpactset-v1) naming:
+`ChangeImpactSet`. Its fields, which allow no others, are:
+
+- `source_kind`, `source_key`, `source_pointer`, `change_summary`, `status`
+- `affected_artifacts[]`: `path`, `artifact_kind`, `invalidated_text`,
+  `disposition`, optional `follow_up_key`
+- `affected_consumers[]`: `entity_key`, `production_caller_path`, optional
+  `affected_ids`, `regression_test_pointer`
+- `shared_names[]`: `name`, optional `usages`
+- optional `verification`
+
+The set names:
 
 - every invalidated spec, test-plan, task, interaction-map, or standards
   artifact; and
