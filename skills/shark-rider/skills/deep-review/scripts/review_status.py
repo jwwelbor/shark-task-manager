@@ -7,6 +7,11 @@ from pathlib import Path, PurePosixPath
 import sys
 
 
+def git_path_text(raw):
+    """Encode a Git filename for JSON independently of the process filesystem codec."""
+    return raw.decode('utf-8', errors='surrogateescape')
+
+
 def runtime_project(repo_root, shark_root):
     root = Path(repo_root).resolve(strict=True)
     project = Path(shark_root).resolve(strict=True)

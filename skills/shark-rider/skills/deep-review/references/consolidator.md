@@ -5,11 +5,9 @@ complete adversarial alternate-model review. You have been given:
 - An EVIDENCE_MODE (`canonical-six-angle`, `dispatched-six-angle`, or `adversarial-cli`)
 - SPECIALISTS_COMPLETED and CONSOLIDATOR_COMPLETED metadata
 - A diff file path (DIFF_PATH)
-- The complete changed file list (CHANGED_FILES)
-- The files the review angles reported opening or inspecting (REVIEWED_FILES_REPORTED_BY_ANGLES)
-- All candidate findings as JSON (ALL_FINDINGS)
-
-Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES, REVIEWED_FILES_REPORTED_BY_ANGLES, or ALL_FINDINGS.
+- The frozen changed-file manifest (CHANGED_FILES), as an exact JSON array of Git names
+- For a six-angle review, ANGLE_RESULTS keyed by the producing specialist, a through f. Each entry contains that specialist’s ordered reviewed_files declaration and original findings. Resolve any supplied packet reference in the review checkout.
+- For a comparable CLI review, the producing attempt’s candidate-bound decisions and reviewed_files declaration
 
 ## Evidence-mode rule
 
@@ -32,7 +30,7 @@ Before processing findings, do a 5-line gut check on the diff:
 - Is the diff size plausible? (Flag if >2000 lines changed — recommend splitting)
 - Are there unrelated modifications mixed in?
 
-**Coverage check (mandatory).** Every file in CHANGED_FILES must be addressed by at least one angle's findings or by REVIEWED_FILES_REPORTED_BY_ANGLES. Build the set of files the angles actually touched and diff it against CHANGED_FILES. If any changed file has **zero** coverage from all six angles, flag it as a **coverage gap** — name the unreviewed file(s), record a non-blocker finding, and lower confidence in the verdict accordingly. A clean PASS is only valid when every changed file was actually reviewed. (A review that passes a feature while never opening a heavily-changed file is how production bugs ship.)
+**Coverage check (mandatory).** For a fully fresh six-angle review, compare each specialist’s declaration independently with CHANGED_FILES. For a comparable CLI review, check the selected attempt’s own declaration. Preserve exact Git names, including whitespace. A missing required file or an invalid supplemental path makes the review INCOMPLETE. Identify the affected producer and path. Keep the original observations and their producing angles when grouping findings at a shared site.
 
 **Architectural defensibility check (mandatory).** For any finding or diff section that changes how an existing capability is implemented, wired, configured, persisted, validated, rendered, or tested, state whether the change is defensible to another architect and whether it is the smallest change needed for the desired behavior unless the PR explicitly declares a refactor. Unjustified fundamental changes are blockers when they alter production behavior or create migration cost; otherwise they are non-blocker triage.
 
@@ -161,6 +159,10 @@ For each service-contract change: entrypoint → call chain → leaf with argume
 One paragraph summarizing the state of the PR, what is good, and what must change.
 
 ---
+
+## Causal sites you first discover
+
+If you find a causal site, anchored path and line range, that none of the six angles inspected, do not rely on it yourself. List it under `discoveries` in the decisions object with its responsible `angle` (a through f), `file`, `start_line`, `end_line` and your `observation`. The runner will dispatch that angle to inspect the exact range afresh on the frozen tree and consolidate again with the reply. Copy the follow-up observation into the matching discovery exactly. A discovery with no fresh inspection by the responsible angle makes the review INCOMPLETE.
 
 ## Self-verification before returning
 

@@ -1440,6 +1440,11 @@ var defectClassSweepUnrelatedPersistence = map[string]bool{
 	"internal/gatepersist/operations.go": true,
 	"internal/gateresult/gateresult.go":  true,
 	"internal/gaterun/suboperation.go":   true,
+	// B087 admission readers: they only read validated GateResult sweeps from
+	// accepted runs to verify guard evidence and successor recurrence. They
+	// persist nothing and add no table, repository or stored shape.
+	"internal/runner/bug_recurrence.go":  true,
+	"internal/runner/bug_sweep_guard.go": true,
 }
 
 // TestDefectClassSweepNoGoPersistenceIntroduced is test-plan.md TC-010

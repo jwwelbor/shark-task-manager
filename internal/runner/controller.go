@@ -1190,7 +1190,7 @@ func gateStageRunID(runID, entityKey string, stageN int) string {
 func (c *RunController) ingestGateResultForDispatch(
 	ctx context.Context, key, currentStatus string,
 	nextInfo *services.NextStatusInfo, action *config.PopulatedAction, opts RunOptions,
-	dispatchResult *DispatchResult, transcriptDisabled *bool, stageN int,
+	dispatchResult *DispatchResult, transcriptDisabled *bool, stageN int, triageNotesBefore int,
 ) (string, *gaterun.StatusProjection, error) {
 	if c.gateIngest == nil || c.gateIngest.Coordinator == nil {
 		return "", nil, fmt.Errorf("gate_result_v1 step %s requires a configured GateResult persistence coordinator", key)
@@ -1221,6 +1221,12 @@ func (c *RunController) ingestGateResultForDispatch(
 		OutcomeRoles:  outcomeRoles,
 		Outcomes:      nextInfo.Outcomes,
 	}
+
+	observed, injected, err := c.observeBugTriage(ctx, opts, key, currentStatus, baseReq, triageNotesBefore)
+	if err != nil {
+		return "", nil, fmt.Errorf("parent triage observation: %w", err)
+	}
+	baseReq.EnvelopeBytes, baseReq.ParentObservationInjected = observed, injected
 
 	req := baseReq
 	req.RetirementConfirmed = false
@@ -1557,6 +1563,7 @@ func (c *RunController) handleSpawnAgent(
 		RunID:     opts.RunID,
 	})
 
+	triageNotesBefore := c.countTriageNotes(ctx, opts, key, currentStatus)
 	dispatchResult, err := dispatcher.Dispatch(ctx, input)
 	if err != nil {
 		// Prefer *AgentFailedError fields; fall back to the DispatchResult the
@@ -1730,7 +1737,7 @@ func (c *RunController) handleSpawnAgent(
 	var toStatus string
 	if contract == resultContractGateResultV1 {
 		var gateStatus *gaterun.StatusProjection
-		toStatus, gateStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
+		toStatus, gateStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN, triageNotesBefore)
 		if err != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 				EntityKey: key,
@@ -2063,4 +2070,48 @@ func (c *RunController) selectDispatcher(provider string) (AgentDispatcher, erro
 		provider,
 		strings.Join(keys, ", "),
 	)
+}
+
+// bugReviewGate reports whether the dispatch is a bug code-review gate that
+// reads parent-measured triage observations.
+func (c *RunController) bugReviewGate(opts RunOptions, currentStatus string) bool {
+	if opts.EntityType != "bug" || c.gateIngest == nil || c.gateIngest.Coordinator == nil {
+		return false
+	}
+	return strings.EqualFold(c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus), "code_review")
+}
+
+// countTriageNotes snapshots the entity's tracker notes before dispatch. A
+// negative result means no parent measurement is available.
+func (c *RunController) countTriageNotes(ctx context.Context, opts RunOptions, key, currentStatus string) int {
+	if !c.bugReviewGate(opts, currentStatus) {
+		return -1
+	}
+	count, err := countBugEntityNotes(ctx, c.gateIngest.Coordinator.NoteReader, models.EntityType(opts.EntityType), key)
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+// observeBugTriage lets the controller, as the parent, measure the host actions
+// of a bug code review and inject the resulting observation. It never accepts a
+// file the worker could have planted.
+func (c *RunController) observeBugTriage(ctx context.Context, opts RunOptions, key, currentStatus string, req GateIngestRequest, before int) ([]byte, bool, error) {
+	if before < 0 || !c.bugReviewGate(opts, currentStatus) {
+		return req.EnvelopeBytes, false, nil
+	}
+	after, err := countBugEntityNotes(ctx, c.gateIngest.Coordinator.NoteReader, models.EntityType(opts.EntityType), key)
+	if err != nil {
+		return req.EnvelopeBytes, false, nil
+	}
+	writes := after - before
+	if writes < 0 {
+		writes = -writes
+	}
+	workingDir := req.WorkingDir
+	if workingDir == "" {
+		workingDir = req.ProjectRoot
+	}
+	return ObserveBugReportOnlyTriage(ctx, BugTriageWindow{ProjectRoot: req.ProjectRoot, WorkingDir: workingDir, RunID: req.RunID, TrackerWrites: writes}, req.EnvelopeBytes)
 }

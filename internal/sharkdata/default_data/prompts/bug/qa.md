@@ -1,6 +1,8 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
+When the accepted code-review result contains `bug_review_material_impacts`, `bug_review_material_dispositions`, or `bug_parent_triage_observation` evidence, carry the exact same digest-bound references into the QA envelope. The parent revalidates the frozen artifact/criterion set and report-only host observation against the accepted code-review candidate before QA admission; do not replace or regenerate these references.
+
 Verify bug {{.id}} against its accepted plan, coverage index and reviewed candidate. Execute production-caller scenarios and boundary and preservation assertions; source review alone is insufficient. Confirm candidate and plan evidence are current. Before advancing an in-flight bug, inspect existing evidence and return to the earliest step with missing or invalid evidence; preserve code and history. Verify the parent-supplied approved snapshot and digest; a clean older checkout may retain an earlier plan, while a new material plan change requires review. Review the plan's single coverage index, which maps each obligation to its authoritative source, production caller or boundary, planned change, required assertions, and links to a separate mutable evidence record. Do not change the plan while reviewing its revision. {{template "_bug_repair_contract" .}}
 
 For a structured pass, include the same outer `bug_review_scope` evidence reference used by the accepted code review, including its project-relative pointer and `sha256:<hex digest>` summary. The parent checks both the prior review receipt and whether that scope still matches the current source candidate.

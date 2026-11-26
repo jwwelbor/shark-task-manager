@@ -8,6 +8,8 @@ For a structured pass, choose a new report path inside the Shark project, such a
 Capture against the independently approved `bug_review_baseline` commit. Set `REVIEW_PLAN_SHA256` to the approved plan digest without its `sha256:` prefix; ensure the scope, every angle result, and the report carry that exact plan revision.
 
 Also retain the generated deep-review report and include a digest-bound `bug_review_report` evidence reference in the same format. Include the generated candidate-bound decisions JSON as a digest-bound `bug_review_decisions` reference. For a native or dispatched six-angle review, retain the actual six angle-results JSON and include a digest-bound `bug_review_angles` reference. A comparable alternate-model CLI review uses its report and decisions without angle results. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; a downgrade permits only PASS-WITH-TRIAGE and must be routed through the host's triage procedure. An incomplete review cannot pass.
+
+When a reviewed material decision affects specifications or acceptance criteria, add exactly one `MATERIAL_DECISION: <decision-id>` line to the report body and retain two additional candidate-bound JSON files: `bug_review_material_impacts` lists each marked decision's source pointer/digest and the complete expected artifact and caller/criterion sets; `bug_review_material_dispositions` records one evidence-backed disposition for every listed member. Bind both files with SHA-256 header fields in the report and outer evidence references. A decision source in the frozen tree declares its obligations with `MATERIAL_DECISION_SOURCE: <decision-id>`, `MATERIAL_AFFECTS_ARTIFACT: <path>` and `MATERIAL_AFFECTS_CRITERION: <entity> <caller> <criterion>` lines; the parent enumerates those lines independently and requires the expected sets and dispositions to match them, whether or not the report carries a marker. The parent compares expected sets and dispositions at code-review and QA admission; never put these records in GateResult `change_impacts`, which remains planning-gate-only. For a finding downgraded to report-only Nit, do not create this receipt yourself: the parent observes and supplies a separate run-scoped `bug_parent_triage_observation` after the host has confirmed the original concern, refuting evidence, zero edits and zero tracker writes.
 Use review_plan for a valid plan whose approval is missing or stale; use needs_research for a causal contradiction, replan for a design omission, fail for a coding defect, and blocked for unavailable external evidence. Retain every finding; route to the earliest invalidated stage. For route_rework outcomes leave kickbacks empty.
 
 Run the host-installed `shark-rider/skills/deep-review/SKILL.md` multi-agent procedure for this code-review gate, including its capability ladder and consolidation. The parent retains the entity lease and transitions; reviewers supply evidence only.
@@ -478,7 +480,12 @@ The empty arrays above are illustrative. If this prompt requires outer
 
 Every array holds at most 100 items and the whole `gate_result` at most
 256 KiB. Omit `remediation_sweeps` and `change_impacts` unless this prompt or
-a skill it names defines their contents for this step.
+a skill it names defines their contents for this step. A `remediation_sweeps[]`
+entry that is `open` with `open_count: 0` (no feasible guard) must point
+`guard.counterfactual_pointer` at a project-local `{"kind": "open_sweep_link",
+"class_key", "work_item_key", "reason"}` record; `work_item_key` must resolve
+to an existing task, feature, epic, bug, change-card, or tech-debt entity
+naming the class (note keys do not resolve).
 
 Rules this step's outcomes commonly need:
 

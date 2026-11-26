@@ -208,7 +208,7 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 					}
 					return defaultBugSuccessTarget(gate, outcome)
 				}
-				coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)
+				coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve, nil)
 			}
 			currentEnvelope := bugApprovalEnvelopeCase(mode, hash, envelope(hash, "pass", baseline))
 			result, err := IngestGateResult(context.Background(), GateIngestRequest{
@@ -234,7 +234,7 @@ func TestBugApprovalRoutingFailsClosedWithoutWorkflow(t *testing.T) {
 	target, ok := resolve("plan_review", "pass")
 	require.False(t, ok)
 	require.Empty(t, target)
-	admit := NewBugGateAdmissionForWorkflow(nil, nil, nil)
+	admit := NewBugGateAdmissionForWorkflow(nil, nil, nil, nil)
 	require.NotPanics(t, func() {
 		require.NoError(t, admit(context.Background(), gatepersist.Request{EntityType: models.EntityTypeTask}))
 	})

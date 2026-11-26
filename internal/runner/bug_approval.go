@@ -255,28 +255,56 @@ func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.Histo
 	if len(normalize) > 0 && normalize[0] != nil {
 		status = normalize[0]
 	}
-	return newBugGateAdmission(notes, history, status, defaultBugSuccessTarget)
+	return newBugGateAdmission(notes, history, status, defaultBugSuccessTarget, nil)
 }
 
 // NewBugGateAdmissionForWorkflow uses the configured success routes rather
 // than assuming canonical status names for prior approvals.
-func NewBugGateAdmissionForWorkflow(notes gatepersist.NoteReader, history gatepersist.HistoryReader, wf *workflow.Service) func(context.Context, gatepersist.Request) error {
+func NewBugGateAdmissionForWorkflow(notes gatepersist.NoteReader, history gatepersist.HistoryReader, wf *workflow.Service, items BugWorkItemResolver) func(context.Context, gatepersist.Request) error {
 	if wf == nil {
-		return newBugGateAdmission(notes, history, func(value string) string { return value }, BugApprovalTargetResolver(nil))
+		return newBugGateAdmission(notes, history, func(value string) string { return value }, BugApprovalTargetResolver(nil), items)
 	}
-	return newBugGateAdmission(notes, history, wf.NormalizeStatus, BugApprovalTargetResolver(wf))
+	return newBugGateAdmission(notes, history, wf.NormalizeStatus, BugApprovalTargetResolver(wf), items)
 }
 
-func newBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, status func(string) string, resolve bugSuccessTarget) func(context.Context, gatepersist.Request) error {
+func newBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, status func(string) string, resolve bugSuccessTarget, items BugWorkItemResolver) func(context.Context, gatepersist.Request) error {
 	return func(ctx context.Context, req gatepersist.Request) error {
 		if err := BugGateAdmission(ctx, req); err != nil {
 			return err
 		}
-		if req.EntityType != models.EntityTypeBug || req.Role != gateresult.RoleSuccess {
+		if req.EntityType != models.EntityTypeBug {
+			return nil
+		}
+		if err := verifyBugSweepGuards(ctx, req, items); err != nil {
+			return err
+		}
+		if err := verifyBugRecurrence(ctx, req, history); err != nil {
+			return err
+		}
+		if req.Role != gateresult.RoleSuccess {
+			if req.Gate == "qa" {
+				return verifyOptionalQAObservation(ctx, req, notes, history, status, resolve)
+			}
 			return nil
 		}
 		return admitBugDownstream(ctx, req, notes, history, status, resolve)
 	}
+}
+
+// An unsuccessful QA result may still cite the original host observation.
+// Verify that citation without requiring the candidate itself to pass QA.
+func verifyOptionalQAObservation(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string, resolve bugSuccessTarget) error {
+	if len(req.EnvelopeJSON) == 0 {
+		return nil
+	}
+	envelope, err := workercontrol.Decode(req.EnvelopeJSON)
+	if err != nil || !hasBugEvidence(envelope.Evidence, "bug_parent_triage_observation") {
+		return err
+	}
+	if notes == nil || history == nil {
+		return fmt.Errorf("review approval readers are required for bug_parent_triage_observation")
+	}
+	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope"}, normalize, resolve)
 }
 
 func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string, resolve bugSuccessTarget) error {
@@ -298,7 +326,7 @@ func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gate
 		return err
 	}
 	if req.Gate == "code_review" {
-		return verifyBugReviewEvidence(req)
+		return verifyBugReviewEvidence(ctx, req, &bugCredit{notes: notes, history: history, normalize: normalize, resolve: resolve})
 	}
 	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope"}, normalize, resolve)
 }
@@ -328,20 +356,17 @@ func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gate
 	if err != nil {
 		return err
 	}
+	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
+	dir, err := gaterun.RunDir(parent, meta.RunID)
+	if err != nil {
+		return err
+	}
 	if spec.gate == "plan_review" {
-		parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
-		dir, err := gaterun.RunDir(parent, meta.RunID)
-		if err != nil {
-			return err
-		}
 		if err := verifyCurrentBugPlan(ctx, bugEvidenceProject(req), dir, data); err != nil {
 			return err
 		}
 	}
-	if err := compareBugApprovalEvidence(req, data, evidenceRoot, spec); err != nil {
-		return err
-	}
-	return nil
+	return compareBugApprovalEvidence(ctx, req, data, evidenceRoot, dir, spec, &bugCredit{notes: notes, history: history, normalize: normalize, resolve: resolve, endID: entry.ID})
 }
 
 func latestBugApproval(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, gate string, entry *models.EntityHistory) (bugApprovalNote, error) {
@@ -470,7 +495,7 @@ func validateApprovalEnvelope(data []byte, entityKey, outcome string) error {
 	return nil
 }
 
-func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRoot string, spec bugPriorSpec) error {
+func compareBugApprovalEvidence(ctx context.Context, req gatepersist.Request, data []byte, evidenceRoot, priorRunDir string, spec bugPriorSpec, credit *bugCredit) error {
 	current, err := workercontrol.Decode(req.EnvelopeJSON)
 	if err != nil {
 		return err
@@ -479,21 +504,69 @@ func compareBugApprovalEvidence(req gatepersist.Request, data []byte, evidenceRo
 	if err != nil {
 		return err
 	}
+	priorRequest := gatepersist.Request{
+		EntityKey: req.EntityKey, EntityType: req.EntityType, Gate: spec.gate, SourceStatus: spec.gate,
+		RunDir: priorRunDir, RunID: filepath.Base(priorRunDir), EvidenceRoot: evidenceRoot,
+		EnvelopeJSON: data, Role: gateresult.RoleSuccess,
+	}
+	if spec.gate == "code_review" {
+		return replayReviewForQA(ctx, priorRequest, req.Role, current.Evidence, prior.Evidence, credit)
+	}
 	if !matchingBugEvidence(current.Evidence, prior.Evidence, spec.evidenceKind) {
 		return fmt.Errorf("current evidence was not approved at prior gate")
 	}
-	priorRequest := req
-	priorRequest.EnvelopeJSON = data
-	priorRequest.EvidenceRoot = evidenceRoot
-	if spec.gate == "plan_review" {
-		return compareBugBaselines(req, priorRequest)
+	return compareBugBaselines(req, priorRequest)
+}
+
+func replayReviewForQA(ctx context.Context, review gatepersist.Request, qaRole gateresult.OutcomeRole, current, prior []workercontrol.EvidenceRef, credit *bugCredit) error {
+	if err := compareTriageObservation(current, prior); err != nil {
+		return err
 	}
-	if spec.gate == "code_review" {
-		if err := verifyBugReviewEvidence(priorRequest); err != nil {
-			return fmt.Errorf("prior code review evidence: %w", err)
+	if qaRole != gateresult.RoleSuccess {
+		_, _, err := readBugEvidence(review, "bug_parent_triage_observation")
+		return err
+	}
+	if !matchingBugEvidence(current, prior, "bug_review_scope") {
+		return fmt.Errorf("current evidence was not approved at prior gate")
+	}
+	review.ParentObservationInjected = hasBugEvidence(prior, "bug_parent_triage_observation")
+	if err := verifyBugReviewEvidence(ctx, review, credit); err != nil {
+		return fmt.Errorf("prior code review evidence: %w", err)
+	}
+	for _, kind := range []string{"bug_review_material_impacts", "bug_review_material_dispositions"} {
+		if hasBugEvidence(prior, kind) && !matchingBugEvidence(current, prior, kind) {
+			return fmt.Errorf("current %s evidence was not approved at prior gate", kind)
 		}
 	}
 	return nil
+}
+
+func compareTriageObservation(current, prior []workercontrol.EvidenceRef) error {
+	const kind = "bug_parent_triage_observation"
+	if !hasBugEvidence(current, kind) && !hasBugEvidence(prior, kind) {
+		return nil
+	}
+	want, err := selectBugEvidence(prior, kind)
+	if err != nil {
+		return fmt.Errorf("accepted code review: %w", err)
+	}
+	got, err := selectBugEvidence(current, kind)
+	if err != nil {
+		return err
+	}
+	if got.Pointer != want.Pointer || got.Summary != want.Summary {
+		return fmt.Errorf("%s must exactly match the accepted code review reference", kind)
+	}
+	return nil
+}
+
+func hasBugEvidence(evidence []workercontrol.EvidenceRef, kind string) bool {
+	for _, ref := range evidence {
+		if ref.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 func matchingBugEvidence(current, prior []workercontrol.EvidenceRef, kind string) bool {
 	for _, a := range current {

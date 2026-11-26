@@ -1,0 +1,371 @@
+{
+ "changed_files": [
+  "leaf-a.md",
+  "leaf-b.md"
+ ],
+ "successor_delta": {
+  "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "changed_files": [
+   "leaf-b.md"
+  ]
+ },
+ "cases": [
+  {
+   "name": "valid_two_leaf",
+   "error_key": null,
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "legacy_full_manifest",
+   "error_key": null,
+   "angle": {
+    "reviewed_files": [
+     "leaf-a.md",
+     "leaf-b.md"
+    ]
+   }
+  },
+  {
+   "name": "no_units_incomplete",
+   "error_key": "missing",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ]
+   }
+  },
+  {
+   "name": "missing_cross_file",
+   "error_key": "cross_file",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dynamic_lookup",
+   "error_key": "closed_inputs",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": true,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "dynamic_lookup_absent",
+   "error_key": "closed_inputs",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "inputs_absent",
+   "error_key": "closed_inputs",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "wrong_version",
+   "error_key": "version",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 2,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "wrong_obligation",
+   "error_key": "version",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "cross_file",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "commit_mismatch",
+   "error_key": "identity",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "cccccccccccccccccccccccccccccccccccccccc",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "bad_digest",
+   "error_key": "identity",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "xyz"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "carry_changed_path",
+   "error_key": "path",
+   "angle": {
+    "reviewed_files": [
+     "leaf-a.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-b.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "carry_unknown_path",
+   "error_key": "path",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "other.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "input_changed",
+   "error_key": "input",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [
+       "leaf-b.md"
+      ],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "duplicate_unit",
+   "error_key": "duplicate",
+   "angle": {
+    "reviewed_files": [
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     },
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "fresh_and_carried",
+   "error_key": "overlap",
+   "angle": {
+    "reviewed_files": [
+     "leaf-a.md",
+     "leaf-b.md"
+    ],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  },
+  {
+   "name": "uncovered",
+   "error_key": "missing",
+   "angle": {
+    "reviewed_files": [],
+    "carried_units": [
+     {
+      "version": 1,
+      "path": "leaf-a.md",
+      "obligation": "file_local",
+      "inputs": [],
+      "dynamic_lookup": false,
+      "predecessor_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "predecessor_run_id": "review-a",
+      "predecessor_operation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ],
+    "cross_file_fresh": true
+   }
+  }
+ ]
+}

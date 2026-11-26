@@ -9,7 +9,7 @@ export const meta = {
 
 // ─── Args ────────────────────────────────────────────────────────────────────
 // Required: diff_path, changed_files (array), project_root, skill_dir
-// Optional scope metadata: changed_file_count, diff_shortstat
+// Optional scope metadata: changed_file_count, diff_shortstat, successor_delta
 // Optional: task_spec_path, feature_prd_path, acceptance_criteria (array of {ac_id, text})
 
 // Some hosts deliver `args` as a JSON-encoded string rather than a parsed
@@ -46,11 +46,38 @@ requireBugContext()
 function effectiveEffort() { return effort || undefined }
 const reviewEffort = effectiveEffort()
 
+function validGitPath(path) {
+  // Unicode mode treats a valid surrogate pair as one scalar. An isolated
+  // DC80–DCFF represents a Git filename byte under the wire contract.
+  return typeof path === 'string' && !/[\0\uD800-\uDC7F\uDD00-\uDFFF]/u.test(path) &&
+    path.split('/').every(part => part !== '' && part !== '.' && part !== '..')
+}
+
 function listChangedFiles() {
-  return Array.isArray(changed_files) ? changed_files : String(changed_files || '').split('\n').filter(Boolean)
+  if (Array.isArray(changed_files) && changed_files.every(validGitPath)) return changed_files
+  if (validGitPath(changed_files) && !changed_files.includes('\n')) return [changed_files]
+  throw new Error('changed_files requires an exact Git filename array for this scope')
 }
 const changedFiles = listChangedFiles()
-const fileList = changedFiles.join('\n')
+const fileList = JSON.stringify(changedFiles)
+let comparisonContext = `- BASE_COMMIT: ${base_commit || '(not provided)'}`
+if (input.successor_delta) {
+  comparisonContext += `\n- SUCCESSOR_DELTA: ${JSON.stringify(input.successor_delta)}
+Inspect changes from predecessor_commit to CANDIDATE_COMMIT and trace their effects, including inputs restored to baseline. CHANGED_FILES is the full review manifest. Credit for prior work requires independent verification.`
+}
+// Parent-verified carry plan: file-local units credited from a prior receipt.
+// The dispatcher, not the model, attaches them; admission re-verifies each one.
+const carryUnits = Array.isArray(input.carry_units) ? input.carry_units : []
+if (carryUnits.length > 0) {
+  comparisonContext += `\n- CARRIED_PATHS: ${JSON.stringify(carryUnits.map(unit => unit.path))}
+These paths are credited from an earlier verified review. List only paths you freshly inspected in reviewed_files, but still trace every cross-file effect of the edited paths into them.`
+}
+function withCarriedUnits(result) {
+  if (carryUnits.length === 0 || !result || typeof result !== 'object') return result
+  const carried = new Set(carryUnits.map(unit => unit.path))
+  const fresh = Array.isArray(result.reviewed_files) ? result.reviewed_files.filter(file => !carried.has(file)) : result.reviewed_files
+  return {...result, reviewed_files: fresh, carried_units: carryUnits, cross_file_fresh: true}
+}
 function scopeDescription() {
   return {count: changed_file_count || changedFiles.length, line: `- DIFF_SHORTSTAT: ${diff_shortstat || '(not provided)'}`}
 }
@@ -98,6 +125,12 @@ const CONSOLIDATION_SCHEMA = {
       type: 'object',
       properties: {
         candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
+        reviewed_files: FINDING_SCHEMA.properties.reviewed_files,
+        discoveries: {type: 'array', items: {
+          type: 'object',
+          properties: {angle: {type: 'string'}, file: {type: 'string'}, start_line: {type: 'integer'}, end_line: {type: 'integer'}, observation: {type: 'string'}},
+          required: ['angle', 'file', 'start_line', 'end_line', 'observation'],
+        }},
         findings: {type: 'array', items: {
           type: 'object',
           properties: {
@@ -113,6 +146,20 @@ const CONSOLIDATION_SCHEMA = {
   required: ['report', 'decisions'],
 }
 
+const SITE_SCHEMA = {
+  type: 'object',
+  properties: {
+    candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
+    site_inspection: {
+      type: 'object',
+      properties: {file: {type: 'string'}, start_line: {type: 'integer'}, end_line: {type: 'integer'}, observation: {type: 'string'}},
+      required: ['file', 'start_line', 'end_line', 'observation'],
+    },
+  },
+  required: ['candidate_identity', 'site_inspection'],
+}
+const ANGLE_FILES = {a: 'angle-a-bugs.md', b: 'angle-b-behavior.md', c: 'angle-c-sibling.md', d: 'angle-d-cleanup.md', e: 'angle-e-tests.md', f: 'angle-f-standards.md'}
+
 // ─── Angle preamble builder ───────────────────────────────────────────────────
 // Each agent reads its .md prompt file from skill_dir/references/, then executes
 // using the values provided here. The .md files use DIFF_PATH / CHANGED_FILES /
@@ -124,6 +171,7 @@ function preamble(angleFile, extraContext) {
     : `- CODING_STANDARDS_PATH: (not found — all standards violations downgrade to opinion-only nits)`
   return `CONTEXT (substitute these wherever the instructions say the placeholder name):
 - DIFF_PATH:      ${diff_path}
+${comparisonContext}
 - CANDIDATE_COMMIT: ${candidate_commit}
 - CANDIDATE_TREE: ${candidate_tree}
 - DIFF_SHA256: ${diff_sha256}
@@ -183,26 +231,79 @@ function validFinding(f) {
     ['rule', 'summary', 'diagnosis'].every(k => typeof f[k] === 'string' && f[k].length > 0)
 }
 
-function validAngle(result) {
-  return result && validIdentity(result.candidate_identity) && Array.isArray(result.findings) &&
-    Array.isArray(result.reviewed_files) && changedFiles.every(f => result.reviewed_files.includes(f)) &&
-    result.reviewed_files.every(f => typeof f === 'string') && result.findings.every(validFinding)
+function fileCoverageError(files) {
+  if (!Array.isArray(files)) return 'missing reviewed_files declaration'
+  for (const file of files) {
+    if (!validGitPath(file)) return 'invalid reviewed path ' + JSON.stringify(file)
+  }
+  const inspected = new Set(files)
+  const missing = changedFiles.filter(file => !inspected.has(file))
+  return missing.length ? 'missing required paths ' + JSON.stringify(missing) : ''
 }
 
-function summarizeAngles(results) {
-  if (!Array.isArray(results)) return {completed: 0, retainedAngles: null}
-  return {
-    completed: results.filter(validAngle).length,
-    retainedAngles: Object.fromEntries('abcdef'.split('').flatMap((name, i) => results[i] == null ? [] : [[name, results[i]]])),
+const CREDIT_DIGEST = /^[0-9a-f]{64}$/
+
+function carriedUnitError(unit, delta, manifest, changed) {
+  if (!unit || unit.version !== 1 || unit.obligation !== 'file_local') return 'unsupported credit version or obligation'
+  if (unit.dynamic_lookup !== false || !Array.isArray(unit.inputs)) return 'a closed input list without dynamic lookup is required'
+  if (unit.predecessor_commit !== delta.predecessor_commit || !unit.predecessor_run_id || !CREDIT_DIGEST.test(String(unit.predecessor_operation_digest))) {
+    return 'predecessor identity does not match the captured successor delta'
   }
+  if (!manifest.has(unit.path) || changed.has(unit.path)) return 'path is outside the manifest or changed since the predecessor'
+  if (unit.inputs.some(input => changed.has(input))) return 'declared input changed since the predecessor'
+  return ''
 }
-const {completed, retainedAngles} = summarizeAngles(angleResults)
+
+// Without carried units the full manifest must be inspected fresh. With them,
+// fresh files plus structurally valid file-local units must cover it. The
+// parent verifies receipts, tree entries and history at admission.
+function angleCoverageError(result) {
+  const units = result.carried_units
+  if (!Array.isArray(units) || units.length === 0) return fileCoverageError(result.reviewed_files)
+  const delta = input.successor_delta
+  if (!delta) return 'carried units require a captured successor delta'
+  if (result.cross_file_fresh !== true) return 'carried units require a fresh cross-file inspection declaration'
+  const manifest = new Set(changedFiles), changed = new Set(delta.changed_files || []), carried = new Set()
+  for (const unit of units) {
+    const error = carriedUnitError(unit, delta, manifest, changed)
+    if (error) return error
+    if (carried.has(unit.path)) return 'carried unit is duplicated'
+    carried.add(unit.path)
+  }
+  if (!Array.isArray(result.reviewed_files) || result.reviewed_files.some(file => !validGitPath(file))) return 'missing reviewed_files declaration'
+  if (result.reviewed_files.some(file => carried.has(file))) return 'path is both fresh and carried'
+  const fresh = new Set(result.reviewed_files)
+  const missing = changedFiles.filter(file => !fresh.has(file) && !carried.has(file))
+  return missing.length ? 'incomplete reviewed_files coverage ' + JSON.stringify(missing) : ''
+}
+
+function angleError(result) {
+  if (!result || !validIdentity(result.candidate_identity)) return 'missing or incorrect candidate identity'
+  if (!Array.isArray(result.findings) || !result.findings.every(validFinding)) return 'malformed findings'
+  return angleCoverageError(result)
+}
+
+if (!Array.isArray(angleResults)) {
+  return {report: 'INCOMPLETE: specialist dispatch returned no result vector.', runner_mode: 'incomplete',
+    specialists_completed: 'unknown', consolidator_completed: false, angle_results: null}
+}
+angleResults = angleResults.map(withCarriedUnits)
+const retainedAngles = {}
+const errors = []
+let completed = 0
+for (const [index, label] of Array.from('abcdef').entries()) {
+  const result = angleResults[index]
+  if (result != null) retainedAngles[label] = result
+  const error = angleError(result)
+  if (error) errors.push(`angle ${label}: ${error}`)
+  else completed++
+}
 if (completed !== 6 || angleResults.length !== 6) {
-  return {report: `INCOMPLETE: ${completed} of 6 specialist results were valid; consolidation was not run.`, runner_mode: "incomplete", specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
+  return {report: `INCOMPLETE: ${completed} of 6 specialist results were valid; consolidation was not run. ${errors.join(' ')}`,
+    runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
 }
 
 const allFindings = angleResults.flatMap(r => r.findings)
-const reviewedFiles = [...new Set(angleResults.flatMap(r => r.reviewed_files))]
 
 log(`Collected ${allFindings.length} candidate findings across angles A–F`)
 
@@ -215,7 +316,7 @@ function makeConsolidatorPreamble() {
 - EVIDENCE_MODE: canonical-six-angle
 - SPECIALISTS_COMPLETED: 6
 - CONSOLIDATOR_COMPLETED: true
-- BASE_COMMIT: ${base_commit || '(not provided)'}
+${comparisonContext}
 - CANDIDATE_COMMIT: ${candidate_commit}
 - CANDIDATE_TREE: ${candidate_tree}
 - DIFF_SHA256: ${diff_sha256}
@@ -223,12 +324,10 @@ function makeConsolidatorPreamble() {
 - CHANGED_FILE_COUNT: ${changedFileCount}
 - CHANGED_FILES:
 ${fileList}
-- REVIEWED_FILES_REPORTED_BY_ANGLES:
-${reviewedFiles.length ? reviewedFiles.join('\n') : '(none reported)'}
+- ANGLE_RESULTS:
+${JSON.stringify(retainedAngles)}
 - PROJECT_ROOT:   ${project_root || '.'}
 ${diffScopeLine}
-- ALL_FINDINGS (${allFindings.length} candidates from 6 parallel angles):
-${JSON.stringify(allFindings, null, 2)}
 ${specContext}
 
 Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
@@ -260,6 +359,7 @@ function findingKey(f) {
 
 function validDecisionSet(value) {
   if (!value || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
+  if (value.reviewed_files !== undefined && fileCoverageError(value.reviewed_files)) return false
   return value.findings.every(validDecision) && new Set(value.findings.map(findingKey)).size === value.findings.length
 }
 
@@ -316,7 +416,81 @@ function validConsolidation(body, value, raw) {
   return verdict && !contradictoryReport(body, verdict) && passingDecisions(verdict, value.findings, raw)
 }
 
-if (!validConsolidation(report, decisions, allFindings)) {
-  return {report: 'INCOMPLETE: consolidator returned missing or malformed report.', runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
+function incomplete(reason, extra) {
+  return {report: `INCOMPLETE: ${reason}`, runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles, ...extra}
 }
-return {report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions, angle_results: retainedAngles}
+
+function validSite(site) {
+  return site && validGitPath(site.file) && Number.isInteger(site.start_line) && site.start_line > 0 &&
+    Number.isInteger(site.end_line) && site.end_line >= site.start_line && typeof site.observation === 'string' && site.observation.trim().length > 0
+}
+
+// A causal site first found at consolidation is inspected afresh by the angle
+// responsible for it before the consolidator may rely on it. The runner records
+// which angle it dispatched and which tree the reply was bound to; a label in
+// the reply cannot establish either.
+function discoveryList(value) {
+  const list = value && value.discoveries
+  if (list === undefined) return []
+  if (!Array.isArray(list) || !list.every(item => validSite(item) && Object.hasOwn(ANGLE_FILES, item.angle))) return null
+  return list
+}
+
+async function inspectDiscovery(discovery) {
+  const assignment = `FOLLOW_UP_ASSIGNMENT (inspect this site afresh on the frozen tree before the consolidator relies on it):
+- ASSIGNED_ANGLE: ${discovery.angle}
+- CANDIDATE_TREE: ${candidate_tree}
+- PATH: ${discovery.file}
+- RANGE: lines ${discovery.start_line}-${discovery.end_line}
+- CONSOLIDATOR_DISCOVERY: ${discovery.observation}
+Return ONLY a JSON object with candidate_identity and site_inspection {file, start_line, end_line, observation} for exactly this path and range. The observation states what you found when you read it yourself.`
+  const reply = await agent(preamble(ANGLE_FILES[discovery.angle], `${specContext}\n${assignment}`), {label: `${discovery.angle.toUpperCase()}: site follow-up ${discovery.file}:${discovery.start_line}-${discovery.end_line}`, phase: 'Review', schema: SITE_SCHEMA, effort: reviewEffort})
+  const site = reply && reply.site_inspection
+  if (!reply || !validIdentity(reply.candidate_identity) || !validSite(site) || site.file !== discovery.file || site.start_line !== discovery.start_line || site.end_line !== discovery.end_line) {
+    throw new Error(`angle ${discovery.angle} did not inspect ${discovery.file}:${discovery.start_line}-${discovery.end_line}`)
+  }
+  return {file: site.file, start_line: site.start_line, end_line: site.end_line, observation: site.observation, tree: candidate_tree, assigned_angle: discovery.angle, responder_angle: discovery.angle}
+}
+
+function discoveriesCarried(value, inspections) {
+  const reconsolidated = discoveryList(value)
+  return reconsolidated !== null && reconsolidated.length === inspections.length && inspections.every(inspection =>
+    reconsolidated.some(item => item.angle === inspection.assigned_angle && item.file === inspection.file && item.start_line === inspection.start_line &&
+      item.end_line === inspection.end_line && item.observation === inspection.observation))
+}
+
+const discovered = discoveryList(decisions)
+if (discovered === null) return incomplete('consolidator returned malformed discoveries.')
+if (discovered.length === 0) {
+  if (!validConsolidation(report, decisions, allFindings)) return incomplete('consolidator returned missing or malformed report.')
+  return {report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions, angle_results: retainedAngles}
+}
+
+phase('Review')
+const inspections = []
+try {
+  for (const discovery of discovered) inspections.push(await inspectDiscovery(discovery))
+} catch (error) {
+  return incomplete(`responsible-angle follow-up failed: ${String(error)}`, {discoveries: discovered})
+}
+for (const inspection of inspections) {
+  const packet = retainedAngles[inspection.assigned_angle]
+  retainedAngles[inspection.assigned_angle] = {...packet, site_inspections: [...(packet.site_inspections || []), inspection]}
+}
+
+phase('Consolidate')
+let reconsolidation
+try {
+  reconsolidation = await agent(`${consolidatorPreamble}
+
+FOLLOW_UP_OBSERVATIONS (fresh inspections returned by each responsible angle for the sites you discovered; reconcile each finding against them):
+${JSON.stringify(inspections)}
+Return the same JSON shape. Its decisions must list every discovery again with the follow-up observation copied exactly.`, { label: 'consolidator (reconsolidation)', phase: 'Consolidate', schema: CONSOLIDATION_SCHEMA, effort: reviewEffort })
+} catch (error) {
+  return incomplete(`reconsolidation failed: ${String(error)}`, {discoveries: discovered})
+}
+const second = consolidationFields(reconsolidation)
+if (!validConsolidation(second.report, second.decisions, allFindings) || !discoveriesCarried(second.decisions, inspections)) {
+  return incomplete('reconsolidation did not account for the responsible-angle follow-up.', {discoveries: discovered})
+}
+return {report: second.report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions: second.decisions, angle_results: retainedAngles}

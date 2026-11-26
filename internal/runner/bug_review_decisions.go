@@ -10,29 +10,30 @@ import (
 var bugNegatedRefutation = regexp.MustCompile(`(?i)\bnot\s+refuted\b`)
 
 type bugFindingKey struct {
-	File      string
+	File      reviewGitPath
 	Line      int
 	Rule      string
 	Summary   string
 	Diagnosis string
 }
 type bugReviewDecision struct {
-	FindingID   string `json:"finding_id"`
-	File        string `json:"file"`
-	Line        int    `json:"line"`
-	Severity    string `json:"severity"`
-	Rule        string `json:"rule"`
-	Summary     string `json:"summary"`
-	Diagnosis   string `json:"diagnosis"`
-	Disposition string `json:"disposition"`
-	Reason      string `json:"reason"`
+	FindingID   string        `json:"finding_id"`
+	File        reviewGitPath `json:"file"`
+	Line        int           `json:"line"`
+	Severity    string        `json:"severity"`
+	Rule        string        `json:"rule"`
+	Summary     string        `json:"summary"`
+	Diagnosis   string        `json:"diagnosis"`
+	Disposition string        `json:"disposition"`
+	Reason      string        `json:"reason"`
 }
 type bugReviewDecisions struct {
 	CandidateIdentity bugReviewIdentity   `json:"candidate_identity"`
+	ReviewedFiles     reviewGitPaths      `json:"reviewed_files"`
 	Findings          []bugReviewDecision `json:"findings"`
 }
 
-func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict string) (map[bugFindingKey]bugReviewDecision, error) {
+func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict string, requireFiles bool) (map[bugFindingKey]bugReviewDecision, error) {
 	var packet bugReviewDecisions
 	if err := json.Unmarshal(data, &packet); err != nil {
 		return nil, fmt.Errorf("invalid review decisions: %w", err)
@@ -40,6 +41,11 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 	id := packet.CandidateIdentity
 	if !id.matches(scope) {
 		return nil, fmt.Errorf("review decisions candidate or plan mismatch")
+	}
+	if requireFiles {
+		if err := verifyDeclaredReviewPaths(packet.ReviewedFiles, scope.ChangedFiles); err != nil {
+			return nil, err
+		}
 	}
 	if packet.Findings == nil {
 		return nil, fmt.Errorf("review decisions findings missing")
