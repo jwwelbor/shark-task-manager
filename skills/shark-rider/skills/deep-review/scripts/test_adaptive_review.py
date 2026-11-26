@@ -952,3 +952,52 @@ class CarriedCreditShapeTest(unittest.TestCase):
         angle = doc["cases"][0]["angle"]
         with self.assertRaisesRegex(ValueError, "captured successor delta"):
             adaptive_review._check_angle_coverage(angle, {"changed_files": doc["changed_files"]})
+
+
+class ConsolidationDiscoveryWriterTest(unittest.TestCase):
+    """B087 B02: the host writer refuses a discovery without the responsible angle's fresh inspection."""
+
+    def test_write_report_requires_a_fresh_responsible_inspection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            reply = review_packet(scope)['decisions']
+            site = {'file': 'internal/foo.go', 'start_line': 10, 'end_line': 12}
+            observation = 'concrete callback is never registered when parse fails'
+            inspection = {**site, 'observation': observation, 'tree': scope['candidate_tree'], 'assigned_angle': 'a', 'responder_angle': 'a'}
+            body = root / 'body.md'
+            body.write_text('Reviewed scope: all files and callers. Findings: none. Detailed verification completed.\nVERDICT: PASS')
+
+            def write(name, *, packet_a, discovery):
+                decisions = root / f'{name}-decisions.json'
+                decisions.write_text(json.dumps({**reply, 'discoveries': discovery}))
+                angles = root / f'{name}-angles.json'
+                angles.write_text(json.dumps({label: (packet_a if label == 'a' else reply) for label in 'abcdef'}))
+                report = root / f'{name}.md'
+                result = subprocess.run([
+                    sys.executable, str(HERE / 'adaptive_review.py'), 'write-report', '--runner-mode', 'canonical-six-angle',
+                    '--specialists-completed', '6', '--consolidator-completed', 'true', '--verdict', 'PASS',
+                    '--angle-results', str(angles), '--review-decisions', str(decisions), '--body-file', str(body),
+                    '--review-output-path', str(report), '--scope-file', str(scope_file), '--project-root', str(repo),
+                    '--source-root', str(repo), '--diff-path', scope['diff_path'], '--base-commit', scope['base_commit'],
+                ], capture_output=True, text=True)
+                return result
+
+            discovery = [{**site, 'angle': 'a', 'observation': observation}]
+            ok = write('ok', packet_a={**reply, 'site_inspections': [inspection]}, discovery=discovery)
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            self.assertEqual(json.loads(ok.stdout)['verdict'], 'PASS')
+            for name, packet, found in (
+                ('withheld', reply, discovery),
+                ('neighbor', {**reply, 'site_inspections': [{**inspection, 'start_line': 20, 'end_line': 22}]}, discovery),
+                ('other-tree', {**reply, 'site_inspections': [{**inspection, 'tree': 'f' * 40}]}, discovery),
+                ('answered-by-e', {**reply, 'site_inspections': [{**inspection, 'responder_angle': 'e'}]}, discovery),
+                ('substituted', {**reply, 'site_inspections': [inspection]}, [{**discovery[0], 'observation': 'another plausible observation'}]),
+                ('removed', {**reply, 'site_inspections': [inspection]}, [{**discovery[0], 'observation': ''}]),
+            ):
+                with self.subTest(name):
+                    result = write(name, packet_a=packet, discovery=found)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+                    self.assertEqual(metadata['specialists_completed'], 6)

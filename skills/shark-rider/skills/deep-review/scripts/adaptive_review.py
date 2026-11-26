@@ -486,6 +486,44 @@ def inspect_angle_packets(data, scope):
     return findings, completed, errors
 
 
+def _valid_site(item):
+    return isinstance(item, dict) and isinstance(item.get("file"), str) and bool(item["file"]) and all(
+        isinstance(item.get(key), int) and not isinstance(item.get(key), bool) and item[key] > 0 for key in ("start_line", "end_line")
+    ) and item["start_line"] <= item["end_line"] and isinstance(item.get("observation"), str) and bool(item["observation"].strip())
+
+
+def check_discoveries(decisions, packets, scope):
+    """Every causal site first found at consolidation needs a fresh inspection.
+
+    The responsible angle must have inspected the exact path and range on the
+    frozen tree, the runner (not the packet's own claim) must have dispatched
+    that angle, and the reconsolidated decision must carry the observation that
+    reply delivered.
+    """
+    discoveries = decisions.get("discoveries")
+    if discoveries is None:
+        return
+    if not isinstance(discoveries, list) or not isinstance(packets, dict):
+        raise ValueError("consolidation discoveries are malformed")
+    for item in discoveries:
+        if not _valid_site(item) or item.get("angle") not in tuple("abcdef"):
+            raise ValueError("consolidation discovery is malformed")
+        angle = item["angle"]
+        label = f"{item['file']}:{item['start_line']}-{item['end_line']}"
+        inspections = (packets.get(angle) or {}).get("site_inspections")
+        matched = [
+            probe for probe in inspections or []
+            if isinstance(probe, dict) and _valid_site(probe)
+            and (probe["file"], probe["start_line"], probe["end_line"]) == (item["file"], item["start_line"], item["end_line"])
+            and probe.get("tree") == scope.get("candidate_tree")
+            and probe.get("assigned_angle") == angle and probe.get("responder_angle") == angle
+        ]
+        if not matched:
+            raise ValueError(f"discovered site {label} lacks a fresh inspection by responsible angle {angle} on the frozen tree")
+        if not any(probe["observation"] == item["observation"] for probe in matched):
+            raise ValueError(f"reconsolidation for {label} does not carry angle {angle}'s follow-up observation")
+
+
 def _finding_key(finding):
     return tuple(finding[key] for key in ("file", "line", "rule", "summary", "diagnosis"))
 
@@ -909,6 +947,8 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
             require_reviewed_files=not is_six,
         )
         _require_finding_decision(body, decisions)
+        if is_six and metadata.get("_angle_bytes"):
+            check_discoveries(decisions, json.loads(metadata["_angle_bytes"].decode("utf-8")), metadata["_scope"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         metadata["fallback_reason"] = f"invalid review decisions: {exc}"
         if passing:

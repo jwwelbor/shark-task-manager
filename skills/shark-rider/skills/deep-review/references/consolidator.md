@@ -160,6 +160,10 @@ One paragraph summarizing the state of the PR, what is good, and what must chang
 
 ---
 
+## Causal sites you first discover
+
+If you find a causal site, anchored path and line range, that none of the six angles inspected, do not rely on it yourself. List it under `discoveries` in the decisions object with its responsible `angle` (a through f), `file`, `start_line`, `end_line` and your `observation`. The runner will dispatch that angle to inspect the exact range afresh on the frozen tree and consolidate again with the reply. Copy the follow-up observation into the matching discovery exactly. A discovery with no fresh inspection by the responsible angle makes the review INCOMPLETE.
+
 ## Self-verification before returning
 
 - [ ] Every blocker cites a specific risk, standards section, or named invariant

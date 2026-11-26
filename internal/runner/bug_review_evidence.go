@@ -36,11 +36,12 @@ type bugReviewIdentity struct {
 	Plan   string `json:"repair_plan_sha256"`
 }
 type bugAngle struct {
-	CandidateIdentity bugReviewIdentity `json:"candidate_identity"`
-	ReviewedFiles     reviewGitPaths    `json:"reviewed_files"`
-	Findings          []bugAngleFinding `json:"findings"`
-	CarriedUnits      []bugCarriedUnit  `json:"carried_units,omitempty"`
-	CrossFileFresh    bool              `json:"cross_file_fresh,omitempty"`
+	CandidateIdentity bugReviewIdentity   `json:"candidate_identity"`
+	ReviewedFiles     reviewGitPaths      `json:"reviewed_files"`
+	Findings          []bugAngleFinding   `json:"findings"`
+	CarriedUnits      []bugCarriedUnit    `json:"carried_units,omitempty"`
+	CrossFileFresh    bool                `json:"cross_file_fresh,omitempty"`
+	SiteInspections   []bugSiteInspection `json:"site_inspections,omitempty"`
 }
 
 func (id bugReviewIdentity) matches(scope bugCandidateScope) bool {
@@ -99,7 +100,7 @@ func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, sc
 	}
 	var raw map[bugFindingKey]string
 	if six {
-		if err := verifyBugAngleArtifact(ctx, req, scope, header, decisions, verdict, credit); err != nil {
+		if err := verifyBugAngleArtifact(ctx, req, scope, header, decisions, decisionData, verdict, credit); err != nil {
 			return err
 		}
 		if raw, err = rawBugFindingSeverities(req); err != nil {
@@ -112,7 +113,7 @@ func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, sc
 	return validateBugParentTriageObservationRaw(req, scope, decisions, raw)
 }
 
-func verifyBugAngleArtifact(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header string, decisions map[bugFindingKey]bugReviewDecision, verdict string, credit *bugCredit) error {
+func verifyBugAngleArtifact(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header string, decisions map[bugFindingKey]bugReviewDecision, decisionData []byte, verdict string, credit *bugCredit) error {
 	_, data, err := readBugEvidence(req, "bug_review_angles")
 	if err != nil {
 		return err
@@ -120,7 +121,14 @@ func verifyBugAngleArtifact(ctx context.Context, req gatepersist.Request, scope 
 	if err := verifyReviewArtifactHash(header, "Angle results", data); err != nil {
 		return err
 	}
-	return validateBugReviewAnglesWith(data, scope, decisions, verdict, credit.verifier(ctx, req, scope))
+	if err := validateBugReviewAnglesWith(data, scope, decisions, verdict, credit.verifier(ctx, req, scope)); err != nil {
+		return err
+	}
+	var angles map[string]bugAngle
+	if err := json.Unmarshal(data, &angles); err != nil {
+		return err
+	}
+	return verifyBugDiscoveries(decisionData, angles, scope)
 }
 
 func requireBugFindingDecisions(body string, decisions map[bugFindingKey]bugReviewDecision) error {

@@ -126,6 +126,11 @@ const CONSOLIDATION_SCHEMA = {
       properties: {
         candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
         reviewed_files: FINDING_SCHEMA.properties.reviewed_files,
+        discoveries: {type: 'array', items: {
+          type: 'object',
+          properties: {angle: {type: 'string'}, file: {type: 'string'}, start_line: {type: 'integer'}, end_line: {type: 'integer'}, observation: {type: 'string'}},
+          required: ['angle', 'file', 'start_line', 'end_line', 'observation'],
+        }},
         findings: {type: 'array', items: {
           type: 'object',
           properties: {
@@ -140,6 +145,20 @@ const CONSOLIDATION_SCHEMA = {
   },
   required: ['report', 'decisions'],
 }
+
+const SITE_SCHEMA = {
+  type: 'object',
+  properties: {
+    candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
+    site_inspection: {
+      type: 'object',
+      properties: {file: {type: 'string'}, start_line: {type: 'integer'}, end_line: {type: 'integer'}, observation: {type: 'string'}},
+      required: ['file', 'start_line', 'end_line', 'observation'],
+    },
+  },
+  required: ['candidate_identity', 'site_inspection'],
+}
+const ANGLE_FILES = {a: 'angle-a-bugs.md', b: 'angle-b-behavior.md', c: 'angle-c-sibling.md', d: 'angle-d-cleanup.md', e: 'angle-e-tests.md', f: 'angle-f-standards.md'}
 
 // ─── Angle preamble builder ───────────────────────────────────────────────────
 // Each agent reads its .md prompt file from skill_dir/references/, then executes
@@ -397,7 +416,81 @@ function validConsolidation(body, value, raw) {
   return verdict && !contradictoryReport(body, verdict) && passingDecisions(verdict, value.findings, raw)
 }
 
-if (!validConsolidation(report, decisions, allFindings)) {
-  return {report: 'INCOMPLETE: consolidator returned missing or malformed report.', runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
+function incomplete(reason, extra) {
+  return {report: `INCOMPLETE: ${reason}`, runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles, ...extra}
 }
-return {report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions, angle_results: retainedAngles}
+
+function validSite(site) {
+  return site && validGitPath(site.file) && Number.isInteger(site.start_line) && site.start_line > 0 &&
+    Number.isInteger(site.end_line) && site.end_line >= site.start_line && typeof site.observation === 'string' && site.observation.trim().length > 0
+}
+
+// A causal site first found at consolidation is inspected afresh by the angle
+// responsible for it before the consolidator may rely on it. The runner records
+// which angle it dispatched and which tree the reply was bound to; a label in
+// the reply cannot establish either.
+function discoveryList(value) {
+  const list = value && value.discoveries
+  if (list === undefined) return []
+  if (!Array.isArray(list) || !list.every(item => validSite(item) && Object.hasOwn(ANGLE_FILES, item.angle))) return null
+  return list
+}
+
+async function inspectDiscovery(discovery) {
+  const assignment = `FOLLOW_UP_ASSIGNMENT (inspect this site afresh on the frozen tree before the consolidator relies on it):
+- ASSIGNED_ANGLE: ${discovery.angle}
+- CANDIDATE_TREE: ${candidate_tree}
+- PATH: ${discovery.file}
+- RANGE: lines ${discovery.start_line}-${discovery.end_line}
+- CONSOLIDATOR_DISCOVERY: ${discovery.observation}
+Return ONLY a JSON object with candidate_identity and site_inspection {file, start_line, end_line, observation} for exactly this path and range. The observation states what you found when you read it yourself.`
+  const reply = await agent(preamble(ANGLE_FILES[discovery.angle], `${specContext}\n${assignment}`), {label: `${discovery.angle.toUpperCase()}: site follow-up ${discovery.file}:${discovery.start_line}-${discovery.end_line}`, phase: 'Review', schema: SITE_SCHEMA, effort: reviewEffort})
+  const site = reply && reply.site_inspection
+  if (!reply || !validIdentity(reply.candidate_identity) || !validSite(site) || site.file !== discovery.file || site.start_line !== discovery.start_line || site.end_line !== discovery.end_line) {
+    throw new Error(`angle ${discovery.angle} did not inspect ${discovery.file}:${discovery.start_line}-${discovery.end_line}`)
+  }
+  return {file: site.file, start_line: site.start_line, end_line: site.end_line, observation: site.observation, tree: candidate_tree, assigned_angle: discovery.angle, responder_angle: discovery.angle}
+}
+
+function discoveriesCarried(value, inspections) {
+  const reconsolidated = discoveryList(value)
+  return reconsolidated !== null && reconsolidated.length === inspections.length && inspections.every(inspection =>
+    reconsolidated.some(item => item.angle === inspection.assigned_angle && item.file === inspection.file && item.start_line === inspection.start_line &&
+      item.end_line === inspection.end_line && item.observation === inspection.observation))
+}
+
+const discovered = discoveryList(decisions)
+if (discovered === null) return incomplete('consolidator returned malformed discoveries.')
+if (discovered.length === 0) {
+  if (!validConsolidation(report, decisions, allFindings)) return incomplete('consolidator returned missing or malformed report.')
+  return {report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions, angle_results: retainedAngles}
+}
+
+phase('Review')
+const inspections = []
+try {
+  for (const discovery of discovered) inspections.push(await inspectDiscovery(discovery))
+} catch (error) {
+  return incomplete(`responsible-angle follow-up failed: ${String(error)}`, {discoveries: discovered})
+}
+for (const inspection of inspections) {
+  const packet = retainedAngles[inspection.assigned_angle]
+  retainedAngles[inspection.assigned_angle] = {...packet, site_inspections: [...(packet.site_inspections || []), inspection]}
+}
+
+phase('Consolidate')
+let reconsolidation
+try {
+  reconsolidation = await agent(`${consolidatorPreamble}
+
+FOLLOW_UP_OBSERVATIONS (fresh inspections returned by each responsible angle for the sites you discovered; reconcile each finding against them):
+${JSON.stringify(inspections)}
+Return the same JSON shape. Its decisions must list every discovery again with the follow-up observation copied exactly.`, { label: 'consolidator (reconsolidation)', phase: 'Consolidate', schema: CONSOLIDATION_SCHEMA, effort: reviewEffort })
+} catch (error) {
+  return incomplete(`reconsolidation failed: ${String(error)}`, {discoveries: discovered})
+}
+const second = consolidationFields(reconsolidation)
+if (!validConsolidation(second.report, second.decisions, allFindings) || !discoveriesCarried(second.decisions, inspections)) {
+  return incomplete('reconsolidation did not account for the responsible-angle follow-up.', {discoveries: discovered})
+}
+return {report: second.report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions: second.decisions, angle_results: retainedAngles}
