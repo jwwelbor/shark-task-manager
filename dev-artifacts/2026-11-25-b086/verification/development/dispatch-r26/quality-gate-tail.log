@@ -53,8 +53,8 @@
     e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "unresolved_gate" is in i06-schema.yaml but this test run never emitted it as a messag
     e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "unresolved_gate_count_inconsistent" is in i06-schema.yaml but this test run never emi
 --- PASS: TestTC052_I06ProductDesignReplayContract (0.00s)
---- PASS: TestTC061_I07LifecycleRunContract (0.80s)
---- PASS: TestTC067_I08LifecycleEvaluationContract (0.92s)
+--- PASS: TestTC061_I07LifecycleRunContract (0.78s)
+--- PASS: TestTC067_I08LifecycleEvaluationContract (0.98s)
 PASS
-ok  	github.com/jwwelbor/shark-task-manager/tests/contracts	(cached)
+ok  	github.com/jwwelbor/shark-task-manager/tests/contracts	105.064s
 rc=0
