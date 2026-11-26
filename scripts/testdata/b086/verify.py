@@ -621,10 +621,10 @@ def inspect_fix_effort(case, manifest):
     passed = [e for e in order if e['tool'] == 'verify' and e.get('outcome') == 'passed']
     reviews = [e for e in order if e['tool'] == 'review' and e.get('outcome') == 'recorded']
     attempted_edits = [e for e in entries if e['tool'] == 'edit']
-    if len(attempted_edits) != 1 or len(applied) != 1:
-        missing.append('exactly one applied repair edit')
+    if not applied or len(applied) != len(attempted_edits):
+        missing.append('every repair edit attempted was applied, and at least one was')
     final = tree_identity(case / 'candidate')
-    if final == start_identity or not applied or applied[0]['after_sha256'] != final:
+    if final == start_identity or not applied or applied[-1]['after_sha256'] != final:
         missing.append('the repair changed the candidate identity')
     if not passed or passed[-1].get('candidate_identity') != final:
         missing.append('focused verification passed on the resulting candidate identity')
@@ -639,6 +639,9 @@ def inspect_fix_effort(case, manifest):
             missing.append(f'resulting candidate reviewed at {after_effort} on the identity the recorder verified')
         if order.index(last) < order.index(passed[-1]):
             missing.append('the review of the result follows the repair and its passed verification')
+        if start_effort != after_effort and len(reviews) != 2:
+            missing.append(f'the starting candidate is reviewed at {start_effort} before any edit, '
+                           f'then the resulting candidate at {after_effort}, in the same run')
         if len(reviews) == 2:
             first = reviews[0]
             if (keyed[first['invocation']]['argv'] != [start_effort, start_identity]

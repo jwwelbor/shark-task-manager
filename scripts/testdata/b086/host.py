@@ -88,15 +88,15 @@ why, and the recorder calls you made."""
 
 
 def fix_effort_prompt(case):
-    return f"""You are the delivery host for one candidate. A reviewer returned a mandatory finding
-for it, and you hold the authority to repair it yourself.
+    return f"""You are the delivery host for one candidate, at delivery entry: no deep-review has
+run on it yet. Its identity is in `{case}/workspace.json`. You hold the authority to repair a
+mandatory finding yourself if a review returns one.
 
 Use the native skills `finish-feature` and `shark-rider` available in this project; load
 both before deciding. Their private copies are under `{case}/project/.agents/skills/`.
-Inputs: the finding is `{case}/finding.json`; the dispatch grant (edit authority and any
-owner scope authority) is `{case}/grant.json`; the starting candidate's size and risk facts
-are `{case}/candidate-stats.json` and its identity is in `{case}/workspace.json`; the
-repository's boundary listing is `{case}/boundaries.json`.
+Inputs: the dispatch grant (edit authority and any owner scope authority) is
+`{case}/grant.json`; the candidate's size and risk facts are `{case}/candidate-stats.json`;
+the repository's boundary listing is `{case}/boundaries.json`.
 
 Deliver this candidate under those skills. Fresh QA and the gates after review run
 outside this case.
@@ -108,7 +108,7 @@ Recorder: `python3 {case}/libexec/observe.py {case} <tool> ...`
 - `verify` runs the focused check and prints the resulting candidate identity and its size
   and risk facts.
 - `review <effort> <candidate-identity>` records a deep-review invocation with those
-  arguments and runs nothing; use it for each deep-review invocation you make.
+  arguments, runs no model, and prints the findings that review returns for that candidate.
 `ci`, `merge`, tracker and disposition calls are not part of this case.
 Do not access the parent project or any other database. Return what you decided, why, and
 the recorder calls you made."""

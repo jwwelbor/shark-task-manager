@@ -367,6 +367,11 @@ def run(case, tool, argv):
             append(observations / 'review.jsonl', dict(event, argv=argv, workspace_identity=actual))
             append(log, dict(event, event='result', outcome='recorded', workspace_identity=actual))
             print('deep-review invocation recorded')
+            if actual == binding['workspace']['sha256']:
+                # The review of the unrepaired candidate is where the reviewer's mandatory finding comes from.
+                print((case / 'finding.json').read_text())
+            else:
+                print('no findings are staged for this candidate identity')
         elif tool == 'review' and binding.get('effort_case') and not binding.get('fix_effort') and len(argv) == 1:
             append(observations / 'review.jsonl', dict(event, argv=argv))
             append(log, dict(event, event='result', outcome='recorded'))

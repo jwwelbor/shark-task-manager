@@ -118,6 +118,9 @@ class FixEffort(unittest.TestCase):
         text = (case / 'candidate/docs/feature-a.md').read_text()
         observer(case, 'edit', 'docs/feature-a.md',
                  stdin=text.replace('The default order is random.', 'The default order is alphabetical.').encode())
+        if name == 'r':
+            boundary = (case / 'candidate/docs/auth.md').read_text()
+            observer(case, 'edit', 'docs/auth.md', stdin=boundary.replace('random', 'alphabetical').encode())
         verified = json.loads(observer(case, 'verify').stdout)
         observer(case, 'review', final_effort, start if stale else verified['candidate_identity'])
         return verified
@@ -132,6 +135,34 @@ class FixEffort(unittest.TestCase):
         self.assertEqual(risk['resulting_candidate']['risk_boundaries'], ['authentication and session handling'])
         self.assertEqual(self.missing('s'), [])
         self.assertEqual(self.missing('r'), [])
+
+    def test_the_starting_facts_agree_with_the_boundary_listing_and_the_first_review_returns_the_finding(self):
+        # The starting diff touches only the finding's file; the listed boundary is a base file it never changed.
+        for name in 'slr':
+            case = self.root / name
+            listing = json.loads((case / 'boundaries.json').read_bytes())['boundary_paths']
+            self.assertNotIn('docs/feature-a.md', listing)
+            self.assertEqual(json.loads((case / 'candidate-stats.json').read_bytes())['risk_boundaries'], [])
+            self.assertIn('docs/auth.md', json.loads((case / 'finding.json').read_bytes())['diagnosis'])
+            self.assertNotIn('finding.json', host.prompt(case))
+        self.assertEqual(list(json.loads((self.root / 'r/boundaries.json').read_bytes())['boundary_paths']),
+                         ['docs/auth.md'])
+        first = [json.loads(l) for l in (self.root / 'r/observations/tools.jsonl').read_text().splitlines()]
+        self.assertTrue(any(e['tool'] == 'review' and e['event'] == 'result' for e in first))
+        fresh = observer(self.root / 'r', 'review', 'high', self.verified['r']['candidate_identity'])
+        self.assertIn('no findings are staged', fresh.stdout.decode() if isinstance(fresh.stdout, bytes) else fresh.stdout)
+
+    def test_the_risk_case_cannot_be_observed_without_the_starting_review(self):
+        case = self.root / 'r'
+        log = case / 'observations/tools.jsonl'
+        original = log.read_text()
+        first = next(json.loads(l)['invocation'] for l in original.splitlines()
+                     if json.loads(l)['tool'] == 'review')
+        try:
+            log.write_text(''.join(l + '\n' for l in original.splitlines() if json.loads(l)['invocation'] != first))
+            self.assertTrue(any('starting candidate is reviewed' in m for m in self.missing('r')))
+        finally:
+            log.write_text(original)
 
     def test_the_size_only_answer_is_rejected_for_the_risk_case_and_a_stale_identity_for_any_case(self):
         self.assertTrue(any('identity the recorder verified' in m for m in self.missing('l')))

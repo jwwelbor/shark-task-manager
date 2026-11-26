@@ -85,6 +85,9 @@ FIX_EFFORT_KINDS = {
     'effort-fix-large': ('max', 'max', {'changed_lines': 1800, 'files': 40, 'risk_boundaries': []}, None),
     'effort-fix-risk': ('high', 'max', {'changed_lines': 24, 'files': 2, 'risk_boundaries': []},
                         'authentication and session handling')}
+BOUNDARY_FILE = 'docs/auth.md'
+BOUNDARY_TEXT = '# Sessions\n\nSession listings use the default order, which is random.\n'
+BOUNDARY_NOTE = f' The same wrong default order is repeated in {BOUNDARY_FILE}.'
 RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'} | set(POLICIES)
 DISPATCH_KINDS = {'dispatch-ok', 'dispatch-bad'}
 PATCH_OLD = 'The default order is alphabetical.'
@@ -185,7 +188,7 @@ def stage_dispatch(case, review_source, packet_files, kind):
          'scope': str(case / 'scope/scope.json')}, indent=2) + '\n')
 
 
-def make_workspace(case, source, preserve=(), patch=None):
+def make_workspace(case, source, preserve=(), patch=None, extra=None):
     """A read-only copy of the reviewed candidate; only the recorder's edit endpoint writes it.
 
     `preserve` names other candidate files the repair must leave byte-identical; the host may edit any of them,
@@ -197,6 +200,9 @@ def make_workspace(case, source, preserve=(), patch=None):
     for name in preserve:
         shutil.copyfile(source / name, case / 'candidate' / name)
         others[name] = digest(case / 'candidate' / name)
+    for name, content in (extra or {}).items():
+        (case / 'candidate' / name).write_text(content)
+        (case / 'candidate' / name).chmod(0o444)
     text = target.read_text()
     # The repair of the mandatory finding replaces the wrong line; every other line must survive.
     mandatory = 'random' in text
@@ -213,7 +219,8 @@ def make_workspace(case, source, preserve=(), patch=None):
     target.chmod(0o444)
     for name in others:
         (case / 'candidate' / name).chmod(0o444)
-    target.parent.chmod(0o555)
+    for directory in {p.parent for p in (case / 'candidate').rglob('*') if p.is_file()}:
+        directory.chmod(0o555)
     (case / 'workspace.json').write_text(json.dumps(
         {'path': str(case / 'candidate'), 'file': FILE, 'candidate_identity': state['sha256']}, indent=2) + '\n')
     return state
@@ -322,12 +329,15 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                 dispatch['edit_authority'] = True
                 if boundary:
                     dispatch['scope_authority'] = [boundary]
-                workspace = make_workspace(case, root / 'review-source')
+                # The boundary listing names a base file the starting diff never touched, so the starting facts
+                # (no boundary) agree with the listing; the finding makes repairing that file part of the fix.
+                workspace = make_workspace(case, root / 'review-source', extra={BOUNDARY_FILE: BOUNDARY_TEXT})
                 (case / 'candidate-stats.json').write_text(json.dumps(stats, indent=2) + '\n')
                 (case / 'boundaries.json').write_text(json.dumps(
-                    {'boundary_paths': {FILE: boundary} if boundary else {}}, indent=2) + '\n')
-                (case / 'finding.json').write_text(json.dumps(
-                    json.loads(packet_files['review.md.decisions.json'])['findings'][0], indent=2) + '\n')
+                    {'boundary_paths': {BOUNDARY_FILE: boundary} if boundary else {}}, indent=2) + '\n')
+                finding = json.loads(packet_files['review.md.decisions.json'])['findings'][0]
+                finding['diagnosis'] += BOUNDARY_NOTE
+                (case / 'finding.json').write_text(json.dumps(finding, indent=2) + '\n')
             (case / 'grant.json').write_text(json.dumps(dispatch, indent=2) + '\n')
             if kind_now in EFFORT_KINDS:
                 (case / 'candidate-stats.json').write_text(json.dumps(EFFORT_KINDS[kind_now][1], indent=2) + '\n')
