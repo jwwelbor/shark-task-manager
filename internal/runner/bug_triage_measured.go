@@ -51,6 +51,37 @@ func AttachParentTriageObservation(projectRoot, runID, path string, envelopeByte
 	return json.Marshal(envelope)
 }
 
+// RunOwnParentObservationInjected reports whether the envelope carries exactly
+// one bug_parent_triage_observation reference that points at this run's own
+// parent-triage-observation.json and whose digest matches that file. Crash
+// recovery (--resume-run) uses it to recognize the controller's own injection
+// in a committed result; any other pointer, digest or file state is false.
+func RunOwnParentObservationInjected(projectRoot, runID string, envelopeBytes []byte) bool {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return false
+	}
+	envelope, err := workercontrol.Decode(envelopeBytes)
+	if err != nil {
+		return false
+	}
+	ref, err := selectBugEvidence(envelope.Evidence, "bug_parent_triage_observation")
+	if err != nil {
+		return false
+	}
+	path := filepath.Join(runDir, "parent-triage-observation.json")
+	relative, err := filepath.Rel(projectRoot, path)
+	if err != nil || ref.Pointer != filepath.ToSlash(relative) {
+		return false
+	}
+	data, err := gaterun.ReadBoundedRegularFile(path, 64*1024)
+	if err != nil {
+		return false
+	}
+	digest := sha256.Sum256(data)
+	return ref.Summary == "sha256:"+hex.EncodeToString(digest[:])
+}
+
 // BugTriageWindow identifies the parent-measured interval around one dispatch.
 type BugTriageWindow struct {
 	ProjectRoot, WorkingDir, RunID string

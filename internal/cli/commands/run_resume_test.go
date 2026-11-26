@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -785,5 +787,79 @@ func TestRunResumeRun_AlreadyTransitionedWiringReachesCoordinator(t *testing.T) 
 
 	if len(releaser.calls) != 1 {
 		t.Fatalf("expected exactly 1 lease release call through the real runResumeRun entry point, got %d", len(releaser.calls))
+	}
+}
+
+// TestRunResumeRun_BugCodeReviewReplayAcceptsRunOwnParentObservation guards
+// crash recovery of a committed bug code_review result: the controller
+// injected bug_parent_triage_observation into the stored envelope, so resume
+// must recognize that run's own observation (pointer and digest) and accept
+// it, while an observation it did not inject must still be rejected.
+func TestRunResumeRun_BugCodeReviewReplayAcceptsRunOwnParentObservation(t *testing.T) {
+	origResumeID, origSession := runResumeID, runSession
+	origResolver, origCoordinator := runResumeWorkflowServiceOverride, runResumeCoordinatorOverride
+	defer func() {
+		runResumeID, runSession = origResumeID, origSession
+		runResumeWorkflowServiceOverride, runResumeCoordinatorOverride = origResolver, origCoordinator
+	}()
+
+	entityKey := "B087"
+	run := func(t *testing.T, pointerFor func(root, runDir string) string) error {
+		runID := "run-bugobs1234567890abcdef123456"
+		root := t.TempDir()
+		dir, err := gaterun.RunDir(root, runID)
+		if err != nil {
+			t.Fatalf("RunDir: %v", err)
+		}
+		obs := []byte(`{"observed_by":"parent"}`)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "parent-triage-observation.json"), obs, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(obs)
+		envelope := `{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_parent_triage_observation","pointer":"` +
+			pointerFor(root, dir) + `","summary":"sha256:` + hex.EncodeToString(sum[:]) + `"}],"gate_result":{"schema_version":1,"summary":"ok"}}`
+		if _, err := gaterun.CreateResult(dir, []byte(envelope)); err != nil {
+			t.Fatalf("CreateResult: %v", err)
+		}
+		digest, err := gaterun.ComputeOperationDigest(entityKey, "bug", "code_review", "code_review", []byte(envelope))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := gaterun.NewOperationState(runID, entityKey, "bug", "code_review", "code_review", digest)
+		if err := s.Save(dir); err != nil {
+			t.Fatal(err)
+		}
+		transition := &fakeParityTransition{status: map[string]string{entityKey: "code_review"}}
+		runResumeWorkflowServiceOverride = &fakeGateStepResolver{
+			resultContract: "gate_result_v1",
+			outcomes:       map[string]string{"pass": "qa"},
+			outcomeRoles:   map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+		}
+		runResumeCoordinatorOverride = gatepersist.NewCoordinator(
+			&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{},
+			fakeParityStatusValidator{}, transition, transition, fakeParityLeaseReleaser{}, transition,
+		)
+		runResumeID, runSession = runID, "sess-resume"
+		out, decision, err := resolveResumeStatusAndDecision(root, runID, "bug", entityKey, time.Now())
+		if err != nil {
+			t.Fatalf("resolveResumeStatusAndDecision: %v", err)
+		}
+		return resumeGateIngestIfConfigured(context.Background(), root, "bug", entityKey, decision, out)
+	}
+
+	own := func(root, dir string) string {
+		rel, _ := filepath.Rel(root, filepath.Join(dir, "parent-triage-observation.json"))
+		return filepath.ToSlash(rel)
+	}
+	if err := run(t, own); err != nil {
+		t.Fatalf("run-own observation replay must succeed: %v", err)
+	}
+	foreign := func(root, dir string) string { return "elsewhere/parent-triage-observation.json" }
+	err := run(t, foreign)
+	if err == nil || !strings.Contains(err.Error(), "cannot supply parent triage observation") {
+		t.Fatalf("foreign observation must be rejected, got %v", err)
 	}
 }
