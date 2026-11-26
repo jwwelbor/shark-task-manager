@@ -111,6 +111,11 @@ type DispatchInput struct {
 	// DefaultDisallowedTools. These are additive: DefaultDisallowedTools are
 	// always applied regardless of this field.
 	DisallowedTools []string
+
+	// Env is appended to the agent process environment (KEY=value). The parent
+	// uses it to point the host's shark invocations at the run's tracker
+	// attempt ledger.
+	Env []string
 }
 
 // DispatchResult captures the outcome of an agent dispatch. It is returned by

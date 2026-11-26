@@ -1559,6 +1559,14 @@ func (c *RunController) handleSpawnAgent(
 	})
 
 	triageNotesBefore := c.countTriageNotes(ctx, opts, key, currentStatus)
+	if triageNotesBefore >= 0 {
+		env, envErr := trackerAttemptEnv(opts.ProjectRoot, gateStageRunID(opts.RunID, key, stageN))
+		if envErr != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{EntityKey: key, Status: currentStatus, Phase: "tracker_attempt_ledger", Error: envErr.Error(), RunID: opts.RunID})
+			return stageOutcome{done: true}
+		}
+		input.Env = append(input.Env, env...)
+	}
 	triageStarted := time.Now()
 	dispatchResult, err := dispatcher.Dispatch(ctx, input)
 	if err != nil {
@@ -2111,5 +2119,5 @@ func (c *RunController) observeBugTriage(ctx context.Context, opts RunOptions, k
 	if workingDir == "" {
 		workingDir = req.ProjectRoot
 	}
-	return ObserveBugReportOnlyTriage(ctx, BugTriageWindow{ProjectRoot: req.ProjectRoot, WorkingDir: workingDir, RunID: req.RunID, TrackerWrites: writes, Started: started}, req.EnvelopeBytes)
+	return ObserveBugReportOnlyTriage(ctx, BugTriageWindow{ProjectRoot: req.ProjectRoot, WorkingDir: workingDir, RunID: req.RunID, TrackerWrites: writes, Started: started, RequireLedger: true}, req.EnvelopeBytes)
 }

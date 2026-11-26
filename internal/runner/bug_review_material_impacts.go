@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
+	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -77,8 +79,17 @@ type bugParentTriageObservation struct {
 	ObservedBy        string            `json:"observed_by"`
 	// RunID names the review run whose dispatch window was observed. It is
 	// absent from observations written before the binding existed.
-	RunID   string                  `json:"run_id,omitempty"`
-	Actions []bugParentTriageAction `json:"actions"`
+	RunID string `json:"run_id,omitempty"`
+	// TrackerAttemptLedger binds the observation to the run's ledger of
+	// attempted tracker writes. Observations from before it existed omit it.
+	TrackerAttemptLedger *bugTrackerAttemptLedger `json:"tracker_attempt_ledger,omitempty"`
+	Actions              []bugParentTriageAction  `json:"actions"`
+}
+
+type bugTrackerAttemptLedger struct {
+	RunID   string `json:"run_id"`
+	SHA256  string `json:"sha256"`
+	Entries int    `json:"entries"`
 }
 
 type bugParentTriageAction struct {
@@ -90,6 +101,9 @@ type bugParentTriageAction struct {
 	// the review run's dispatch window, including edits later restored.
 	// Observations from before this field existed omit it.
 	EditAttempts *int `json:"edit_attempts,omitempty"`
+	// TrackerAttempts is the number of tracker write attempts the ledger
+	// attributes to this finding, including attempts rejected before mutation.
+	TrackerAttempts *int `json:"tracker_attempts,omitempty"`
 }
 
 func validateBugReviewMaterialImpacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string) error {
@@ -259,7 +273,10 @@ func validateBugParentTriageObservationRaw(req gatepersist.Request, scope bugCan
 	if observation.RunID != "" && observation.RunID != filepath.Base(req.RunDir) {
 		return fmt.Errorf("parent triage observation belongs to review run %q, not %q", observation.RunID, filepath.Base(req.RunDir))
 	}
-	return checkHostActions(expected, observation.Actions)
+	if err := checkHostActions(expected, observation.Actions); err != nil {
+		return err
+	}
+	return observation.verifyTrackerAttempts(req, expected, decisions)
 }
 
 const (
@@ -497,6 +514,57 @@ func (action bugParentTriageAction) verifyEditAttempts(want string) error {
 		return fmt.Errorf("%s: edit_attempts cannot be fewer than committed edits", action.FindingID)
 	case want == bugHostActionReportOnly && attempts != 0:
 		return fmt.Errorf("%s: report-only requires observed edit_attempts of zero", action.FindingID)
+	}
+	return nil
+}
+
+// verifyTrackerAttempts admits the observation's tracker attempt counts only
+// when they equal what the run's own ledger attributes to each finding. The
+// ledger is re-read and re-hashed here, so a count that disagrees with it, a
+// ledger changed after observation or one bound to another run is rejected.
+func (o bugParentTriageObservation) verifyTrackerAttempts(req gatepersist.Request, expected map[string]string, decisions map[bugFindingKey]bugReviewDecision) error {
+	if o.TrackerAttemptLedger == nil {
+		for _, action := range o.Actions {
+			if action.TrackerAttempts != nil {
+				return fmt.Errorf("%s: tracker_attempts requires the tracker attempt ledger", action.FindingID)
+			}
+		}
+		return nil
+	}
+	runID := filepath.Base(req.RunDir)
+	if o.TrackerAttemptLedger.RunID != runID {
+		return fmt.Errorf("tracker attempt ledger belongs to review run %q, not %q", o.TrackerAttemptLedger.RunID, runID)
+	}
+	data, err := gaterun.ReadBoundedRegularFile(filepath.Join(req.RunDir, trackerattempts.LedgerName), 1<<20)
+	if err != nil {
+		return fmt.Errorf("tracker attempt ledger unavailable: %w", err)
+	}
+	ledger, err := trackerattempts.Parse(data, runID)
+	if err != nil {
+		return err
+	}
+	if ledger.SHA256 != o.TrackerAttemptLedger.SHA256 || len(ledger.Entries) != o.TrackerAttemptLedger.Entries {
+		return fmt.Errorf("tracker attempt ledger changed after the parent observed it")
+	}
+	all := make([]bugReviewDecision, 0, len(decisions))
+	for _, decision := range decisions {
+		all = append(all, decision)
+	}
+	for _, action := range o.Actions {
+		if action.TrackerAttempts == nil {
+			return fmt.Errorf("%s: tracker_attempts is required with a tracker attempt ledger", action.FindingID)
+		}
+		want := expected[action.FindingID]
+		got := findingWriteAttempts(ledger, action.FindingID, all)
+		if *action.TrackerAttempts != got {
+			return fmt.Errorf("%s: tracker_attempts %d does not match %d attempts in the run ledger", action.FindingID, *action.TrackerAttempts, got)
+		}
+		if want == bugHostActionReportOnly && got != 0 {
+			return fmt.Errorf("%s: report-only requires zero attempted tracker writes, ledger has %d", action.FindingID, got)
+		}
+		if action.TrackerWrites != nil && got < *action.TrackerWrites {
+			return fmt.Errorf("%s: tracker_attempts cannot be fewer than committed tracker_writes", action.FindingID)
+		}
 	}
 	return nil
 }

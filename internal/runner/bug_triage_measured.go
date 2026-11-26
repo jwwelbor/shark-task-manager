@@ -16,6 +16,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -93,6 +94,10 @@ type BugTriageWindow struct {
 	// Started is when the parent began the dispatch. Zero means the window
 	// start is unknown and attempted edits are not measured.
 	Started time.Time
+	// RequireLedger makes the parent read this run's tracker attempt ledger,
+	// record each observed finding's attempts and carry the ledger digest in
+	// the observation. A missing ledger is an error.
+	RequireLedger bool
 }
 
 // ObserveBugReportOnlyTriage measures what the host did while a bug code review
@@ -106,7 +111,7 @@ func ObserveBugReportOnlyTriage(ctx context.Context, w BugTriageWindow, envelope
 		// Malformed worker output is reported by IngestGateResult itself.
 		return envelopeBytes, false, nil
 	}
-	ids, identity, err := measuredReportOnlyFindings(w.WorkingDir, envelope.Evidence)
+	ids, all, identity, err := measuredReportOnlyFindings(w.WorkingDir, envelope.Evidence)
 	if err != nil || len(ids) == 0 {
 		return envelopeBytes, false, err
 	}
@@ -118,6 +123,12 @@ func ObserveBugReportOnlyTriage(ctx context.Context, w BugTriageWindow, envelope
 	if err != nil {
 		return nil, false, err
 	}
+	var ledger *trackerattempts.Ledger
+	if w.RequireLedger {
+		if ledger, err = readTrackerLedger(w.ProjectRoot, w.RunID); err != nil {
+			return nil, false, err
+		}
+	}
 	actions := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
 		action := map[string]any{"finding_id": id.id, "action": id.action, "edits": edits, "tracker_writes": w.TrackerWrites}
@@ -126,9 +137,18 @@ func ObserveBugReportOnlyTriage(ctx context.Context, w BugTriageWindow, envelope
 			// modification time, so the attempt is bound to this run's window.
 			action["edit_attempts"] = attempts
 		}
+		if ledger != nil {
+			// Attempts rejected before any mutation never reach the tracker, so
+			// they are counted from the ledger the shark CLI wrote at invocation.
+			action["tracker_attempts"] = findingWriteAttempts(*ledger, id.id, all)
+		}
 		actions = append(actions, action)
 	}
-	data, err := json.Marshal(map[string]any{"candidate_identity": identity, "observed_by": "parent", "run_id": w.RunID, "actions": actions})
+	observation := map[string]any{"candidate_identity": identity, "observed_by": "parent", "run_id": w.RunID, "actions": actions}
+	if ledger != nil {
+		observation["tracker_attempt_ledger"] = map[string]any{"run_id": w.RunID, "sha256": ledger.SHA256, "entries": len(ledger.Entries)}
+	}
+	data, err := json.Marshal(observation)
 	if err != nil {
 		return nil, false, err
 	}
@@ -161,33 +181,33 @@ func readDigestBoundEvidence(root string, refs []workercontrol.EvidenceRef, kind
 
 type measuredHostAction struct{ id, action string }
 
-func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) ([]measuredHostAction, bugReviewIdentity, error) {
+func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) ([]measuredHostAction, []bugReviewDecision, bugReviewIdentity, error) {
 	if !hasBugEvidence(refs, "bug_review_decisions") {
-		return nil, bugReviewIdentity{}, nil
+		return nil, nil, bugReviewIdentity{}, nil
 	}
 	data, err := readDigestBoundEvidence(root, refs, "bug_review_decisions")
 	if err != nil {
-		return nil, bugReviewIdentity{}, err
+		return nil, nil, bugReviewIdentity{}, err
 	}
 	var packet bugReviewDecisions
 	if err := json.Unmarshal(data, &packet); err != nil {
-		return nil, bugReviewIdentity{}, fmt.Errorf("invalid review decisions: %w", err)
+		return nil, nil, bugReviewIdentity{}, fmt.Errorf("invalid review decisions: %w", err)
 	}
 	decisions := make(map[bugFindingKey]bugReviewDecision, len(packet.Findings))
 	for _, finding := range packet.Findings {
 		key, err := decisionSourceKey(finding, packet.ReviewContractVersion, make(map[string]bool))
 		if err != nil {
-			return nil, bugReviewIdentity{}, err
+			return nil, nil, bugReviewIdentity{}, err
 		}
 		decisions[key] = finding
 	}
 	raw, err := measuredRawSeverities(root, refs)
 	if err != nil {
-		return nil, bugReviewIdentity{}, err
+		return nil, nil, bugReviewIdentity{}, err
 	}
 	byID, err := expectedBugHostActions(decisions, raw)
 	if err != nil {
-		return nil, bugReviewIdentity{}, err
+		return nil, nil, bugReviewIdentity{}, err
 	}
 	ids := make([]measuredHostAction, 0, len(byID))
 	for _, finding := range packet.Findings {
@@ -195,7 +215,7 @@ func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) (
 			ids = append(ids, measuredHostAction{finding.FindingID, action})
 		}
 	}
-	return ids, packet.CandidateIdentity, nil
+	return ids, packet.Findings, packet.CandidateIdentity, nil
 }
 
 // measuredRawSeverities reads the raw angle findings when the worker retained them.
@@ -321,4 +341,62 @@ func countBugEntityNotes(ctx context.Context, reader gatepersist.NoteReader, ent
 	}
 	notes, err := reader.ListNotes(ctx, entityType, key, nil)
 	return len(notes), err
+}
+
+// trackerAttemptEnv prepares the run's ledger and returns the environment that
+// points the host's shark invocations at it. The ledger is created empty so an
+// absent file later means tampering, not "no attempts".
+func trackerAttemptEnv(projectRoot, runID string) ([]string, error) {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(runDir, trackerattempts.LedgerName)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("tracker attempt ledger already exists or cannot be created: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	return []string{trackerattempts.EnvLog + "=" + path, trackerattempts.EnvRun + "=" + runID}, nil
+}
+
+// readTrackerLedger reads the run's ledger. A missing ledger is an error: the
+// parent created it before the dispatch.
+func readTrackerLedger(projectRoot, runID string) (*trackerattempts.Ledger, error) {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := gaterun.ReadBoundedRegularFile(filepath.Join(runDir, trackerattempts.LedgerName), 1<<20)
+	if err != nil {
+		return nil, fmt.Errorf("tracker attempt ledger unavailable: %w", err)
+	}
+	ledger, err := trackerattempts.Parse(data, runID)
+	if err != nil {
+		return nil, err
+	}
+	return &ledger, nil
+}
+
+// findingWriteAttempts counts the ledger's write attempts for one finding. An
+// attempt naming another finding is that finding's. An unnamed attempt is
+// charged to this finding unless another finding of the review survives with a
+// disposition that files or edits, in which case it is presumed to be that
+// finding's own write.
+func findingWriteAttempts(ledger trackerattempts.Ledger, id string, all []bugReviewDecision) int {
+	ids := make([]string, 0, len(all))
+	claimedElsewhere := false
+	for _, decision := range all {
+		ids = append(ids, decision.FindingID)
+		if decision.FindingID != id {
+			switch decision.Disposition {
+			case "report-only", "report_only", "refuted":
+			default:
+				claimedElsewhere = true
+			}
+		}
+	}
+	return ledger.WriteAttempts(id, ids, claimedElsewhere)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,6 +139,8 @@ func TestControllerInjectsMeasuredBugTriageObservation(t *testing.T) {
 			if trial.disable {
 				before = -1
 			}
+			_, err = trackerAttemptEnv(f.root, runID)
+			require.NoError(t, err)
 			nextInfo := &services.NextStatusInfo{Outcomes: map[string]string{"pass": "qa"}}
 			_, _, err = controller.ingestGateResultForDispatch(context.Background(), "B001", "code_review", nextInfo,
 				&config.PopulatedAction{Provider: "anthropic"}, opts, &DispatchResult{Stdout: string(f.envelope), Duration: time.Millisecond}, new(bool), 1, before)
@@ -246,4 +249,74 @@ func TestObservedEditAttemptsBindHostActionToRunAndFinding(t *testing.T) {
 	other.RunDir = filepath.Join(root, ".shark", "runs", "other")
 	other.EnvelopeJSON = []byte(strings.ReplaceAll(string(genuine.EnvelopeJSON), ".shark/runs/genuine/", ".shark/runs/other/"))
 	require.ErrorContains(t, validateBugParentTriageObservation(other, scope, decisions), `belongs to review run "genuine", not "other"`)
+}
+
+// B088 R4: a tracker write rejected before it mutates leaves no note, so only
+// the run's attempt ledger can disqualify a report-only withdrawal. Each trial
+// feeds the parent's observation to the production admission reader.
+func TestTrackerAttemptLedgerBindsWithdrawalToRunAndFinding(t *testing.T) {
+	f := newTriageFixture(t)
+	root, scope, decisions, envelope := f.root, f.scope, f.decisions, f.envelope
+	observe := func(runID string, attempts ...trackerattempts.Entry) gatepersist.Request {
+		env, err := trackerAttemptEnv(root, runID)
+		require.NoError(t, err)
+		path := strings.TrimPrefix(env[0], trackerattempts.EnvLog+"=")
+		for _, entry := range attempts {
+			require.NoError(t, trackerattempts.Append(path, runID, entry.Command, entry.Argv, entry.Write))
+		}
+		attached, injected, err := ObserveBugReportOnlyTriage(context.Background(),
+			BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: runID, RequireLedger: true}, envelope)
+		require.NoError(t, err)
+		require.True(t, injected)
+		return gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", runID), EnvelopeJSON: attached, ParentObservationInjected: true}
+	}
+	rejected := trackerattempts.Entry{Command: "create note", Argv: []string{"create", "note", "B001", "--bogus"}, Write: true}
+
+	require.NoError(t, validateBugParentTriageObservation(observe("clean", trackerattempts.Entry{Command: "get", Argv: []string{"get", "B001"}}), scope, decisions))
+
+	// The attempt created no note and no edit, so every net counter is zero.
+	req := observe("rejected", rejected)
+	require.ErrorContains(t, validateBugParentTriageObservation(req, scope, decisions), "report-only requires zero attempted tracker writes, ledger has 1")
+
+	require.ErrorContains(t, validateBugParentTriageObservation(observe("own", trackerattempts.Entry{Command: "create note", Argv: []string{"create", "note", "B001", "F-1 withdrawn"}, Write: true}), scope, decisions), "ledger has 1")
+
+	// Another finding's own filing never disqualifies F-1's withdrawal, but an
+	// unnamed write does when no surviving finding could have made it.
+	ledger := trackerattempts.Ledger{Entries: []trackerattempts.Entry{{Argv: []string{"create", "note", "F-2 needs filing"}, Write: true}, {Argv: []string{"create", "note", "unnamed"}, Write: true}}}
+	withdrawn := bugReviewDecision{FindingID: "F-1", Disposition: "report-only"}
+	survivor := bugReviewDecision{FindingID: "F-2", Disposition: "triaged"}
+	require.Equal(t, 0, findingWriteAttempts(ledger, "F-1", []bugReviewDecision{withdrawn, survivor}))
+	require.Equal(t, 1, findingWriteAttempts(ledger, "F-1", []bugReviewDecision{withdrawn, {FindingID: "F-2", Disposition: "refuted"}}))
+
+	// Falsifying the count to zero while the ledger holds the attempt is detected,
+	// even with the observation's own digest rebound in the envelope.
+	falsified := observe("falsified", rejected)
+	path := filepath.Join(falsified.RunDir, "parent-triage-observation.json")
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(before, &doc))
+	doc["actions"].([]any)[0].(map[string]any)["tracker_attempts"] = 0
+	after, err := json.Marshal(doc)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, after, 0o600))
+	falsified.EnvelopeJSON = []byte(strings.ReplaceAll(string(falsified.EnvelopeJSON), fmt.Sprintf("%x", sha256.Sum256(before)), fmt.Sprintf("%x", sha256.Sum256(after))))
+	require.ErrorContains(t, validateBugParentTriageObservation(falsified, scope, decisions), "tracker_attempts 0 does not match 1 attempts in the run ledger")
+
+	// A ledger altered after observation no longer matches its recorded digest.
+	tampered := observe("tampered")
+	require.NoError(t, validateBugParentTriageObservation(tampered, scope, decisions))
+	require.NoError(t, trackerattempts.Append(filepath.Join(tampered.RunDir, trackerattempts.LedgerName), "tampered", rejected.Command, rejected.Argv, true))
+	require.ErrorContains(t, validateBugParentTriageObservation(tampered, scope, decisions), "ledger changed after the parent observed it")
+
+	// An entry bound to another run is rejected when the parent reads the ledger.
+	env, err := trackerAttemptEnv(root, "foreign")
+	require.NoError(t, err)
+	require.NoError(t, trackerattempts.Append(strings.TrimPrefix(env[0], trackerattempts.EnvLog+"="), "other-run", "create note", rejected.Argv, true))
+	_, _, err = ObserveBugReportOnlyTriage(context.Background(), BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: "foreign", RequireLedger: true}, envelope)
+	require.ErrorContains(t, err, `belongs to run "other-run", not "foreign"`)
+
+	// A missing ledger is an error, never "no attempts".
+	_, _, err = ObserveBugReportOnlyTriage(context.Background(), BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: "never-created", RequireLedger: true}, envelope)
+	require.ErrorContains(t, err, "ledger unavailable")
 }
