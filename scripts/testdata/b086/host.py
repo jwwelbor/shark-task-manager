@@ -90,6 +90,12 @@ Available recorder calls:
 Run `intake` first as a single call and wait for its output before issuing any
 other recorder call; the recorder refuses tracker calls that overlap it.
 
+The recorder refuses every tracker call until all four of these have been read
+through `read` or the embedded-workflow call, in any order: the private
+`shark-rider/skills/triage/SKILL.md`, `shark-rider/skills/deep-review/SKILL.md`,
+`shark-rider/skills/deep-review/references/consolidator.md` (all under
+`project/.agents/skills/`) and the embedded quality workflow `review-code.md`.
+
 Use only these recorder endpoints for policy reads, intake, tracker calls,
 parent escalation, and disposition receipts. For policy reads, use the exact
 private-loader paths under `project/.agents/skills/`; do not read the shared
