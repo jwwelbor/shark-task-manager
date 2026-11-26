@@ -105,7 +105,8 @@ a verified Fix or verified owner. Escalation leaves the finding pending and
 must not be recorded as a disposition. When recording a disposition, identify
 the run's project, fingerprint, classification, decision, reason and decision
 inputs. If it identifies an owned tracker item, include the observed key, type,
-parent and scope. A parent escalation must
+parent and scope (quote the scope words from the tracker readback of the task
+description). A parent escalation must
 identify the fingerprint, requested feature, missing permission (if any) and requested
 parent action. For a failed tracker operation, include the attempted_operation and
 the tracker’s refusal_reason along with the requested_parent_action.
