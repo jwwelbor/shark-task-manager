@@ -143,16 +143,15 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 			return validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body)
 		}
 		// Remove the controlling decision from both submitted lists and its marker.
-		req, scope, header, _ := makeReq(expected, dispositions)
+		_, scope, _, _ := makeReq(expected, dispositions)
 		emptyExp, emptyGot := expected, dispositions
 		emptyExp.Decisions, emptyGot.Decisions = nil, nil
-		_ = req
 		require.ErrorContains(t, both(emptyExp, emptyGot), "material decision disposition set is incomplete")
 		// With neither sidecar nor marker the frozen source still binds the review.
 		bare := gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"test"}}`)}
 		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), bare, scope, "", "no markers here"), "frozen source declares material decisions")
 		// Dropping just the report marker cannot hide the decision, nor is it needed.
-		req, scope, header, _ = makeReq(expected, dispositions)
+		req, scope, header, _ := makeReq(expected, dispositions)
 		require.NoError(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, "no markers here"))
 		// A member removed from the expected packet and from the dispositions is still owed.
 		fewerExp := expected
@@ -170,7 +169,6 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 		extraGot.Decisions = append(append([]bugReviewMaterialDisposition(nil), dispositions.Decisions...), dispositions.Decisions[0])
 		extraGot.Decisions[1].DecisionID = "DEC-2"
 		require.ErrorContains(t, both(extra, extraGot), "no frozen source declares")
-		_ = header
 	})
 	t.Run("decision source is bound to the frozen tree", func(t *testing.T) {
 		bad := expected
