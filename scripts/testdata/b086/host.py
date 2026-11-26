@@ -100,8 +100,9 @@ leaves the finding pending and must not be recorded as a disposition. When
 recording a disposition, identify the run's project, fingerprint, classification,
 decision, reason and decision inputs. If it identifies an owned tracker item,
 include the observed key, type, parent and scope. A parent escalation must
-identify the fingerprint, requested feature, missing permission and requested
-parent action.
+identify the fingerprint, requested feature, missing permission (if any) and requested
+parent action. For a failed tracker operation, include the attempted_operation and
+the tracker’s refusal_reason along with the requested_parent_action.
 Return a concise account of what you decided and the recorder calls you made."""
 
 

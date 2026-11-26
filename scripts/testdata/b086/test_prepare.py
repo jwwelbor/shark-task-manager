@@ -9,6 +9,8 @@ import sys
 import tempfile
 import unittest
 
+from host import prompt
+
 
 HERE = Path(__file__).resolve().parent
 DRIVER = HERE / 'prepare.py'
@@ -23,13 +25,19 @@ class GrantPairSetup(unittest.TestCase):
             self.assertEqual(setup.returncode, 0, setup.stderr)
             manifest = json.loads(Path(setup.stdout.strip()).read_text())
             self.assertEqual(manifest['policy_commit'], POLICY)
+            self.assertEqual(manifest['fixture_files']['host.py'],
+                             hashlib.sha256((HERE / 'host.py').read_bytes()).hexdigest())
             cases = [Path(tmp) / case for case in manifest['cases']]
             self.assertEqual(len(cases), 2)
             inputs = []
             stores = []
             common_dispatches = []
             for case in cases:
-                dispatch = json.loads((case / 'grant.json').read_text())
+                grant = (case / 'grant.json').read_bytes()
+                binding = manifest['bindings'][case.name]
+                self.assertEqual(binding['grant_sha256'], hashlib.sha256(grant).hexdigest())
+                self.assertEqual(binding['prompt_sha256'], hashlib.sha256(prompt(case).encode()).hexdigest())
+                dispatch = json.loads(grant)
                 inputs.append(dispatch.pop('create_task_under'))
                 common_dispatches.append(dispatch)
                 self.assertEqual(dispatch['mode'], 'unattended')

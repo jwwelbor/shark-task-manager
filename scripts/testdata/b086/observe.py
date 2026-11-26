@@ -90,6 +90,7 @@ def tracker_args(argv, project, database, config):
     # The first pair needs ordinary reads and task creation only. Record every refused invocation.
     words = []
     forwarded = []
+    parent_flags = {}
     values = {'--config': config, '--db': database}
     seen = set()
     args = iter(argv)
@@ -105,6 +106,8 @@ def tracker_args(argv, project, database, config):
                 seen.add(name)
             else:
                 forwarded.extend([name, value])
+                if name in ('--epic', '--feature'):
+                    parent_flags[name] = value.upper()
         elif arg in ('--json', '--no-color'):
             forwarded.append(arg)
         elif arg.startswith('-'):
@@ -123,7 +126,19 @@ def tracker_args(argv, project, database, config):
     if not (create or read or association):
         raise ValueError(f'unsupported first-pair command: {words[:2]}')
     operation = 'create' if create else 'associate' if association else 'read'
-    return [*forwarded, '--config', str(config), '--db', str(database)], operation
+    target = None
+    if create:
+        # Shark accepts a combined feature, split epic/feature, or parent flags.
+        parents = [part.upper() for part in words[2:-1]]
+        epic = parents[0] if parents else parent_flags.get('--epic', '')
+        feature = parents[1] if len(parents) == 2 else parent_flags.get('--feature', '')
+        if len(parents) == 1 and '-' in epic:
+            target = epic
+        elif '-' in feature:
+            target = feature
+        elif epic and feature:
+            target = f'{epic}-{feature}'
+    return [*forwarded, '--config', str(config), '--db', str(database)], operation, target
 
 
 def tracker(case, manifest, binding, argv, log, event):
@@ -135,7 +150,7 @@ def tracker(case, manifest, binding, argv, log, event):
     stat = database.stat()
     if database.parent != project or [stat.st_dev, stat.st_ino] != binding['db_inode']:
         raise ValueError('database no longer matches prepared case')
-    args, operation = tracker_args(argv, project, database, config)
+    args, operation, _ = tracker_args(argv, project, database, config)
     if not manifest['packet']:
         raise ValueError('missing retained packet')
     for name, expected in manifest['packet']['files'].items():
@@ -150,6 +165,8 @@ def tracker(case, manifest, binding, argv, log, event):
         raise ValueError('verified review intake required before forwarding')
     for relative in HANDOFF - {WORKFLOW}:
         pinned(case, relative, manifest)
+    if operation == 'create' and binding.get('create_refusal'):
+        raise ValueError(binding['create_refusal'])
     append(log, dict(event, event='forward', database=str(database), operation=operation))
     try:
         result = subprocess.run([binary, *args], cwd=project, capture_output=True)

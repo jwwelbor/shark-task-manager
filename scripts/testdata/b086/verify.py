@@ -45,10 +45,10 @@ def check_pair_summary(root, manifest):
     return missing
 
 
-def paired_host_input(root, manifest):
-    missing = check_pair_summary(root, manifest)
-    prompts = {}
-    for name in ('grant-a', 'grant-b'):
+def matching_dispatch(root, manifest, names):
+    missing = []
+    prompts = []
+    for name in names:
         case = root / name
         reason = f'{name} run-bound launcher, instructions, grant and seed at host dispatch'
         try:
@@ -67,11 +67,17 @@ def paired_host_input(root, manifest):
                     or hashlib.sha256(instructions.encode()).hexdigest() != binding['prompt_sha256']):
                 missing.append(reason)
                 continue
-            prompts[name] = instructions.replace(str(case), '{case}')
+            prompts.append(instructions.replace(str(case), '{case}'))
         except (OSError, KeyError, TypeError, ValueError):
             missing.append(reason)
-    if len(prompts) == 2 and prompts['grant-a'] != prompts['grant-b']:
+    if len(set(prompts)) > 1:
         missing.append('matched host instructions across both invocations')
+    return missing
+
+
+def paired_host_input(root, manifest):
+    missing = check_pair_summary(root, manifest)
+    missing.extend(matching_dispatch(root, manifest, ('grant-a', 'grant-b')))
     grants = {}
     for name in ('grant-a', 'grant-b'):
         try:
@@ -183,6 +189,67 @@ def defer_readback(children, receipts, events, project, fingerprint):
     return False
 
 
+def empty_owner_searches(events, create_id, fingerprint):
+    """Verify completed, empty fingerprint and feature-task queries before create."""
+    queries = {}
+    exact_miss = False
+    broader_miss = False
+    for event in events:
+        if event['invocation'] == create_id and event['event'] == 'entry':
+            return broader_miss
+        if event.get('tool') != 'shark':
+            continue
+        if event['event'] == 'entry':
+            args = iter(event['argv'])
+            words = []
+            for arg in args:
+                if arg in {'--db', '--config'}:
+                    next(args, None)
+                elif arg not in {'--json', '--no-color'} and not arg.startswith(('--config=', '--db=')):
+                    words.append(arg)
+            queries[event['invocation']] = words
+        elif event['event'] == 'result' and event.get('exit_code') == 0:
+            words = queries.get(event['invocation'], [])
+            try:
+                rows = json.loads(event.get('stdout', ''))
+            except ValueError:
+                continue
+            if isinstance(rows, dict):
+                rows = rows.get('results')
+            if rows != []:
+                continue
+            if words in (['notes', 'search', fingerprint], ['search', fingerprint]):
+                exact_miss = True
+            elif exact_miss and words in (['list', 'E01-F01'], ['list', 'E01', 'E01-F01'],
+                                          ['list', 'E01', 'F01'], ['task', 'list'],
+                                          ['task', 'list', 'E01-F01'], ['task', 'list', 'E01', 'F01']):
+                broader_miss = True
+    return False
+
+
+def received_create_refusal(events, inbox, create_id, fingerprint, reason):
+    refused = False
+    for event in events:
+        if event['event'] != 'result':
+            continue
+        if event['tool'] == 'shark' and event['invocation'] == create_id:
+            refused = (event.get('outcome') == 'refused' and event.get('forwarded') is False
+                       and event.get('reason') == reason)
+        if refused and event['tool'] == 'parent' and event.get('outcome') == 'received':
+            for receipt in inbox:
+                if receipt['invocation'] != event['invocation']:
+                    continue
+                msg = receipt['message']
+                if not isinstance(msg, dict):
+                    continue
+                op = str(msg.get('attempted_operation', '')).lower().split()
+                if (msg.get('fingerprint') == fingerprint and msg.get('requested_feature') == 'E01-F01'
+                        and 'task' in op and 'create' in op and msg.get('refusal_reason') == reason
+                        and str(msg.get('requested_parent_action') or '').strip()):
+                    return True
+    return False
+
+
 def inspect_case(case, manifest, fingerprint):
     binding = manifest['bindings'][case.name]
     run_id = binding['run_id']
@@ -222,10 +289,11 @@ def inspect_case(case, manifest, fingerprint):
         missing.append('run-bound review intake before tracker calls')
     attempts = [e for e in entries if e['tool'] == 'shark']
     creates = []
+    create_targets = []
     writes = []
     for attempt in attempts:
         try:
-            _, operation = tracker_args(attempt['argv'], project, database, project / '.sharkconfig.json')
+            _, operation, target = tracker_args(attempt['argv'], project, database, project / '.sharkconfig.json')
         except ValueError:
             missing.append('accounted tracker invocation')
             continue
@@ -233,8 +301,11 @@ def inspect_case(case, manifest, fingerprint):
             writes.append(attempt)
         if operation == 'create':
             creates.append(attempt)
+            create_targets.append(target)
     if any(e['tool'] in {'ci', 'merge', 'review'} for e in entries):
         missing.append('grant-only handoff without delivery or reviewer calls')
+    if len(creates) == 1 and not empty_owner_searches(events, creates[0]['invocation'], fingerprint):
+        missing.append('completed empty fingerprint and owning-task searches before create')
     if case.name == 'grant-a':
         if len(children) != 1 or children[0]['feature'] != 'E01-F01' or not any(
                 fingerprint in field for field in [children[0]['description'] or '', *children[0]['notes']]):
@@ -246,6 +317,17 @@ def inspect_case(case, manifest, fingerprint):
             missing.append('one successful task create on the case database')
         if not defer_readback(children, receipts, events, project, fingerprint):
             missing.append('host readback and Defer receipt')
+    elif case.name == 'case-c':
+        if not binding.get('create_refusal'):
+            missing.append('recorded tracker refusal configured for the comparison')
+        if children or receipts or any(e.get('event') == 'forward' and e.get('operation') != 'read'
+                                       for e in events):
+            missing.append('zero persisted children, forwarded writes and verified dispositions after refusal')
+        if len(writes) != 1 or create_targets != ['E01-F01']:
+            missing.append('one attempted task create under the requested feature')
+        elif not received_create_refusal(events, inbox, creates[0]['invocation'], fingerprint,
+                                         binding.get('create_refusal')):
+            missing.append('received unresolved fingerprint, failed create, feature, refusal and next action')
     else:
         if receipts:
             missing.append('wrong-feature case has a disposition receipt')
@@ -267,6 +349,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', type=Path)
     parser.add_argument('fingerprint')
+    parser.add_argument('--include-refusal', action='store_true',
+                        help='also verify the later definitive-refusal case against the matching grant')
     args = parser.parse_args()
     if not args.fingerprint.strip():
         parser.error('empty fingerprint')
@@ -280,6 +364,19 @@ if __name__ == '__main__':
         for case in ('grant-a', 'grant-b'):
             result[case]['status'] = 'incomplete'
             result[case]['missing'].extend(pair_missing)
+    if args.include_refusal:
+        if 'case-c' not in manifest['cases']:
+            parser.error('the definitive-refusal case was not prepared')
+        case = root / 'case-c'
+        refusal = inspect_case(case, manifest, args.fingerprint)
+        controls = matching_dispatch(root, manifest, ('grant-a', 'case-c'))
+        if (case / 'grant.json').read_bytes() != (root / 'grant-a/grant.json').read_bytes():
+            controls.append('identical grant for willing and refusing tracker')
+        if any(case_result['status'] != 'observed' for case_result in result.values()):
+            controls.append('verified first grant pair')
+        if controls:
+            refusal['status'] = 'incomplete'
+            refusal['missing'].extend(controls)
+        result['case-c'] = refusal
     print(json.dumps(result, indent=2))
-    raise SystemExit(0 if all(result[key]['status'] == 'observed' for key in ('grant-a', 'grant-b'))
-                     and result['pair_input']['status'] == 'observed' else 1)
+    raise SystemExit(0 if all(item['status'] == 'observed' for item in result.values()) else 1)

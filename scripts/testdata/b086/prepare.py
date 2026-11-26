@@ -62,7 +62,7 @@ def seed_project(source, staging, binary_digest):
     return scratch
 
 
-def prepare(root, finish, retained=None, synthetic=False):
+def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=False):
     from host import prompt
 
     root = root.resolve(strict=True)
@@ -100,7 +100,10 @@ def prepare(root, finish, retained=None, synthetic=False):
         shutil.copy2(finish / 'SKILL.md', catalog / 'finish-feature/SKILL.md')
         cases = []
         bindings = {}
-        for case_name, grant in [('grant-a', 'E01-F01'), ('grant-b', 'E01-F02')]:
+        grants = [('grant-a', 'E01-F01'), ('grant-b', 'E01-F02')]
+        if with_refusal_control:
+            grants.append(('case-c', 'E01-F01'))
+        for case_name, grant in grants:
             case = root / case_name
             case.mkdir()
             shutil.copytree(seed, case / 'project')
@@ -132,6 +135,8 @@ def prepare(root, finish, retained=None, synthetic=False):
                 'prompt_sha256': hashlib.sha256(prompt(case).encode()).hexdigest(),
                 'grant_sha256': digest(case / 'grant.json'),
             }
+            if case_name == 'case-c':
+                bindings[case_name]['create_refusal'] = 'Tracker refused child creation under E01-F01'
             cases.append(case_name)
         files = {'project/shark': digest(seed / 'shark'),
                  'libexec/shark': binary_digest,
@@ -164,5 +169,7 @@ if __name__ == '__main__':
     input_group.add_argument('--synthetic', action='store_true')
     input_group.add_argument('--retained', nargs=4, metavar=('REPORT', 'SHA256', 'REPOSITORY', 'COMMIT'),
                              help='stage the original report and sidecars in each case after verification')
+    parser.add_argument('--with-refusal-control', action='store_true',
+                        help='stage a third case from the matching grant for the subsequent refusal replay')
     args = parser.parse_args()
-    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic))
+    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic, args.with_refusal_control))
