@@ -96,6 +96,11 @@ through `read` or the embedded-workflow call, in any order: the private
 `shark-rider/skills/deep-review/references/consolidator.md` (all under
 `project/.agents/skills/`) and the embedded quality workflow `review-code.md`.
 
+The case tracker holds only the seeded epic and features. The applied review
+history that intake validates lives in the review project named by its `project`
+field, so the case tracker cannot show it; take the run identity from the intake
+output.
+
 Use only these recorder endpoints for policy reads, intake, tracker calls,
 parent escalation, and disposition receipts. For policy reads, use the exact
 private-loader paths under `project/.agents/skills/`; do not read the shared
