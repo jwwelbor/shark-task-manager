@@ -87,6 +87,9 @@ Available recorder calls:
   the receiving endpoint.
 - `ci`, `review`, and `merge` are disabled recording endpoints.
 
+Run `intake` first as a single call and wait for its output before issuing any
+other recorder call; the recorder refuses tracker calls that overlap it.
+
 Use only these recorder endpoints for policy reads, intake, tracker calls,
 parent escalation, and disposition receipts. For policy reads, use the exact
 private-loader paths under `project/.agents/skills/`; do not read the shared
