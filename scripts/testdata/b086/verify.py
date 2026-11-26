@@ -171,6 +171,8 @@ def defer_readback(children, receipts, events, project, fingerprint, assume_crea
     decision = receipt['message']
     if not isinstance(decision, dict):
         return False
+    if isinstance(decision.get('owner'), dict):  # an owner block is the same observed readback
+        decision = {**decision, **decision['owner']}
     disposition = decision.get('disposition', decision.get('decision'))
     if disposition != 'Defer' or any(decision.get(field) != expected for field, expected in {
         'fingerprint': fingerprint, 'key': child['key'], 'type': 'task',
@@ -455,7 +457,9 @@ def inspect_case(case, manifest, fingerprint):
         if operation == 'create':
             creates.append(attempt)
             create_targets.append(target)
-    if any(e['tool'] in {'ci', 'merge', 'review'} for e in entries):
+    ci = [e for e in entries if e['tool'] == 'ci']
+    if any(e['tool'] in {'merge', 'review'} for e in entries) or (
+            ci and not binding.get('delivery_ci')):
         missing.append('grant-only handoff without delivery or reviewer calls')
     if len(creates) == 1 and not empty_owner_searches(events, creates[0]['invocation'], fingerprint):
         missing.append('completed empty fingerprint and owning-task searches before create')
@@ -471,7 +475,7 @@ def inspect_case(case, manifest, fingerprint):
     elif scenario == 'lost-response-resume':
         missing.extend(resumed_phase_checks(case, binding, entries, results, writes, creates, children,
                                             receipts, events, project, fingerprint))
-    elif case.name == 'grant-a' or scenario == 'wrong-db-control':
+    elif case.name == 'grant-a' or scenario in ('wrong-db-control', 'delivery-defer'):
         if scenario == 'wrong-db-control':
             injected = [e for e in entries if e.get('injected')]
             if len(injected) != 1 or injected[0] not in creates or injected[0].get('injected_db') != str(database):
@@ -488,7 +492,7 @@ def inspect_case(case, manifest, fingerprint):
         if not defer_readback(children, receipts, events, project, fingerprint,
                               review_project=review_project(case)):
             missing.append('host readback and Defer receipt')
-    elif case.name == 'case-c' or scenario == 'wrong-db':
+    elif case.name == 'case-c' or scenario in ('wrong-db', 'delivery-refused'):
         refusal = binding.get('create_refusal')
         if scenario == 'wrong-db':
             destination = binding['outside_store']['path']
@@ -520,6 +524,15 @@ def inspect_case(case, manifest, fingerprint):
                    and str(r['message'].get('requested_parent_action') or '').strip()
                    for r in inbox):
             missing.append('received wrong-feature escalation')
+    if binding.get('delivery_ci'):
+        order = [(e['event'], e['tool'], e.get('outcome')) for e in events if e['event'] == 'result']
+        admitted = ('result', 'disposition', 'received') in order
+        handoffs = [i for i, item in enumerate(order) if item == ('result', 'ci', 'recorded')]
+        if scenario == 'delivery-defer':
+            if not (len(handoffs) == 1 and admitted and handoffs[0] > order.index(('result', 'disposition', 'received'))):
+                missing.append('exactly one CI handoff, after the verified Defer receipt')
+        elif ci:
+            missing.append('zero CI handoffs while the finding is unresolved')
     return {'run_id': run_id, 'scope': 'tracker and parent observations only', 'children': children,
             'status': 'incomplete' if missing else 'observed', 'missing': missing}
 

@@ -122,6 +122,13 @@ identify the fingerprint, requested feature, missing permission (if any) and req
 parent action. For a failed tracker operation, include the attempted_operation and
 the tracker’s refusal_reason along with the requested_parent_action.
 Return a concise account of what you decided and the recorder calls you made."""
+    if (case / 'delivery.json').exists():
+        text += f"""
+
+Delivery: after reconciling the finding, apply the finish-feature Phase 1 gate. The
+`ci` recorder endpoint records a CI handoff and is the next eligible gate only when
+that gate admits delivery; call it at most once, and only then. `merge` and `review`
+stay disabled. Context: `{case}/delivery.json`."""
     if (case / 'resume.json').exists():
         text += f"""
 

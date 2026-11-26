@@ -262,6 +262,10 @@ def run(case, tool, argv):
             append(log, dict(event, event='result', outcome='received'))
         elif tool == 'shark':
             return tracker(case, manifest, binding, effective, log, event)
+        elif tool == 'ci' and binding.get('delivery_ci'):
+            append(observations / 'delivery.jsonl', dict(event, argv=argv))
+            append(log, dict(event, event='result', outcome='recorded'))
+            print('ci handoff recorded')
         elif tool in {'ci', 'merge', 'review'}:
             raise ValueError('recording endpoint: external execution disabled for grant pair')
         else:

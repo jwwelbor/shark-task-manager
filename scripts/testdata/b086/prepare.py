@@ -78,7 +78,7 @@ def seed_project(source, staging, binary_digest):
     return scratch
 
 
-SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response'}
+SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'}
 
 
 def copy_store(source, destination):
@@ -160,6 +160,9 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                 },
             }
             (case / 'grant.json').write_text(json.dumps(dispatch, indent=2) + '\n')
+            if extra.get(case_name, '').startswith('delivery-'):
+                (case / 'delivery.json').write_text(json.dumps(
+                    {'endpoints': {'ci': 'recording', 'merge': 'disabled', 'review': 'disabled'}}) + '\n')
             if intake:
                 (case / 'history.json').write_text(json.dumps(intake['history']))
             if packet_files:
@@ -179,6 +182,10 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                     outside = copy_store(case / 'project/shark-tasks.db', root / (case_name + '-outside/shark-tasks.db'))
                     bindings[case_name]['outside_store'] = outside
                     bindings[case_name]['inject_db'] = outside['path'] if kind == 'wrong-db' else 'case'
+                elif kind.startswith('delivery-'):
+                    bindings[case_name]['delivery_ci'] = True
+                    if kind == 'delivery-refused':
+                        bindings[case_name]['create_refusal'] = 'Tracker refused child creation under E01-F01'
                 elif kind == 'lost-response':
                     bindings[case_name]['fault'] = 'lost-response'
             if case_name == 'case-c':
