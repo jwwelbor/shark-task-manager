@@ -156,16 +156,19 @@ const body = src.slice(src.indexOf('// ─── Args'));
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', body);
 let calls = 0;
+const trace = [];
 const mode = process.argv[2];
 const angle = {review_contract_version:2, candidate_identity:{commit:'abc',tree:'tree',diff_sha256:'hash',repair_plan_sha256:'a'.repeat(64)}, findings: [], reviewed_files: ['file']};
-const parallel = async funcs => mode === 'context' ? Promise.all(funcs.map(f => f())) : mode === 'missing' ? [angle, angle, null, angle, angle, angle] :
+const parallel = async funcs => mode.startsWith('context') ? Promise.all(funcs.map(f => f())) : mode === 'missing' ? [angle, angle, null, angle, angle, angle] :
   mode === 'malformed' ? [angle, angle, {}, angle, angle, angle] :
   mode === 'empty' ? [angle, angle, {...angle, reviewed_files: []}, angle, angle, angle] :
   mode === 'identity' ? [angle, angle, {...angle, candidate_identity: {...angle.candidate_identity, tree:'wrong'}}, angle, angle, angle] :
   ['blocker','open','refuted','fail_missing','fail_open'].includes(mode) ? [{...angle, findings:[{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', impact:'wrong total delivered', evidence:'adding 7 and 3 returned 7'}]}, angle, angle, angle, angle, angle] : Array(6).fill(angle);
 const agent = async (prompt, options) => {
   calls++;
-  if (mode === 'context' && options.label !== 'consolidator') {
+  trace.push([options.label, options.effort ?? null]);
+  if (mode === 'context_invalid' && options.label.startsWith('B:')) return {};
+  if (mode.startsWith('context') && options.label !== 'consolidator') {
     if (!prompt.includes('plan-id') || !prompt.includes('research-id') || !prompt.includes('CANDIDATE_TREE: tree')) throw Error('missing context');
     return angle;
   }
@@ -175,9 +178,25 @@ const agent = async (prompt, options) => {
   const findings = mode.startsWith('detail_') ? [{finding_id:mode === 'detail_unrelated' ? 'F-2' : 'F-1', file:'file', line:1, severity:'non-blocker', rule:'RISK', summary:'validation issue', diagnosis:'missing input check', impact:'invalid input accepted', evidence:'empty input returned success', disposition:mode === 'detail_case' ? 'Triage' : 'triage', reason:'tracked'}, ...(mode === 'detail_multi' ? [{finding_id:'F-2', file:'file', line:2, severity:'non-blocker', rule:'LOGGING', summary:'no diagnostic', diagnosis:'no log on denial', impact:'operator cannot identify the denied input', evidence:'empty log after denial', disposition:'triage', reason:'tracked'}] : [])] : ['open','refuted','fail_open'].includes(mode) ? [{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', impact:'wrong total delivered', evidence:'adding 7 and 3 returned 7', disposition:mode === 'fail_open' ? 'open' : mode, reason:'evidence'}] : [];
   return {report, decisions:{review_contract_version:2, candidate_identity:angle.candidate_identity, findings}};
 };
-run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'research-id', coverage:'coverage-id', prior_findings:[]}, changed_files:['file']}, () => {}, parallel, agent, () => {})
-  .then(report => process.stdout.write(JSON.stringify({report, calls}))).catch(e => { console.error(e); process.exit(1); });
+run({effort: mode === 'context_max' ? 'max' : undefined, diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'research-id', coverage:'coverage-id', prior_findings:[]}, changed_files:['file']}, () => {}, parallel, agent, () => {})
+  .then(report => process.stdout.write(JSON.stringify({report, calls, trace}))).catch(e => { console.error(e); process.exit(1); });
 '''
+        for mode, effort in [('context', None), ('context_max', 'max'), ('context_invalid', None)]:
+            with self.subTest(native_handoff=mode):
+                proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode],
+                                      capture_output=True, text=True, check=True)
+                result = json.loads(proc.stdout)
+                trace = result['trace']
+                self.assertEqual([label.split(':')[0] for label, _ in trace[:6]], list('ABCDEF'))
+                self.assertEqual([value for _, value in trace], [effort] * len(trace))
+                if mode == 'context_invalid':
+                    self.assertEqual(len(trace), 6)
+                    self.assertEqual(result['report']['runner_mode'], 'incomplete')
+                    self.assertEqual(result['report']['specialists_completed'], 5)
+                    self.assertFalse(result['report']['consolidator_completed'])
+                else:
+                    self.assertEqual(trace[6:], [['consolidator', effort]])
+                    self.assertEqual(result['report']['runner_mode'], 'canonical-six-angle')
         fixtures = json.loads((SCRIPT.parent / 'testdata' / 'report_bodies.json').read_text())
         for fixture in fixtures:
             with self.subTest(report_fixture=fixture['name']):

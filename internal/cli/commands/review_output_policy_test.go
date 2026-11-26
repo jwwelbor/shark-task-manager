@@ -285,3 +285,28 @@ func TestCraftFindingRuleSetAndReferencedReportSkeleton(t *testing.T) {
 	require.NoError(t, err)
 	checkRules(t, string(caller))
 }
+
+// B086: both sources and every rendered review must direct a host with an
+// unresolved finding back to its parent, including when there is no feature.
+func TestUnattendedReviewDispositionHandoff(t *testing.T) {
+	root := findRepoRootForInteractionTest(t)
+	paths := []string{
+		"internal/sharkdata/default_data/skills/quality/workflows/review-code.md",
+		"internal/sharkdata/default_data/agents/tech-lead.md",
+		"skills/shark-rider/skills/deep-review/SKILL.md",
+		"skills/shark-rider/skills/deep-review/references/consolidator.md",
+	}
+	for _, entity := range []string{"_shared", "feature", "change", "bug"} {
+		paths = append(paths, filepath.Join("internal/cli/commands/testdata/rendered-prompts", entity, "code_review.golden"))
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join(root, path))
+			require.NoError(t, err)
+			content := string(body)
+			require.NotContains(t, content, "falls back to a feature-level note")
+			require.Contains(t, content, "unattended review disposition")
+			require.Contains(t, content, "parent")
+		})
+	}
+}

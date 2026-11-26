@@ -1,0 +1,33 @@
+{
+  "run_id": "B086-code-review-20261125",
+  "entity_key": "B086",
+  "entity_type": "bug",
+  "gate": "code_review",
+  "claim_session_id": "sess-f72bc162626d28b343b0eecb",
+  "route_status": "verified",
+  "requested_provider": "anthropic",
+  "requested_model": "opus",
+  "selected_provider": "openai",
+  "selected_model": "gpt-6.2-astra",
+  "host_worker_class": "codex-cli",
+  "effort": null,
+  "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+  "worker_id": "01a21518-cf83-7911-85a2-4ad716dfdad7",
+  "host_session_id": "01a21518-cf83-7911-85a2-4ad716dfdad7",
+  "effective_provider": "openai",
+  "effective_model": "gpt-6.2-astra",
+  "cli_version": "0.172.0",
+  "worker_completed": true,
+  "prompt_sha256": "f013b6ae4d8b3b3969473ce5194d08962465f7eb00cdb41ff6e9b5df329b0256",
+  "prompt_bytes": 95673,
+  "evidence_ref": {
+    "rollout": "/home/jwwel/.codex/sessions/2026/11/25/rollout-2026-11-25T17-44-37-01a21518-cf83-7911-85a2-4ad716dfdad7.jsonl",
+    "codex_config_read": {
+      "cwd": "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage",
+      "model": "gpt-6.2-astra",
+      "provider_field": null
+    },
+    "mapping": "skills/shark-rider/verbs/run.md#B077-default-bug-anthropic-codex-v1",
+    "cli_selector": "codex exec --model gpt-6.2-astra"
+  }
+}

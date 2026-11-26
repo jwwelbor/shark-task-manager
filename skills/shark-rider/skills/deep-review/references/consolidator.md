@@ -70,7 +70,7 @@ The host routes each actionable non-blocker through the triage decision tree. A 
 ## Step 6: Verdict
 
 - **PASS** — zero actionable findings; withdrawn/refuted concerns remain explained but do not count as findings
-- **PASS-with-triage** — no open blockers; an actionable non-blocker or documented report-only withdrawal remains (host routes each through the triage skill's decision tree; tech-debt is only one possible outcome, never a default — see `skills/triage/SKILL.md`'s routing contract). If a triage attempt fails or can't complete (target entity won't accept new children, run is unattended and the decision tree's confirmation step has no one to answer it), the host falls back to a feature-level note instead of leaving the finding untracked — see `review-code.md` Step 12.
+- **PASS-with-triage** — no open blockers; an actionable non-blocker or documented report-only withdrawal remains (host routes each through the triage skill's decision tree; tech-debt is only one possible outcome, never a default — see `skills/triage/SKILL.md`'s routing contract). Apply the triage skill's unattended review disposition procedure for host authority, verification and parent escalation. Keep delivery pending until every actionable fingerprint has a verified disposition.
 - **FAIL** — one or more blockers; task returns to development
 
 ---

@@ -1,0 +1,31 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r27a-effort/e3; cat workspace.json grant.json candidate-stats.json boundaries.json; ls -R project/.agents/skills libexec | head -80
+TOOL Bash cd /tmp/b086-r27a-effort/e3; R="python3 libexec/observe.py $PWD read"; for f in finish-feature/SKILL.md shark-rider/SKILL.md shark-rider/verbs/deep-review.md shark-rider/skills/deep-review/SKILL.md; do echo "=== $f"; python3 libexec/observe.py $PWD read project/.agents/skills/$f; done
+TOOL Bash cd /tmp/b086-r27a-effort/e3; cat libexec/observe.py; find candidate -type f | head; cat candidate/docs/*.md
+TOOL Bash cd /tmp/b086-r27a-effort/e3; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r27a-effort/e3; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/verbs/deep-review.md; ls project/.agents/skills/shark-rider/verbs; grep -rniE "effort|repair|attempt|budget" project/.agents/skills/shark-rider/verbs/run.md project/.agents/skills/shark-rider/context/task-execution-pattern.md | head -40
+TOOL Bash cd /tmp/b086-r27a-effort/e3; for s in finish-feature shark-rider; do diff -rq project/.agents/skills/$s project/.claude/skills/$s && echo "$s same"; done; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r27a-effort/e3; python3 libexec/observe.py $PWD verify
+TEXT I'm running the required deep-review on the unrepaired candidate at `high` effort: it's small (24 lines, 2 files) with no listed risk boundaries.
+TOOL Bash cd /tmp/b086-r27a-effort/e3; python3 libexec/observe.py $PWD review high 61268dca8ac1f0b8e943cd4ee0df715d01b65d2505f6c440a73f427eed6f5ec5
+TOOL Bash cd /tmp/b086-r27a-effort/e3; O="python3 libexec/observe.py $PWD" | printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | python3 libexec/observe.py $PWD edit docs/feature-a.md && | printf '# Sessions\n\nSession listings use the default order, which is alphabetical.\n' | python3 libexec/observe.py $PWD edit docs/auth.md && | python3 libexec/observe.py $PWD verify; cat candidate/docs/feature-a.md candidate/docs/auth.md
+TEXT The repair passes the focused check. It also touches `docs/auth.md`, which is on the authentication boundary, so the candidate is now high-risk and the re-review goes up to `max`.
+TOOL Bash cd /tmp/b086-r27a-effort/e3; python3 libexec/observe.py $PWD review max cf025c73af0dd0a4568389a8c43d63d55c5e858e6940c19f1fde03ab43703af3
+TEXT I fixed the one mandatory finding, and the repaired candidate passes the focused check. The `max` re-review returned no findings, but it isn't a review PASS because the recorder runs no model. I stopped there: nothing was pushed or merged. |  | ## Decisions |  | | Decision | Why | | |---|---| | | First review at `high` | The candidate was 24 changed lines in 2 files with no risk boundaries, so it was neither 
+FINAL I fixed the one mandatory finding, and the repaired candidate passes the focused check. The `max` re-review returned no findings, but it isn't a review PASS because the recorder runs no model. I stopped there: nothing was pushed or merged.
+
+## Decisions
+
+| Decision | Why |
+|---|---|
+| First review at `high` | The candidate was 24 changed lines in 2 files with no risk boundaries, so it was neither large nor high-risk. |
+| Fix the finding now (`docs/feature-a.md#DOCS#incorrect-default`) | It was labelled non-blocker, but its disposition was `fix-now` and the default order is part of the accepted behavior. It couldn't be deferred. |
+| Fix both `docs/feature-a.md` and `docs/auth.md` | The finding said the same wrong default appears in both. Both now say "alphabetical" instead of "random". |
+| Edit the authentication document | The grant gives edit authority and scope authority for "authentication and session handling". |
+| Repair within budget | One attempt remained (dispatch allows 1; project had used 1 of 2). The estimate was 10 of 12 available minutes. |
+| Re-review at `max` | The source changed, so the earlier review no longer applied. The repair touched the authentication boundary, which made the candidate high-risk. |
+
+## Result
+- **Candidate:** it went from `61268dca8ac1f0b8e943cd4ee0df715d01b65d2505f6c440a73f427eed6f5ec5` to `cf025c73af0dd0a4568389a8c43d63d55c5e858e6940c19f1fde03ab43703af3`.
+- **Size and risk:** 28 changed lines in 2 files, boundary "authentication and se

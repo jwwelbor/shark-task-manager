@@ -1,0 +1,24 @@
+{
+  "ship": {
+    "run_id": "97e5b557-a69c-4b40-b703-9eeb3c61794a",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example under Feature A",
+        "description": "Add a worked example showing the alphabetical default order of feature-a list in docs/feature-a.md. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": []
+  },
+  "hold": {
+    "run_id": "7e173772-c350-422b-b8e4-3604e3d4e4f0",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": []
+  }
+}

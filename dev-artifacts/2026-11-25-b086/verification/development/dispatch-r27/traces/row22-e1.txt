@@ -1,0 +1,31 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r27a-effort/e1; cat workspace.json grant.json candidate-stats.json boundaries.json; cat libexec/observe.py; ls -R project/.agents/skills | head -80
+TOOL Bash cd /tmp/b086-r27a-effort/e1; R="python3 libexec/observe.py $PWD read"; for f in finish-feature/SKILL.md shark-rider/SKILL.md shark-rider/verbs/deep-review.md shark-rider/skills/deep-review/SKILL.md; do echo "=== $f"; python3 libexec/observe.py /tmp/b086-r27a-effort/e1 read project/.agents/skills/$f; done
+TOOL Bash cd /tmp/b086-r27a-effort/e1; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/verbs/deep-review.md
+TOOL Bash cd /tmp/b086-r27a-effort/e1; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r27a-effort/e1; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r27a-effort/e1; python3 libexec/observe.py $PWD verify; echo "exit $?"; ls -laR candidate
+TOOL Bash cd /tmp/b086-r27a-effort/e1; head -n 50 candidate/docs/*.md; python3 libexec/observe.py $PWD review high 61268dca8ac1f0b8e943cd4ee0df715d01b65d2505f6c440a73f427eed6f5ec5
+TEXT I'm applying the review's one required fix (the wrong default order, in both docs), then verifying and re-reviewing.
+TOOL Bash cd /tmp/b086-r27a-effort/e1; O="libexec/observe.py"; C=/tmp/b086-r27a-effort/e1 | printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | python3 $O $C edit docs/feature-a.md && | printf '# Sessions\n\nSession listings use the default order, which is alphabetical.\n' | python3 $O $C edit docs/auth.md && | python3 $O $C verify; echo "exit $?"; head -n 50 candidate/docs/*.md
+TOOL Bash cd /tmp/b086-r27a-effort/e1; python3 libexec/observe.py $PWD review high cf025c73af0dd0a4568389a8c43d63d55c5e858e6940c19f1fde03ab43703af3; echo "exit $?"
+TEXT I repaired the review finding, and the focused check now passes. The candidate is **not cleared for merge**: the recorder runs no review model, so I have no evidence of a completed review. |  | **Resulting candidate:** `cf025c73af0dd0a4568389a8c43d63d55c5e858e6940c19f1fde03ab43703af3` (28 changed lines, 2 files, no risk boundaries) |  | ## Decisions | - **Review effort:** I used `high` both times. The candi
+FINAL I repaired the review finding, and the focused check now passes. The candidate is **not cleared for merge**: the recorder runs no review model, so I have no evidence of a completed review.
+
+**Resulting candidate:** `cf025c73af0dd0a4568389a8c43d63d55c5e858e6940c19f1fde03ab43703af3` (28 changed lines, 2 files, no risk boundaries)
+
+## Decisions
+- **Review effort:** I used `high` both times. The candidate started at 24 lines in 2 files and ended at 28, with no risk boundaries, so `max` wasn't warranted.
+- **The finding:** `docs/feature-a.md#DOCS#incorrect-default` was labelled non-blocker but dispositioned `fix-now`. The plan requires alphabetical order, so I treated it as mandatory. The focused check also failed on the original candidate for this reason.
+- **Authority and budget:** the grant gives edit authority. One repair attempt remained, and the estimated 10 minutes fit within the 12 available. That attempt is now used.
+- **Repair:** I changed "random" to "alphabetical" in `docs/feature-a.md` and in `docs/auth.md`, where the finding says the same error is repeated.
+- **Scope of `auth.md`:** the boundary listing is empty, and the grant names no separate owner restriction. I inferred that `auth.md` is one of the candidate's two changed files; I had no diff against a base to confirm it.
+
+## Recorder calls, in order
+All used `observe.py /tmp/b086-r27a-effort/e1`.
+
+| # | Call | Result |
+|---|---|---|
+| 1 | `read project/.agents/skills/finish-feature/SKILL.md` | Loaded |
+| 2 | `re
