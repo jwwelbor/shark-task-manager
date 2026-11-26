@@ -42,7 +42,7 @@ This workflow does **craft review** only. It does NOT re-verify what other phase
 | SOLID and architectural compliance | Acceptance criteria verification |
 | Standards crosswalk (with citations) | Runtime wiring / call-site verification |
 | Idiomatic language patterns | Frontend visual verification |
-| Complexity, size, hotspots | Test execution (running pytest, lint, type-check) |
+| Complexity, size, hotspots | Test execution (running the project's test suite, linter, or type-checker) |
 | Reuse search across codebase | E2E reachability |
 | Tests **design** review (coverage, boundaries, missing cases) | Codex red-team for spec fidelity |
 

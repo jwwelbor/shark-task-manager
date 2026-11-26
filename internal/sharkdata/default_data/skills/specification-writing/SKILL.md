@@ -39,11 +39,11 @@ The canonical SDLC feature sequence is:
 feature.md (PRD)  →  wireframes.md  →  [prototype.md — optional]  →  architecture (02-…07-)  →  tasks  →  build
 ```
 
-- **Feature PRD** is produced by `write-feature-prd.md` in this skill (business-analyst). User stories live as a section inside this file.
+- **Feature PRD** is produced by `workflows/write-feature-prd.md` in this skill (business-analyst). User stories live as a section inside this file.
 - **Wireframes** and **prototype** are produced by the **`feature-design` skill** (ux-designer, with cx-designer reviewing). Invoked **after the PRD is approved** and **before architecture/tasks** so wireframes shape downstream design.
-- **Tasks** are produced by `write-task.md` (business-analyst). They MUST cite the wireframes (and prototype if present) by canonical path in their Design References sections — see `context/task-template.md`.
+- **Tasks** are produced by `workflows/write-task.md` (business-analyst). They MUST cite the wireframes (and prototype if present) by canonical path in their Design References sections — see `context/task-template.md`.
 
-If a feature touches frontend code and wireframes are missing, `write-task.md` will stop and recommend running the feature-design workflow first.
+If a feature touches frontend code and wireframes are missing, `workflows/write-task.md` will stop and recommend running the feature-design workflow first.
 
 ## Workflow Selection
 
@@ -67,12 +67,12 @@ Based on what the user needs, invoke the appropriate workflow:
 ### Plan-Gated Refinement (PLAN/ACT/CHECK pattern)
 **When**: Called automatically from refinement templates via PLAN GATE instruction.
 **Workflows** (in `workflows/plan/`):
-- `epic-ba-plan.md` — Epic BA document selection decision tree
-- `epic-tech-plan.md` — Epic tech document selection decision tree
-- `feature-ba-plan.md` — Feature BA document selection (tier-aware, epic-incremental)
-- `feature-tech-plan.md` — Feature tech document selection (contract-first)
-- `check-ba-docs.md` — Shared BA validator: depth rules, pass/fail logic
-- `check-tech-docs.md` — Shared tech validator: schema completeness, pass/fail logic
+- `workflows/plan/epic-ba-plan.md` — Epic BA document selection decision tree
+- `workflows/plan/epic-tech-plan.md` — Epic tech document selection decision tree
+- `workflows/plan/feature-ba-plan.md` — Feature BA document selection (tier-aware, epic-incremental)
+- `workflows/plan/feature-tech-plan.md` — Feature tech document selection (contract-first)
+- `workflows/plan/check-ba-docs.md` — Shared BA validator: depth rules, pass/fail logic
+- `workflows/plan/check-tech-docs.md` — Shared tech validator: schema completeness, pass/fail logic
 
 ### Epic Decomposition
 **When**: A refined epic must be broken into features.

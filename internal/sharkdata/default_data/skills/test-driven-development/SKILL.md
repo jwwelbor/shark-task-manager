@@ -1,526 +1,108 @@
 ---
 name: test-driven-development
 display_name: Test-Driven Development (TDD)
-description: Write the test first, watch it fail, write minimal code to pass (user) - when implementing any feature or bugfix, before writing implementation code
+description: Write the test first, watch it fail, write minimal code to pass — when implementing any feature, bugfix, or behavior change, before writing production code
 inputs:
   - change_description: string — what feature, bugfix, refactor, or behavior change is being implemented
   - target_paths: list of paths — source files where production code will be added or modified
   - test_paths: list of paths — test files where new tests will be added (may be created)
-  - test_runner_command: string — how to invoke the project's test runner scoped to a single file (e.g., "npm test path/to/test.test.ts", "pytest path/to/test_file.py")
+  - test_runner_command: string — project's test runner command scoped to a single test file or target
   - test_plan_path: absolute path to a pre-authored QA test plan with TC-NNN cases (optional — when present, test scenarios come from this plan)
   - feature_requirements_path: absolute path to a feature-level requirements/PRD document (optional — provides intent behind test plan cases)
   - acceptance_criteria: list of acceptance criteria text (optional — used as test scenario source when no test plan exists)
-  - has_repository_layer: bool — whether the codebase has a repository/data-access layer that should be mocked in service tests
+  - has_repository_layer: bool — whether the codebase has a repository/data-access layer documented in its test architecture
 outputs:
   - tests_added: list of {path, test_name, behavior_under_test} — every new test written test-first
   - red_evidence: list of {test_name, observed_failure_message} — proof each test was watched failing before implementation
   - production_code_changes: list of paths — source files modified to make tests pass
   - green_evidence: list of {test_name, status} — proof every test passes after implementation, with no regressions
   - refactor_notes: list of strings — any post-green cleanup performed (deduplication, renames, helper extraction)
-  - skipped_with_reason: list of {item, reason} — anything intentionally not test-driven, with explicit human-partner approval cited
+  - skipped_with_reason: list of {item, reason} — anything intentionally not test-driven, citing an authorized disposition
 ---
 
 # Test-Driven Development (TDD)
 
-## Overview
+## Overview & When to Use
 
-Write the test first. Watch it fail. Write minimal code to pass.
+Write the test first, watch it fail for the right reason, then write minimal code to pass. If you did not watch the test fail, you do not know whether it tests the right behavior.
 
-**Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
+- **Always apply to:** new features, bug fixes, behavior changes, and refactors.
+- **Exceptions (only with an explicit authorized disposition):** throwaway prototypes, generated code, or non-executable configuration/documentation.
+- **Unclear requirements or testability:** do not guess or skip TDD. Return `blocked` with the specific question about the missing requirement, contract, or testability constraint.
 
-**Test your logic, not the tools:** Databases, frameworks, and libraries are already tested. Once you've verified integration with a repository test, mock all database behavior. Test behavior and business logic, not data retrieval.
-
-**Violating the letter of the rules is violating the spirit of the rules.**
-
-## When to Use
-
-**Always:**
-- New features
-- Bug fixes
-- Refactoring
-- Behavior changes
-
-**Exceptions (ask your human partner):**
-- Throwaway prototypes
-- Generated code
-- Configuration files
-
-Thinking "skip TDD just this once"? Stop. That's rationalization.
-
-## The Iron Law
+## The Iron Law & Scope
 
 ```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
+NO NEW PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ```
 
-Write code before the test? Delete it. Start over.
-
-**No exceptions:**
-- Don't keep it as "reference"
-- Don't "adapt" it while writing tests
-- Don't look at it
-- Delete means delete
-
-Implement fresh from tests. Period.
-
-## Test Plan-Driven TDD (Shift-Left Integration)
-
-When a **QA-authored test plan** exists for your task (created during the `test_planning` phase), test scenarios come from the test plan and feature PRD — not from your own interpretation of the task spec.
-
-**How to check:** Look for a test plan in `docs/plan/$EPIC_ID/$FEATURE_ID/test_plans/` matching your task ID. The implementation skill's process flow will direct you to read it.
-
-**When a test plan exists:**
-
-1. **Read the test plan first** — it defines the acceptance test cases with concrete inputs and expected outputs
-2. **Read the parent feature PRD** — understand the feature-level intent behind the test cases
-3. **Write tests that validate the test plan scenarios** — translate each TC-NNN test case into automated tests
-4. **Follow Red-Green-Refactor** as normal — the cycle doesn't change, only the source of test scenarios does
-
-**What changes:**
-- Test scenarios come from the QA test plan, not your interpretation
-- Edge cases and negative cases are already specified
-- Expected outputs are concrete, not inferred
-- Each test traces to a feature PRD requirement (documented in the test case)
-
-**What stays the same:**
-- The Iron Law still applies — no production code without a failing test
-- Red-Green-Refactor cycle is unchanged
-- Minimal code to pass each test
-- Verify RED, then GREEN, then REFACTOR
-
-**Caller-Path Contract compliance (mandatory when the test plan declares contracts):**
-
-Each TC-NNN in the test plan carries a Caller-Path Contract — production entrypoint, lowest allowed mock seam, forbidden mocks, counter-factual (full definitions: `quality/context/caller-path-contracts.md`). The test you write for that TC MUST:
-
-1. **Call the declared entrypoint** with the declared production argument shape — same positional args, same omitted kwargs. Testing a deeper "kernel" function instead of the declared entrypoint does NOT satisfy the TC: the layer between the entrypoint and the kernel is exactly where wiring bugs live, and it is the layer independent red-team reviews keep catching after "all tests pass."
-2. **Mock no higher than the declared seam.** Mocking above the lowest-allowed seam short-circuits the production path the contract exists to exercise.
-3. **Never mock a forbidden seam.** Forbidden mocks are traps identified at test design; a test that mocks one is invalid even if it passes.
-4. **Name the TC-ID in the test** (test name or a comment) so reviewers can map each committed test back to its contract mechanically.
-
-Contracts marked `internal — function under test is the production entrypoint` are exempt. For everything else: a green test that violates its contract is a false positive — QA verifies contract compliance mechanically and FAILs the feature naming the TC, costing a full review round. Comply at red-phase, not at rework.
-
-**Why this matters:** Without this, you're self-grading — writing both the test scenarios and the code, validating your own interpretation of the spec. The QA test plan is an independent validation of what "correct" means, grounded in the feature PRD.
-
-**No test plan exists?** Follow standard TDD. Write tests from the task spec and acceptance criteria as usual.
-
----
-
-## Red-Green-Refactor
-
-```dot
-digraph tdd_cycle {
-    rankdir=LR;
-    red [label="RED\nWrite failing test", shape=box, style=filled, fillcolor="#ffcccc"];
-    verify_red [label="Verify fails\ncorrectly", shape=diamond];
-    green [label="GREEN\nMinimal code", shape=box, style=filled, fillcolor="#ccffcc"];
-    verify_green [label="Verify passes\nAll green", shape=diamond];
-    refactor [label="REFACTOR\nClean up", shape=box, style=filled, fillcolor="#ccccff"];
-    next [label="Next", shape=ellipse];
-
-    red -> verify_red;
-    verify_red -> green [label="yes"];
-    verify_red -> red [label="wrong\nfailure"];
-    green -> verify_green;
-    verify_green -> refactor [label="yes"];
-    verify_green -> green [label="no"];
-    refactor -> verify_green [label="stay\ngreen"];
-    verify_green -> next;
-    next -> red;
-}
-```
-
-### RED - Write Failing Test
-
-Write one minimal test showing what should happen.
-
-<Good>
-```typescript
-test('retries failed operations 3 times', async () => {
-  let attempts = 0;
-  const operation = () => {
-    attempts++;
-    if (attempts < 3) throw new Error('fail');
-    return 'success';
-  };
-
-  const result = await retryOperation(operation);
-
-  expect(result).toBe('success');
-  expect(attempts).toBe(3);
-});
-```
-Clear name, tests real behavior, one thing
-</Good>
-
-<Bad>
-```typescript
-test('retry works', async () => {
-  const mock = jest.fn()
-    .mockRejectedValueOnce(new Error())
-    .mockRejectedValueOnce(new Error())
-    .mockResolvedValueOnce('success');
-  await retryOperation(mock);
-  expect(mock).toHaveBeenCalledTimes(3);
-});
-```
-Vague name, tests mock not code
-</Bad>
-
-**Requirements:**
-- One behavior
-- Clear name
-- Real code (no mocks unless unavoidable)
-
-### Verify RED - Watch It Fail
-
-**MANDATORY. Never skip.**
-
-```bash
-npm test path/to/test.test.ts
-```
-
-Confirm:
-- Test fails (not errors)
-- Failure message is expected
-- Fails because feature missing (not typos)
-
-**Test passes?** You're testing existing behavior. Fix test.
-
-**Test errors?** Fix error, re-run until it fails correctly.
-
-### GREEN - Minimal Code
-
-Write simplest code to pass the test.
-
-<Good>
-```typescript
-async function retryOperation<T>(fn: () => Promise<T>): Promise<T> {
-  for (let i = 0; i < 3; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (i === 2) throw e;
-    }
-  }
-  throw new Error('unreachable');
-}
-```
-Just enough to pass
-</Good>
-
-<Bad>
-```typescript
-async function retryOperation<T>(
-  fn: () => Promise<T>,
-  options?: {
-    maxRetries?: number;
-    backoff?: 'linear' | 'exponential';
-    onRetry?: (attempt: number) => void;
-  }
-): Promise<T> {
-  // YAGNI
-}
-```
-Over-engineered
-</Bad>
-
-Don't add features, refactor other code, or "improve" beyond the test.
-
-### Verify GREEN - Watch It Pass
-
-**MANDATORY.**
-
-```bash
-npm test path/to/test.test.ts
-```
-
-Confirm:
-- Test passes
-- Other tests still pass
-- Output pristine (no errors, warnings)
-
-**Test fails?** Fix code, not test.
-
-**Other tests fail?** Fix now.
-
-### REFACTOR - Clean Up
-
-After green only:
-- Remove duplication
-- Improve names
-- Extract helpers
-
-Keep tests green. Don't add behavior.
-
-### Repeat
-
-Next failing test for next feature.
-
-## Good Tests
-
-| Quality | Good | Bad |
-|---------|------|-----|
-| **Minimal** | One thing. "and" in name? Split it. | `test('validates email and domain and whitespace')` |
-| **Clear** | Name describes behavior | `test('test1')` |
-| **Shows intent** | Demonstrates desired API | Obscures what code should do |
-| **Tests logic** | Tests YOUR behavior and business logic | Tests database queries, framework features |
-| **Fast** | Mocks repositories (except repo tests) | Connects to DB in every test |
-
-## Database and Repository Testing
-
-**THE GOLDEN RULE: Test your logic and behavior, not known working tools.**
-
-Databases are already tested by their vendors. Once you write repository tests that establish the database integration works, you're done testing the database. Every other test should mock the repository.
-
-**Critical distinction:**
-- **Repository tests** (few) → Test actual DB to verify integration works
-- **Service/business logic tests** (many) → Mock repositories, test YOUR logic
-
-Don't waste time testing data retrieval repeatedly. You're not testing the database's ability to store and retrieve data—that's Oracle/Postgres/MySQL's job and they've already done it. You're testing that YOUR code does the right thing with that data.
-
-<Good>
-```typescript
-// Service test - mock the repository
-test('getUserTasks returns active tasks', async () => {
-  const mockRepo = {
-    findByUserId: jest.fn().mockResolvedValue([
-      { id: 1, status: 'active' },
-      { id: 2, status: 'active' }
-    ])
-  };
+- **New code written in this session:** If you wrote new production code before a failing test existed, delete that new code and start over. Do not keep it as "reference" or adapt it while writing tests.
+- **Scope — new code only:** Existing or resumed code already in the working tree or branch is **not** deleted. Preserve it and prove it against tests that fail without it (revert-and-run, or a mutation).
 
-  const service = new TaskService(mockRepo);
-  const tasks = await service.getUserTasks(123);
+## Red-Green-Refactor Cycle
 
-  expect(tasks).toHaveLength(2);
-  expect(mockRepo.findByUserId).toHaveBeenCalledWith(123);
-});
-```
-Service tests mock repository—no DB needed
-</Good>
-
-<Bad>
-```typescript
-// Service test - connects to real DB
-test('getUserTasks returns active tasks', async () => {
-  const db = await setupTestDatabase();
-  await db.insert({ userId: 123, status: 'active' });
-
-  const service = new TaskService(new TaskRepository(db));
-  const tasks = await service.getUserTasks(123);
-
-  expect(tasks).toHaveLength(1);
-});
-```
-**WRONG:** Slow, brittle, tests database vendor's code not YOUR service logic.
-
-**Why this is wrong:**
-- Tests data retrieval (that's the DB's job, already tested by Oracle/Postgres/MySQL)
-- Slow (DB setup/teardown for every test)
-- Doesn't test YOUR business logic
-- Wastes time testing known working tools
-</Bad>
-
-<Good>
-```typescript
-// Repository test - connects to real DB
-test('TaskRepository.findByUserId queries correctly', async () => {
-  const db = await setupTestDatabase();
-  await db.insert({ userId: 123, status: 'active' });
-
-  const repo = new TaskRepository(db);
-  const tasks = await repo.findByUserId(123);
-
-  expect(tasks).toHaveLength(1);
-  expect(tasks[0].userId).toBe(123);
-});
-```
-Repository test validates DB interaction
-</Good>
-
-**Key principle:** Test your logic, not the database. Once repository tests establish the DB works, mock repositories in all other tests. Don't test data retrieval—that's not your code, that's the database vendor's code. Test YOUR business logic and behavior.
-
-## Why Order Matters
-
-**"I'll write tests after to verify it works"**
-
-Tests written after code pass immediately. Passing immediately proves nothing:
-- Might test wrong thing
-- Might test implementation, not behavior
-- Might miss edge cases you forgot
-- You never saw it catch the bug
-
-Test-first forces you to see the test fail, proving it actually tests something.
-
-**"I already manually tested all the edge cases"**
-
-Manual testing is ad-hoc. You think you tested everything but:
-- No record of what you tested
-- Can't re-run when code changes
-- Easy to forget cases under pressure
-- "It worked when I tried it" ≠ comprehensive
-
-Automated tests are systematic. They run the same way every time.
-
-**"Deleting X hours of work is wasteful"**
-
-Sunk cost fallacy. The time is already gone. Your choice now:
-- Delete and rewrite with TDD (X more hours, high confidence)
-- Keep it and add tests after (30 min, low confidence, likely bugs)
-
-The "waste" is keeping code you can't trust. Working code without real tests is technical debt.
-
-**"TDD is dogmatic, being pragmatic means adapting"**
-
-TDD IS pragmatic:
-- Finds bugs before commit (faster than debugging after)
-- Prevents regressions (tests catch breaks immediately)
-- Documents behavior (tests show how to use code)
-- Enables refactoring (change freely, tests catch breaks)
-
-"Pragmatic" shortcuts = debugging in production = slower.
-
-**"Tests after achieve the same goals - it's spirit not ritual"**
-
-No. Tests-after answer "What does this do?" Tests-first answer "What should this do?"
-
-Tests-after are biased by your implementation. You test what you built, not what's required. You verify remembered edge cases, not discovered ones.
-
-Tests-first force edge case discovery before implementing. Tests-after verify you remembered everything (you didn't).
-
-30 minutes of tests after ≠ TDD. You get coverage, lose proof tests work.
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
-| "I'll test after" | Tests passing immediately prove nothing. |
-| "Tests after achieve same goals" | Tests-after = "what does this do?" Tests-first = "what should this do?" |
-| "Already manually tested" | Ad-hoc ≠ systematic. No record, can't re-run. |
-| "Deleting X hours is wasteful" | Sunk cost fallacy. Keeping unverified code is technical debt. |
-| "Keep as reference, write tests first" | You'll adapt it. That's testing after. Delete means delete. |
-| "Need to explore first" | Fine. Throw away exploration, start with TDD. |
-| "Test hard = design unclear" | Listen to test. Hard to test = hard to use. |
-| "TDD will slow me down" | TDD faster than debugging. Pragmatic = test-first. |
-| "Manual test faster" | Manual doesn't prove edge cases. You'll re-test every change. |
-| "Existing code has no tests" | You're improving it. Add tests for existing code. |
-| "Need to test DB works" | Database vendor already tested it. Test YOUR logic, mock the repo. |
-| "Should test actual data retrieval" | Repository test does that once. Don't repeat. Test behavior not tools. |
-
-## Red Flags - STOP and Start Over
-
-- Code before test
-- Test after implementation
-- Test passes immediately
-- Can't explain why test failed
-- Tests added "later"
-- Rationalizing "just this once"
-- "I already manually tested it"
-- "Tests after achieve the same purpose"
-- "It's about spirit not ritual"
-- "Keep as reference" or "adapt existing code"
-- "Already spent X hours, deleting is wasteful"
-- "TDD is dogmatic, I'm being pragmatic"
-- "This is different because..."
-- **Testing database queries in service/business logic tests (mock the repo!)**
-- **Connecting to real DB outside of repository tests**
-
-**All of these mean: Delete code. Start over with TDD.**
-
-## Verification Checklist
-
-Before marking work complete:
-
-- [ ] Every new function/method has a test
-- [ ] Watched each test fail before implementing
-- [ ] Each test failed for expected reason (feature missing, not typo)
-- [ ] Wrote minimal code to pass each test
-- [ ] All tests pass
-- [ ] Output pristine (no errors, warnings)
-- [ ] Tests use real code (mocks only if unavoidable)
-- [ ] **Repository mocked in all service/business logic tests** (DB only in repo tests)
-- [ ] **Caller-Path Contracts honored** (when a test plan exists) — each TC-driven test names its TC-ID, calls the contract's entrypoint with the production argument shape, mocks no higher than the declared seam
-- [ ] Edge cases and errors covered
-
-Can't check all boxes? You skipped TDD. Start over.
-
-## When Stuck
-
-| Problem | Solution |
-|---------|----------|
-| Don't know how to test | Write wished-for API. Write assertion first. Ask your human partner. |
-| Test too complicated | Design too complicated. Simplify interface. |
-| Must mock everything | Code too coupled. Use dependency injection. |
-| Test setup huge | Extract helpers. Still complex? Simplify design. |
-| Tests are slow | Connecting to DB in service tests? Mock the repository instead. |
-| Need real DB for test | Is this a repository test? Use real DB. Service test? Mock repo. |
-
-## Debugging Integration
-
-Bug found? Never fix without a test. The test proves the fix and prevents regression.
-
-**For detailed workflow, see:** [references/debugging-workflow.md](references/debugging-workflow.md)
-
-### Quick Reference
-
-```
-1. CAPTURE: Document bug (what, steps, expected, actual)
-2. TEST: Write failing test that reproduces bug
-3. VERIFY RED: Run test, confirm correct failure
-4. FIX: Minimal code to pass test
-5. VERIFY GREEN: Run test, confirm pass + no regressions
-6. EXPAND: Check edge cases, add more tests if needed
-```
-
-### Example: Bug Fix with TDD
-
-**Bug:** Empty email accepted
-
-**RED**
-```typescript
-test('rejects empty email', async () => {
-  const result = await submitForm({ email: '' });
-  expect(result.error).toBe('Email required');
-});
-```
-
-**Verify RED**
-```bash
-$ npm test
-FAIL: expected 'Email required', got undefined
-```
-
-**GREEN**
-```typescript
-function submitForm(data: FormData) {
-  if (!data.email?.trim()) {
-    return { error: 'Email required' };
-  }
-  // ...
-}
-```
-
-**Verify GREEN**
-```bash
-$ npm test
-PASS
-```
-
-### Referencing from Other Skills
-
-Debugging skills can reference this workflow:
-
-```markdown
-When bug is identified, follow TDD debugging workflow:
-See: test-driven-development/references/debugging-workflow.md
-```
-
-## Final Rule
-
-```
-Production code → test exists and failed first
-Otherwise → not TDD
-```
-
-No exceptions without your human partner's permission.
+### 1. RED — Write Failing Test
+- Write one minimal test for one behavior with a clear name that states the desired outcome.
+- Exercise real code paths; introduce mocks only where required by the test plan or documented project boundaries.
+
+### 2. Verify RED (Mandatory)
+- Run the project's documented `test_runner_command` scoped to the test file or target.
+- Confirm the test **fails** (not errors on syntax, imports, or setup) because the expected behavior is missing.
+- If the test passes immediately, fix the test—it is testing existing behavior or the wrong code path.
+
+### 3. GREEN — Minimal Code
+- Write the simplest production code that makes the failing test pass.
+- Do not add unrequested features, speculative abstractions, or unrelated refactors.
+
+### 4. Verify GREEN (Mandatory)
+- Re-run the targeted test and the relevant suite using the project's documented test runner.
+- Confirm the new test passes, existing tests remain green, and output is free of errors or warnings.
+- If any test fails, fix the production code rather than weakening the test.
+
+### 5. REFACTOR — Clean Up
+- Only while tests are green: remove duplication, clarify names, and extract helpers without adding new behavior.
+- Re-run tests to confirm they stay green, then repeat from RED for the next behavior.
+
+## Test Plan-Driven TDD & Caller-Path Contract Compliance
+
+When a QA-authored test plan (`test_plan_path` or `docs/plan/$EPIC_ID/$FEATURE_ID/test_plans/`) exists, scenarios come from the test plan and parent feature PRD rather than your own interpretation:
+
+1. **Read the test plan and parent PRD first** to ground concrete inputs, edge cases, negative cases, and expected outputs.
+2. **Trace every `TC-NNN` case** to automated tests and include the `TC-ID` in the test name or a comment for mechanical traceability.
+3. **Honor Caller-Path Contracts** (see `skills/quality/context/caller-path-contracts.md`) unless marked `internal — function under test is the production entrypoint`:
+   - **Call the declared `Entrypoint`**, not a deeper internal helper or kernel function.
+   - **Pass the declared `Production argument shape`** (same positional arguments and omitted optional parameters/kwargs).
+   - **Mock no higher than the declared `Mock seam`**; mocking higher short-circuits the production wiring under test.
+   - **Never mock `Forbidden seams`**; a test that mocks a forbidden seam is invalid even if it passes.
+4. **When a contract or test plan is absent:** derive scenarios from acceptance criteria and test through the real caller entrypoint rather than bypassing wiring layers.
+
+## Project-Neutral Test Boundaries & Runner Discovery
+
+Follow the target project's documented test architecture, mocking boundaries, and test runner commands in `CLAUDE.md`, `AGENTS.md`, `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or `docs/architecture/tech-stack.md` (or the repository's documented build/task targets).
+
+- Do **not** invent ad-hoc mocking boundaries or assume database vs. mock layer rules not documented by the project.
+- Do **not** guess test runner flags or fallback commands; read the project docs or build targets first.
+- If testability is blocked or documented rules conflict, return `blocked` with the specific question rather than bypassing TDD.
+
+## Red Flags — Stop and Correct
+
+- Writing production code before a failing test, or keeping pre-written session code "as reference"
+- Tests written after implementation that pass immediately without observed RED failure
+- Skipping RED verification or proceeding when a test errors instead of failing on behavior
+- Bypassing a declared `Entrypoint`, altering `Production argument shape`, mocking above `Mock seam`, or mocking `Forbidden seams`
+- Inventing undocumented DB/mock layer rules or rationalizing skipping TDD "just this once"
+
+For new code written in this session, any red flag means delete the unverified production code and restart from RED. For existing or resumed code, preserve it and prove coverage with tests that fail without it.
+
+## Verification Checklist & Debugging Integration
+
+Before marking work complete, confirm:
+- [ ] Every new behavior or bug fix has a test written before production code (or existing/resumed code was proved via revert-and-run or mutation)
+- [ ] Each test failed for the expected missing-behavior reason before implementation
+- [ ] Minimal code was written to pass, all targeted and suite tests pass, and output is clean
+- [ ] Every `TC-NNN` test (when a test plan exists) names its `TC-ID` and complies with its Caller-Path Contract
+- [ ] Mocking boundaries and test runner commands match the project's documented conventions
+
+**Debugging integration:** Never fix a bug without a failing regression test first. Follow the capture → reproduce → verify RED → minimal fix → verify GREEN → expand workflow in [references/debugging-workflow.md](references/debugging-workflow.md).
+
+**Final rule:** No new production code without a failing test first—and no exceptions without an authorized disposition or returning `blocked`.

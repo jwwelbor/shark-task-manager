@@ -25,13 +25,15 @@ import (
 )
 
 var (
-	runApplyResultPath string
-	runApplyRunID      string
+	runApplyResultPath             string
+	runApplyRunID                  string
+	runParentTriageObservationPath string
 )
 
 func init() {
 	runCmd.Flags().StringVar(&runApplyResultPath, "apply-result", "", "Path to a worker-control envelope file to ingest for this entity (T-E34-F05-004); requires --run-id and --session")
 	runCmd.Flags().StringVar(&runApplyRunID, "run-id", "", "Durable run_id for --apply-result")
+	runCmd.Flags().StringVar(&runParentTriageObservationPath, "parent-triage-observation", "", "Parent-created triage observation sidecar under this run's .shark/runs directory; never worker evidence")
 }
 
 // resolveApplyResultWorkflowService is the production wiring runApplyResult
@@ -139,16 +141,17 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 	}
 
 	result, err := applyResultIngest(cmd.Context(), applyResultDeps{
-		Transitioner: transitioner,
-		Coordinator:  coordinator,
-		ProjectRoot:  projectRoot,
-		WorkingDir:   runWorkDir,
-		RunID:        runApplyRunID,
-		EntityType:   entityType,
-		EntityKey:    entityKey,
-		SessionID:    runSession,
-		OutcomeRoles: applyResultOutcomeRolesOverride,
-		WorkflowSvc:  resolveApplyResultWorkflowService(entityType),
+		Transitioner:          transitioner,
+		Coordinator:           coordinator,
+		ProjectRoot:           projectRoot,
+		WorkingDir:            runWorkDir,
+		RunID:                 runApplyRunID,
+		EntityType:            entityType,
+		EntityKey:             entityKey,
+		SessionID:             runSession,
+		ParentObservationPath: runParentTriageObservationPath,
+		OutcomeRoles:          applyResultOutcomeRolesOverride,
+		WorkflowSvc:           resolveApplyResultWorkflowService(entityType),
 	}, envelopeBytes)
 	if err != nil {
 		return fmt.Errorf("apply-result ingestion failed: %w", err)
@@ -172,15 +175,16 @@ func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
 // test). runApplyResult builds real ones from cli's global service
 // accessors and buildTransitioner.
 type applyResultDeps struct {
-	Transitioner runner.EntityTransitioner
-	Coordinator  *gatepersist.Coordinator
-	ProjectRoot  string
-	WorkingDir   string
-	RunID        string
-	EntityType   string
-	EntityKey    string
-	SessionID    string
-	OutcomeRoles map[string]gateresult.OutcomeRole
+	Transitioner          runner.EntityTransitioner
+	Coordinator           *gatepersist.Coordinator
+	ProjectRoot           string
+	WorkingDir            string
+	RunID                 string
+	EntityType            string
+	EntityKey             string
+	SessionID             string
+	ParentObservationPath string
+	OutcomeRoles          map[string]gateresult.OutcomeRole
 
 	// WorkflowSvc resolves whether the ingested gate result's target status
 	// is terminal, mirroring internal/runner/controller.go's
@@ -207,6 +211,13 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 	if deps.WorkflowSvc == nil {
 		return nil, fmt.Errorf("apply-result ingestion: WorkflowSvc dependency is required to resolve terminal status")
 	}
+	if deps.ParentObservationPath != "" {
+		var err error
+		envelopeBytes, err = runner.AttachParentTriageObservation(deps.ProjectRoot, deps.RunID, deps.ParentObservationPath, envelopeBytes)
+		if err != nil {
+			return nil, fmt.Errorf("attach parent triage observation: %w", err)
+		}
+	}
 
 	nextInfo, err := deps.Transitioner.GetNextStatus(ctx, deps.EntityKey)
 	if err != nil {
@@ -224,18 +235,19 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 	}
 
 	baseReq := runner.GateIngestRequest{
-		EnvelopeBytes: envelopeBytes,
-		Coordinator:   deps.Coordinator,
-		ProjectRoot:   deps.ProjectRoot,
-		WorkingDir:    deps.WorkingDir,
-		RunID:         deps.RunID,
-		EntityKey:     deps.EntityKey,
-		EntityType:    models.EntityType(deps.EntityType),
-		SourceStatus:  nextInfo.CurrentStatus,
-		Gate:          nextInfo.CurrentStatus,
-		Session:       gatepersist.Session{ID: deps.SessionID},
-		OutcomeRoles:  outcomeRoles,
-		Outcomes:      nextInfo.Outcomes,
+		EnvelopeBytes:             envelopeBytes,
+		Coordinator:               deps.Coordinator,
+		ProjectRoot:               deps.ProjectRoot,
+		WorkingDir:                deps.WorkingDir,
+		RunID:                     deps.RunID,
+		EntityKey:                 deps.EntityKey,
+		EntityType:                models.EntityType(deps.EntityType),
+		SourceStatus:              nextInfo.CurrentStatus,
+		Gate:                      nextInfo.CurrentStatus,
+		Session:                   gatepersist.Session{ID: deps.SessionID},
+		OutcomeRoles:              outcomeRoles,
+		Outcomes:                  nextInfo.Outcomes,
+		ParentObservationInjected: deps.ParentObservationPath != "",
 	}
 
 	req := baseReq
@@ -321,7 +333,13 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	// even built) and Persist's actual writes. See
 	// gatepersist.ClaimVerifier's doc comment.
 	coordinator.ClaimVerifier = claimSvc
-	admit := runner.NewBugGateAdmissionForWorkflow(noteSvc, history, workflowSvc.ForLevel("bug"))
+	admit := runner.NewBugGateAdmissionForWorkflow(noteSvc, history, workflowSvc.ForLevel("bug"), func(ctx context.Context, key string) (models.Entity, error) {
+		repo, err := registry.GetRepository(models.EntityType(DetectEntityType(key)))
+		if err != nil {
+			return nil, err
+		}
+		return repo.GetByKey(ctx, NormalizeKey(key))
+	})
 	coordinator.Admission = func(ctx context.Context, req gatepersist.Request) error {
 		if err := admit(ctx, req); err != nil {
 			return err

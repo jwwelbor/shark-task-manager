@@ -60,10 +60,10 @@ REVIEW OUTPUT POLICY (applies to the report below):
   - any finding -> one-line fail/triage summary plus report path
 
 
-PRODUCE the integration review report to docs/review/E07/E07-F01/E07-F01-integration-review.md as a `gate_result` object (I-02 GateResult v1: architecture.md#i-02-gateresult-v1) nested inside the outer worker-control envelope — the outer envelope owns `recommended_outcome` and `evidence` only; `gate_result` carries everything below:
+PRODUCE the integration review report to docs/review/E07/E07-F01/E07-F01-integration-review.md as a `gate_result` object (I-02 GateResult v1; entry shapes for `remediation_sweeps` and `change_impacts` are defined in `skills/quality/workflows/defect-class-sweep.md` and `skills/quality/workflows/state-space-coverage.md`) nested inside the outer worker-control envelope — the outer envelope owns `recommended_outcome` and `evidence` only; `gate_result` carries everything below:
 - `schema_version`, `summary`, `findings` (one per not-accounted/not-closed item above), `remediation_sweeps` (in-scope I-03 sweeps reviewed), `change_impacts` (in-scope I-04 sets reviewed)
 - `no_kickback_reason` — required whenever this gate carries no kickback and its outcome is `blocked`, `on_hold`, or `cancelled` (I-02 GateResult v1's own invariant); state the concrete reason (e.g. "no verified integration candidate — see RESOLVE THE INTEGRATION CANDIDATE"). Omit on `pass`/`fail`.
-- `adoption_manifest` (I-05 CanonicalAdoptionManifest v1: architecture.md#i-05-canonicaladoptionmanifest-v1) — a new sibling array field alongside `remediation_sweeps`/`change_impacts` inside this same `gate_result` object, never restated as a field of the outer envelope. One entry per changed canonical bundle path in the reviewed diff:
+- `adoption_manifest` (I-05 CanonicalAdoptionManifest v1, fields below) — a new sibling array field alongside `remediation_sweeps`/`change_impacts` inside this same `gate_result` object, never restated as a field of the outer envelope. One entry per changed canonical bundle path in the reviewed diff:
 
 ## I-05 `adoption_manifest` fields
 

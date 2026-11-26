@@ -51,7 +51,7 @@ Both modes gate the sprint close operation on explicit user confirmation.
   re-implementing it. This ensures keyed `response.prompt` remains the worker
   payload and workflow source-of-truth stays in Shark.
 - **Team topology alias**: Team sprint execution delegates to
-  `/shark-rider run-agent-team --sprint S###`; `parallel-team.md` owns
+  `/shark-rider run-agent-team --sprint S###`; `skills/shark-attack/workflows/parallel-team.md` owns
   active-backlog selection, topology, and integration.
 - **`--max-iterations` cap**: Prevents runaway loops when sprint selection returns the same entity repeatedly (e.g., an entity that bounced back to a non-terminal state). Default cap is 50.
 - **Explicit close gate**: Closing a sprint with carryover is a planning decision. Both skills require explicit user confirmation before calling `shark sprint close`, and both require a submitted Sprint Goal Review (`shark sprint goal-review` with `--outcome=accepted`) before that close call — a rejected or absent review returns the sprint to active and creates no completion row.

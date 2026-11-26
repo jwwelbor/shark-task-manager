@@ -2,99 +2,6 @@ Verification gate (craft review) passed for COMPLEX feature E07-F01 ("Sample fea
 
 Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `approval`; COMPLEX: `code_review`, `qa`, `approval` (canonical source: `skills/quality/context/tier-matrix.md`).
 
-
-# Quality Skill
-
-This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
-
-## Outcome contract
-
-Every quality response includes one semantic `outcome`: `pass`, `fail`, or
-`blocked`. `pass` and `fail` describe a completed validation decision; `blocked`
-means required evidence, environment access, or authority is unavailable. The
-host, not this craft skill, maps the outcome to workflow state.
-
-## Workflow Selection
-
-Based on what needs validation, invoke the appropriate workflow:
-
-### Design Document Validation
-**When**: Validating feature design documentation before task generation
-**Invoke**: `workflows/validate-design.md`
-**Inputs**: `feature_prd_path`, `design_doc_paths` (expected design docs), `epic_prd_path` (optional), `interaction_map_path` (optional), `tasks_dir_path` (confirms tasks not yet generated)
-**Output**: `validation_report`, `gaps` (`{doc_type, missing_section, severity}`), `prd_completeness_issues`, `verdict` (`PASS | PASS_WITH_WARNINGS | FAIL`)
-**Use case**: Ensure all required design docs exist and are complete
-
-### Task Readiness Validation
-**When**: Validating tasks are complete and ready for implementation
-**Invoke**: `workflows/validate-tasks.md`
-**Inputs**: `task_specs` (`{task_id, spec_path, ac_list, depends_on, assigned_agent, estimated_time}`), `feature_prd_path`, `design_doc_paths`, `interaction_map_path` (optional), `tasks_index_path`
-**Output**: `validation_report`, `blockers`/`warnings` (`{task_id, issue_type, description}`), `dependency_graph`, `integration_coverage`, `verdict` (`READY | READY_WITH_WARNINGS | NOT_READY`)
-**Use case**: Verify tasks are properly structured and sequenced
-
-### Code Review
-**When**: Reviewing code implementation against requirements and standards
-**Invoke**: `workflows/review-code.md`
-**Inputs**: `task_spec_path`, `feature_prd_path`, `acceptance_criteria`, `changed_files`, `diff_summary`, `language`, `toolchain`, `coding_standards_path` (optional), `prior_rejection_count`, `review_evidence`
-**Output**: `verdict` (`PASS | PASS-with-triage | FAIL`), `code_review_report`, `blockers`/`non_blockers_to_triage`/`nits`, `counter_factual_per_ac`, `production_caller_chains`, `review_evidence`
-**Use case**: Assess code quality, PRD alignment, and engineering standards
-
-### Test Planning (Shift-Left QA)
-**When**: Reviewing task specifications BEFORE development begins
-**Invoke**: `workflows/test-planning.md`
-**Inputs**: `task_spec_path`, `feature_prd_path`, `ac_list`, `impl_signals` (optional), `is_first_task_in_feature` (gates the Step 4.5 coverage check), `sibling_task_specs` (when first task), `codex_command`
-**Output**: `test_plan_doc`, `tc_list` (`{tc_id, ac_id, scenario, technique, iso_characteristics, ...}`), `cross_feature_contract_tests`, `drift_findings`, `codex_verdict` (`PASS | CONCERNS | FAIL`), `verdict` (`APPROVED | NEEDS_REFINEMENT`)
-**Use case**: Compare task spec against feature PRD for drift, write test plan that becomes the developer's source of truth. This is the quality gate between planning and development.
-
-### QA Testing (Post-Development)
-**When**: Validating implementation after code review
-**Invoke**: `workflows/qa-testing.md`
-**Inputs**: `task_spec_path`, `feature_prd_path`, `test_plan_path` (optional), `impl_paths`, `test_paths`, `acceptance_criteria`, `has_frontend` (gates `dev_server_command`)
-**Output**: `verdict` (`PASS | FAIL`), `qa_report`, `exploratory_findings`, `bugs` (`{severity, summary, reproduction, expected, actual, fix_location}`), `wiring_coverage`
-**Use case**: Validate implementation against pre-written test plan and acceptance criteria
-
-### Defect-Class Sweep
-**When**: A code-review, QA, or approval kickback; a UAT/red-team re-review round after a prior rejection; or a development/rework pass on a task carrying a rejection section or a kickback reason naming a defect class
-**Invoke**: `workflows/defect-class-sweep.md`
-**Inputs**: `finding` (the point-instance finding that triggered the sweep), `touched_module_paths` (default search scope), `repair_record` (prior fix/disposition history for this class, if any), `decision_sources` (prior designs/decisions to search — feature/epic notes, tech-debt records, prior review-finding notes, spec/standards docs), `calling_gate` (`code_review | approval | uat_redteam | qa | development`, drives which rubric re-runs during full-class re-verification) — this workflow's contract is richer than the other entries above; see the file's own frontmatter for the authoritative shape.
-**Output**: an I-03 `DefectClassSweep` record — `class_key`, `class_statement`, `search_scope`, `prior_designs`, `searched_count`/`matching_count`/`fixed_count`/`dispositioned_count`/`open_count`, `instances[]` (`fingerprint`, `site_pointer`, `disposition`, `evidence`), `guard` (`kind`, `implementation_pointer`, `counterfactual_pointer`, `status`), and `status` (`open`|`complete`) — nested in the calling gate's `GateResult.remediation_sweeps` array. A severity conflict does not close inside this record: it routes to the outer `GateResult.Finding.disposition = severity_conflict` (with `disposition_pointer`) instead.
-**Use case**: Generalize one finding into a defect class, enumerate every sibling instance across the declared search scope in one pass, and require a verified guard before the class closes
-
-## Quality Resources
-
-All workflows reference these quality criteria files:
-
-- `context/design-validation-criteria.md` - Design document requirements
-- `context/task-validation-criteria.md` - Task completeness checks
-- `context/review-rubric.md` - Code review standards
-- `context/quality-gates.md` - General quality standards
-
-## Usage Pattern
-
-Commands and agents reference this skill using:
-
-```markdown
-## Your Process
-1. Analyze what needs validation
-2. Invoke quality skill: quality/workflows/validate-{type}.md
-3. Apply criteria from quality/context/{criteria-name}.md
-4. Generate validation report with actionable feedback
-```
-
-## Quality Standards
-
-All validation activities must:
-- Be objective and measurable
-- Provide clear pass/fail criteria
-- Include actionable feedback for failures
-- Reference specific standards and requirements
-- Generate consistent, structured reports
-
----
-
-*For detailed usage instructions, see [README.md](./README.md)*
-
-
 READ:
 (1) Feature spec at docs/plan/E07/E07-F01/E07-F01.md for acceptance criteria and scope
 (2) Feature test-plan.md for all test cases and expected coverage
@@ -117,7 +24,7 @@ RE-REVIEW ROUND (a prior QA report matching docs/review/E07/E07-F01/qa-*-E07-F01
 
 SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
 
-1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
+1. **Quality gates (always run, fast):** run the project's format + lint as documented in the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (**Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets.
 
 2. **Targeted unit tests:**
    - Union all changed source files from the retained review manifest AND from all task Scope sections
@@ -136,7 +43,7 @@ SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
    - Pure intra-service or doc-only changes → skip
 
 4. **Sanity spot-check (only if changes are broad across a shared module):**
-   - Run the project's unit suite using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo
+   - Run the project's unit suite using the runner documented in `CLAUDE.md`, `AGENTS.md`, `docs/architecture/tech-stack.md`, `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets
 
 DO NOT RUN: full integration suite / codex red-team (UAT owns red-team)
 
@@ -195,6 +102,103 @@ PRODUCE QA report to `docs/review/E07/E07-F01/qa-<timestamp>-E07-F01.md`:
   - Edge cases tested
   - Any pre-existing failures encountered
 
+## Reference Methodology
+
+> Bundled `quality` skill: the relative paths below are not project files. Read them with `shark skill get quality <path>`.
+
+
+# Quality Skill
+
+This skill provides quality assurance capabilities with standardized validation and review workflows for maintaining high-quality deliverables throughout the development lifecycle.
+
+## Outcome contract
+
+Every quality response includes one semantic `outcome`: `pass`, `fail`, or
+`blocked`. `pass` and `fail` describe a completed validation decision; `blocked`
+means required evidence, environment access, or authority is unavailable. The
+host, not this craft skill, maps the outcome to workflow state.
+
+## Workflow Selection
+
+Based on what needs validation, invoke the appropriate workflow:
+
+### Design Document Validation
+**When**: Validating feature design documentation before task generation
+**Invoke**: `workflows/validate-design.md`
+**Inputs**: `feature_prd_path`, `design_doc_paths` (expected design docs), `epic_prd_path` (optional), `interaction_map_path` (optional), `tasks_dir_path` (confirms tasks not yet generated)
+**Output**: `validation_report`, `gaps` (`{doc_type, missing_section, severity}`), `prd_completeness_issues`, `verdict` (`PASS | PASS_WITH_WARNINGS | FAIL`)
+**Use case**: Ensure all required design docs exist and are complete
+
+### Task Readiness Validation
+**When**: Validating tasks are complete and ready for implementation
+**Invoke**: `workflows/validate-tasks.md`
+**Inputs**: `task_specs` (`{task_id, spec_path, ac_list, depends_on, assigned_agent, estimated_time}`), `feature_prd_path`, `design_doc_paths`, `interaction_map_path` (optional), `tasks_index_path`
+**Output**: `validation_report`, `blockers`/`warnings` (`{task_id, issue_type, description}`), `dependency_graph`, `integration_coverage`, `verdict` (`READY | READY_WITH_WARNINGS | NOT_READY`)
+**Use case**: Verify tasks are properly structured and sequenced
+
+### Code Review
+**When**: Reviewing code implementation against requirements and standards
+**Invoke**: `workflows/review-code.md`
+**Inputs**: `task_spec_path`, `feature_prd_path`, `acceptance_criteria`, `changed_files`, `diff_summary`, `language`, `toolchain`, `coding_standards_path` (optional), `prior_rejection_count`, `review_evidence`
+**Output**: `verdict` (`PASS | PASS-with-triage | FAIL`), `code_review_report`, `blockers`/`non_blockers_to_triage`/`nits`, `counter_factual_per_ac`, `production_caller_chains`, `review_evidence`
+**Use case**: Assess code quality, PRD alignment, and engineering standards
+
+### Test Planning (Shift-Left QA)
+**When**: Reviewing task specifications BEFORE development begins
+**Invoke**: `workflows/test-planning.md`
+**Inputs**: `task_spec_path`, `feature_prd_path`, `ac_list`, `impl_signals` (optional), `is_first_task_in_feature` (gates the Step 4.5 coverage check), `sibling_task_specs` (when first task), `codex_command`
+**Output**: `test_plan_doc`, `tc_list` (`{tc_id, ac_id, scenario, technique, iso_characteristics, ...}`), `cross_feature_contract_tests`, `drift_findings`, `codex_verdict` (`PASS | CONCERNS | FAIL`), `verdict` (`APPROVED | NEEDS_REFINEMENT`)
+**Use case**: Compare task spec against feature PRD for drift, write test plan that becomes the developer's source of truth. This is the quality gate between planning and development.
+
+### QA Testing (Post-Development)
+**When**: Validating implementation after code review
+**Invoke**: `workflows/qa-testing.md`
+**Inputs**: `task_spec_path`, `feature_prd_path`, `test_plan_path` (optional), `impl_paths`, `test_paths`, `acceptance_criteria`, `has_frontend` (gates `dev_server_command`)
+**Output**: `verdict` (`PASS | FAIL`), `qa_report`, `exploratory_findings`, `bugs` (`{severity, summary, reproduction, expected, actual, fix_location}`), `wiring_coverage`
+**Use case**: Validate implementation against pre-written test plan and acceptance criteria
+
+### Defect-Class Sweep
+**When**: A code-review, QA, or approval kickback; a UAT/red-team re-review round after a prior rejection; or a development/rework pass on a task carrying a rejection section or a kickback reason naming a defect class
+**Invoke**: `workflows/defect-class-sweep.md`
+**Inputs**: `finding` (the point-instance finding that triggered the sweep), `touched_module_paths` (default search scope), `repair_record` (prior fix/disposition history for this class, if any), `decision_sources` (prior designs/decisions to search — feature/epic notes, tech-debt records, prior review-finding notes, spec/standards docs), `calling_gate` (`code_review | approval | uat_redteam | qa | development`, drives which rubric re-runs during full-class re-verification) — this workflow's contract is richer than the other entries above; see the file's own frontmatter for the authoritative shape.
+**Output**: an I-03 `DefectClassSweep` record — `class_key`, `class_statement`, `search_scope`, `prior_designs`, `searched_count`/`matching_count`/`fixed_count`/`dispositioned_count`/`open_count`, `instances[]` (`fingerprint`, `site_pointer`, `disposition`, `evidence_pointers`), `guard` (`kind`, `implementation_pointer`, `counterfactual_pointer`, `status`), and `status` (`open`|`complete`) — nested in the calling gate's `GateResult.remediation_sweeps` array. A severity conflict does not close inside this record: it routes to the outer `GateResult.Finding.disposition = severity_conflict` (with `disposition_pointer`) instead.
+**Use case**: Generalize one finding into a defect class, enumerate every sibling instance across the declared search scope in one pass, and require a verified guard before the class closes
+
+## Quality Resources
+
+All workflows reference these quality criteria files:
+
+- `context/design-validation-criteria.md` - Design document requirements
+- `context/task-validation-criteria.md` - Task completeness checks
+- `context/review-rubric.md` - Code review standards
+- `context/quality-gates.md` - General quality standards
+
+## Usage Pattern
+
+Commands and agents reference this skill using:
+
+```markdown
+## Your Process
+1. Analyze what needs validation
+2. Invoke quality skill: workflows/validate-{type}.md
+3. Apply criteria from context/{criteria-name}.md
+4. Generate validation report with actionable feedback
+```
+
+## Quality Standards
+
+All validation activities must:
+- Be objective and measurable
+- Provide clear pass/fail criteria
+- Include actionable feedback for failures
+- Reference specific standards and requirements
+- Generate consistent, structured reports
+
+---
+
+*For detailed usage instructions, see [README.md](./README.md)*
+
+
 ON PASS: recommended_outcome: pass.
 - Do NOT run Shark status commands yourself; the parent loop will advance the feature.
 ON FAIL: recommended_outcome: fail. This outcome's role is `kickback_rework` —
@@ -230,10 +234,39 @@ Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOT
 }
 ```
 
-The nested `gate_result` shape is validated and typed in `internal/gateresult`
-(see its doc comment for the full field list — `findings[]`,
-`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
-not restate it. Two rules this step's outcomes commonly need:
+The empty arrays above are illustrative. If this prompt requires outer
+`evidence` entries, include them; each is an object with `kind`, `pointer` and
+`summary`.
+
+`gate_result` fields (unknown fields are rejected):
+
+| Object | Field | Rule |
+|---|---|---|
+| result | `schema_version` | `1` |
+| result | `summary` | required, 1000 B max |
+| result | `no_kickback_reason` | 1000 B max |
+| `findings[]` | `severity` | required, 256 B max |
+| `findings[]` | `class_key` | required, 256 B max |
+| `findings[]` | `class_statement` | required, 1000 B max |
+| `findings[]` | `fingerprint` | required, 256 B max |
+| `findings[]` | `disposition` | required: `open`, `fixed`, `already_dispositioned`, `severity_conflict` or `not_reproducible` |
+| `findings[]` | `disposition_pointer` | 2048 B max; required for `already_dispositioned` and `severity_conflict` |
+| `findings[]` | `affected_ids` | optional strings, 256 B max each |
+| `findings[]` | `evidence_pointers` | optional strings, 2048 B max each |
+| `kickbacks[]` | `entity_key` | required, 256 B max |
+| `kickbacks[]` | `target_status` | required, 256 B max |
+| `kickbacks[]` | `reason` | required, 1000 B max |
+
+Every array holds at most 100 items and the whole `gate_result` at most
+256 KiB. Omit `remediation_sweeps` and `change_impacts` unless this prompt or
+a skill it names defines their contents for this step. A `remediation_sweeps[]`
+entry that is `open` with `open_count: 0` (no feasible guard) must point
+`guard.counterfactual_pointer` at a project-local `{"kind": "open_sweep_link",
+"class_key", "work_item_key", "reason"}` record; `work_item_key` must resolve
+to an existing task, feature, epic, bug, change-card, or tech-debt entity
+naming the class (note keys do not resolve).
+
+Rules this step's outcomes commonly need:
 
 For each `kickbacks[]` entry, `target_status` is required by GateResult v1
 but is only a compatibility assertion. Read the target entity's current
@@ -262,6 +295,6 @@ submit that kickback; report the missing route and return a blocked result.
   every other GateResult field constraint is enforced the same way
   regardless of which role this outcome carries.
 
-Write your full narrative report to the file this step already directs
-(unchanged); the envelope's `summary` is a compact verdict statement, not a
-duplicate of that report.
+If this step names or requires a report file, write the full narrative there
+and keep `summary` a compact verdict statement. Otherwise the structured
+findings and `summary` are the record; do not invent a report location.

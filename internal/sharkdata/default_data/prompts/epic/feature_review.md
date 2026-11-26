@@ -1,5 +1,7 @@
 Review features for epic {{.id}}: "{{.title}}".
 
+{{template "_durable_sources" .}}
+
 Check for existing feature review report at {{.review_base}}{{.id}}-feature-review.md. If report exists with PASS verdict, advance immediately. If FAIL, send back to decomposition.
 
 ---
