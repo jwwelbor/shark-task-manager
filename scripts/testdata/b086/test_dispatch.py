@@ -147,6 +147,9 @@ class Dispatch(unittest.TestCase):
                       self.verified('d1', [('cli',)])['missing'])
         self.assertIn('zero consolidator invocations after an invalid angle',
                       self.verified('d1', [('dispatch', 'consolidator')])['missing'])
+        # A refused consolidator attempt still counts as an invocation.
+        self.assertIn('zero consolidator invocations after an invalid angle',
+                      self.verified('d1', [('dispatch', 'not-a-skill-agent', ), ('dispatch', 'consolidator')])['missing'])
         self.assertIn('zero CI handoffs after an incomplete review', self.verified('d1', [('ci',)])['missing'])
 
     def test_a_refused_report_probe_is_not_a_persisted_review_and_a_second_written_review_is(self):

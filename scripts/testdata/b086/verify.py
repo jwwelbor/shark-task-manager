@@ -606,7 +606,7 @@ def inspect_dispatch(case, manifest):
     served = [e for e in events if e['event'] == 'result' and e['tool'] == 'dispatch'
               and e.get('outcome') == 'served']
     angles = [e for e in served if e['agent'] in ANGLES]
-    consolidators = [e for e in served if e['agent'] == 'consolidator']
+    consolidators = [e for e in entries if e['tool'] == 'dispatch' and e['argv'][0] == 'consolidator']
     bad = binding.get('dispatch_bad')
     if sorted(e['agent'] for e in angles) != sorted(ANGLES) or len(angles) != len(
             [e for e in entries if e['tool'] == 'dispatch' and e['argv'][0] != 'consolidator']):
