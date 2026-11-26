@@ -1,0 +1,26 @@
+{
+  "repeat-other": {
+    "run_id": "015dbaf7-99df-4847-b1d0-c93bdd5ef7e4",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  },
+  "repeat-same": {
+    "run_id": "213ba9cf-1331-4ce1-8b20-ed3fd4fce902",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  }
+}
