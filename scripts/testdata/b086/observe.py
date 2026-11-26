@@ -65,9 +65,10 @@ def read_policy(case, relative, manifest):
     return content, {'file': relative, 'origin': origin, 'sha256': expected}
 
 
-def has_pinned_handoff(case, manifest, run_id, events):
+def has_pinned_handoff(case, manifest, run_id, events, require_consolidator=True):
+    required_handoff = HANDOFF if require_consolidator else HANDOFF - {CONSOLIDATOR}
     expected = {}
-    for name in HANDOFF - {WORKFLOW}:
+    for name in required_handoff - {WORKFLOW}:
         tail = name.removeprefix('catalog/')
         expected[name] = (str(case / 'project/.agents/skills' / tail),
                           manifest['prepared_files'][name])
@@ -83,7 +84,7 @@ def has_pinned_handoff(case, manifest, run_id, events):
             if (event.get('origin'), event.get('sha256')) != expected[name]:
                 return False
             loaded.add(name)
-    return loaded == HANDOFF
+    return loaded == required_handoff
 
 
 def tracker_args(argv, project, database, config):

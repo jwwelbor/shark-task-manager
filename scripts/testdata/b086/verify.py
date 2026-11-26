@@ -257,6 +257,30 @@ def received_create_refusal(events, inbox, create_id, fingerprint, reason):
     return False
 
 
+def received_report_only(events, inbox, host_run, history_run, candidate, finding):
+    """Require the parent to receive a candidate-bound report-only Nit decision."""
+    for record in inbox:
+        message = record.get('message')
+        if (record.get('run_id') != host_run or not isinstance(message, dict)
+                or message.get('run_id') != history_run or message.get('candidate') != candidate
+                or message.get('fingerprint') != finding.get('fingerprint')
+                or message.get('classification') != 'Nit' or message.get('decision') != 'report-only'
+                or message.get('original_concern') != finding.get('summary')
+                or message.get('original_severity') != 'blocker'
+                or 'no edit' not in str(message.get('reason') or '').lower()
+                or 'tracker write' not in str(message.get('reason') or '').lower()):
+            continue
+        evidence = str(message.get('evidence') or '').lower()
+        if '# feature a' not in evidence or 'line 4' not in evidence:
+            continue
+        if any(event.get('run_id') == host_run and event.get('tool') == 'parent'
+               and event.get('invocation') == record.get('invocation')
+               and event.get('event') == 'result' and event.get('outcome') == 'received'
+               for event in events):
+            return True
+    return False
+
+
 def verified_prior_pair(path):
     """Reuse a retained, independently verified A/B pair before later cases."""
     try:
@@ -290,16 +314,27 @@ def inspect_case(case, manifest, fingerprint):
     results = {e['invocation']: e for e in events if e['event'] == 'result'}
     if len(results) != len(entries) or any(e['invocation'] not in results for e in entries):
         missing.append('complete tool results')
-    if not has_pinned_handoff(case, manifest, run_id, events):
+    raw_decision = {}
+    try:
+        raw_decision = json.loads((case / 'packet/review.md.decisions.json').read_bytes())['findings'][0]
+    except (OSError, KeyError, json.JSONDecodeError, IndexError):
+        pass
+    report_only_handoff = raw_decision.get('severity') == 'nit' and raw_decision.get('disposition') == 'no-action'
+    if not has_pinned_handoff(case, manifest, run_id, events, require_consolidator=not report_only_handoff):
         missing.append('private handoff reads')
     if not host_receipt(case, manifest, events, run_id):
         missing.append('run-bound native host and private-skill receipt')
     pin = manifest.get('review_intake')
+    report_only_packet = False
+    finding = None
     if pin:
         try:
             payload = consume(case / 'packet', json.loads((case / 'history.json').read_bytes()), pin,
                               pinned(case, 'libexec/shark', manifest))
-            original = json.loads(payload['review.md.decisions.json'])['findings'][0]['fingerprint']
+            report_only_packet = (json.loads(payload['provenance.json']).get('scenario')
+                                  == 'stylistic downgrade report-only')
+            finding = json.loads(payload['review.md.decisions.json'])['findings'][0]
+            original = finding['fingerprint']
             if fingerprint != original:
                 missing.append('fingerprint differs from original review')
         except (ValueError, KeyError, OSError, subprocess.SubprocessError) as error:
@@ -325,7 +360,13 @@ def inspect_case(case, manifest, fingerprint):
         missing.append('grant-only handoff without delivery or reviewer calls')
     if len(creates) == 1 and not empty_owner_searches(events, creates[0]['invocation'], fingerprint):
         missing.append('completed empty fingerprint and owning-task searches before create')
-    if case.name == 'grant-a':
+    if report_only_packet:
+        candidate = json.loads(payload['review.md.scope.json'])['candidate_commit']
+        if children or writes:
+            missing.append('zero tracker writes and zero persisted children for report-only Nit')
+        if not received_report_only(events, inbox, run_id, pin['history']['run_id'], candidate, finding):
+            missing.append('receiving parent recorded the candidate-bound report-only Nit disposition')
+    elif case.name == 'grant-a':
         if len(children) != 1 or children[0]['feature'] != 'E01-F01' or not any(
                 fingerprint in field for field in [children[0]['description'] or '', *children[0]['notes']]):
             missing.append('one matching child under A with the persisted fingerprint')

@@ -105,6 +105,31 @@ class DefinitiveRefusal(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertFalse(observed([failed, received], [dict(inbox, message=incomplete)]))
 
+    def test_report_only_nit_requires_candidate_bound_parent_receipt(self):
+        finding = {'fingerprint': 'docs/feature-a.md#DOCS#section-title',
+                   'summary': 'Prefer a longer section title'}
+        message = {'run_id': 'fixture-code_review-123', 'candidate': 'a' * 40,
+                   'fingerprint': finding['fingerprint'], 'classification': 'Nit',
+                   'decision': 'report-only', 'original_concern': finding['summary'],
+                   'original_severity': 'blocker',
+                   'reason': 'No edit or tracker write is warranted.',
+                   'evidence': 'The retained diff shows # Feature A at line 1; line 4 documents ordering.'}
+        parent_result = {'run_id': 'host-123', 'tool': 'parent', 'event': 'result',
+                         'invocation': 'parent-call', 'outcome': 'received'}
+        inbox = [{'run_id': 'host-123', 'invocation': 'parent-call', 'message': message}]
+        self.assertTrue(verify.received_report_only([parent_result], inbox, 'host-123',
+                                                    'fixture-code_review-123', 'a' * 40, finding))
+        for field, invalid in [('fingerprint', 'other'), ('candidate', 'b' * 40),
+                               ('classification', 'non-blocker'), ('decision', 'Defer'),
+                               ('original_severity', 'nit'), ('evidence', 'not enough')]:
+            altered = dict(message, **{field: invalid})
+            with self.subTest(field=field):
+                self.assertFalse(verify.received_report_only(
+                    [parent_result], [dict(inbox[0], message=altered)], 'host-123',
+                    'fixture-code_review-123', 'a' * 40, finding))
+        self.assertFalse(verify.received_report_only([], inbox, 'host-123',
+                                                     'fixture-code_review-123', 'a' * 40, finding))
+
     def test_failed_or_late_duplicate_lookup_cannot_explain_an_attempted_create(self):
         fp = 'docs/feature-a.md#DOCS#worked-example'
 
