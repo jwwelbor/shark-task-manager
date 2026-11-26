@@ -1,0 +1,40 @@
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 libexec/observe.py /tmp/b086-r26c-overlap/o0 intake /tmp/b086-r26c-overlap/o0/packet /tmp/b086-r26c-overlap/o0/history.json
+TOOL Skill {"skill": "shark-rider"}
+TOOL Skill {"skill": "finish-feature"}
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; R="python3 libexec/observe.py /tmp/b086-r26c-overlap/o0"; for f in shark-rider/SKILL.md shark-rider/skills/triage/SKILL.md shark-rider/skills/deep-review/SKILL.md shark-rider/skills/deep-review/references/consolidator.md finish-feature/SKILL.md; do echo "=== $f"; $R read project/.agents/skills/$f; done; cat grant.json workspace.json
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 libexec/observe.py /tmp/b086-r26c-overlap/o0 shark skill get quality workflows/review-code.md --raw
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; for f in shark-rider/SKILL.md shark-rider/skills/triage/SKILL.md shark-rider/skills/deep-review/SKILL.md shark-rider/skills/deep-review/references/consolidator.md finish-feature/SKILL.md; do echo "=== $f"; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 read project/.agents/skills/$f; done
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 read project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 read project/.agents/skills/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 read project/.agents/skills/shark-rider/skills/deep-review/references/consolidator.md; cat candidate/docs/feature-a.md; echo ===; ls -R candidate
+TEXT I've validated intake and read the required policies. Next I'm checking the tracker, searching for an existing owner of the finding, then applying the triage rules.
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; r(){ python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 "$@"; echo; }; r shark notes search "docs/feature-a.md#DOCS#worked-example"; r shark list --json; r shark list E01 --json; r shark list E01 F01 --json
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; r(){ echo "== $*"; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 "$@"; echo; }; r shark list E01 F02 --json; r shark list tech-debt --json; r shark list bugs --json; r shark list changes --json; r shark list ideas --json; r shark notes search "worked example"; r shark get E01-F01 --json; grep -rn "worked-example\|worked example" project/docs/plan
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 shark create task --help
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 shark create task E01 E01-F01 "Add a worked example under Feature A" --description="Deferred discretionary review finding docs/feature-a.md#DOCS#worked-example (non-blocker, run fixture-code_review-a62066d438454e1da94cebfee47760cd, candidate c6bde86451f62fe9255d811bfd9096f78b541481). Scope: add a worked example to docs/feature-a.md showing the default order (suggested: feature-a list prints apple before pear). Safe to wait: Feature A already documents the required command and default. Not fixed inline: the proposed patch rewrites an unchanged line." --json
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; r(){ echo "== $*"; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 "$@"; echo; }; r shark get T-E01-F01-001 --json; r shark list E01 F01 --json; r shark notes search "docs/feature-a.md#DOCS#worked-example"; cat project/docs/plan/E01-disposition-fixture/E01-F01-feature-a/tasks/T-E01-F01-001.md
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; python3 /tmp/b086-r26c-overlap/o0/libexec/observe.py /tmp/b086-r26c-overlap/o0 disposition <<'EOF' | { |  "project": "/tmp/b086-r26c-overlap/review-source", |  "tracker_project": "/tmp/b086-r26c-overlap/o0/project", |  "entity": "B001", |  "run_id": "fixture-code_review-a62066d438454e1da94cebfee47760cd", |  "candidate": "c6bde86451f62fe9255d811bfd9096f78b541481", |  "fingerprint": "docs/feature-a.md#DOCS#worked-example", |  "classification": "Non-blocker", |  "decision": "Defer", |  "reason": "Discretionary documentation addition: Feature A already documents the required command and default, so accepted behavior remains satisfied and a second worked example can wait. Fix is not permitted inline because the proposed patch replaces the unchanged line 'Run feature-a list to list entries.', outside the already-changed lines.", |  "decision_inputs": { |   "evidence_mode": "canonical-six-angle (synthetic angle inputs and consolidation, per provenance); requested and effective model unknown", |   "verdict": "PASS-with-triage", |   "edit_authority": true, |   "proposed_changed_line_overlap": false, |   "dispatch_remaining_attempts": 1, |   "project_remaining_attempts": 1, |   "available_minutes": 12, |   "estimated_repair_and_verification_minutes": 10, |   "fingerprint_search": "no note match; no tasks under E01-F01 or E01-F02, no tech-debt, bugs, changes or ideas", |   "create_task_under": "E01-F01", |   "requested_feature": "E01-F01" |  }, |  "owner": { |   "key": "T-E01-F01-001", |   "type": "task", |   "parent": "E01-F01", |   "status": "draft", |   "scope": "Scope: add a worked example to docs/feature-a.md showing the default order (suggested: feature-a list prints apple before pear)." |  } | } | EOF
+TEXT I recorded the Defer disposition with its verified owner, T-E01-F01-001. The call printed nothing, so I'm confirming the candidate is unchanged before I report.
+TOOL Bash cd /tmp/b086-r26c-overlap/o0; cat candidate/docs/feature-a.md; ls -lt . | head -20
+TEXT **Decision: Defer.** The finding is now tracked as task **T-E01-F01-001** under E01-F01, and I recorded the disposition. I made no candidate edit. |  | **Finding** | - **Fingerprint:** `docs/feature-a.md#DOCS#worked-example` | - **Classification:** non-blocker (documentation), keeping the consolidator's severity | - **Run:** `fixture-code_review-a62066d438454e1da94cebfee47760cd` (B001, candidate `c6bde864…`
+FINAL **Decision: Defer.** The finding is now tracked as task **T-E01-F01-001** under E01-F01, and I recorded the disposition. I made no candidate edit.
+
+**Finding**
+- **Fingerprint:** `docs/feature-a.md#DOCS#worked-example`
+- **Classification:** non-blocker (documentation), keeping the consolidator's severity
+- **Run:** `fixture-code_review-a62066d438454e1da94cebfee47760cd` (B001, candidate `c6bde864…`)
+
+**Why it wasn't fixed now**
+- The proposed patch rewrites "Run feature-a list to list entries.", which the reviewed diff didn't change. The diff only added "The default order is alphabetical."
+- Unattended triage limits discretionary fixes to already-changed lines or their directly covering tests. Edit authority and enough time (12 minutes against an estimated 10) don't override that.
+
+**Why it can wait:** Feature A already documents the required command and default order, so a second worked example is optional.
+
+**Owner check**
+- The fingerprint search found no matching note. I found no tasks under E01-F01 or E01-F02, and no tech-debt, bugs, changes or ideas.
+- I created the task under E01-F01, which the grant permits and which matches the requested feature.
+- Readback confirmed the key, the feature listing, the scope and the literal fingerprint. The scope reads: "add a worked example to docs/feature-a.md showing the default order (suggested: feature-a list prints apple before pear)."
+
+**Recorder calls**
+1. `intake`, run alone and first.
+2. `read` for the `shark-rider`, triage, d

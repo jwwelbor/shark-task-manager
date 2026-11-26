@@ -56,5 +56,5 @@
 --- PASS: TestTC061_I07LifecycleRunContract (0.80s)
 --- PASS: TestTC067_I08LifecycleEvaluationContract (0.92s)
 PASS
-ok  	github.com/jwwelbor/shark-task-manager/tests/contracts	108.527s
+ok  	github.com/jwwelbor/shark-task-manager/tests/contracts	(cached)
 rc=0

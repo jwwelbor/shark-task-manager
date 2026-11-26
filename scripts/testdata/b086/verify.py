@@ -787,6 +787,8 @@ def inspect_case(case, manifest, fingerprint):
                 missing.append('accounted tracker invocation')
             # A refused call is still an attempt: count it by its verb so zero-write checks see it.
             words = [a for a in attempt['argv'] if not a.startswith('-')]
+            if any(a in ('--help', '-h') for a in attempt['argv']):
+                continue  # a refused help probe changes nothing and is not a write attempt
             if 'create' in words:
                 creates.append(attempt)
                 create_targets.append(None)

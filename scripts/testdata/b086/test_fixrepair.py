@@ -282,11 +282,13 @@ class RefusedAttemptsCount(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prepare(root)
+            manifest = json.loads((root / 'preparation.json').read_bytes())
+            check = lambda: verify.inspect_case(root / 'grant-b', manifest, 'docs/feature-a.md#DOCS#worked-example')
+            observer(root / 'grant-b', 'shark', 'create', 'task', '--help')
+            self.assertNotIn('zero write attempts and zero children', check()['missing'])
             done = observer(root / 'grant-b', 'shark', 'create', 'task', 'E01-F01', 'Sneak', '--agent', 'backend')
             self.assertEqual(done.returncode, 1)
-            manifest = json.loads((root / 'preparation.json').read_bytes())
-            result = verify.inspect_case(root / 'grant-b', manifest, 'docs/feature-a.md#DOCS#worked-example')
-            self.assertIn('zero write attempts and zero children', result['missing'])
+            self.assertIn('zero write attempts and zero children', check()['missing'])
 
 
 if __name__ == '__main__':

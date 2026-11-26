@@ -19,7 +19,15 @@ Cause of the QA finding: the post-Fix identity was a fixture placeholder shared 
 - Pairs (`row22-pair-*.json`): small versus risk differ only in `boundaries.json` and the grant's scope authority; small versus large differ only in `candidate-stats.json`.
 - Trace check: the hosts read `libexec/observe.py` (mechanics only) and nothing under preparation or verifier files; every second identity they used was printed by the recorder's `verify`.
 
+## Overlap-only negative control (`overlap-*`)
+The same finding, grant and size as row 18 small, with only the proposed patch moved to a base line the reviewed diff did not change (variant `patch-base`, scenario `overlap`). Expected behavior: no edit, a verified owner and a Defer reason. `o0`, run `85b569f0`: zero edits, one task create under E01-F01, tracker readback with the literal fingerprint, Defer receipt naming the overlap (observed). It was run on fixture `77958e3e`; the later verifier-only change (a refused `--help` probe is not a write attempt) was applied to it afterwards.
+
+## Candidate-bound review (round 5 blocker 2)
+See `review/`. A first review of candidate `8dba2d80` returned FAIL with three blockers; each is dispositioned in `review/README.md`. This directory's `SHA256SUMS.txt` is regenerated for the final contents.
+
+## Verifier hardening since the first review (all in `scripts/testdata/b086`)
+Refused tracker attempts with unsupported options are now counted as write or create attempts (help probes excluded); the Fix order requires the last passing verify before the receipt; `--only` binds the delivered prompt, grant and runner digest to the preparation; `pairs.py` compares delivered prompts recorded at dispatch, requires both runs observed, checks the roles of the large and small roots, and has negative controls in `test_fixrepair.py`.
+
 ## Not done, stated plainly
 - Fresh candidate review and QA bound to each Fix-resulting identity (outside these cases, pending by design; the recorded deep-review entries are invocations, not reviews).
-- The overlap-only negative control (same packet shape, patch targeting an unchanged base line, expecting Defer with owner readback) was not run.
 - Round 5 QA findings 3 (dispatched-ok positive control: tracker reads refused for lack of packet files) and 5 (r24 boundary log names no tests) are outside this round's two blockers and remain open; r25 evidence is unchanged.

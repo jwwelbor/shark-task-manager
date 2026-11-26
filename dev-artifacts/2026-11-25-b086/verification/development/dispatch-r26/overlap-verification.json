@@ -1,0 +1,17 @@
+{
+  "o0": {
+    "run_id": "85b569f0-380a-4006-87d0-b19868ed4856",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example under Feature A",
+        "description": "Deferred discretionary review finding docs/feature-a.md#DOCS#worked-example (non-blocker, run fixture-code_review-a62066d438454e1da94cebfee47760cd, candidate c6bde86451f62fe9255d811bfd9096f78b541481). Scope: add a worked example to docs/feature-a.md showing the default order (suggested: feature-a list prints apple before pear). Safe to wait: Feature A already documents the required command and default. Not fixed inline: the proposed patch rewrites an unchanged line.",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": []
+  }
+}
