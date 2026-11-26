@@ -1653,13 +1653,62 @@ def fork_candidates(response):
     return sorted(normalized, key=lambda item: item["entity_key"])
 
 
-def allowed_outcomes(scratch, response):
-    entity_type = str(response.get("entity_type", "")).replace("_", "-")
-    candidates = [entity_type, entity_type.replace("-card", "")]
+def _scenario_workflow_families(scenario, repo_root):
+    lib_dir = str((repo_root / "bench" / "scripts" / "lib").resolve())
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from e40_benchmark import package_workflow_families
+
+    families = sorted(package_workflow_families(scenario))
+    root_family = str(scenario.get("entity_family") or "unknown").strip() or "unknown"
+    if root_family != "unknown" and root_family in families:
+        families = [root_family] + [fam for fam in families if fam != root_family]
+    return families or [root_family]
+
+
+def _resolve_workflow_file(scratch, entity_family):
+    family_str = str(entity_family or "").strip()
+    family_name = family_str.replace("_", "-")
+    candidates = []
+    for cand in (family_name, family_name.replace("-card", ""), family_str):
+        if cand and cand not in candidates:
+            candidates.append(cand)
+    workflow_dir = scratch / "shark-data" / "workflow"
+    cfg_path = scratch / ".sharkconfig.json"
+    if cfg_path.is_file():
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cfg = {}
+        wf_cfg = cfg.get("workflow_config") if isinstance(cfg, dict) else None
+        if isinstance(wf_cfg, str) and wf_cfg.strip():
+            resolved_cfg = Path(wf_cfg.strip())
+            if not resolved_cfg.is_absolute():
+                resolved_cfg = scratch / resolved_cfg
+            if resolved_cfg.is_file():
+                index_doc = yaml.safe_load(resolved_cfg.read_text(encoding="utf-8")) or {}
+                if isinstance(index_doc, dict):
+                    workflows_map = index_doc.get("workflows") if isinstance(index_doc.get("workflows"), dict) else index_doc
+                    for cand in candidates:
+                        mapped = workflows_map.get(cand)
+                        if isinstance(mapped, str) and mapped.strip():
+                            target = Path(mapped.strip())
+                            if not target.is_absolute():
+                                target = resolved_cfg.parent / target
+                            if target.is_file():
+                                return target
+            elif resolved_cfg.is_dir():
+                workflow_dir = resolved_cfg
     for name in candidates:
-        path = scratch / "shark-data" / "workflow" / f"{name}.yaml"
-        if not path.is_file():
-            continue
+        path = workflow_dir / f"{name}.yaml"
+        if path.is_file():
+            return path
+    return None
+
+
+def allowed_outcomes(scratch, response):
+    path = _resolve_workflow_file(scratch, response.get("entity_type", ""))
+    if path is not None:
         workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         step = ((workflow.get("steps") or {}).get(str(response.get("status"))) or {})
         outcomes = step.get("outcomes") or {}
@@ -1668,7 +1717,113 @@ def allowed_outcomes(scratch, response):
     return ["blocked", "fail", "on_hold", "pass"]
 
 
-def configured_gate_policies(scratch, entity_family, repo_root):
+def _extract_family_gate_policies(scratch, family, workflow_path, repo_root):
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+    gate_phases = {"code_review", "review", "qa", "uat", "approval"}
+    policies = []
+    steps = workflow.get("steps")
+    if isinstance(steps, dict) and steps:
+        visited = set()
+        pending = [workflow.get("start")]
+        while pending:
+            current = pending.pop(0)
+            if not isinstance(current, str) or not current or current in visited:
+                continue
+            visited.add(current)
+            step = steps.get(current) or {}
+            phase = str(step.get("phase") or "")
+            if step.get("action") == "spawn_agent" and phase in gate_phases:
+                prompt_source = str(step.get("prompt") or "")
+                prompt_path = scratch / "shark-data" / "prompts" / prompt_source
+                prompt_source_digest = sha256_file(prompt_path) if prompt_path.is_file() else "0" * 64
+                policy = {
+                    "gate_id": current,
+                    "workflow_family": family,
+                    "phase": phase,
+                    "provider": str(step.get("provider") or "unknown"),
+                    "model": str(step.get("model") or "unknown"),
+                    "effort": str(step.get("effort") or "default"),
+                    "prompt_source": prompt_source,
+                    "prompt_source_digest": prompt_source_digest,
+                    "rendered_prompt_digest": None,
+                    "deep_review_bundle_digest": deep_review_digest(repo_root),
+                    "fixes_allowed": "fail" in (step.get("outcomes") or {}),
+                    "reached": False,
+                }
+                policy["policy_digest"] = canonical_digest(policy)
+                policies.append(policy)
+            outcomes = step.get("outcomes") or {}
+            if isinstance(outcomes, dict):
+                for target in outcomes.values():
+                    if (
+                        isinstance(target, str) and target in steps
+                        and target not in visited and target not in pending
+                    ):
+                        pending.append(target)
+        return policies
+
+    status_flow = workflow.get("status_flow") or {}
+    status_meta = workflow.get("status_metadata") or {}
+    if isinstance(status_meta, dict) and status_meta:
+        visited = set()
+        pending = list(workflow.get("start") or []) if isinstance(workflow.get("start"), list) else [workflow.get("start")]
+        if not pending or pending == [None]:
+            pending = list(status_meta.keys())
+        while pending:
+            current = pending.pop(0)
+            if not isinstance(current, str) or not current or current in visited:
+                continue
+            visited.add(current)
+            meta = status_meta.get(current) or {}
+            phase = str(meta.get("phase") or "")
+            action = meta.get("orchestrator_action") or {}
+            if phase in gate_phases and isinstance(action, dict) and action.get("action") == "spawn_agent":
+                prompt_source = str(action.get("instruction_template") or "")
+                prompt_path = scratch / "shark-data" / "prompts" / prompt_source
+                prompt_source_digest = sha256_file(prompt_path) if prompt_path.is_file() else "0" * 64
+                policy = {
+                    "gate_id": current,
+                    "workflow_family": family,
+                    "phase": phase,
+                    "provider": str(action.get("provider") or "unknown"),
+                    "model": str(action.get("model") or "unknown"),
+                    "effort": str(action.get("effort") or "default"),
+                    "prompt_source": prompt_source,
+                    "prompt_source_digest": prompt_source_digest,
+                    "rendered_prompt_digest": None,
+                    "deep_review_bundle_digest": deep_review_digest(repo_root),
+                    "fixes_allowed": False,
+                    "reached": False,
+                }
+                policy["policy_digest"] = canonical_digest(policy)
+                policies.append(policy)
+            targets = status_flow.get(current) or []
+            if isinstance(targets, list):
+                for target in targets:
+                    if isinstance(target, str) and target not in visited and target not in pending:
+                        pending.append(target)
+    return policies
+
+
+def configured_gate_policy_state(scratch, workflow_families, repo_root):
+    """Freeze each eligible family's configured gate policies and workflow-found state."""
+    policies = []
+    by_family = {}
+    family_found = {}
+    for family in workflow_families:
+        workflow_path = _resolve_workflow_file(scratch, family)
+        if workflow_path is None:
+            family_found[family] = False
+            by_family[family] = frozenset()
+            continue
+        family_found[family] = True
+        fam_policies = _extract_family_gate_policies(scratch, family, workflow_path, repo_root)
+        policies.extend(fam_policies)
+        by_family[family] = frozenset(p["gate_id"] for p in fam_policies)
+    return policies, any(family_found.values()), by_family, family_found
+
+
+def configured_gate_policies(scratch, entity_family, repo_root, workflow_families=None):
     """Retain every review-like gate reachable through any workflow outcome.
 
     Returns (policies, workflow_found): workflow_found distinguishes "no
@@ -1677,56 +1832,9 @@ def configured_gate_policies(scratch, entity_family, repo_root):
     an empty policies list, but is_configured_gate must treat them
     differently (fall back to keyword matching only in the former case).
     """
-    family_name = str(entity_family).replace("_", "-")
-    candidates = [family_name, family_name.replace("-card", "")]
-    workflow_path = next(
-        (scratch / "shark-data" / "workflow" / f"{name}.yaml" for name in candidates
-         if (scratch / "shark-data" / "workflow" / f"{name}.yaml").is_file()),
-        None,
-    )
-    if workflow_path is None:
-        return [], False
-    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
-    steps = workflow.get("steps") or {}
-    visited = set()
-    pending = [workflow.get("start")]
-    policies = []
-    gate_phases = {"code_review", "review", "qa", "uat", "approval"}
-    while pending:
-        current = pending.pop(0)
-        if not isinstance(current, str) or not current or current in visited:
-            continue
-        visited.add(current)
-        step = steps.get(current) or {}
-        phase = str(step.get("phase") or "")
-        if step.get("action") == "spawn_agent" and phase in gate_phases:
-            prompt_source = str(step.get("prompt") or "")
-            prompt_path = scratch / "shark-data" / "prompts" / prompt_source
-            prompt_source_digest = sha256_file(prompt_path) if prompt_path.is_file() else "0" * 64
-            policy = {
-                "gate_id": current,
-                "phase": phase,
-                "provider": str(step.get("provider") or "unknown"),
-                "model": str(step.get("model") or "unknown"),
-                "effort": str(step.get("effort") or "default"),
-                "prompt_source": prompt_source,
-                "prompt_source_digest": prompt_source_digest,
-                "rendered_prompt_digest": None,
-                "deep_review_bundle_digest": deep_review_digest(repo_root),
-                "fixes_allowed": "fail" in (step.get("outcomes") or {}),
-                "reached": False,
-            }
-            policy["policy_digest"] = canonical_digest(policy)
-            policies.append(policy)
-        outcomes = step.get("outcomes") or {}
-        if isinstance(outcomes, dict):
-            for target in outcomes.values():
-                if (
-                    isinstance(target, str) and target in steps
-                    and target not in visited and target not in pending
-                ):
-                    pending.append(target)
-    return policies, True
+    families = workflow_families if workflow_families is not None else [entity_family]
+    policies, any_found, _, _ = configured_gate_policy_state(scratch, families, repo_root)
+    return policies, any_found
 
 
 def refresh_workflow_policy(record):
@@ -1760,7 +1868,14 @@ def refresh_workflow_policy(record):
     )
 
 
-def is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
+def is_configured_gate(
+    configured_gate_ids,
+    has_configured_workflow,
+    gate_id,
+    entity_family=None,
+    configured_gates_by_family=None,
+    family_workflow_found=None,
+):
     """Whether gate_id (the entity's current status) is a configured review/
     qa/uat/approval/code_review gate.
 
@@ -1789,6 +1904,10 @@ def is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
     back to the keyword match, to preserve prior behavior for callers with
     no `steps:` schema to consult.
     """
+    if entity_family and isinstance(family_workflow_found, dict) and entity_family in family_workflow_found:
+        if family_workflow_found[entity_family]:
+            return gate_id in (configured_gates_by_family or {}).get(entity_family, frozenset())
+        return stage_category(gate_id) in {"review", "qa", "uat"}
     if has_configured_workflow:
         return gate_id in configured_gate_ids
     return stage_category(gate_id) in {"review", "qa", "uat"}
@@ -1796,7 +1915,13 @@ def is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
 
 def gate_policy_for(record, response, repo_root):
     gate_id = str(response.get("status", "review"))
-    for policy in record["workflow_policy"].get("gate_policies") or []:
+    entity_family = str(response.get("entity_type") or "").strip()
+    policies = record["workflow_policy"].get("gate_policies") or []
+    if entity_family:
+        for policy in policies:
+            if policy.get("gate_id") == gate_id and policy.get("workflow_family") == entity_family:
+                return policy
+    for policy in policies:
         if policy.get("gate_id") == gate_id:
             return policy
     fallback = {
@@ -1812,6 +1937,8 @@ def gate_policy_for(record, response, repo_root):
         "fixes_allowed": False,
         "reached": False,
     }
+    if entity_family:
+        fallback["workflow_family"] = entity_family
     fallback["policy_digest"] = canonical_digest(fallback)
     record["workflow_policy"].setdefault("gate_policies", []).append(fallback)
     return fallback
@@ -2401,6 +2528,7 @@ def capture_gate_if_configured(
     record, configured_gate_ids, has_configured_workflow, i05_writer,
     shark, scratch, entity, response, stage_candidate,
     review_rounds, seen_review_note_ids, repo_root, request,
+    configured_gates_by_family=None, family_workflow_found=None,
 ):
     """Captures this dispatch's review/qa/uat gate evidence, if
     is_configured_gate says this dispatch's status is a configured gate.
@@ -2429,12 +2557,21 @@ def capture_gate_if_configured(
     if i05_writer is None:
         return
     gate_id = str(response.get("status", "review"))
-    if not is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
+    entity_family = str(response.get("entity_type") or "").strip() or None
+    if not is_configured_gate(
+        configured_gate_ids,
+        has_configured_workflow,
+        gate_id,
+        entity_family=entity_family,
+        configured_gates_by_family=configured_gates_by_family,
+        family_workflow_found=family_workflow_found,
+    ):
         return
-    review_rounds[gate_id] = review_rounds.get(gate_id, 0) + 1
+    round_key = (entity, gate_id)
+    review_rounds[round_key] = review_rounds.get(round_key, 0) + 1
     gate, captured_policy = capture_review_gate(
         shark, scratch, i05_writer.dir, entity, response, stage_candidate,
-        review_rounds[gate_id], seen_review_note_ids, repo_root,
+        review_rounds[round_key], seen_review_note_ids, repo_root,
         gate_policy_for(record, response, repo_root),
     )
     record["review_gates"].append(gate)
@@ -2524,8 +2661,8 @@ def main(argv):
     record = make_record(identity, args["root"], scratch, limits, repo_root)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
-    configured_gate_policy_list, has_configured_workflow = configured_gate_policies(
-        scratch, scenario.get("entity_family", "unknown"), repo_root,
+    configured_gate_policy_list, has_configured_workflow, configured_gates_by_family, family_workflow_found = configured_gate_policy_state(
+        scratch, _scenario_workflow_families(scenario, repo_root), repo_root,
     )
     record["workflow_policy"]["gate_policies"] = configured_gate_policy_list
     # Frozen at setup time, before any dispatch: is_configured_gate must never
@@ -2826,6 +2963,8 @@ def main(argv):
                         except OSError:
                             pass
                     to_status = str(apply_resp.get("to_status") or apply_resp.get("new_status") or "")
+                    status_proj = apply_resp.get("status") if isinstance(apply_resp.get("status"), dict) else {}
+                    retired = bool(apply_resp.get("retired")) or status_proj.get("retirement_state") == "retired"
                     dispatch["transition"] = {
                         "run_id": stage_id,
                         "outcome": str(outcome),
@@ -2834,7 +2973,7 @@ def main(argv):
                         "to_status": to_status,
                         "persisted": True,
                         "transitioned": bool(apply_resp.get("transitioned", True)),
-                        "retired": bool(apply_resp.get("retired", False)),
+                        "retired": retired,
                         "final_digest": sha256_bytes(raw_bytes),
                     }
                     advanced = True
@@ -2951,6 +3090,8 @@ def main(argv):
                 record, configured_gate_ids, has_configured_workflow, i05_writer,
                 shark, scratch, entity, response, stage_candidate,
                 review_rounds, seen_review_note_ids, repo_root, request,
+                configured_gates_by_family=configured_gates_by_family,
+                family_workflow_found=family_workflow_found,
             )
             ordinal += 1
             write_partial(output, record)

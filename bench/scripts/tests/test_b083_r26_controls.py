@@ -17,7 +17,15 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPTS / "tests" / "lib") not in sys.path:
     sys.path.insert(0, str(SCRIPTS / "tests" / "lib"))
 
-from bench.scripts.lib.e40_benchmark import _route_action_mapping, live_workflow_stages
+from bench.scripts.lib.e40_benchmark import (
+    _effective_profile_route,
+    _live_stage_effort,
+    _route_action_mapping,
+    _validate_effective_routes,
+    live_workflow_stages,
+    matrix_workflow_families,
+    package_workflow_families,
+)
 from lifecycle_adapter_test_helper import load_adapter_module
 
 _adapter = load_adapter_module()
@@ -56,9 +64,121 @@ def test_route_action_mapping_matches_keyed_worker_semantics(tmp_path):
 
 @pytest.mark.parametrize("effort", ["HiGh", "FixtureBoost"])
 def test_codex_effort_preserved_verbatim_in_adapter_and_materializer(tmp_path, effort):
+    # 1. Adapter route helper preserves mixed-case effort verbatim.
     model, got_effort = _codex_route({"model": "synthetic-m", "effort": effort})
     assert model == "synthetic-m"
     assert got_effort == effort
+
+    # 2. e40_benchmark helpers preserve mixed-case effort for codex/openai and fold for other providers.
+    assert _live_stage_effort(effort, "codex", "development") == effort
+    assert _live_stage_effort(effort, "openai", "development") == effort
+    assert _live_stage_effort("HiGh", "anthropic", "development") == "high"
+
+    profile_route = _effective_profile_route(
+        "development",
+        {"model": "synthetic-m", "effort": effort},
+        "codex",
+        None,
+        None,
+        False,
+    )
+    assert profile_route == {"provider": "codex", "model": "synthetic-m", "effort": effort}
+
+    # Mismatched casing against profile is rejected even when case-insensitive would match.
+    prof_obj = {
+        "schema_version": "1.0",
+        "profile_id": "synthetic-effort",
+        "provider": "codex",
+        "description": "Preserve mixed-case effort",
+        "routes": {"development": {"model": "synthetic-m", "effort": effort}},
+    }
+    _validate_effective_routes(prof_obj, {"development": profile_route})
+    if effort != effort.lower():
+        with pytest.raises(Exception, match="does not match"):
+            _validate_effective_routes(
+                prof_obj,
+                {"development": {"provider": "codex", "model": "synthetic-m", "effort": effort.lower()}},
+            )
+
+    # 3. materialize-routing-profile.py preserves exact effort in both workflow and profile modes.
+    fake_codex = tmp_path / "fake_codex"
+    fake_codex.write_text(
+        f"""#!/usr/bin/env python3
+import json, sys
+if sys.argv[1:] == ["--version"]:
+    print("codex-fixture/1")
+    raise SystemExit(0)
+for line in sys.stdin:
+    req = json.loads(line)
+    if "id" not in req:
+        continue
+    if req.get("method") == "initialize":
+        res = {{"userAgent": "codex-fixture/1"}}
+    elif req.get("method") == "model/list":
+        res = {{"data": [{{"model": "synthetic-m", "displayName": "M", "description": "m", "hidden": False, "isDefault": True, "defaultReasoningEffort": {effort!r}, "supportedReasoningEfforts": [{{"reasoningEffort": {effort!r}}}]}}], "nextCursor": None}}
+    else:
+        continue
+    print(json.dumps({{"id": req["id"], "result": res}}), flush=True)
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+    env = {**os.environ, "E40_CODEX_COMMAND": json.dumps([str(fake_codex)])}
+
+    wf = tmp_path / "bug.yaml"
+    wf.write_text(
+        yaml.safe_dump({"steps": {"development": {"action": "spawn_agent", "provider": "codex", "model": "synthetic-m", "effort": effort}}}),
+        encoding="utf-8",
+    )
+    res_wf = subprocess.run(
+        [sys.executable, str(SCRIPTS / "materialize-routing-profile.py"), "--workflow-root", str(wf)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    wf_out = json.loads(res_wf.stdout)
+    assert wf_out["selected_codex_models"]["bug.yaml::development"]["model"] == "synthetic-m"
+    assert yaml.safe_load(wf.read_text(encoding="utf-8"))["steps"]["development"]["effort"] == effort
+
+    wf.write_text(
+        yaml.safe_dump({"steps": {"development": {"action": "spawn_agent", "provider": "anthropic", "model": "claude-sonnet", "effort": "high"}}}),
+        encoding="utf-8",
+    )
+    profile_file = tmp_path / "profile.yaml"
+    profile_file.write_text(
+        yaml.safe_dump({
+            "schema_version": "1.0",
+            "profile_id": "synthetic-effort",
+            "provider": "codex",
+            "description": "Preserve mixed-case effort",
+            "routes": {"development": {"model": "synthetic-m", "effort": effort}},
+        }),
+        encoding="utf-8",
+    )
+    res_prof = subprocess.run(
+        [sys.executable, str(SCRIPTS / "materialize-routing-profile.py"), "--workflow-root", str(wf), "--profile", str(profile_file)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    prof_out = json.loads(res_prof.stdout)
+    assert prof_out["selected_codex_models"]["bug.yaml::development"]["model"] == "synthetic-m"
+    assert yaml.safe_load(wf.read_text(encoding="utf-8"))["steps"]["development"]["effort"] == effort
+
+
+def test_descendant_family_scope_includes_cascaded_families(tmp_path):
+    epic_pkg = REPO_ROOT / "bench" / "scenarios" / "packages" / "py-epic-task-organization" / "package.yaml"
+    feature_pkg = REPO_ROOT / "bench" / "scenarios" / "packages" / "py-feature-recurring-tasks" / "package.yaml"
+    bug_pkg = REPO_ROOT / "bench" / "scenarios" / "packages" / "py-bug-due-date-boundary" / "package.yaml"
+
+    assert matrix_workflow_families([{"family": "epic", "package_path": str(epic_pkg)}]) == ["epic", "feature", "task"]
+    assert matrix_workflow_families([{"family": "feature", "package_path": str(feature_pkg)}]) == ["feature", "task"]
+    assert matrix_workflow_families([{"family": "bug", "package_path": str(bug_pkg)}]) == ["bug"]
+    assert package_workflow_families({"entity_family": "feature"}) == {"feature", "task"}
 
 
 def test_generated_worker_id_bounds_long_model_deterministically():

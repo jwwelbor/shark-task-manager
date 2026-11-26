@@ -333,6 +333,8 @@ import sys
 import yaml
 
 bench_dir, batch_policy_path, scenarios_filter, reps_override = sys.argv[1:5]
+sys.path.insert(0, os.path.join(bench_dir, "scripts", "lib"))
+from e40_benchmark import package_workflow_families
 SCENARIO_ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 # GATE_REP_BASE mirrors the bash-level constant above and run-review-
@@ -430,11 +432,16 @@ if requested_ids:
         raise SystemExit(1)
 else:
     selected = packages
+required_families = set()
+for _, _, pkg in selected:
+    required_families.update(package_workflow_families(pkg))
+if not required_families:
+    required_families = {str(pkg.get("entity_family", "unknown")) for _, _, pkg in selected}
 configured_families = policy.get("workflow_families")
 if isinstance(configured_families, list) and all(isinstance(item, str) and item for item in configured_families):
-    workflow_families = sorted(set(configured_families))
+    workflow_families = sorted(required_families | set(configured_families))
 else:
-    workflow_families = sorted({str(pkg.get("entity_family", "unknown")) for _, _, pkg in selected})
+    workflow_families = sorted(required_families)
 
 policy_scenarios = policy.get("scenarios") or {}
 if not isinstance(policy_scenarios, dict):

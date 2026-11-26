@@ -1788,6 +1788,51 @@ def scenario_packages(index_path: Path) -> list[tuple[Path, dict[str, Any]]]:
     return packages
 
 
+def package_workflow_families(package: dict[str, Any]) -> set[str]:
+    """Derive required and eligible descendant workflow families for a scenario package."""
+    families: set[str] = set()
+    root_family = str(package.get("entity_family") or "").strip()
+    if root_family and root_family != "unknown":
+        families.add(root_family)
+    graph = package.get("expected_entity_graph")
+    if isinstance(graph, dict):
+        graph_root = str(graph.get("root_family") or "").strip()
+        if graph_root:
+            families.add(graph_root)
+        descendants = graph.get("descendants")
+        if isinstance(descendants, list):
+            for entry in descendants:
+                if not isinstance(entry, dict):
+                    continue
+                fam = str(entry.get("family") or "").strip()
+                if not fam:
+                    continue
+                raw_max = entry.get("max")
+                if raw_max is not None and int(raw_max) <= 0:
+                    continue
+                families.add(fam)
+    else:
+        if root_family == "epic":
+            families.update({"feature", "task"})
+        elif root_family == "feature":
+            families.add("task")
+    return families
+
+
+def matrix_workflow_families(matrix: list[dict[str, Any]]) -> list[str]:
+    """Compute the sorted union of workflow families required across selected matrix rows."""
+    families: set[str] = set()
+    for row in matrix:
+        raw_pkg_path = row.get("package_path")
+        if isinstance(raw_pkg_path, str) and raw_pkg_path and Path(raw_pkg_path).is_file():
+            package = load_yaml(Path(raw_pkg_path), f"scenario package {raw_pkg_path}")
+            if isinstance(package, dict):
+                families.update(package_workflow_families(package))
+                continue
+        families.update(package_workflow_families({"entity_family": row.get("family")}))
+    return sorted(families)
+
+
 def selected_matrix(
     config: dict[str, Any],
     config_base: Path,
@@ -3076,7 +3121,7 @@ def materialize_batch_policy(
     policy: dict[str, Any] = {
         "schema_version": "1.0",
         "min_reps": matrix[0]["reps"],
-        "workflow_families": sorted({str(row["family"]) for row in matrix}),
+        "workflow_families": matrix_workflow_families(matrix),
         "scenario_index": str(
             resolve_path(
                 str(config.get("scenario_index") or DEFAULT_SCENARIO_INDEX), config_base
@@ -4514,7 +4559,7 @@ def identity_profile(
         }
         for row in matrix
     ]
-    workflow_families = sorted({str(row["family"]) for row in matrix})
+    workflow_families = matrix_workflow_families(matrix)
     routing_fields = _identity_routing_fields(config, config_base, workflow_families)
     identity = {
         "scenario_set_digest": canonical_digest(scenario_set),
