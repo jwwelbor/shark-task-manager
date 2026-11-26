@@ -835,12 +835,32 @@ def _record_angle_count(args, metadata, completed, errors):
         metadata["fallback_reason"] = "; ".join(errors)
 
 
+def _attach_carry_plan(data, plan_bytes):
+    """Parent-supplied file-local credit: the host, not the reviewer, attaches it."""
+    units = json.loads(plan_bytes.decode("utf-8"))
+    if not isinstance(units, list) or not units or not all(isinstance(u, dict) for u in units):
+        raise ValueError("carry plan must be a nonempty list of units")
+    carried = {u.get("path") for u in units}
+    packets = json.loads(data.decode("utf-8"))
+    if not isinstance(packets, dict):
+        raise ValueError("expected an object keyed by specialist a through f")
+    for name, packet in packets.items():
+        if not isinstance(packet, dict) or not packet:
+            continue
+        files = packet.get("reviewed_files")
+        fresh = [f for f in files if f not in carried] if isinstance(files, list) else files
+        packets[name] = {**packet, "reviewed_files": fresh, "carried_units": units, "cross_file_fresh": True}
+    return json.dumps(packets, sort_keys=True).encode("utf-8")
+
+
 def _writer_angles(args, metadata, scope_error):
     is_six = args.runner_mode in {"canonical-six-angle", "dispatched-six-angle"}
     check_packets = is_six or (args.runner_mode == "incomplete" and args.angle_results is not None)
     try:
         if args.angle_results:
             metadata["_angle_bytes"] = read_review_file(args.angle_results, 32 * 1024 * 1024)
+            if getattr(args, "carry_plan", None):
+                metadata["_angle_bytes"] = _attach_carry_plan(metadata["_angle_bytes"], read_review_file(args.carry_plan, 2 * 1024 * 1024))
         if scope_error or not check_packets:
             return [], is_six
         if not args.angle_results:
@@ -1019,6 +1039,7 @@ def parser() -> argparse.ArgumentParser:
     write.add_argument("--branch", default="unknown")
     write.add_argument("--scope-file")
     write.add_argument("--angle-results")
+    write.add_argument("--carry-plan", help="parent-verified JSON list of file-local credited units")
     write.add_argument("--review-decisions")
     write.add_argument("--requested-model")
     write.add_argument("--effective-model")

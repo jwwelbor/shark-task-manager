@@ -797,6 +797,88 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class HostCarryPlanTest(unittest.TestCase):
+    """B087 B01: the Python host attaches a parent-supplied carry plan at write-report."""
+
+    def _fixture(self, root):
+        repo = root / 'repo'
+        repo.mkdir()
+        def git(*args, env=None):
+            return subprocess.run(['git', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', *args], cwd=repo, check=True, capture_output=True, text=True, env=env).stdout.strip()
+        git('init', '-b', 'main')
+        git('config', 'user.name', 'Test')
+        git('config', 'user.email', 'test@example.invalid')
+        (repo / 'leaf-a.md').write_text('a0')
+        (repo / 'leaf-b.md').write_text('b0')
+        git('add', '.')
+        git('commit', '-m', 'base')
+        git('checkout', '-b', 'candidate')
+        (repo / 'leaf-a.md').write_text('a1')
+        (repo / 'leaf-b.md').write_text('b1')
+        git('commit', '-am', 'round one')
+        predecessor = git('rev-parse', 'HEAD')
+        (repo / 'leaf-b.md').write_text('b2')
+        git('commit', '-am', 'round two')
+        capture = subprocess.run(['bash', str(HERE / 'get_diff.sh')], cwd=repo, check=True, capture_output=True, text=True, env={**os.environ, 'REVIEW_PREDECESSOR_COMMIT': predecessor})
+        scope_file = root / 'scope.json'
+        scope_file.write_text(capture.stdout)
+        return repo, json.loads(capture.stdout), scope_file, predecessor
+
+    def _write(self, root, repo, scope, scope_file, angles, plan, name):
+        angle_file = root / f'angles-{name}.json'
+        angle_file.write_text(json.dumps(angles))
+        body = root / 'body.md'
+        body.write_text('Reviewed scope: all files and callers. Findings: none. Detailed verification completed. VERDICT: PASS')
+        report = root / f'report-{name}.md'
+        decisions = root / 'decisions.json'
+        decisions.write_text(json.dumps({'candidate_identity': angles['a']['candidate_identity'], 'findings': []}))
+        argv = [sys.executable, str(HERE / 'adaptive_review.py'), 'write-report', '--runner-mode', 'canonical-six-angle',
+                '--specialists-completed', '6', '--consolidator-completed', 'true', '--verdict', 'PASS',
+                '--angle-results', str(angle_file), '--body-file', str(body), '--review-output-path', str(report),
+                '--scope-file', str(scope_file), '--review-decisions', str(decisions), '--project-root', str(repo), '--source-root', str(repo),
+                '--diff-path', scope['diff_path'], '--base-commit', scope['base_commit']]
+        if plan is not None:
+            plan_file = root / f'plan-{name}.json'
+            plan_file.write_text(json.dumps(plan))
+            argv += ['--carry-plan', str(plan_file)]
+        result = subprocess.run(argv, capture_output=True, text=True)
+        return result, report, angle_file
+
+    def test_write_report_credits_the_unchanged_leaf_only_with_a_parent_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file, predecessor = self._fixture(root)
+            self.assertEqual(scope['successor_delta']['changed_files'], ['leaf-b.md'])
+            self.assertEqual(sorted(scope['changed_files']), ['leaf-a.md', 'leaf-b.md'])
+            identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
+            packet = {'candidate_identity': identity, 'reviewed_files': ['leaf-b.md'], 'findings': []}
+            angles = {label: packet for label in 'abcdef'}
+            unit = {'version': 1, 'path': 'leaf-a.md', 'obligation': 'file_local', 'inputs': [], 'dynamic_lookup': False,
+                    'predecessor_commit': predecessor, 'predecessor_run_id': 'review-a', 'predecessor_operation_digest': 'b' * 64}
+            # Without the parent plan the unchanged leaf is not inspected: the writer refuses success.
+            result, report, _ = self._write(root, repo, scope, scope_file, angles, None, 'none')
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
+            # With it the same reviewer replies pass, and the saved bytes carry the plan the admission reads.
+            result, report, angle_file = self._write(root, repo, scope, scope_file, angles, [unit], 'plan')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            metadata = json.loads(result.stdout)
+            self.assertEqual(metadata['verdict'], 'PASS')
+            self.assertEqual(metadata['specialists_completed'], 6)
+            saved = json.loads(Path(metadata['retained_angles']).read_bytes())
+            for label in 'abcdef':
+                self.assertEqual(saved[label]['carried_units'], [unit])
+                self.assertEqual(saved[label]['reviewed_files'], ['leaf-b.md'])
+                self.assertIs(saved[label]['cross_file_fresh'], True)
+            self.assertIn(hashlib.sha256(Path(metadata['retained_angles']).read_bytes()).hexdigest(), report.read_text())
+            # A plan naming a path the successor changed, or another predecessor, is refused.
+            changed = {**unit, 'path': 'leaf-b.md'}
+            result, _, _ = self._write(root, repo, scope, scope_file, angles, [changed], 'changed')
+            self.assertEqual(result.returncode, 2)
+            result, _, _ = self._write(root, repo, scope, scope_file, angles, [{**unit, 'predecessor_commit': 'c' * 40}], 'other')
+            self.assertEqual(result.returncode, 2)
+
+
 class CarriedCreditShapeTest(unittest.TestCase):
     """Shared versioned fixture; the Go admission and native workflow tests read the same file."""
 
