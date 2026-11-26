@@ -821,5 +821,20 @@ print(json.dumps({'session_id':'claude-attempt-1','provider':'anthropic','model'
             self.assertIn('runner_mode=incomplete', report.read_text())
 
 
+class ClaudeReceiptTests(unittest.TestCase):
+    def test_model_usage_supplies_identity_the_host_omits_at_top_level(self):
+        output = json.dumps({'session_id': 's-1', 'result': 'packet', 'modelUsage': {
+            'claude-sonnet-5-5': {'provider': 'firstParty'}}})
+        packet, receipt = adaptive_review._claude_attempt_receipt(output)
+        self.assertEqual(packet, 'packet')
+        self.assertEqual((receipt['observed_provider'], receipt['observed_model'], receipt['disposition']),
+                         ('firstParty', 'claude-sonnet-5-5', 'observed'))
+
+    def test_ambiguous_model_usage_stays_partial(self):
+        output = json.dumps({'session_id': 's-1', 'result': 'p', 'modelUsage': {
+            'a': {'provider': 'firstParty'}, 'b': {'provider': 'firstParty'}}})
+        self.assertEqual(adaptive_review._claude_attempt_receipt(output)[1]['disposition'], 'partial')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -214,6 +214,13 @@ def _claude_attempt_receipt(output: str) -> tuple[str | None, dict[str, object]]
     worker_id = result.get("session_id")
     provider = result.get("provider")
     model = result.get("model")
+    usage_by_model = result.get("modelUsage")
+    if not (provider and model) and isinstance(usage_by_model, dict) and len(usage_by_model) == 1:
+        # Claude Code 2.1.x reports the producing model and provider only under modelUsage.
+        (usage_model, usage_entry), = usage_by_model.items()
+        if isinstance(usage_entry, dict):
+            model = model or usage_model
+            provider = provider or usage_entry.get("provider")
     packet = result.get("result")
     receipt = {
         "worker_id": worker_id if isinstance(worker_id, str) and worker_id else None,
