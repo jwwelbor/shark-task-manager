@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -30,7 +31,7 @@ func RecordTrackerAttempt(args []string) {
 	// A ledger that cannot be written must not hide the attempt from the
 	// parent: fail the invocation rather than let it proceed unrecorded.
 	if err := trackerattempts.Append(path, runID, command, args, write); err != nil {
-		os.Stderr.WriteString("shark: cannot record tracker attempt: " + err.Error() + "\n")
+		_, _ = fmt.Fprintf(os.Stderr, "shark: cannot record tracker attempt: %v\n", err)
 		os.Exit(3)
 	}
 }

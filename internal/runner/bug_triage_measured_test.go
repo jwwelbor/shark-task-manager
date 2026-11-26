@@ -320,3 +320,39 @@ func TestTrackerAttemptLedgerBindsWithdrawalToRunAndFinding(t *testing.T) {
 	_, _, err = ObserveBugReportOnlyTriage(context.Background(), BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: "never-created", RequireLedger: true}, envelope)
 	require.ErrorContains(t, err, "ledger unavailable")
 }
+
+// B088 R4 live host evidence: replays a ledger written by a real host's shark
+// invocations through the parent observation and the production admission
+// reader. It runs only when B088_LIVE_LEDGER names that ledger and
+// B088_LIVE_EXPECT is "accept" or "reject"; the run id is the ledger's own.
+func TestLiveHostLedgerAdmission(t *testing.T) {
+	path, expect := os.Getenv("B088_LIVE_LEDGER"), os.Getenv("B088_LIVE_EXPECT")
+	if path == "" {
+		t.Skip("B088_LIVE_LEDGER not set")
+	}
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var first trackerattempts.Entry
+	require.NoError(t, json.Unmarshal([]byte(strings.SplitN(string(data), "\n", 2)[0]), &first))
+	runID := first.RunID
+
+	f := newTriageFixture(t)
+	env, err := trackerAttemptEnv(f.root, runID)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(strings.TrimPrefix(env[0], trackerattempts.EnvLog+"="), data, 0o600))
+	attached, injected, err := ObserveBugReportOnlyTriage(context.Background(),
+		BugTriageWindow{ProjectRoot: f.root, WorkingDir: f.root, RunID: runID, RequireLedger: true}, f.envelope)
+	require.NoError(t, err)
+	require.True(t, injected)
+	req := gatepersist.Request{RunDir: filepath.Join(f.root, ".shark", "runs", runID), EnvelopeJSON: attached, ParentObservationInjected: true}
+	admission := validateBugParentTriageObservation(req, f.scope, f.decisions)
+	observation, err := os.ReadFile(filepath.Join(req.RunDir, "parent-triage-observation.json"))
+	require.NoError(t, err)
+	t.Logf("observation: %s", observation)
+	t.Logf("admission: %v", admission)
+	if expect == "reject" {
+		require.ErrorContains(t, admission, "report-only requires zero attempted tracker writes")
+		return
+	}
+	require.NoError(t, admission)
+}

@@ -1,0 +1,2 @@
+{"run_id":"live-case-g1","time":"2026-11-26T19:07:29.318752355Z","command":"create note","argv":["create","note","B001","F-1 withdrawn as style only"],"write":true}
+{"run_id":"live-case-g1","time":"2026-11-26T19:07:31.184962858Z","command":"get","argv":["get","B001"],"write":false}
