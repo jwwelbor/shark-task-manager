@@ -63,7 +63,11 @@ func verifyBugSweepGuards(ctx context.Context, req gatepersist.Request, items Bu
 			err = verifyOpenSweepLink(ctx, req, sweep, items)
 		}
 		if err != nil {
-			return fmt.Errorf("sweep %s: unsupported closure: %w", sweep.ClassKey, err)
+			label := "unsupported closure"
+			if sweep.Status == "open" {
+				label = "unsupported open sweep"
+			}
+			return fmt.Errorf("sweep %s: %s: %w", sweep.ClassKey, label, err)
 		}
 	}
 	return nil
@@ -147,13 +151,13 @@ func checkBugGuardExecution(scopeReq gatepersist.Request, sweep gateresult.Defec
 }
 
 // checkBugGuardCandidate binds the corrected-code observation to the reviewed
-// candidate whenever the result retains its scope.
+// candidate. A completed sweep without a retained scope fails closed.
 func checkBugGuardCandidate(req gatepersist.Request, candidate string) error {
 	if strings.TrimSpace(candidate) == "" {
 		return fmt.Errorf("execution record does not name its corrected candidate")
 	}
 	if _, err := findBugEvidence(req, "bug_review_scope"); err != nil {
-		return nil // no retained scope to bind to
+		return fmt.Errorf("completed sweep has no retained review scope to bind its guard candidate: %w", err)
 	}
 	_, data, err := readBugEvidence(req, "bug_review_scope")
 	if err != nil {

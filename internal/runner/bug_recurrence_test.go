@@ -34,7 +34,10 @@ func TestBugRecurrenceSelectsLatestAcceptedSweepFromHistory(t *testing.T) {
 		}
 		sweep := gateresult.DefectClassSweep{ClassKey: class, ClassStatement: "s", SearchScope: scope, SearchedCount: 2, MatchingCount: len(instances), Instances: instances, FixedCount: len(instances) - open, OpenCount: open,
 			Guard: gateresult.SweepGuard{Kind: "test", ImplementationPointer: "g", CounterfactualPointer: "c", Status: "verified"}, Status: status}
-		return mustJSON(t, map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []any{}, "gate_result": map[string]any{"schema_version": 1, "summary": "x", "remediation_sweeps": []any{sweep}}})
+		scopeDoc := mustJSON(t, map[string]any{"candidate_commit": "cand"})
+		require.NoError(t, os.WriteFile(filepath.Join(root, "scope.json"), scopeDoc, 0o600))
+		digest := sha256.Sum256(scopeDoc)
+		return mustJSON(t, map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []any{map[string]any{"kind": "bug_review_scope", "pointer": "scope.json", "summary": "sha256:" + hex.EncodeToString(digest[:])}}, "gate_result": map[string]any{"schema_version": 1, "summary": "x", "remediation_sweeps": []any{sweep}}})
 	}
 	seed := func(run string, envelope []byte, apply bool) {
 		seedMaterialReviewAt(t, root, "", run, envelope, &notes, &history)
@@ -164,6 +167,33 @@ func TestBugHistoricalGuardRecordIsBoundToItsRunCandidate(t *testing.T) {
 	require.Equal(t, 1, prior(), "a record for the run's own candidate earns credit")
 	guard("some-other-candidate")
 	require.Equal(t, 0, prior(), "a record for a different candidate earns no credit")
+}
+
+// A completed sweep whose run retained no bug_review_scope cannot bind its guard
+// record to a candidate, so it earns no historical credit.
+func TestBugHistoricalScopelessCompleteSweepEarnsNoCredit(t *testing.T) {
+	root := t.TempDir()
+	scope := []string{"internal/foo.go"}
+	site := scope[0] + ":1"
+	doc := map[string]any{"guard_pointer": "g", "class_key": "K", "site": site, "candidate": "anything", "enabled": true,
+		"restored":  map[string]any{"exit_code": 1, "flagged_site": site, "diagnostic": "flagged " + site},
+		"corrected": map[string]any{"exit_code": 0}}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "g"), []byte("package guard"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "c"), mustJSON(t, doc), 0o600))
+	sweep := gateresult.DefectClassSweep{ClassKey: "K", ClassStatement: "s", SearchScope: scope, SearchedCount: 1, MatchingCount: 1, FixedCount: 1,
+		Instances: []gateresult.SweepInstance{{Fingerprint: "old-1", SitePointer: site, Disposition: "fixed"}},
+		Guard:     gateresult.SweepGuard{Kind: "test", ImplementationPointer: "g", CounterfactualPointer: "c", Status: "verified"}, Status: "complete"}
+	envelope := mustJSON(t, map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []any{},
+		"gate_result": map[string]any{"schema_version": 1, "summary": "x", "remediation_sweeps": []any{sweep}}})
+	var notes bugApprovalNotes
+	var history bugApprovalHistory
+	seedMaterialReviewAt(t, root, "", "sweep-old", envelope, &notes, &history)
+	history.items[len(history.items)-1].ToStatus = "development"
+	req := gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "current"), EntityKey: "B001", EntityType: models.EntityTypeBug, Gate: "code_review"}
+	got, bad, err := acceptedBugSweeps(context.Background(), req, history)
+	require.NoError(t, err)
+	require.Empty(t, got)
+	require.True(t, bad["sweep-old"]["K"], "the scope-less sweep is reported as unsupported")
 }
 
 func ptr(s string) *string { return &s }

@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,9 +31,15 @@ func TestBugSweepGuardPairIsResolvedBeforeWrite(t *testing.T) {
 			"corrected": map[string]any{"exit_code": 0},
 		}
 	}
+	scopeDoc := mustJSON(t, map[string]any{"candidate_commit": "cand"})
+	require.NoError(t, os.WriteFile(filepath.Join(root, "scope.json"), scopeDoc, 0o600))
+	scopeSum := sha256.Sum256(scopeDoc)
+	scopedEnvelope := mustJSON(t, map[string]any{"kind": "final", "recommended_outcome": "pass",
+		"evidence":    []any{map[string]any{"kind": "bug_review_scope", "pointer": "scope.json", "summary": "sha256:" + hex.EncodeToString(scopeSum[:])}},
+		"gate_result": map[string]any{"schema_version": 1, "summary": "x"}})
 	request := func(record any, status string) gatepersist.Request {
 		require.NoError(t, os.WriteFile(filepath.Join(root, "run.json"), mustJSON(t, record), 0o600))
-		return gatepersist.Request{RunDir: runDir, EntityType: models.EntityTypeBug, Result: &gateresult.GateResult{RemediationSweeps: []gateresult.DefectClassSweep{{
+		return gatepersist.Request{RunDir: runDir, EnvelopeJSON: scopedEnvelope, EntityType: models.EntityTypeBug, Result: &gateresult.GateResult{RemediationSweeps: []gateresult.DefectClassSweep{{
 			ClassKey: "K", Status: status, MatchingCount: 1,
 			Instances: []gateresult.SweepInstance{{Fingerprint: "f", SitePointer: "internal/foo.go:10", Disposition: "fixed"}},
 			Guard:     gateresult.SweepGuard{Kind: "test", ImplementationPointer: "guard_test.go", CounterfactualPointer: "run.json", Status: "verified"},
@@ -58,6 +66,16 @@ func TestBugSweepGuardPairIsResolvedBeforeWrite(t *testing.T) {
 			require.ErrorContains(t, verifyBugSweepGuards(ctx, request(record, "complete"), nil), "unsupported closure")
 		})
 	}
+	t.Run("scope-less complete sweep fails closed at admission", func(t *testing.T) {
+		req := request(valid(), "complete")
+		req.EnvelopeJSON = mustJSON(t, map[string]any{"kind": "final", "recommended_outcome": "pass", "evidence": []any{}, "gate_result": map[string]any{"schema_version": 1, "summary": "x"}})
+		require.ErrorContains(t, verifyBugSweepGuards(ctx, req, nil), "no retained review scope")
+	})
+	t.Run("complete sweep naming another candidate is rejected", func(t *testing.T) {
+		record := valid()
+		record["candidate"] = "other-candidate"
+		require.ErrorContains(t, verifyBugSweepGuards(ctx, request(record, "complete"), nil), "different candidate")
+	})
 	t.Run("absent execution record", func(t *testing.T) {
 		req := request(valid(), "complete")
 		req.Result.RemediationSweeps[0].Guard.CounterfactualPointer = "missing.json"
@@ -107,7 +125,7 @@ func TestBugSweepGuardPairIsResolvedBeforeWrite(t *testing.T) {
 		req := request(map[string]any{}, "open")
 		req.Result.RemediationSweeps[0].OpenCount = 0
 		req.Result.RemediationSweeps[0].Guard.CounterfactualPointer = "absent.json"
-		require.ErrorContains(t, verifyBugSweepGuards(ctx, req, nil), "unsupported closure")
+		require.ErrorContains(t, verifyBugSweepGuards(ctx, req, nil), "unsupported open sweep")
 	})
 	t.Run("other entity types are untouched", func(t *testing.T) {
 		req := request(map[string]any{}, "complete")
