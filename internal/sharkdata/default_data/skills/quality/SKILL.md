@@ -74,7 +74,7 @@ Based on what needs validation, invoke the appropriate workflow:
 **When**: A code-review, QA, or approval kickback; a UAT/red-team re-review round after a prior rejection; or a development/rework pass on a task carrying a rejection section or a kickback reason naming a defect class
 **Invoke**: `workflows/defect-class-sweep.md`
 **Inputs**: `finding` (the point-instance finding that triggered the sweep), `touched_module_paths` (default search scope), `repair_record` (prior fix/disposition history for this class, if any), `decision_sources` (prior designs/decisions to search — feature/epic notes, tech-debt records, prior review-finding notes, spec/standards docs), `calling_gate` (`code_review | approval | uat_redteam | qa | development`, drives which rubric re-runs during full-class re-verification) — this workflow's contract is richer than the other entries above; see the file's own frontmatter for the authoritative shape.
-**Output**: an I-03 `DefectClassSweep` record — `class_key`, `class_statement`, `search_scope`, `prior_designs`, `searched_count`/`matching_count`/`fixed_count`/`dispositioned_count`/`open_count`, `instances[]` (`fingerprint`, `site_pointer`, `disposition`, `evidence`), `guard` (`kind`, `implementation_pointer`, `counterfactual_pointer`, `status`), and `status` (`open`|`complete`) — nested in the calling gate's `GateResult.remediation_sweeps` array. A severity conflict does not close inside this record: it routes to the outer `GateResult.Finding.disposition = severity_conflict` (with `disposition_pointer`) instead.
+**Output**: an I-03 `DefectClassSweep` record — `class_key`, `class_statement`, `search_scope`, `prior_designs`, `searched_count`/`matching_count`/`fixed_count`/`dispositioned_count`/`open_count`, `instances[]` (`fingerprint`, `site_pointer`, `disposition`, `evidence_pointers`), `guard` (`kind`, `implementation_pointer`, `counterfactual_pointer`, `status`), and `status` (`open`|`complete`) — nested in the calling gate's `GateResult.remediation_sweeps` array. A severity conflict does not close inside this record: it routes to the outer `GateResult.Finding.disposition = severity_conflict` (with `disposition_pointer`) instead.
 **Use case**: Generalize one finding into a defect class, enumerate every sibling instance across the declared search scope in one pass, and require a verified guard before the class closes
 
 ## Quality Resources
@@ -93,8 +93,8 @@ Commands and agents reference this skill using:
 ```markdown
 ## Your Process
 1. Analyze what needs validation
-2. Invoke quality skill: quality/workflows/validate-{type}.md
-3. Apply criteria from quality/context/{criteria-name}.md
+2. Invoke quality skill: workflows/validate-{type}.md
+3. Apply criteria from context/{criteria-name}.md
 4. Generate validation report with actionable feedback
 ```
 

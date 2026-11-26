@@ -130,6 +130,9 @@ func validatePlanReviewFields(report []byte, planRef workercontrol.EvidenceRef) 
 type ApprovedPlan struct {
 	Pointer string
 	Bytes   []byte
+	// Evidence holds the approval envelope's own plan and baseline entries.
+	// Downstream admission compares them exactly, so workers copy them.
+	Evidence []workercontrol.EvidenceRef
 }
 
 func ApprovedBugPlan(ctx context.Context, projectRoot, workingDir, key string, notes gatepersist.NoteReader, history gatepersist.HistoryReader, normalize func(string) string, resolve bugSuccessTarget) (ApprovedPlan, error) {
@@ -179,13 +182,33 @@ func resolveApprovedPlanSnapshot(ctx context.Context, projectRoot, workingDir st
 		return ApprovedPlan{}, err
 	}
 	plan, err := verifyApprovedBugPlan(dir, data)
-	return ApprovedPlan{Pointer: ref.Pointer, Bytes: plan}, err
+	if err != nil {
+		return ApprovedPlan{}, err
+	}
+	baseline, err := findBugEvidence(gatepersist.Request{EnvelopeJSON: data}, "bug_review_baseline")
+	if err != nil {
+		return ApprovedPlan{}, err
+	}
+	return ApprovedPlan{Pointer: ref.Pointer, Bytes: plan, Evidence: []workercontrol.EvidenceRef{ref, baseline}}, nil
 }
 
 // AppendApprovedBugPlan supplies the retained plan bytes to a downstream worker.
 func AppendApprovedBugPlan(prompt string, plan ApprovedPlan) string {
 	hash := sha256.Sum256(plan.Bytes)
-	return fmt.Sprintf("%s\n\nThe following is the authoritative approved repair plan at %s (sha256:%x). Use these exact bytes for the approved approach and carry that path and digest in your evidence; a material change requires a new plan review.\n\n%s\n", prompt, plan.Pointer, hash, plan.Bytes)
+	return fmt.Sprintf("%s\n%s\nThe following is the authoritative approved repair plan at %s (sha256:%x). Use these exact bytes for the approved approach and carry that path and digest in your evidence; a material change requires a new plan review.\n\n%s\n", prompt, approvedEvidenceInstruction(plan.Evidence), plan.Pointer, hash, plan.Bytes)
+}
+
+func approvedEvidenceInstruction(refs []workercontrol.EvidenceRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	entries := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		// EvidenceRef holds only strings and an optional int; Marshal cannot fail.
+		encoded, _ := json.Marshal(ref)
+		entries = append(entries, "  "+string(encoded))
+	}
+	return fmt.Sprintf("\nOn a success outcome, copy these approved entries exactly into the envelope's outer `evidence` array, alongside any other entries this step requires:\n\n```json\n%s\n```\n", strings.Join(entries, ",\n"))
 }
 
 // BugNeedsApprovedPlan identifies worker stages downstream of plan approval.

@@ -17,7 +17,7 @@ You are the **Architect** — responsible for technical design and standards. Yo
 - Record decisions as Architecture Decision Records and verify that implementation matches the architecture.
 - Communicate technical constraints and trade-offs clearly to the rest of the team.
 
-The `architecture` skill carries the system, backend, frontend, database, and security design workflows, their templates, and patterns; record decisions using `architecture/context/templates/adr-template.md`.
+The `architecture` skill carries the system, backend, frontend, database, and security design workflows, their templates, and patterns; record decisions using `skills/architecture/context/templates/adr-template.md`.
 
 ## Design Principles
 

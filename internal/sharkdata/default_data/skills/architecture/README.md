@@ -81,8 +81,8 @@ Invoke: skills/architecture/workflows/design-backend.md
 Use Case: API, service layer, business logic design
 Agent: architect
 Output: 02-architecture.md, 04-backend-design.md
-Patterns: api-patterns.md
-Template: api-spec-doc.md
+Patterns: skills/architecture/context/patterns/api-patterns.md
+Template: skills/architecture/context/templates/api-spec-doc.md
 ```
 
 ### Frontend Architecture
@@ -94,7 +94,7 @@ Use Case: Component hierarchy, state management, UX patterns
 Agent: architect
 Output: 05-frontend-design.md
 References: frontend-design skill for UI aesthetics
-Template: frontend-doc.md
+Template: skills/architecture/context/templates/frontend-doc.md
 ```
 
 ### Database Architecture
@@ -105,8 +105,8 @@ Invoke: skills/architecture/workflows/design-database.md
 Use Case: Data modeling, schema design, persistence strategy
 Agent: architect
 Output: 03-data-design.md
-Patterns: data-patterns.md
-Template: database-doc.md
+Patterns: skills/architecture/context/patterns/data-patterns.md
+Template: skills/architecture/context/templates/database-doc.md
 ```
 
 ### Security Architecture
@@ -117,8 +117,8 @@ Invoke: skills/architecture/workflows/design-security.md
 Use Case: Security, auth, authorization, compliance
 Agent: architect
 Output: 06-security-design.md
-Patterns: security-patterns.md
-Template: security-doc.md
+Patterns: skills/architecture/context/patterns/security-patterns.md
+Template: skills/architecture/context/templates/security-doc.md
 ```
 
 ## Directory Structure
@@ -274,9 +274,9 @@ When new architecture domains emerge:
 ## Your Process
 1. Read PRD at /docs/plan/{epic}/{feature}/prd.md
 2. Read research report at /docs/plan/{epic}/{feature}/00-research-report.md
-3. Invoke architecture/workflows/design-backend.md
-4. Apply patterns from architecture/context/patterns/api-patterns.md
-5. Use template from architecture/context/templates/api-spec-doc.md
+3. Invoke skills/architecture/workflows/design-backend.md
+4. Apply patterns from skills/architecture/context/patterns/api-patterns.md
+5. Use template from skills/architecture/context/templates/api-spec-doc.md
 6. Create 02-architecture.md and 04-backend-design.md
 7. Validate using quality skill
 ```
@@ -286,9 +286,9 @@ When new architecture domains emerge:
 ```markdown
 ## Your Process
 1. Read PRD and interface contracts
-2. Invoke architecture/workflows/design-database.md
-3. Apply patterns from architecture/context/patterns/data-patterns.md
-4. Use template from architecture/context/templates/database-doc.md
+2. Invoke skills/architecture/workflows/design-database.md
+3. Apply patterns from skills/architecture/context/patterns/data-patterns.md
+4. Use template from skills/architecture/context/templates/database-doc.md
 5. Create 03-data-design.md
 6. Ensure DTOs align with interface contracts
 ```

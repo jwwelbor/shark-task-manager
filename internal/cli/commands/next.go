@@ -1100,7 +1100,7 @@ func enrichBugNextPrompt(ctx context.Context, cache *nextAdapterCache, strategy 
 	if strategy.mode != nextResolutionMode || entityType != "bug" || cache.bugWorkflow == nil {
 		return prompt, nil
 	}
-	prompt, err := bugParentProjectInstructions(prompt)
+	prompt, err := bugParentProjectInstructions(ctx, prompt, cache.bugWorkingDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve parent project for %s: %w", key, err)
 	}
@@ -1509,7 +1509,8 @@ const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
 - Complete the requested work, write the requested artifacts, then stop and clearly report the recommended outcome and any follow-up guidance for the parent loop.
 - "Stop" means your involvement in this dispatch ends there, not just that you pause between tool calls: once you have reported your final result, take no further actions of any kind. Do not keep investigating, do not act on adjacent issues you noticed, and do not resume any work — on this entity or anything else you touched — unless the parent sends you a new, explicit instruction. Noticing something else worth doing is a reason to name it in your report, never a reason to keep going.
 - If this dispatch is likely to take more than roughly 15 minutes (a substantial implementation, a live-LLM capture/recapture, a long test or build run), send the parent a brief progress check-in at that cadence even though the work isn't done — what's finished, what's in progress, and whether you're blocked. The parent cannot tell "still working normally" from "stalled" without these; going silent until a single final report is not acceptable for a long-running dispatch.
-- The parent loop owns the dispatched entity's lease and workflow transitions.`
+- The parent loop owns the dispatched entity's lease and workflow transitions.
+- A ` + "`skills/<name>/<path>`" + ` reference (with or without a ` + "`shark-data/`" + ` prefix) names bundled Shark content, not a file in this project: read it with ` + "`shark skill get <name> <path>`" + `. ` + "`shark-rider`" + ` is the exception: it is installed in the host, not bundled.`
 
 // assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
 // by `shark next` and `shark run`: take the already-rendered workflow prompt,
