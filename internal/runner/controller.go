@@ -1218,7 +1218,7 @@ func (c *RunController) ingestGateResultForDispatch(
 		Outcomes:      nextInfo.Outcomes,
 	}
 
-	observed, injected, err := c.observeBugTriage(ctx, opts, key, currentStatus, baseReq, triageNotesBefore)
+	observed, injected, err := c.observeBugTriage(ctx, opts, key, currentStatus, baseReq, triageNotesBefore, dispatchResult.Started)
 	if err != nil {
 		return "", nil, fmt.Errorf("parent triage observation: %w", err)
 	}
@@ -1559,6 +1559,7 @@ func (c *RunController) handleSpawnAgent(
 	})
 
 	triageNotesBefore := c.countTriageNotes(ctx, opts, key, currentStatus)
+	triageStarted := time.Now()
 	dispatchResult, err := dispatcher.Dispatch(ctx, input)
 	if err != nil {
 		// Prefer *AgentFailedError fields; fall back to the DispatchResult the
@@ -1639,6 +1640,8 @@ func (c *RunController) handleSpawnAgent(
 		result.StagesCompleted = len(result.Stages) - 1
 		return stageOutcome{done: true}
 	}
+
+	dispatchResult.Started = triageStarted
 
 	// A Question responder has one additional parent-owned success step, kept
 	// out of this already-large function: see handleQuestionResponseHandoff.
@@ -2092,7 +2095,7 @@ func (c *RunController) countTriageNotes(ctx context.Context, opts RunOptions, k
 // observeBugTriage lets the controller, as the parent, measure the host actions
 // of a bug code review and inject the resulting observation. It never accepts a
 // file the worker could have planted.
-func (c *RunController) observeBugTriage(ctx context.Context, opts RunOptions, key, currentStatus string, req GateIngestRequest, before int) ([]byte, bool, error) {
+func (c *RunController) observeBugTriage(ctx context.Context, opts RunOptions, key, currentStatus string, req GateIngestRequest, before int, started time.Time) ([]byte, bool, error) {
 	if before < 0 || !c.bugReviewGate(opts, currentStatus) {
 		return req.EnvelopeBytes, false, nil
 	}
@@ -2108,5 +2111,5 @@ func (c *RunController) observeBugTriage(ctx context.Context, opts RunOptions, k
 	if workingDir == "" {
 		workingDir = req.ProjectRoot
 	}
-	return ObserveBugReportOnlyTriage(ctx, BugTriageWindow{ProjectRoot: req.ProjectRoot, WorkingDir: workingDir, RunID: req.RunID, TrackerWrites: writes}, req.EnvelopeBytes)
+	return ObserveBugReportOnlyTriage(ctx, BugTriageWindow{ProjectRoot: req.ProjectRoot, WorkingDir: workingDir, RunID: req.RunID, TrackerWrites: writes, Started: started}, req.EnvelopeBytes)
 }

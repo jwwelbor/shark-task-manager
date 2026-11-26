@@ -73,9 +73,12 @@ type bugReviewCriterionDisposition struct {
 // host triage action. It is carried as envelope evidence by the host adapter,
 // never accepted from the dispatched worker's original envelope.
 type bugParentTriageObservation struct {
-	CandidateIdentity bugReviewIdentity       `json:"candidate_identity"`
-	ObservedBy        string                  `json:"observed_by"`
-	Actions           []bugParentTriageAction `json:"actions"`
+	CandidateIdentity bugReviewIdentity `json:"candidate_identity"`
+	ObservedBy        string            `json:"observed_by"`
+	// RunID names the review run whose dispatch window was observed. It is
+	// absent from observations written before the binding existed.
+	RunID   string                  `json:"run_id,omitempty"`
+	Actions []bugParentTriageAction `json:"actions"`
 }
 
 type bugParentTriageAction struct {
@@ -83,6 +86,10 @@ type bugParentTriageAction struct {
 	Action        string `json:"action"`
 	Edits         *int   `json:"edits"`
 	TrackerWrites *int   `json:"tracker_writes"`
+	// EditAttempts is the parent-measured number of source entries touched in
+	// the review run's dispatch window, including edits later restored.
+	// Observations from before this field existed omit it.
+	EditAttempts *int `json:"edit_attempts,omitempty"`
 }
 
 func validateBugReviewMaterialImpacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string) error {
@@ -249,6 +256,9 @@ func validateBugParentTriageObservationRaw(req gatepersist.Request, scope bugCan
 	if !observation.CandidateIdentity.matches(scope) || observation.ObservedBy != "parent" {
 		return fmt.Errorf("parent triage observation does not match frozen findings")
 	}
+	if observation.RunID != "" && observation.RunID != filepath.Base(req.RunDir) {
+		return fmt.Errorf("parent triage observation belongs to review run %q, not %q", observation.RunID, filepath.Base(req.RunDir))
+	}
 	return checkHostActions(expected, observation.Actions)
 }
 
@@ -313,6 +323,9 @@ func checkHostActions(expected map[string]string, actions []bugParentTriageActio
 func (action bugParentTriageAction) verify(want string) error {
 	if action.Action != want {
 		return fmt.Errorf("%s: expected %s host action", action.FindingID, want)
+	}
+	if err := action.verifyEditAttempts(want); err != nil {
+		return err
 	}
 	if want == bugHostActionTriage {
 		if action.Edits == nil || action.TrackerWrites == nil || *action.Edits < 0 || *action.TrackerWrites < 0 {
@@ -466,6 +479,24 @@ func compareMaterialCriteria(expected bugReviewMaterialDecision, submitted []bug
 	}
 	for key := range seen {
 		return fmt.Errorf("%s: unexpected criterion disposition for %s", expected.DecisionID, key)
+	}
+	return nil
+}
+
+// verifyEditAttempts rejects a withdrawal whose finding saw any attempted source
+// edit, even when the final bytes were restored and the net edit count is zero.
+func (action bugParentTriageAction) verifyEditAttempts(want string) error {
+	if action.EditAttempts == nil {
+		return nil
+	}
+	attempts := *action.EditAttempts
+	switch {
+	case attempts < 0:
+		return fmt.Errorf("%s: edit_attempts must not be negative", action.FindingID)
+	case action.Edits != nil && attempts < *action.Edits:
+		return fmt.Errorf("%s: edit_attempts cannot be fewer than committed edits", action.FindingID)
+	case want == bugHostActionReportOnly && attempts != 0:
+		return fmt.Errorf("%s: report-only requires observed edit_attempts of zero", action.FindingID)
 	}
 	return nil
 }

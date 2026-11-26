@@ -131,6 +131,11 @@ type DispatchResult struct {
 	// Command is the full command string that was executed (for logging and debugging).
 	// It includes the binary name and all flags, but should not include auth tokens.
 	Command string
+
+	// Started is when the parent began the dispatch window. The controller,
+	// not the dispatcher, sets it so the parent can later measure host actions
+	// that happened inside the window.
+	Started time.Time
 }
 
 // ToolNotFoundError is returned by a dispatcher when the required CLI tool is not

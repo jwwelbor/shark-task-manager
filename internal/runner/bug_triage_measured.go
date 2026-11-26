@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
@@ -88,6 +90,9 @@ type BugTriageWindow struct {
 	// TrackerWrites is the number of entity notes created during the dispatch,
 	// counted by the parent from the tracker, not reported by the worker.
 	TrackerWrites int
+	// Started is when the parent began the dispatch. Zero means the window
+	// start is unknown and attempted edits are not measured.
+	Started time.Time
 }
 
 // ObserveBugReportOnlyTriage measures what the host did while a bug code review
@@ -109,11 +114,21 @@ func ObserveBugReportOnlyTriage(ctx context.Context, w BugTriageWindow, envelope
 	if err != nil {
 		return nil, false, err
 	}
+	attempts, err := measureEditAttempts(ctx, w.WorkingDir, envelope.Evidence, w.Started)
+	if err != nil {
+		return nil, false, err
+	}
 	actions := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		actions = append(actions, map[string]any{"finding_id": id.id, "action": id.action, "edits": edits, "tracker_writes": w.TrackerWrites})
+		action := map[string]any{"finding_id": id.id, "action": id.action, "edits": edits, "tracker_writes": w.TrackerWrites}
+		if attempts >= 0 {
+			// A restored edit leaves no net change but still moves the file's
+			// modification time, so the attempt is bound to this run's window.
+			action["edit_attempts"] = attempts
+		}
+		actions = append(actions, action)
 	}
-	data, err := json.Marshal(map[string]any{"candidate_identity": identity, "observed_by": "parent", "actions": actions})
+	data, err := json.Marshal(map[string]any{"candidate_identity": identity, "observed_by": "parent", "run_id": w.RunID, "actions": actions})
 	if err != nil {
 		return nil, false, err
 	}
@@ -217,6 +232,61 @@ func measureCheckoutEdits(ctx context.Context, workingDir string, refs []workerc
 		return 0, err
 	}
 	return len(bytes.FieldsFunc(status, func(r rune) bool { return r == 0 })), nil
+}
+
+// measureEditAttempts counts source entries in the checkout whose modification
+// time falls inside the dispatch window, including edits that were restored to
+// their original bytes. Shark runtime artifacts are ignored. A negative result
+// means the window start is unknown and nothing was measured.
+func measureEditAttempts(ctx context.Context, workingDir string, refs []workercontrol.EvidenceRef, started time.Time) (int, error) {
+	if started.IsZero() {
+		return -1, nil
+	}
+	data, err := readDigestBoundEvidence(workingDir, refs, "bug_review_scope")
+	if err != nil {
+		return 0, err
+	}
+	var scope bugCandidateScope
+	if err := json.Unmarshal(data, &scope); err != nil {
+		return 0, err
+	}
+	runtimeDir := normalizedRuntimeProject(scope.RuntimeProject)
+	skip := []string{".git/", filepath.ToSlash(filepath.Join(runtimeDir, ".shark")) + "/"}
+	count := 0
+	for _, flags := range [][]string{{"ls-files", "-z"}, {"ls-files", "-z", "--others", "--exclude-standard"}} {
+		out, err := gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", workingDir}, flags...)...).Output()
+		if err != nil {
+			return 0, err
+		}
+		for _, name := range bytes.Split(out, []byte{0}) {
+			path := string(name)
+			if path == "" || hasAnyPrefix(path, skip) {
+				continue
+			}
+			info, err := os.Lstat(filepath.Join(workingDir, path))
+			if os.IsNotExist(err) {
+				// A deleted tracked file is an attempted edit made inside the window.
+				count++
+				continue
+			}
+			if err != nil {
+				return 0, err
+			}
+			if info.ModTime().After(started) {
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
+func hasAnyPrefix(path string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCleanBugHeadCommit(scope bugCandidateScope, run bugGitRunner) error {

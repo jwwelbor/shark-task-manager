@@ -193,3 +193,57 @@ func TestHostActionsAreDerivedFromRawFindings(t *testing.T) {
 	refuted := map[bugFindingKey]bugReviewDecision{key: {FindingID: "F-1", Severity: "blocker", Disposition: "refuted"}}
 	require.NoError(t, validateBugParentTriageObservationRaw(gatepersist.Request{RunDir: runDir}, scope, refuted, raw))
 }
+
+// B088 R4: an edit that is later restored leaves no net change, so only an
+// attempt measured in this run's dispatch window can disqualify a withdrawal.
+// Each trial feeds the parent's observation to the production admission reader.
+func TestObservedEditAttemptsBindHostActionToRunAndFinding(t *testing.T) {
+	f := newTriageFixture(t)
+	root, scope, decisions, envelope := f.root, f.scope, f.decisions, f.envelope
+	observe := func(runID string, started time.Time, touch func()) (gatepersist.Request, error) {
+		touch()
+		attached, injected, err := ObserveBugReportOnlyTriage(context.Background(),
+			BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: runID, Started: started}, envelope)
+		if err != nil {
+			return gatepersist.Request{}, err
+		}
+		require.True(t, injected)
+		return gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", runID), EnvelopeJSON: attached, ParentObservationInjected: true}, nil
+	}
+	started := time.Now().Add(-time.Second)
+	file := filepath.Join(root, "file.txt")
+
+	req, err := observe("untouched", started, func() {
+		// Predate the window so the unmodified checkout has zero attempts.
+		require.NoError(t, os.Chtimes(file, started.Add(-time.Hour), started.Add(-time.Hour)))
+	})
+	require.NoError(t, err)
+	require.NoError(t, validateBugParentTriageObservation(req, scope, decisions))
+
+	req, err = observe("restored", started, func() {
+		require.NoError(t, os.WriteFile(file, []byte("edited\n"), 0600))
+		require.NoError(t, os.WriteFile(file, []byte("v1\n"), 0600))
+	})
+	require.NoError(t, err)
+	// The byte-identical checkout has no net edit, so the counters alone accept it.
+	counters, err := observe("restored-counters", time.Time{}, func() {})
+	require.NoError(t, err)
+	require.NoError(t, validateBugParentTriageObservation(counters, scope, decisions))
+	require.ErrorContains(t, validateBugParentTriageObservation(req, scope, decisions), "F-1: report-only requires observed edit_attempts of zero")
+
+	// A genuine receipt copied under another run's path belongs to its own run.
+	genuine, err := observe("genuine", started, func() {
+		require.NoError(t, os.Chtimes(file, started.Add(-time.Hour), started.Add(-time.Hour)))
+	})
+	require.NoError(t, err)
+	// Moving the file and rewriting the pointer keeps the bytes and digest valid, so
+	// only the run named inside the observation can detect it.
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".shark", "runs", "other"), 0700))
+	copied, err := os.ReadFile(filepath.Join(genuine.RunDir, "parent-triage-observation.json"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "runs", "other", "parent-triage-observation.json"), copied, 0600))
+	other := genuine
+	other.RunDir = filepath.Join(root, ".shark", "runs", "other")
+	other.EnvelopeJSON = []byte(strings.ReplaceAll(string(genuine.EnvelopeJSON), ".shark/runs/genuine/", ".shark/runs/other/"))
+	require.ErrorContains(t, validateBugParentTriageObservation(other, scope, decisions), `belongs to review run "genuine", not "other"`)
+}
