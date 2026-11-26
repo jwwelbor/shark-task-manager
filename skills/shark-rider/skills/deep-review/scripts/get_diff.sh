@@ -136,14 +136,14 @@ REVIEW_SOURCE_MARKER="$source_marker" \
 REVIEW_PLAN_SHA256="${REVIEW_PLAN_SHA256:-}" \
 REVIEW_SCRIPT_DIR="$script_dir" \
 python3 - <<'PYEOF'
-import os, json, subprocess, sys
+import os, json, sys
 sys.path.insert(0, os.environ["REVIEW_SCRIPT_DIR"])
+from review_diff import changed_paths, successor_delta
 from safe_review_io import read_review_file
-from bounded_git import run as run_bounded_git
 diff_path = os.environ["DIFF_PATH"]
 project_root = os.environ["PROJECT_ROOT"]
 coding_standards_path = os.environ.get("CODING_STANDARDS_PATH", "")
-changed_files = [p.decode("utf-8", "surrogateescape") for p in run_bounded_git(["git", "-c", "core.fsmonitor=false", "diff", "--name-only", "-z", os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"]], check=True, capture_output=True).stdout.split(b"\0") if p]
+changed_files = changed_paths(project_root, os.environ["BASE_COMMIT"], os.environ["CANDIDATE_COMMIT"])
 scope = {
   "diff_path": diff_path,
   "changed_files": changed_files,
@@ -159,6 +159,10 @@ scope = {
   "diff_sha256": os.environ.get("DIFF_SHA256") or None,
   "review_output_path": os.environ.get("REVIEW_OUTPUT_PATH") or None,
 }
+delta = successor_delta(project_root, scope["base_commit"], os.environ.get("REVIEW_PREDECESSOR_COMMIT"),
+                        scope["candidate_commit"])
+if delta is not None:
+  scope["successor_delta"] = delta
 source_path = os.environ.get("REVIEW_SOURCE_METADATA")
 plan_sha256 = os.environ.get("REVIEW_PLAN_SHA256")
 if plan_sha256:

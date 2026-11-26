@@ -471,7 +471,12 @@ Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOT
 The nested `gate_result` shape is validated and typed in `internal/gateresult`
 (see its doc comment for the full field list — `findings[]`,
 `kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
-not restate it. Two rules this step's outcomes commonly need:
+not restate it. A `remediation_sweeps[]` entry that is `open` with
+`open_count: 0` (no feasible guard) must point `guard.counterfactual_pointer`
+at a project-local `{"kind": "open_sweep_link", "class_key", "work_item_key",
+"reason"}` record; `work_item_key` must resolve to an existing task, feature,
+epic, bug, change-card, or tech-debt entity naming the class (note keys do not
+resolve). Two rules this step's outcomes commonly need:
 
 For each `kickbacks[]` entry, `target_status` is required by GateResult v1
 but is only a compatibility assertion. Read the target entity's current

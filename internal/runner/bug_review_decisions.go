@@ -10,7 +10,7 @@ import (
 var bugNegatedRefutation = regexp.MustCompile(`(?i)\bnot\s+refuted\b`)
 
 type bugFindingKey struct {
-	File      string
+	File      reviewGitPath
 	Line      int
 	Rule      string
 	Summary   string
@@ -101,7 +101,7 @@ func currentDecisionOrigin(raw json.RawMessage) (string, error) {
 }
 
 func decisionSourceKey(f bugReviewDecision, version int, ids map[string]bool) (bugFindingKey, error) {
-	key := bugFindingKey{File: string(f.File), Line: f.Line, Rule: f.Rule, Summary: f.Summary, Diagnosis: f.Diagnosis}
+	key := bugFindingKey{File: f.File, Line: f.Line, Rule: f.Rule, Summary: f.Summary, Diagnosis: f.Diagnosis}
 	if version != 2 {
 		return key, nil
 	}
@@ -140,7 +140,7 @@ func indexBugReviewDecisions(packet bugReviewDecisions, verdict string) (map[bug
 			return nil, err
 		}
 		if _, exists := found[key]; exists {
-			return nil, fmt.Errorf("duplicate review decision for angle %q at %s:%d", key.Origin, quoteReviewGitPath(key.File), key.Line)
+			return nil, fmt.Errorf("duplicate review decision for angle %q at %s:%d", key.Origin, quoteReviewGitPath(string(key.File)), key.Line)
 		}
 		found[key] = finding
 	}
@@ -196,5 +196,5 @@ func (decisions *bugReviewDecisionIndex) validateCLI(scope bugCandidateScope) er
 			return fmt.Errorf("CLI review cannot supply angle or consolidator decision %q", key.Origin)
 		}
 	}
-	return validateBugReviewedFiles(decisions.reviewedFiles, scope.ChangedFiles)
+	return verifyDeclaredReviewPaths(decisions.reviewedFiles, scope.ChangedFiles)
 }

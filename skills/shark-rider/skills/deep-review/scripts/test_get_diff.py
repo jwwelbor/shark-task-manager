@@ -21,6 +21,170 @@ def run_writer(command, **kwargs):
 
 
 class CaptureScopeTest(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'requires byte-valued Git paths')
+    def test_scope_path_bytes_survive_locale_changes_and_snapshot_reconstruction(self):
+        # R40 Capture: each selected input must keep its identity across processes.
+        names = [b'caf\xc3\xa9.txt', b'caf\xe9.txt', b'caf\xef\xbf\xbd.txt',
+                 br'caf\udce9.txt', 'caf\U000100e9.txt'.encode('utf-8')]
+        wire_names = [name.decode('utf-8', 'surrogateescape') for name in names]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'repo'
+            root.mkdir()
+
+            def git(*args, cwd=root):
+                return subprocess.run(['git', '-c', 'commit.gpgsign=false',
+                                       '-c', 'core.hooksPath=/dev/null', *args],
+                                      cwd=cwd, capture_output=True, check=True).stdout
+
+            git('init', '-b', 'main')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            git('commit', '--allow-empty', '-m', 'base')
+            base = git('rev-parse', 'HEAD').decode().strip()
+            for index, name in enumerate(names):
+                (root / os.fsdecode(name)).write_bytes(bytes([index + 1]))
+            git('add', '-A')
+            git('commit', '-m', 'distinct paths')
+            expected = git('diff', '--name-only', '-z', base, 'HEAD').split(b'\0')[:-1]
+            self.assertCountEqual(expected, names)
+            env = dict(os.environ, REVIEW_BASE=base, LC_ALL='C',
+                       PYTHONCOERCECLOCALE='0', PYTHONUTF8='0')
+            scope_file = Path(tmp) / 'scope.json'
+
+            def capture(cwd, environment):
+                result = subprocess.run(['bash', str(SCRIPT)], cwd=cwd, env=environment,
+                                        check=True, capture_output=True)
+                return json.loads(result.stdout)
+
+            def validate(scope, cwd, environment):
+                scope_file.write_text(json.dumps(scope), encoding='utf-8')
+                return subprocess.run([sys.executable, str(SCRIPT.with_name('adaptive_review.py')),
+                                       'validate-scope', '--project-root', str(cwd),
+                                       '--source-root', str(root), '--scope-file', str(scope_file)],
+                                      env=environment, capture_output=True)
+
+            for utf8_mode, reader_mode in [('1', '0'), ('0', '1')]:
+                with self.subTest(capture_utf8=utf8_mode):
+                    scope = capture(root, dict(env, PYTHONUTF8=utf8_mode))
+                    self.assertEqual(scope['changed_files'],
+                                     [name.decode('utf-8', 'surrogateescape') for name in expected])
+                    self.assertEqual(scope['changed_file_count'], len(names))
+                    result = validate(scope, root, dict(env, PYTHONUTF8=reader_mode))
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            # Keep both spellings dirty. Select one and verify Git captured exactly its bytes.
+            for index in (0, 1):
+                (root / os.fsdecode(names[index])).write_bytes(b'edited-' + bytes([index]))
+            for index in (0, 1):
+                with self.subTest(selected=names[index]):
+                    snapshot = Path(tmp) / f'snapshot-{index}'
+                    metadata = Path(tmp) / f'metadata-{index}.json'
+                    subprocess.run([sys.executable, str(SCRIPT.with_name('prepare_candidate.py')),
+                                    '--project-root', str(root), '--destination', str(snapshot),
+                                    '--metadata-file', str(metadata), names[index]],
+                                   capture_output=True, check=True, env=env)
+                    source = json.loads(metadata.read_bytes())
+                    self.assertEqual(source['selected_paths'], [wire_names[index]])
+                    marker = Path(git('rev-parse', '--absolute-git-dir', cwd=snapshot)
+                                  .decode().strip()) / 'shark-review-source.json'
+                    self.assertEqual(json.loads(marker.read_bytes()), source)
+                    self.assertEqual(git('show', b'HEAD:' + names[index], cwd=snapshot),
+                                     b'edited-' + bytes([index]))
+                    self.assertEqual(git('diff', '--name-only', '-z', 'HEAD^', 'HEAD', cwd=snapshot),
+                                     names[index] + b'\0')
+                    scope = capture(snapshot, dict(env, REVIEW_SOURCE_METADATA=str(metadata)))
+                    for mode in ('1', '0'):
+                        result = validate(scope, snapshot, dict(env, PYTHONUTF8=mode))
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+                    wrong = dict(source, selected_paths=[wire_names[1 - index]])
+                    for swap_metadata, swap_marker in ((True, False), (False, True), (True, True)):
+                        challenged = dict(scope, source_snapshot=wrong if swap_metadata else source)
+                        marker.write_text(json.dumps(wrong if swap_marker else source), encoding='utf-8')
+                        result = validate(challenged, snapshot, env)
+                        self.assertNotEqual(result.returncode, 0)
+                        diagnostic = (b'source candidate changed' if swap_metadata and swap_marker
+                                      else b'marker does not match')
+                        self.assertIn(diagnostic, result.stdout + result.stderr)
+                    marker.write_text(json.dumps(source), encoding='utf-8')
+                    result = validate(scope, snapshot, env)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_successor_capture_keeps_baseline_scope_and_restored_policy_delta(self):
+        # R40 Capture: removing a policy from the current manifest still changes its caller.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / 'repo'
+            repo.mkdir()
+
+            def git(*args):
+                return subprocess.run(['git', '-c', 'commit.gpgsign=false',
+                                       '-c', 'core.hooksPath=/dev/null', *args],
+                                      cwd=repo, check=True, capture_output=True).stdout
+
+            def capture(predecessor=None):
+                env = dict(os.environ, REVIEW_BASE=base, REVIEW_PREDECESSOR_COMMIT=predecessor or '')
+                return json.loads(subprocess.run(['bash', str(SCRIPT)], cwd=repo, env=env,
+                                                 capture_output=True, check=True).stdout)
+
+            def check_manifest(scope, start, end):
+                expected = git('diff', '--name-only', '-z', start, end).split(b'\0')[:-1]
+                self.assertEqual(scope['changed_files'], [p.decode() for p in expected])
+                patch = git('diff', '--no-ext-diff', '--binary', start, end)
+                self.assertEqual(scope['diff_sha256'], hashlib.sha256(patch).hexdigest())
+
+            git('init', '-b', 'main')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            for name in ('wrapper', 'policy', 'leaf'):
+                (repo / name).write_text('base')
+            git('add', '.')
+            git('commit', '-m', 'base')
+            base = git('rev-parse', 'HEAD').decode().strip()
+            for name in ('wrapper', 'policy', 'leaf'):
+                (repo / name).write_text('A-' + name)
+            git('commit', '-am', 'first review')
+            first = git('rev-parse', 'HEAD').decode().strip()
+            round_a = capture()
+            check_manifest(round_a, base, first)
+            self.assertNotIn('successor_delta', round_a)
+
+            git('restore', '--source', base, '--', 'policy')
+            git('commit', '-am', 'restore policy')
+            scope = capture(first)
+            self.assertEqual(scope['base_commit'], base)
+            self.assertEqual(scope['changed_files'], ['leaf', 'wrapper'])
+            check_manifest(scope, base, 'HEAD')
+            self.assertIn('successor_delta', scope)
+            delta = scope['successor_delta']
+            self.assertEqual(delta['predecessor_commit'], first)
+            self.assertEqual(delta['predecessor_tree'], git('rev-parse', first + '^{tree}').decode().strip())
+            self.assertEqual(delta['changed_files'], ['policy'])
+            check_manifest(delta, first, 'HEAD')
+
+            scope_file = Path(tmp) / 'scope.json'
+            command = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'validate-scope',
+                       '--project-root', str(repo), '--source-root', str(repo), '--scope-file', str(scope_file)]
+            for key, replacement in [('changed_files', []), ('predecessor_commit', base),
+                                     ('predecessor_tree', scope['candidate_tree']), ('diff_sha256', '0' * 64)]:
+                with self.subTest(field=key):
+                    scope_file.write_text(json.dumps(dict(scope, successor_delta=dict(delta, **{key: replacement}))))
+                    result = subprocess.run(command, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(b'successor delta', result.stdout)
+            scope_file.write_text(json.dumps(scope))
+            result = subprocess.run(command, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            # Another branch has a valid object, but cannot supply this successor's delta.
+            git('checkout', '-b', 'unrelated', base)
+            git('commit', '--allow-empty', '-m', 'sibling')
+            sibling = git('rev-parse', 'HEAD').decode().strip()
+            git('checkout', 'main')
+            for unavailable in [sibling, 'f' * 40]:
+                full = capture(unavailable)
+                self.assertNotIn('successor_delta', full)
+                check_manifest(full, base, 'HEAD')
+
     def test_registered_runtime_worktree_is_excluded_but_other_files_are_not(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'repo'
@@ -261,6 +425,8 @@ class CaptureScopeTest(unittest.TestCase):
                 self.assertEqual(incomplete.returncode, 2)
                 self.assertEqual(json.loads(incomplete.stdout)['verdict'], 'INCOMPLETE')
                 partial[partial.index('5')] = 'unknown'
+                packet_arg = partial.index('--angle-results')
+                del partial[packet_arg:packet_arg + 2]
                 unknown = run_writer(partial, capture_output=True, text=True)
                 self.assertEqual(unknown.returncode, 2)
                 self.assertEqual(json.loads(unknown.stdout)['specialists_completed'], 'unknown')

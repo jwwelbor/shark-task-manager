@@ -203,3 +203,118 @@ run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', cand
                     self.assertEqual(result['calls'], 1 if mode in ('short', 'blocker', 'open', 'conflict', 'consolidator_error', 'fail_missing') else 0)
                     if mode == 'consolidator_error':
                         self.assertEqual(len(result['report']['angle_results']), 6)
+
+
+class NativeCarriedCreditTest(unittest.TestCase):
+    HARNESS = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const body = src.slice(src.indexOf('// ─── Args'));
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', body);
+const spec = JSON.parse(process.argv[2]);
+const identity = {commit:'abc', tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64)};
+const parallel = async funcs => Array(6).fill({review_contract_version: 2, candidate_identity: identity, findings: [], ...spec.angle});
+const agent = async () => ({report: 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS', decisions: {review_contract_version: 2, candidate_identity: identity, findings: []}});
+const args = {diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug',
+  repair_context:{plan:'p', plan_revision:'sha256:'+'a'.repeat(64), research:'r', coverage:'c', prior_findings:[]}, changed_files: spec.changed_files, ...spec.extra};
+run(args, () => {}, parallel, agent, () => {}).then(report => process.stdout.write(JSON.stringify(report))).catch(e => { console.error(e); process.exit(1); });
+'''
+    MESSAGES = {
+        "cross_file": "fresh cross-file", "closed_inputs": "closed input list", "version": "credit version",
+        "identity": "predecessor identity", "path": "changed since the predecessor", "input": "declared input",
+        "duplicate": "duplicated", "overlap": "both fresh and carried", "missing": "missing required paths|incomplete reviewed_files coverage",
+    }
+
+    def run_workflow(self, spec):
+        proc = subprocess.run(['node', '-e', self.HARNESS, str(SCRIPT), json.dumps(spec)], capture_output=True, text=True, check=True)
+        return json.loads(proc.stdout)
+
+    def test_shared_credit_cases_at_native_dispatch(self):
+        doc = json.loads((SCRIPT.parent / 'testdata' / 'credit_cases.json').read_text())
+        for case in doc['cases']:
+            with self.subTest(case=case['name']):
+                report = self.run_workflow({'angle': case['angle'], 'changed_files': doc['changed_files'], 'extra': {'successor_delta': doc['successor_delta']}})
+                if case['error_key'] is None:
+                    self.assertEqual(report['runner_mode'], 'canonical-six-angle')
+                else:
+                    self.assertEqual(report['runner_mode'], 'incomplete')
+                    self.assertRegex(report['report'], self.MESSAGES[case['error_key']])
+
+    def test_dispatcher_attaches_parent_carry_plan(self):
+        doc = json.loads((SCRIPT.parent / 'testdata' / 'credit_cases.json').read_text())
+        unit = doc['cases'][0]['angle']['carried_units'][0]
+        spec = {'angle': {'reviewed_files': doc['changed_files']}, 'changed_files': doc['changed_files'],
+                'extra': {'successor_delta': doc['successor_delta'], 'carry_units': [unit]}}
+        self.assertEqual(self.run_workflow(spec)['runner_mode'], 'canonical-six-angle')
+        del spec['extra']['successor_delta']
+        report = self.run_workflow(spec)
+        self.assertEqual(report['runner_mode'], 'incomplete')
+        self.assertIn('captured successor delta', report['report'])
+
+
+class NativeConsolidationDiscoveryTest(unittest.TestCase):
+    """B02: a site first found by the consolidator is inspected by its responsible angle."""
+
+    HARNESS = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const body = src.slice(src.indexOf('// ─── Args'));
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', body);
+const mode = process.argv[2];
+const identity = {commit:'abc', tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64)};
+const angle = {review_contract_version: 2, candidate_identity: identity, findings: [], reviewed_files: ['file']};
+const site = {file:'internal/foo.go', start_line:10, end_line:12};
+const found = 'callback skips registration in the error branch';
+const report = 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS';
+const calls = [];
+const parallel = async () => Array(6).fill(angle);
+const agent = async (prompt, options) => {
+  calls.push({label: options.label, prompt});
+  if (options.label === 'consolidator') return {report, decisions: {review_contract_version: 2, candidate_identity: identity, findings: [], discoveries: [{angle:'a', ...site, observation: found}]}};
+  if (options.label.includes('site follow-up')) {
+    if (mode === 'withheld') throw Error('no reply');
+    const range = mode === 'neighbor' ? {start_line: 20, end_line: 22} : {};
+    return {candidate_identity: identity, site_inspection: {...site, ...range, observation: 'concrete callback is never registered when parse fails'}};
+  }
+  const observation = mode === 'substituted' ? 'a different plausible observation' : mode === 'removed' ? '' : 'concrete callback is never registered when parse fails';
+  const discoveries = mode === 'dropped' ? [] : [{angle:'a', ...site, observation}];
+  return {report, decisions: {review_contract_version: 2, candidate_identity: identity, findings: [], discoveries}};
+};
+run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', effort:'high',
+  repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'r', coverage:'c', prior_findings:[]}, changed_files:['file']}, () => {}, parallel, agent, () => {})
+  .then(result => process.stdout.write(JSON.stringify({result, calls}))).catch(e => { console.error(e); process.exit(1); });
+'''
+
+    def run_mode(self, mode):
+        proc = subprocess.run(['node', '-e', self.HARNESS, str(SCRIPT), mode], capture_output=True, text=True, check=True)
+        return json.loads(proc.stdout)
+
+    def test_fresh_responsible_angle_inspection_precedes_second_consolidation(self):
+        out = self.run_mode('ok')
+        result, calls = out['result'], out['calls']
+        self.assertEqual(result['runner_mode'], 'canonical-six-angle')
+        self.assertTrue(result['consolidator_completed'])
+        self.assertEqual([c['label'].split(':')[0] for c in calls], ['consolidator', 'A', 'consolidator (reconsolidation)'])
+        follow_up = calls[1]['prompt']
+        for needle in ('ASSIGNED_ANGLE: a', 'CANDIDATE_TREE: tree', 'PATH: internal/foo.go', 'lines 10-12', 'plan-id'):
+            self.assertIn(needle, follow_up)
+        self.assertIn('concrete callback is never registered', calls[2]['prompt'])
+        inspections = result['angle_results']['a']['site_inspections']
+        self.assertEqual(inspections[0]['responder_angle'], 'a')
+        self.assertEqual(inspections[0]['tree'], 'tree')
+        self.assertEqual(len(result['angle_results']), 6)
+        self.assertNotIn('site_inspections', result['angle_results']['e'])
+
+    def test_each_defect_is_incomplete_and_keeps_the_discovery_and_six_specialists(self):
+        for mode, text in (('withheld', 'follow-up failed'), ('neighbor', 'did not inspect internal/foo.go:10-12'),
+                           ('substituted', 'did not account'), ('removed', 'did not account'), ('dropped', 'did not account')):
+            with self.subTest(mode=mode):
+                result = self.run_mode(mode)['result']
+                self.assertEqual(result['runner_mode'], 'incomplete')
+                self.assertFalse(result['consolidator_completed'])
+                self.assertIn(text, result['report'])
+                self.assertEqual(result['specialists_completed'], 6)
+                self.assertEqual(result['discoveries'][0]['file'], 'internal/foo.go')
+                self.assertEqual(len(result['angle_results']), 6)
