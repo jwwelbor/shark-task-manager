@@ -7,3 +7,10 @@ Fixture code at `scripts/testdata/b086`; source policy `aeb3f7bf` (no skills/int
 - Row 8 repeat rejection: repeat-other 015dbaf7-99df-4847-b1d0-c93bdd5ef7e4 (different prior defects, ordinary routing, Fix); repeat-same 213ba9cf-1331-4ce1-8b20-ed3fd4fce902 (same fingerprint rejected twice, limit 2: parent escalation carrying both prior reviews, zero edits, zero tracker writes, no disposition).
 
 Only the discretionary half of rows 7 and 12 is exercised; the mandatory (pending parent repair) half needs a fix-now packet. Fresh candidate review and QA on the Fix candidates remain outside the cases. Discarded attempts: Codex run (usage limit); claude runs on earlier prepared roots where the focused check wording, a launcher-substring check, ANSI colour in plain-text empty lists and missing tracker_project field in the prompt were verifier or prompt plumbing issues, each fixed before the counted runs.
+
+## Delivery gate over a recorded receipt (rows 21 and 28 negative controls)
+
+The scratch tracker is seeded with an earlier host's outcome and `receipt.json`; the host is only the finish-feature Phase 1 gate (CI is a recording endpoint, merge and review disabled). Same host, grant, packet and seed throughout; verifier `--only` returned observed:
+- receipt-ship 40211e4a-e8e7-40b8-86fa-e339b815be69: owner task read back with fingerprint, reason present, exactly one CI handoff after the readback, zero tracker writes.
+- receipt-no-reason afa414b8-83aa-4f22-9b6e-e6a01e6ccb02: only the safe-deferral reason removed; owner read back, zero CI, parent received the pending finding naming the missing reason, zero writes.
+- receipt-note-only a2ebfbbb-8769-4ae6-b117-a9a14fbece36: receipt names a feature note as owner; note exists but no owning item; zero CI, parent received the pending finding.
