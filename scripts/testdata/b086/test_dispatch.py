@@ -149,6 +149,13 @@ class Dispatch(unittest.TestCase):
                       self.verified('d1', [('dispatch', 'consolidator')])['missing'])
         self.assertIn('zero CI handoffs after an incomplete review', self.verified('d1', [('ci',)])['missing'])
 
+    def test_a_refused_report_probe_is_not_a_persisted_review_and_a_second_written_review_is(self):
+        self.assertEqual(self.verified('d1', [('report', '--help')])['missing'], [])
+        again = self.verified('d1', [('report', '--verdict', 'INCOMPLETE', '--runner-mode', 'incomplete',
+                                      '--specialists-completed', '5', '--consolidator-completed', 'false',
+                                      '--body-file', 'work/body.md')])
+        self.assertIn('exactly one persisted review', again['missing'])
+
     def test_verifier_rejects_a_control_that_never_consolidated(self):
         case = self.fresh('d0')
         self.run_runner(case, True)

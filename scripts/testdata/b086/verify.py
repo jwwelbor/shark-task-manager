@@ -595,8 +595,10 @@ def inspect_dispatch(case, manifest):
     results = {e['invocation']: e for e in events if e['event'] == 'result'}
     if len(results) != len(entries) or any(e['invocation'] not in results for e in entries):
         missing.append('complete tool results')
-    if any(e['tool'] not in ('read', 'dispatch', 'cli', 'report', 'ci') for e in entries):
-        missing.append('only reads, subagent dispatch, the rescue CLI, the report writer and CI are called')
+    if any(e['tool'] not in ('read', 'dispatch', 'cli', 'report', 'ci', 'shark') for e in entries):
+        missing.append('only reads, subagent dispatch, the rescue CLI, the report writer, CI and tracker reads are called')
+    if any(e['event'] == 'forward' for e in events):
+        missing.append('no tracker call reaches the scratch tracker in a runner-only case')
     skill = str(case / 'project/.agents/skills/shark-rider/skills/deep-review/SKILL.md')
     if not any(e.get('tool') == 'read' and e.get('outcome') == 'loaded' and e.get('origin') == skill
                for e in events if e['event'] == 'result'):
@@ -618,7 +620,8 @@ def inspect_dispatch(case, manifest):
     if [e for e in entries if e['tool'] in ('merge', 'review')]:
         missing.append('no merge or reviewer endpoint')
     written = [e for e in events if e['event'] == 'result' and e['tool'] == 'report' and e.get('outcome') == 'written']
-    if len(written) != 1 or len([e for e in entries if e['tool'] == 'report']) != 1:
+    attempted = [e for e in entries if e['tool'] == 'report' and results.get(e['invocation'], {}).get('outcome') != 'refused']
+    if len(written) != 1 or len(attempted) != 1:
         missing.append('exactly one persisted review')
     else:
         report = written[0]
