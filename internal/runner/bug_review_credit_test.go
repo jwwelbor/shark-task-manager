@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
+	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -213,4 +214,69 @@ func TestBugCarriedCreditSharedFixtureShapes(t *testing.T) {
 			require.ErrorContains(t, err, messages[*c.ErrorKey])
 		})
 	}
+}
+
+// seedCreditedSuccessor files an accepted six-angle review of the successor
+// whose angles carry leaf-a from the seeded predecessor, then returns the QA
+// request that replays it. History ids: predecessor 2, successor successorID.
+func (f *creditFixture) seedCreditedSuccessor(successorID int, packet []byte) gatepersist.Request {
+	t := f.t
+	scopeData, err := json.Marshal(f.scope)
+	require.NoError(t, err)
+	decisions := []byte(`{"candidate_identity":` + string(mustJSON(t, bugReviewIdentity{f.scope.CandidateCommit, f.scope.CandidateTree, f.scope.DiffSHA256, f.scope.RepairPlanSHA256})) + `,"findings":[]}`)
+	hash := func(data []byte) string { return fmt.Sprintf("%x", sha256.Sum256(data)) }
+	report := strings.Join([]string{
+		"# Overall Code Review", "",
+		"**Runner metadata:** `runner_mode=canonical-six-angle` `specialists_completed=6` `consolidator_completed=True`",
+		"**Base commit:** `" + f.scope.BaseCommit + "`",
+		"**Candidate:** `" + f.scope.CandidateCommit + "` · **Tree:** `" + f.scope.CandidateTree + "` · **Diff SHA-256:** `" + f.scope.DiffSHA256 + "`",
+		"**Repair plan SHA-256:** `" + f.scope.RepairPlanSHA256 + "`",
+		"**Retained scope SHA-256:** `" + hash(scopeData) + "`",
+		"**Review decisions SHA-256:** `" + hash(decisions) + "` · **Angle results SHA-256:** `" + hash(packet) + "`",
+		"**Verdict:** PASS", "", "---", "",
+		"Scope: every changed file and its callers were inspected, leaf-a by credit. Findings: none remain. VERDICT: PASS",
+	}, "\n") + "\n"
+	ref := func(name, kind string, data []byte) string {
+		require.NoError(t, os.WriteFile(filepath.Join(f.root, ".shark", name), data, 0600))
+		return fmt.Sprintf(`{"kind":%q,"pointer":".shark/%s","summary":"sha256:%x"}`, kind, name, sha256.Sum256(data))
+	}
+	scopeRef := ref("succ-scope.json", "bug_review_scope", scopeData)
+	refs := strings.Join([]string{scopeRef, ref("succ-report.md", "bug_review_report", []byte(report)),
+		ref("succ-angles.json", "bug_review_angles", packet), ref("succ-decisions.json", "bug_review_decisions", decisions)}, ",")
+	result := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"checked"}}`, refs))
+	seedMaterialReviewAt(t, f.root, "", "review-c", result, &f.notes, &f.history)
+	f.notes.items[len(f.notes.items)-1].ID = int64(successorID)
+	f.history.items[len(f.history.items)-1].ID = int64(successorID)
+	qa := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"qa"}}`, scopeRef))
+	return gatepersist.Request{EntityKey: "B001", EntityType: models.EntityTypeBug, Gate: "qa", SourceStatus: "qa", Role: gateresult.RoleSuccess,
+		RunDir: filepath.Join(f.root, ".shark", "runs", "qa-run"), RunID: "qa-run", EnvelopeJSON: qa}
+}
+
+func (f *creditFixture) replayAtQA(req gatepersist.Request) error {
+	return verifyBugPriorGate(context.Background(), req, f.notes, f.history, bugPriorSpec{"code_review", "bug_review_scope"}, func(s string) string { return s }, defaultBugSuccessTarget)
+}
+
+// TestBugQAReplayRechecksCreditedSuccessorAtItsOwnInterval drives the QA gate's
+// prior-review verification (verifyBugPriorGate, the production caller of
+// compareBugApprovalEvidence) with separate review and QA run ids. The credited
+// leaf must be re-verified there, independent of the successor's declaration.
+func TestBugQAReplayRechecksCreditedSuccessorAtItsOwnInterval(t *testing.T) {
+	// Positive: predecessor review-a-1 (id 2), accepted successor review-c (id 3), QA qa-run.
+	f := newCreditFixture(t, nil)
+	req := f.seedCreditedSuccessor(3, f.packet(nil))
+	require.NoError(t, f.replayAtQA(req))
+
+	gate, reject := "qa", fmt.Sprintf("gate qa outcome fail run r2 operation %s", strings.Repeat("a", 64))
+
+	// Interrupted interval: a rejection between predecessor and accepted successor invalidates the credit at QA.
+	g := newCreditFixture(t, nil)
+	req = g.seedCreditedSuccessor(4, g.packet(nil))
+	g.history.items = append(g.history.items, &models.EntityHistory{ID: 3, FromStatus: &gate, ToStatus: "development", Notes: &reject})
+	require.ErrorContains(t, g.replayAtQA(req), "rejection or forced")
+
+	// Forged credit survives the writer and the first review's file hashes but not the replay.
+	h := newCreditFixture(t, nil)
+	forged := h.packet(func(a *bugAngle) { a.CarriedUnits[0].PredecessorOperation = strings.Repeat("0", 64) })
+	req = h.seedCreditedSuccessor(3, forged)
+	require.ErrorContains(t, h.replayAtQA(req), "not a parent-applied")
 }
