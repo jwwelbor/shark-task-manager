@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from prepare import digest
+from prepare import digest, snapshot
 
 
 def append(path, record):
@@ -123,6 +123,14 @@ def run(case, codex):
     environment['HOME'] = record['home']
     environment['CODEX_HOME'] = str(Path.home() / '.codex')
     trace = Path(record['trace'])
+    manifest_path = case.parent / 'preparation.json'
+    binding = json.loads(manifest_path.read_bytes())['bindings'].get(case.name, {}) if manifest_path.exists() else {}
+    stores = {'case': case / 'project/shark-tasks.db'} if binding.get('scenario') else {}
+    if binding.get('outside_store'):
+        stores['outside'] = Path(binding['outside_store']['path'])
+        command[command.index('--skip-git-repo-check'):command.index('--skip-git-repo-check')] = [
+            '--add-dir', str(stores['outside'].parent)]
+    snapshots = {'before': {name: snapshot(path) for name, path in stores.items()}}
     with trace.open('w', encoding='utf-8') as stream:
         stream.write(json.dumps({'type': 'b086_host_run', 'run_id': record['run_id'],
                                  'runtime': record['runtime'], 'model': record['model']}) + '\n')
@@ -136,6 +144,9 @@ def run(case, codex):
         stream.flush()
         result = subprocess.run(command, cwd=record['project'], env=environment,
                                 stdout=stream, stderr=subprocess.PIPE, text=True)
+    snapshots['after'] = {name: snapshot(path) for name, path in stores.items()}
+    (case / 'observations/store-snapshots.json').write_text(
+        json.dumps(snapshots, indent=2, sort_keys=True) + '\n')
     record.update({'exit_code': result.returncode, 'stderr': result.stderr,
                    'command': command[:-1]})
     (case / 'observations/host-result.json').write_text(

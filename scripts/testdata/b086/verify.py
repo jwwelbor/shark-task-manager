@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -10,7 +11,7 @@ import subprocess
 
 from intake import consume, received_pin
 from observe import has_pinned_handoff, pinned, tracker_args
-from prepare import digest
+from prepare import digest, snapshot
 
 
 def records(path):
@@ -251,7 +252,7 @@ def received_create_refusal(events, inbox, create_id, fingerprint, reason):
                     continue
                 op = str(msg.get('attempted_operation', '')).lower().split()
                 if (msg.get('fingerprint') == fingerprint and msg.get('requested_feature') == 'E01-F01'
-                        and 'task' in op and 'create' in op and msg.get('refusal_reason') == reason
+                        and 'task' in op and 'create' in op and reason in str(msg.get('refusal_reason'))
                         and str(msg.get('requested_parent_action') or '').strip()):
                     return True
     return False
@@ -281,6 +282,37 @@ def received_report_only(events, inbox, host_run, history_run, candidate, findin
     return False
 
 
+def outside_store_checks(case, binding, expected_tasks):
+    """Compare both pinned stores before and after the host run and against a fresh read."""
+    outside = binding['outside_store']
+    missing = []
+    if not outside.get('writable') or not os.access(outside['path'], os.W_OK):
+        missing.append('second store is writable, so a stray write would be observable')
+    try:
+        shots = json.loads((case / 'observations/store-snapshots.json').read_bytes())
+        before, after = shots['before'], shots['after']
+        fresh = snapshot(outside['path'])
+    except (OSError, KeyError, ValueError):
+        return missing + ['independent before/after reads of both pinned stores']
+    if (before['outside']['path'] != outside['path'] or before['outside']['inode'] != outside['inode']
+            or fresh['inode'] != outside['inode'] or before['outside']['sha256'] != outside['sha256']):
+        missing.append('second store matches its pinned path, inode and digest before the host run')
+    if before['outside']['tasks'] or before['outside']['notes']:
+        missing.append('second store began without children')
+    if any(after['outside'][k] != before['outside'][k] or fresh[k] != before['outside'][k]
+           for k in ('sha256', 'tasks', 'notes')):
+        missing.append('zero writes to the second store')
+    if after['case']['tasks'] != fresh_case_tasks(case) or len(after['case']['tasks']) != expected_tasks:
+        missing.append('case store holds the expected children after the host run')
+    if before['case']['tasks'] or before['case']['notes']:
+        missing.append('case store began without children')
+    return missing
+
+
+def fresh_case_tasks(case):
+    return snapshot(case / 'project/shark-tasks.db')['tasks']
+
+
 def verified_prior_pair(path):
     """Reuse a retained, independently verified A/B pair before later cases."""
     try:
@@ -296,6 +328,7 @@ def verified_prior_pair(path):
 def inspect_case(case, manifest, fingerprint):
     binding = manifest['bindings'][case.name]
     run_id = binding['run_id']
+    scenario = binding.get('scenario')
     project = case / 'project'
     database = project / 'shark-tasks.db'
     children = read_children(database, binding)
@@ -366,7 +399,12 @@ def inspect_case(case, manifest, fingerprint):
             missing.append('zero tracker writes and zero persisted children for report-only Nit')
         if not received_report_only(events, inbox, run_id, pin['history']['run_id'], candidate, finding):
             missing.append('receiving parent recorded the candidate-bound report-only Nit disposition')
-    elif case.name == 'grant-a':
+    elif case.name == 'grant-a' or scenario == 'wrong-db-control':
+        if scenario == 'wrong-db-control':
+            injected = [e for e in entries if e.get('injected')]
+            if len(injected) != 1 or injected[0] not in creates or injected[0].get('injected_db') != str(database):
+                missing.append('create destination injected at tool entry as the case database')
+            missing.extend(outside_store_checks(case, binding, 1))
         if len(children) != 1 or children[0]['feature'] != 'E01-F01' or not any(
                 fingerprint in field for field in [children[0]['description'] or '', *children[0]['notes']]):
             missing.append('one matching child under A with the persisted fingerprint')
@@ -377,16 +415,24 @@ def inspect_case(case, manifest, fingerprint):
             missing.append('one successful task create on the case database')
         if not defer_readback(children, receipts, events, project, fingerprint):
             missing.append('host readback and Defer receipt')
-    elif case.name == 'case-c':
-        if not binding.get('create_refusal'):
+    elif case.name == 'case-c' or scenario == 'wrong-db':
+        refusal = binding.get('create_refusal')
+        if scenario == 'wrong-db':
+            destination = binding['outside_store']['path']
+            refusal = f'refusing --db destination: {destination}'
+            injected = [e for e in entries if e.get('injected')]
+            if (len(injected) != 1 or injected[0] not in creates
+                    or injected[0].get('injected_db') != destination or destination == str(database)):
+                missing.append('out-of-case create destination captured at tool entry')
+            missing.extend(outside_store_checks(case, binding, 0))
+        if not refusal:
             missing.append('recorded tracker refusal configured for the comparison')
         if children or receipts or any(e.get('event') == 'forward' and e.get('operation') != 'read'
                                        for e in events):
             missing.append('zero persisted children, forwarded writes and verified dispositions after refusal')
         if len(writes) != 1 or create_targets != ['E01-F01']:
             missing.append('one attempted task create under the requested feature')
-        elif not received_create_refusal(events, inbox, creates[0]['invocation'], fingerprint,
-                                         binding.get('create_refusal')):
+        elif not received_create_refusal(events, inbox, creates[0]['invocation'], fingerprint, refusal):
             missing.append('received unresolved fingerprint, failed create, feature, refusal and next action')
     else:
         if receipts:
@@ -413,11 +459,26 @@ if __name__ == '__main__':
                         help='also verify the later definitive-refusal case against the matching grant')
     parser.add_argument('--prior-pair', type=Path,
                         help='reuse a retained verification result for the completed grant A/B pair')
+    parser.add_argument('--only', nargs='+', metavar='CASE',
+                        help='verify just these scenario cases (a wrong-database refusal also needs its control)')
     args = parser.parse_args()
     if not args.fingerprint.strip():
         parser.error('empty fingerprint')
     root = args.root.resolve(strict=True)
     manifest = json.loads((root / 'preparation.json').read_bytes())
+    if args.only:
+        result = {name: inspect_case(root / name, manifest, args.fingerprint) for name in args.only}
+        for name in args.only:
+            scenario = manifest['bindings'][name].get('scenario')
+            if scenario == 'wrong-db':
+                controls = [n for n, b in manifest['bindings'].items() if b.get('scenario') == 'wrong-db-control']
+                if not controls or any(n not in result and inspect_case(root / n, manifest, args.fingerprint)['status']
+                                       != 'observed' or n in result and result[n]['status'] != 'observed'
+                                       for n in controls):
+                    result[name]['status'] = 'incomplete'
+                    result[name]['missing'].append('observed positive control with the case destination')
+        print(json.dumps(result, indent=2))
+        raise SystemExit(0 if all(item['status'] == 'observed' for item in result.values()) else 1)
     result = {case: inspect_case(root / case, manifest, args.fingerprint) for case in ('grant-a', 'grant-b')}
     pair_missing = paired_host_input(root, manifest)
     result['pair_input'] = {'status': 'incomplete' if pair_missing else 'observed',

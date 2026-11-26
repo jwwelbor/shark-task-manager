@@ -142,6 +142,39 @@ def tracker_args(argv, project, database, config):
     return [*forwarded, '--config', str(config), '--db', str(database)], operation, target
 
 
+def strip_db(argv):
+    kept, args = [], iter(argv)
+    for arg in args:
+        if arg == '--db':
+            next(args, None)
+        elif not arg.startswith('--db='):
+            kept.append(arg)
+    return kept
+
+
+def inject_destination(case, binding, argv):
+    """Fault control: the binding, not the host, names the database of a create call."""
+    target = binding.get('inject_db')
+    if not target:
+        return argv, None
+    project = case / 'project'
+    database = (project / 'shark-tasks.db').resolve(strict=True)
+    host_argv = strip_db(argv)
+    try:
+        _, operation, _ = tracker_args(host_argv, project, database, project / '.sharkconfig.json')
+    except ValueError:
+        return argv, None
+    if operation != 'create':
+        return argv, None
+    destination = str(database) if target == 'case' else target
+    return [*host_argv, '--db', destination], destination
+
+
+def lost_response(binding, loads):
+    return binding.get('fault') == 'lost-response', any(
+        e.get('outcome') == 'response_lost' for e in loads)
+
+
 def tracker(case, manifest, binding, argv, log, event):
     project = case / 'project'
     config = pinned(case, 'project/.sharkconfig.json', manifest)
@@ -168,11 +201,20 @@ def tracker(case, manifest, binding, argv, log, event):
         pinned(case, relative, manifest)
     if operation == 'create' and binding.get('create_refusal'):
         raise ValueError(binding['create_refusal'])
+    faulted, already_lost = lost_response(binding, loads)
+    if faulted and already_lost and operation != 'create':
+        raise ValueError('tracker lookup unavailable: read access is suspended')
     append(log, dict(event, event='forward', database=str(database), operation=operation))
     try:
         result = subprocess.run([binary, *args], cwd=project, capture_output=True)
     except OSError as error:
         append(log, dict(event, event='result', outcome='launch_failed', reason=str(error)))
+        return 1
+    if faulted and not already_lost and operation == 'create':
+        append(log, dict(event, event='result', outcome='response_lost', forwarded=True,
+                         exit_code=result.returncode, stdout=result.stdout.decode(),
+                         stderr=result.stderr.decode()))
+        print('connection reset by peer while waiting for the create response', file=sys.stderr)
         return 1
     append(log, dict(event, event='result', outcome='exited', forwarded=True,
                      exit_code=result.returncode, stdout=result.stdout.decode(),
@@ -192,6 +234,11 @@ def run(case, tool, argv):
     workflow_read = tool == 'shark' and argv == WORKFLOW_ARGS
     event = {'run_id': binding['run_id'], 'invocation': str(uuid.uuid4()),
              'tool': 'read' if workflow_read else tool}
+    effective = argv
+    if tool == 'shark' and not workflow_read:
+        effective, destination = inject_destination(case, binding, argv)
+        if destination:
+            event = dict(event, injected=True, injected_db=destination)
     append(log, dict(event, event='entry', argv=argv))
     try:
         if workflow_read or (tool == 'read' and len(argv) == 1):
@@ -214,7 +261,7 @@ def run(case, tool, argv):
             append(observations / (tool + '.jsonl'), dict(event, message=message))
             append(log, dict(event, event='result', outcome='received'))
         elif tool == 'shark':
-            return tracker(case, manifest, binding, argv, log, event)
+            return tracker(case, manifest, binding, effective, log, event)
         elif tool in {'ci', 'merge', 'review'}:
             raise ValueError('recording endpoint: external execution disabled for grant pair')
         else:

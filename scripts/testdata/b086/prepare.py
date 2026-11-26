@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import uuid
@@ -19,6 +20,21 @@ FINISH_DIGEST = '40bf2773d43fd2b90237d9fabb20ffcca138e3bd0b073b75b8fe2214066854f
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def snapshot(path):
+    """Independently read one tracker store by its pinned path, without changing it."""
+    path = Path(path).resolve(strict=True)
+    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as connection:
+        tasks = [list(r) for r in connection.execute(
+            'SELECT t.key, f.key, t.title, t.description FROM tasks t '
+            'JOIN features f ON f.id=t.feature_id ORDER BY t.key')]
+        notes = [list(r) for r in connection.execute(
+            'SELECT entity_type, entity_id, content FROM entity_notes ORDER BY id')]
+        features = [r[0] for r in connection.execute('SELECT key FROM features ORDER BY key')]
+    stat = path.stat()
+    return {'path': str(path), 'inode': [stat.st_dev, stat.st_ino], 'sha256': digest(path),
+            'features': features, 'tasks': tasks, 'notes': notes}
 
 
 def output(args, cwd, **kwargs):
@@ -62,8 +78,21 @@ def seed_project(source, staging, binary_digest):
     return scratch
 
 
+SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response'}
+
+
+def copy_store(source, destination):
+    """Copy the seed store, including any WAL content, into a separate writable file."""
+    destination.parent.mkdir()
+    with sqlite3.connect(source) as origin, sqlite3.connect(destination) as target:
+        origin.backup(target)
+    stat = destination.stat()
+    return {'path': str(destination.resolve(strict=True)), 'inode': [stat.st_dev, stat.st_ino],
+            'sha256': digest(destination), 'writable': os.access(destination, os.W_OK)}
+
+
 def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=False,
-            synthetic_variant=None, policy_commit=POLICY):
+            synthetic_variant=None, policy_commit=POLICY, scenarios=()):
     from host import prompt
 
     root = root.resolve(strict=True)
@@ -105,6 +134,12 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
         grants = [('grant-a', 'E01-F01'), ('grant-b', 'E01-F02')]
         if with_refusal_control:
             grants.append(('case-c', 'E01-F01'))
+        extra = {}
+        for name, kind in scenarios:
+            if kind not in SCENARIOS or name in {g[0] for g in grants}:
+                raise ValueError(f'unsupported or duplicate scenario case: {name}:{kind}')
+            grants.append((name, 'E01-F01'))
+            extra[name] = kind
         for case_name, grant in grants:
             case = root / case_name
             case.mkdir()
@@ -137,6 +172,15 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                 'prompt_sha256': hashlib.sha256(prompt(case).encode()).hexdigest(),
                 'grant_sha256': digest(case / 'grant.json'),
             }
+            if case_name in extra:
+                kind = extra[case_name]
+                bindings[case_name]['scenario'] = kind
+                if kind.startswith('wrong-db'):
+                    outside = copy_store(case / 'project/shark-tasks.db', root / (case_name + '-outside/shark-tasks.db'))
+                    bindings[case_name]['outside_store'] = outside
+                    bindings[case_name]['inject_db'] = outside['path'] if kind == 'wrong-db' else 'case'
+                elif kind == 'lost-response':
+                    bindings[case_name]['fault'] = 'lost-response'
             if case_name == 'case-c':
                 bindings[case_name]['create_refusal'] = 'Tracker refused child creation under E01-F01'
             cases.append(case_name)
@@ -173,6 +217,8 @@ if __name__ == '__main__':
                              help='stage the original report and sidecars in each case after verification')
     parser.add_argument('--with-refusal-control', action='store_true',
                         help='stage a third case from the matching grant for the subsequent refusal replay')
+    parser.add_argument('--scenario', action='append', default=[], metavar='NAME:KIND',
+                        help='stage an extra case from the matching grant: ' + ', '.join(sorted(SCENARIOS)))
     parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade'],
                         default='worked-example', help='choose the synthetic reviewer finding')
     parser.add_argument('--policy-commit', default=POLICY,
@@ -181,4 +227,4 @@ if __name__ == '__main__':
     print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic,
                   args.with_refusal_control,
                   args.synthetic_variant if args.synthetic else None,
-                  args.policy_commit))
+                  args.policy_commit, [tuple(s.split(':', 1)) for s in args.scenario]))
