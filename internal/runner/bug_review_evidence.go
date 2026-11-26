@@ -97,15 +97,19 @@ func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, sc
 	if err := requireBugFindingDecisions(body, decisions); err != nil {
 		return err
 	}
+	var raw map[bugFindingKey]string
 	if six {
 		if err := verifyBugAngleArtifact(ctx, req, scope, header, decisions, verdict, credit); err != nil {
+			return err
+		}
+		if raw, err = rawBugFindingSeverities(req); err != nil {
 			return err
 		}
 	}
 	if err := validateBugReviewMaterialImpacts(ctx, req, scope, header, body); err != nil {
 		return err
 	}
-	return validateBugParentTriageObservation(req, scope, decisions)
+	return validateBugParentTriageObservationRaw(req, scope, decisions, raw)
 }
 
 func verifyBugAngleArtifact(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header string, decisions map[bugFindingKey]bugReviewDecision, verdict string, credit *bugCredit) error {

@@ -205,8 +205,15 @@ func materialDecisionMarkers(body string) map[string]bool {
 }
 
 func validateBugParentTriageObservation(req gatepersist.Request, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision) error {
-	observedByID, err := reportOnlyFindingIDs(decisions)
-	if err != nil || len(observedByID) == 0 {
+	return validateBugParentTriageObservationRaw(req, scope, decisions, nil)
+}
+
+// validateBugParentTriageObservationRaw derives the expected host actions from
+// the raw angle findings together with their decisions, so relabeling a raw
+// blocker cannot suppress the host action it requires.
+func validateBugParentTriageObservationRaw(req gatepersist.Request, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, raw map[bugFindingKey]string) error {
+	expected, err := expectedBugHostActions(decisions, raw)
+	if err != nil || len(expected) == 0 {
 		return err
 	}
 	if !req.ParentObservationInjected {
@@ -223,53 +230,76 @@ func validateBugParentTriageObservation(req gatepersist.Request, scope bugCandid
 	if !observation.CandidateIdentity.matches(scope) || observation.ObservedBy != "parent" {
 		return fmt.Errorf("parent triage observation does not match frozen findings")
 	}
-	return checkReportOnlyActions(observedByID, observation.Actions)
+	return checkHostActions(expected, observation.Actions)
 }
 
-func reportOnlyFindingIDs(decisions map[bugFindingKey]bugReviewDecision) (map[string]bool, error) {
-	observedByID := make(map[string]bool)
-	for _, decision := range decisions {
+const (
+	bugHostActionReportOnly = "report_only"
+	bugHostActionTriage     = "triage"
+)
+
+// expectedBugHostActions maps each finding that needs a host action to that
+// action. A report-only nit is observed as report_only; a raw blocker that was
+// reclassified without refutation or a report-only withdrawal requires triage.
+func expectedBugHostActions(decisions map[bugFindingKey]bugReviewDecision, raw map[bugFindingKey]string) (map[string]string, error) {
+	expected := make(map[string]string)
+	for key, decision := range decisions {
+		action := ""
+		switch {
 		// The Rider writer uses report-only. Earlier B087 packets used report_only.
-		if decision.Severity != "nit" || (decision.Disposition != "report-only" && decision.Disposition != "report_only") {
+		case decision.Severity == "nit" && (decision.Disposition == "report-only" || decision.Disposition == "report_only"):
+			action = bugHostActionReportOnly
+		case raw[key] == "blocker" && decision.Severity != "blocker" && decision.Disposition != "refuted":
+			action = bugHostActionTriage
+		default:
 			continue
 		}
-		id := decision.FindingID
-		if strings.TrimSpace(id) == "" {
+		if strings.TrimSpace(decision.FindingID) == "" {
 			return nil, fmt.Errorf("report-only finding ID is required")
 		}
-		if _, exists := observedByID[id]; exists {
-			return nil, fmt.Errorf("duplicate report-only finding ID %s", id)
+		if _, exists := expected[decision.FindingID]; exists {
+			return nil, fmt.Errorf("duplicate report-only finding ID %s", decision.FindingID)
 		}
-		observedByID[id] = false
+		expected[decision.FindingID] = action
 	}
-	return observedByID, nil
+	return expected, nil
 }
 
-func checkReportOnlyActions(observedByID map[string]bool, actions []bugParentTriageAction) error {
+func checkHostActions(expected map[string]string, actions []bugParentTriageAction) error {
+	observed := make(map[string]bool, len(expected))
 	for _, action := range actions {
-		observed, expected := observedByID[action.FindingID]
-		if !expected {
+		want, ok := expected[action.FindingID]
+		if !ok {
 			return fmt.Errorf("unexpected report-only observation for %q", action.FindingID)
 		}
-		if observed {
+		if observed[action.FindingID] {
 			return fmt.Errorf("duplicate report-only observation for %s", action.FindingID)
 		}
-		if err := action.verifyReportOnly(); err != nil {
+		if err := action.verify(want); err != nil {
 			return err
 		}
-		observedByID[action.FindingID] = true
+		observed[action.FindingID] = true
 	}
-	for id, observed := range observedByID {
-		if !observed {
+	for id, want := range expected {
+		if !observed[id] {
+			if want == bugHostActionTriage {
+				return fmt.Errorf("missing triage observation for %s", id)
+			}
 			return fmt.Errorf("missing report-only observation for %s", id)
 		}
 	}
 	return nil
 }
 
-func (action bugParentTriageAction) verifyReportOnly() error {
-	if action.Action != "report_only" {
-		return fmt.Errorf("%s: expected report_only host action", action.FindingID)
+func (action bugParentTriageAction) verify(want string) error {
+	if action.Action != want {
+		return fmt.Errorf("%s: expected %s host action", action.FindingID, want)
+	}
+	if want == bugHostActionTriage {
+		if action.Edits == nil || action.TrackerWrites == nil || *action.Edits < 0 || *action.TrackerWrites < 0 {
+			return fmt.Errorf("%s: triage requires observed edits and tracker_writes counters", action.FindingID)
+		}
+		return nil
 	}
 	if action.Edits == nil || *action.Edits != 0 {
 		return fmt.Errorf("%s: report-only requires observed edits of zero", action.FindingID)
@@ -278,6 +308,34 @@ func (action bugParentTriageAction) verifyReportOnly() error {
 		return fmt.Errorf("%s: report-only requires observed tracker_writes of zero", action.FindingID)
 	}
 	return nil
+}
+
+// rawBugFindingSeverities reads the six-angle raw findings, keeping the most
+// severe label when angles repeat a finding.
+func rawBugFindingSeverities(req gatepersist.Request) (map[bugFindingKey]string, error) {
+	_, data, err := readBugEvidence(req, "bug_review_angles")
+	if err != nil {
+		return nil, err
+	}
+	return rawSeveritiesFromAngles(data)
+}
+
+func rawSeveritiesFromAngles(data []byte) (map[bugFindingKey]string, error) {
+	var angles map[string]bugAngle
+	if err := json.Unmarshal(data, &angles); err != nil {
+		return nil, err
+	}
+	rank := map[string]int{"nit": 1, "non-blocker": 2, "blocker": 3}
+	raw := make(map[bugFindingKey]string)
+	for _, angle := range angles {
+		for _, f := range angle.Findings {
+			key := bugFindingKey{f.File, f.Line, f.Rule, f.Summary, f.Diagnosis}
+			if rank[f.Severity] > rank[raw[key]] {
+				raw[key] = f.Severity
+			}
+		}
+	}
+	return raw, nil
 }
 
 func decodeStrict(data []byte, target any) error {

@@ -160,3 +160,36 @@ func (r *growingNoteReader) ListNotes(context.Context, models.EntityType, string
 	}
 	return make([]*models.EntityNote, r.step), nil
 }
+
+// B09: expected host actions come from the raw angle findings. A raw blocker
+// relabeled as a triaged non-blocker (not refuted, not report-only) cannot
+// suppress its host action, and the parent-measured observation covers it.
+func TestHostActionsAreDerivedFromRawFindings(t *testing.T) {
+	root := t.TempDir()
+	scope := bugCandidateScope{CandidateCommit: "c", CandidateTree: "t", DiffSHA256: "d", RepairPlanSHA256: "p"}
+	key := bugFindingKey{File: "a.go", Line: 4, Rule: "r", Summary: "s", Diagnosis: "d"}
+	relabeled := map[bugFindingKey]bugReviewDecision{key: {FindingID: "F-1", Severity: "non-blocker", Disposition: "accepted"}}
+	raw := map[bugFindingKey]string{key: "blocker"}
+	runDir := filepath.Join(root, ".shark", "runs", "review")
+	require.NoError(t, os.MkdirAll(runDir, 0o700))
+	write := func(actions []map[string]any) gatepersist.Request {
+		data := mustJSON(t, map[string]any{"candidate_identity": bugReviewIdentity{"c", "t", "d", "p"}, "observed_by": "parent", "actions": actions})
+		require.NoError(t, os.WriteFile(filepath.Join(runDir, "parent-triage-observation.json"), data, 0o600))
+		envelope := fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_parent_triage_observation","pointer":".shark/runs/review/parent-triage-observation.json","summary":"sha256:%x"}],"gate_result":{"schema_version":1,"summary":"x"}}`, sha256.Sum256(data))
+		return gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(envelope), ParentObservationInjected: true}
+	}
+	triage := func(edits any) []map[string]any {
+		return []map[string]any{{"finding_id": "F-1", "action": "triage", "edits": edits, "tracker_writes": 1}}
+	}
+	// Without the raw findings the relabeled blocker needs no observation (the defect).
+	require.NoError(t, validateBugParentTriageObservationRaw(gatepersist.Request{RunDir: runDir}, scope, relabeled, nil))
+	// With them, the observation is required, per finding, with non-null counters.
+	require.ErrorContains(t, validateBugParentTriageObservationRaw(gatepersist.Request{RunDir: runDir}, scope, relabeled, raw), "receipt is required")
+	require.ErrorContains(t, validateBugParentTriageObservationRaw(write(nil), scope, relabeled, raw), "missing triage observation for F-1")
+	require.ErrorContains(t, validateBugParentTriageObservationRaw(write(triage(nil)), scope, relabeled, raw), "triage requires observed edits")
+	require.ErrorContains(t, validateBugParentTriageObservationRaw(write([]map[string]any{{"finding_id": "F-1", "action": "report_only", "edits": 0, "tracker_writes": 0}}), scope, relabeled, raw), "expected triage host action")
+	require.NoError(t, validateBugParentTriageObservationRaw(write(triage(2)), scope, relabeled, raw))
+	// A refuted raw blocker needs no host action.
+	refuted := map[bugFindingKey]bugReviewDecision{key: {FindingID: "F-1", Severity: "blocker", Disposition: "refuted"}}
+	require.NoError(t, validateBugParentTriageObservationRaw(gatepersist.Request{RunDir: runDir}, scope, refuted, raw))
+}

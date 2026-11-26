@@ -80,7 +80,7 @@ func ObserveBugReportOnlyTriage(ctx context.Context, w BugTriageWindow, envelope
 	}
 	actions := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		actions = append(actions, map[string]any{"finding_id": id, "action": "report_only", "edits": edits, "tracker_writes": w.TrackerWrites})
+		actions = append(actions, map[string]any{"finding_id": id.id, "action": id.action, "edits": edits, "tracker_writes": w.TrackerWrites})
 	}
 	data, err := json.Marshal(map[string]any{"candidate_identity": identity, "observed_by": "parent", "actions": actions})
 	if err != nil {
@@ -113,7 +113,9 @@ func readDigestBoundEvidence(root string, refs []workercontrol.EvidenceRef, kind
 	return data, nil
 }
 
-func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) ([]string, bugReviewIdentity, error) {
+type measuredHostAction struct{ id, action string }
+
+func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) ([]measuredHostAction, bugReviewIdentity, error) {
 	if !hasBugEvidence(refs, "bug_review_decisions") {
 		return nil, bugReviewIdentity{}, nil
 	}
@@ -129,17 +131,33 @@ func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) (
 	for _, finding := range packet.Findings {
 		decisions[bugFindingKey{finding.File, finding.Line, finding.Rule, finding.Summary, finding.Diagnosis}] = finding
 	}
-	byID, err := reportOnlyFindingIDs(decisions)
+	raw, err := measuredRawSeverities(root, refs)
 	if err != nil {
 		return nil, bugReviewIdentity{}, err
 	}
-	ids := make([]string, 0, len(byID))
+	byID, err := expectedBugHostActions(decisions, raw)
+	if err != nil {
+		return nil, bugReviewIdentity{}, err
+	}
+	ids := make([]measuredHostAction, 0, len(byID))
 	for _, finding := range packet.Findings {
-		if _, ok := byID[finding.FindingID]; ok {
-			ids = append(ids, finding.FindingID)
+		if action, ok := byID[finding.FindingID]; ok {
+			ids = append(ids, measuredHostAction{finding.FindingID, action})
 		}
 	}
 	return ids, packet.CandidateIdentity, nil
+}
+
+// measuredRawSeverities reads the raw angle findings when the worker retained them.
+func measuredRawSeverities(root string, refs []workercontrol.EvidenceRef) (map[bugFindingKey]string, error) {
+	if !hasBugEvidence(refs, "bug_review_angles") {
+		return nil, nil
+	}
+	data, err := readDigestBoundEvidence(root, refs, "bug_review_angles")
+	if err != nil {
+		return nil, err
+	}
+	return rawSeveritiesFromAngles(data)
 }
 
 // measureCheckoutEdits counts changed or untracked source entries relative to
