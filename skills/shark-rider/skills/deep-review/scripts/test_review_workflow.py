@@ -147,6 +147,32 @@ run(args, () => {}, tasks => Promise.all(tasks.map(task => task())), agent, () =
                 check(full, complete=False, missing_b=True)
                 check(full)
 
+    def test_missing_result_vector_is_unknown_not_zero_specialists(self):
+        """B085/5272: a dispatch with no result vector differs from six replies that were all null."""
+        harness = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', src.slice(src.indexOf('// ─── Args')));
+const mode = process.argv[2];
+const parallel = async () => mode === 'undefined' ? undefined : mode === 'null' ? null : mode === 'object' ? {} : mode === 'string' ? 'x' : mode === 'throw' ? (() => { throw Error('dispatch down') })() : Array(6).fill(null);
+let calls = 0;
+const agent = async () => { calls++; throw Error('must not consolidate') };
+run({diff_path:'d', skill_dir:'s', candidate_commit:'c', candidate_tree:'t', diff_sha256:'h', changed_files:['f']}, () => {}, parallel, agent, () => {})
+  .then(report => process.stdout.write(JSON.stringify({report, calls}))).catch(e => { console.error(e); process.exit(1); });
+'''
+        for mode, expected in [('undefined', 'unknown'), ('null', 'unknown'), ('object', 'unknown'), ('string', 'unknown'),
+                               ('throw', 'unknown'), ('six-null', 0)]:
+            with self.subTest(mode=mode):
+                proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
+                observed = json.loads(proc.stdout)
+                result = observed['report']
+                self.assertEqual(observed['calls'], 0)
+                self.assertEqual(result['runner_mode'], 'incomplete')
+                self.assertEqual(result['specialists_completed'], expected)
+                self.assertFalse(result['consolidator_completed'])
+                self.assertTrue(result['report'].startswith('INCOMPLETE'))
+
     def test_partial_and_malformed_results_never_reach_consolidator(self):
         harness = r'''
 const fs = require('fs');

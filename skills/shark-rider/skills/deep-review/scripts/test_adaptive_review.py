@@ -930,5 +930,111 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertIn('runner_mode=incomplete', report.read_text())
 
 
+class CliPerStreamByteLimitTest(unittest.TestCase):
+    """B085/5301: each reviewer stream has its own inclusive 8,388,608-byte allowance."""
+    LIMIT = 8388608  # oracle fixed independently of adaptive_review.MAX_REVIEW_OUTPUT_BYTES
+
+    def _run(self, root, repo, scope, scope_file, specs, tag):
+        """specs maps cli -> dict(stdout_len, stderr_len, exit, malformed)."""
+        prompt = root / 'prompt'
+        prompt.write_text('Inspect the frozen changes.')
+        attempts = root / 'attempts'
+        attempts.write_text('')
+
+        def reviewer(cli):
+            spec = specs[cli]
+            packet = review_packet(scope)
+            packet['report'] += '\nReview supplied by ' + cli
+            if cli == 'claude':
+                packet['decisions']['reviewed_files'].append('README-' + cli)
+            wire = b'not json' if spec.get('malformed') else json.dumps(packet).encode()
+            if spec.get('stdout_len'):
+                wire = wire + b' ' * (spec['stdout_len'] - len(wire))
+            path = root / cli
+            path.write_text(
+                '#!/usr/bin/env python3\nimport os, sys\n'
+                'with open("source", "rb") as f: assert f.read() == b"new"\n'
+                f'with open({str(attempts)!r}, "a") as f: print({cli!r}, file=f)\n'
+                f'os.write(1, {wire!r})\n'
+                f'os.write(2, bytes([233]) * {spec.get("stderr_len", 0)})\n'
+                f'sys.exit({spec.get("exit", 0)})\n')
+            path.chmod(0o700)
+            return path
+
+        report = root / (tag + '.md')
+        result = subprocess.run([sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+            '--project-root', str(repo), '--source-root', str(repo), '--base-commit', scope['base_commit'],
+            '--scope-file', str(scope_file), '--diff-path', scope['diff_path'], '--prompt-file', str(prompt),
+            '--review-output-path', str(report), '--no-workflow-available', '--no-agent-dispatch-available',
+            '--host', 'claude', '--requested-model', 'requested', '--effective-model', 'verified-preferred',
+            '--fallback-effective-model', 'verified-second',
+            '--codex-command', str(reviewer('codex')), '--claude-command', str(reviewer('claude'))],
+            capture_output=True, text=True)
+        return result, json.loads(result.stdout), report.read_text(), attempts.read_text().split()
+
+    def _expect(self, run, calls, selected):
+        result, metadata, saved, seen = run
+        self.assertEqual(seen, calls)
+        self.assertEqual(metadata['specialists_completed'], 0)
+        if selected is None:
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+            self.assertFalse(metadata['consolidator_completed'])
+            self.assertIsNone(metadata['adversarial_model'])
+            self.assertIsNone(metadata['effective_model'])
+            self.assertNotIn('retained_decisions', metadata)
+            self.assertIn('**Verdict:** INCOMPLETE', saved)
+            self.assertNotIn('Review supplied by', saved)
+            return
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(metadata['verdict'], 'PASS')
+        self.assertTrue(metadata['consolidator_completed'])
+        self.assertEqual(metadata['adversarial_model'], selected)
+        self.assertEqual(metadata['requested_model'], 'requested')
+        self.assertEqual(metadata['effective_model'], 'verified-preferred' if selected == 'codex' else 'verified-second')
+        self.assertIn('Review supplied by ' + selected, saved)
+        self.assertNotIn('Review supplied by ' + ('claude' if selected == 'codex' else 'codex'), saved)
+        sidecar = Path(metadata['retained_decisions']).read_bytes()
+        self.assertEqual(hashlib.sha256(sidecar).hexdigest(), metadata['decisions_sha256'])
+        self.assertIn(metadata['decisions_sha256'], saved)
+        # Only the selected reviewer's own declaration is retained.
+        self.assertEqual('README-claude' in json.loads(sidecar)['reviewed_files'], selected == 'claude')
+
+    @unittest.skipIf(os.name == 'nt', 'uses POSIX process groups and executable fixtures')
+    def test_each_stream_has_its_own_inclusive_limit_at_cli_selection(self):
+        L = self.LIMIT
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+
+            def check(tag, specs, calls, selected):
+                with self.subTest(case=tag):
+                    self._expect(self._run(root, repo, scope, scope_file, specs, tag), calls, selected)
+
+            ok = {}
+            # 1. preferred stderr: exactly at the limit wins despite stdout+stderr exceeding it; one byte over falls back.
+            check('preferred-stderr-at-limit', {'codex': {'stderr_len': L}, 'claude': ok}, ['codex'], 'codex')
+            check('preferred-stderr-over', {'codex': {'stderr_len': L + 1}, 'claude': ok}, ['codex', 'claude'], 'claude')
+            # 2. alternate boundary, behind each independent preferred failure.
+            for name, failure in (('nonzero', {'exit': 3}), ('malformed', {'malformed': True})):
+                check(name + '-alternate-stderr-at-limit', {'codex': failure, 'claude': {'stderr_len': L}},
+                      ['codex', 'claude'], 'claude')
+                check(name + '-alternate-stderr-over', {'codex': failure, 'claude': {'stderr_len': L + 1}},
+                      ['codex', 'claude'], None)
+            check('both-stderr-over', {'codex': {'stderr_len': L + 1}, 'claude': {'stderr_len': L + 1}},
+                  ['codex', 'claude'], None)
+            check('restored-producer', {'codex': {'stderr_len': L}, 'claude': {'stderr_len': L + 1}}, ['codex'], 'codex')
+            # 3. stdout allowance is independent: legal JSON whitespace padding to exactly the limit.
+            check('preferred-stdout-at-limit', {'codex': {'stdout_len': L}, 'claude': ok}, ['codex'], 'codex')
+            check('preferred-stdout-over', {'codex': {'stdout_len': L + 1}, 'claude': ok}, ['codex', 'claude'], 'claude')
+            check('alternate-stdout-at-limit', {'codex': {'exit': 3}, 'claude': {'stdout_len': L}},
+                  ['codex', 'claude'], 'claude')
+            check('alternate-stdout-over', {'codex': {'exit': 3}, 'claude': {'stdout_len': L + 1}},
+                  ['codex', 'claude'], None)
+            check('both-streams-at-limit', {'codex': {'stdout_len': L, 'stderr_len': L}, 'claude': ok}, ['codex'], 'codex')
+            check('both-streams-at-limit-alternate', {'codex': {'exit': 3}, 'claude': {'stdout_len': L, 'stderr_len': L}},
+                  ['codex', 'claude'], 'claude')
+
+
 if __name__ == '__main__':
     unittest.main()

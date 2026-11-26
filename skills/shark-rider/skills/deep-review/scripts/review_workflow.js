@@ -197,7 +197,7 @@ function validAngle(result) {
 }
 
 function summarizeAngles(results) {
-  if (!Array.isArray(results)) return {completed: 0, retainedAngles: null}
+  if (!Array.isArray(results)) return {completed: 'unknown', retainedAngles: null}
   return {
     completed: results.filter(validAngle).length,
     retainedAngles: Object.fromEntries('abcdef'.split('').flatMap((name, i) => results[i] == null ? [] : [[name, results[i]]])),
@@ -210,7 +210,7 @@ if (!Array.isArray(angleResults) || completed !== 6 || angleResults.length !== 6
     const missing = changedFiles.filter(file => !packet.reviewed_files.includes(file))
     return missing.length ? [`angle ${angle}: missing ${missing.map(file => JSON.stringify(file)).join(', ')}`] : []
   })
-  const reason = [`${completed} of 6 specialist results were valid; consolidation was not run.`, ...errors].join(' ')
+  const reason = [`${completed === 'unknown' ? 'no specialist result vector was returned' : `${completed} of 6 specialist results were valid`}; consolidation was not run.`, ...errors].join(' ')
   return {report: `INCOMPLETE: ${reason}`, runner_mode: "incomplete", specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
 }
 
