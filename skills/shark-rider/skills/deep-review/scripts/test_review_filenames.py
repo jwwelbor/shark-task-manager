@@ -80,6 +80,21 @@ class ReviewFilenameTests(unittest.TestCase):
         else:
             packet["decisions"]["reviewed_files"] = names
         self.decisions.write_text(json.dumps(packet["decisions"]))
+        if mode == "adversarial-cli":
+            attempts_path = self.root / "attempts.json"
+            decisions_bytes = self.decisions.read_bytes()
+            body_bytes = self.body.read_bytes()
+            packet_bytes = json.dumps({"report": body_bytes.decode("utf-8"), "decisions": packet["decisions"]}, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8", errors="surrogatepass")
+            attempts = [{
+                "attempt": 1, "attempt_ref": "deep-review-cli:1", "cli": "codex", "outcome": "accepted",
+                "worker_id": "recording-worker", "observed_provider": "openai", "observed_model": "P",
+                "evidence_ref": "codex-rollout:recording-worker", "requested_model": None,
+                "fallback_reason": "dispatch unavailable",
+                "packet_sha256": hashlib.sha256(packet_bytes).hexdigest(),
+            }]
+            attempts_bytes = (json.dumps(attempts) + "\n").encode("utf-8")
+            attempts_path.write_bytes(attempts_bytes)
+            args.extend(["--attempts-file", str(attempts_path), "--expected-attempts-sha256", hashlib.sha256(attempts_bytes).hexdigest()])
         return args
 
     def cli_arguments(self, names, fallback):
@@ -105,7 +120,7 @@ class ReviewFilenameTests(unittest.TestCase):
             selected = review_packet(self.scope)
             selected["decisions"]["reviewed_files"] = names
             with patch.object(adaptive_review, "_try_cli_candidates",
-                              return_value=(selected["report"], selected["decisions"], "codex", None, [])), \
+                              return_value=(selected["report"], selected["decisions"], "codex", None, [], [])), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 status = adaptive_review.run_cli(adaptive_review.parser().parse_args(args))
             stdout = output.getvalue()
@@ -310,11 +325,21 @@ run(scope, () => {}, tasks => Promise.all(tasks.map(task => task())), reviewer, 
         self.commit_names([b"ordinary", b" "])
         names = self.scope["changed_files"]
         for entry in ("run-cli", "write-report"):
-            for requested, effective in [(None, None), (None, "P"), ("", "P"), ("R", None), ("R", "P")]:
+            combos = [(None, None), (None, "P"), ("", "P"), ("R", None), ("R", "P")] if entry == "run-cli" else [(None, "P"), ("", "P"), ("R", "P")]
+            for requested, effective in combos:
                 with self.subTest(entry=entry, requested=requested, effective=effective):
                     report = self.root / f"model-{entry}-{requested!r}-{effective!r}.md"
                     args = (self.cli_arguments(names, False) if entry == "run-cli"
                             else self.direct_arguments("adversarial-cli", names))
+                    if entry == "write-report" and "--attempts-file" in args:
+                        idx = args.index("--attempts-file")
+                        ap = Path(args[idx + 1])
+                        att = json.loads(ap.read_text(encoding="utf-8"))
+                        att[0]["requested_model"] = requested
+                        att[0]["observed_model"] = effective
+                        ab = (json.dumps(att) + "\n").encode("utf-8")
+                        ap.write_bytes(ab)
+                        args[args.index("--expected-attempts-sha256") + 1] = hashlib.sha256(ab).hexdigest()
                     for flag, value in [("--requested-model", requested), ("--effective-model", effective)]:
                         if value is not None:
                             args.extend([flag, value])

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -11,11 +12,39 @@ import (
 // Mock implementations for NoteService dependencies
 
 type mockNoteEntityNoteRepo struct {
+	createForSessionFunc     func(context.Context, *models.EntityNote, string, string, time.Duration) error
 	createFunc               func(ctx context.Context, note *models.EntityNote) error
 	getByEntityFunc          func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
 	getByEntityTypeFunc      func(ctx context.Context, entityType models.EntityType, entityID int64, noteTypes []string) ([]*models.EntityNote, error)
 	searchFunc               func(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error)
 	searchWithTimePeriodFunc func(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.EntityNote, error)
+}
+
+func (m *mockNoteEntityNoteRepo) CreateForSession(ctx context.Context, note *models.EntityNote, key, session string, ttl time.Duration) error {
+	return m.createForSessionFunc(ctx, note, key, session, ttl)
+}
+
+func TestAddNoteForSessionUsesResolvedEntityAndOwningSession(t *testing.T) {
+	repo := &mockNoteEntityNoteRepo{
+		createForSessionFunc: func(_ context.Context, note *models.EntityNote, key, session string, ttl time.Duration) error {
+			if key != "B001" || session != "parent" || ttl != 90*time.Second {
+				t.Fatalf("unexpected lease %q / %q with TTL %v", key, session, ttl)
+			}
+			if note.EntityType != models.EntityTypeBug || note.EntityID != 4 || note.Content != "worker evidence" {
+				t.Fatalf("unexpected worker note %+v", note)
+			}
+			note.ID = 42
+			return nil
+		},
+	}
+	service, err := NewNoteService(repo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	note, err := service.AddNoteForSession(context.Background(), models.EntityTypeBug, "b001", "comment", "worker evidence", "", "", "parent", 90*time.Second)
+	if err != nil || note.ID != 42 {
+		t.Fatalf("expected inserted note 42, got %+v, %v", note, err)
+	}
 }
 
 func (m *mockNoteEntityNoteRepo) Create(ctx context.Context, note *models.EntityNote) error {

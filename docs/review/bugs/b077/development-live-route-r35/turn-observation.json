@@ -1,0 +1,27 @@
+{
+  "thread_id": "01a20ba3-4850-76a0-86a0-467d71a4bde2",
+  "session_meta_id": "01a20ba3-4850-76a0-86a0-467d71a4bde2",
+  "model_provider": "openai",
+  "cwd": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery",
+  "turn_records": [
+    {
+      "record_type": "turn_context",
+      "ordinal": 9,
+      "models": [
+        "gpt-6-luna"
+      ]
+    },
+    {
+      "record_type": "event_msg",
+      "ordinal": 10,
+      "models": [
+        "gpt-6-luna"
+      ]
+    }
+  ],
+  "observed_models": [
+    "gpt-6-luna"
+  ],
+  "rollout_sha256": "496bf7b5401878fd7931fdfd575a38711b2d2f1de31e6fc122f5a38304f0df8a",
+  "rollout_records": 207
+}

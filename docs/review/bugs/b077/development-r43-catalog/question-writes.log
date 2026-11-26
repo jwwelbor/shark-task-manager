@@ -1,0 +1,18 @@
+=== RUN   TestQuestionResponseRequiresSessionAtWrite
+--- PASS: TestQuestionResponseRequiresSessionAtWrite (0.12s)
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/current
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/takeover
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/released
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/successor_supplies_its_session
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/direct_owner
+--- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite (0.71s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/current (0.12s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/takeover (0.12s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired (0.12s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/released (0.12s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/successor_supplies_its_session (0.12s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/direct_owner (0.13s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/repository/question	0.841s

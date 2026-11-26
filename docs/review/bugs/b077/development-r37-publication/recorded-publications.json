@@ -1,0 +1,1601 @@
+[
+  {
+    "command": "produce",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "opus",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "9cfeafdd3fe1f95459ade6df7b0d4de3b6f346246eacdab532b644ccb132a4d7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "4cf90c9632822bda2e26475c4b10cc8a05ac638bd3f302eaf5bb798c267fb84b",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    },
+    "exact_body": {
+      "bytes": 142,
+      "sha256": "9b40159d9c8aae9433ea8d060360e99da3845df14d2b24ad137014f970e32ebc"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "9cfeafdd3fe1f95459ade6df7b0d4de3b6f346246eacdab532b644ccb132a4d7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "4cf90c9632822bda2e26475c4b10cc8a05ac638bd3f302eaf5bb798c267fb84b",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": "Workflow and agent dispatch unavailable",
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "9cfeafdd3fe1f95459ade6df7b0d4de3b6f346246eacdab532b644ccb132a4d7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "4cf90c9632822bda2e26475c4b10cc8a05ac638bd3f302eaf5bb798c267fb84b",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": "preferred Codex succeeded",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": "",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "produce",
+    "job": "B",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": null,
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "c200dfc4f4781c71ec81aa2d514ecf68b030293eb9c03946b64413d2b2c76b7f"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "B",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": null,
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    },
+    "exact_body": {
+      "bytes": 139,
+      "sha256": "61fe371e4aaf51f5686927169051dd6ec2a8d145a03f2ef2f1abaf00984153e2"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": null,
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "c200dfc4f4781c71ec81aa2d514ecf68b030293eb9c03946b64413d2b2c76b7f"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "B",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": null,
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 0,
+    "reason_argument": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": null,
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "c200dfc4f4781c71ec81aa2d514ecf68b030293eb9c03946b64413d2b2c76b7f"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "B",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": null,
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 2,
+    "reason_argument": "preferred Codex succeeded",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 2,
+    "reason_argument": "",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "produce",
+    "job": "C",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "host identity unknown; selected available alternate CLI",
+      "requested_model": "",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "attempts_sha256": "86f6b8997a3ca6e7102ea1d6403211600a9d73cb694439f787698b7a50e77e0d"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** host identity unknown; selected available alternate CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "C",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": "",
+      "fallback_reason": "host identity unknown; selected available alternate CLI"
+    },
+    "exact_body": {
+      "bytes": 139,
+      "sha256": "61fe371e4aaf51f5686927169051dd6ec2a8d145a03f2ef2f1abaf00984153e2"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "host identity unknown; selected available alternate CLI",
+      "requested_model": "",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "attempts_sha256": "86f6b8997a3ca6e7102ea1d6403211600a9d73cb694439f787698b7a50e77e0d"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** host identity unknown; selected available alternate CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "C",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": "",
+      "fallback_reason": "host identity unknown; selected available alternate CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 0,
+    "reason_argument": "host identity unknown; selected available alternate CLI",
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "host identity unknown; selected available alternate CLI",
+      "requested_model": "",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "attempts_sha256": "86f6b8997a3ca6e7102ea1d6403211600a9d73cb694439f787698b7a50e77e0d"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** host identity unknown; selected available alternate CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "C",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": "",
+      "fallback_reason": "host identity unknown; selected available alternate CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 2,
+    "reason_argument": "preferred Codex succeeded",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 2,
+    "reason_argument": "",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "host identity unknown; selected available alternate CLI",
+      "requested_model": "",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "attempts_sha256": "86f6b8997a3ca6e7102ea1d6403211600a9d73cb694439f787698b7a50e77e0d"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** host identity unknown; selected available alternate CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "C",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": "",
+      "fallback_reason": "host identity unknown; selected available alternate CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 0,
+    "reason_argument": "host identity unknown; selected available alternate CLI",
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "host identity unknown; selected available alternate CLI",
+      "requested_model": "",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "attempts_sha256": "86f6b8997a3ca6e7102ea1d6403211600a9d73cb694439f787698b7a50e77e0d"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** host identity unknown; selected available alternate CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "C",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": "",
+      "fallback_reason": "host identity unknown; selected available alternate CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 2,
+    "reason_argument": "preferred Codex succeeded",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 2,
+    "reason_argument": "",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 2,
+    "reason_argument": "HOST IDENTITY UNKNOWN; SELECTED AVAILABLE ALTERNATE CLI",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 2,
+    "reason_argument": "host identity unknown; selected available alternate CLI ",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": "recording-model",
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: requested model differs from the producer request",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: requested model differs from the producer request",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": null,
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "c200dfc4f4781c71ec81aa2d514ecf68b030293eb9c03946b64413d2b2c76b7f"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "B",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": null,
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 0,
+    "reason_argument": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": null,
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "c200dfc4f4781c71ec81aa2d514ecf68b030293eb9c03946b64413d2b2c76b7f"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "B",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": null,
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 2,
+    "reason_argument": "preferred Codex succeeded",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 2,
+    "reason_argument": "",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 2,
+    "reason_argument": "WORKFLOW AND AGENT DISPATCH UNAVAILABLE; CODEX: NON-ZERO EXIT STATUS 7; USING CLAUDE CLI",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 2,
+    "reason_argument": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI ",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": "recording-model",
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: requested model differs from the producer request",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: requested model differs from the producer request",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "9cfeafdd3fe1f95459ade6df7b0d4de3b6f346246eacdab532b644ccb132a4d7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "4cf90c9632822bda2e26475c4b10cc8a05ac638bd3f302eaf5bb798c267fb84b",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": "Workflow and agent dispatch unavailable",
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "9cfeafdd3fe1f95459ade6df7b0d4de3b6f346246eacdab532b644ccb132a4d7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "4cf90c9632822bda2e26475c4b10cc8a05ac638bd3f302eaf5bb798c267fb84b",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": "preferred Codex succeeded",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": "",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": "WORKFLOW AND AGENT DISPATCH UNAVAILABLE",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": "Workflow and agent dispatch unavailable ",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": "recording-model",
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: requested model differs from the producer request",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: requested model differs from the producer request",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": "host identity unknown; selected available alternate CLI",
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: fallback reason differs from the producer decision",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: fallback reason differs from the producer decision",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "opus",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "9cfeafdd3fe1f95459ade6df7b0d4de3b6f346246eacdab532b644ccb132a4d7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "4cf90c9632822bda2e26475c4b10cc8a05ac638bd3f302eaf5bb798c267fb84b",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": "haiku",
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: requested model differs from the producer request",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: requested model differs from the producer request",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "C",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "host identity unknown; selected available alternate CLI",
+      "requested_model": "",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "attempts_sha256": "86f6b8997a3ca6e7102ea1d6403211600a9d73cb694439f787698b7a50e77e0d"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** host identity unknown; selected available alternate CLI",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "C",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": null,
+      "packet_sha256": "2ebf69ef1a970b775edacc8768f646c2b81de06e463fa5eccf4d1db92de8f0a2",
+      "requested_model": "",
+      "fallback_reason": "host identity unknown; selected available alternate CLI"
+    }
+  },
+  {
+    "command": "produce",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "opus",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "352bdc271ef8469cc65c1ea93492c3f85e2ee82d08e6cac5c0d4ff425aea72a7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "ed0c352580dedad94a467d766bc078cce81261894573d544b2e8ce3b23b5fa64",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    },
+    "exact_body": {
+      "bytes": 142,
+      "sha256": "9b40159d9c8aae9433ea8d060360e99da3845df14d2b24ad137014f970e32ebc"
+    }
+  },
+  {
+    "command": "produce",
+    "job": "B",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "opus",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "6f10bbe4718c56c9219b47578a2f26c78cb30874922f1a1e8696844c2786ba29"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "B",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "98a568abb6c6f20dccda3d78f0bf93a936913eaa5aa7aa3896929615e6109302",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    },
+    "exact_body": {
+      "bytes": 139,
+      "sha256": "61fe371e4aaf51f5686927169051dd6ec2a8d145a03f2ef2f1abaf00984153e2"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "B",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "6f10bbe4718c56c9219b47578a2f26c78cb30874922f1a1e8696844c2786ba29"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "B",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "98a568abb6c6f20dccda3d78f0bf93a936913eaa5aa7aa3896929615e6109302",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "352bdc271ef8469cc65c1ea93492c3f85e2ee82d08e6cac5c0d4ff425aea72a7"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "ed0c352580dedad94a467d766bc078cce81261894573d544b2e8ce3b23b5fa64",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: attempt file differs from the selected producer execution",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: attempt file differs from the selected producer execution",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: report or decisions differ from the accepted packet",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: report or decisions differ from the accepted packet",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: report or decisions differ from the accepted packet",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: report or decisions differ from the accepted packet",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: report or decisions differ from the accepted packet",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: report or decisions differ from the accepted packet",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "review body unavailable: [Errno 2] No such file or directory: '/tmp/tmp33ker_6o/A/producer.md.body.txt'",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** review body unavailable: [Errno 2] No such file or directory: '/tmp/tmp33ker_6o/A/producer.md.body.txt'",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  },
+  {
+    "command": "produce",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "opus",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "a31478142cbb2effe461acab2c3654d0031bc8cf46163793efd27f50907b06f9"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "60765c5794a18074a44ad6c831856cb51131a8e33e42c0ae8860d0a8ccf38f19",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    },
+    "exact_body": {
+      "bytes": 142,
+      "sha256": "9b40159d9c8aae9433ea8d060360e99da3845df14d2b24ad137014f970e32ebc"
+    }
+  },
+  {
+    "command": "produce",
+    "job": "D",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": "opus",
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "614b2e555715622a9a60c568b89dd08c073e50b8ff2d98e08f42ae49c4a35df4"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "D",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "60765c5794a18074a44ad6c831856cb51131a8e33e42c0ae8860d0a8ccf38f19",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    },
+    "exact_body": {
+      "bytes": 142,
+      "sha256": "9b40159d9c8aae9433ea8d060360e99da3845df14d2b24ad137014f970e32ebc"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "D",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "attempts_sha256": "614b2e555715622a9a60c568b89dd08c073e50b8ff2d98e08f42ae49c4a35df4"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "D",
+      "usage": {
+        "input_tokens": 29
+      },
+      "cost": 0.07,
+      "packet_sha256": "60765c5794a18074a44ad6c831856cb51131a8e33e42c0ae8860d0a8ccf38f19",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable; codex: non-zero exit status 7; using claude CLI"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 0,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "PASS",
+      "fallback_reason": "Workflow and agent dispatch unavailable",
+      "requested_model": "opus",
+      "effective_model": "recording-model",
+      "effective_provider": "anthropic",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "attempts_sha256": "a31478142cbb2effe461acab2c3654d0031bc8cf46163793efd27f50907b06f9"
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** Workflow and agent dispatch unavailable",
+      "**Requested model:** `opus` \u00b7 **Verified effective route:** `anthropic/recording-model`",
+      "**Verdict:** PASS"
+    ],
+    "published_attempts": true,
+    "receipt": {
+      "worker_id": "A",
+      "usage": {
+        "input_tokens": 11
+      },
+      "cost": 0.02,
+      "packet_sha256": "60765c5794a18074a44ad6c831856cb51131a8e33e42c0ae8860d0a8ccf38f19",
+      "requested_model": "opus",
+      "fallback_reason": "Workflow and agent dispatch unavailable"
+    }
+  },
+  {
+    "command": "publish",
+    "job": "A",
+    "exit": 2,
+    "reason_argument": null,
+    "request_argument": null,
+    "reported": {
+      "verdict": "INCOMPLETE",
+      "fallback_reason": "CLI publication failed: attempt file differs from the selected producer execution",
+      "requested_model": null,
+      "effective_model": null,
+      "effective_provider": null,
+      "usage": null,
+      "cost": null,
+      "attempts_sha256": null
+    },
+    "disk_header": [
+      "**Adversarial model:** `claude` \u00b7 **Fallback reason:** CLI publication failed: attempt file differs from the selected producer execution",
+      "**Requested model:** `unknown` \u00b7 **Verified effective route:** `unknown/unknown`",
+      "**Verdict:** INCOMPLETE"
+    ],
+    "published_attempts": false,
+    "receipt": null
+  }
+]

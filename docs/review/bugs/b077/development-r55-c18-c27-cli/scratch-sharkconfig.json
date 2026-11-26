@@ -1,0 +1,28 @@
+{
+  "backup_files": 7,
+  "backups": false,
+  "color_enabled": true,
+  "database": {
+    "backend": "local",
+    "skip_migrations": false,
+    "url": "./shark-tasks.db"
+  },
+  "interactive_mode": false,
+  "json_output": false,
+  "max_parallel_items": 5,
+  "observability": {
+    "enabled": false,
+    "exporter": "stdout",
+    "log_file": "",
+    "log_format": "json",
+    "log_level": "info",
+    "metrics_enabled": false,
+    "otlp_endpoint": "",
+    "otlp_protocol": "grpc",
+    "service_name": "shark-task-manager",
+    "tracing_enabled": false
+  },
+  "require_rejection_reason": true,
+  "shark_data_path": "shark-data",
+  "workflow_config": "shark-data/workflow/"
+}

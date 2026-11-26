@@ -1,0 +1,4 @@
+=== RUN   TestBugCandidateScopeTracksSourceChanges
+--- PASS: TestBugCandidateScopeTracksSourceChanges (6.09s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/runner	6.100s

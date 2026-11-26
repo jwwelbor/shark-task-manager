@@ -1,0 +1,4 @@
+=== RUN   TestTC004_FailureMissingOutcomeAndKickbackOrdering
+--- PASS: TestTC004_FailureMissingOutcomeAndKickbackOrdering (0.00s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/tests/contracts	0.015s

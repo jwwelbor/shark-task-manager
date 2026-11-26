@@ -1,0 +1,652 @@
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Fast and affordable model for easier tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Fast and affordable model for easier tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Fast and affordable model for easier tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Fast and affordable model for easier tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Fast and affordable model for easier tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Fast and affordable model for easier tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Legacy fast model for simpler tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Legacy fast model for simpler tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Legacy fast model for simpler tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Legacy fast model for simpler tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Legacy fast model for simpler tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Legacy fast model for simpler tasks.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Fast, go-to model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Fast, go-to model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Fast, go-to model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Fast, go-to model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Fast, go-to model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Fast, go-to model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Previous generation model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Previous generation model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Previous generation model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Previous generation model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Previous generation model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Previous generation model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Legacy model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Legacy model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Legacy model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Legacy model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Legacy model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Legacy model for coding and everyday work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Previous generation model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Previous generation model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Previous generation model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Previous generation model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Previous generation model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Previous generation model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='research', description='Our most capable model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'unverified'
+- unsupported
++ unverified
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='repair_plan', description='Our most capable model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Our most capable model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='development', description='Our most capable model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Our most capable model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='qa', description='Our most capable model for complex coding and professional work.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+----------------------------------------------------------------------
+Ran 1 test in 14.142s
+
+FAILED (failures=48)

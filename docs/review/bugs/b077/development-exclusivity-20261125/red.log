@@ -1,0 +1,81 @@
+=== RUN   TestB077WorkerExclusivity
+    b077_codex_route_attestation_test.go:101: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/b077_codex_route_attestation_test.go:114
+        	            				/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/b077_codex_route_attestation_test.go:101
+        	Error:      	Received unexpected error:
+        	            	exit status 1
+        	Test:       	TestB077WorkerExclusivity
+        	Messages:   	.FFFFF
+        	            	======================================================================
+        	            	FAIL: test_only_retired_handle_is_stopped_before_submission (__main__.WorkerExclusivity.test_only_retired_handle_is_stopped_before_submission)
+        	            	----------------------------------------------------------------------
+        	            	Traceback (most recent call last):
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_worker_exclusivity.py", line 88, in test_only_retired_handle_is_stopped_before_submission
+        	            	    self.assertEqual(self.trace[:2], [("stop", "original-worker"), ("confirm", "original-worker")])
+        	            	AssertionError: Lists differ: [('submit', 'sess-702b55753dac05f0a9852f87')] != [('stop', 'original-worker'), ('confirm', 'original-worker')]
+        	            	
+        	            	First differing element 0:
+        	            	('submit', 'sess-702b55753dac05f0a9852f87')
+        	            	('stop', 'original-worker')
+        	            	
+        	            	Second list contains 1 additional elements.
+        	            	First extra element 1:
+        	            	('confirm', 'original-worker')
+        	            	
+        	            	- [('submit', 'sess-702b55753dac05f0a9852f87')]
+        	            	+ [('stop', 'original-worker'), ('confirm', 'original-worker')]
+        	            	
+        	            	======================================================================
+        	            	FAIL: test_unattributed_worker_withholds_submission (__main__.WorkerExclusivity.test_unattributed_worker_withholds_submission) (handle='other-worker', session='original')
+        	            	----------------------------------------------------------------------
+        	            	Traceback (most recent call last):
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_worker_exclusivity.py", line 97, in test_unattributed_worker_withholds_submission
+        	            	    self.assertNotEqual(self.run_contender(retirement, handle=handle, session=session), 0)
+        	            	AssertionError: 0 == 0
+        	            	
+        	            	======================================================================
+        	            	FAIL: test_unattributed_worker_withholds_submission (__main__.WorkerExclusivity.test_unattributed_worker_withholds_submission) (handle='original-worker', session='')
+        	            	----------------------------------------------------------------------
+        	            	Traceback (most recent call last):
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_worker_exclusivity.py", line 98, in test_unattributed_worker_withholds_submission
+        	            	    self.assertEqual(self.trace, [])
+        	            	AssertionError: Lists differ: [('submit', 'sess-3ff4886feba1cccafba99637')] != []
+        	            	
+        	            	First list contains 1 additional elements.
+        	            	First extra element 0:
+        	            	('submit', 'sess-3ff4886feba1cccafba99637')
+        	            	
+        	            	- [('submit', 'sess-3ff4886feba1cccafba99637')]
+        	            	+ []
+        	            	
+        	            	======================================================================
+        	            	FAIL: test_unattributed_worker_withholds_submission (__main__.WorkerExclusivity.test_unattributed_worker_withholds_submission) (handle='original-worker', session='new')
+        	            	----------------------------------------------------------------------
+        	            	Traceback (most recent call last):
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_worker_exclusivity.py", line 98, in test_unattributed_worker_withholds_submission
+        	            	    self.assertEqual(self.trace, [])
+        	            	AssertionError: Lists differ: [('submit', 'sess-3ff4886feba1cccafba99637')] != []
+        	            	
+        	            	First list contains 1 additional elements.
+        	            	First extra element 0:
+        	            	('submit', 'sess-3ff4886feba1cccafba99637')
+        	            	
+        	            	- [('submit', 'sess-3ff4886feba1cccafba99637')]
+        	            	+ []
+        	            	
+        	            	======================================================================
+        	            	FAIL: test_unconfirmed_exit_withholds_submission (__main__.WorkerExclusivity.test_unconfirmed_exit_withholds_submission)
+        	            	----------------------------------------------------------------------
+        	            	Traceback (most recent call last):
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_worker_exclusivity.py", line 102, in test_unconfirmed_exit_withholds_submission
+        	            	    self.assertNotEqual(self.run_contender(self.release_original(), stop_works=False), 0)
+        	            	AssertionError: 0 == 0
+        	            	
+        	            	----------------------------------------------------------------------
+        	            	Ran 4 tests in 1.390s
+        	            	
+        	            	FAILED (failures=5)
+--- FAIL: TestB077WorkerExclusivity (3.93s)
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/tests/contracts	3.945s
+FAIL

@@ -1,0 +1,6 @@
+{"case": "later_page", "question": "Q101", "holder": "alice", "session": "original", "exit_status": 0, "submissions": 1, "commands": ["question open-by-responder alice --limit 100 --offset 0 --json", "question open-by-responder alice --limit 100 --offset 100 --json", "claims --json", "heartbeat Q101 --session original"]}
+{"case": "takeover", "question": "Q001", "holder": "alice", "session": "successor", "exit_status": 1, "submissions": 0, "commands": ["question open-by-responder alice --limit 100 --offset 0 --json", "claims --json"]}
+{"case": "wrong_holder", "question": "Q001", "holder": "bob", "session": "original", "exit_status": 1, "submissions": 0, "commands": ["question open-by-responder alice --limit 100 --offset 0 --json", "claims --json"]}
+{"case": "terminal", "question": "Q001", "holder": "alice", "session": "original", "exit_status": 1, "submissions": 0, "commands": ["question open-by-responder alice --limit 100 --offset 0 --json"]}
+{"case": "other_question_only", "question": "Q001", "holder": "alice", "session": "original", "exit_status": 1, "submissions": 0, "commands": ["question open-by-responder alice --limit 100 --offset 0 --json"]}
+{"case": "unavailable", "question": "Q001", "holder": "alice", "session": "original", "exit_status": 1, "submissions": 0, "commands": ["question open-by-responder alice --limit 100 --offset 0 --json"]}

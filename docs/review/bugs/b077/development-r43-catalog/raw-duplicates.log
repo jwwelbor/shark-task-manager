@@ -1,0 +1,165 @@
+FFFFFFFFFF
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='Legacy balanced model for agentic coding', second='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='Legacy balanced model for agentic coding.', second='Legacy balanced model for agentic coding')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='Legacy balanced model for agentic coding', second='LEGACY BALANCED MODEL FOR AGENTIC CODING')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='LEGACY BALANCED MODEL FOR AGENTIC CODING', second='Legacy balanced model for agentic coding')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='Legacy balanced model for agentic coding', second='  Legacy balanced model for agentic coding  ')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='  Legacy balanced model for agentic coding  ', second='Legacy balanced model for agentic coding')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='Legacy balanced model for agentic coding', second='Legacy  balanced  model  for  agentic  coding')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='Legacy  balanced  model  for  agentic  coding', second='Legacy balanced model for agentic coding')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='Legacy balanced model for agentic coding', second='  LeGaCy balanced\tmodel for agentic coding.  ')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (first='  LeGaCy balanced\tmodel for agentic coding.  ', second='Legacy balanced model for agentic coding')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 375, in test_raw_catalog_descriptions
+    check([[row(a)], [row(b)]], "verified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+ : 
+
+----------------------------------------------------------------------
+Ran 1 test in 8.693s
+
+FAILED (failures=10)

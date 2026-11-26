@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -12,6 +13,7 @@ import (
 // NoteEntityNoteRepository defines the repository interface for entity notes.
 type NoteEntityNoteRepository interface {
 	Create(ctx context.Context, note *models.EntityNote) error
+	CreateForSession(ctx context.Context, note *models.EntityNote, entityKey, sessionID string, ttl time.Duration) error
 	GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
 	GetByEntityAndType(ctx context.Context, entityType models.EntityType, entityID int64, noteTypes []string) ([]*models.EntityNote, error)
 	Search(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error)
@@ -76,6 +78,20 @@ func (s *NoteService) AddNote(ctx context.Context, entityType models.EntityType,
 // them in free text. Empty metadata stores NULL; non-empty metadata must be
 // a valid JSON object.
 func (s *NoteService) AddNoteWithMetadata(ctx context.Context, entityType models.EntityType, entityKey string, noteType string, content string, createdBy string, metadata string) (*models.EntityNote, error) {
+	return s.addNote(ctx, entityType, entityKey, noteType, content, createdBy, metadata, s.noteRepo.Create)
+}
+
+// AddNoteForSession binds the insert to the parent session that owns this worker.
+func (s *NoteService) AddNoteForSession(ctx context.Context, entityType models.EntityType, entityKey, noteType, content, createdBy, metadata, sessionID string, ttl time.Duration) (*models.EntityNote, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, models.ErrClaimMissingSession
+	}
+	return s.addNote(ctx, entityType, entityKey, noteType, content, createdBy, metadata, func(ctx context.Context, note *models.EntityNote) error {
+		return s.noteRepo.CreateForSession(ctx, note, strings.ToUpper(strings.TrimSpace(entityKey)), sessionID, ttl)
+	})
+}
+
+func (s *NoteService) addNote(ctx context.Context, entityType models.EntityType, entityKey, noteType, content, createdBy, metadata string, insert func(context.Context, *models.EntityNote) error) (*models.EntityNote, error) {
 	if err := models.ValidateNoteType(noteType); err != nil {
 		return nil, fmt.Errorf("invalid note type: %w", err)
 	}
@@ -109,7 +125,7 @@ func (s *NoteService) AddNoteWithMetadata(ctx context.Context, entityType models
 		Metadata:   metadataPtr,
 	}
 
-	if err := s.noteRepo.Create(ctx, note); err != nil {
+	if err := insert(ctx, note); err != nil {
 		return nil, fmt.Errorf("failed to create note: %w", err)
 	}
 	if err := indexEntityIfConfigured(ctx, s.searchIndexer, entityType, entityID); err != nil {

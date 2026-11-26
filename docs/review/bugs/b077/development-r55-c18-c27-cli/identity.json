@@ -1,0 +1,19 @@
+{
+  "scenario": "B077 C18/C27 session-bound Question writes",
+  "source_candidate_commit": "52c1cc340371f0be79b73a98dee7c7035d251401",
+  "codex_exec_checkout_commit": "c2312a693e3abb4123685feb54e7d56a5c216e03",
+  "codex_exec_checkout_tree": "46531fdca112892d57125019df1fb6d0a0d99f2c",
+  "implementation_tree": "bc41c2917f8f861744ec5297120c440ffcab36a9",
+  "checkout_diff_from_implementation_commit": [
+    "docs/plan/bugs/B077.repair-plan-evidence.md"
+  ],
+  "codex_thread_id": "01a21149-edae-76f3-836a-9ba3da46662c",
+  "codex_exec_exit_code": 0,
+  "build_command": "GOCACHE=/tmp/b077-c18-c27-proof/go-cache GOTMPDIR=/tmp/b077-c18-c27-proof go build -trimpath -buildvcs=false -o /tmp/b077-c18-c27-proof/shark ./cmd/shark",
+  "binary_sha256": "e11c5ed80a1d80249e2551e84683227408ef4a6f06cf7902f0d03881cc45e6d1",
+  "scenario_sha256": "5a41d4c1919a19694fc2b1803da613b125e6b525831ec2ff5e49586f62e7543f",
+  "command_log_sha256": "4c616039148202e43dd1001a5ce1cad98cb32e7cd1a6de608bbbe61994d21ff0",
+  "codex_exec_event_log_sha256": "1005173b12f34fd3bea6a4d2f698039b446bcee823ddf7e687456d27b89b0be9",
+  "result": "pass",
+  "evidence_boundary": "real candidate Shark CLI commands, disposable SQLite project, independent read-only state snapshots; no real provider worker or review invoked"
+}

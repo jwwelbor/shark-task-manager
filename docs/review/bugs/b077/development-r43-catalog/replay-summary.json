@@ -1,0 +1,16 @@
+{
+  "candidate": "91753fc1aa9239c4b8e4d1aa783be3cfb9bcd16c",
+  "records": 112,
+  "outcomes": {
+    "verified": 65,
+    "unverified": 19,
+    "unsupported": 26,
+    "mismatch": 2
+  },
+  "matrix_counts": {
+    "A": 23,
+    "R": 25
+  },
+  "matrix_offset": 24,
+  "verified_graphs": 112
+}

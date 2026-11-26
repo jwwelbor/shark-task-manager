@@ -1,0 +1,17 @@
+{
+  "run-cli": {
+    "runner_mode": "adversarial-cli",
+    "adversarial_model": "codex",
+    "fallback_reason": "Workflow and agent dispatch unavailable; claude: invalid structured review: Expecting value: line 1 column 1 (char 0); using codex CLI",
+    "effective_model": "unbound-marker",
+    "specialists_completed": 0,
+    "consolidator_completed": true,
+    "verdict": "PASS",
+    "attempts_field_present": false,
+    "report_model_header": "**Requested model:** `unknown` \u00b7 **Verified effective model:** `unbound-marker`"
+  },
+  "write-report": {
+    "exit_status": 0,
+    "report_model_header": "**Requested model:** `unknown` \u00b7 **Verified effective model:** `second-unbound-marker`"
+  }
+}

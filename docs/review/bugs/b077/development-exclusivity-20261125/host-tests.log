@@ -1,0 +1,11 @@
+test_competing_claim_after_empty_inventory (__main__.WorkerExclusivity.test_competing_claim_after_empty_inventory) ... ok
+test_failed_stop_withholds_submission (__main__.WorkerExclusivity.test_failed_stop_withholds_submission) ... ok
+test_live_holder_survives_stale_retirement_reference (__main__.WorkerExclusivity.test_live_holder_survives_stale_retirement_reference) ... ok
+test_only_retired_handle_is_stopped_before_submission (__main__.WorkerExclusivity.test_only_retired_handle_is_stopped_before_submission) ... ok
+test_unattributed_worker_withholds_submission (__main__.WorkerExclusivity.test_unattributed_worker_withholds_submission) ... ok
+test_unconfirmed_exit_withholds_submission (__main__.WorkerExclusivity.test_unconfirmed_exit_withholds_submission) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 1.772s
+
+OK

@@ -547,6 +547,9 @@ func TestQuestionRepositoryRecordResponseRollsBackOnHistoryFailure_TC105(t *test
 	if err := repo.Create(ctx, question); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO entity_claims (entity_type, entity_key, session_id, claimed_by) VALUES ('question', ?, 'session-a', 'alice')`, question.Key); err != nil {
+		t.Fatal(err)
+	}
 	state := models.QuestionState{ResolutionOwner: "release-owner", Responders: []models.QuestionResponder{{Identity: "alice", Status: models.QuestionResponderCompleted}}, Responses: []models.QuestionResponse{{SessionID: "session-a", Responder: "alice", Summary: "approved", EvidencePointer: "docs/spec.md", RecordedAt: time.Now().UTC()}}}
 	encoded, err := models.EncodeQuestionState(nil, state)
 	if err != nil {
@@ -556,7 +559,7 @@ func TestQuestionRepositoryRecordResponseRollsBackOnHistoryFailure_TC105(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.RecordResponse(ctx, question.ID, "open", "ready_for_resolution", nil, encoded, "alice"); err == nil {
+	if err := repo.RecordResponse(ctx, question.ID, "answering", "ready_for_resolution", nil, encoded, "alice", "session-a"); err == nil {
 		t.Fatal("TC-105 RecordResponse() error = nil")
 	}
 	stored, err := repo.GetByKey(ctx, question.Key)
@@ -587,6 +590,9 @@ func TestQuestionRepositoryRecordResponseRejectsStaleAnsweringSnapshot_TC105(t *
 	if err := repo.Create(ctx, question); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO entity_claims (entity_type, entity_key, session_id, claimed_by) VALUES ('question', ?, 'session-a', 'alice')`, question.Key); err != nil {
+		t.Fatal(err)
+	}
 	beforeState := models.QuestionState{ResolutionOwner: "release-owner", Responders: []models.QuestionResponder{
 		{Identity: "alice", Status: models.QuestionResponderPending},
 		{Identity: "bob", Status: models.QuestionResponderPending},
@@ -605,10 +611,10 @@ func TestQuestionRepositoryRecordResponseRejectsStaleAnsweringSnapshot_TC105(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.RecordResponse(ctx, question.ID, "answering", "answering", before, after, "alice"); err != nil {
+	if err := repo.RecordResponse(ctx, question.ID, "answering", "answering", before, after, "alice", "session-a"); err != nil {
 		t.Fatalf("TC-105 first snapshot writer error = %v", err)
 	}
-	if err := repo.RecordResponse(ctx, question.ID, "answering", "answering", before, after, "alice"); err == nil {
+	if err := repo.RecordResponse(ctx, question.ID, "answering", "answering", before, after, "alice", "session-a"); err == nil {
 		t.Fatal("TC-105 stale snapshot writer error = nil")
 	}
 	stored, err := repo.GetByKey(ctx, question.Key)
@@ -651,7 +657,7 @@ func TestQuestionRepositoryResolveRollsBackTerminalProvenanceOnHistoryFailure_TC
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Resolve(ctx, question.ID, "ready_for_resolution", "resolved", nil, &terminal, "release-owner", "feature_change"); err == nil {
+	if err := repo.Resolve(ctx, question.ID, "ready_for_resolution", "resolved", nil, &terminal, "release-owner", "feature_change", nil); err == nil {
 		t.Fatal("TC-106 Resolve() error = nil")
 	}
 	stored, err := repo.GetByKey(ctx, question.Key)

@@ -316,7 +316,26 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliDecisionPath := filepath.Join(root, ".shark", "cli-decisions.json")
 	require.NoError(t, os.WriteFile(cliDecisionPath, cliDecisionBytes, 0600))
 	cliReportPath := filepath.Join(root, ".shark", "cli-report.md")
-	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--material-impacts", filepath.Join(root, ".shark", "base-expected.json"), "--material-dispositions", filepath.Join(root, ".shark", "base-dispositions.json"), "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", cliDecisionPath)
+	cliAttemptsPath := filepath.Join(root, ".shark", "cli-attempts.json")
+	// Simulate the trusted producer reference for this Go reader fixture. The
+	// Runner 3 subprocess tests independently cover creation of both digests.
+	bodyBytes, err := os.ReadFile(bodyPath)
+	require.NoError(t, err)
+	var cliAttemptDecisions map[string]any
+	require.NoError(t, json.Unmarshal(cliDecisionBytes, &cliAttemptDecisions))
+	packetBytes, err := json.Marshal(map[string]any{"report": string(bodyBytes), "decisions": cliAttemptDecisions})
+	require.NoError(t, err)
+	reason := "native and dispatched review unavailable"
+	cliAttempts, err := json.Marshal([]map[string]any{{
+		"attempt": 1, "attempt_ref": "deep-review-cli:1", "cli": "codex", "outcome": "accepted",
+		"worker_id": "recording-worker", "observed_provider": "openai", "observed_model": "recording-model",
+		"evidence_ref": "codex-rollout:recording-worker", "requested_model": nil, "fallback_reason": reason,
+		"packet_sha256": fmt.Sprintf("%x", sha256.Sum256(packetBytes)),
+	}})
+	require.NoError(t, err)
+	expectedDigest := fmt.Sprintf("%x", sha256.Sum256(cliAttempts))
+	require.NoError(t, os.WriteFile(cliAttemptsPath, cliAttempts, 0600))
+	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--material-impacts", filepath.Join(root, ".shark", "base-expected.json"), "--material-dispositions", filepath.Join(root, ".shark", "base-dispositions.json"), "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", reason, "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", cliDecisionPath, "--attempts-file", cliAttemptsPath, "--expected-attempts-sha256", expectedDigest)
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	cliReport, err := os.ReadFile(cliReportPath)

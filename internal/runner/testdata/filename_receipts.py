@@ -68,6 +68,18 @@ def variants(mode):
     report = directory / (mode + ".md")
     cli = mode == "adversarial-cli"
     options = ["--adversarial-model", "codex"] if cli else ["--angle-results", str(angle_input)]
+    if cli:
+        packet_bytes = json.dumps({"report": body.read_text(), "decisions": packet}, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8", errors="surrogatepass")
+        attempts_path = directory / "attempts.json"
+        attempts_bytes = (json.dumps([{
+            "attempt": 1, "attempt_ref": "deep-review-cli:1", "cli": "codex", "outcome": "accepted",
+            "worker_id": "recording-worker", "observed_provider": "openai", "observed_model": "observed-test",
+            "evidence_ref": "codex-rollout:recording-worker", "requested_model": None,
+            "fallback_reason": "preceding route unavailable",
+            "packet_sha256": hashlib.sha256(packet_bytes).hexdigest(),
+        }]) + "\n").encode("utf-8")
+        attempts_path.write_bytes(attempts_bytes)
+        options.extend(["--attempts-file", str(attempts_path), "--expected-attempts-sha256", hashlib.sha256(attempts_bytes).hexdigest()])
     subprocess.run([sys.executable, scripts / "adaptive_review.py", "write-report",
         "--project-root", root, "--source-root", root, "--scope-file", scope_path, "--review-output-path", report,
         "--runner-mode", mode, "--base-commit", base, "--diff-path", scope["diff_path"],

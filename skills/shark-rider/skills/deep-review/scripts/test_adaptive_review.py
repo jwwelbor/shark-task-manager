@@ -146,13 +146,27 @@ class AdaptiveReviewTests(unittest.TestCase):
             }
             for entry, options in entries.items():
                 for requested in (None, "", "requested-test"):
-                    for observed in (None, "observed-test"):
+                    observed_values = (None, "observed-test") if entry == "run-cli" else ("observed-test",)
+                    for observed in observed_values:
                         with self.subTest(entry=entry, requested=requested, observed=observed):
                             report = root / f"{entry}-{requested}-{observed}.md"
                             argv = [sys.executable, str(HERE / "adaptive_review.py"), entry, *options,
                                     "--project-root", str(repo), "--source-root", str(repo),
                                     "--base-commit", scope["base_commit"], "--scope-file", str(scope_file),
                                     "--diff-path", scope["diff_path"], "--review-output-path", str(report)]
+                            if entry == "write-report":
+                                packet_bytes = json.dumps({"report": packet["report"], "decisions": packet["decisions"]}, separators=(",", ":"), sort_keys=True).encode("utf-8")
+                                attempts_path = root / f"attempts-{requested}-{observed}.json"
+                                attempts_bytes = (json.dumps([{
+                                    "attempt": 1, "attempt_ref": "deep-review-cli:1", "cli": "codex", "outcome": "accepted",
+                                    "worker_id": "recording-worker", "observed_provider": "openai", "observed_model": observed,
+                                    "evidence_ref": "codex-rollout:recording-worker", "requested_model": requested,
+                                    "fallback_reason": "dispatch unavailable",
+                                    "packet_sha256": hashlib.sha256(packet_bytes).hexdigest(),
+                                }]) + "\n").encode("utf-8")
+                                attempts_path.write_bytes(attempts_bytes)
+                                argv.extend(["--attempts-file", str(attempts_path),
+                                             "--expected-attempts-sha256", hashlib.sha256(attempts_bytes).hexdigest()])
                             if requested is not None:
                                 argv.extend(["--requested-model", requested])
                             if observed is not None:
@@ -826,6 +840,385 @@ class AdaptiveReviewTests(unittest.TestCase):
             self.assertIn('Adversarial model:', report.read_text())
             self.assertIn('`codex`', report.read_text())
 
+    def test_cli_retry_retains_attempts_without_promoting_unbound_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            invalid = root / 'invalid-reviewer'
+            invalid.write_text("#!/bin/sh\nprintf '%s\\n' 'not a packet'\n")
+            invalid.chmod(invalid.stat().st_mode | stat.S_IXUSR)
+            valid = root / 'valid-reviewer'
+            fake_reviewer(valid, review_packet(scope))
+            report = root / 'report.md'
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'codex',
+                '--claude-command', str(invalid), '--codex-command', str(valid), '--effective-model', 'unbound-marker',
+                '--no-workflow-available', '--no-agent-dispatch-available',
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            metadata = json.loads(result.stdout)
+            self.assertIsNone(metadata['effective_model'])
+            self.assertEqual(len(metadata['attempts']), 2)
+            self.assertEqual([item['cli'] for item in metadata['attempts']], ['claude', 'codex'])
+            self.assertEqual([item['outcome'] for item in metadata['attempts']], ['invalid_packet', 'accepted'])
+            for attempt in metadata['attempts']:
+                self.assertIsNone(attempt['observed_provider'])
+                self.assertIsNone(attempt['observed_model'])
+                self.assertIsNone(attempt['usage'])
+                self.assertIsNone(attempt['cost'])
+            self.assertNotIn('unbound-marker', report.read_text())
+            attempts_path = Path(str(report) + '.attempts.json')
+            retained = json.loads(attempts_path.read_text())
+            self.assertEqual(retained, metadata['attempts'])
+            required_report = root / 'identity-required-report.md'
+            command = result.args[:]
+            command[command.index(str(report))] = str(required_report)
+            command.append('--require-verified-identity')
+            required = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(required.returncode, 2, required.stderr)
+            required_metadata = json.loads(required.stdout)
+            self.assertEqual(required_metadata['verdict'], 'INCOMPLETE')
+            self.assertIsNone(required_metadata['effective_model'])
+
+    def test_codex_attempt_receipt_joins_event_worker_to_its_rollout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / 'codex-home'
+            session = '01a1f016-33fa-7d53-8a1b-1d1c1ee52e05'
+            turn = 'turn-123'
+            prompt_packet = json.dumps({'report': 'packet'})
+            events = root / 'events.jsonl'
+            events.write_text('\n'.join([
+                json.dumps({'type': 'thread.started', 'thread_id': session}),
+                json.dumps({'type': 'turn.started'}),
+                json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': prompt_packet}}),
+                json.dumps({'type': 'turn.completed', 'turn_id': turn, 'usage': {'input_tokens': 11}, 'cost': 0.02}),
+            ]) + '\n')
+            rollout = home / 'sessions' / '2026' / f'rollout-2026-11-23T00-00-00-{session}.jsonl'
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text('\n'.join([
+                json.dumps({'type': 'session_meta', 'payload': {'id': session, 'model_provider': 'openai'}}),
+                json.dumps({'type': 'turn_context', 'payload': {'turn_id': turn, 'model': 'gpt-6.2-astra', 'effort': 'high'}}),
+                json.dumps({'type': 'event_msg', 'payload': {'type': 'task_complete', 'turn_id': turn}}),
+            ]) + '\n')
+
+            packet, receipt = adaptive_review._codex_attempt_receipt(events, home)
+
+            self.assertEqual(packet, prompt_packet)
+            self.assertEqual(receipt, {
+                'worker_id': session,
+                'attempt_provider': 'openai',
+                'attempt_model': 'gpt-6.2-astra',
+                'observed_provider': 'openai',
+                'observed_model': 'gpt-6.2-astra',
+                'usage': {'input_tokens': 11},
+                'cost': 0.02,
+                'disposition': 'observed',
+                'turn_id': turn,
+            })
+
+    def test_codex_attempt_receipt_keeps_identity_unknown_for_wrong_or_missing_rollout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            events = root / 'events.jsonl'
+            session = '01a1f016-33fa-7d53-8a1b-1d1c1ee52e05'
+            events.write_text('\n'.join([
+                json.dumps({'type': 'thread.started', 'thread_id': session}),
+                json.dumps({'type': 'turn.started'}),
+            ]) + '\n')
+            home = root / 'codex-home'
+            home.mkdir()
+
+            _, missing_rollout = adaptive_review._codex_attempt_receipt(events, home)
+            self.assertEqual(missing_rollout['worker_id'], session)
+            self.assertEqual(missing_rollout['disposition'], 'unverified')
+            self.assertIsNone(missing_rollout['observed_provider'])
+            self.assertIsNone(missing_rollout['observed_model'])
+
+            rollout = home / 'sessions' / f'rollout-wrong-{session}.jsonl'
+            rollout.parent.mkdir()
+            rollout.write_text(json.dumps({'type': 'session_meta', 'payload': {'id': 'different', 'model_provider': 'openai'}}) + '\n')
+            _, wrong_rollout = adaptive_review._codex_attempt_receipt(events, home)
+            self.assertEqual(wrong_rollout['worker_id'], session)
+            self.assertEqual(wrong_rollout['disposition'], 'unverified')
+            self.assertIsNone(wrong_rollout['observed_provider'])
+            self.assertIsNone(wrong_rollout['observed_model'])
+
+    def test_codex_attempt_receipt_keeps_available_accounting_when_rollout_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            events = root / 'events.jsonl'
+            session = '01a1f016-33fa-7d53-8a1b-1d1c1ee52e05'
+            packet = json.dumps({'report': 'candidate packet'})
+            events.write_text('\n'.join([
+                json.dumps({'type': 'thread.started', 'thread_id': session}),
+                json.dumps({'type': 'turn.started'}),
+                json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': packet}}),
+                json.dumps({'type': 'error', 'usage': {'input_tokens': 5}, 'cost': 0.03}),
+            ]) + '\n')
+
+            packet_output, receipt = adaptive_review._codex_attempt_receipt(events, root / 'codex-home')
+
+            self.assertEqual(packet_output, packet)
+            self.assertEqual(receipt['worker_id'], session)
+            self.assertEqual(receipt['disposition'], 'unverified')
+            self.assertIsNone(receipt['observed_provider'])
+            self.assertIsNone(receipt['observed_model'])
+            self.assertEqual(receipt['usage'], {'input_tokens': 5})
+            self.assertEqual(receipt['cost'], 0.03)
+
+    def test_codex_failed_attempt_keeps_attempt_identity_separate_from_observed_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / 'codex-home'
+            session = '01a1f016-33fa-7d53-8a1b-1d1c1ee52e05'
+            events = root / 'events.jsonl'
+            events.write_text('\n'.join([
+                json.dumps({'type': 'thread.started', 'thread_id': session}),
+                json.dumps({'type': 'turn.started'}),
+                json.dumps({'type': 'error', 'usage': {'input_tokens': 3}, 'cost': 0.01}),
+            ]) + '\n')
+            rollout = home / 'sessions' / f'rollout-test-{session}.jsonl'
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text('\n'.join([
+                json.dumps({'type': 'session_meta', 'payload': {'id': session, 'model_provider': 'openai'}}),
+                json.dumps({'type': 'turn_context', 'payload': {'turn_id': 'turn-denied', 'model': 'gpt-6-luna'}}),
+            ]) + '\n')
+
+            packet, receipt = adaptive_review._codex_attempt_receipt(events, home)
+
+            self.assertIsNone(packet)
+            self.assertEqual(receipt['attempt_provider'], 'openai')
+            self.assertEqual(receipt['attempt_model'], 'gpt-6-luna')
+            self.assertIsNone(receipt['observed_provider'])
+            self.assertIsNone(receipt['observed_model'])
+            self.assertEqual(receipt['usage'], {'input_tokens': 3})
+            self.assertEqual(receipt['cost'], 0.01)
+
+    @unittest.skipIf(os.name == 'nt', 'uses executable fixture')
+    def test_run_cli_persists_selected_codex_attempt_identity_and_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            packet_file = root / 'packet.json'
+            packet_file.write_text(json.dumps(review_packet(scope)))
+            fake_bin = root / 'bin'
+            fake_bin.mkdir()
+            codex = fake_bin / 'codex'
+            claude = fake_bin / 'claude'
+            session = '01a1f016-33fa-7d53-8a1b-1d1c1ee52e05'
+            turn = 'turn-123'
+            codex.write_text("""#!/usr/bin/env python3
+import json, os
+from pathlib import Path
+session = %r
+turn = %r
+home = Path(os.environ['CODEX_HOME']) / 'sessions' / '2026'
+home.mkdir(parents=True, exist_ok=True)
+(home / ('rollout-test-' + session + '.jsonl')).write_text('\\n'.join([
+    json.dumps({'type':'session_meta','payload':{'id':session,'model_provider':'openai'}}),
+    json.dumps({'type':'turn_context','payload':{'turn_id':turn,'model':'gpt-6.2-astra','effort':'high'}}),
+    json.dumps({'type':'event_msg','payload':{'type':'task_complete','turn_id':turn}}),
+]) + '\\n')
+packet = Path(os.environ['DEEP_REVIEW_FAKE_PACKET']).read_text()
+for event in [
+    {'type':'thread.started','thread_id':session},
+    {'type':'turn.started'},
+    {'type':'item.completed','item':{'type':'agent_message','text':packet}},
+    {'type':'turn.completed','turn_id':turn,'usage':{'input_tokens':11},'cost':0.02},
+]: print(json.dumps(event))
+""" % (session, turn))
+            codex.chmod(codex.stat().st_mode | stat.S_IXUSR)
+            claude.write_text("""#!/usr/bin/env python3
+import json
+print(json.dumps({'session_id':'claude-attempt-1','provider':'anthropic','model':'claude-sonnet-5',
+                  'usage':{'input_tokens':7},'total_cost_usd':0.01,'result':'not a review packet'}))
+""")
+            claude.chmod(claude.stat().st_mode | stat.S_IXUSR)
+            report = root / 'report.md'
+            env = {**os.environ, 'PATH': str(fake_bin) + os.pathsep + os.environ['PATH'],
+                   'CODEX_HOME': str(root / 'codex-home'), 'DEEP_REVIEW_FAKE_PACKET': str(packet_file)}
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'codex',
+                '--no-workflow-available', '--no-agent-dispatch-available',
+            ], env=env, capture_output=True, text=True)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            metadata = json.loads(result.stdout)
+            self.assertEqual(len(metadata['attempts']), 2)
+            failed_attempt, attempt = metadata['attempts']
+            self.assertEqual(failed_attempt['outcome'], 'invalid_packet')
+            self.assertEqual(failed_attempt['worker_id'], 'claude-attempt-1')
+            self.assertEqual(failed_attempt['observed_provider'], 'anthropic')
+            self.assertEqual(failed_attempt['observed_model'], 'claude-sonnet-5')
+            self.assertEqual(failed_attempt['usage'], {'input_tokens': 7})
+            self.assertEqual(failed_attempt['cost'], 0.01)
+            self.assertEqual(attempt['outcome'], 'accepted')
+            self.assertEqual(attempt['worker_id'], session)
+            self.assertEqual(attempt['observed_provider'], 'openai')
+            self.assertEqual(attempt['observed_model'], 'gpt-6.2-astra')
+            self.assertEqual(attempt['usage'], {'input_tokens': 11})
+            self.assertEqual(attempt['cost'], 0.02)
+            self.assertEqual(metadata['effective_provider'], 'openai')
+            self.assertEqual(metadata['effective_model'], 'gpt-6.2-astra')
+            retained = json.loads(Path(str(report) + '.attempts.json').read_text())
+            self.assertEqual(retained, metadata['attempts'])
+
+            invalid_packet_file = root / 'invalid-packet.json'
+            invalid_packet_file.write_text('not a packet')
+            exhausted_report = root / 'exhausted-report.md'
+            exhausted_command = result.args[:]
+            exhausted_command[exhausted_command.index(str(report))] = str(exhausted_report)
+            exhausted = subprocess.run(
+                exhausted_command,
+                env={**env, 'DEEP_REVIEW_FAKE_PACKET': str(invalid_packet_file)},
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(exhausted.returncode, 2, exhausted.stderr)
+            exhausted_metadata = json.loads(exhausted.stdout)
+            self.assertEqual(exhausted_metadata['verdict'], 'INCOMPLETE')
+            self.assertIsNone(exhausted_metadata.get('effective_provider'))
+            self.assertIsNone(exhausted_metadata.get('effective_model'))
+            first, second = exhausted_metadata['attempts']
+            self.assertEqual([first['outcome'], second['outcome']], ['invalid_packet', 'invalid_packet'], exhausted_metadata)
+            self.assertNotEqual(first['worker_id'], second['worker_id'])
+            self.assertEqual((first['observed_provider'], first['observed_model']),
+                             ('anthropic', 'claude-sonnet-5'))
+            self.assertEqual((second['observed_provider'], second['observed_model']),
+                             ('openai', 'gpt-6.2-astra'))
+            self.assertEqual((first['usage'], first['cost']), ({'input_tokens': 7}, 0.01))
+            self.assertEqual((second['usage'], second['cost']), ({'input_tokens': 11}, 0.02))
+            exhausted_attempts = json.loads(Path(str(exhausted_report) + '.attempts.json').read_text())
+            self.assertEqual(exhausted_attempts, exhausted_metadata['attempts'])
+
+    def test_cli_retry_exhaustion_retains_attempts_without_winning_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            invalid = root / 'invalid-reviewer'
+            invalid.write_text("#!/bin/sh\nprintf '%s\\n' 'not a packet'\n")
+            invalid.chmod(invalid.stat().st_mode | stat.S_IXUSR)
+            report = root / 'exhausted.md'
+
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'codex',
+                '--claude-command', str(invalid), '--codex-command', str(invalid),
+                '--effective-model', 'unbound-marker', '--no-workflow-available', '--no-agent-dispatch-available',
+            ], capture_output=True, text=True)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            metadata = json.loads(result.stdout)
+            self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+            self.assertIsNone(metadata['effective_model'])
+            self.assertIsNone(metadata.get('effective_provider'))
+            self.assertEqual([attempt['outcome'] for attempt in metadata['attempts']],
+                             ['invalid_packet', 'invalid_packet'])
+            self.assertEqual([attempt['attempt_ref'] for attempt in metadata['attempts']],
+                             ['deep-review-cli:1', 'deep-review-cli:2'])
+            for attempt in metadata['attempts']:
+                self.assertIsNone(attempt['observed_provider'])
+                self.assertIsNone(attempt['observed_model'])
+                self.assertIsNone(attempt['usage'])
+                self.assertIsNone(attempt['cost'])
+            self.assertNotIn('unbound-marker', report.read_text())
+            retained = json.loads(Path(str(report) + '.attempts.json').read_text())
+            self.assertEqual(retained, metadata['attempts'])
+
+    @unittest.skipIf(os.name == 'nt', 'uses executable fixture')
+    def test_codex_missing_worker_id_keeps_attempt_reference_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            prompt = root / 'prompt.txt'
+            prompt.write_text('review')
+            fake_bin = root / 'bin'
+            fake_bin.mkdir()
+            codex = fake_bin / 'codex'
+            codex.write_text("#!/bin/sh\nprintf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{}\"}}'\n")
+            codex.chmod(codex.stat().st_mode | stat.S_IXUSR)
+            claude = fake_bin / 'claude'
+            claude.write_text('#!/bin/sh\nexit 1\n')
+            claude.chmod(claude.stat().st_mode | stat.S_IXUSR)
+            report = root / 'report.md'
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                '--prompt-file', str(prompt), '--project-root', str(repo), '--source-root', str(repo),
+                '--diff-path', scope['diff_path'], '--scope-file', str(scope_file),
+                '--base-commit', scope['base_commit'], '--review-output-path', str(report), '--host', 'claude',
+                '--claude-command', str(claude),
+                '--no-workflow-available', '--no-agent-dispatch-available',
+            ], env={**os.environ, 'PATH': str(fake_bin) + os.pathsep + os.environ['PATH']},
+               capture_output=True, text=True)
+
+            self.assertEqual(result.returncode, 2)
+            metadata = json.loads(result.stdout)
+            self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+            self.assertGreaterEqual(len(metadata['attempts']), 1)
+            attempt = metadata['attempts'][0]
+            self.assertEqual(attempt['outcome'], 'unverified_identity')
+            self.assertIsNone(attempt['worker_id'])
+            self.assertNotIn('evidence_ref', attempt)
+            self.assertNotIn('codex-rollout:None', report.read_text())
+
+    def test_write_report_does_not_promote_unbound_effective_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            body = root / 'body.md'
+            body.write_text(review_packet(scope)['report'])
+            decisions = root / 'decisions.json'
+            decisions.write_text(json.dumps(review_packet(scope)['decisions']))
+            report = root / 'report.md'
+            result = subprocess.run([
+                sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                '--body-file', str(body), '--project-root', str(repo), '--source-root', str(repo), '--diff-path', scope['diff_path'],
+                '--scope-file', str(scope_file), '--base-commit', scope['base_commit'], '--review-output-path', str(report),
+                '--runner-mode', 'adversarial-cli', '--specialists-completed', '0', '--consolidator-completed', 'true',
+                '--adversarial-model', 'codex', '--fallback-reason', 'fixture fallback', '--verdict', 'PASS',
+                '--effective-model', 'unbound-marker', '--review-decisions', str(decisions),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            metadata = json.loads(result.stdout)
+            self.assertIsNone(metadata['effective_model'])
+            self.assertEqual(metadata['verdict'], 'INCOMPLETE')
+            self.assertNotIn('unbound-marker', report.read_text())
+            self.assertIn('**Verified effective route:** `unknown/unknown`', report.read_text())
+
+            attempts_file = root / 'attempts.json'
+            attempts_file.write_text(json.dumps([{
+                'attempt': 1, 'attempt_ref': 'deep-review-cli:1', 'cli': 'codex', 'outcome': 'accepted',
+                'worker_id': '01a1f016-33fa-7d53-8a1b-1d1c1ee52e05', 'observed_provider': 'openai',
+                'observed_model': 'gpt-6.2-astra', 'usage': {'input_tokens': 11}, 'cost': 0.02,
+                'evidence_ref': 'codex-rollout:01a1f016-33fa-7d53-8a1b-1d1c1ee52e05',
+            }]))
+            accepted_report = root / 'accepted-report.md'
+            command = result.args[:]
+            command[command.index(str(report))] = str(accepted_report)
+            command.extend(['--attempts-file', str(attempts_file)])
+            legacy = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(legacy.returncode, 2, legacy.stdout)
+            rejected = json.loads(legacy.stdout)
+            self.assertEqual(rejected['verdict'], 'INCOMPLETE')
+            self.assertIsNone(rejected['effective_model'])
+            self.assertNotIn('attempts', rejected)
+            self.assertNotIn('0.02', accepted_report.read_text())
+
     def test_cli_writer_requires_model_and_fallback_reason(self):
         for model, reason in [('', 'unavailable'), ('unknown', 'unavailable'), ('codex', ''), ('codex', 'none'), ('codex', '`unknown`'), ('codex', '` none `')]:
             args = argparse.Namespace(runner_mode='adversarial-cli', specialists_completed=0,
@@ -1079,6 +1472,16 @@ class AdaptiveReviewTests(unittest.TestCase):
                         decisions_path.write_text(json.dumps(decisions))
                         body = root / f'body-{verdict}-{omitted}.md'
                         body.write_text(packet['report'])
+                        packet_bytes = json.dumps({"report": packet["report"], "decisions": decisions}, separators=(",", ":"), sort_keys=True).encode("utf-8")
+                        attempts_path = root / f'attempts-{verdict}-{omitted}.json'
+                        attempts_bytes = (json.dumps([{
+                            "attempt": 1, "attempt_ref": "deep-review-cli:1", "cli": "codex", "outcome": "accepted",
+                            "worker_id": "recording-worker", "observed_provider": "openai", "observed_model": "observed-test",
+                            "evidence_ref": "codex-rollout:recording-worker", "requested_model": None,
+                            "fallback_reason": "native review unavailable",
+                            "packet_sha256": hashlib.sha256(packet_bytes).hexdigest(),
+                        }]) + "\n").encode("utf-8")
+                        attempts_path.write_bytes(attempts_bytes)
                         report = root / f'cli-writer-{verdict}-{omitted}.md'
                         expected = 'INCOMPLETE' if omitted else verdict
                         result = subprocess.run([
@@ -1089,6 +1492,7 @@ class AdaptiveReviewTests(unittest.TestCase):
                             '--adversarial-model', 'codex', '--fallback-reason', 'native review unavailable',
                             '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
                             '--verdict', verdict, '--scope-file', str(scope_file), '--review-decisions', str(decisions_path),
+                            '--attempts-file', str(attempts_path), '--expected-attempts-sha256', hashlib.sha256(attempts_bytes).hexdigest(),
                         ], capture_output=True, text=True)
                         metadata = json.loads(result.stdout)
                         self.assertEqual(metadata['verdict'], expected, result.stdout + result.stderr)
@@ -1331,6 +1735,21 @@ class AdaptiveReviewTests(unittest.TestCase):
             ], env=env, capture_output=True, text=True, check=False)
             self.assertEqual(proc.returncode, 2)
             self.assertIn('runner_mode=incomplete', report.read_text())
+
+
+class ClaudeReceiptTests(unittest.TestCase):
+    def test_model_usage_supplies_identity_the_host_omits_at_top_level(self):
+        output = json.dumps({'session_id': 's-1', 'result': 'packet', 'modelUsage': {
+            'claude-sonnet-5-5': {'provider': 'firstParty'}}})
+        packet, receipt = adaptive_review._claude_attempt_receipt(output)
+        self.assertEqual(packet, 'packet')
+        self.assertEqual((receipt['observed_provider'], receipt['observed_model'], receipt['disposition']),
+                         ('firstParty', 'claude-sonnet-5-5', 'observed'))
+
+    def test_ambiguous_model_usage_stays_partial(self):
+        output = json.dumps({'session_id': 's-1', 'result': 'p', 'modelUsage': {
+            'a': {'provider': 'firstParty'}, 'b': {'provider': 'firstParty'}}})
+        self.assertEqual(adaptive_review._claude_attempt_receipt(output)[1]['disposition'], 'partial')
 
 
 class CliPerStreamByteLimitTest(unittest.TestCase):

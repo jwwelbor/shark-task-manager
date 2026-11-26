@@ -1,0 +1,15 @@
+F
+======================================================================
+FAIL: test_catalog_effort_and_tie_break (b077_catalog_cases.CatalogCases.test_catalog_effort_and_tie_break)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 486, in test_catalog_effort_and_tie_break
+    self.catalog_case("research", "haiku", [[limited, alt]], "verified", chosen="AA")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 231, in catalog_case
+    self.assertIn("model=" + chosen, confirmations[0]["argv"])
+AssertionError: 'model=AA' not found in ['--profile', 'fixture', 'app-server', '--config', 'model_provider=openai', '--config', 'model=B', '--config', 'model_reasoning_effort=high']
+
+----------------------------------------------------------------------
+Ran 1 test in 3.477s
+
+FAILED (failures=1)

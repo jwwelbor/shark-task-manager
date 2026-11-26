@@ -1,0 +1,1788 @@
+[
+  {
+    "mutation": "missing-sonnet",
+    "test": "catalog_stage_matrix",
+    "exit": 1,
+    "cases": 48,
+    "changed": [
+      {
+        "stage": "repair_plan",
+        "expected": "verified",
+        "actual": "unsupported",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unsupported",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "verified",
+        "actual": "unsupported",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "extra-opus",
+    "test": "catalog_stage_matrix",
+    "exit": 1,
+    "cases": 48,
+    "changed": [
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "all-roles",
+    "test": "catalog_stage_matrix",
+    "exit": 1,
+    "cases": 48,
+    "changed": [
+      {
+        "stage": "repair_plan",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Our most capable model for complex coding and professional work."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "keep-period",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "keep-case",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "LEGACY BALANCED MODEL FOR AGENTIC CODING"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "LEGACY BALANCED MODEL FOR AGENTIC CODING"
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "keep-exterior",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  Legacy balanced model for agentic coding  "
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  Legacy balanced model for agentic coding  "
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "keep-internal",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy  balanced  model  for  agentic  coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy  balanced  model  for  agentic  coding"
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "raw-duplicates",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "LEGACY BALANCED MODEL FOR AGENTIC CODING"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "LEGACY BALANCED MODEL FOR AGENTIC CODING"
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "  Legacy balanced model for agentic coding  "
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  Legacy balanced model for agentic coding  "
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Legacy  balanced  model  for  agentic  coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy  balanced  model  for  agentic  coding"
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "  LeGaCy balanced\tmodel for agentic coding.  "
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "role-duplicates",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work",
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding",
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Previous generation model for coding and everyday work"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "substring",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding with restricted preview access."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "drop-interior-punctuation",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast  go-to model for coding and everyday work"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "ignore-supported",
+    "test": "duplicate_selection_facts",
+    "exit": 1,
+    "cases": 12,
+    "changed": [
+      {
+        "stage": "research",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks.",
+            "Fast and affordable model for easier tasks."
+          ],
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks.",
+            "Fast and affordable model for easier tasks."
+          ],
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "ignore-default",
+    "test": "duplicate_selection_facts",
+    "exit": 1,
+    "cases": 12,
+    "changed": [
+      {
+        "stage": "research",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks.",
+            "Fast and affordable model for easier tasks."
+          ],
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks.",
+            "Fast and affordable model for easier tasks."
+          ],
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "ignore-marker",
+    "test": "duplicate_selection_facts",
+    "exit": 1,
+    "cases": 12,
+    "changed": [
+      {
+        "stage": "research",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks.",
+            "Fast and affordable model for easier tasks."
+          ],
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks.",
+            "Fast and affordable model for easier tasks."
+          ],
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "first-row",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work",
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding",
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Previous generation model for coding and everyday work"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "last-row",
+    "test": "raw_catalog_descriptions",
+    "exit": 1,
+    "cases": 20,
+    "changed": [
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work",
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Legacy balanced model for agentic coding"
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "unverified",
+        "actual": "verified",
+        "claims": 1,
+        "submissions": 1,
+        "admissions": 1,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding",
+            "Legacy balanced model for agentic coding"
+          ],
+          [
+            "Previous generation model for coding and everyday work"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "keep-period-matrix",
+    "test": "catalog_stage_matrix",
+    "exit": 1,
+    "cases": 48,
+    "changed": [
+      {
+        "stage": "research",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast and affordable model for easier tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy fast model for simpler tasks."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Fast, go-to model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy balanced model for agentic coding."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Legacy model for coding and everyday work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Previous generation model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "research",
+        "expected": "unsupported",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Our most capable model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "repair_plan",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Our most capable model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "plan_review",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Our most capable model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "development",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Our most capable model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "code_review",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Our most capable model for complex coding and professional work."
+          ]
+        ]
+      },
+      {
+        "stage": "qa",
+        "expected": "verified",
+        "actual": "unverified",
+        "claims": 0,
+        "submissions": 0,
+        "admissions": 0,
+        "inputs": [
+          [
+            "Our most capable model for complex coding and professional work."
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "mutation": "ignore-effort-fit",
+    "test": "catalog_effort_and_tie_break",
+    "exit": 1,
+    "cases": 5,
+    "changed": []
+  },
+  {
+    "mutation": "ignore-observed-effort",
+    "test": "catalog_effort_and_tie_break",
+    "exit": 1,
+    "cases": 7,
+    "changed": []
+  }
+]
