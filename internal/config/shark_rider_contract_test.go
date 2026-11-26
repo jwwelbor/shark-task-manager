@@ -341,7 +341,9 @@ func TestActiveBundleAndRiderInstructionsUseRiderSyntax(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			sanitized := strings.ReplaceAll(string(contents), "/shark-rider", "")
+			// Bundle file paths are not host commands.
+			sanitized := strings.ReplaceAll(string(contents), "skills/shark-attack/", "")
+			sanitized = strings.ReplaceAll(sanitized, "/shark-rider", "")
 			if strings.Contains(sanitized, "/shark") {
 				t.Errorf("active Rider or bundle instruction uses the legacy host syntax: %s", path)
 			}

@@ -1,0 +1,32 @@
+{
+  "policy-allow": {
+    "run_id": "d03ed43b-384a-4ffa-b331-cdc6029815c9",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example under Feature A",
+        "description": "Add a worked example under Feature A in docs/feature-a.md showing the alphabetical default order. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": []
+  },
+  "policy-require": {
+    "run_id": "bed67f2d-e0e4-461a-b18e-095aac488d44",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example under Feature A",
+        "description": "Add a worked example under Feature A in docs/feature-a.md showing the alphabetical default order. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": []
+  }
+}

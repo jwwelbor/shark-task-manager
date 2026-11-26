@@ -4,7 +4,7 @@ Apply the canonical quality craft rubric for shared thresholds and severity when
 
 You are performing a removed-behavior and architecture review. You have been given:
 - A diff file path (DIFF_PATH)
-- A list of changed files (CHANGED_FILES)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
 - A project root (PROJECT_ROOT)
 
 These values are in your context preamble. Substitute them wherever these instructions say DIFF_PATH, CHANGED_FILES, or PROJECT_ROOT.
@@ -59,16 +59,18 @@ Flag a **blocker** when the diff changes an established architecture or workflow
 
 ```json
 {
+  "review_contract_version": 2,
   "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "REMOVED-BEHAVIOR|SRP|OCP|LSP|ISP|DIP|ARCHITECTURE",
       "summary": "one-sentence description",
       "diagnosis": "what invariant or principle is violated",
+      "impact": "affected user, behavior, invariant, required standard or maintenance task and its concrete consequence",
       "evidence": "specific code showing the violation",
       "correction": "concrete fix or refactor"
     }
@@ -76,4 +78,4 @@ Flag a **blocker** when the diff changes an established architecture or workflow
 }
 ```
 
-Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+For a clean review, keep contract version 2, the captured identity and the inspection list, and return an empty findings array. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

@@ -7,7 +7,9 @@ For a structured pass, choose a new report path inside the Shark project, such a
 
 Capture against the independently approved `bug_review_baseline` commit. Set `REVIEW_PLAN_SHA256` to the approved plan digest without its `sha256:` prefix; ensure the scope, every angle result, and the report carry that exact plan revision.
 
-Also retain the generated deep-review report and include a digest-bound `bug_review_report` evidence reference in the same format. Include the generated candidate-bound decisions JSON as a digest-bound `bug_review_decisions` reference. For a native or dispatched six-angle review, retain the actual six angle-results JSON and include a digest-bound `bug_review_angles` reference. A comparable alternate-model CLI review uses its report and decisions without angle results. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; a downgrade permits only PASS-WITH-TRIAGE and must be routed through the host's triage procedure. An incomplete review cannot pass.
+Also retain the generated deep-review report and include a digest-bound `bug_review_report` evidence reference in the same format. Include the generated candidate-bound decisions JSON as a digest-bound `bug_review_decisions` reference. For a native or dispatched six-angle review, retain the actual six angle-results JSON and include a digest-bound `bug_review_angles` reference. A comparable alternate-model CLI review uses its report and decisions without angle results. Its decisions must declare every changed path actually inspected; the writer and QA verifier reject any omission from the frozen manifest. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason. If evidence refutes the blocking concern and leaves only a stylistic preference, preserve the original concern, evidence and report-only no-action disposition; do not run triage or write to Shark for that finding. A surviving substantive finding, including a substantive downgrade, follows normal triage through the host's procedure and permits only PASS-WITH-TRIAGE. An incomplete review cannot pass.
+
+When a reviewed material decision affects specifications or acceptance criteria, add exactly one `MATERIAL_DECISION: <decision-id>` line to the report body and retain two additional candidate-bound JSON files: `bug_review_material_impacts` lists each marked decision's source pointer/digest and the complete expected artifact and caller/criterion sets; `bug_review_material_dispositions` records one evidence-backed disposition for every listed member. Bind both files with SHA-256 header fields in the report and outer evidence references. A decision source in the frozen tree declares its obligations with `MATERIAL_DECISION_SOURCE: <decision-id>`, `MATERIAL_AFFECTS_ARTIFACT: <path>` and `MATERIAL_AFFECTS_CRITERION: <entity> <caller> <criterion>` lines; the parent enumerates those lines independently and requires the expected sets and dispositions to match them, whether or not the report carries a marker. The parent compares expected sets and dispositions at code-review and QA admission; never put these records in GateResult `change_impacts`, which remains planning-gate-only. For a finding downgraded to report-only Nit, do not create this receipt yourself: the parent observes and supplies a separate run-scoped `bug_parent_triage_observation` after the host has confirmed the original concern, refuting evidence, zero edits and zero tracker writes.
 Use review_plan for a valid plan whose approval is missing or stale; use needs_research for a causal contradiction, replan for a design omission, fail for a coding defect, and blocked for unavailable external evidence. Retain every finding; route to the earliest invalidated stage. For route_rework outcomes leave kickbacks empty.
 
 {{template "_code_review_process_body" .}}
@@ -22,3 +24,16 @@ unless new evidence invalidates them.
 The fail outcome's role is `route_rework`. Return pass only when all checks and complete current evidence pass; otherwise choose the earliest invalidated stage as above. The parent applies the outcome.
 
 {{template "_gate_result_directive" .}}
+
+REQUIRED OUTER EVIDENCE for a success outcome of this step (this replaces the empty array shown above; replace every `<...>` placeholder, and copy parent-supplied approved entries exactly):
+
+```
+  "evidence": [
+    {"kind": "bug_repair_plan", "pointer": "<project-relative plan file>", "summary": "sha256:<hex digest of the plan>"},
+    {"kind": "bug_review_baseline", "pointer": "<full commit hash of the plan's review baseline>"},
+    {"kind": "bug_review_scope", "pointer": "<project-relative scope sidecar>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_report", "pointer": "<project-relative deep-review report>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_decisions", "pointer": "<project-relative decisions JSON>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_angles", "pointer": "<project-relative angle results; six-angle reviews only>", "summary": "sha256:<hex digest of its bytes>"}
+  ]
+```

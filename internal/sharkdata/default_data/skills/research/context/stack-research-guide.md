@@ -222,7 +222,7 @@ Used during brownfield bootstrap to reconcile discovered patterns with official 
 
 ### Process
 
-1. **Discover** what the code actually does (via `brownfield-analysis.md`)
+1. **Discover** what the code actually does (via `skills/research/workflows/brownfield-analysis.md`)
    - Naming conventions in use
    - File organization patterns
    - Error handling approaches

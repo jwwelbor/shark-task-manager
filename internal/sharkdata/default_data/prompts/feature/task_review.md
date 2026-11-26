@@ -1,5 +1,7 @@
 Review tasks for feature {{.id}}: "{{.title}}".
 
+{{template "_durable_sources" .}}
+
 Check for existing task review report at {{.review_base}}{{.id}}-task-review.md.
 If report exists with PASS verdict, advance immediately. If FAIL, send back to task_generation.
 

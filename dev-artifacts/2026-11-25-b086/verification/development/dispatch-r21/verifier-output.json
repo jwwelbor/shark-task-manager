@@ -1,0 +1,46 @@
+{
+  "grant-a": {
+    "run_id": "a99f01a4-a6be-4ede-a5ad-7b1eaa2b3f9c",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example of Feature A\u2019s alphabetical list order",
+        "description": "Add a worked example to docs/feature-a.md showing the output of feature-a list in default alphabetical order. docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "incomplete",
+    "missing": [
+      "grant-b run-bound launcher, instructions, grant and seed at host dispatch"
+    ]
+  },
+  "grant-b": {
+    "run_id": "bae58352-92e4-4215-ae0b-5668ead9284e",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "incomplete",
+    "missing": [
+      "host tool trace",
+      "private handoff reads",
+      "run-bound native host and private-skill receipt",
+      "run-bound review intake before tracker calls",
+      "received wrong-feature escalation",
+      "grant-b run-bound launcher, instructions, grant and seed at host dispatch"
+    ]
+  },
+  "pair_input": {
+    "status": "incomplete",
+    "missing": [
+      "grant-b run-bound launcher, instructions, grant and seed at host dispatch"
+    ]
+  },
+  "case-c": {
+    "run_id": "b72122fc-3f72-4acc-bcb4-03e10b0ee042",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": []
+  }
+}

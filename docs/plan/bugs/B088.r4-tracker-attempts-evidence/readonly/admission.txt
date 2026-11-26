@@ -1,0 +1,5 @@
+    bug_triage_measured_test.go:351: observation: {"actions":[{"action":"report_only","edits":0,"finding_id":"F-1","tracker_attempts":0,"tracker_writes":0}],"candidate_identity":{"commit":"e440e75638aeb6979eb0666e7d52e550089b8faf","tree":"cc5fda52eb3ed07cce6357ac11e392cd2dbf6d16","diff_sha256":"d","repair_plan_sha256":"p"},"observed_by":"parent","run_id":"live-case-g1","tracker_attempt_ledger":{"entries":1,"run_id":"live-case-g1","sha256":"22c35de890b163d54cba2c0a9933a3d5f0847b2c881d07c82b13d238ea336e91"}}
+    bug_triage_measured_test.go:352: admission: <nil>
+--- PASS: TestLiveHostLedgerAdmission (0.02s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/runner	0.027s

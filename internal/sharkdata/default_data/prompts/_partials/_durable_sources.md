@@ -1,0 +1,1 @@
+{{define "_durable_sources"}}DURABLE SOURCES: do not cite host agent memory ("see project memory", memory file names) as a source. Later workers run elsewhere and cannot read it. Write the needed instruction into the document, or cite a committed file.{{end}}

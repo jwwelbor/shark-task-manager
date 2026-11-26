@@ -478,7 +478,7 @@ Analysis is complete when:
 2. **Document evidence** - Always cite file paths
 3. **Focus on relevance** - Prioritize findings for your feature
 4. **Note inconsistencies** - If patterns vary, document both
-5. **Use context files** - Refer to analysis-patterns.md and search-strategies.md
+5. **Use context files** - Refer to skills/research/context/analysis-patterns.md and skills/research/context/search-strategies.md
 
 ### Don'ts
 1. **Don't skip documentation reading** - May contain critical context

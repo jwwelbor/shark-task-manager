@@ -1,0 +1,18 @@
+== M1: remove recording call from main (scratch copy)
+    tracker_attempts_test.go:35: 
+        	Error Trace:	/tmp/claude-1000/-home-jwwel-projects-shark-task-manager/0ae502c7-d729-4b86-a741-ffe2e496bdcc/scratchpad/mut-b088-263483/cmd/shark/tracker_attempts_test.go:35
+        	Error:      	Received unexpected error:
+        	            	open /tmp/TestEntryPointRecordsRejectedTrackerAttempt1352264510/002/tracker-attempts.jsonl: no such file or directory
+        	Test:       	TestEntryPointRecordsRejectedTrackerAttempt
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/cmd/shark	1.077s
+FAIL
+== M2: remove admission ledger check (scratch copy, recording restored)
+--- FAIL: TestTrackerAttemptLedgerBindsWithdrawalToRunAndFinding (0.03s)
+    bug_triage_measured_test.go:279: 
+        	Error Trace:	/tmp/claude-1000/-home-jwwel-projects-shark-task-manager/0ae502c7-d729-4b86-a741-ffe2e496bdcc/scratchpad/mut-b088-263483/internal/runner/bug_triage_measured_test.go:279
+        	Error:      	An error is expected but got nil.
+        	Test:       	TestTrackerAttemptLedgerBindsWithdrawalToRunAndFinding
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/internal/runner	0.037s
+FAIL

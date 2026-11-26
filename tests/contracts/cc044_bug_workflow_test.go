@@ -399,12 +399,12 @@ func TestBugReviewGateProductionPath(t *testing.T) {
 			identity := map[string]string{"commit": scope.CandidateCommit, "tree": scope.CandidateTree, "diff_sha256": scope.DiffSHA256, "repair_plan_sha256": fmt.Sprintf("%x", planHash)}
 			angles := map[string]any{}
 			for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
-				angles[name] = map[string]any{"candidate_identity": identity, "reviewed_files": scope.ChangedFiles, "findings": []any{}}
+				angles[name] = map[string]any{"review_contract_version": 2, "candidate_identity": identity, "reviewed_files": scope.ChangedFiles, "findings": []any{}}
 			}
 			angleBytes, err := json.Marshal(angles)
 			require.NoError(t, err)
 			anglesPath := write("angles.json", angleBytes)
-			decisions, err := json.Marshal(map[string]any{"candidate_identity": identity, "findings": []any{}})
+			decisions, err := json.Marshal(map[string]any{"review_contract_version": 2, "candidate_identity": identity, "findings": []any{}})
 			require.NoError(t, err)
 			decisionsPath := write("decisions.json", decisions)
 			bodyPath := write("body.md", []byte("Scope: reviewed all candidate files and callers. Findings: none. Cost and model behavior preserved. VERDICT: PASS\n"))

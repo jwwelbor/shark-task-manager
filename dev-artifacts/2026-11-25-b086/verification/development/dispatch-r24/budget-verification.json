@@ -1,0 +1,74 @@
+{
+  "fix": {
+    "run_id": "8dac5cbb-acb6-4abb-b0d6-705b30b79266",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  },
+  "budget-dispatch": {
+    "run_id": "131869b5-046b-418b-9ce0-de6c02062f3a",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example for Feature A default order",
+        "description": "Fingerprint: docs/feature-a.md#DOCS#worked-example. Deferred non-blocker from review run fixture-code_review-77602b1d99004ad889b2a9477b6b9219 (candidate c6bde86451f62fe9255d811bfd9096f78b541481). Scope: add a worked example under Feature A in docs/feature-a.md to help users apply the default order.",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  },
+  "budget-project": {
+    "run_id": "94d17c07-d503-4e77-8d25-c8893d56c669",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a second worked example for the default order in Feature A",
+        "description": "Outstanding scope: add a worked example under Feature A in docs/feature-a.md to help users apply the default (alphabetical) order. Deferred, discretionary: Feature A already documents the required command and default. Found by deep-review (canonical-six-angle; synthetic inputs) of candidate c6bde86451f62fe9255d811bfd9096f78b541481, run fixture-code_review-77602b1d99004ad889b2a9477b6b9219, entity B001. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  },
+  "budget-consumed": {
+    "run_id": "c3bcb449-eaaa-4f4b-9921-27fa9a5a0032",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example under Feature A",
+        "description": "Add a worked example under Feature A in docs/feature-a.md showing how users apply the default order. Deferred review finding (non-blocker): feature-a list command and alphabetical default are already documented. Run fixture-code_review-77602b1d99004ad889b2a9477b6b9219, candidate c6bde86451f62fe9255d811bfd9096f78b541481. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  }
+}

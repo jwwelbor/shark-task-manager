@@ -485,7 +485,7 @@ func (c *Coordinator) verifyTransitionEvidence(ctx context.Context, req Request)
 
 func (c *Coordinator) transitionWithProvenance(ctx context.Context, req Request, state *gaterun.OperationState, result *Result) error {
 	reason := fmt.Sprintf("gate %s outcome %s", req.Gate, req.OutcomeKey)
-	if state.AdmissionVersion == BoundAdmissionVersion {
+	if IsBoundAdmission(state.AdmissionVersion) {
 		reason = BoundTransitionReason(req.Gate, req.OutcomeKey, req.RunID, state.OperationDigest)
 	}
 	guard := TransitionGuard{SessionID: req.Session.ID, FromStatus: req.SourceStatus, Outcome: req.OutcomeKey, AdmissionVerified: c.Admission != nil}

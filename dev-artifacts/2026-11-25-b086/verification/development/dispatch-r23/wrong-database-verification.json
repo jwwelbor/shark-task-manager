@@ -1,0 +1,24 @@
+{
+  "ctl": {
+    "run_id": "066d28cc-71bc-4506-b28d-789dd9dbe999",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example of alphabetical ordering to Feature A",
+        "description": "Add a worked example to docs/feature-a.md showing feature-a list entries in default alphabetical order. docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": []
+  },
+  "neg": {
+    "run_id": "6c723683-d8d0-43e2-9e9f-1777dbb066ad",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": []
+  }
+}

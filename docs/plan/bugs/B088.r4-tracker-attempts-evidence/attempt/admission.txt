@@ -1,0 +1,5 @@
+    bug_triage_measured_test.go:351: observation: {"actions":[{"action":"report_only","edits":0,"finding_id":"F-1","tracker_attempts":1,"tracker_writes":0}],"candidate_identity":{"commit":"a49c05d32cf5ff944f877e45ad2b92ef0f7509e3","tree":"cc5fda52eb3ed07cce6357ac11e392cd2dbf6d16","diff_sha256":"d","repair_plan_sha256":"p"},"observed_by":"parent","run_id":"live-case-g1","tracker_attempt_ledger":{"entries":2,"run_id":"live-case-g1","sha256":"c7061650965647cce28038fe964ffa1ee9f9c59bf0d089322bb6a33452da88c8"}}
+    bug_triage_measured_test.go:352: admission: F-1: report-only requires zero attempted tracker writes, ledger has 1
+--- PASS: TestLiveHostLedgerAdmission (0.02s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/runner	0.028s

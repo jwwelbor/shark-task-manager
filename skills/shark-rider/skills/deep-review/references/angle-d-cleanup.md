@@ -4,7 +4,7 @@ Apply the canonical quality craft rubric for shared thresholds and severity when
 
 You are performing a cleanup and quality review. You have been given:
 - A diff file path (DIFF_PATH)
-- A list of changed files (CHANGED_FILES)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
 - A project root (PROJECT_ROOT)
 
 Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES, or PROJECT_ROOT.
@@ -29,7 +29,7 @@ Assess reuse severity using the canonical quality craft rubric.
 
 ## Part 2: Complexity & size hotspots
 
-Run tooling where available:
+Run tooling where available. In these examples, pass the applicable decoded filenames from CHANGED_FILES as separate arguments, preserving the bytes of each name. Prefix each relative filename with `./` when passing it to the tool.
 
 ```bash
 # Python
@@ -81,16 +81,18 @@ Name the simpler form explicitly.
 
 ```json
 {
+  "review_contract_version": 2,
   "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "DRY|COMPLEXITY|IDIOM|ALTITUDE|ARCHITECTURE|SIMPLIFICATION",
       "summary": "one-sentence description",
       "diagnosis": "what is duplicated / too complex / non-idiomatic",
+      "impact": "affected user, behavior, invariant, required standard or maintenance task and its concrete consequence",
       "evidence": "grep result or code excerpt",
       "correction": "concrete cost if left as-is, and the preferred alternative"
     }
@@ -100,4 +102,4 @@ Name the simpler form explicitly.
 
 Correctness bugs always outrank cleanup — focus on genuine issues with concrete cost, not style preferences.
 
-Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+For a clean review, keep contract version 2, the captured identity and the inspection list, and return an empty findings array. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

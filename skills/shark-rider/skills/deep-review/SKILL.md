@@ -74,7 +74,8 @@ full candidate, stop and report incomplete. Pass the captured JSON as
 `--scope-file`, the trusted reviewed-worktree `--project-root`, and the independently established original repository `--source-root` to `adaptive_review.py run-cli` or `write-report`; the writer
 revalidates candidate, diff and manifest and persists their identities. Pass
 `--requested-model` and `--effective-model` only when known; absent values are
-recorded as unknown.
+recorded as unknown. On `run-cli`, `--effective-model` describes the first eligible CLI. Supply
+`--fallback-effective-model` only when the host independently verified the model for the second CLI.
 
 For a bug, set `REVIEW_BASE` to the independently approved `bug_review_baseline` commit and `REVIEW_PLAN_SHA256` to the 64 lowercase hex characters of the approved plan digest before capture. Every angle must include that digest as `candidate_identity.repair_plan_sha256`; supply the same scope field and `repair_context.plan_revision` (`sha256:<digest>`) to the native workflow. A report for a different plan revision or baseline cannot satisfy the gate.
 
@@ -82,12 +83,31 @@ On Windows, snapshot inventory delegates its confined filesystem reads to the in
 
 ## Capture the review scope
 
+Before navigating to the reviewed repository or entering a snapshot, set
+`DEEP_REVIEW_SKILL_DIR` to the absolute directory containing the `SKILL.md`
+that the host loaded for this invocation. Use the path from the host's skill
+catalog or invocation context; when the host does not expose it, supply that
+absolute path explicitly. Do not infer this installation from the repository
+being reviewed or from a candidate snapshot. The resolver checks that the
+required scripts and angle references exist and fails before dispatch if the
+installation is incomplete.
+
 ```bash
+export DEEP_REVIEW_SKILL_DIR="<absolute directory containing the loaded SKILL.md>"
+skill_dir="$(bash "${DEEP_REVIEW_SKILL_DIR:?set the loaded skill directory first}/scripts/resolve_skill_dir.sh")"
 project_root=$(git rev-parse --show-toplevel)
 source_root="$project_root"  # Preserve this original root if reviewing a snapshot.
-skill_dir="/home/jwwel/.claude/skills/shark-rider/skills/deep-review"
 REVIEW_BASE="<accepted-baseline-commit>" bash "$skill_dir/scripts/get_diff.sh" > /tmp/deep-review-scope.json
 ```
+
+When the parent provides a verified predecessor receipt, set
+`REVIEW_PREDECESSOR_COMMIT` to its full candidate commit before capture.
+The optional `successor_delta` records that commit and tree, the ordered paths
+changed since then and the SHA-256 of the binary diff. Use those two commits
+to inspect the changes, including files since restored to the approved baseline.
+The original `changed_files` still defines the full gate manifest. An
+unavailable comparison requires fresh review. Credit for a previous inspection
+also requires the parent-verified receipt, history and obligation evidence.
 
 Capture treats untracked files under the designated Shark project's `.shark/runs/`
 as runtime artifacts; tracked changes there and all other source changes remain
@@ -129,6 +149,18 @@ baseline when specified; otherwise omit it to use the merge base.
 Retain `candidate_commit`, `candidate_tree`, `diff_sha256`, `diff_path`, `base_commit`, `changed_files`, `changed_file_count`, `diff_shortstat`,
 `project_root`, `coding_standards_path`, `branch`, and `review_output_path`. Review the complete
 changed-file list unless the user explicitly narrows scope.
+When capture supplies `successor_delta`, pass that object intact with the full scope to
+the native workflow, each host specialist and the consolidator. Use its predecessor
+commit and the frozen candidate to inspect changed inputs, including a path restored
+to baseline. Trace the effects on callers in the full review manifest.
+Credit for an earlier inspection is optional and parent-owned. Only when the parent has
+resolved a prior applied code-review receipt for the same entity may it pass `carry_units`
+(version 1, `file_local` obligation, closed `inputs`, `dynamic_lookup: false`, predecessor
+commit, run id and operation digest) to the native workflow; a host runner records the same
+units as `carried_units` with `cross_file_fresh: true` in each angle packet and lists only fresh
+paths in `reviewed_files`. A carried path must be unchanged since the predecessor, along with every
+declared input. Admission re-verifies the receipt, the predecessor angle's direct inspection, Git tree
+entries and an uninterrupted history; otherwise every angle must list the full manifest.
 
 ## Runner 1: native Workflow
 
@@ -137,7 +169,14 @@ requested effort (`low|medium|high|xhigh|max`). It runs all six angle prompts in
 consolidator. Only a valid result from all six angles, complete changed-file coverage, and a valid consolidator report may be recorded as complete. An exception, partial result, coverage gap, or malformed report is INCOMPLETE; persist actual counts, or `unknown` when the host did not return them, and never replace it with a CLI pass. The returned report is compact on a clean PASS and detailed only for findings or
 triage. Persist the returned body with `adaptive_review.py write-report` and:
 
-The native result contains `report`, `angle_results`, and `decisions`; save these separately and pass the latter two with `--angle-results` and `--review-decisions` to `write-report`. For host dispatch, assemble the six returned objects under keys `a` through `f` and ask the consolidator for its candidate-bound decisions. Do not substitute caller-supplied counts for these artifacts. Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
+When the consolidator lists a `discoveries` entry (a causal site no angle inspected), dispatch the named angle once to inspect that exact path and range on the frozen tree with the same repair context, store its reply as `site_inspections` on that angle's packet (`file`, `start_line`, `end_line`, `observation`, `tree`, `assigned_angle`, `responder_angle`; the last two are set by you from the actual dispatch, never from the reply), and ask the consolidator to reconsolidate with that observation copied exactly into the discovery. The writer reports INCOMPLETE without this. The native result contains `report`, `angle_results`, and `decisions`; save these separately and pass the latter two with `--angle-results` and `--review-decisions` to `write-report`. For host dispatch, assemble the six returned objects under keys `a` through `f` and ask the consolidator for its candidate-bound decisions. Do not substitute caller-supplied counts for these artifacts. Save it first; do not dump the full report inline on a clean PASS. Tell the user only a short verdict summary plus `review_output_path`.
+
+For an incomplete native or host-dispatched review, pass the failure diagnostic
+with `--fallback-reason` and every returned angle packet with `--angle-results`.
+Preserve the producing labels even when some packets fail validation. The writer
+checks their candidate and coverage before recording the specialist count. If
+dispatch returned no observations, omit the angle file and pass
+`--specialists-completed unknown`.
 
 ```text
 runner_mode=canonical-six-angle
@@ -162,6 +201,8 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    Give every agent the complete captured scope, its one assigned angle
    prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
+   Pass `changed_files` as the exact JSON array from capture or a reference that resolves to it in the recipient’s checkout. Preserve array order and literal Git names.
+   Include deleted paths and supply the frozen diff or exact base object so each reviewer can read removed lines.
    Keep the same frozen candidate and scope for every angle, regardless of
    scheduling; do not consolidate until all six results have arrived.
 3. Wait for all six results. If any result is missing, malformed, timed out, has a mismatched candidate identity,
@@ -171,9 +212,9 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    preferred alternate CLI is unavailable, not when a six-angle dispatch is
    incomplete.
 4. Dispatch one read-only consolidator with `references/consolidator.md`, the
-   captured scope (`diff_path`, `base_commit`), the complete changed-file
-   list, and all six specialist results. Require the consolidator to verify
-   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; retain and route any downgraded finding through the triage decision tree. A downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
+   captured scope (including `diff_path`, `base_commit` and any `successor_delta`), the complete changed-file
+   manifest as CHANGED_FILES, and ANGLE_RESULTS keyed by the six producing invocations (a through f). Preserve the original packets, including each ordered declaration, findings and supporting observations. Require the consolidator to verify
+   coverage and return the required Markdown report and a decisions JSON object. The decisions object contains `candidate_identity` and a `findings` array; each finding has `file`, positive integer `line`, `severity`, `rule`, `summary`, `diagnosis`, `disposition`, and a nonempty `reason`. Give each specialist decision a unique `finding_id`, set `origin` to its original lowercase packet label (`a` through `f`), and copy its original `evidence`. Give a consolidator-only decision the origin `consolidator`. Every raw finding must have an exact matching decision. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; record the original concern and contrary evidence. If only a preference remains, record the host’s report-only disposition and end triage for that finding with zero source edits and tracker writes. Route a substantive remainder through normal triage. A downgrade permits only PASS-with-triage, and a clean PASS cannot retain an unrefuted finding. An empty findings array explicitly asserts no findings.
 5. Persist with `scripts/adaptive_review.py write-report`, passing the
    captured `base_commit` and `diff_path` and the consolidator's verdict. If
    all six specialist results and the consolidator are valid, use
@@ -185,8 +226,11 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 
 ## Runner 3: alternate/comparable-model CLI
 
-Build one read-only adversarial prompt containing the diff path, complete changed-file list,
-standards path, task context, and the following required output contract:
+Build one read-only adversarial prompt containing the diff path, standards path,
+task context, and the following output contract. The runner supplies each
+attempt with the absolute path and digest of the validated scope file. The
+reviewer reads its `changed_files` array for the exact frozen Git names and
+declares its own inspections in `decisions.reviewed_files`.
 
 ```text
 Return a JSON object containing `report` (the Markdown review, including
@@ -251,7 +295,7 @@ why automated review was unavailable. It cannot satisfy the unattended pre-merge
 `references/consolidator.md` accepts either six angle findings or one complete adversarial review.
 It must state the evidence mode and use the matching coverage claim. It may say
 “6-angle automated” only for `canonical-six-angle` or `dispatched-six-angle` with six completed
-specialists. For fallback findings, fix every blocker or route it through the triage skill's decision tree (see `skills/triage/SKILL.md`'s routing contract; tech-debt is only one possible outcome, never a default) before CI/merge. An incomplete report cannot advance the gate.
+specialists. For fallback findings, fix every blocker or route it through the triage skill's decision tree (see `skills/triage/SKILL.md`'s routing contract; tech-debt is only one possible outcome, never a default) before CI/merge. Apply the triage skill's unattended review disposition procedure for host authority, verification and parent escalation. Keep delivery pending until every actionable fingerprint has a verified disposition. An incomplete report cannot advance the gate.
 
 ## Flags and references
 

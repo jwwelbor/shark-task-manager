@@ -88,7 +88,7 @@ class PublicationTests(unittest.TestCase):
             self.assertEqual(output[field], producer[field])
         self.assertEqual(json.loads(Path(output['retained_attempts']).read_bytes()), producer['attempts'])
         self.assertIn('**Fallback reason:** ' + producer['fallback_reason'] + '\n', header)
-        self.assertIn('**Requested model:** `' + (producer['requested_model'] or 'unknown') + '`', header)
+        self.assertIn('**Requested model:** `' + ('unknown' if producer['requested_model'] is None else producer['requested_model']) + '`', header)
 
     def test_producer_binds_exact_body_request_and_final_reason(self):
         self.produce('direct', 'claude', 'opus', 29, 0.07, ' \t\r\n\n', direct=True)

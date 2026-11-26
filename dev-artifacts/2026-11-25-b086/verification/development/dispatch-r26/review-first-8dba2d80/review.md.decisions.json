@@ -1,0 +1,153 @@
+{
+  "candidate_identity": {
+    "commit": "8dba2d8030af72ac0c1c0f0666dda050f9c3f3b2",
+    "tree": "384b6290fcd808f835e479ce6efaafb77615292e",
+    "diff_sha256": "85c904428908478503d32b44c86c59248d1b243549e21291d5956879ebfd8044",
+    "repair_plan_sha256": "c7fd7e6102bf9010686ecca03c18b1c93f4176aafd0d3a468f7e5e74da8e33aa"
+  },
+  "findings": [
+    {
+      "file": "scripts/testdata/b086/host.py",
+      "line": 201,
+      "severity": "blocker",
+      "rule": "TEST-INTEGRITY",
+      "summary": "Host prompts disclose the expected dispositions, receipt fields and action sequence",
+      "diagnosis": "The default prompt dictates the report-only Nit record, disposition preconditions and escalation and refusal fields; the receipt prompt (line 230) dictates pending state instead of ci; the fix-effort prompt (line 102) scripts review, repair, check and re-review. The verifier asserts these same outcomes, against the plan's requirement to keep expected outcomes outside host input.",
+      "fingerprint": "scripts/testdata/b086/host.py#TEST-INTEGRITY#expected-outcomes-in-host-prompt",
+      "disposition": "fix-now",
+      "reason": "Rows 21, 22, 25, 26 and 31 cannot attribute the observed behavior to the distributed procedure. Remove outcome instructions, keep only tool mechanics, and rerun the affected cases."
+    },
+    {
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 775,
+      "severity": "blocker",
+      "rule": "VERIFIER-GAP",
+      "summary": "Refused tracker create attempts are ignored by zero-write checks",
+      "diagnosis": "A ValueError from tracker_args on a refused call without an exact --db or --config token is skipped, so a create with an unsupported option or --db=value never enters creates or writes.",
+      "fingerprint": "scripts/testdata/b086/verify.py#VERIFIER-GAP#refused-create-uncounted",
+      "disposition": "fix-now",
+      "reason": "Row 26 requires zero create invocations and the plan counts refused calls; wrong-feature and pending cases can pass despite an attempt. Count them and add a negative control."
+    },
+    {
+      "file": "docs/plan/bugs/B086.repair-plan.md",
+      "line": 102,
+      "severity": "blocker",
+      "rule": "PLAN-COVERAGE",
+      "summary": "Required overlap-only negative control is absent",
+      "diagnosis": "Row 18 requires retaining the overlap-only negative control and row 2 an overlap variation. The r26 README says it was not run, r25 QA lists it absent, and the preparer has no variant that stages it.",
+      "fingerprint": "docs/plan/bugs/B086.repair-plan.md#PLAN-COVERAGE#overlap-only-control-missing",
+      "disposition": "fix-now",
+      "reason": "An approved acceptance obligation is unmet; without it the paired Fix runs do not show that changed-line overlap affects the decision."
+    },
+    {
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 477,
+      "severity": "non-blocker",
+      "rule": "VERIFIER-GAP",
+      "summary": "Fix ordering check accepts a disposition recorded before verification",
+      "diagnosis": "The condition only requires edit before disposition and no verify before edit, so edit, disposition, verify passes.",
+      "fingerprint": "scripts/testdata/b086/verify.py#VERIFIER-GAP#disposition-before-verify",
+      "disposition": "fix-now",
+      "reason": "The check cannot fail on the property its message names; require the passing verify before the disposition and test it."
+    },
+    {
+      "file": "scripts/testdata/b086/pairs.py",
+      "line": 19,
+      "severity": "non-blocker",
+      "rule": "VERIFIER-GAP",
+      "summary": "Pair prompt comparison uses regenerated prompts, not delivered ones",
+      "diagnosis": "normalized_prompt calls host.prompt on both cases at verification time, so equality follows from file presence and ignores what each host received.",
+      "fingerprint": "scripts/testdata/b086/pairs.py#VERIFIER-GAP#regenerated-prompt-comparison",
+      "disposition": "fix-now",
+      "reason": "Compare run-bound prompts from host.jsonl against the pinned binding digests."
+    },
+    {
+      "file": "scripts/testdata/b086/pairs.py",
+      "line": 57,
+      "severity": "non-blocker",
+      "rule": "VERIFIER-GAP",
+      "summary": "Row 18 pair never requires the large unrelated diff",
+      "diagnosis": "An empty preserved map passes, and only differing commits are checked; swapping the roots skips preservation in fix_pair.",
+      "fingerprint": "scripts/testdata/b086/pairs.py#VERIFIER-GAP#vacuous-preservation",
+      "disposition": "fix-now",
+      "reason": "Require that exactly the second case carries the unrelated file and that it is the only candidate difference."
+    },
+    {
+      "file": "scripts/testdata/b086/pairs.py",
+      "line": 63,
+      "severity": "non-blocker",
+      "rule": "VERIFIER-GAP",
+      "summary": "effort_pair reports observed without observing either run",
+      "diagnosis": "Only four input files are compared; run status, delivered prompts and candidate bytes are ignored. The existing test obtains observed for a pair containing a stale-identity run.",
+      "fingerprint": "scripts/testdata/b086/pairs.py#VERIFIER-GAP#effort-pair-inputs-only",
+      "disposition": "fix-now",
+      "reason": "Require both cases to verify and compare delivered prompts and candidates."
+    },
+    {
+      "file": "scripts/testdata/b086/test_fixrepair.py",
+      "line": 174,
+      "severity": "non-blocker",
+      "rule": "TEST-COVERAGE",
+      "summary": "fix_pair has no negative controls for its comparisons",
+      "diagnosis": "The only test covers an unobserved pair and asserts that structural mismatches are absent; no input is mutated to show a check fires.",
+      "fingerprint": "scripts/testdata/b086/test_fixrepair.py#TEST-COVERAGE#fix-pair-negative-controls",
+      "disposition": "fix-now",
+      "reason": "Mutate grant, prompt, finding, commit, resulting text and unrelated file individually."
+    },
+    {
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 889,
+      "severity": "non-blocker",
+      "rule": "VERIFIER-GAP",
+      "summary": "--only verification skips delivered prompt, grant and runner binding",
+      "diagnosis": "matching_dispatch is not run for --only cases, including rows 18 and 22.",
+      "fingerprint": "scripts/testdata/b086/verify.py#VERIFIER-GAP#only-skips-dispatch-binding",
+      "disposition": "fix-now",
+      "reason": "An altered invocation could verify; retained r26 hashes were checked and match."
+    },
+    {
+      "file": "internal/cli/commands/review_output_policy_test.go",
+      "line": 270,
+      "severity": "non-blocker",
+      "rule": "TEST-COVERAGE",
+      "summary": "Distribution test neither protects the triage procedure nor the parent handoff",
+      "diagnosis": "Triage SKILL.md is not in the path list, and the word parent already existed at the base in the review-code workflow and both deep-review files.",
+      "fingerprint": "internal/cli/commands/review_output_policy_test.go#TEST-COVERAGE#triage-procedure-unasserted",
+      "disposition": "fix-now",
+      "reason": "Assert the procedure heading and its key obligations in triage SKILL.md and a specific handoff phrase in callers."
+    },
+    {
+      "file": "skills/shark-rider/skills/triage/SKILL.md",
+      "line": 34,
+      "severity": "non-blocker",
+      "rule": "CONFLICTING-INSTRUCTIONS",
+      "summary": "Attended-only directives are not scoped around the unattended branch",
+      "diagnosis": "Step 0's immediate fix, Step 5's confirmation requirement, the matching anti-pattern and the frontmatter conflict with the unattended authority checks and authorized creation.",
+      "fingerprint": "skills/shark-rider/skills/triage/SKILL.md#CONFLICTING-INSTRUCTIONS#unattended-override-unscoped",
+      "disposition": "fix-now",
+      "reason": "A host could edit without authority or refuse an authorized create; state the precedence explicitly."
+    },
+    {
+      "file": "scripts/testdata/b086/host.py",
+      "line": 279,
+      "severity": "non-blocker",
+      "rule": "SECURITY",
+      "summary": "Real host credentials are readable by the agent under test",
+      "diagnosis": "Credentials are copied into the case HOME while a Bash-enabled agent runs without a filesystem sandbox, and its trace is retained in the repository.",
+      "fingerprint": "scripts/testdata/b086/host.py#SECURITY#credentials-readable-by-host",
+      "disposition": "triage",
+      "reason": "No leaked token was found by pattern scan; hardening the isolation can be tracked separately."
+    },
+    {
+      "file": "dev-artifacts/2026-11-25-b086/verification/development/dispatch-r26/traces/.txt",
+      "line": 1,
+      "severity": "nit",
+      "rule": "ARTIFACT-HYGIENE",
+      "summary": "Empty-named trace artifact was committed",
+      "diagnosis": "A file named only .txt sits beside the five named traces.",
+      "fingerprint": "dev-artifacts/2026-11-25-b086/verification/development/dispatch-r26/traces/.txt#ARTIFACT-HYGIENE#empty-named-trace",
+      "disposition": "triage",
+      "reason": "Remove it or explain it; check the retained checksum list when doing so."
+    }
+  ]
+}

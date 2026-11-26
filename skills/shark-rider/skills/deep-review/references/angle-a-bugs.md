@@ -4,7 +4,7 @@ Apply the canonical quality craft rubric for shared thresholds and severity when
 
 You are performing a correctness review. You have been given:
 - A diff file path (DIFF_PATH)
-- A list of changed files (CHANGED_FILES)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
 - A project root (PROJECT_ROOT)
 
 These values are in your context preamble. Wherever these instructions say DIFF_PATH, CHANGED_FILES, or PROJECT_ROOT, substitute the actual values you were given.
@@ -68,16 +68,18 @@ Return a JSON object:
 
 ```json
 {
+  "review_contract_version": 2,
   "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/file.py"],
   "findings": [
     {
       "file": "path/to/file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "CORRECTNESS|WIRING|RISK|SECURITY",
       "summary": "one-sentence description",
       "diagnosis": "what is wrong and why",
+      "impact": "affected user, behavior, invariant, required standard or maintenance task and its concrete consequence",
       "evidence": "the specific code or call chain that demonstrates the bug",
       "correction": "concrete fix (code snippet or 1-2 sentences)"
     }
@@ -85,4 +87,4 @@ Return a JSON object:
 }
 ```
 
-Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+For a clean review, keep contract version 2, the captured identity and the inspection list, and return an empty findings array. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

@@ -5,7 +5,7 @@ inputs:
   - interface_contracts: list of DTO/interface contracts defined by the architect (optional)
   - backend_design_path: absolute path to 04-backend-design.md (for API integration details)
   - frontend_design_path: absolute path where 05-frontend-design.md should be written
-  - frontend_template_path: absolute path to frontend-doc.md template
+  - frontend_template_path: absolute path to skills/architecture/context/templates/frontend-doc.md template
   - design_refs: list of paths to wireframes / mockups / visual design references (optional)
   - use_frontend_design_skill: bool — whether to invoke the frontend-design skill for visual polish
 outputs:
