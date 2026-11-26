@@ -606,6 +606,8 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
         f"**Requested model:** `{requested if requested is not None else 'unknown'}` · **Verified effective model:** `{_display(metadata, 'effective_model', 'unknown')}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
+    if metadata.get("material_impacts_sha256") and metadata.get("material_dispositions_sha256"):
+        fields.insert(-1, f"**Expected material impacts SHA-256:** `{metadata['material_impacts_sha256']}` · **Material dispositions SHA-256:** `{metadata['material_dispositions_sha256']}`")
     return "# Overall Code Review\n\n" + "\n".join(fields) + "\n\n---\n\n"
 
 
@@ -646,6 +648,13 @@ def persist_report(path: Path, body: str, metadata: dict[str, object], branch: s
             _write_new_bytes(retained_angles, data)
             metadata["retained_angles"] = str(retained_angles.resolve())
             metadata["angles_sha256"] = hashlib.sha256(data).hexdigest()
+        for key, suffix, field in (("_material_impacts", ".material-impacts.json", "material_impacts"), ("_material_dispositions", ".material-dispositions.json", "material_dispositions")):
+            material = metadata.pop(key, None)
+            if material is not None:
+                retained_material = Path(str(path) + suffix)
+                _write_new_bytes(retained_material, material)
+                metadata["retained_" + field] = str(retained_material.resolve())
+                metadata[field + "_sha256"] = hashlib.sha256(material).hexdigest()
         scope = metadata.pop("_scope", None)
         if scope is not None:
             retained = dict(scope)
@@ -909,6 +918,22 @@ def _writer_decisions(args, metadata, scope_error, findings, body):
     return invalid_pass, invalid_fail
 
 
+def _writer_material(args, metadata):
+    """Retain both material-decision packets byte for byte so the header can bind them."""
+    impacts, dispositions = getattr(args, "material_impacts", None), getattr(args, "material_dispositions", None)
+    if not impacts and not dispositions:
+        return False
+    try:
+        if not impacts or not dispositions:
+            raise ValueError("both material impact packets are required")
+        metadata["_material_impacts"] = read_review_file(impacts, 32 * 1024 * 1024)
+        metadata["_material_dispositions"] = read_review_file(dispositions, 32 * 1024 * 1024)
+    except (OSError, ValueError) as exc:
+        metadata["fallback_reason"] = f"material decision evidence unavailable: {exc}"
+        return True
+    return False
+
+
 def _writer_metadata(args):
     return {
         "generated": datetime.now(timezone.utc).isoformat(),
@@ -960,6 +985,7 @@ def write_report(args: argparse.Namespace) -> int:
     metadata = _writer_metadata(args)
     scope_error = bind_scope(metadata, args)
     angle_findings, incomplete_six = _writer_angles(args, metadata, scope_error)
+    incomplete_six = _writer_material(args, metadata) or incomplete_six
     incomplete = _writer_runner_state(args, metadata, scope_error, incomplete_six)
     try:
         body = read_review_file(args.body_file, 32 * 1024 * 1024).decode("utf-8")
@@ -1039,6 +1065,8 @@ def parser() -> argparse.ArgumentParser:
     write.add_argument("--branch", default="unknown")
     write.add_argument("--scope-file")
     write.add_argument("--angle-results")
+    write.add_argument("--material-impacts", help="expected material impact packet to retain and bind in the report header")
+    write.add_argument("--material-dispositions", help="material disposition packet to retain and bind in the report header")
     write.add_argument("--carry-plan", help="parent-verified JSON list of file-local credited units")
     write.add_argument("--review-decisions")
     write.add_argument("--requested-model")

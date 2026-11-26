@@ -879,6 +879,54 @@ class HostCarryPlanTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
 
 
+class MaterialPacketWriterTest(unittest.TestCase):
+    """B087 B07: the shipped writer retains both material packets and binds their digests in the header."""
+
+    def test_write_report_binds_both_material_packets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            reply = review_packet(scope)['decisions']
+            decisions = root / 'decisions.json'
+            decisions.write_text(json.dumps(reply))
+            angles = root / 'angles.json'
+            angles.write_text(json.dumps({label: reply for label in 'abcdef'}))
+            body = root / 'body.md'
+            body.write_text('Reviewed scope: all files and callers. Findings: none. Detailed verification completed.\nMATERIAL_DECISION: DEC-1\nVERDICT: PASS')
+            impacts, dispositions = root / 'impacts.json', root / 'dispositions.json'
+            impacts.write_bytes(b'{"decisions": []}\n')
+            dispositions.write_bytes(b'{"decisions": [] }')
+
+            def write(name, *extra):
+                report = root / f'{name}.md'
+                result = subprocess.run([
+                    sys.executable, str(HERE / 'adaptive_review.py'), 'write-report', '--runner-mode', 'canonical-six-angle',
+                    '--specialists-completed', '6', '--consolidator-completed', 'true', '--verdict', 'PASS',
+                    '--angle-results', str(angles), '--review-decisions', str(decisions), '--body-file', str(body),
+                    '--review-output-path', str(report), '--scope-file', str(scope_file), '--project-root', str(repo),
+                    '--source-root', str(repo), '--diff-path', scope['diff_path'], '--base-commit', scope['base_commit'], *extra,
+                ], capture_output=True, text=True)
+                return result, report
+
+            result, report = write('both', '--material-impacts', str(impacts), '--material-dispositions', str(dispositions))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            metadata = json.loads(result.stdout)
+            header = report.read_text().split('\n---\n')[0]
+            for label, path, key in (('Expected material impacts', impacts, 'retained_material_impacts'), ('Material dispositions', dispositions, 'retained_material_dispositions')):
+                retained = Path(metadata[key])
+                self.assertEqual(retained.read_bytes(), path.read_bytes())
+                self.assertIn(f'**{label} SHA-256:** `{hashlib.sha256(path.read_bytes()).hexdigest()}`', header)
+            # One packet alone cannot support a material decision: the report is INCOMPLETE and binds nothing.
+            result, report = write('one', '--material-impacts', str(impacts))
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['verdict'], 'INCOMPLETE')
+            self.assertNotIn('material impacts SHA-256', report.read_text())
+            # Without packets the header is unchanged from the legacy writer.
+            result, report = write('none')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('material', report.read_text().split('\n---\n')[0].lower())
+
+
 class CarriedCreditShapeTest(unittest.TestCase):
     """Shared versioned fixture; the Go admission and native workflow tests read the same file."""
 
