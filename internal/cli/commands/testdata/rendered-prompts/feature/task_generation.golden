@@ -1,6 +1,8 @@
 
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
+DURABLE SOURCES: do not cite host agent memory ("see project memory", memory file names) as a source. Later workers run elsewhere and cannot read it. Write the needed instruction into the document, or cite a committed file.
+
 Generate tasks for feature E07-F01: "Sample feature for golden test".
 
 Check for existing tasks: shark list E07-F01 --json. If tasks exist covering all feature requirements with proper sequencing, advance immediately.
@@ -81,6 +83,8 @@ A SIMPLE feature does not require `spec.md` or `test-plan.md` before tasks can b
 
 Do not continue generating lite tasks after escalating — test_planning will produce the missing test-plan.md before task_generation runs again.
 
+> Bundled `specification-writing` skill: the relative paths below are not project files. Read them with `shark skill get specification-writing <path>`. A path starting `../` is relative to `workflows/` (for example, read `../context/foo.md` with `shark skill get specification-writing context/foo.md`).
+
 
 # Workflow: Write Tasks (craft)
 
@@ -150,7 +154,7 @@ Several inputs must be present before tasks can be written. The host should alre
 
 ## SIMPLE-tier mode
 
-The host (feature/task_generation.md) determines the feature's complexity tier from the latest `COMPLEXITY:` decision note and tells you when a feature is SIMPLE. When it is, the following Hard Gates above are **waived** — do not STOP on their absence:
+The host determines the feature's complexity tier from the latest `COMPLEXITY:` decision note and tells you when a feature is SIMPLE. When it is, the following Hard Gates above are **waived** — do not STOP on their absence:
 
 - **Gate 1 (Feature PRD / spec.md)** — waived. A SIMPLE feature does not require a full spec.md before tasks can be written.
 - **Gate 2 (Feature test plan / test-plan.md)** — waived, including its TC-ID, Caller-Path Contracts, ISTQB matrix, and ISO 25010 matrix requirements (BUG-7: those matrices exist to size STANDARD/COMPLEX test surfaces and do not apply to XS/SIMPLE work).

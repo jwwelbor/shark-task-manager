@@ -97,10 +97,10 @@ test('rejects empty email with validation error', async () => {
 
 **MANDATORY. Never skip.**
 
-Run the test and confirm it fails:
+Run the project's targeted test command (`test_runner_command`) and confirm it fails:
 
 ```bash
-npm test path/to/test.test.ts
+<project-test-runner> path/to/email.test
 ```
 
 ### Checklist
@@ -156,10 +156,10 @@ function submitSignupForm(data: FormData) {
 
 ## Step 5: Verify GREEN
 
-Run test again:
+Run the project's targeted test command (`test_runner_command`) again:
 
 ```bash
-npm test path/to/test.test.ts
+<project-test-runner> path/to/email.test
 ```
 
 ### Checklist
@@ -231,7 +231,7 @@ Other skills can reference this workflow:
 ## When Bug is Found
 
 Before fixing, follow the TDD debugging workflow:
-See: test-driven-development/references/debugging-workflow.md
+See: skills/test-driven-development/references/debugging-workflow.md
 
 1. Capture the bug precisely
 2. Write failing test that reproduces it

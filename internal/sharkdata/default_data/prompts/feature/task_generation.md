@@ -1,6 +1,8 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
+{{template "_durable_sources" .}}
+
 Generate tasks for feature {{.id}}: "{{.title}}".
 
 Check for existing tasks: {{template "list_json" .}}. If tasks exist covering all feature requirements with proper sequencing, advance immediately.

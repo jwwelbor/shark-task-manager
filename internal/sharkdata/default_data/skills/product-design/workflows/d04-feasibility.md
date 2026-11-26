@@ -54,7 +54,7 @@ If "not feasible": name the blocking constraint and what would need to change fo
 
 **Return a stack-feedback signal** when the verdict is "feasible with changes" or "not feasible" — so the host can act on it (the gap must not be silently absorbed). Record it in the report's *Stack feedback* block (below) as {verdict, gap, driver, recommended route}; D04 does **not** perform the action itself — the owning `/shark-rider project product-design` action reads this and acts:
 
-- **Greenfield** (provisional stack): recommended route = re-run bootstrap in **reconcile mode**, so `greenfield-scaffold.md` revises `tech-stack.md` against this report (its Phase 3.5).
+- **Greenfield** (provisional stack): recommended route = re-run bootstrap in **reconcile mode**, so `skills/research/workflows/greenfield-scaffold.md` revises `tech-stack.md` against this report (its Phase 3.5).
 - **Brownfield**: apply the initiative posture to the gap. Preserve integration obligations, but evaluate target options for `new-capability`, `extend`, `modernize`, or `replace`; route only genuinely deferred remediation to a tech-debt entry or constraint note with its driver.
 
 ## Record material Questions
