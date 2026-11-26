@@ -19,12 +19,14 @@ if str(SCRIPTS / "tests" / "lib") not in sys.path:
 
 from bench.scripts.lib.e40_benchmark import (
     _effective_profile_route,
+    _identity_routing_fields,
     _live_stage_effort,
     _route_action_mapping,
     _validate_effective_routes,
     live_workflow_stages,
     matrix_workflow_families,
     package_workflow_families,
+    resolve_row_workflow_families,
 )
 from lifecycle_adapter_test_helper import load_adapter_module
 
@@ -284,3 +286,37 @@ def test_evaluate_lifecycle_cost_availability_for_unmapped_and_measured_zero():
     ev_zero = derive_metrics(lifecycle, {}, {})
     assert ev_zero["provider_cost"]["available"] is True
     assert ev_zero["provider_cost"]["value"] == 0.0
+
+
+def test_resolve_row_workflow_families_handles_inferred_and_synthetic_fixtures(tmp_path):
+    wf_dir = tmp_path / "workflow"
+    wf_dir.mkdir()
+    (wf_dir / "feature.yaml").write_text("steps: {}\n", encoding="utf-8")
+
+    # Graphless feature fixture with only feature.yaml drops inferred task.
+    assert resolve_row_workflow_families(wf_dir, ["feature", "task"], explicit_graph=False) == ["feature"]
+    # Explicit entity graph keeps all mapped families so missing files fail closed.
+    assert resolve_row_workflow_families(wf_dir, ["feature", "task"], explicit_graph=True) == ["feature", "task"]
+    # Synthetic custom family with no mapping falls back to empty (scan *.yaml).
+    assert resolve_row_workflow_families(wf_dir, ["family-e2e-comparison"], explicit_graph=False) == []
+
+
+def test_identity_routing_fields_skips_provider_command_for_custom_adapter_without_profile(tmp_path, monkeypatch):
+    wf_dir = tmp_path / "workflow"
+    wf_dir.mkdir()
+    (wf_dir / "bug.yaml").write_text(
+        yaml.safe_dump({"steps": {"dev": {"action": "spawn_agent", "provider": "openai", "model": "gpt-5"}}}),
+        encoding="utf-8",
+    )
+    spy_log = tmp_path / "provider.log"
+    spy = tmp_path / "provider_spy.sh"
+    spy.write_text(f"#!/usr/bin/env bash\necho called >> {str(spy_log)!r}\nexit 97\n", encoding="utf-8")
+    spy.chmod(0o755)
+    monkeypatch.delenv("E40_CODEX_COMMAND", raising=False)
+    config = {
+        "workflow_root": str(wf_dir),
+        "runtime": {"lifecycle_adapter": str(spy), "provider_command": [str(spy)]},
+    }
+    fields = _identity_routing_fields(config, tmp_path, ["bug"])
+    assert fields["codex_catalog"] is None
+    assert not spy_log.exists()

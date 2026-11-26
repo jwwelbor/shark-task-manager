@@ -334,7 +334,7 @@ import yaml
 
 bench_dir, batch_policy_path, scenarios_filter, reps_override = sys.argv[1:5]
 sys.path.insert(0, os.path.join(bench_dir, "scripts", "lib"))
-from e40_benchmark import package_workflow_families
+from e40_benchmark import package_has_explicit_entity_graph, package_workflow_families
 SCENARIO_ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 # GATE_REP_BASE mirrors the bash-level constant above and run-review-
@@ -432,16 +432,6 @@ if requested_ids:
         raise SystemExit(1)
 else:
     selected = packages
-required_families = set()
-for _, _, pkg in selected:
-    required_families.update(package_workflow_families(pkg))
-if not required_families:
-    required_families = {str(pkg.get("entity_family", "unknown")) for _, _, pkg in selected}
-configured_families = policy.get("workflow_families")
-if isinstance(configured_families, list) and all(isinstance(item, str) and item for item in configured_families):
-    workflow_families = sorted(required_families | set(configured_families))
-else:
-    workflow_families = sorted(required_families)
 
 policy_scenarios = policy.get("scenarios") or {}
 if not isinstance(policy_scenarios, dict):
@@ -457,6 +447,8 @@ rows = []
 for scenario_id, pkg_path, pkg in selected:
     scenario_version = str(pkg.get("scenario_version", "1"))
     family = str(pkg.get("entity_family", "unknown"))
+    row_families = sorted(package_workflow_families(pkg) or {family})
+    explicit_graph = package_has_explicit_entity_graph(pkg)
     entry = policy_scenarios.get(scenario_id) or {}
     if not isinstance(entry, dict):
         print(f"run-lifecycle-batch: batch policy scenarios.{scenario_id} must be a mapping", file=sys.stderr)
@@ -502,7 +494,8 @@ for scenario_id, pkg_path, pkg in selected:
         "i05_bundle_dir": i05_bundle_dir,
         "replay_result": replay_result,
         "workflow_root": workflow_root,
-        "workflow_families": workflow_families,
+        "workflow_families": row_families,
+        "explicit_graph": explicit_graph,
         "routing_profile": routing_profile,
         "package_path": os.path.abspath(pkg_path),
         "prelude": prelude,
@@ -543,12 +536,15 @@ if [[ "$mode" == "preview" ]]; then
 		"${ORIGINAL_ARGV[*]}" <<'PYEOF'
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 
 run_lifecycle_bin, script_dir, matrix_path, retention_root, work_dir, argv_joined = sys.argv[1:7]
+sys.path.insert(0, os.path.join(script_dir, "lib"))
+from e40_benchmark import resolve_row_workflow_families
 
 
 def flag_value(argv_str, flag):
@@ -674,7 +670,11 @@ for row in rows:
         "--allowed-root",
         ephemeral,
     ]
-    for route_family in row.get("workflow_families") or []:
+    for route_family in resolve_row_workflow_families(
+        Path(ephemeral) / row["workflow_root"],
+        row.get("workflow_families") or [],
+        explicit_graph=bool(row.get("explicit_graph")),
+    ):
         route_command.extend(["--family", route_family])
     if row["routing_profile"]:
         route_command.extend(["--profile", row["routing_profile"]])
@@ -865,7 +865,7 @@ dispatch_pair() {
 	local scenario_id="$1" scenario_version="$2" family="$3" rep="$4" package_path="$5"
 	local root_key="$6" scratch_root="$7" i05_bundle_dir="$8" replay_result="$9" success_label="${10}"
 	local routing_profile="${11}" workflow_root="${12}"
-	local workflow_families_json="${13:-[]}" route_family
+	local workflow_families_json="${13:-[]}" explicit_graph="${14:-false}" route_family
 
 	if [[ -z "$root_key" || -z "$scratch_root" ]]; then
 		echo "run-lifecycle-batch: $scenario_id rep $rep: root_key/scratch_root not configured; recorded failed, batch proceeds" >&2
@@ -938,7 +938,19 @@ dispatch_pair() {
 		--workflow-root "$ephemeral/$workflow_root"
 		--allowed-root "$ephemeral")
 	local -a workflow_families=()
-	mapfile -t workflow_families < <(python3 -c 'import json,sys; print("\n".join(json.loads(sys.argv[1])))' "$workflow_families_json")
+	mapfile -t workflow_families < <(python3 -c '
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, os.path.join(sys.argv[1], "lib"))
+from e40_benchmark import resolve_row_workflow_families
+families = resolve_row_workflow_families(
+    Path(sys.argv[2]),
+    json.loads(sys.argv[3]),
+    explicit_graph=(sys.argv[4] == "true"),
+)
+if families:
+    print("\n".join(families))
+' "$SCRIPT_DIR" "$ephemeral/$workflow_root" "$workflow_families_json" "$explicit_graph")
 	for route_family in "${workflow_families[@]}"; do
 		route_command+=(--family "$route_family")
 	done
@@ -1296,6 +1308,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 	routing_profile="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("routing_profile") or "")' "$row_json")"
 	workflow_root="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("workflow_root") or "shark-data/workflow")' "$row_json")"
 	workflow_families_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]).get("workflow_families", [])))' "$row_json")"
+	explicit_graph="$(python3 -c 'import json,sys; print("true" if json.loads(sys.argv[1]).get("explicit_graph") else "false")' "$row_json")"
 	package_path="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["package_path"])' "$row_json")"
 
 	for ((rep = 1; rep <= reps; rep++)); do
@@ -1363,7 +1376,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 					overall_bad="true"
 				else
 					dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-						"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "quarantined_and_rerun" "$routing_profile" "$workflow_root" "$workflow_families_json"
+						"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "quarantined_and_rerun" "$routing_profile" "$workflow_root" "$workflow_families_json" "$explicit_graph"
 				fi
 			else
 				echo "run-lifecycle-batch: $scenario_id rep $rep is an incomplete prior attempt (directory present, evaluation.jsonl absent); skipping (pass --reclaim-incomplete to quarantine and re-run)" >&2
@@ -1373,7 +1386,7 @@ for row_json in "${MATRIX_ROWS[@]}"; do
 			;;
 		pending)
 			dispatch_pair "$scenario_id" "$scenario_version" "$family" "$rep" "$package_path" \
-				"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "pending_run" "$routing_profile" "$workflow_root" "$workflow_families_json"
+				"$root_key" "$scratch_root" "$i05_bundle_dir" "$replay_result" "pending_run" "$routing_profile" "$workflow_root" "$workflow_families_json" "$explicit_graph"
 			;;
 		esac
 	done

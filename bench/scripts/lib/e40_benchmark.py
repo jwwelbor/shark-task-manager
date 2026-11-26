@@ -1833,6 +1833,37 @@ def matrix_workflow_families(matrix: list[dict[str, Any]]) -> list[str]:
     return sorted(families)
 
 
+def package_has_explicit_entity_graph(package: dict[str, Any]) -> bool:
+    """Return True when a scenario package declares an explicit entity graph."""
+    return isinstance(package.get("expected_entity_graph"), dict)
+
+
+def resolve_row_workflow_families(
+    workflow_dir: Path,
+    families: list[str],
+    *,
+    explicit_graph: bool = False,
+) -> list[str]:
+    """Filter per-scenario workflow families to those present in a scratch workflow root.
+
+    Explicit expected_entity_graph families are preserved so missing graph
+    workflows fail closed, while inferred descendant families and synthetic
+    custom family names without a mapping fall back to available workflows.
+    """
+    if workflow_dir.is_file():
+        return []
+    if explicit_graph:
+        return [
+            fam for fam in families if fam in FAMILY_WORKFLOW_FILENAMES
+        ]
+    return [
+        fam
+        for fam in families
+        if fam in FAMILY_WORKFLOW_FILENAMES
+        and (workflow_dir / FAMILY_WORKFLOW_FILENAMES[fam]).is_file()
+    ]
+
+
 def selected_matrix(
     config: dict[str, Any],
     config_base: Path,
@@ -4502,13 +4533,27 @@ def _identity_routing_fields(
     codex_environment = isolated_environment()
     clear_codex_route_environment(codex_environment)
     route_error = None
-    try:
-        codex_command, codex_catalog = _discover_codex_catalog(
-            config, config_base, codex_environment, workflow_families
+    runtime = runtime_config(config)
+    adapter = runtime.get("lifecycle_adapter")
+    custom_adapter_without_profile = (
+        selected_profile_path is None
+        and not codex_environment.get("E40_CODEX_COMMAND")
+        and (
+            not isinstance(adapter, str)
+            or not adapter
+            or not is_route_aware_lifecycle_adapter(adapter)
         )
-    except OperatorError as exc:
+    )
+    if custom_adapter_without_profile:
         codex_command, codex_catalog = None, None
-        route_error = str(exc)
+    else:
+        try:
+            codex_command, codex_catalog = _discover_codex_catalog(
+                config, config_base, codex_environment, workflow_families
+            )
+        except OperatorError as exc:
+            codex_command, codex_catalog = None, None
+            route_error = str(exc)
     materialized_routing = _materialize_route_identity(
         workflow_root,
         selected_profile_path,
