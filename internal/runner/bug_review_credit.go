@@ -145,9 +145,17 @@ func checkCarriedShape(unit bugCarriedUnit, delta *bugSuccessorDelta, manifest, 
 	if unit.DynamicLookup == nil || *unit.DynamicLookup || unit.Inputs == nil {
 		return fmt.Errorf("a closed input list without dynamic lookup is required")
 	}
-	if unit.PredecessorCommit != delta.PredecessorCommit || unit.PredecessorRun == "" || !bugCreditOperationDigest.MatchString(unit.PredecessorOperation) {
+	if !unit.bindsPredecessor(delta) {
 		return fmt.Errorf("predecessor identity does not match the captured successor delta")
 	}
+	return checkCarriedUnchanged(unit, manifest, changed)
+}
+
+func (u bugCarriedUnit) bindsPredecessor(delta *bugSuccessorDelta) bool {
+	return u.PredecessorCommit == delta.PredecessorCommit && u.PredecessorRun != "" && bugCreditOperationDigest.MatchString(u.PredecessorOperation)
+}
+
+func checkCarriedUnchanged(unit bugCarriedUnit, manifest, changed map[string]bool) error {
 	if !manifest[string(unit.Path)] || changed[string(unit.Path)] {
 		return fmt.Errorf("path is outside the manifest or changed since the predecessor")
 	}
@@ -159,10 +167,14 @@ func checkCarriedShape(unit bugCarriedUnit, delta *bugSuccessorDelta, manifest, 
 	return nil
 }
 
+func (c *bugCredit) hasParentReaders() bool {
+	return c != nil && c.notes != nil && c.history != nil && c.resolve != nil
+}
+
 // verifier returns the parent-side unit verifier for one scope, or nil when no
 // parent readers are available.
 func (c *bugCredit) verifier(ctx context.Context, req gatepersist.Request, scope bugCandidateScope) bugUnitVerifier {
-	if c == nil || c.notes == nil || c.history == nil || c.resolve == nil {
+	if !c.hasParentReaders() {
 		return nil
 	}
 	delta, err := decodeBugSuccessorDelta(scope)
@@ -171,14 +183,9 @@ func (c *bugCredit) verifier(ctx context.Context, req gatepersist.Request, scope
 	}
 	memo := make(map[string]*bugPredecessor)
 	return func(angle string, unit bugCarriedUnit) error {
-		key := unit.PredecessorRun + "/" + unit.PredecessorOperation
-		pred, ok := memo[key]
-		if !ok {
-			loaded, err := c.loadPredecessor(ctx, req, unit)
-			if err != nil {
-				return err
-			}
-			pred, memo[key] = loaded, loaded
+		pred, err := c.predecessorFor(ctx, req, unit, memo)
+		if err != nil {
+			return err
 		}
 		if err := pred.matchesDelta(scope, delta); err != nil {
 			return err
@@ -188,6 +195,19 @@ func (c *bugCredit) verifier(ctx context.Context, req gatepersist.Request, scope
 		}
 		return sameBugTreeEntries(ctx, req, delta.PredecessorTree, scope.CandidateTree, append([]string{string(unit.Path)}, unit.Inputs...))
 	}
+}
+
+func (c *bugCredit) predecessorFor(ctx context.Context, req gatepersist.Request, unit bugCarriedUnit, memo map[string]*bugPredecessor) (*bugPredecessor, error) {
+	key := unit.PredecessorRun + "/" + unit.PredecessorOperation
+	if pred, ok := memo[key]; ok {
+		return pred, nil
+	}
+	pred, err := c.loadPredecessor(ctx, req, unit)
+	if err != nil {
+		return nil, err
+	}
+	memo[key] = pred
+	return pred, nil
 }
 
 type bugPredecessor struct {
