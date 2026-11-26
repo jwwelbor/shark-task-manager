@@ -62,7 +62,7 @@ def seed_project(source, staging, binary_digest):
 
 
 EXPECT_FIX = {'fix', 'time-ok', 'repeat-other'}
-EXPECT_DEFER = {'budget-dispatch', 'budget-project', 'budget-consumed', 'time-short'}
+EXPECT_DEFER = {'budget-dispatch', 'budget-project', 'budget-consumed', 'time-short', 'overlap'}
 # Mandatory work (a fix-now finding): the host repairs it or leaves it pending with the parent; it never defers.
 MUST_FIX = {'must-fix', 'must-time-ok'}
 MUST_PENDING = {'must-budget-dispatch', 'must-budget-project', 'must-budget-consumed', 'must-time-short',
@@ -89,7 +89,9 @@ RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'} | set
 DISPATCH_KINDS = {'dispatch-ok', 'dispatch-bad'}
 PATCH_OLD = 'The default order is alphabetical.'
 PATCH_NEW = PATCH_OLD + ' For example, with entries pear and apple, the list shows apple first.'
-PATCH_VARIANTS = {'patch-small', 'patch-large'}
+BASE_OLD = 'Run feature-a list to list entries.'
+BASE_NEW = BASE_OLD + ' For example, feature-a list prints apple before pear.'
+PATCH_VARIANTS = {'patch-small', 'patch-large', 'patch-base'}
 BAD_ANGLE = 'c'
 SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS | DISPATCH_KINDS | set(EFFORT_KINDS) | set(FIX_EFFORT_KINDS)
 FILE = 'docs/feature-a.md'
@@ -300,6 +302,8 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
             if kind_now in EDIT_KINDS:
                 if not synthetic:
                     raise ValueError('edit scenarios need the synthetic packet')
+                if (kind_now == 'overlap') != (synthetic_variant == 'patch-base'):
+                    raise ValueError('the overlap-only control pairs the overlap scenario with the patch-base variant')
                 dispatch['edit_authority'] = kind_now != 'must-noauth'
                 if kind_now.startswith('must-') and synthetic_variant != 'mandatory':
                     raise ValueError('mandatory scenarios need the mandatory synthetic variant')
@@ -307,7 +311,8 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                 patched = synthetic_variant in PATCH_VARIANTS
                 workspace = make_workspace(case, root / 'review-source',
                                            ['docs/unrelated.md'] if synthetic_variant == 'patch-large' else (),
-                                           (PATCH_OLD, PATCH_NEW) if patched else None)
+                                           ((BASE_OLD, BASE_NEW) if synthetic_variant == 'patch-base'
+                                            else (PATCH_OLD, PATCH_NEW)) if patched else None)
                 if kind_now.startswith('repeat-'):
                     (case / 'rejections.json').write_text(json.dumps(rejection_history(kind_now), indent=2) + '\n')
             if kind_now in FIX_EFFORT_KINDS:
@@ -411,7 +416,7 @@ if __name__ == '__main__':
                         help='stage a third case from the matching grant for the subsequent refusal replay')
     parser.add_argument('--scenario', action='append', default=[], metavar='NAME:KIND',
                         help='stage an extra case from the matching grant: ' + ', '.join(sorted(SCENARIOS)))
-    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial', 'mandatory', 'large-diff', 'patch-small', 'patch-large'],
+    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial', 'mandatory', 'large-diff', 'patch-small', 'patch-large', 'patch-base'],
                         default='worked-example', help='choose the synthetic reviewer finding')
     parser.add_argument('--policy-commit', default=POLICY,
                         help='pinned Shark policy source commit; default is the approved fixture policy')

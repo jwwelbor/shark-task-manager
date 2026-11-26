@@ -10,7 +10,7 @@ import uuid
 
 from intake import DISCLOSURE, MEMBERS, consume
 from common import digest
-from prepare import BASELINE, PATCH_NEW, PATCH_OLD, POLICY
+from prepare import BASE_NEW, BASE_OLD, BASELINE, PATCH_NEW, PATCH_OLD, POLICY
 
 PLAN = 'docs/plan/bugs/B001.repair-plan.md'
 APPROVAL = 'docs/plan/bugs/B001.plan-review.md'
@@ -90,7 +90,11 @@ def writer(project, bundle, scripts, base, variant, policy=POLICY):
     elif variant in ('fix-now', 'mandatory'):
         finding.update(summary='Correct the documented default order', diagnosis='The plan requires alphabetical order.',
                        fingerprint=FILE + '#DOCS#incorrect-default')
-    if variant in ('patch-small', 'patch-large'):
+    if variant == 'patch-base':
+        # Same finding and size, but the proposed repair lands on a base line the reviewed diff did not change.
+        finding['diagnosis'] += (f' Proposed patch: in {FILE}, replace the line "{BASE_OLD}" with the line '
+                                 f'"{BASE_NEW}"')
+    elif variant in ('patch-small', 'patch-large'):
         # The proposed repair is part of the reviewer's finding, so paired candidates receive the same patch.
         finding['diagnosis'] += (f' Proposed patch: in {FILE}, replace the line "{PATCH_OLD}" with the line '
                                  f'"{PATCH_NEW}"')

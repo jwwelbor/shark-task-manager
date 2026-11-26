@@ -421,6 +421,9 @@ def resumed_phase_checks(case, binding, entries, results, writes, creates, child
     return missing
 
 
+WRITE_VERBS = {'create', 'update', 'delete', 'add', 'set', 'advance', 'link', 'unlink', 'claim', 'release',
+               'heartbeat', 'approve', 'reopen', 'complete', 'tag', 'promote', 'convert', 'triage', 'set-status',
+               'next-status', 'rm', 'rename'}
 PENDING_WORDS = {'must-noauth': ('permission', 'authority'),
                  'must-time-short': ('time', 'minute'),
                  'must-budget-dispatch': ('attempt', 'budget'),
@@ -475,7 +478,8 @@ def workspace_checks(case, binding, scenario, entries, results, events, inbox, r
                  and e['event'] == 'result']
         tools = [t for t, _ in order]
         if 'edit' not in tools or 'disposition' not in tools or tools.index('edit') > tools.index('disposition') or any(
-                t == 'verify' and i < tools.index('edit') for i, t in enumerate(tools)):
+                t == 'verify' and i < tools.index('edit') for i, t in enumerate(tools)) or not (
+                'verify' in tools and max(i for i, t in enumerate(tools) if t == 'verify') < tools.index('disposition')):
             missing.append('edit, then focused verification, then the disposition receipt')
         if children or writes:
             missing.append('zero deferral writes and zero children for a Fix')
@@ -500,8 +504,12 @@ def workspace_checks(case, binding, scenario, entries, results, events, inbox, r
                                + ('missing edit permission' if scenario == 'must-noauth' else 'exhausted allowance'))
         if scenario in EXPECT_DEFER:
             blob = json.dumps(receipts[0]['message']).lower() if len(receipts) == 1 else ''
-            if not any(word in blob for word in ('budget', 'attempt', 'time', 'minute')):
-                missing.append('Defer receipt records the exhausted allowance among its decision inputs')
+            words = ('changed line', 'already-changed', 'already changed', 'unchanged', 'overlap', 'local', 'scope') \
+                if scenario == 'overlap' else ('budget', 'attempt', 'time', 'minute')
+            if not any(word in blob for word in words):
+                missing.append('Defer receipt records the overlap with the changed lines among its decision inputs'
+                               if scenario == 'overlap' else
+                               'Defer receipt records the exhausted allowance among its decision inputs')
         if scenario == 'repeat-same':
             if children or writes or receipts:
                 missing.append('zero tracker writes, children and dispositions on recurrence')
@@ -777,6 +785,13 @@ def inspect_case(case, manifest, fingerprint):
             if not (result.get('outcome') == 'refused' and result.get('forwarded') is False
                     and not any(w in attempt['argv'] for w in ('--db', '--config'))):
                 missing.append('accounted tracker invocation')
+            # A refused call is still an attempt: count it by its verb so zero-write checks see it.
+            words = [a for a in attempt['argv'] if not a.startswith('-')]
+            if 'create' in words:
+                creates.append(attempt)
+                create_targets.append(None)
+            if any(w in WRITE_VERBS for w in words):
+                writes.append(attempt)
             continue
         if operation != 'read':
             writes.append(attempt)
@@ -888,6 +903,11 @@ if __name__ == '__main__':
     manifest = json.loads((root / 'preparation.json').read_bytes())
     if args.only:
         result = {name: inspect_case(root / name, manifest, args.fingerprint) for name in args.only}
+        for name in args.only:
+            bound = matching_dispatch(root, manifest, (name,))
+            if bound:
+                result[name]['status'] = 'incomplete'
+                result[name]['missing'].extend(bound)
         for name in args.only:
             scenario = manifest['bindings'][name].get('scenario')
             if scenario == 'wrong-db':

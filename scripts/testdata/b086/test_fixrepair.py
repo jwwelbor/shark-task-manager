@@ -166,30 +166,127 @@ class FixEffort(unittest.TestCase):
                          json.loads((self.root / 's/grant.json').read_bytes()))
 
     def test_effort_pairs_differ_only_in_the_named_inputs(self):
-        self.assertEqual(pairs.effort_pair(self.root, 's', 'r', ['boundaries.json', 'grant.json'])['status'], 'observed')
-        self.assertEqual(pairs.effort_pair(self.root, 's', 'l', ['candidate-stats.json'])['status'], 'observed')
+        left = lambda a, b: pairs.differing_inputs(self.root / a, self.root / b)
+        self.assertEqual(left('s', 'r'), ['boundaries.json', 'grant.json'])
+        self.assertEqual(left('s', 'l'), ['candidate-stats.json'])
+        # A pair without the delivered prompts or observations cannot be called observed.
+        result = pairs.effort_pair(self.root, 's', 'r', ['boundaries.json', 'grant.json'])
+        self.assertEqual(result['status'], 'incomplete')
+        self.assertTrue(any('delivered host prompt' in m for m in result['missing']))
         self.assertEqual(pairs.effort_pair(self.root, 's', 'r', ['grant.json'])['status'], 'incomplete')
 
 
+def delivered(case, text=None):
+    """Write the dispatch record the launcher keeps, for a prepared but unlaunched case."""
+    text = host.prompt(case) if text is None else text
+    (case / 'observations').mkdir(exist_ok=True)
+    (case / 'observations/host.jsonl').write_text(
+        json.dumps({'type': 'b086_host_run'}) + '\n' + json.dumps({'type': 'b086_host_input', 'prompt': text}) + '\n')
+
+
 class FixPairVerifier(unittest.TestCase):
-    def test_an_unobserved_pair_is_incomplete_not_vacuously_equal(self):
-        roots = []
-        tmps = []
+    @classmethod
+    def setUpClass(cls):
+        cls.tmps, cls.roots = [], []
         for variant in ('patch-small', 'patch-large'):
             tmp = tempfile.TemporaryDirectory()
-            tmps.append(tmp)
+            cls.tmps.append(tmp)
             prepare(Path(tmp.name), '--synthetic-variant', variant, '--scenario', 'f0:fix')
-            roots.append(Path(tmp.name))
-        try:
-            result = pairs.fix_pair(roots[0], roots[1], 'f0')
-            self.assertEqual(result['status'], 'incomplete')
-            self.assertFalse(any('identical grant' in m or 'identical finding' in m
-                                 or 'normalized host prompt' in m or 'own starting candidate' in m
-                                 for m in result['missing']), result['missing'])
-        finally:
-            for root, tmp in zip(roots, tmps):
+            cls.roots.append(Path(tmp.name))
+        for root in cls.roots:
+            delivered(root / 'f0')
+
+    @classmethod
+    def tearDownClass(cls):
+        for root, tmp in zip(cls.roots, cls.tmps):
+            unlock(root)
+            tmp.cleanup()
+
+    def test_matching_inputs_pass_the_input_comparison(self):
+        missing, fingerprint = pairs.compare_inputs(self.roots[0] / 'f0', self.roots[1] / 'f0')
+        self.assertEqual(missing, [])
+        self.assertEqual(fingerprint, 'docs/feature-a.md#DOCS#worked-example')
+
+    def test_each_input_that_must_match_is_checked_and_can_fail(self):
+        a, b = self.roots[0] / 'f0', self.roots[1] / 'f0'
+        grant = (b / 'grant.json').read_bytes()
+        (b / 'grant.json').write_text(json.dumps(dict(json.loads(grant), edit_authority=False)))
+        self.assertIn('identical grant (edit authority and budget)', pairs.compare_inputs(a, b)[0])
+        (b / 'grant.json').write_bytes(grant)
+        delivered(b, host.prompt(b) + ' Prefer deferring.')
+        self.assertIn('identical delivered host prompt', pairs.compare_inputs(a, b)[0])
+        delivered(b)
+        (b / 'observations/host.jsonl').unlink()
+        self.assertIn('delivered host prompt recorded at dispatch for both runs', pairs.compare_inputs(a, b)[0])
+        delivered(b)
+        decisions = b / 'packet/review.md.decisions.json'
+        original = decisions.read_bytes()
+        changed = json.loads(original)
+        changed['findings'][0]['diagnosis'] += ' Also reword the heading.'
+        decisions.write_text(json.dumps(changed))
+        self.assertIn('identical finding, fingerprint and proposed patch', pairs.compare_inputs(a, b)[0])
+        decisions.write_bytes(original)
+        self.assertIn('each input review bound to its own starting candidate', pairs.compare_inputs(a, a)[0])
+
+    def test_an_unobserved_pair_or_swapped_roles_is_incomplete(self):
+        result = pairs.fix_pair(self.roots[0], self.roots[1], 'f0')
+        self.assertEqual(result['status'], 'incomplete')
+        self.assertTrue(any('case observed' in m for m in result['missing']))
+        swapped = pairs.fix_pair(self.roots[1], self.roots[0], 'f0')
+        self.assertTrue(any('first root is the small candidate' in m for m in swapped['missing']))
+        self.assertTrue(any('only the large candidate diff' in m for m in swapped['missing']))
+
+    def test_a_different_repair_or_a_changed_unrelated_file_is_caught(self):
+        a, b = self.roots[0] / 'f0', self.roots[1] / 'f0'
+        for case, extra in ((a, b'x'), (b, b'x')):
+            path = case / 'candidate/docs/feature-a.md'
+            case.joinpath('candidate/docs').chmod(0o755)
+            path.chmod(0o644)
+            path.write_bytes(path.read_bytes() + extra)
+        result = pairs.fix_pair(self.roots[0], self.roots[1], 'f0')
+        self.assertTrue(any('the resulting repair is the proposed patch' in m for m in result['missing']))
+        unrelated = b / 'candidate/docs/unrelated.md'
+        unrelated.chmod(0o644)
+        unrelated.write_text('changed\n')
+        result = pairs.fix_pair(self.roots[0], self.roots[1], 'f0')
+        self.assertIn('unrelated candidate files preserved', result['missing'])
+
+
+class OverlapControl(unittest.TestCase):
+    def test_the_overlap_only_control_targets_an_unchanged_base_line_and_pairs_only_with_its_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare(root, '--synthetic-variant', 'patch-base', '--scenario', 'o0:overlap')
+            try:
+                state = json.loads((root / 'preparation.json').read_bytes())['bindings']['o0']['workspace']
+                base = (root / 'review-source').joinpath('docs/feature-a.md')
+                self.assertIn('Run feature-a list', state['expected_text'])
+                decision = json.loads((root / 'o0/packet/review.md.decisions.json').read_bytes())['findings'][0]
+                self.assertIn('Run feature-a list to list entries.', decision['diagnosis'])
+                self.assertNotIn('alphabetical. For example', state['expected_text'])
+                grant = json.loads((root / 'o0/grant.json').read_bytes())
+                self.assertTrue(grant['edit_authority'])
+                self.assertEqual(grant['budget']['dispatch_remaining_attempts'], 1)
+            finally:
                 unlock(root)
-                tmp.cleanup()
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run([sys.executable, HERE / 'prepare.py', Path(tmp), '--synthetic',
+                                   '--scenario', 'o0:overlap'], capture_output=True)
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn(b'patch-base', done.stderr)
+
+
+class RefusedAttemptsCount(unittest.TestCase):
+    def test_a_refused_create_with_unsupported_options_is_still_a_write_attempt(self):
+        import test_receipt  # noqa: F401  (keeps the shared helpers imported alongside)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare(root)
+            done = observer(root / 'grant-b', 'shark', 'create', 'task', 'E01-F01', 'Sneak', '--agent', 'backend')
+            self.assertEqual(done.returncode, 1)
+            manifest = json.loads((root / 'preparation.json').read_bytes())
+            result = verify.inspect_case(root / 'grant-b', manifest, 'docs/feature-a.md#DOCS#worked-example')
+            self.assertIn('zero write attempts and zero children', result['missing'])
 
 
 if __name__ == '__main__':
