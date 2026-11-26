@@ -121,7 +121,8 @@ class DefinitiveRefusal(unittest.TestCase):
                                                     'fixture-code_review-123', 'a' * 40, finding))
         for field, invalid in [('fingerprint', 'other'), ('candidate', 'b' * 40),
                                ('classification', 'non-blocker'), ('decision', 'Defer'),
-                               ('original_severity', 'nit'), ('evidence', 'not enough')]:
+                               ('original_severity', 'nit'), ('evidence', 'not enough'),
+                               ('reason', 'No edit is needed.')]:
             altered = dict(message, **{field: invalid})
             with self.subTest(field=field):
                 self.assertFalse(verify.received_report_only(
