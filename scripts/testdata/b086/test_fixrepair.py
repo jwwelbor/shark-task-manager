@@ -136,6 +136,27 @@ class FixEffort(unittest.TestCase):
     def test_the_size_only_answer_is_rejected_for_the_risk_case_and_a_stale_identity_for_any_case(self):
         self.assertTrue(any('identity the recorder verified' in m for m in self.missing('l')))
 
+    def test_a_single_review_of_the_resulting_candidate_suffices_and_a_start_only_review_does_not(self):
+        manifest = json.loads((self.root / 'preparation.json').read_bytes())
+        state = manifest['bindings']['s']['workspace']
+        final = self.verified['s']['candidate_identity']
+        case = self.root / 's'
+        log = case / 'observations/tools.jsonl'
+        original = log.read_text()
+        entries = [json.loads(l) for l in original.splitlines()]
+        reviews = [e['invocation'] for e in entries if e['tool'] == 'review' and e['event'] == 'entry']
+        try:
+            log.write_text(''.join(l + '\n' for l in original.splitlines()
+                                   if json.loads(l)['invocation'] != reviews[0]))
+            self.assertEqual(self.missing('s'), [])
+            log.write_text(''.join(l + '\n' for l in original.splitlines()
+                                   if json.loads(l)['invocation'] != reviews[1]))
+            self.assertTrue(any('one or two' in m or 'identity the recorder verified' in m or 'precede' in m
+                                for m in self.missing('s')) or self.missing('s'))
+            self.assertNotEqual(final, state['sha256'])
+        finally:
+            log.write_text(original)
+
     def test_the_rebound_identity_is_the_recorders_and_differs_from_the_start(self):
         case = self.root / 'r'
         reviews = [json.loads(l) for l in (case / 'observations/review.jsonl').read_text().splitlines()]
@@ -145,6 +166,8 @@ class FixEffort(unittest.TestCase):
 
     def test_prompts_name_no_expected_effort_and_no_staged_identity(self):
         text = host.prompt(self.root / 'r')
+        for scripted in ('starting candidate that produced', 'repair the finding, check', 'then record the deep-review'):
+            self.assertNotIn(scripted, text)
         self.assertNotIn('after_local_fix', text)
         for word in ('max', 'high'):
             self.assertNotIn(f'effort {word}', text)

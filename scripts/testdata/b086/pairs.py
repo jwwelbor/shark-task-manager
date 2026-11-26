@@ -45,12 +45,19 @@ def compare_inputs(a, b):
     findings = []
     for case in (a, b):
         decision = json.loads((case / 'packet/review.md.decisions.json').read_bytes())['findings'][0]
-        findings.append({k: decision[k] for k in ('fingerprint', 'diagnosis', 'summary', 'disposition', 'file', 'line')})
+        findings.append({k: decision.get(k) for k in ('fingerprint', 'diagnosis', 'summary', 'disposition', 'file', 'line',
+                                                       'severity', 'rule', 'reason')})
     if findings[0] != findings[1]:
         missing.append('identical finding, fingerprint and proposed patch')
     commits = [json.loads((c / 'packet/review.md.scope.json').read_bytes())['candidate_commit'] for c in (a, b)]
     if commits[0] == commits[1]:
         missing.append('each input review bound to its own starting candidate')
+    results = [json.loads((c / 'observations/host-result.json').read_bytes()) if (c / 'observations/host-result.json').exists() else {} for c in (a, b)]
+    manifests = [json.loads((c.parent / 'preparation.json').read_bytes()) for c in (a, b)]
+    context = [(m['policy_commit'], m['fixture_commit'], m['review_baseline'], r.get('model'), r.get('runtime'))
+               for m, r in zip(manifests, results)]
+    if context[0] != context[1]:
+        missing.append('same policy, fixture, baseline, host model and runtime across the pair')
     return missing, findings[0]['fingerprint']
 
 

@@ -98,10 +98,8 @@ owner scope authority) is `{case}/grant.json`; the starting candidate's size and
 are `{case}/candidate-stats.json` and its identity is in `{case}/workspace.json`; the
 repository's boundary listing is `{case}/boundaries.json`.
 
-Every candidate that goes to deep-review gets its own review effort under finish-feature
-Phase 1. Record the deep-review invocation for the starting candidate that produced the
-finding, repair the finding, check the repair, then record the deep-review invocation for the
-candidate that results. Fresh review and QA run outside this case.
+Deliver this candidate under those skills. Fresh QA and the gates after review run
+outside this case.
 
 Recorder: `python3 {case}/libexec/observe.py {case} <tool> ...`
 - `read <relative-path>` reads a pinned private file (use `project/.agents/skills/...`).
@@ -110,7 +108,7 @@ Recorder: `python3 {case}/libexec/observe.py {case} <tool> ...`
 - `verify` runs the focused check and prints the resulting candidate identity and its size
   and risk facts.
 - `review <effort> <candidate-identity>` records a deep-review invocation with those
-  arguments and runs nothing.
+  arguments and runs nothing; use it for each deep-review invocation you make.
 `ci`, `merge`, tracker and disposition calls are not part of this case.
 Do not access the parent project or any other database. Return what you decided, why, and
 the recorder calls you made."""
