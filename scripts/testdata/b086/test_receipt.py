@@ -96,5 +96,33 @@ class Policy(unittest.TestCase):
             self.assertIn('review admission policy', host.prompt(root / 'allow'))
 
 
+class Effort(unittest.TestCase):
+    def test_review_entry_records_only_the_chosen_effort_and_the_verifier_checks_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            done = subprocess.run([sys.executable, HERE / 'prepare.py', root, '--synthetic',
+                                   '--scenario', 's:effort-small', '--scenario', 'l:effort-large',
+                                   '--scenario', 'r:effort-risk'], capture_output=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            manifest = json.loads((root / 'preparation.json').read_bytes())
+            small, large, risk = (json.loads((root / n / 'candidate-stats.json').read_bytes()) for n in 'slr')
+            self.assertEqual((small['risk_boundaries'], large['risk_boundaries']), ([], []))
+            self.assertGreater(large['changed_lines'], small['changed_lines'])
+            self.assertEqual(risk['changed_lines'], small['changed_lines'])
+            self.assertTrue(risk['risk_boundaries'])
+            self.assertIn('candidate-stats.json', host.prompt(root / 's'))
+            self.assertNotIn('retained unattended review handoff', host.prompt(root / 's'))
+            self.assertEqual(observer(root / 's', 'review', 'high', 'extra').returncode, 1)
+            self.assertEqual(observer(root / 's', 'review', 'high').returncode, 0)
+            self.assertEqual(observer(root / 's', 'ci').returncode, 1)
+            invoked = [json.loads(l)['argv'] for l in (root / 's/observations/review.jsonl').read_text().splitlines()]
+            self.assertEqual(invoked, [['high']])
+            result = verify.inspect_effort(root / 's', manifest)
+            self.assertIn('run-bound native host and private-skill receipt', result['missing'])
+            self.assertNotIn('one deep-review entry with effort high', ' '.join(result['missing']))
+            wrong = verify.inspect_effort(root / 'l', manifest)  # no review call yet
+            self.assertTrue(any('effort max' in m for m in wrong['missing']))
+
+
 if __name__ == '__main__':
     unittest.main()

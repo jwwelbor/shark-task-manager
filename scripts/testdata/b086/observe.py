@@ -304,6 +304,10 @@ def run(case, tool, argv):
             append(log, dict(event, event='result', outcome='passed' if result['passed'] else 'failed', **result))
             print(json.dumps(result))
             return 0 if result['passed'] else 1
+        elif tool == 'review' and binding.get('effort_case') and len(argv) == 1:
+            append(observations / 'review.jsonl', dict(event, argv=argv))
+            append(log, dict(event, event='result', outcome='recorded'))
+            print('deep-review invocation recorded')
         elif tool == 'ci' and binding.get('delivery_ci'):
             append(observations / 'delivery.jsonl', dict(event, argv=argv))
             append(log, dict(event, event='result', outcome='recorded'))

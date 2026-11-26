@@ -69,7 +69,27 @@ def setup(case, codex, runtime='codex-cli'):
     return record
 
 
+def effort_prompt(case):
+    return f"""You are at delivery entry for a candidate that has not been reviewed yet.
+
+Use the native skills `finish-feature` and `shark-rider` available in this project; load
+both before deciding. Their private copies are under `{case}/project/.agents/skills/`.
+Apply finish-feature Phase 1 to choose the review effort for this candidate. The
+candidate's size and risk facts are in `{case}/candidate-stats.json`; nothing else
+about the candidate is available or needed.
+
+Recorder: `python3 {case}/libexec/observe.py {case} <tool> ...`
+- `read <relative-path>` reads a pinned private file (use `project/.agents/skills/...`).
+- `review <effort>` records the deep-review invocation with that effort argument and
+  runs nothing. Call it exactly once, with only the effort word, as the deep-review
+  entry. `ci`, `merge`, tracker and disposition calls are not part of this case.
+Do not access the parent project or any other database. Return the effort you chose,
+why, and the recorder calls you made."""
+
+
 def prompt(case):
+    if (case / 'candidate-stats.json').exists():
+        return effort_prompt(case)
     text = f"""Handle the retained unattended review handoff for this case.
 
 Use the native skills `shark-rider` and `finish-feature` available in this

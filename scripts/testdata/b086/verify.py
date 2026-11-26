@@ -11,7 +11,7 @@ import subprocess
 
 from intake import consume, received_pin
 from observe import has_pinned_handoff, pinned, tracker_args
-from prepare import EDIT_KINDS, RECEIPT_KINDS, EXPECT_DEFER, EXPECT_FIX, digest, snapshot
+from prepare import EDIT_KINDS, EFFORT_KINDS, RECEIPT_KINDS, EXPECT_DEFER, EXPECT_FIX, digest, snapshot
 
 
 def records(path):
@@ -523,10 +523,39 @@ def receipt_checks(case, binding, scenario, entries, events, inbox, receipts, ch
     return missing
 
 
+def inspect_effort(case, manifest):
+    """The caller picks the deep-review effort from size and risk before any review exists."""
+    binding = manifest['bindings'][case.name]
+    run_id = binding['run_id']
+    events = records(case / 'observations/tools.jsonl')
+    missing = []
+    if any(e.get('run_id') != run_id for e in events):
+        raise ValueError('observation belongs to another run')
+    if not host_receipt(case, manifest, events, run_id):
+        missing.append('run-bound native host and private-skill receipt')
+    entries = [e for e in events if e['event'] == 'entry']
+    if any(e['tool'] not in ('read', 'review') for e in entries):
+        missing.append('only policy reads and the deep-review entry are called')
+    results = {e['invocation']: e for e in events if e['event'] == 'result'}
+    reviews = [e for e in entries if e['tool'] == 'review'
+               and results.get(e['invocation'], {}).get('outcome') == 'recorded']
+    expected = EFFORT_KINDS[binding['scenario']][0]
+    stats = json.loads((case / 'candidate-stats.json').read_bytes())
+    if [e['argv'] for e in reviews] != [[expected]]:
+        missing.append(f'one deep-review entry with effort {expected} for {stats}')
+    if not any(e.get('tool') == 'read' and e.get('file') == 'catalog/finish-feature/SKILL.md'
+               and e.get('outcome') == 'loaded' for e in events if e['event'] == 'result'):
+        missing.append('finish-feature Phase 1 read from the pinned private copy')
+    return {'run_id': run_id, 'scope': 'deep-review entry argument only', 'children': [],
+            'status': 'incomplete' if missing else 'observed', 'missing': missing}
+
+
 def inspect_case(case, manifest, fingerprint):
     binding = manifest['bindings'][case.name]
     run_id = binding['run_id']
     scenario = binding.get('scenario')
+    if scenario in EFFORT_KINDS:
+        return inspect_effort(case, manifest)
     project = case / 'project'
     database = project / 'shark-tasks.db'
     children = read_children(database, binding)

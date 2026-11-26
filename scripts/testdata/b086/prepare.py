@@ -86,8 +86,12 @@ POLICIES = {
                                          'candidate and verified dispositions are preserved.'},
     'policy-require': {'review_admission': 'Delivery requires complete canonical-six-angle or dispatched-six-angle '
                                            'review evidence; an adversarial-cli review does not admit CI.'}}
+EFFORT_KINDS = {'effort-small': ('high', {'changed_lines': 24, 'files': 2, 'risk_boundaries': []}),
+                'effort-large': ('max', {'changed_lines': 1800, 'files': 40, 'risk_boundaries': []}),
+                'effort-risk': ('max', {'changed_lines': 24, 'files': 2,
+                                        'risk_boundaries': ['authentication and session handling']})}
 RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'} | set(POLICIES)
-SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS
+SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS | set(EFFORT_KINDS)
 FILE = 'docs/feature-a.md'
 FINGERPRINT = FILE + '#DOCS#worked-example'
 
@@ -254,6 +258,8 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                 if kind_now.startswith('repeat-'):
                     (case / 'rejections.json').write_text(json.dumps(rejection_history(kind_now), indent=2) + '\n')
             (case / 'grant.json').write_text(json.dumps(dispatch, indent=2) + '\n')
+            if kind_now in EFFORT_KINDS:
+                (case / 'candidate-stats.json').write_text(json.dumps(EFFORT_KINDS[kind_now][1], indent=2) + '\n')
             if kind_now in RECEIPT_KINDS:
                 stage_receipt(case, kind_now, intake['history']['project'] if intake else None)
             if extra.get(case_name, '').startswith('delivery-') or kind_now in RECEIPT_KINDS:
@@ -278,6 +284,8 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                     outside = copy_store(case / 'project/shark-tasks.db', root / (case_name + '-outside/shark-tasks.db'))
                     bindings[case_name]['outside_store'] = outside
                     bindings[case_name]['inject_db'] = outside['path'] if kind == 'wrong-db' else 'case'
+                elif kind in EFFORT_KINDS:
+                    bindings[case_name]['effort_case'] = True
                 elif kind in RECEIPT_KINDS:
                     bindings[case_name]['delivery_ci'] = True
                 elif kind.startswith('delivery-'):
