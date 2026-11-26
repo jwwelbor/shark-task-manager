@@ -10,12 +10,8 @@ package commands
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -217,7 +213,7 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 	}
 	if deps.ParentObservationPath != "" {
 		var err error
-		envelopeBytes, err = attachParentTriageObservation(deps.ProjectRoot, deps.RunID, deps.ParentObservationPath, envelopeBytes)
+		envelopeBytes, err = runner.AttachParentTriageObservation(deps.ProjectRoot, deps.RunID, deps.ParentObservationPath, envelopeBytes)
 		if err != nil {
 			return nil, fmt.Errorf("attach parent triage observation: %w", err)
 		}
@@ -284,38 +280,6 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 	}
 
 	return result, nil
-}
-
-func attachParentTriageObservation(projectRoot, runID, path string, envelopeBytes []byte) ([]byte, error) {
-	runDir, err := gaterun.RunDir(projectRoot, runID)
-	if err != nil {
-		return nil, err
-	}
-	expectedPath := filepath.Join(runDir, "parent-triage-observation.json")
-	actualPath, err := filepath.Abs(path)
-	if err != nil || actualPath != expectedPath {
-		return nil, fmt.Errorf("parent observation must be at the run-scoped parent-triage-observation.json path")
-	}
-	data, err := gaterun.ReadBoundedRegularFile(actualPath, 64*1024)
-	if err != nil {
-		return nil, err
-	}
-	envelope, err := workercontrol.Decode(envelopeBytes)
-	if err != nil {
-		return nil, err
-	}
-	for _, ref := range envelope.Evidence {
-		if ref.Kind == "bug_parent_triage_observation" {
-			return nil, fmt.Errorf("worker envelope cannot supply parent triage observation")
-		}
-	}
-	digest := sha256.Sum256(data)
-	relative, err := filepath.Rel(projectRoot, actualPath)
-	if err != nil {
-		return nil, err
-	}
-	envelope.Evidence = append(envelope.Evidence, workercontrol.EvidenceRef{Kind: "bug_parent_triage_observation", Pointer: filepath.ToSlash(relative), Summary: "sha256:" + hex.EncodeToString(digest[:])})
-	return json.Marshal(envelope)
 }
 
 type applyResultOutput struct {

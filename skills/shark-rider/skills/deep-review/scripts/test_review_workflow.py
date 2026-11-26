@@ -64,3 +64,51 @@ run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', cand
                     self.assertEqual(result['calls'], 1 if mode in ('short', 'blocker', 'open', 'conflict', 'consolidator_error', 'fail_missing') else 0)
                     if mode == 'consolidator_error':
                         self.assertEqual(len(result['report']['angle_results']), 6)
+
+
+class NativeCarriedCreditTest(unittest.TestCase):
+    HARNESS = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const body = src.slice(src.indexOf('// ─── Args'));
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', body);
+const spec = JSON.parse(process.argv[2]);
+const identity = {commit:'abc', tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64)};
+const parallel = async funcs => Array(6).fill({candidate_identity: identity, findings: [], ...spec.angle});
+const agent = async () => ({report: 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS', decisions: {candidate_identity: identity, findings: []}});
+const args = {diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug',
+  repair_context:{plan:'p', plan_revision:'sha256:'+'a'.repeat(64), research:'r', coverage:'c', prior_findings:[]}, changed_files: spec.changed_files, ...spec.extra};
+run(args, () => {}, parallel, agent, () => {}).then(report => process.stdout.write(JSON.stringify(report))).catch(e => { console.error(e); process.exit(1); });
+'''
+    MESSAGES = {
+        "cross_file": "fresh cross-file", "closed_inputs": "closed input list", "version": "credit version",
+        "identity": "predecessor identity", "path": "changed since the predecessor", "input": "declared input",
+        "duplicate": "duplicated", "overlap": "both fresh and carried", "missing": "missing required paths|incomplete reviewed_files coverage",
+    }
+
+    def run_workflow(self, spec):
+        proc = subprocess.run(['node', '-e', self.HARNESS, str(SCRIPT), json.dumps(spec)], capture_output=True, text=True, check=True)
+        return json.loads(proc.stdout)
+
+    def test_shared_credit_cases_at_native_dispatch(self):
+        doc = json.loads((SCRIPT.parent / 'testdata' / 'credit_cases.json').read_text())
+        for case in doc['cases']:
+            with self.subTest(case=case['name']):
+                report = self.run_workflow({'angle': case['angle'], 'changed_files': doc['changed_files'], 'extra': {'successor_delta': doc['successor_delta']}})
+                if case['error_key'] is None:
+                    self.assertEqual(report['runner_mode'], 'canonical-six-angle')
+                else:
+                    self.assertEqual(report['runner_mode'], 'incomplete')
+                    self.assertRegex(report['report'], self.MESSAGES[case['error_key']])
+
+    def test_dispatcher_attaches_parent_carry_plan(self):
+        doc = json.loads((SCRIPT.parent / 'testdata' / 'credit_cases.json').read_text())
+        unit = doc['cases'][0]['angle']['carried_units'][0]
+        spec = {'angle': {'reviewed_files': doc['changed_files']}, 'changed_files': doc['changed_files'],
+                'extra': {'successor_delta': doc['successor_delta'], 'carry_units': [unit]}}
+        self.assertEqual(self.run_workflow(spec)['runner_mode'], 'canonical-six-angle')
+        del spec['extra']['successor_delta']
+        report = self.run_workflow(spec)
+        self.assertEqual(report['runner_mode'], 'incomplete')
+        self.assertIn('captured successor delta', report['report'])

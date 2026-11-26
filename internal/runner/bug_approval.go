@@ -297,7 +297,7 @@ func admitBugDownstream(ctx context.Context, req gatepersist.Request, notes gate
 		return err
 	}
 	if req.Gate == "code_review" {
-		return verifyBugReviewEvidence(ctx, req)
+		return verifyBugReviewEvidence(ctx, req, &bugCredit{notes: notes, history: history, normalize: normalize, resolve: resolve})
 	}
 	return verifyBugPriorGate(ctx, req, notes, history, bugPriorSpec{"code_review", "bug_review_scope"}, normalize, resolve)
 }
@@ -337,7 +337,7 @@ func verifyBugPriorGate(ctx context.Context, req gatepersist.Request, notes gate
 			return err
 		}
 	}
-	return compareBugApprovalEvidence(ctx, req, data, evidenceRoot, dir, spec)
+	return compareBugApprovalEvidence(ctx, req, data, evidenceRoot, dir, spec, &bugCredit{notes: notes, history: history, normalize: normalize, resolve: resolve, endID: entry.ID})
 }
 
 func latestBugApproval(ctx context.Context, req gatepersist.Request, notes gatepersist.NoteReader, gate string, entry *models.EntityHistory) (bugApprovalNote, error) {
@@ -466,7 +466,7 @@ func validateApprovalEnvelope(data []byte, entityKey, outcome string) error {
 	return nil
 }
 
-func compareBugApprovalEvidence(ctx context.Context, req gatepersist.Request, data []byte, evidenceRoot, priorRunDir string, spec bugPriorSpec) error {
+func compareBugApprovalEvidence(ctx context.Context, req gatepersist.Request, data []byte, evidenceRoot, priorRunDir string, spec bugPriorSpec, credit *bugCredit) error {
 	current, err := workercontrol.Decode(req.EnvelopeJSON)
 	if err != nil {
 		return err
@@ -481,7 +481,7 @@ func compareBugApprovalEvidence(ctx context.Context, req gatepersist.Request, da
 		EnvelopeJSON: data, Role: gateresult.RoleSuccess,
 	}
 	if spec.gate == "code_review" {
-		return replayReviewForQA(ctx, priorRequest, req.Role, current.Evidence, prior.Evidence)
+		return replayReviewForQA(ctx, priorRequest, req.Role, current.Evidence, prior.Evidence, credit)
 	}
 	if !matchingBugEvidence(current.Evidence, prior.Evidence, spec.evidenceKind) {
 		return fmt.Errorf("current evidence was not approved at prior gate")
@@ -489,7 +489,7 @@ func compareBugApprovalEvidence(ctx context.Context, req gatepersist.Request, da
 	return compareBugBaselines(req, priorRequest)
 }
 
-func replayReviewForQA(ctx context.Context, review gatepersist.Request, qaRole gateresult.OutcomeRole, current, prior []workercontrol.EvidenceRef) error {
+func replayReviewForQA(ctx context.Context, review gatepersist.Request, qaRole gateresult.OutcomeRole, current, prior []workercontrol.EvidenceRef, credit *bugCredit) error {
 	if err := compareTriageObservation(current, prior); err != nil {
 		return err
 	}
@@ -501,7 +501,7 @@ func replayReviewForQA(ctx context.Context, review gatepersist.Request, qaRole g
 		return fmt.Errorf("current evidence was not approved at prior gate")
 	}
 	review.ParentObservationInjected = hasBugEvidence(prior, "bug_parent_triage_observation")
-	if err := verifyBugReviewEvidence(ctx, review); err != nil {
+	if err := verifyBugReviewEvidence(ctx, review, credit); err != nil {
 		return fmt.Errorf("prior code review evidence: %w", err)
 	}
 	for _, kind := range []string{"bug_review_material_impacts", "bug_review_material_dispositions"} {

@@ -142,6 +142,14 @@ When capture supplies `successor_delta`, pass that object intact with the full s
 the native workflow, each host specialist and the consolidator. Use its predecessor
 commit and the frozen candidate to inspect changed inputs, including a path restored
 to baseline. Trace the effects on callers in the full review manifest.
+Credit for an earlier inspection is optional and parent-owned. Only when the parent has
+resolved a prior applied code-review receipt for the same entity may it pass `carry_units`
+(version 1, `file_local` obligation, closed `inputs`, `dynamic_lookup: false`, predecessor
+commit, run id and operation digest) to the native workflow; a host runner records the same
+units as `carried_units` with `cross_file_fresh: true` in each angle packet and lists only fresh
+paths in `reviewed_files`. A carried path must be unchanged since the predecessor, along with every
+declared input. Admission re-verifies the receipt, the predecessor angle's direct inspection, Git tree
+entries and an uninterrupted history; otherwise every angle must list the full manifest.
 
 ## Runner 1: native Workflow
 

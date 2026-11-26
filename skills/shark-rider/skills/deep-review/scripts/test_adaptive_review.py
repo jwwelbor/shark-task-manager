@@ -795,3 +795,30 @@ class AdaptiveReviewTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CarriedCreditShapeTest(unittest.TestCase):
+    """Shared versioned fixture; the Go admission and native workflow tests read the same file."""
+
+    MESSAGES = {
+        "cross_file": "fresh cross-file", "closed_inputs": "closed input list", "version": "credit version",
+        "identity": "predecessor identity", "path": "changed since the predecessor", "input": "declared input",
+        "duplicate": "duplicated", "overlap": "both fresh and carried", "missing": "incomplete reviewed_files coverage",
+    }
+
+    def test_shared_credit_cases(self):
+        doc = json.loads((Path(__file__).parent / "testdata" / "credit_cases.json").read_text())
+        scope = {"changed_files": doc["changed_files"], "successor_delta": doc["successor_delta"]}
+        for case in doc["cases"]:
+            with self.subTest(case=case["name"]):
+                if case["error_key"] is None:
+                    adaptive_review._check_angle_coverage(case["angle"], scope)
+                else:
+                    with self.assertRaisesRegex(ValueError, self.MESSAGES[case["error_key"]]):
+                        adaptive_review._check_angle_coverage(case["angle"], scope)
+
+    def test_credit_requires_a_captured_delta(self):
+        doc = json.loads((Path(__file__).parent / "testdata" / "credit_cases.json").read_text())
+        angle = doc["cases"][0]["angle"]
+        with self.assertRaisesRegex(ValueError, "captured successor delta"):
+            adaptive_review._check_angle_coverage(angle, {"changed_files": doc["changed_files"]})

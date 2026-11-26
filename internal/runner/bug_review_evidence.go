@@ -39,6 +39,8 @@ type bugAngle struct {
 	CandidateIdentity bugReviewIdentity `json:"candidate_identity"`
 	ReviewedFiles     reviewGitPaths    `json:"reviewed_files"`
 	Findings          []bugAngleFinding `json:"findings"`
+	CarriedUnits      []bugCarriedUnit  `json:"carried_units,omitempty"`
+	CrossFileFresh    bool              `json:"cross_file_fresh,omitempty"`
 }
 
 func (id bugReviewIdentity) matches(scope bugCandidateScope) bool {
@@ -46,7 +48,7 @@ func (id bugReviewIdentity) matches(scope bugCandidateScope) bool {
 }
 
 // verifyBugReviewEvidence validates retained review artifacts without judging their substantive quality.
-func verifyBugReviewEvidence(ctx context.Context, req gatepersist.Request) error {
+func verifyBugReviewEvidence(ctx context.Context, req gatepersist.Request, credit *bugCredit) error {
 	_, scopeData, err := readBugEvidence(req, "bug_review_scope")
 	if err != nil {
 		return err
@@ -72,10 +74,10 @@ func verifyBugReviewEvidence(ctx context.Context, req gatepersist.Request) error
 	if err := validateBugReviewBody(header, body); err != nil {
 		return err
 	}
-	return validateBugReviewArtifacts(ctx, req, scope, header, body)
+	return validateBugReviewArtifacts(ctx, req, scope, header, body, credit)
 }
 
-func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string) error {
+func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string, credit *bugCredit) error {
 	_, decisionData, err := readBugEvidence(req, "bug_review_decisions")
 	if err != nil {
 		return err
@@ -96,7 +98,7 @@ func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, sc
 		return err
 	}
 	if six {
-		if err := verifyBugAngleArtifact(req, scope, header, decisions, verdict); err != nil {
+		if err := verifyBugAngleArtifact(ctx, req, scope, header, decisions, verdict, credit); err != nil {
 			return err
 		}
 	}
@@ -106,7 +108,7 @@ func validateBugReviewArtifacts(ctx context.Context, req gatepersist.Request, sc
 	return validateBugParentTriageObservation(req, scope, decisions)
 }
 
-func verifyBugAngleArtifact(req gatepersist.Request, scope bugCandidateScope, header string, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
+func verifyBugAngleArtifact(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header string, decisions map[bugFindingKey]bugReviewDecision, verdict string, credit *bugCredit) error {
 	_, data, err := readBugEvidence(req, "bug_review_angles")
 	if err != nil {
 		return err
@@ -114,7 +116,7 @@ func verifyBugAngleArtifact(req gatepersist.Request, scope bugCandidateScope, he
 	if err := verifyReviewArtifactHash(header, "Angle results", data); err != nil {
 		return err
 	}
-	return validateBugReviewAngles(data, scope, decisions, verdict)
+	return validateBugReviewAnglesWith(data, scope, decisions, verdict, credit.verifier(ctx, req, scope))
 }
 
 func requireBugFindingDecisions(body string, decisions map[bugFindingKey]bugReviewDecision) error {
@@ -294,6 +296,10 @@ func meaningfulBugReviewMetadata(value string) bool {
 }
 
 func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
+	return validateBugReviewAnglesWith(data, scope, decisions, verdict, nil)
+}
+
+func validateBugReviewAnglesWith(data []byte, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string, verify bugUnitVerifier) error {
 	var angles map[string]bugAngle
 	if err := json.Unmarshal(data, &angles); err != nil || len(angles) != 6 {
 		return fmt.Errorf("six angle results are required")
@@ -303,17 +309,17 @@ func validateBugReviewAngles(data []byte, scope bugCandidateScope, decisions map
 		if !found {
 			return fmt.Errorf("angle %s missing", name)
 		}
-		if err := validateBugReviewAngle(angle, scope, decisions, verdict); err != nil {
+		if err := validateBugReviewAngle(name, angle, scope, decisions, verdict, verify); err != nil {
 			return fmt.Errorf("angle %s: %w", name, err)
 		}
 	}
 	return nil
 }
-func validateBugReviewAngle(angle bugAngle, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string) error {
+func validateBugReviewAngle(name string, angle bugAngle, scope bugCandidateScope, decisions map[bugFindingKey]bugReviewDecision, verdict string, verify bugUnitVerifier) error {
 	if !angle.CandidateIdentity.matches(scope) {
 		return fmt.Errorf("candidate mismatch")
 	}
-	if err := verifyDeclaredReviewPaths(angle.ReviewedFiles, scope.ChangedFiles); err != nil {
+	if err := checkBugAngleCoverage(name, angle, scope, verify); err != nil {
 		return err
 	}
 	if angle.Findings == nil {

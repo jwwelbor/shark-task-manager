@@ -65,6 +65,19 @@ if (input.successor_delta) {
   comparisonContext += `\n- SUCCESSOR_DELTA: ${JSON.stringify(input.successor_delta)}
 Inspect changes from predecessor_commit to CANDIDATE_COMMIT and trace their effects, including inputs restored to baseline. CHANGED_FILES is the full review manifest. Credit for prior work requires independent verification.`
 }
+// Parent-verified carry plan: file-local units credited from a prior receipt.
+// The dispatcher, not the model, attaches them; admission re-verifies each one.
+const carryUnits = Array.isArray(input.carry_units) ? input.carry_units : []
+if (carryUnits.length > 0) {
+  comparisonContext += `\n- CARRIED_PATHS: ${JSON.stringify(carryUnits.map(unit => unit.path))}
+These paths are credited from an earlier verified review. List only paths you freshly inspected in reviewed_files, but still trace every cross-file effect of the edited paths into them.`
+}
+function withCarriedUnits(result) {
+  if (carryUnits.length === 0 || !result || typeof result !== 'object') return result
+  const carried = new Set(carryUnits.map(unit => unit.path))
+  const fresh = Array.isArray(result.reviewed_files) ? result.reviewed_files.filter(file => !carried.has(file)) : result.reviewed_files
+  return {...result, reviewed_files: fresh, carried_units: carryUnits, cross_file_fresh: true}
+}
 function scopeDescription() {
   return {count: changed_file_count || changedFiles.length, line: `- DIFF_SHORTSTAT: ${diff_shortstat || '(not provided)'}`}
 }
@@ -209,16 +222,53 @@ function fileCoverageError(files) {
   return missing.length ? 'missing required paths ' + JSON.stringify(missing) : ''
 }
 
+const CREDIT_DIGEST = /^[0-9a-f]{64}$/
+
+function carriedUnitError(unit, delta, manifest, changed) {
+  if (!unit || unit.version !== 1 || unit.obligation !== 'file_local') return 'unsupported credit version or obligation'
+  if (unit.dynamic_lookup !== false || !Array.isArray(unit.inputs)) return 'a closed input list without dynamic lookup is required'
+  if (unit.predecessor_commit !== delta.predecessor_commit || !unit.predecessor_run_id || !CREDIT_DIGEST.test(String(unit.predecessor_operation_digest))) {
+    return 'predecessor identity does not match the captured successor delta'
+  }
+  if (!manifest.has(unit.path) || changed.has(unit.path)) return 'path is outside the manifest or changed since the predecessor'
+  if (unit.inputs.some(input => changed.has(input))) return 'declared input changed since the predecessor'
+  return ''
+}
+
+// Without carried units the full manifest must be inspected fresh. With them,
+// fresh files plus structurally valid file-local units must cover it. The
+// parent verifies receipts, tree entries and history at admission.
+function angleCoverageError(result) {
+  const units = result.carried_units
+  if (!Array.isArray(units) || units.length === 0) return fileCoverageError(result.reviewed_files)
+  const delta = input.successor_delta
+  if (!delta) return 'carried units require a captured successor delta'
+  if (result.cross_file_fresh !== true) return 'carried units require a fresh cross-file inspection declaration'
+  const manifest = new Set(changedFiles), changed = new Set(delta.changed_files || []), carried = new Set()
+  for (const unit of units) {
+    const error = carriedUnitError(unit, delta, manifest, changed)
+    if (error) return error
+    if (carried.has(unit.path)) return 'carried unit is duplicated'
+    carried.add(unit.path)
+  }
+  if (!Array.isArray(result.reviewed_files) || result.reviewed_files.some(file => !validGitPath(file))) return 'missing reviewed_files declaration'
+  if (result.reviewed_files.some(file => carried.has(file))) return 'path is both fresh and carried'
+  const fresh = new Set(result.reviewed_files)
+  const missing = changedFiles.filter(file => !fresh.has(file) && !carried.has(file))
+  return missing.length ? 'incomplete reviewed_files coverage ' + JSON.stringify(missing) : ''
+}
+
 function angleError(result) {
   if (!result || !validIdentity(result.candidate_identity)) return 'missing or incorrect candidate identity'
   if (!Array.isArray(result.findings) || !result.findings.every(validFinding)) return 'malformed findings'
-  return fileCoverageError(result.reviewed_files)
+  return angleCoverageError(result)
 }
 
 if (!Array.isArray(angleResults)) {
   return {report: 'INCOMPLETE: specialist dispatch returned no result vector.', runner_mode: 'incomplete',
     specialists_completed: 'unknown', consolidator_completed: false, angle_results: null}
 }
+angleResults = angleResults.map(withCarriedUnits)
 const retainedAngles = {}
 const errors = []
 let completed = 0

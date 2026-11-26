@@ -268,7 +268,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(conflicting), 0600))
 		hash := sha256.Sum256([]byte(conflicting))
 		ref := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, path, hash)
-		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "conflicting"), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)})
+		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "conflicting"), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)}, nil)
 		require.Error(t, err, "conflicting header %d must fail closed", i)
 	}
 	dispatched := strings.Replace(string(reportBytes), "`runner_mode=canonical-six-angle`", "`runner_mode=dispatched-six-angle`", 1)
@@ -284,7 +284,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(tc.content), 0600))
 		hash := sha256.Sum256([]byte(tc.content))
 		ref := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, path, hash)
-		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", tc.name), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)})
+		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", tc.name), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)}, nil)
 		if tc.valid {
 			require.NoError(t, err)
 		} else {
@@ -332,7 +332,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliDecisionBytes, err = os.ReadFile(cliReportPath + ".decisions.json")
 	require.NoError(t, err)
 	cliDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/cli-report.md.decisions.json","summary":"sha256:%x"}`, sha256.Sum256(cliDecisionBytes))
-	require.NoError(t, verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + cliDecisionRef)}))
+	require.NoError(t, verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + cliDecisionRef)}, nil))
 	t.Run("cli_declaration_omits_predecessor_file", func(t *testing.T) {
 		cliPacket["reviewed_files"] = []string{"docs/plan/plan.md", "change.txt"}
 		partial, err := json.Marshal(cliPacket)
@@ -342,7 +342,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "partial-cli-report.md"), []byte(badReport), 0600))
 		partialRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/partial-cli-decisions.json","summary":"sha256:%x"}`, sha256.Sum256(partial))
 		reportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/partial-cli-report.md","summary":"sha256:%x"}`, sha256.Sum256([]byte(badReport)))
-		err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "partial-cli"), EnvelopeJSON: envelope(cliScopeRef + "," + reportRef + "," + partialRef)})
+		err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "partial-cli"), EnvelopeJSON: envelope(cliScopeRef + "," + reportRef + "," + partialRef)}, nil)
 		require.ErrorContains(t, err, "leaf.txt")
 	})
 	for _, tc := range []struct{ old, replacement string }{
@@ -356,7 +356,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		require.NoError(t, os.WriteFile(cliReportPath, mutated, 0600))
 		mutatedHash := sha256.Sum256(mutated)
 		mutatedRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/cli-report.md","summary":"sha256:%x"}`, mutatedHash)
-		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + mutatedRef + "," + cliDecisionRef)})
+		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + mutatedRef + "," + cliDecisionRef)}, nil)
 		require.ErrorContains(t, err, "review runner is incomplete")
 	}
 	require.NoError(t, os.WriteFile(cliReportPath, cliReport, 0600))
@@ -368,7 +368,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "refreshed-scope.json"), refreshedBytes, 0600))
 	refreshedHash := sha256.Sum256(refreshedBytes)
 	refreshedRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/refreshed-scope.json","summary":"sha256:%x"}`, refreshedHash)
-	err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "old-report"), EnvelopeJSON: envelope(refreshedRef + "," + reportRef + "," + anglesRef + "," + decisionRef)})
+	err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "old-report"), EnvelopeJSON: envelope(refreshedRef + "," + reportRef + "," + anglesRef + "," + decisionRef)}, nil)
 	require.ErrorContains(t, err, "Retained scope digest does not match report")
 	prior := envelope(planRef)
 	dir, err := gaterun.RunDir(root, "approved-plan")

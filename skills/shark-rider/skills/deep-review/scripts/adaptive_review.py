@@ -403,14 +403,61 @@ def _check_reviewed_files(files, changed_files):
         raise ValueError(f"incomplete reviewed_files coverage: {json.dumps(missing)}")
 
 
+_CREDIT_DIGEST = re.compile(r"[0-9a-f]{64}")
+
+
+def _check_carried_unit(unit, delta, manifest, changed):
+    if not isinstance(unit, dict) or unit.get("version") != 1 or unit.get("obligation") != "file_local":
+        raise ValueError("unsupported credit version or obligation")
+    inputs = unit.get("inputs")
+    if unit.get("dynamic_lookup") is not False or not isinstance(inputs, list):
+        raise ValueError("a closed input list without dynamic lookup is required")
+    if unit.get("predecessor_commit") != delta.get("predecessor_commit") or not unit.get("predecessor_run_id") or not _CREDIT_DIGEST.fullmatch(str(unit.get("predecessor_operation_digest"))):
+        raise ValueError("predecessor identity does not match the captured successor delta")
+    path = unit.get("path")
+    if path not in manifest or path in changed:
+        raise ValueError("path is outside the manifest or changed since the predecessor")
+    if any(item in changed for item in inputs):
+        raise ValueError("declared input changed since the predecessor")
+    return path
+
+
+def _check_angle_coverage(result, scope):
+    """Full manifest, or fresh files plus structurally valid carried units.
+
+    The parent verifies receipts, tree entries and history at admission; this
+    writer-side check keeps unverifiable shapes out of the saved packet.
+    """
+    units = result.get("carried_units")
+    if not units:
+        _check_reviewed_files(result.get("reviewed_files"), scope["changed_files"])
+        return
+    delta = scope.get("successor_delta")
+    if not isinstance(delta, dict) or not isinstance(units, list):
+        raise ValueError("carried units require a captured successor delta")
+    if result.get("cross_file_fresh") is not True:
+        raise ValueError("carried units require a fresh cross-file inspection declaration")
+    manifest, changed, carried = set(scope["changed_files"]), set(delta.get("changed_files") or []), []
+    for unit in units:
+        carried.append(_check_carried_unit(unit, delta, manifest, changed))
+    if len(set(carried)) != len(carried):
+        raise ValueError("carried unit is duplicated")
+    _check_reviewed_files(result.get("reviewed_files"), [])
+    fresh = set(result["reviewed_files"])
+    if fresh.intersection(carried):
+        raise ValueError("path is both fresh and carried")
+    missing = sorted(manifest.difference(fresh).difference(carried))
+    if missing:
+        raise ValueError(f"incomplete reviewed_files coverage: {json.dumps(missing)}")
+
+
 def _angle_findings(name, result, scope):
     identity = result.get("candidate_identity") if isinstance(result, dict) else None
     if not _matching_identity(identity, scope):
         raise ValueError(f"angle {name} has missing or mismatched candidate identity")
-    files = result.get("reviewed_files")
     findings = result.get("findings")
     try:
-        _check_reviewed_files(files, scope["changed_files"])
+        _check_angle_coverage(result, scope)
     except ValueError as exc:
         raise ValueError(f"angle {name}: {exc}") from exc
     if not isinstance(findings, list):
