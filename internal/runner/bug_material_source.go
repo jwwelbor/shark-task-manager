@@ -58,34 +58,40 @@ func materialBlobEntry(entry, path string) (string, int64, error) {
 }
 
 func materialBlobDigest(ctx context.Context, root, oid string, size int64) (string, error) {
+	hash := sha256.New()
+	if err := streamMaterialBlob(ctx, root, oid, size, hash); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// streamMaterialBlob copies exactly size bytes of a frozen blob, stopping the
+// producer when it offers more or the caller cancels.
+func streamMaterialBlob(ctx context.Context, root, oid string, size int64, dst io.Writer) error {
 	readCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := gitutil.Command(readCtx, "-C", root, "cat-file", "blob", oid)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return err
 	}
-	hash := sha256.New()
-	n, readErr := io.Copy(hash, io.LimitReader(out, size+1))
+	n, readErr := io.Copy(dst, io.LimitReader(out, size+1))
 	if readErr != nil || n != size {
 		// Stop the producer before waiting if it offered more than its tree entry.
 		cancel()
 	}
 	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return err
 	}
 	if readErr != nil {
-		return "", readErr
+		return readErr
 	}
 	if n != size {
-		return "", fmt.Errorf("blob size differs from frozen entry (%d bytes expected, read %d)", size, n)
+		return fmt.Errorf("blob size differs from frozen entry (%d bytes expected, read %d)", size, n)
 	}
-	if waitErr != nil {
-		return "", waitErr
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return waitErr
 }

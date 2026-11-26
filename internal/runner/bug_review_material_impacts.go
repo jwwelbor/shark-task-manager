@@ -88,8 +88,21 @@ type bugParentTriageAction struct {
 func validateBugReviewMaterialImpacts(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, header, body string) error {
 	markers := materialDecisionMarkers(body)
 	present, err := materialPacketsPresent(req, header, markers)
-	if err != nil || !present {
+	if err != nil {
 		return err
+	}
+	var enumerated map[string]*frozenMaterialDecision
+	independent := scope.ProjectRoot != ""
+	if independent {
+		if enumerated, err = enumerateFrozenMaterialDecisions(ctx, scope); err != nil {
+			return err
+		}
+	}
+	if !present {
+		if len(enumerated) > 0 {
+			return fmt.Errorf("frozen source declares material decisions; expected impacts and dispositions are required")
+		}
+		return nil
 	}
 	var expected bugReviewMaterialImpacts
 	if err := readMaterialPacket(req, header, "bug_review_material_impacts", "Expected material impacts", &expected); err != nil {
@@ -104,6 +117,12 @@ func validateBugReviewMaterialImpacts(ctx context.Context, req gatepersist.Reque
 	}
 	if len(expected.Decisions) == 0 || len(expected.Decisions) != len(submitted.Decisions) {
 		return fmt.Errorf("material decision disposition set is incomplete")
+	}
+	if independent {
+		if err := compareFrozenMaterialDecisions(enumerated, expected.Decisions); err != nil {
+			return err
+		}
+		markers = nil // the frozen source, not the report, controls the set
 	}
 	dispositions, err := indexMaterialDispositions(submitted.Decisions)
 	if err != nil {
@@ -184,7 +203,7 @@ func verifyMaterialDecisionSet(ctx context.Context, req gatepersist.Request, sco
 			return err
 		}
 	}
-	if !maps.Equal(markers, seenDecisions) {
+	if markers != nil && !maps.Equal(markers, seenDecisions) {
 		return fmt.Errorf("frozen report material decisions do not match expected impact set")
 	}
 	return nil

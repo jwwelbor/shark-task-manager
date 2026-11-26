@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"path/filepath"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
@@ -126,18 +125,9 @@ func readFrozenMaterialBlob(ctx context.Context, scope bugCandidateScope, path s
 	if err != nil {
 		return nil, err
 	}
-	cmd := gitutil.Command(ctx, "-C", root, "cat-file", "blob", oid)
-	out, err := cmd.StdoutPipe()
-	if err != nil {
+	var data bytes.Buffer
+	if err := streamMaterialBlob(ctx, root, oid, size, &data); err != nil {
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	data, readErr := io.ReadAll(io.LimitReader(out, size+1))
-	waitErr := cmd.Wait()
-	if readErr != nil || int64(len(data)) != size {
-		return nil, fmt.Errorf("blob size differs from frozen entry")
-	}
-	return data, waitErr
+	return data.Bytes(), nil
 }

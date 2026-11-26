@@ -77,7 +77,7 @@ func TestBugCandidateScopeTracksSourceChanges(t *testing.T) {
 	git("commit", "-m", "unaccepted predecessor")
 	laterBase := strings.TrimSpace(git("rev-parse", "HEAD"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("candidate\n"), 0600))
-	plan := []byte("DEC-1: spec.md and test-plan.md require the E01-F01 caller.py to preserve zero (AC-1) and positive quantities (AC-2).\n")
+	plan := []byte("DEC-1: spec.md and test-plan.md require the E01-F01 caller.py to preserve zero (AC-1) and positive quantities (AC-2).\nMATERIAL_DECISION_SOURCE: DEC-1\nMATERIAL_AFFECTS_ARTIFACT: spec.md\nMATERIAL_AFFECTS_ARTIFACT: test-plan.md\nMATERIAL_AFFECTS_CRITERION: E01-F01 caller.py AC-1\nMATERIAL_AFFECTS_CRITERION: E01-F01 caller.py AC-2\n")
 	commitTestBugPlan(t, root, "docs/plan/plan.md", plan)
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
@@ -240,7 +240,11 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	// must accept the same bounded review artifacts that the writer produces.
 	require.NoError(t, os.WriteFile(bodyPath, []byte(nativeResult.Report+"\n"+strings.Repeat("x", 2*1024*1024)), 0600))
 	reportPath := filepath.Join(root, ".shark", "report.md")
-	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "canonical-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--angle-results", anglePath, "--review-decisions", decisionPath)
+	_, _, baseExpected, baseGot := completeMaterialPackets(t, root, captured, plan)
+	materialRefs := materialRefsFor(t, root, "base-", baseExpected, baseGot)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "base-expected.json"), baseExpected, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "base-dispositions.json"), baseGot, 0600))
+	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--material-impacts", filepath.Join(root, ".shark", "base-expected.json"), "--material-dispositions", filepath.Join(root, ".shark", "base-dispositions.json"), "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", reportPath, "--runner-mode", "canonical-six-angle", "--specialists-completed", "6", "--consolidator-completed", "true", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--angle-results", anglePath, "--review-decisions", decisionPath)
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	reportBytes, err := os.ReadFile(reportPath)
@@ -284,7 +288,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(tc.content), 0600))
 		hash := sha256.Sum256([]byte(tc.content))
 		ref := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, path, hash)
-		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", tc.name), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef)}, nil)
+		err := verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", tc.name), EnvelopeJSON: envelope(scopeRef + "," + ref + "," + anglesRef + "," + decisionRef + "," + materialRefs)}, nil)
 		if tc.valid {
 			require.NoError(t, err)
 		} else {
@@ -318,7 +322,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliDecisionPath := filepath.Join(root, ".shark", "cli-decisions.json")
 	require.NoError(t, os.WriteFile(cliDecisionPath, cliDecisionBytes, 0600))
 	cliReportPath := filepath.Join(root, ".shark", "cli-report.md")
-	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", cliDecisionPath)
+	cmd = exec.Command("python3", filepath.Join(scripts, "adaptive_review.py"), "write-report", "--material-impacts", filepath.Join(root, ".shark", "base-expected.json"), "--material-dispositions", filepath.Join(root, ".shark", "base-dispositions.json"), "--project-root", snapshot, "--source-root", root, "--body-file", bodyPath, "--review-output-path", cliReportPath, "--runner-mode", "adversarial-cli", "--specialists-completed", "0", "--consolidator-completed", "true", "--adversarial-model", "codex", "--fallback-reason", "native and dispatched review unavailable", "--base-commit", base, "--diff-path", rawScope["diff_path"].(string), "--verdict", "PASS", "--scope-file", filepath.Join(root, ".shark", "scope.json"), "--review-decisions", cliDecisionPath)
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	cliReport, err := os.ReadFile(cliReportPath)
@@ -332,7 +336,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliDecisionBytes, err = os.ReadFile(cliReportPath + ".decisions.json")
 	require.NoError(t, err)
 	cliDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/cli-report.md.decisions.json","summary":"sha256:%x"}`, sha256.Sum256(cliDecisionBytes))
-	require.NoError(t, verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + cliDecisionRef)}, nil))
+	require.NoError(t, verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + cliDecisionRef + "," + materialRefs)}, nil))
 	t.Run("cli_declaration_omits_predecessor_file", func(t *testing.T) {
 		cliPacket["reviewed_files"] = []string{"docs/plan/plan.md", "change.txt"}
 		partial, err := json.Marshal(cliPacket)
@@ -407,7 +411,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		return e
 	}
 	t.Run("report_only_observations", func(t *testing.T) {
-		testReportOnlyObservations(t, root, captured, string(reportBytes), angleBytes, planRef+","+scopeRef, notes, history)
+		testReportOnlyObservations(t, root, captured, string(reportBytes), angleBytes, planRef+","+scopeRef+","+materialRefs, notes, history)
 	})
 	t.Run("material_dispositions", func(t *testing.T) {
 		testMaterialDispositionAdmission(t, root, captured, plan, string(reportBytes), planRef+","+scopeRef, anglesRef+","+decisionRef, notes, history)
@@ -420,13 +424,13 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("candidate\n"), 0600))
 	require.Error(t, ingest("missing-report", "code_review", "qa", envelope(planRef+","+scopeRef)))
 	require.Error(t, ingest("missing-angles", "code_review", "qa", envelope(planRef+","+scopeRef+","+reportRef)))
-	require.NoError(t, ingest("reviewed", "code_review", "qa", envelope(planRef+","+scopeRef+","+reportRef+","+anglesRef+","+decisionRef)))
+	require.NoError(t, ingest("reviewed", "code_review", "qa", envelope(planRef+","+scopeRef+","+reportRef+","+anglesRef+","+decisionRef+","+materialRefs)))
 	// A transition into QA is not sufficient without its completed review receipt.
 	require.Error(t, ingest("missing-review-receipt", "qa", "resolved", envelope(planRef+","+scopeRef)))
 	require.Equal(t, "qa", status.status["B001"])
 	reviewMeta := written.notes[0].metadata
 	notes.items = append(notes.items, &models.EntityNote{ID: 2, Metadata: &reviewMeta})
-	reviewDigest, err := gaterun.ComputeOperationDigest("B001", "bug", "code_review", "code_review", envelope(planRef+","+scopeRef+","+reportRef+","+anglesRef+","+decisionRef))
+	reviewDigest, err := gaterun.ComputeOperationDigest("B001", "bug", "code_review", "code_review", envelope(planRef+","+scopeRef+","+reportRef+","+anglesRef+","+decisionRef+","+materialRefs))
 	require.NoError(t, err)
 	reviewFrom, reviewReason := "code_review", gatepersist.BoundTransitionReason("code_review", "pass", "reviewed", reviewDigest)
 	history.items = append(history.items, &models.EntityHistory{ID: 2, FromStatus: &reviewFrom, ToStatus: "reviewed", Notes: &reviewReason})
@@ -449,7 +453,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	unapprovedObservation := `{"kind":"bug_parent_triage_observation","pointer":".shark/runs/reviewed/parent-triage-observation.json","summary":"sha256:` + strings.Repeat("a", 64) + `"}`
 	require.ErrorContains(t, ingest("unapproved-qa-observation", "qa", "resolved", envelope(planRef+","+scopeRef+","+unapprovedObservation)), "bug_parent_triage_observation")
 	require.Equal(t, "qa", status.status["B001"])
-	require.NoError(t, ingest("valid-qa", "qa", "resolved", envelope(planRef+","+scopeRef)))
+	require.NoError(t, ingest("valid-qa", "qa", "resolved", envelope(planRef+","+scopeRef+","+materialRefs)))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("changed after review\n"), 0600))
 	require.Error(t, verifyBugCandidate(context.Background(), root, scope))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "change.txt"), []byte("candidate\n"), 0600))

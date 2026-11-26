@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -35,7 +36,8 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 	git("commit", "--allow-empty", "-m", "baseline")
 	baseline := git("rev-parse", "HEAD")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "docs"), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "docs", "decision.md"), []byte("decision"), 0o600))
+	decisionSource := []byte("MATERIAL_DECISION_SOURCE: DEC-1\nMATERIAL_AFFECTS_ARTIFACT: docs/spec.md\nMATERIAL_AFFECTS_ARTIFACT: docs/test-plan.md\nMATERIAL_AFFECTS_CRITERION: E01-F01 internal/handler.go AC-1\nMATERIAL_AFFECTS_CRITERION: E01-F01 internal/handler.go AC-2\n")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "docs", "decision.md"), decisionSource, 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "docs", "spec.md"), []byte("the replacement rule\n"), 0o600))
 	git("add", "docs/decision.md", "docs/spec.md")
 	git("commit", "-m", "decision")
@@ -47,7 +49,7 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 	expected := bugReviewMaterialImpacts{
 		CandidateIdentity: identity,
 		Decisions: []bugReviewMaterialDecision{{
-			DecisionID: "DEC-1", SourcePointer: "docs/decision.md", SourceSHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("decision"))),
+			DecisionID: "DEC-1", SourcePointer: "docs/decision.md", SourceSHA256: fmt.Sprintf("%x", sha256.Sum256(decisionSource)),
 			AffectedArtifacts: []bugReviewMaterialArtifact{{Path: "docs/spec.md", InvalidatedText: "old rule"}, {Path: "docs/test-plan.md", InvalidatedText: "old assertion"}},
 			AffectedCriteria:  []bugReviewMaterialCriterion{{EntityKey: "E01-F01", ProductionCallerPath: "internal/handler.go", AcceptanceCriterionID: "AC-1", Assertion: "replacement works"}, {EntityKey: "E01-F01", ProductionCallerPath: "internal/handler.go", AcceptanceCriterionID: "AC-2", Assertion: "old behavior is rejected"}},
 		}},
@@ -135,6 +137,41 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 		req := gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"test"}}`)}
 		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), req, bugCandidateScope{}, "", "MATERIAL_DECISION: DEC-1"), "requires both")
 	})
+	t.Run("expected set is enumerated from the frozen source, not the submitted lists", func(t *testing.T) {
+		both := func(exp bugReviewMaterialImpacts, got bugReviewMaterialDispositions) error {
+			req, scope, header, body := makeReq(exp, got)
+			return validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body)
+		}
+		// Remove the controlling decision from both submitted lists and its marker.
+		req, scope, header, _ := makeReq(expected, dispositions)
+		emptyExp, emptyGot := expected, dispositions
+		emptyExp.Decisions, emptyGot.Decisions = nil, nil
+		_ = req
+		require.ErrorContains(t, both(emptyExp, emptyGot), "material decision disposition set is incomplete")
+		// With neither sidecar nor marker the frozen source still binds the review.
+		bare := gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"test"}}`)}
+		require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), bare, scope, "", "no markers here"), "frozen source declares material decisions")
+		// Dropping just the report marker cannot hide the decision, nor is it needed.
+		req, scope, header, _ = makeReq(expected, dispositions)
+		require.NoError(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, "no markers here"))
+		// A member removed from the expected packet and from the dispositions is still owed.
+		fewerExp := expected
+		fewerExp.Decisions = append([]bugReviewMaterialDecision(nil), expected.Decisions...)
+		fewerExp.Decisions[0].AffectedCriteria = expected.Decisions[0].AffectedCriteria[:1]
+		fewerGot := dispositions
+		fewerGot.Decisions = append([]bugReviewMaterialDisposition(nil), dispositions.Decisions...)
+		fewerGot.Decisions[0].Criteria = dispositions.Decisions[0].Criteria[:1]
+		require.ErrorContains(t, both(fewerExp, fewerGot), "frozen source declares criterion E01-F01 internal/handler.go AC-2 that the expected impacts omit")
+		// An invented decision is not in the frozen source.
+		extra := expected
+		extra.Decisions = append(append([]bugReviewMaterialDecision(nil), expected.Decisions...), expected.Decisions[0])
+		extra.Decisions[1].DecisionID = "DEC-2"
+		extraGot := dispositions
+		extraGot.Decisions = append(append([]bugReviewMaterialDisposition(nil), dispositions.Decisions...), dispositions.Decisions[0])
+		extraGot.Decisions[1].DecisionID = "DEC-2"
+		require.ErrorContains(t, both(extra, extraGot), "no frozen source declares")
+		_ = header
+	})
 	t.Run("decision source is bound to the frozen tree", func(t *testing.T) {
 		bad := expected
 		bad.Decisions = append([]bugReviewMaterialDecision(nil), expected.Decisions...)
@@ -221,17 +258,7 @@ func testMaterialDispositionAdmission(t *testing.T, root string, scope bugCandid
 	envelope := func(refs string) []byte {
 		return []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"checked review"}}`, refs))
 	}
-	decision := bugReviewMaterialDecision{
-		DecisionID: "DEC-1", SourcePointer: "docs/plan/plan.md", SourceSHA256: fmt.Sprintf("%x", sha256.Sum256(plan)),
-		AffectedArtifacts: []bugReviewMaterialArtifact{
-			{Path: "spec.md", InvalidatedText: "old rule"},
-			{Path: "test-plan.md", InvalidatedText: "old assertion"},
-		},
-		AffectedCriteria: []bugReviewMaterialCriterion{
-			{EntityKey: "E01-F01", ProductionCallerPath: "caller.py", AcceptanceCriterionID: "AC-1", Assertion: "zero returns zero"},
-			{EntityKey: "E01-F01", ProductionCallerPath: "caller.py", AcceptanceCriterionID: "AC-2", Assertion: "three returns three"},
-		},
-	}
+	decision := fixtureMaterialDecision(plan)
 	recordMaterialCriterionRuns(t, root, scope, decision)
 	expected := mustJSON(t, bugReviewMaterialImpacts{CandidateIdentity: identity, Decisions: []bugReviewMaterialDecision{decision}})
 	expectedRef := writer("expected.json", "bug_review_material_impacts", expected)
@@ -259,8 +286,14 @@ func testMaterialDispositionAdmission(t *testing.T, root string, scope bugCandid
 		}
 		got := mustJSON(t, bugReviewMaterialDispositions{CandidateIdentity: identity, Decisions: []bugReviewMaterialDisposition{disposition}})
 		dispositionRef := writer(trial.name+".json", "bug_review_material_dispositions", got)
-		headers := fmt.Sprintf("\n**Expected material impacts SHA-256:** `%x`\n**Material dispositions SHA-256:** `%x`\n", sha256.Sum256(expected), sha256.Sum256(got))
-		bound := strings.Replace(report, "\n---\n", headers+"\n---\n", 1) + "\nMATERIAL_DECISION: DEC-1\n"
+		hashes := []string{fmt.Sprintf("%x", sha256.Sum256(expected)), fmt.Sprintf("%x", sha256.Sum256(got))}
+		replaced := 0
+		bound := materialHeaderHashes.ReplaceAllStringFunc(report, func(match string) string {
+			sub := materialHeaderHashes.FindStringSubmatch(match)
+			replaced++
+			return sub[1] + hashes[replaced-1] + sub[2]
+		}) + "\nMATERIAL_DECISION: DEC-1\n"
+		require.Equal(t, 2, replaced)
 		reportRef := writer(trial.name+".md", "bug_review_report", []byte(bound))
 		shared := strings.Join([]string{scopeRefs, expectedRef, dispositionRef}, ",")
 		prior := envelope(shared + "," + reportRef + "," + reviewRefs)
@@ -327,6 +360,56 @@ func testMaterialDispositionAdmission(t *testing.T, root string, scope bugCandid
 		}
 	}
 }
+
+// completeMaterialPackets builds the writer inputs for the fixture's DEC-1: the
+// expected obligations declared by the frozen plan and a fully supported
+// disposition for each of them.
+func completeMaterialPackets(t *testing.T, root string, scope bugCandidateScope, plan []byte) (bugReviewMaterialDecision, bugReviewIdentity, []byte, []byte) {
+	t.Helper()
+	identity := bugReviewIdentity{Commit: scope.CandidateCommit, Tree: scope.CandidateTree, Diff: scope.DiffSHA256, Plan: scope.RepairPlanSHA256}
+	decision := fixtureMaterialDecision(plan)
+	recordMaterialCriterionRuns(t, root, scope, decision)
+	disposition := bugReviewMaterialDisposition{DecisionID: decision.DecisionID}
+	for _, a := range decision.AffectedArtifacts {
+		disposition.Artifacts = append(disposition.Artifacts, bugReviewArtifactDisposition{Path: a.Path, Disposition: "amended", EvidencePointer: a.Path})
+	}
+	for _, c := range decision.AffectedCriteria {
+		disposition.Criteria = append(disposition.Criteria, bugReviewCriterionDisposition{
+			EntityKey: c.EntityKey, ProductionCallerPath: c.ProductionCallerPath, AcceptanceCriterionID: c.AcceptanceCriterionID,
+			Disposition: "regression_pass", EvidencePointer: ".shark/criteria.json",
+		})
+	}
+	expected := mustJSON(t, bugReviewMaterialImpacts{CandidateIdentity: identity, Decisions: []bugReviewMaterialDecision{decision}})
+	got := mustJSON(t, bugReviewMaterialDispositions{CandidateIdentity: identity, Decisions: []bugReviewMaterialDisposition{disposition}})
+	return decision, identity, expected, got
+}
+
+func fixtureMaterialDecision(plan []byte) bugReviewMaterialDecision {
+	return bugReviewMaterialDecision{
+		DecisionID: "DEC-1", SourcePointer: "docs/plan/plan.md", SourceSHA256: fmt.Sprintf("%x", sha256.Sum256(plan)),
+		AffectedArtifacts: []bugReviewMaterialArtifact{
+			{Path: "spec.md", InvalidatedText: "old rule"},
+			{Path: "test-plan.md", InvalidatedText: "old assertion"},
+		},
+		AffectedCriteria: []bugReviewMaterialCriterion{
+			{EntityKey: "E01-F01", ProductionCallerPath: "caller.py", AcceptanceCriterionID: "AC-1", Assertion: "zero returns zero"},
+			{EntityKey: "E01-F01", ProductionCallerPath: "caller.py", AcceptanceCriterionID: "AC-2", Assertion: "three returns three"},
+		},
+	}
+}
+
+// materialRefsFor retains the packets under .shark and returns their envelope references.
+func materialRefsFor(t *testing.T, root, prefix string, expected, got []byte) string {
+	t.Helper()
+	ref := func(kind, name string, data []byte) string {
+		path := ".shark/" + prefix + name
+		require.NoError(t, os.WriteFile(filepath.Join(root, path), data, 0600))
+		return fmt.Sprintf(`{"kind":%q,"pointer":%q,"summary":"sha256:%x"}`, kind, path, sha256.Sum256(data))
+	}
+	return ref("bug_review_material_impacts", "expected.json", expected) + "," + ref("bug_review_material_dispositions", "dispositions.json", got)
+}
+
+var materialHeaderHashes = regexp.MustCompile("(\\*\\*(?:Expected material impacts|Material dispositions) SHA-256:\\*\\* `)[0-9a-f]{64}(`)")
 
 func materialReviewHashes(t *testing.T, root, run, trial string) map[string][sha256.Size]byte {
 	t.Helper()
