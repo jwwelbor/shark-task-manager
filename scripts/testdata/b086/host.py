@@ -1,13 +1,11 @@
 """Launch a real Codex host against one isolated B086 grant case."""
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
-import uuid
 
 from prepare import digest
 
@@ -124,6 +122,13 @@ def run(case, codex):
     with trace.open('w', encoding='utf-8') as stream:
         stream.write(json.dumps({'type': 'b086_host_run', 'run_id': record['run_id'],
                                  'runtime': record['runtime'], 'model': record['model']}) + '\n')
+        invocation = {
+            'type': 'b086_host_input', 'run_id': record['run_id'], 'prompt': command[-1],
+            'runner_source_sha256': digest(Path(__file__)),
+            'grant_sha256': digest(case / 'grant.json'),
+            'seed_database_sha256': digest(case / 'project/shark-tasks.db'),
+        }
+        stream.write(json.dumps(invocation) + '\n')
         stream.flush()
         result = subprocess.run(command, cwd=record['project'], env=environment,
                                 stdout=stream, stderr=subprocess.PIPE, text=True)

@@ -63,6 +63,8 @@ def seed_project(source, staging, binary_digest):
 
 
 def prepare(root, finish, retained=None, synthetic=False):
+    from host import prompt
+
     root = root.resolve(strict=True)
     checkout = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=root, capture_output=True)
     if not root.is_relative_to(Path('/tmp').resolve()) or any(root.iterdir()) or checkout.returncode == 0:
@@ -125,7 +127,11 @@ def prepare(root, finish, retained=None, synthetic=False):
                 for name, data in packet_files.items():
                     (case / 'packet' / name).write_bytes(data)
             store = (case / 'project/shark-tasks.db').stat()
-            bindings[case_name] = {'run_id': str(uuid.uuid4()), 'db_inode': [store.st_dev, store.st_ino]}
+            bindings[case_name] = {
+                'run_id': str(uuid.uuid4()), 'db_inode': [store.st_dev, store.st_ino],
+                'prompt_sha256': hashlib.sha256(prompt(case).encode()).hexdigest(),
+                'grant_sha256': digest(case / 'grant.json'),
+            }
             cases.append(case_name)
         files = {'project/shark': digest(seed / 'shark'),
                  'libexec/shark': binary_digest,

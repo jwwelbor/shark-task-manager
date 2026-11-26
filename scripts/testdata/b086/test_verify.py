@@ -7,6 +7,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import host
 
 from observe import CONSOLIDATOR, REVIEW, TRIAGE, WORKFLOW
 from test_packet import write_test_packet
@@ -45,11 +48,83 @@ class Verify(unittest.TestCase):
                 'packet': {'replay_candidate': common['candidate']},
                 'seed_database_sha256': common['seed_database_sha256'],
             }
+            # Keep the historical operator summary consistent throughout. Only
+            # the invocation that actually received the instructions changes.
+            manifest['fixture_files'] = {'host.py': common['runner_source_sha256']}
+            manifest['bindings'] = {}
+            for name in ('grant-a', 'grant-b'):
+                case = root / name
+                prompt = f'Read {case}/grant.json and handle the finding.'
+                manifest['bindings'][name] = {
+                    'run_id': name, 'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
+                    'grant_sha256': hashlib.sha256((case / 'grant.json').read_bytes()).hexdigest()}
+                trace = case / 'observations/host.jsonl'
+                trace.parent.mkdir()
+                header = {'type': 'b086_host_run', 'run_id': name, 'model': 'fixture',
+                          'runtime': 'codex-cli'}
+                invocation = {'type': 'b086_host_input', 'run_id': name, 'prompt': prompt,
+                              'runner_source_sha256': common['runner_source_sha256'],
+                              'seed_database_sha256': common['seed_database_sha256'],
+                              'grant_sha256': hashlib.sha256((case / 'grant.json').read_bytes()).hexdigest()}
+                trace.write_text(json.dumps(header) + '\n' + json.dumps(invocation) + '\n')
             self.assertEqual(paired_host_input(root, manifest), [])
-            pair['cases']['grant-b']['normalized_prompt_sha256'] = 'f' * 64
-            (root / 'host-pair.json').write_text(json.dumps(pair))
-            self.assertIn('matched host instructions and frozen input receipt',
+            for name in ('grant-a', 'grant-b'):
+                trace = root / name / 'observations/host.jsonl'
+                original = trace.read_bytes()
+                header, observed = map(json.loads, original.splitlines())
+                for key, wrong in [('prompt', observed['prompt'] + ' Always defer.'),
+                                   ('run_id', 'another-host'),
+                                   ('grant_sha256', '0' * 64),
+                                   ('runner_source_sha256', '1' * 64),
+                                   ('seed_database_sha256', '2' * 64)]:
+                    with self.subTest(case=name, field=key):
+                        trace.write_text(json.dumps(header) + '\n' +
+                                         json.dumps(dict(observed, **{key: wrong})) + '\n')
+                        self.assertTrue(paired_host_input(root, manifest),
+                                        'summary concealed different inputs at host dispatch')
+                trace.write_text(json.dumps(header) + '\n')
+                self.assertTrue(paired_host_input(root, manifest))
+                trace.write_bytes(original)
+
+            # Independently pinned but unequal instructions still invalidate the comparison.
+            trace = root / 'grant-b/observations/host.jsonl'
+            header, observed = map(json.loads, trace.read_bytes().splitlines())
+            changed = observed['prompt'] + ' Always defer.'
+            manifest['bindings']['grant-b']['prompt_sha256'] = hashlib.sha256(changed.encode()).hexdigest()
+            trace.write_text(json.dumps(header) + '\n' +
+                             json.dumps(dict(observed, prompt=changed)) + '\n')
+            self.assertIn('matched host instructions across both invocations',
                           paired_host_input(root, manifest))
+
+    def test_launcher_records_the_exact_invocation_before_starting_the_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            case = root / 'grant-a'
+            project = case / 'project'
+            project.mkdir(parents=True)
+            observations = case / 'observations'
+            observations.mkdir()
+            trace = observations / 'host.jsonl'
+            (case / 'grant.json').write_text('{"create_task_under": "E01-F01"}')
+            (project / 'shark-tasks.db').write_bytes(b'untouched seed')
+            setup = {'home': str(case), 'project': str(project), 'trace': str(trace),
+                     'run_id': 'host-a', 'runtime': 'codex-cli', 'model': 'fixture'}
+
+            def capture(command, **kwargs):
+                events = [json.loads(line) for line in trace.read_bytes().splitlines()]
+                self.assertEqual([event['type'] for event in events],
+                                 ['b086_host_run', 'b086_host_input'])
+                observed = events[1]
+                self.assertEqual(observed['prompt'], command[-1])
+                self.assertEqual(observed['run_id'], setup['run_id'])
+                self.assertEqual(observed['runner_source_sha256'], host.digest(HERE / 'host.py'))
+                self.assertEqual(observed['seed_database_sha256'], host.digest(project / 'shark-tasks.db'))
+                self.assertEqual(observed['grant_sha256'], host.digest(case / 'grant.json'))
+                return subprocess.CompletedProcess(command, 0, stderr='')
+
+            with patch.object(host, 'setup', return_value=setup), patch.object(
+                    host.subprocess, 'run', side_effect=capture):
+                self.assertEqual(host.run(case, 'fixture-runtime'), 0)
 
     def test_native_host_receipt_is_bound_to_private_skills_and_forbids_nested_provider(self):
         with tempfile.TemporaryDirectory() as temp:

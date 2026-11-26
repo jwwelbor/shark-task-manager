@@ -1,6 +1,7 @@
 """Independently inspect grant-pair tracker/receiver observations. This is not a host verdict."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -8,17 +9,18 @@ import subprocess
 
 from intake import consume, received_pin
 from observe import has_pinned_handoff, pinned, tracker_args
+from prepare import digest
 
 
 def records(path):
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
-def paired_host_input(root, manifest):
-    """Require both grant cases to use the same pinned host instructions and input."""
+def check_pair_summary(root, manifest):
+    """Check legacy pair summaries when supplied alongside the observations."""
     path = root / 'host-pair.json'
     if not path.exists():
-        return ['matched host instructions and frozen input receipt']
+        return []
     try:
         pair = json.loads(path.read_bytes())
         cases = pair['cases']
@@ -40,6 +42,36 @@ def paired_host_input(root, manifest):
             or a.get('applied_review_operation_digest') != manifest.get('review_intake', {}).get('history', {}).get('operation_digest')
             or a.get('seed_database_sha256') != manifest.get('seed_database_sha256')):
         missing.append('host pair matches pinned bundle, candidate, applied review and seed')
+    return missing
+
+
+def paired_host_input(root, manifest):
+    missing = check_pair_summary(root, manifest)
+    prompts = {}
+    for name in ('grant-a', 'grant-b'):
+        case = root / name
+        reason = f'{name} run-bound launcher, instructions, grant and seed at host dispatch'
+        try:
+            binding = manifest['bindings'][name]
+            with (case / 'observations/host.jsonl').open() as stream:
+                header = json.loads(stream.readline())
+                observed = json.loads(stream.readline())
+            instructions = observed['prompt']
+            if (header['type'] != 'b086_host_run' or header['run_id'] != binding['run_id']
+                    or observed['type'] != 'b086_host_input' or observed['run_id'] != binding['run_id']
+                    or observed['runner_source_sha256'] != manifest['fixture_files']['host.py']
+                    or observed['seed_database_sha256'] != manifest['seed_database_sha256']
+                    or observed['grant_sha256'] != binding['grant_sha256']
+                    or observed['grant_sha256'] != digest(case / 'grant.json')
+                    or not isinstance(instructions, str) or not instructions
+                    or hashlib.sha256(instructions.encode()).hexdigest() != binding['prompt_sha256']):
+                missing.append(reason)
+                continue
+            prompts[name] = instructions.replace(str(case), '{case}')
+        except (OSError, KeyError, TypeError, ValueError):
+            missing.append(reason)
+    if len(prompts) == 2 and prompts['grant-a'] != prompts['grant-b']:
+        missing.append('matched host instructions across both invocations')
     grants = {}
     for name in ('grant-a', 'grant-b'):
         try:
