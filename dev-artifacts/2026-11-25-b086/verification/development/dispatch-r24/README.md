@@ -21,3 +21,15 @@ A new synthetic `adversarial` variant produces a complete adversarial-cli PASS-w
 - policy-allow d03ed43b-384a-4ffa-b331-cdc6029815c9: owner read back, exactly one CI handoff, zero writes.
 - policy-require bed67f2d-e0e4-461a-b18e-095aac488d44: finding reconciled, zero CI, parent received the policy stop with the original `adversarial-cli` label preserved.
 The manual-diagnostic half cannot be staged as a candidate packet: `adaptive_review.py write-report --runner-mode manual-diagnostic` forces verdict INCOMPLETE and exits 2 (observed during generation), so a valid PASS-with-triage manual-diagnostic packet does not exist to deliver; the stop is enforced by the writer rather than by the host.
+
+## Review effort at delivery entry (row 22, no-Fix half)
+
+The host applies finish-feature Phase 1 to candidate size and risk facts; the `review` endpoint records only the deep-review entry argument. Verifier observed: effort-small eae04ee9-51e4-457e-9632-65c5d6eaeade chose high (24 lines, no risk boundary); effort-large 97225e5b-d5d3-4ec4-9f54-2eaacde6d122 chose max (size only); effort-risk aaed1af2-f67b-49e8-a9b4-52c33783f246 chose max (small, authentication boundary). The post-Fix rebinding half is not run.
+
+## Runner boundaries (rows 10, 13, 17, 23)
+
+No model host is involved at these boundaries; `runner-boundary-tests.log` shows 27 existing tests passing: native effort on all seven agent calls and inheritance when omitted, one malformed angle giving INCOMPLETE with five valid results and zero consolidator calls, and the `run-cli` stub trace for both host directions (valid, nonzero first CLI, stale candidate first CLI, both stale -> persisted INCOMPLETE). These are retained as boundary evidence, not host replays.
+
+## Not done
+
+Mandatory (fix-now) halves of rows 7/11/12; row 11 edit-authority removal; rows 18 and the post-Fix effort rebinding; row 19 dispatched-runner invalid angle with zero rescue CLI and the dispatched half of row 10 (needs an agent-dispatch stub host); manual-diagnostic delivery (writer-enforced, see above); multi-finding receipt preservation across the lost-response batch; candidate-bound fresh review and QA; final full fixture-suite rerun (ENOSPC). The Go quality gate was not rerun: no Go code changed.
