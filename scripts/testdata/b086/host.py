@@ -138,6 +138,15 @@ Delivery: after reconciling the finding, apply the finish-feature Phase 1 gate. 
 `ci` recorder endpoint records a CI handoff and is the next eligible gate only when
 that gate admits delivery; call it at most once, and only then. `merge` and `review`
 stay disabled. Context: `{case}/delivery.json`."""
+    if (case / 'receipt.json').exists():
+        text += f"""
+
+Delivery gate for an already-recorded disposition: `{case}/receipt.json` is the
+receipt an earlier host run left for this finding. You are only the delivery gate.
+Do not author, amend or re-record a disposition, and do not create or edit tracker
+items. Check the receipt against the tracker by reading it back, then decide whether
+the finding is reconciled. If it is not, send the parent the finding's pending state
+instead of calling `ci`."""
     if (case / 'workspace.json').exists():
         text += f"""
 

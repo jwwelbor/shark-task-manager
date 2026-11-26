@@ -11,7 +11,7 @@ import subprocess
 
 from intake import consume, received_pin
 from observe import has_pinned_handoff, pinned, tracker_args
-from prepare import EDIT_KINDS, EXPECT_DEFER, EXPECT_FIX, digest, snapshot
+from prepare import EDIT_KINDS, RECEIPT_KINDS, EXPECT_DEFER, EXPECT_FIX, digest, snapshot
 
 
 def records(path):
@@ -487,6 +487,39 @@ def workspace_checks(case, binding, scenario, entries, results, events, inbox, r
     return missing
 
 
+def receipt_checks(case, binding, scenario, entries, events, inbox, receipts, children, writes, fingerprint,
+                   project):
+    """The delivery gate reads the tracker, writes nothing, and calls CI only for a reconciled receipt."""
+    missing = []
+    receipt = json.loads((case / 'receipt.json').read_bytes())
+    if writes or receipts or any(e['tool'] == 'edit' for e in entries):
+        missing.append('delivery gate makes zero tracker writes, dispositions and edits')
+    seeded = 0 if scenario == 'receipt-note-only' else 1
+    if len(children) != seeded:
+        missing.append('tracker children unchanged from the seeded receipt')
+    ci = [e for e in events if e['event'] == 'result' and e['tool'] == 'ci' and e.get('outcome') == 'recorded']
+    reads = [e for e in events if e['event'] == 'result' and e['tool'] == 'shark' and e.get('exit_code') == 0
+             and fingerprint in e.get('stdout', '') and (not seeded or children[0]['key'] in e.get('stdout', ''))]
+    if not reads:
+        missing.append('independent tracker readback of the receipt owner')
+    if scenario == 'receipt-ship':
+        if len(ci) != 1 or not reads or events.index(reads[0]) > events.index(ci[0]):
+            missing.append('exactly one CI handoff, after the owner readback')
+        if inbox:
+            missing.append('no pending escalation for a reconciled receipt')
+    else:
+        if ci:
+            missing.append('zero CI handoffs for an unreconciled receipt')
+        word = 'reason' if scenario == 'receipt-no-reason' else 'note'
+        if not any(isinstance(r['message'], dict) and r['message'].get('fingerprint') == fingerprint
+                   and word in json.dumps(r['message']).lower()
+                   and any(e.get('invocation') == r['invocation'] and e.get('outcome') == 'received'
+                           for e in events if e['event'] == 'result')
+                   for r in inbox):
+            missing.append(f'received pending finding naming the missing {word}')
+    return missing
+
+
 def inspect_case(case, manifest, fingerprint):
     binding = manifest['bindings'][case.name]
     run_id = binding['run_id']
@@ -591,6 +624,9 @@ def inspect_case(case, manifest, fingerprint):
             missing.append('host readback and Defer receipt')
     elif scenario in EXPECT_FIX | {'repeat-same'}:
         pass
+    elif scenario in RECEIPT_KINDS:
+        missing.extend(receipt_checks(case, binding, scenario, entries, events, inbox, receipts, children, writes,
+                                      fingerprint, project))
     elif case.name == 'case-c' or scenario in ('wrong-db', 'delivery-refused'):
         refusal = binding.get('create_refusal')
         if scenario == 'wrong-db':
@@ -633,7 +669,7 @@ def inspect_case(case, manifest, fingerprint):
         if scenario == 'delivery-defer':
             if not (len(handoffs) == 1 and admitted and handoffs[0] > order.index(('result', 'disposition', 'received'))):
                 missing.append('exactly one CI handoff, after the verified Defer receipt')
-        elif ci:
+        elif ci and scenario != 'receipt-ship':
             missing.append('zero CI handoffs while the finding is unresolved')
     return {'run_id': run_id, 'scope': 'tracker and parent observations only', 'children': children,
             'status': 'incomplete' if missing else 'observed', 'missing': missing}

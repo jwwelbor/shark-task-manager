@@ -81,7 +81,8 @@ def seed_project(source, staging, binary_digest):
 EXPECT_FIX = {'fix', 'time-ok', 'repeat-other'}
 EXPECT_DEFER = {'budget-dispatch', 'budget-project', 'budget-consumed', 'time-short'}
 EDIT_KINDS = EXPECT_FIX | EXPECT_DEFER | {'repeat-same'}
-SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS
+RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'}
+SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS
 FILE = 'docs/feature-a.md'
 FINGERPRINT = FILE + '#DOCS#worked-example'
 
@@ -115,6 +116,32 @@ def rejection_history(kind):
             'repair_attempt': ('Added an example paragraph to docs/feature-a.md; the reviewer rejected the same finding again'
                                if same else f'Fixed legend wording {number}; the reviewer accepted the repair')})
     return {'repeat_rejection_limit': 2, 'rejected_rounds': rounds}
+
+
+REASON = ('Feature A already documents the required command and default, so accepted behavior '
+          'remains satisfied; a second worked example can wait.')
+
+
+def stage_receipt(case, kind, review_project):
+    """Seed the tracker with an earlier host's outcome and write the receipt the delivery gate must judge."""
+    shark = [case / 'libexec/shark']
+    tail = ['--json', '--db', str(case / 'project/shark-tasks.db'), '--config', str(case / 'project/.sharkconfig.json')]
+    scope = 'Add a worked example under Feature A in docs/feature-a.md showing the alphabetical default order.'
+    receipt = {'recorded_by': 'an earlier host run of this handoff', 'fingerprint': FINGERPRINT, 'decision': 'Defer',
+               'project': review_project, 'tracker_project': str(case / 'project'), 'reason': REASON}
+    if kind == 'receipt-note-only':
+        output(shark + ['create', 'note', 'E01-F01', f'Deferred review finding {FINGERPRINT}: {REASON}', *tail],
+               case / 'project')
+        receipt.update(owner={'type': 'feature-note', 'key': 'E01-F01'})
+    else:
+        created = json.loads(output(shark + ['create', 'task', 'E01-F01', 'Add a worked example under Feature A',
+                                             '--description', f'{scope} Fingerprint: {FINGERPRINT}', *tail],
+                                    case / 'project'))
+        receipt.update(key=created['key'], type='task', parent='E01-F01', scope=scope)
+        if kind == 'receipt-no-reason':
+            del receipt['reason']
+    (case / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    return receipt
 
 
 def make_workspace(case, source):
@@ -220,7 +247,9 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                 if kind_now.startswith('repeat-'):
                     (case / 'rejections.json').write_text(json.dumps(rejection_history(kind_now), indent=2) + '\n')
             (case / 'grant.json').write_text(json.dumps(dispatch, indent=2) + '\n')
-            if extra.get(case_name, '').startswith('delivery-'):
+            if kind_now in RECEIPT_KINDS:
+                stage_receipt(case, kind_now, intake['history']['project'] if intake else None)
+            if extra.get(case_name, '').startswith('delivery-') or kind_now in RECEIPT_KINDS:
                 (case / 'delivery.json').write_text(json.dumps(
                     {'endpoints': {'ci': 'recording', 'merge': 'disabled', 'review': 'disabled'}}) + '\n')
             if intake:
@@ -242,6 +271,8 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                     outside = copy_store(case / 'project/shark-tasks.db', root / (case_name + '-outside/shark-tasks.db'))
                     bindings[case_name]['outside_store'] = outside
                     bindings[case_name]['inject_db'] = outside['path'] if kind == 'wrong-db' else 'case'
+                elif kind in RECEIPT_KINDS:
+                    bindings[case_name]['delivery_ci'] = True
                 elif kind.startswith('delivery-'):
                     bindings[case_name]['delivery_ci'] = True
                     if kind == 'delivery-refused':
