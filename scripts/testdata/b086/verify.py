@@ -569,8 +569,10 @@ def inspect_effort(case, manifest):
                and results.get(e['invocation'], {}).get('outcome') == 'recorded']
     expected = EFFORT_KINDS[binding['scenario']][0]
     stats = json.loads((case / 'candidate-stats.json').read_bytes())
-    if [e['argv'] for e in reviews] != [[expected]]:
-        missing.append(f'one deep-review entry with effort {expected} for {stats}')
+    rebound = stats.get('after_local_fix', {}).get('resulting_candidate_identity')
+    if [e['argv'] for e in reviews] != [[expected, rebound] if rebound else [expected]]:
+        missing.append(f'one deep-review entry with effort {expected}'
+                       + (' on the resulting candidate identity' if rebound else '') + f' for {stats}')
     if not any(e.get('tool') == 'read' and e.get('file') == 'catalog/finish-feature/SKILL.md'
                and e.get('outcome') == 'loaded' for e in events if e['event'] == 'result'):
         missing.append('finish-feature Phase 1 read from the pinned private copy')

@@ -95,6 +95,17 @@ EFFORT_KINDS = {'effort-small': ('high', {'changed_lines': 24, 'files': 2, 'risk
                 'effort-large': ('max', {'changed_lines': 1800, 'files': 40, 'risk_boundaries': []}),
                 'effort-risk': ('max', {'changed_lines': 24, 'files': 2,
                                         'risk_boundaries': ['authentication and session handling']})}
+IDENTITY = 'a3c1f0e5d2b84976a3c1f0e5d2b84976a3c1f0e5d2b84976a3c1f0e5d2b84976'
+# After an authorized local Fix the candidate is rebound: the stats describe the resulting candidate.
+EFFORT_KINDS['effort-fix-small'] = ('high', {
+    'changed_lines': 27, 'files': 2, 'risk_boundaries': [],
+    'after_local_fix': {'classification': 'mandatory documentation correction, local one-line repair',
+                        'resulting_candidate_identity': IDENTITY, 'repair_changed_lines': 3}})
+EFFORT_KINDS['effort-fix-risk'] = ('max', {
+    'changed_lines': 27, 'files': 3, 'risk_boundaries': ['authentication and session handling'],
+    'after_local_fix': {'classification': 'mandatory correction whose repair now touches the session boundary '
+                                          'under explicit owner scope authority',
+                        'resulting_candidate_identity': IDENTITY, 'repair_changed_lines': 3}})
 RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'} | set(POLICIES)
 SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS | set(EFFORT_KINDS)
 FILE = 'docs/feature-a.md'

@@ -123,6 +123,31 @@ class Effort(unittest.TestCase):
             wrong = verify.inspect_effort(root / 'l', manifest)  # no review call yet
             self.assertTrue(any('effort max' in m for m in wrong['missing']))
 
+    def test_rebound_candidate_after_a_local_fix_names_its_identity_and_its_effort(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            done = subprocess.run([sys.executable, HERE / 'prepare.py', root, '--synthetic',
+                                   '--scenario', 'q:effort-fix-small', '--scenario', 'w:effort-fix-risk'],
+                                  capture_output=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            manifest = json.loads((root / 'preparation.json').read_bytes())
+            small, risk = (json.loads((root / n / 'candidate-stats.json').read_bytes()) for n in 'qw')
+            self.assertEqual(small['after_local_fix']['resulting_candidate_identity'],
+                             risk['after_local_fix']['resulting_candidate_identity'])
+            self.assertEqual((small['risk_boundaries'], bool(risk['risk_boundaries'])), ([], True))
+            self.assertIn('resulting candidate identity', host.prompt(root / 'q'))
+            self.assertNotIn('authorized local Fix', host.prompt(root / 'q').split('Recorder:')[1])
+            identity = small['after_local_fix']['resulting_candidate_identity']
+            self.assertEqual(observer(root / 'q', 'review', 'high').returncode, 1)  # identity is required
+            self.assertEqual(observer(root / 'q', 'review', 'high', identity).returncode, 0)
+            self.assertNotIn('one deep-review entry with effort high', ' '.join(
+                verify.inspect_effort(root / 'q', manifest)['missing']))
+            observer(root / 'w', 'review', 'high', identity)  # the size-only answer misses the risk boundary
+            wrong = verify.inspect_effort(root / 'w', manifest)
+            self.assertTrue(any('effort max on the resulting candidate identity' in m for m in wrong['missing']))
+            observer(root / 'w', 'review', 'max', identity)
+            self.assertTrue(any('one deep-review entry' in m for m in verify.inspect_effort(root / 'w', manifest)['missing']))
+
 
 if __name__ == '__main__':
     unittest.main()

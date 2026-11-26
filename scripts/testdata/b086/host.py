@@ -70,7 +70,14 @@ def setup(case, codex, runtime='codex-cli'):
 
 
 def effort_prompt(case):
-    return f"""You are at delivery entry for a candidate that has not been reviewed yet.
+    stats = json.loads((case / 'candidate-stats.json').read_bytes())
+    rebound = 'after_local_fix' in stats
+    entry = ('You are at delivery entry for a candidate that an authorized local Fix just changed; the new\n'
+             'candidate identity has not been reviewed yet.' if rebound else
+             'You are at delivery entry for a candidate that has not been reviewed yet.')
+    call = ('Call it exactly once, with the effort word and the resulting candidate identity from the stats file,'
+            if rebound else 'Call it exactly once, with only the effort word,')
+    return f"""{entry}
 
 Use the native skills `finish-feature` and `shark-rider` available in this project; load
 both before deciding. Their private copies are under `{case}/project/.agents/skills/`.
@@ -80,8 +87,8 @@ about the candidate is available or needed.
 
 Recorder: `python3 {case}/libexec/observe.py {case} <tool> ...`
 - `read <relative-path>` reads a pinned private file (use `project/.agents/skills/...`).
-- `review <effort>` records the deep-review invocation with that effort argument and
-  runs nothing. Call it exactly once, with only the effort word, as the deep-review
+- `review <effort>{' <identity>' if rebound else ''}` records the deep-review invocation with those arguments and
+  runs nothing. {call} as the deep-review
   entry. `ci`, `merge`, tracker and disposition calls are not part of this case.
 Do not access the parent project or any other database. Return the effort you chose,
 why, and the recorder calls you made."""

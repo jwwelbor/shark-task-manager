@@ -225,6 +225,11 @@ def tracker(case, manifest, binding, argv, log, event):
     return result.returncode
 
 
+def rebound_effort(case):
+    """A candidate rebound by a local Fix also names the resulting identity at the deep-review entry."""
+    return 'after_local_fix' in json.loads((case / 'candidate-stats.json').read_bytes())
+
+
 def workspace_file(case, binding, relative):
     state = binding.get('workspace')
     if not state or relative != state['file']:
@@ -308,7 +313,7 @@ def run(case, tool, argv):
             append(log, dict(event, event='result', outcome='passed' if result['passed'] else 'failed', **result))
             print(json.dumps(result))
             return 0 if result['passed'] else 1
-        elif tool == 'review' and binding.get('effort_case') and len(argv) == 1:
+        elif tool == 'review' and binding.get('effort_case') and len(argv) == (2 if rebound_effort(case) else 1):
             append(observations / 'review.jsonl', dict(event, argv=argv))
             append(log, dict(event, event='result', outcome='recorded'))
             print('deep-review invocation recorded')
