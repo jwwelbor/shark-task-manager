@@ -156,7 +156,14 @@ def read_children(database, binding):
         return children
 
 
-def defer_readback(children, receipts, events, project, fingerprint, assume_created=False):
+def review_project(case):
+    try:
+        return json.loads((case / 'history.json').read_bytes()).get('project')
+    except (OSError, ValueError):
+        return None
+
+
+def defer_readback(children, receipts, events, project, fingerprint, assume_created=False, review_project=None):
     if len(children) != 1 or len(receipts) != 1:
         return False
     child = children[0]
@@ -167,8 +174,13 @@ def defer_readback(children, receipts, events, project, fingerprint, assume_crea
     disposition = decision.get('disposition', decision.get('decision'))
     if disposition != 'Defer' or any(decision.get(field) != expected for field, expected in {
         'fingerprint': fingerprint, 'key': child['key'], 'type': 'task',
-        'parent': child['feature'], 'project': str(project),
+        'parent': child['feature'],
     }.items()) or not str(decision.get('reason') or '').strip():
+        return False
+    # The disposition names the case tracker, or the review project with the tracker alongside it.
+    named = decision.get('project')
+    if named != str(project) and not (review_project and named == review_project
+                                      and decision.get('tracker_project') == str(project)):
         return False
     scope = str(decision.get('scope') or '').strip()
     words = lambda value: set(re.findall(r'[a-z0-9]+(?:-[a-z0-9]+)*', value.lower()))
@@ -216,9 +228,12 @@ def empty_owner_searches(events, create_id, fingerprint):
             try:
                 rows = json.loads(event.get('stdout', ''))
             except ValueError:
+                text = event.get('stdout', '').strip()
                 if (words in (['notes', 'search', fingerprint], ['search', fingerprint])
-                        and event.get('stdout', '').strip() == f'No results found for "{fingerprint}"'):
+                        and text == f'No results found for "{fingerprint}"'):
                     exact_miss = True
+                elif exact_miss and text.endswith('No results found') and words[:1] == ['list']:
+                    broader_miss = True  # Shark's plain-text form of an empty list
                 continue
             if isinstance(rows, dict):
                 rows = rows.get('results')
@@ -370,7 +385,8 @@ def resumed_phase_checks(case, binding, entries, results, writes, creates, child
     key = children[0]['key'] if children else None
     if not any(key and key in e.get('stdout', '') and fingerprint in e.get('stdout', '') for e in reads):
         missing.append('lookup recovering the original key and fingerprint')
-    if not defer_readback(children, receipts, events, project, fingerprint, assume_created=True):
+    if not defer_readback(children, receipts, events, project, fingerprint, assume_created=True,
+                          review_project=review_project(case)):
         missing.append('readback and Defer receipt naming the original key')
     return missing
 
@@ -469,7 +485,8 @@ def inspect_case(case, manifest, fingerprint):
                 or forwards[0]['invocation'] != creates[0]['invocation']
                 or results.get(creates[0]['invocation'], {}).get('exit_code') != 0):
             missing.append('one successful task create on the case database')
-        if not defer_readback(children, receipts, events, project, fingerprint):
+        if not defer_readback(children, receipts, events, project, fingerprint,
+                              review_project=review_project(case)):
             missing.append('host readback and Defer receipt')
     elif case.name == 'case-c' or scenario == 'wrong-db':
         refusal = binding.get('create_refusal')
