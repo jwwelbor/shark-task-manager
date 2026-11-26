@@ -99,7 +99,9 @@ def writer(project, bundle, scripts, base, variant, policy=POLICY):
     write_json(inputs / 'decisions.json', dict(candidate_identity=identity, findings=[decision]))
     body = f'VERDICT: PASS-with-triage\nScope: Feature A, E01-F01. Findings: {finding["summary"]}. {finding["diagnosis"]} {decision["reason"]}\n{finding["fingerprint"]}\n'
     if variant != 'report':
-        body += DISCLOSURE + ' The runner count represents six supplied angle records.\n'
+        count = ('The runner count represents no specialist records; one supplied CLI review output stands in.'
+                 if variant == 'adversarial' else 'The runner count represents six supplied angle records.')
+        body += DISCLOSURE + ' ' + count + '\n'
     (inputs / 'body.md').write_text(body)
     args = [sys.executable, scripts / 'adaptive_review.py', 'write-report', '--project-root', project,
             '--source-root', project, '--branch', scope['branch'], '--review-output-path', bundle / 'review.md',
@@ -107,6 +109,11 @@ def writer(project, bundle, scripts, base, variant, policy=POLICY):
             '--review-decisions', inputs / 'decisions.json', '--body-file', inputs / 'body.md',
             '--diff-path', scope['diff_path'], '--base-commit', base, '--verdict', 'PASS-with-triage',
             '--runner-mode', 'canonical-six-angle', '--specialists-completed', '6', '--consolidator-completed', 'true']
+    if variant == 'adversarial':
+        args[args.index('canonical-six-angle')] = 'adversarial-cli'
+        args[args.index('--specialists-completed') + 1] = '0'
+        args.extend(['--adversarial-model', 'fixture-cli-model', '--fallback-reason',
+                     'native Workflow and dispatch unavailable; the preferred CLI failed candidate validation'])
     if variant == 'model':
         args.extend(['--effective-model', 'unobserved-fixture-model'])
     trace = inputs / 'writer.trace'
@@ -139,7 +146,7 @@ def applied_history(project, binary, bundle, base, variant, expected_entity="B00
         shark('related-docs', 'add', label, path, '--bug', entity)
     shark('status', 'set', entity, 'plan_review', '--force', '--reason', 'Synthetic scenario setup')
     permanent = [plan, dict(kind='bug_review_baseline', pointer=base, summary='Fixture Git baseline')]
-    files = [evidence(kind, bundle / name) for kind, name in MEMBERS.items()]
+    files = [evidence(kind, bundle / name) for kind, name in MEMBERS.items() if (bundle / name).exists()]
     session = shark('claim', entity, '--by', 'b086-scratch')['session_id']
     for stage, extra in [('plan_review', [evidence('plan_review_report', project / APPROVAL)]),
                          ('development', []), ('code_review', files), ('qa', files[:2])]:

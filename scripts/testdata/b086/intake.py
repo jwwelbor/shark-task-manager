@@ -51,7 +51,8 @@ def consume(packet, history, pin, binary):
     if history != pin['history']:
         raise ValueError('intake history differs from pinned applied operation')
     members = json.loads(manifest)
-    if set(members) != {*MEMBERS.values(), 'review.md.diff', 'provenance.json'}:
+    full = {*MEMBERS.values(), 'review.md.diff', 'provenance.json'}
+    if set(members) not in (full, full - {'review.md.angles.json'}):
         raise ValueError('incomplete review manifest')
     payload = {}
     for name, expected in members.items():
@@ -61,6 +62,8 @@ def consume(packet, history, pin, binary):
         payload[name] = data.decode()
     result = applied_review(history, binary)
     for kind, name in MEMBERS.items():
+        if name not in members:
+            continue
         expected = 'sha256:' + members[name]
         if [ref['summary'] for ref in result['evidence'] if ref['kind'] == kind] != [expected]:
             raise ValueError(f'applied review differs: {name}')
@@ -71,7 +74,7 @@ def consume(packet, history, pin, binary):
 def check_origin(payload, result, project):
     report = payload['review.md']
     header, body = report.split('\n\n---\n\n', 1)
-    if DISCLOSURE not in body or 'six supplied angle records' not in body:
+    if DISCLOSURE not in body or not ('six supplied angle records' in body or 'no specialist records' in body):
         raise ValueError('report lacks synthetic runner disclosure')
     provenance = json.loads(payload['provenance.json'])
     if provenance.get('input_origin') != DISCLOSURE:

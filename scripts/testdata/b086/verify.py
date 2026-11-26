@@ -495,6 +495,7 @@ def receipt_checks(case, binding, scenario, entries, events, inbox, receipts, ch
     if writes or receipts or any(e['tool'] == 'edit' for e in entries):
         missing.append('delivery gate makes zero tracker writes, dispositions and edits')
     seeded = 0 if scenario == 'receipt-note-only' else 1
+    ship = scenario in ('receipt-ship', 'policy-allow')
     if len(children) != seeded:
         missing.append('tracker children unchanged from the seeded receipt')
     ci = [e for e in events if e['event'] == 'result' and e['tool'] == 'ci' and e.get('outcome') == 'recorded']
@@ -502,7 +503,7 @@ def receipt_checks(case, binding, scenario, entries, events, inbox, receipts, ch
              and fingerprint in e.get('stdout', '') and (not seeded or children[0]['key'] in e.get('stdout', ''))]
     if not reads:
         missing.append('independent tracker readback of the receipt owner')
-    if scenario == 'receipt-ship':
+    if ship:
         if len(ci) != 1 or not reads or events.index(reads[0]) > events.index(ci[0]):
             missing.append('exactly one CI handoff, after the owner readback')
         if inbox:
@@ -510,13 +511,15 @@ def receipt_checks(case, binding, scenario, entries, events, inbox, receipts, ch
     else:
         if ci:
             missing.append('zero CI handoffs for an unreconciled receipt')
-        word = 'reason' if scenario == 'receipt-no-reason' else 'note'
+        word = {'receipt-no-reason': 'reason', 'policy-require': 'policy'}.get(scenario, 'note')
         if not any(isinstance(r['message'], dict) and r['message'].get('fingerprint') == fingerprint
                    and word in json.dumps(r['message']).lower()
                    and any(e.get('invocation') == r['invocation'] and e.get('outcome') == 'received'
                            for e in events if e['event'] == 'result')
                    for r in inbox):
             missing.append(f'received pending finding naming the missing {word}')
+        if scenario == 'policy-require' and not any('adversarial-cli' in json.dumps(r['message']) for r in inbox):
+            missing.append('original adversarial-cli evidence label preserved at the parent')
     return missing
 
 
@@ -669,7 +672,7 @@ def inspect_case(case, manifest, fingerprint):
         if scenario == 'delivery-defer':
             if not (len(handoffs) == 1 and admitted and handoffs[0] > order.index(('result', 'disposition', 'received'))):
                 missing.append('exactly one CI handoff, after the verified Defer receipt')
-        elif ci and scenario != 'receipt-ship':
+        elif ci and scenario not in ('receipt-ship', 'policy-allow'):
             missing.append('zero CI handoffs while the finding is unresolved')
     return {'run_id': run_id, 'scope': 'tracker and parent observations only', 'children': children,
             'status': 'incomplete' if missing else 'observed', 'missing': missing}

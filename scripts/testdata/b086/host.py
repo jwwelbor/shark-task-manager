@@ -147,6 +147,12 @@ Do not author, amend or re-record a disposition, and do not create or edit track
 items. Check the receipt against the tracker by reading it back, then decide whether
 the finding is reconciled. If it is not, send the parent the finding's pending state
 instead of calling `ci`."""
+    if (case / 'review-policy.json').exists():
+        text += f"""
+
+The owning project's review admission policy for this delivery is in
+`{case}/review-policy.json`. Evaluate the review's recorded evidence label against it
+after reconciling the finding."""
     if (case / 'workspace.json').exists():
         text += f"""
 

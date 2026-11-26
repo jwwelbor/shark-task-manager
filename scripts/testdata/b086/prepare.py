@@ -81,7 +81,12 @@ def seed_project(source, staging, binary_digest):
 EXPECT_FIX = {'fix', 'time-ok', 'repeat-other'}
 EXPECT_DEFER = {'budget-dispatch', 'budget-project', 'budget-consumed', 'time-short'}
 EDIT_KINDS = EXPECT_FIX | EXPECT_DEFER | {'repeat-same'}
-RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'}
+POLICIES = {
+    'policy-allow': {'review_admission': 'A complete adversarial-cli review is admitted for CI when its label, '
+                                         'candidate and verified dispositions are preserved.'},
+    'policy-require': {'review_admission': 'Delivery requires complete canonical-six-angle or dispatched-six-angle '
+                                           'review evidence; an adversarial-cli review does not admit CI.'}}
+RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'} | set(POLICIES)
 SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS
 FILE = 'docs/feature-a.md'
 FINGERPRINT = FILE + '#DOCS#worked-example'
@@ -141,6 +146,8 @@ def stage_receipt(case, kind, review_project):
         if kind == 'receipt-no-reason':
             del receipt['reason']
     (case / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    if kind in POLICIES:
+        (case / 'review-policy.json').write_text(json.dumps(POLICIES[kind], indent=2) + '\n')
     return receipt
 
 
@@ -319,7 +326,7 @@ if __name__ == '__main__':
                         help='stage a third case from the matching grant for the subsequent refusal replay')
     parser.add_argument('--scenario', action='append', default=[], metavar='NAME:KIND',
                         help='stage an extra case from the matching grant: ' + ', '.join(sorted(SCENARIOS)))
-    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade'],
+    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial'],
                         default='worked-example', help='choose the synthetic reviewer finding')
     parser.add_argument('--policy-commit', default=POLICY,
                         help='pinned Shark policy source commit; default is the approved fixture policy')

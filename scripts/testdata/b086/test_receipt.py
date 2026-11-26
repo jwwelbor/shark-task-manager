@@ -77,5 +77,24 @@ class Receipts(unittest.TestCase):
         self.assertIn('received pending finding naming the missing reason', missing)
 
 
+class Policy(unittest.TestCase):
+    def test_same_alternate_packet_and_receipt_differ_only_by_the_policy_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            done = subprocess.run([sys.executable, HERE / 'prepare.py', root, '--synthetic', '--synthetic-variant',
+                                   'adversarial', '--scenario', 'allow:policy-allow',
+                                   '--scenario', 'require:policy-require'], capture_output=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            packet = lambda n: {p.name: p.read_bytes() for p in (root / n / 'packet').iterdir()}
+            self.assertEqual(packet('allow'), packet('require'))
+            self.assertIn('adversarial-cli', (root / 'allow/packet/review.md').read_text())
+            self.assertNotEqual((root / 'allow/review-policy.json').read_bytes(),
+                                (root / 'require/review-policy.json').read_bytes())
+            strip = lambda n: {k: v for k, v in json.loads((root / n / 'receipt.json').read_bytes()).items()
+                               if k != 'tracker_project'}
+            self.assertEqual(strip('allow'), strip('require'))
+            self.assertIn('review admission policy', host.prompt(root / 'allow'))
+
+
 if __name__ == '__main__':
     unittest.main()
