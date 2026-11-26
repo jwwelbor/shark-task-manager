@@ -320,3 +320,245 @@ def test_identity_routing_fields_skips_provider_command_for_custom_adapter_witho
     fields = _identity_routing_fields(config, tmp_path, ["bug"])
     assert fields["codex_catalog"] is None
     assert not spy_log.exists()
+
+
+def _sha_label(label: str) -> str:
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
+def _canonical_digest(value) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _deep_review_bundle_digest() -> str:
+    files = (
+        "skills/shark-rider/skills/deep-review/SKILL.md",
+        "skills/shark-rider/skills/deep-review/references/angle-a-bugs.md",
+        "skills/shark-rider/skills/deep-review/references/angle-b-behavior.md",
+        "skills/shark-rider/skills/deep-review/references/angle-c-sibling.md",
+        "skills/shark-rider/skills/deep-review/references/angle-d-cleanup.md",
+        "skills/shark-rider/skills/deep-review/references/angle-e-tests.md",
+        "skills/shark-rider/skills/deep-review/references/angle-f-standards.md",
+        "skills/shark-rider/skills/deep-review/references/consolidator.md",
+        "skills/shark-rider/skills/deep-review/scripts/get_diff.sh",
+    )
+    hasher = hashlib.sha256()
+    for rel in files:
+        hasher.update(rel.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update((REPO_ROOT / rel).read_bytes())
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expect_eligible", "expected_path_substr", "expected_detail_substr"),
+    [
+        ("none", True, None, None),
+        ("stage_provider_mismatch", False, "/stages/0/usage/provider", "ordinal 1"),
+        ("stage_model_mismatch", False, "/stages/0/usage/model", "ordinal 1"),
+        ("stage_vs_identity_only_mismatch", False, "/stages/0/usage/provider", "ordinal 1"),
+        ("dispatch_vs_identity_mismatch", False, "/dispatches/0/response/provider", "ordinal 1"),
+    ],
+)
+def test_evaluate_lifecycle_stage_provider_and_model_consistency(
+    tmp_path, mutation, expect_eligible, expected_path_substr, expected_detail_substr
+):
+    """R26 Stage provider at ordinal 1: evaluate-lifecycle.sh joins stages by dispatch_ordinal."""
+    checkout = tmp_path / "checkout"
+    subprocess.run(
+        [
+            str(SCRIPTS / "checkout-scenario-fixture.sh"),
+            "py",
+            "964fa68e4c9e0c4e0f3756d9efd78b888c558fd9",
+            str(checkout),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    pkg_dir = REPO_ROOT / "bench" / "scenarios" / "packages" / "py-bug-due-date-boundary"
+    subprocess.run(
+        ["git", "-C", str(checkout), "apply", str(pkg_dir / "evaluator" / "reference.patch")],
+        check=True,
+        capture_output=True,
+    )
+
+    model_513 = "m" * 512 + "a"
+    bundle_digest = _deep_review_bundle_digest()
+    candidate_fields = {
+        "base_commit": _sha_label("base_commit"),
+        "tree_digest": _sha_label("tree_digest"),
+        "binary_diff_digest": _sha_label("binary_diff_digest"),
+        "changed_path_digest": _sha_label("changed_path_digest"),
+        "test_suite_digest": _sha_label("test_suite_digest"),
+        "scratch_content_digest": _sha_label("scratch_content_digest"),
+    }
+    candidate = {
+        **candidate_fields,
+        "dirty_untracked_manifest": [],
+        "identity_digest": _canonical_digest({**candidate_fields, "dirty_untracked_manifest": []}),
+        "snapshot_digest": _sha_label("snapshot_digest"),
+    }
+    gate_policy = {
+        "gate_id": "code",
+        "provider": "anthropic",
+        "model": model_513,
+        "effort": "high",
+        "prompt_source_digest": _sha_label("code-source"),
+        "rendered_prompt_digest": _sha_label("code-rendered"),
+        "deep_review_bundle_digest": bundle_digest,
+        "fixes_allowed": True,
+        "reached": False,
+    }
+    gate_policy["policy_digest"] = _canonical_digest(gate_policy)
+    workflow_policy = {
+        "enabled_gates": ["code"],
+        "gate_order": ["code"],
+        "reviewer": {"provider": "anthropic", "model": model_513, "effort": "high"},
+        "prompt_digest": _sha_label("prompt_digest"),
+        "rendered_prompt_digest": _sha_label("rendered_prompt_digest"),
+        "deep_review_bundle_digest": bundle_digest,
+        "fixes_allowed_between_gates": True,
+        "gate_policies": [gate_policy],
+    }
+    workflow_policy["workflow_policy_identity_digest"] = _canonical_digest(workflow_policy)
+
+    dispatch_response = {
+        "entity_key": "B083",
+        "status": "code",
+        "provider": "anthropic",
+        "model": model_513,
+        "effort": "high",
+    }
+    if mutation == "dispatch_vs_identity_mismatch":
+        dispatch_response["provider"] = "copilot"
+    if mutation == "stage_vs_identity_only_mismatch":
+        dispatches = [{"dispatch_id": "dispatch-1", "ordinal": 1, "transition": "advance"}]
+    else:
+        dispatches = [{"dispatch_id": "dispatch-1", "ordinal": 1, "transition": "advance", "response": dispatch_response}]
+
+    stage_usage = {"provider": "anthropic", "model": model_513}
+    if mutation in ("stage_provider_mismatch", "stage_vs_identity_only_mismatch"):
+        stage_usage["provider"] = "copilot"
+    elif mutation == "stage_model_mismatch":
+        stage_usage["model"] = "m" * 512
+
+    lifecycle = {
+        "identity": {
+            "run_id": "r26-stage-provider-run",
+            "scenario_id": "py-bug-due-date-boundary",
+            "scenario_version": "1",
+            "fixture_id": "py",
+            "fixture_digest": _sha_label("fixture_digest"),
+            "adapter_id": "python",
+            "adapter_version": "1.0.0",
+            "dispatch_id": "dispatch-1",
+            "dispatch_ordinal": 1,
+            "toolchain_identity": [{"key": "python_version", "value": "3.12.3"}],
+            "shark_binary_digest": _sha_label("shark_binary_digest"),
+            "shark_content_digest": _sha_label("shark_content_digest"),
+            "rendered_prompt_digests": [_sha_label("rendered_prompt_1")],
+            "provider_identity": [
+                {"stage": "code", "provider": "anthropic", "model": model_513, "effort": "high"}
+            ],
+            "judge_identity": {"model": "not-applicable", "configuration": "not-applicable"},
+            "reference_digests": [_sha_label("reference_digest_1")],
+            "resource_policy_digest": _sha_label("resource_policy_digest"),
+        },
+        "outcome": {"terminal": "complete"},
+        "entity_graph": {"nodes": ["run"]},
+        "dispatches": dispatches,
+        "workflow_policy": workflow_policy,
+        "review_gates": [
+            {
+                "gate_id": "code",
+                "state": "not_reached",
+                "policy_ref": {"policy_digest": gate_policy["policy_digest"]},
+                "findings": [],
+            }
+        ],
+        "stages": [
+            {
+                "dispatch_ordinal": 1,
+                "stage": "code",
+                "category": "code",
+                "cost_usd": 0.125,
+                "elapsed_seconds": 1.0,
+                "usage": stage_usage,
+                "candidate": candidate,
+                "input_lineage": [
+                    {"source_kind": kind, "path": f"/{kind}", "digest": _sha_label(kind)}
+                    for kind in (
+                        "scenario_package",
+                        "rendered_prompt",
+                        "fixture_checkout",
+                        "shark_content",
+                        "execution_adapter",
+                        "lifecycle_adapter",
+                        "agent_visible_input",
+                    )
+                ],
+            }
+        ],
+    }
+    i07_path = tmp_path / "i07.jsonl"
+    i07_path.write_text(json.dumps(lifecycle) + "\n", encoding="utf-8")
+
+    i05_dir = tmp_path / "i05"
+    i05_dir.mkdir()
+    (i05_dir / "bundle.json").write_text(
+        json.dumps(
+            {
+                "identity": {
+                    "run_id": "r26-stage-provider-run",
+                    "scenario_id": "py-bug-due-date-boundary",
+                    "scenario_version": "1",
+                    "dispatch_id": "dispatch-1",
+                    "dispatch_ordinal": 1,
+                },
+                "roots": {"agent_fixture_checkout": str(checkout)},
+                "terminal_status": {"reached": True, "reached_at": "2020-01-01T00:00:00Z"},
+                "stages": [{"stage_path": "stages/code.json"}],
+                "dispatches": dispatches,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out_path = tmp_path / "evaluation.jsonl"
+    proc = subprocess.run(
+        [
+            str(SCRIPTS / "evaluate-lifecycle.sh"),
+            "--i05",
+            str(i05_dir),
+            "--i07",
+            str(i07_path),
+            "--scenario",
+            str(pkg_dir / "package.yaml"),
+            "--output",
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    record = json.loads(out_path.read_text(encoding="utf-8"))
+    if expect_eligible:
+        assert proc.returncode == 0, proc.stderr
+        assert record["eligibility"]["aggregate_eligible"] is True
+        assert record["eligibility"]["publication_eligible"] is True
+        assert record["eligibility"]["invalidity_reasons"] == []
+        assert record["metrics"]["provider_cost"]["available"] is True
+        assert record["metrics"]["provider_cost"]["value"] == 0.125
+    else:
+        assert proc.returncode == 1
+        assert record["eligibility"]["aggregate_eligible"] is False
+        assert record["eligibility"]["publication_eligible"] is False
+        reasons = record["eligibility"]["invalidity_reasons"]
+        assert any(
+            item["code"] == "identity_mismatch"
+            and expected_path_substr in item["path"]
+            and expected_detail_substr in item["detail"]
+            for item in reasons
+        ), reasons

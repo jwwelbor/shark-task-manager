@@ -342,6 +342,106 @@ def validate_producer_identity(identity, reasons):
         reasons.append(reason("identity_missing", "/identity/judge_identity", "judge model and configuration identity are required even when the judge is not applicable"))
 
 
+def validate_stage_provider_identity(lifecycle, identity, reasons):
+    """Join stages by dispatch_ordinal against dispatches and identity.provider_identity."""
+    dispatches = [d for d in (lifecycle.get("dispatches") or []) if isinstance(d, dict)]
+    stages = [s for s in (lifecycle.get("stages") or []) if isinstance(s, dict)]
+    provider_identity = identity.get("provider_identity") if isinstance(identity.get("provider_identity"), list) else []
+
+    dispatches_by_ordinal = {}
+    for dispatch_index, dispatch in enumerate(dispatches):
+        d_ordinal = dispatch.get("ordinal")
+        if d_ordinal is None:
+            d_ordinal = dispatch.get("dispatch_ordinal")
+        if d_ordinal is not None and d_ordinal not in dispatches_by_ordinal:
+            dispatches_by_ordinal[d_ordinal] = (dispatch_index, dispatch)
+
+        resp = dispatch.get("response") if isinstance(dispatch.get("response"), dict) else None
+        ordered_entry = (
+            provider_identity[dispatch_index]
+            if dispatch_index < len(provider_identity) and isinstance(provider_identity[dispatch_index], dict)
+            else None
+        )
+        if resp is not None and ordered_entry is not None:
+            ordinal_label = d_ordinal if d_ordinal is not None else dispatch_index + 1
+            for field in ("provider", "model"):
+                r_val = resp.get(field)
+                o_val = ordered_entry.get(field)
+                if r_val is not None and o_val is not None and r_val != o_val:
+                    reasons.append(reason(
+                        "identity_mismatch",
+                        f"/dispatches/{dispatch_index}/response/{field}",
+                        f"dispatch {field} at dispatch ordinal {ordinal_label} disagrees with provider_identity",
+                    ))
+            r_effort = resp.get("effort") or "default"
+            o_effort = ordered_entry.get("effort")
+            if o_effort is not None and r_effort != o_effort:
+                reasons.append(reason(
+                    "identity_mismatch",
+                    f"/dispatches/{dispatch_index}/response/effort",
+                    f"dispatch effort at dispatch ordinal {ordinal_label} disagrees with provider_identity",
+                ))
+            r_status = resp.get("status")
+            o_stage = ordered_entry.get("stage")
+            if r_status is not None and o_stage is not None and r_status != o_stage:
+                reasons.append(reason(
+                    "identity_mismatch",
+                    f"/identity/provider_identity/{dispatch_index}/stage",
+                    f"provider_identity stage at dispatch ordinal {ordinal_label} disagrees with dispatch status",
+                ))
+
+    for stage_index, stage in enumerate(stages):
+        stage_ordinal = stage.get("dispatch_ordinal")
+        usage = stage.get("usage") if isinstance(stage.get("usage"), dict) else None
+        dispatch_pair = dispatches_by_ordinal.get(stage_ordinal) if stage_ordinal is not None else None
+        if dispatch_pair is not None:
+            dispatch_index, dispatch = dispatch_pair
+            resp = dispatch.get("response") if isinstance(dispatch.get("response"), dict) else None
+            ordered_entry = (
+                provider_identity[dispatch_index]
+                if dispatch_index < len(provider_identity) and isinstance(provider_identity[dispatch_index], dict)
+                else None
+            )
+        else:
+            resp = None
+            ordered_entry = (
+                provider_identity[stage_ordinal - 1]
+                if isinstance(stage_ordinal, int)
+                and not isinstance(stage_ordinal, bool)
+                and 1 <= stage_ordinal <= len(provider_identity)
+                and isinstance(provider_identity[stage_ordinal - 1], dict)
+                else None
+            )
+            if stage_ordinal is not None and dispatches_by_ordinal:
+                reasons.append(reason(
+                    "identity_mismatch",
+                    f"/stages/{stage_index}/dispatch_ordinal",
+                    f"stage dispatch ordinal {stage_ordinal} has no matching dispatch",
+                ))
+
+        ordinal_label = stage_ordinal if stage_ordinal is not None else stage_index + 1
+        if usage is not None and resp is not None:
+            for field in ("provider", "model"):
+                u_val = usage.get(field)
+                r_val = resp.get(field)
+                if r_val is not None and u_val != r_val:
+                    reasons.append(reason(
+                        "identity_mismatch",
+                        f"/stages/{stage_index}/usage/{field}",
+                        f"stage {field} at dispatch ordinal {ordinal_label} disagrees with dispatch response",
+                    ))
+        if usage is not None and ordered_entry is not None:
+            for field in ("provider", "model"):
+                u_val = usage.get(field)
+                o_val = ordered_entry.get(field)
+                if u_val is not None and o_val is not None and u_val != o_val:
+                    reasons.append(reason(
+                        "identity_mismatch",
+                        f"/stages/{stage_index}/usage/{field}",
+                        f"stage {field} at dispatch ordinal {ordinal_label} disagrees with provider_identity",
+                    ))
+
+
 def validate_workflow_policy_identity(workflow_policy, reasons):
     """Validate the producer-retained workflow-policy identity surface."""
     required_policy = (
@@ -804,6 +904,7 @@ try:
     candidate_snapshots = validate_candidate_snapshots(lifecycle, reasons)
     workflow_policy = validate_content_identity(i05, lifecycle, identity, reasons)
     validate_producer_identity(identity, reasons)
+    validate_stage_provider_identity(lifecycle, identity, reasons)
     validate_workflow_policy_identity(workflow_policy, reasons)
     validate_review_gate_policy_refs(lifecycle, reasons)
     structural = run_structural_checks(i05, lifecycle, lifecycle_rows, reasons)
