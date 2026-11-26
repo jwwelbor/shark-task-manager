@@ -188,17 +188,18 @@ func resumeGateIngestIfConfigured(ctx context.Context, projectRoot, entityType, 
 	}
 
 	return finishGateIngest(ctx, out, runner.GateIngestRequest{
-		EnvelopeBytes:       decision.Result,
-		ProjectRoot:         projectRoot,
-		RunID:               runResumeID,
-		EntityKey:           entityKey,
-		EntityType:          models.EntityType(entityType),
-		SourceStatus:        decision.State.SourceStatus,
-		Gate:                decision.State.Gate,
-		Session:             gatepersist.Session{ID: runSession},
-		OutcomeRoles:        resolver.GetOutcomeRoles(decision.State.Gate),
-		Outcomes:            resolver.GetOutcomes(decision.State.Gate),
-		RetirementConfirmed: true,
+		EnvelopeBytes:             decision.Result,
+		ProjectRoot:               projectRoot,
+		RunID:                     runResumeID,
+		EntityKey:                 entityKey,
+		EntityType:                models.EntityType(entityType),
+		SourceStatus:              decision.State.SourceStatus,
+		Gate:                      decision.State.Gate,
+		Session:                   gatepersist.Session{ID: runSession},
+		OutcomeRoles:              resolver.GetOutcomeRoles(decision.State.Gate),
+		Outcomes:                  resolver.GetOutcomes(decision.State.Gate),
+		RetirementConfirmed:       true,
+		ParentObservationInjected: runner.RunOwnParentObservationInjected(projectRoot, runResumeID, decision.Result),
 		// RunConcluded: true — --resume-run acquires no claim and dispatches
 		// no agent itself (see this file's package doc comment); this call
 		// is the parent's one and only action for this entity/session, so it
@@ -338,17 +339,18 @@ func resumeGateIngestForUninitializedState(ctx context.Context, projectRoot, ent
 	}
 
 	return finishGateIngest(ctx, out, runner.GateIngestRequest{
-		EnvelopeBytes:       decision.Result,
-		ProjectRoot:         projectRoot,
-		RunID:               runResumeID,
-		EntityKey:           entityKey,
-		EntityType:          models.EntityType(entityType),
-		SourceStatus:        nextInfo.CurrentStatus,
-		Gate:                nextInfo.CurrentStatus,
-		Session:             gatepersist.Session{ID: runSession},
-		OutcomeRoles:        nextInfo.OutcomeRoles,
-		Outcomes:            nextInfo.Outcomes,
-		RetirementConfirmed: true,
+		EnvelopeBytes:             decision.Result,
+		ProjectRoot:               projectRoot,
+		RunID:                     runResumeID,
+		EntityKey:                 entityKey,
+		EntityType:                models.EntityType(entityType),
+		SourceStatus:              nextInfo.CurrentStatus,
+		Gate:                      nextInfo.CurrentStatus,
+		Session:                   gatepersist.Session{ID: runSession},
+		OutcomeRoles:              nextInfo.OutcomeRoles,
+		Outcomes:                  nextInfo.Outcomes,
+		RetirementConfirmed:       true,
+		ParentObservationInjected: runner.RunOwnParentObservationInjected(projectRoot, runResumeID, decision.Result),
 		// RunConcluded: true — --resume-run acquires no claim and dispatches
 		// no agent itself (see this file's package doc comment); this call
 		// is the parent's one and only action for this entity/session, so it

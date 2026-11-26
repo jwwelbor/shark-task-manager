@@ -2,7 +2,11 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,8 +18,66 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+func TestAttachParentTriageObservationIsRunScopedAndParentInjected(t *testing.T) {
+	root := t.TempDir()
+	runDir := filepath.Join(root, ".shark", "runs", "run-1")
+	require.NoError(t, os.MkdirAll(runDir, 0o700))
+	observation := []byte(`{"candidate_identity":{"commit":"c","tree":"t","diff_sha256":"d","repair_plan_sha256":"p"},"observed_by":"parent","actions":[]}`)
+	path := filepath.Join(runDir, "parent-triage-observation.json")
+	require.NoError(t, os.WriteFile(path, observation, 0o600))
+	envelope := []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"ok"}}`)
+	got, err := runner.AttachParentTriageObservation(root, "run-1", path, envelope)
+	require.NoError(t, err)
+	decoded, err := workercontrol.Decode(got)
+	require.NoError(t, err)
+	require.Len(t, decoded.Evidence, 1)
+	require.Equal(t, "bug_parent_triage_observation", decoded.Evidence[0].Kind)
+	require.Equal(t, ".shark/runs/run-1/parent-triage-observation.json", decoded.Evidence[0].Pointer)
+	require.Contains(t, decoded.Evidence[0].Summary, "sha256:")
+	_, err = runner.AttachParentTriageObservation(root, "run-1", filepath.Join(root, "worker.json"), envelope)
+	require.ErrorContains(t, err, "run-scoped")
+	workerEnvelope := []byte(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_parent_triage_observation","pointer":"fake.json"}],"gate_result":{"schema_version":1,"summary":"ok"}}`)
+	_, err = runner.AttachParentTriageObservation(root, "run-1", path, workerEnvelope)
+	require.ErrorContains(t, err, "cannot supply parent")
+}
+
+// QA forwards the exact accepted review reference as ordinary replay input.
+func TestApplyResultQAForwardsOriginalReviewObservationToAdmission(t *testing.T) {
+	root := t.TempDir()
+	key := "B001"
+	pointer := ".shark/runs/original-review/parent-triage-observation.json"
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("original observation")))
+	ref := workercontrol.EvidenceRef{Kind: "bug_parent_triage_observation", Pointer: pointer, Summary: digest}
+	raw, err := json.Marshal(ref)
+	require.NoError(t, err)
+	result := []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[%s],"gate_result":{"schema_version":1,"summary":"checked"}}`, raw))
+	status := &fakeParityTransition{status: map[string]string{key: "qa"}}
+	coord := gatepersist.NewCoordinator(&fakeParityNoteWriter{}, fakeParityNoteReader{}, fakeParityHistoryReader{}, fakeParityStatusValidator{}, status, status, fakeParityLeaseReleaser{}, status)
+	coord.Admission = func(_ context.Context, req gatepersist.Request) error {
+		require.Equal(t, "successor-qa", req.RunID)
+		require.False(t, req.ParentObservationInjected)
+		env, err := workercontrol.Decode(req.EnvelopeJSON)
+		require.NoError(t, err)
+		require.Equal(t, []workercontrol.EvidenceRef{ref}, env.Evidence)
+		return nil
+	}
+	transitioner := &fakeParityTransitioner{
+		status:       status.status,
+		outcomes:     map[string]string{"pass": "resolved"},
+		outcomeRoles: map[string]gateresult.OutcomeRole{"pass": gateresult.RoleSuccess},
+	}
+	got, err := applyResultIngest(context.Background(), applyResultDeps{
+		ProjectRoot: root, RunID: "successor-qa", EntityKey: key, EntityType: "bug", SessionID: "parent",
+		Coordinator: coord, Transitioner: transitioner, WorkflowSvc: fakeTerminalStatusChecker{},
+	}, result)
+	require.NoError(t, err)
+	require.True(t, got.Transitioned)
+	require.Equal(t, "resolved", status.status[key])
+}
 
 // The fakes below are local, minimal implementations of
 // runner.EntityTransitioner and gatepersist's injected interfaces, built for

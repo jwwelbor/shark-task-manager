@@ -260,9 +260,20 @@ A class may only report `status: complete` when all of the following hold:
   an unverified or merely-plausible guard does not count.
 
 If no feasible guard exists for this class, the class stays `status: open`
-and must carry a linked work item (a task, a tech-debt record, or a note)
-tracking the gap — never report `complete` on the strength of "we fixed the
-instances we found" alone when no guard exists to catch the next one.
+and must carry a linked work item tracking the gap — never report `complete`
+on the strength of "we fixed the instances we found" alone when no guard
+exists to catch the next one. The link applies when `open_count` is `0` and
+no guard is feasible; ordinary rework with open instances needs none. Point
+`guard.counterfactual_pointer` at a project-local JSON record:
+
+```json
+{"kind": "open_sweep_link", "class_key": "<class_key>",
+ "work_item_key": "<key>", "reason": "<why no guard is feasible>"}
+```
+
+`work_item_key` must resolve to an existing task, feature, epic, bug,
+change-card, or tech-debt entity whose title or description names the
+`class_key`. Note keys do not resolve.
 
 ## Full-class re-verification
 
@@ -334,4 +345,4 @@ produces.
       does not flag when the defect is absent.
 - [ ] `status: complete` only when `open_count = 0` and `guard.status =
       verified` by an observed counterfactual in both directions; otherwise
-      `status: open` with a linked work item.
+      `status: open` (with `open_count = 0`, a linked work item).
