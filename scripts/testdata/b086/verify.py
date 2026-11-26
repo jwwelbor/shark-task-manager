@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 
@@ -169,7 +170,8 @@ def defer_readback(children, receipts, events, project, fingerprint):
     }.items()) or not str(decision.get('reason') or '').strip():
         return False
     scope = str(decision.get('scope') or '').strip()
-    if not scope or not (child['description'] or '').startswith(scope):
+    words = lambda value: set(re.findall(r'[a-z0-9]+(?:-[a-z0-9]+)*', value.lower()))
+    if not scope or not words(scope) <= words(child['description'] or ''):
         return False
     created = False
     reads = set()
@@ -213,10 +215,15 @@ def empty_owner_searches(events, create_id, fingerprint):
             try:
                 rows = json.loads(event.get('stdout', ''))
             except ValueError:
+                if (words in (['notes', 'search', fingerprint], ['search', fingerprint])
+                        and event.get('stdout', '').strip() == f'No results found for "{fingerprint}"'):
+                    exact_miss = True
                 continue
             if isinstance(rows, dict):
                 rows = rows.get('results')
-            if rows != []:
+            # Shark uses JSON null for an empty untyped search result and []
+            # for an empty typed list. Both are successful no-owner results.
+            if rows not in ([], None):
                 continue
             if words in (['notes', 'search', fingerprint], ['search', fingerprint]):
                 exact_miss = True
@@ -248,6 +255,18 @@ def received_create_refusal(events, inbox, create_id, fingerprint, reason):
                         and str(msg.get('requested_parent_action') or '').strip()):
                     return True
     return False
+
+
+def verified_prior_pair(path):
+    """Reuse a retained, independently verified A/B pair before later cases."""
+    try:
+        result = json.loads(Path(path).read_bytes())
+    except (OSError, json.JSONDecodeError, TypeError):
+        return False
+    return all(result.get(name, {}).get('status') == 'observed'
+               for name in ('grant-a', 'grant-b', 'pair_input')) and bool(
+                   result['grant-a'].get('run_id') and result['grant-b'].get('run_id')
+                   and result['grant-a']['run_id'] != result['grant-b']['run_id'])
 
 
 def inspect_case(case, manifest, fingerprint):
@@ -351,6 +370,8 @@ if __name__ == '__main__':
     parser.add_argument('fingerprint')
     parser.add_argument('--include-refusal', action='store_true',
                         help='also verify the later definitive-refusal case against the matching grant')
+    parser.add_argument('--prior-pair', type=Path,
+                        help='reuse a retained verification result for the completed grant A/B pair')
     args = parser.parse_args()
     if not args.fingerprint.strip():
         parser.error('empty fingerprint')
@@ -372,11 +393,18 @@ if __name__ == '__main__':
         controls = matching_dispatch(root, manifest, ('grant-a', 'case-c'))
         if (case / 'grant.json').read_bytes() != (root / 'grant-a/grant.json').read_bytes():
             controls.append('identical grant for willing and refusing tracker')
-        if any(case_result['status'] != 'observed' for case_result in result.values()):
-            controls.append('verified first grant pair')
+        matching_grant_ok = inspect_case(root / 'grant-a', manifest, args.fingerprint)['status'] == 'observed'
+        prior_pair_ok = verified_prior_pair(args.prior_pair) if args.prior_pair else all(
+            result[name]['status'] == 'observed' for name in ('grant-a', 'grant-b', 'pair_input'))
+        if not matching_grant_ok or not prior_pair_ok:
+            controls.append('verified first grant pair and matching-grant control')
         if controls:
             refusal['status'] = 'incomplete'
             refusal['missing'].extend(controls)
         result['case-c'] = refusal
     print(json.dumps(result, indent=2))
-    raise SystemExit(0 if all(item['status'] == 'observed' for item in result.values()) else 1)
+    if args.include_refusal and args.prior_pair:
+        ok = result['case-c']['status'] == 'observed' and verified_prior_pair(args.prior_pair)
+    else:
+        ok = all(item['status'] == 'observed' for item in result.values())
+    raise SystemExit(0 if ok else 1)

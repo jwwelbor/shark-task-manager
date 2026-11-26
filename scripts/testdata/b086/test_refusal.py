@@ -14,6 +14,20 @@ HERE = Path(__file__).resolve().parent
 
 
 class DefinitiveRefusal(unittest.TestCase):
+    def test_verified_prior_pair_requires_both_grants_and_run_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'pair.json'
+            pair = {
+                'grant-a': {'status': 'observed', 'run_id': 'a'},
+                'grant-b': {'status': 'observed', 'run_id': 'b'},
+                'pair_input': {'status': 'observed'},
+            }
+            path.write_text(json.dumps(pair))
+            self.assertTrue(verify.verified_prior_pair(path))
+            pair['grant-b']['status'] = 'incomplete'
+            path.write_text(json.dumps(pair))
+            self.assertFalse(verify.verified_prior_pair(path))
+
     def test_only_the_selected_create_is_refused_before_persistence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -64,7 +78,7 @@ class DefinitiveRefusal(unittest.TestCase):
             self.assertNotEqual(with_refusal.returncode, 0)
             missing = json.loads(with_refusal.stdout)['case-c']['missing']
             self.assertIn('received unresolved fingerprint, failed create, feature, refusal and next action', missing)
-            self.assertIn('verified first grant pair', missing)
+            self.assertIn('verified first grant pair and matching-grant control', missing)
 
     def test_received_escalation_requires_failed_operation_target_reason_and_next_action(self):
         # These are diagnostic receiver inputs, separate from the live host case.
@@ -102,6 +116,12 @@ class DefinitiveRefusal(unittest.TestCase):
         scope = lookup('scope', ['list', 'E01-F01', '--json'])
         create = {'event': 'entry', 'tool': 'shark', 'invocation': 'create', 'argv': ['create', 'task']}
         self.assertTrue(verify.empty_owner_searches([*exact, *scope, create], 'create', fp))
+        # `shark search` returns JSON null for no untyped results.
+        null_exact = lookup('exact', ['search', fp, '--json'], output='null')
+        self.assertTrue(verify.empty_owner_searches([*null_exact, *scope, create], 'create', fp))
+        textual_exact = lookup('exact', ['notes', 'search', fp],
+                               output=f'No results found for "{fp}"')
+        self.assertTrue(verify.empty_owner_searches([*textual_exact, *scope, create], 'create', fp))
         for wrong in [[], lookup('scope', ['list', 'E01-F02', '--json']),
                       lookup('scope', ['list', 'E01-F01'], code=1),
                       lookup('scope', ['list', 'E01-F01'], output='[{"key":"owned"}]')]:
