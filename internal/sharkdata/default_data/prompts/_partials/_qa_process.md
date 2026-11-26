@@ -16,7 +16,7 @@ SCOPED TEST RUN (single pass; do NOT run the full suite):
 
 The full integration suite may have pre-existing failures unrelated to any single task. Running it adds significant wall time and produces noise that obscures real regressions. Instead:
 
-1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
+1. **Quality gates (always run, fast):** run the project's format + lint as documented in the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (**Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets.
 
 2. **Targeted unit tests (always run):**
    - Identify changed source files from the reviewed manifest AND from the entity scope
@@ -31,7 +31,7 @@ The full integration suite may have pre-existing failures unrelated to any singl
    - If the change is purely intra-service or doc/comment-only, **skip integration tests entirely**
 
 4. **Sanity unit-suite spot-check (only if changes are broad):**
-   - For changes touching a shared module / interface used by many consumers, run the project's full unit suite once (using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo)
+   - For changes touching a shared module / interface used by many consumers, run the project's full unit suite once (using the runner documented in `CLAUDE.md`, `AGENTS.md`, `docs/architecture/tech-stack.md`, `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets)
    - For localized changes (single service / single API route / doc-only), skip this — the targeted run above is sufficient.
 
 5. **Prompt-only bundle checks:**

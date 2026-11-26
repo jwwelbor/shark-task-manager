@@ -53,24 +53,24 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	packet := map[string]any{"candidate_identity": identity, "reviewed_files": []string{"a.go"}, "findings": []any{}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err := validateBugReviewDecisions(raw, scope, "PASS", true)
+	decisions, err := validateBugReviewDecisions(raw, scope, "PASS", false)
 	require.NoError(t, err)
 	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "open", "reason": "not refuted"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	_, err = validateBugReviewDecisions(raw, scope, "PASS", true)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS", false)
 	require.ErrorContains(t, err, "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "other.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "refuted", "reason": "not applicable"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err = validateBugReviewDecisions(raw, scope, "PASS", true)
+	decisions, err = validateBugReviewDecisions(raw, scope, "PASS", false)
 	require.NoError(t, err)
 	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "refuted", "reason": "call site proves it cannot occur"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err = validateBugReviewDecisions(raw, scope, "PASS", true)
+	decisions, err = validateBugReviewDecisions(raw, scope, "PASS", false)
 	require.NoError(t, err)
 	require.NoError(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"))
 }
@@ -175,7 +175,7 @@ func TestReviewDecisionConformanceFixtures(t *testing.T) {
 			if verdict == "" {
 				verdict = "PASS"
 			}
-			decisions, e := validateBugReviewDecisions(tc.Decisions, scope, verdict, true)
+			decisions, e := validateBugReviewDecisions(tc.Decisions, scope, verdict, false)
 			if e == nil {
 				e = validateBugReviewAngles(angleBytes, scope, decisions, verdict)
 			}
@@ -242,7 +242,7 @@ func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
 	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "reviewed_files": []string{}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "report-only", "reason": "owner decision requires no action"}}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", true)
+	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", false)
 	require.NoError(t, err)
 	require.Error(t, requireBugFindingDecisions(body, decisions))
 	packet["findings"].([]any)[0].(map[string]any)["disposition"] = "triage"
@@ -253,7 +253,7 @@ func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
 	packet["findings"] = []any{map[string]any{"finding_id": "F-1", "file": "app.go", "line": 2, "severity": "non-blocker", "rule": "INPUT", "summary": "validation", "diagnosis": "missing check", "disposition": "triage", "reason": "tracked"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", true)
+	decisions, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", false)
 	require.NoError(t, err)
 	require.NoError(t, requireBugFindingDecisions(body, decisions))
 }

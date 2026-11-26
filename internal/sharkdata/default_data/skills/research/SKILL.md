@@ -173,7 +173,7 @@ Research is complete when:
 ## Research Phase
 
 1. Invoke research skill workflow:
-   - Skill: `research/workflows/analyze-codebase.md`
+   - Skill: `skills/research/workflows/analyze-codebase.md`
    - Context: {what you're building}
 
 2. Review research findings

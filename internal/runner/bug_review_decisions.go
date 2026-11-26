@@ -43,7 +43,7 @@ func validateBugReviewDecisions(data []byte, scope bugCandidateScope, verdict st
 		return nil, fmt.Errorf("review decisions candidate or plan mismatch")
 	}
 	if requireReviewedFiles {
-		if err := validateBugReviewedFiles(packet.ReviewedFiles, scope.ChangedFiles); err != nil {
+		if err := verifyDeclaredReviewPaths(packet.ReviewedFiles, scope.ChangedFiles); err != nil {
 			return nil, err
 		}
 	}
@@ -73,22 +73,6 @@ func indexBugReviewFindings(findings []bugReviewDecision, verdict string) (map[b
 	return found, nil
 }
 
-func validateBugReviewedFiles(reviewedFiles, changedFiles []string) error {
-	if reviewedFiles == nil {
-		return fmt.Errorf("review decisions reviewed_files missing")
-	}
-	inspected := make(map[string]bool, len(reviewedFiles))
-	for _, file := range reviewedFiles {
-		inspected[file] = true
-	}
-	for _, file := range changedFiles {
-		if !inspected[file] {
-			return fmt.Errorf("review decisions coverage incomplete: missing %s", quoteReviewGitPath(file))
-		}
-	}
-	return nil
-}
-
 func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 	if !validBugDecisionShape(f) {
 		return fmt.Errorf("malformed review decision")
@@ -103,7 +87,7 @@ func validateBugReviewDecision(f bugReviewDecision, verdict string) error {
 		}
 	case "non-blocker":
 	case "nit":
-		if f.Disposition != "report-only" {
+		if f.Disposition != "report-only" && f.Disposition != bugHostActionReportOnly {
 			return fmt.Errorf("nit disposition must be report-only")
 		}
 	default:

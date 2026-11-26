@@ -2,8 +2,6 @@ Verification gate (craft review) passed for COMPLEX feature {{.id}} ("{{.title}}
 
 Required gates — SIMPLE: `code_review`, `approval`; STANDARD: `code_review`, `approval`; COMPLEX: `code_review`, `qa`, `approval` (canonical source: `skills/quality/context/tier-matrix.md`).
 
-{{include: skills/quality/SKILL.md}}
-
 READ:
 (1) Feature spec at {{.file_path}} for acceptance criteria and scope
 (2) Feature test-plan.md for all test cases and expected coverage
@@ -26,7 +24,7 @@ RE-REVIEW ROUND (a prior QA report matching {{.review_base}}qa-*-{{.id}}.md exis
 
 SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
 
-1. **Quality gates (always run, fast):** run the project's format + lint as documented in `docs/architecture/tech-stack.md` (**Quality Gate** section) or `docs/architecture/coding-standards.md`; otherwise infer from the repo (Makefile targets, `go vet ./...`, `package.json` scripts, configured Python tooling).
+1. **Quality gates (always run, fast):** run the project's format + lint as documented in the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (**Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets.
 
 2. **Targeted unit tests:**
    - Union all changed source files from the retained review manifest AND from all task Scope sections
@@ -45,7 +43,7 @@ SCOPED TEST RUN (single pass across the full feature — do NOT run per-task):
    - Pure intra-service or doc-only changes → skip
 
 4. **Sanity spot-check (only if changes are broad across a shared module):**
-   - Run the project's unit suite using the runner documented in `docs/architecture/tech-stack.md` or inferred from the repo
+   - Run the project's unit suite using the runner documented in `CLAUDE.md`, `AGENTS.md`, `docs/architecture/tech-stack.md`, `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets
 
 DO NOT RUN: full integration suite / codex red-team (UAT owns red-team)
 
@@ -93,6 +91,10 @@ PRODUCE QA report to `{{.review_base}}qa-<timestamp>-{{.id}}.md`:
   - Wiring coverage matrix: CONTRACT-### and I-## rows with producer/consumer, contract test, test-exists, and test-passes columns; include X-## rows with producer/consumer, contract / shape source, contract test or deferral, test-exists, and test-passes columns
   - Edge cases tested
   - Any pre-existing failures encountered
+
+## Reference Methodology
+
+{{include: skills/quality/SKILL.md}}
 
 ON PASS: recommended_outcome: pass.
 - Do NOT run Shark status commands yourself; the parent loop will advance the feature.

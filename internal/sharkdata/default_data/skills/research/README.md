@@ -141,7 +141,7 @@ research/
 
 ## Context Files
 
-### analysis-patterns.md
+### skills/research/context/analysis-patterns.md
 Documents common analysis approaches:
 - Breadth-first analysis (overview before depth)
 - Pattern matching and comparison
@@ -150,7 +150,7 @@ Documents common analysis approaches:
 - Architecture layer mapping
 - Feature isolation techniques
 
-### search-strategies.md
+### skills/research/context/search-strategies.md
 Effective search techniques using tools:
 - Grep patterns for different scenarios
 - Glob patterns for file discovery
@@ -159,7 +159,7 @@ Effective search techniques using tools:
 - Progressive search refinement
 - Avoiding common search pitfalls
 
-### documentation-standards.md
+### skills/research/context/documentation-standards.md
 Templates and standards for documenting findings:
 - Research report structure
 - Evidence citation format

@@ -1,16 +1,18 @@
 
 After completing ALL work below, stop and hand control back to the parent loop. Do not run Shark status-transition commands yourself; report the recommended outcome in your final response so the parent can advance the workflow.
 
+DURABLE SOURCES: do not cite host agent memory ("see project memory", memory file names) as a source. Later workers run elsewhere and cannot read it. Write the needed instruction into the document, or cite a committed file.
+
 Design architecture for epic E07-F01: "Sample feature for golden test".
 
 Check for existing architecture docs and UAT plan in epic directory. If both exist and meet exit gate criteria, advance immediately.
 
 ---
 
-Load skills from `shark-data/skills/architecture/`:
-  - `workflows/design-system.md`
-  - `workflows/design-backend.md`
-  - `workflows/design-database as applicable.md`
+Load these architecture skill workflows (read each with `shark skill get architecture <path>`, using the part after `skills/architecture/`):
+  - `skills/architecture/workflows/design-system.md`
+  - `skills/architecture/workflows/design-backend.md`
+  - `skills/architecture/workflows/design-database.md` (as applicable)
 
 READ:
 (1) Epic PRD for scope and requirements
@@ -45,8 +47,8 @@ Before writing it:
 - Ask the CX designer to review user journey handoffs, continuity concerns,
   state continuity, handoff copy, and product workflow implications.
 - Read docs/product/cross-epic-integration-map.md if it exists. Create it from
-  file_templates/cross-epic-integration-map.md when new X-## rows are needed
-  and the global map does not exist.
+  `skills/specification-writing/context/cross-epic-integration-map-template.md`
+  when new X-## rows are needed and the global map does not exist.
 
 Use this table for both the global product map and the per-epic map:
 

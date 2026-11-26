@@ -160,7 +160,8 @@ The standard implementation sequence:
    - Test scenarios come from the test plan, not your interpretation
    ↓
 4. INVOKE TDD DISCIPLINE
-   - Use the test-driven-development skill via the Skill tool
+   - Follow the Test-Driven Development (TDD) methodology included in the
+     prompt (or read via `shark skill get test-driven-development`)
    - This is non-negotiable for production code (features, bug fixes,
      refactoring) — exceptions: configuration, documentation, or
      explicit user request
@@ -205,7 +206,7 @@ The standard implementation sequence:
 ## Integration with Other Skills
 
 **test-driven-development** (REQUIRED)
-- **Invoke this skill FIRST** before any production code via the Skill tool
+- **Follow the TDD methodology FIRST** before any production code (included in the prompt, or read via `shark skill get test-driven-development`)
 - Follow RED-GREEN-REFACTOR cycle
 - Exceptions: configuration files, documentation, or explicit user request
 

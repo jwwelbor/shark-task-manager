@@ -5,8 +5,8 @@ inputs:
   - interface_contracts: list of DTO/interface contracts defined by the architect (optional)
   - backend_design_path: absolute path to 04-backend-design.md (optional, to understand DTOs)
   - data_design_path: absolute path where 03-data-design.md should be written
-  - data_patterns_path: absolute path to data-patterns.md context
-  - database_template_path: absolute path to database-doc.md template
+  - data_patterns_path: absolute path to skills/architecture/context/patterns/data-patterns.md context
+  - database_template_path: absolute path to skills/architecture/context/templates/database-doc.md template
 outputs:
   - data_design_doc: structured markdown written to data_design_path
   - persistence_choice: {mechanism, rationale}

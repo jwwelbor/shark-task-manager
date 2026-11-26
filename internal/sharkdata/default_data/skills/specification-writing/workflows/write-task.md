@@ -92,7 +92,7 @@ Several inputs must be present before tasks can be written. The host should alre
 
 ## SIMPLE-tier mode
 
-The host (feature/task_generation.md) determines the feature's complexity tier from the latest `COMPLEXITY:` decision note and tells you when a feature is SIMPLE. When it is, the following Hard Gates above are **waived** — do not STOP on their absence:
+The host determines the feature's complexity tier from the latest `COMPLEXITY:` decision note and tells you when a feature is SIMPLE. When it is, the following Hard Gates above are **waived** — do not STOP on their absence:
 
 - **Gate 1 (Feature PRD / spec.md)** — waived. A SIMPLE feature does not require a full spec.md before tasks can be written.
 - **Gate 2 (Feature test plan / test-plan.md)** — waived, including its TC-ID, Caller-Path Contracts, ISTQB matrix, and ISO 25010 matrix requirements (BUG-7: those matrices exist to size STANDARD/COMPLEX test surfaces and do not apply to XS/SIMPLE work).

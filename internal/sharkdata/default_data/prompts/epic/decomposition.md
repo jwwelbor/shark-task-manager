@@ -1,6 +1,8 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
+{{template "_durable_sources" .}}
+
 Decompose epic {{.id}}: "{{.title}}" into features.
 
 Check for existing features: {{template "list" .}}. If features exist covering all epic requirements with proper ordering, advance immediately.
@@ -62,7 +64,7 @@ Feature decomposition rules:
 
 CRITICAL: Feature descriptions are THIN — one paragraph. The feature workflow will handle PRD, architecture, and test planning at feature level. Do NOT front-load detail here.
 
-ANTI-FILLER RULE: if decomposition would yield zero features, or only a single filler feature invented to satisfy the "at least one feature" gate, do NOT create it. This epic was misclassified — determine the target type using the same signals as `epic/assessment.md`'s reclassification table (change-card/tech-debt/task/feature/idea as appropriate), then perform the reclassify-and-cancel procedure in `skills/assessment/workflows/reclassify-misfiled-entity.md`. If the reclassification target is unclear, stop, explain why in your final response, and end with `RECOMMENDED OUTCOME: fail` so the parent loop can send the epic back to design for reassessment.
+ANTI-FILLER RULE: if decomposition would yield zero features, or only a single filler feature invented to satisfy the "at least one feature" gate, do NOT create it. This epic was misclassified — determine the target type from these signals: process, infra or docs-governance change not tied to product value -> change-card; documentation or architecture debt -> tech-debt; single atomic change -> task (under an existing feature); single multi-step capability with no second feature or architecture decision -> feature (under a related epic); speculative, uncommitted concept -> idea, then perform the reclassify-and-cancel procedure in `skills/assessment/workflows/reclassify-misfiled-entity.md`. If the reclassification target is unclear, stop, explain why in your final response, and end with `RECOMMENDED OUTCOME: fail` so the parent loop can send the epic back to design for reassessment.
 
 EXIT GATE:
 - All epic requirements covered by at least one feature

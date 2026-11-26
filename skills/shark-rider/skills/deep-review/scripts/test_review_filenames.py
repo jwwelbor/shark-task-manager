@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -104,7 +105,7 @@ class ReviewFilenameTests(unittest.TestCase):
             selected = review_packet(self.scope)
             selected["decisions"]["reviewed_files"] = names
             with patch.object(adaptive_review, "_try_cli_candidates",
-                              return_value=(selected["report"], selected["decisions"], "codex", [])), \
+                              return_value=(selected["report"], selected["decisions"], "codex", None, [])), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 status = adaptive_review.run_cli(adaptive_review.parser().parse_args(args))
             stdout = output.getvalue()
@@ -254,44 +255,80 @@ run(scope, () => {}, tasks => Promise.all(tasks.map(task => task())), reviewer, 
                 self.assertEqual(rejected["result"]["runner_mode"], "incomplete")
                 self.assertIn("changed_files", rejected["result"]["report"])
 
-    def test_cli_manifest_at_preferred_and_fallback_executables(self):
-        for expected in self.colliding_manifests():
-            for fallback in (False, True):
-                with self.subTest(candidate=self.scope["candidate_commit"], fallback=fallback):
-                    packet = review_packet(self.scope)
-                    for cli in ("codex", "claude"):
-                        executable = self.root / cli
-                        executable.write_text(
-                            "#!/usr/bin/env python3\n"
-                            "import json, pathlib, sys\n"
-                            "prompt = sys.argv[1]\n"
-                            "marker = '- CHANGED_FILES:\\n'\n"
-                            "field = prompt.split(marker, 1)[1].split('\\n', 1)[0] if marker in prompt else None\n"
-                            "paths = json.loads(field) if field else []\n"
-                            "contents = [pathlib.Path(name).read_text() for name in paths]\n"
-                            f"with open({str(self.root / 'calls')!r}, 'a') as log:\n"
-                            f"    print(json.dumps([{cli!r}, field, contents]), file=log)\n"
-                            f"print({json.dumps(packet)!r})\n"
-                            f"sys.exit({int(fallback and cli == 'codex')})\n")
-                        executable.chmod(0o700)
-                    (self.root / "calls").write_text("")
-                    report = self.root / f"report-{self.scope['candidate_commit']}-{fallback}.md"
-                    args = ["run-cli", "--prompt-file", str(self.prompt), "--host", "claude",
-                            "--no-workflow-available", "--no-agent-dispatch-available",
-                            "--codex-command", str(self.root / "codex"), "--claude-command", str(self.root / "claude"),
-                            "--scope-file", str(self.scope_file), "--base-commit", self.scope["base_commit"],
-                            "--diff-path", self.scope["diff_path"], "--project-root", str(self.repo),
-                            "--source-root", str(self.repo), "--review-output-path", str(report)]
-                    output = subprocess.check_output([sys.executable, str(HERE / "adaptive_review.py"), *args])
-                    metadata = json.loads(output)
-                    calls = [json.loads(line) for line in (self.root / "calls").read_text().splitlines()]
-                    self.assertEqual([c[0] for c in calls], ["codex", "claude"] if fallback else ["codex"])
-                    self.assertEqual(metadata["adversarial_model"], calls[-1][0])
-                    self.assertEqual(metadata["verdict"], "PASS")
-                    for cli, field, contents in calls:
-                        self.assertIsNotNone(field, cli)
-                        self.assertEqual(json.loads(field), expected, cli)
-                        self.assertEqual(contents, [name * 2 for name in expected], cli)
+    def assert_cli_manifest_delivered(self):
+        expected = self.git("diff", "--name-only", "-z", self.scope["base_commit"],
+                            self.scope["candidate_commit"]).split(b"\0")[:-1]
+        reads = [[name.hex(), (self.repo / os.fsdecode(name)).read_bytes().hex()] for name in expected]
+        for retry in (False, True):
+            with self.subTest(names=expected, retry=retry):
+                packet = self.root / "reply.json"
+                packet.write_text(json.dumps(review_packet(self.scope)))
+                attempts = self.root / "attempts"
+                attempts.write_text("")
+                commands = []
+                for cli in ("codex", "claude"):
+                    exit_status = int(retry and cli == "codex")
+                    command = shlex.join([sys.executable, str(HERE / "testdata" / "inspect_cli_manifest.py"),
+                                          cli, str(attempts), str(packet), str(exit_status)])
+                    commands.extend(["--" + cli + "-command", command])
+                self.run_number += 1
+                result = subprocess.run([
+                    sys.executable, str(HERE / "adaptive_review.py"), "run-cli",
+                    "--no-workflow-available", "--no-agent-dispatch-available", "--host", "claude",
+                    "--prompt-file", str(self.prompt), "--scope-file", self.scope_file.name,
+                    "--diff-path", self.scope["diff_path"], "--base-commit", self.scope["base_commit"],
+                    "--project-root", str(self.repo), "--source-root", str(self.repo),
+                    "--review-output-path", str(self.root / f"manifest-{self.run_number}.md"),
+                    *commands], cwd=self.root, capture_output=True, check=True)
+                producers = ["codex", "claude"] if retry else ["codex"]
+                self.assertEqual(json.loads(result.stdout)["adversarial_model"], producers[-1])
+                observed = [json.loads(line) for line in attempts.read_text().splitlines()]
+                self.assertEqual(observed, [[producer, reads] for producer in producers])
+
+    def test_each_cli_attempt_receives_the_frozen_git_manifest(self):
+        # The first two manifests have the same count and newline-joined text.
+        fixtures = ([b"alpha", b"beta\ngamma"], [b"alpha\nbeta", b"gamma"],
+                    [b" ", b'quote"', br"back\slash", b"caf\xe9", "caf\ufffd".encode()])
+        for names in fixtures:
+            self.commit_names(names)
+            self.assert_cli_manifest_delivered()
+
+    def test_cli_retry_receives_unchanged_predecessor_file_in_full_scope(self):
+        self.commit_names([b"edited", b"prior-only"])
+        base, predecessor = self.scope["base_commit"], self.scope["candidate_commit"]
+        self.commit_names([b"edited"])
+        capture = subprocess.check_output(["bash", str(HERE / "get_diff.sh")], cwd=self.repo,
+                                          env={**os.environ, "REVIEW_BASE": base,
+                                               "REVIEW_PREDECESSOR_COMMIT": predecessor})
+        self.scope_file.write_bytes(capture)
+        self.scope = json.loads(capture)
+        self.assertEqual(self.scope["successor_delta"]["changed_files"], ["edited"])
+        self.assertEqual(self.scope["changed_files"], ["edited", "prior-only"])
+        self.assert_cli_manifest_delivered()
+
+    def test_requested_and_effective_models_round_trip_at_both_cli_writers(self):
+        self.commit_names([b"ordinary", b" "])
+        names = self.scope["changed_files"]
+        for entry in ("run-cli", "write-report"):
+            for requested, effective in [(None, None), (None, "P"), ("", "P"), ("R", None), ("R", "P")]:
+                with self.subTest(entry=entry, requested=requested, effective=effective):
+                    report = self.root / f"model-{entry}-{requested!r}-{effective!r}.md"
+                    args = (self.cli_arguments(names, False) if entry == "run-cli"
+                            else self.direct_arguments("adversarial-cli", names))
+                    for flag, value in [("--requested-model", requested), ("--effective-model", effective)]:
+                        if value is not None:
+                            args.extend([flag, value])
+                    result = subprocess.run([sys.executable, str(HERE / "adaptive_review.py"), *args,
+                                             "--scope-file", str(self.scope_file), "--base-commit", self.scope["base_commit"],
+                                             "--diff-path", self.scope["diff_path"], "--project-root", str(self.repo),
+                                             "--source-root", str(self.repo), "--review-output-path", str(report)],
+                                            check=True, capture_output=True)
+                    metadata = json.loads(result.stdout)
+                    self.assertEqual(metadata["requested_model"], requested)
+                    self.assertEqual(metadata["effective_model"], effective)
+                    requested_label = "unknown" if requested is None else requested
+                    self.assertIn(f"**Requested model:** `{requested_label}` · **Verified effective model:** `{effective or 'unknown'}`",
+                                  report.read_text(encoding="utf-8"))
 
     def test_required_and_supplemental_space_across_cli_writers(self):
         self.commit_names([b"ordinary", b" "])

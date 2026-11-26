@@ -61,7 +61,7 @@ If no test plan exists:
 
 ### Step 3: Run Automated Tests
 
-First, consult `docs/architecture/tech-stack.md` (the **Quality Gate** section) or `docs/architecture/coding-standards.md` to determine the project's format, lint, and test commands. If neither document exists, infer from the repo: a `Makefile` → its documented format/lint/test targets; `go.mod` → `gofmt`/`go vet ./...`/`go test ./...`; `package.json` → its format/lint/test scripts; `pyproject.toml` → the configured formatter/linter and `pytest`.
+Consult the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (the **Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets to determine the project's format, lint, and test commands.
 
 Run the project's test suite scoped to this change. Use the appropriate runner determined above — choose by reading the project's docs, not by guessing.
 
@@ -137,7 +137,7 @@ For every TC in the test plan that declares a contract (skip TCs marked `interna
 
 Any violation is a **BLOCKER naming the TC-ID**, citing the test `file:line` and the contract field it violates. Contract-compliance BLOCKERs make the verdict FAIL.
 
-Note: red-team verification is NOT run here — UAT owns the independent codex red-team (see `_qa_process.md`); running it in QA is redundant.
+Note: red-team verification is NOT run here — UAT owns the independent codex red-team; running it in QA is redundant.
 
 ### Step 9: Integration Test Assertion Quality
 

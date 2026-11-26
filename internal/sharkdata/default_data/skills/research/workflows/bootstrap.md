@@ -218,7 +218,7 @@ Using `../context/stack-research-guide.md`, research authoritative coding standa
 **Brownfield**: Invoke the existing coding-standards workflow (`skills/quality/workflows/generate-standards.md`) with additional context from:
 - Discovered patterns (from `patterns-catalog.md`)
 - Official standards (from web research)
-- Reconciliation using the augmentation pattern in `stack-research-guide.md`
+- Reconciliation using the augmentation pattern in `skills/research/context/stack-research-guide.md`
 
 Output:
 - `coding-standards.md` at `coding_standards_path` — Enforceable standards

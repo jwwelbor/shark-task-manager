@@ -15,7 +15,7 @@ from bounded_git import run as run_bounded_git
 import tempfile
 
 from source_inventory import source_inventory
-from review_status import registered_worktrees, runtime_prefix, runtime_project, selection_overlaps_runtime
+from review_status import git_path_text, registered_worktrees, runtime_prefix, runtime_project, selection_overlaps_runtime
 
 
 def _validate_metadata_path(path, root, destination, parser):
@@ -83,11 +83,10 @@ def main():
         commit = git('-c', 'commit.gpgsign=false', 'commit-tree', tree, '-p', head,
                      env=env, input='Shark isolated review snapshot v1\n')
     git('worktree', 'add', '--detach', str(destination), commit)
-    # Git path bytes use UTF-8 with surrogateescape in the JSON protocol, regardless of the argv locale.
-    selected_paths = [os.fsencode(path).decode("utf-8", "surrogateescape") for path in args.paths]
     metadata = {'project_root': str(destination), 'source_root': str(root), 'runtime_project': project,
                 'source_commit': head, 'candidate_commit': commit, 'candidate_tree': tree,
-                'selected_paths': selected_paths, 'selected_index_sha256': hashlib.sha256(staged_diff).hexdigest(),
+                'selected_paths': [git_path_text(os.fsencode(path)) for path in args.paths],
+                'selected_index_sha256': hashlib.sha256(staged_diff).hexdigest(),
                 'source_inventory_sha256': inventory}
     # A worktree-local marker survives an ordinary amend/reword of the
     # synthetic commit; its subject alone is not durable provenance.

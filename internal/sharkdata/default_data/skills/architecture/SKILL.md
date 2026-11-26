@@ -21,7 +21,7 @@ outputs:
 
 This skill provides software architecture capabilities including system design, backend architecture, frontend architecture, data modeling, and security design. It delivers standardized workflows, patterns, and templates for creating comprehensive architecture documentation.
 
-For task-level architecture work, also refer to `specification-writing/workflows/refine-task-requirements.md` for the architect-specific workflow.
+For task-level architecture work, also refer to `skills/specification-writing/workflows/refine-task-requirements.md` for the architect-specific workflow.
 
 ## Workflow Selection
 
@@ -62,20 +62,20 @@ Based on what the user needs, invoke the appropriate workflow:
 
 Common architectural patterns are documented in `context/patterns/`:
 
-- `api-patterns.md` - REST API design, GraphQL patterns, versioning
-- `data-patterns.md` - Data modeling, schema design, migration strategies
-- `security-patterns.md` - Authentication, authorization, RLS, encryption
-- `integration-patterns.md` - Service integration, event-driven, messaging
+- `context/patterns/api-patterns.md` - REST API design, GraphQL patterns, versioning
+- `context/patterns/data-patterns.md` - Data modeling, schema design, migration strategies
+- `context/patterns/security-patterns.md` - Authentication, authorization, RLS, encryption
+- `context/patterns/integration-patterns.md` - Service integration, event-driven, messaging
 
 ## Template Resources
 
 All workflows reference these templates for consistent document structure:
 
-- `architecture-doc.md` - System architecture document template (02-architecture.md)
-- `api-spec-doc.md` - API/Backend specification template (04-backend-design.md)
-- `frontend-doc.md` - Frontend design template (05-frontend-design.md)
-- `database-doc.md` - Data design template (03-data-design.md)
-- `security-doc.md` - Security design template (06-security-design.md)
+- `context/templates/architecture-doc.md` - System architecture document template (02-architecture.md)
+- `context/templates/api-spec-doc.md` - API/Backend specification template (04-backend-design.md)
+- `context/templates/frontend-doc.md` - Frontend design template (05-frontend-design.md)
+- `context/templates/database-doc.md` - Data design template (03-data-design.md)
+- `context/templates/security-doc.md` - Security design template (06-security-design.md)
 
 ## Integration Points
 
@@ -94,9 +94,9 @@ Agents reference this skill using:
 ## Your Process
 1. Analyze feature requirements from PRD
 2. Review project research report (00-research-report.md)
-3. Invoke architecture skill workflow: architecture/workflows/design-{domain}.md
-4. Apply patterns from: architecture/context/patterns/{pattern-type}.md
-5. Use template: architecture/context/templates/{template-name}.md
+3. Invoke architecture skill workflow: workflows/design-{domain}.md
+4. Apply patterns from: context/patterns/{pattern-type}.md
+5. Use template: context/templates/{template-name}.md
 6. Generate documentation at /docs/plan/{epic-key}/{feature-key}/
 ```
 
