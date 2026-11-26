@@ -83,6 +83,8 @@ def main():
         commit = git('-c', 'commit.gpgsign=false', 'commit-tree', tree, '-p', head,
                      env=env, input='Shark isolated review snapshot v1\n')
     git('worktree', 'add', '--detach', str(destination), commit)
+    # Git path bytes use UTF-8 with surrogateescape in the JSON protocol, regardless of the argv locale.
+    selected_paths = [os.fsencode(path).decode("utf-8", "surrogateescape") for path in args.paths]
     metadata = {'project_root': str(destination), 'source_root': str(root), 'runtime_project': project,
                 'source_commit': head, 'candidate_commit': commit, 'candidate_tree': tree,
                 'selected_paths': [git_path_text(os.fsencode(path)) for path in args.paths],

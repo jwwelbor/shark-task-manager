@@ -40,16 +40,16 @@ def exercise(paths, *, encoded=False, no_vector=False, missing=None, manifest=No
         order = paths[index:] + paths[:index]
         finding = {"file": paths[0], "line": 1, "severity": "blocker", "rule": "CORRECTNESS",
                    "summary": f"observation {label}", "diagnosis": f"missing registration {label}",
-                   "evidence": f"observed callback {label}"}
-        packets[label] = {"candidate_identity": identity, "findings": [finding],
+                   "impact": "callers never receive the event", "evidence": f"observed callback {label}"}
+        packets[label] = {"review_contract_version": 2, "candidate_identity": identity, "findings": [finding],
                           "reviewed_files": [*order, f"context-{label}"]}
-        decisions.append(dict(finding, disposition="open", reason="callback is missing"))
+        decisions.append(dict(finding, origin=label, finding_id=f"F-{index + 1}", disposition="open", reason="callback is missing"))
     if missing:
         label, member = missing
         packets[label]["reviewed_files"].remove(member)
     if extra is not None:
         packets["a"]["reviewed_files"].append(extra)
-    decision_packet = {"candidate_identity": identity, "findings": decisions}
+    decision_packet = {"review_contract_version": 2, "candidate_identity": identity, "findings": decisions}
     if consolidated is not None:
         decision_packet["reviewed_files"] = consolidated
     fixture = {"args": json.dumps(args) if encoded else args, "packets": packets, "noVector": no_vector,

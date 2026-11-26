@@ -213,9 +213,9 @@ const src = fs.readFileSync(process.argv[1], 'utf8');
 const scope = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const run = new (Object.getPrototypeOf(async function(){}).constructor)('args','phase','parallel','agent','log', src.slice(src.indexOf('// ─── Args')));
 const identity = {commit:scope.candidate_commit, tree:scope.candidate_tree, diff_sha256:scope.diff_sha256, repair_plan_sha256:scope.repair_plan_sha256};
-const angle = {candidate_identity:identity, reviewed_files:[...scope.changed_files,'supplemental-context'], findings:[]};
+const angle = {review_contract_version:2, candidate_identity:identity, reviewed_files:[...scope.changed_files,'supplemental-context'], findings:[]};
 const parallel = async () => Array(6).fill(angle);
-const agent = async () => ({report:'Scope: reviewed every changed file and associated callers. Findings: no blocking defects. **Verdict:** PASS', decisions:{candidate_identity:identity,findings:[]}});
+const agent = async () => ({report:'Scope: reviewed every changed file and associated callers. Findings: no blocking defects. **Verdict:** PASS', decisions:{review_contract_version:2,candidate_identity:identity,findings:[]}});
 const args = {...scope, skill_dir:'fixture', entity_type:'bug', repair_context:{plan:'plan',plan_revision:'sha256:'+scope.repair_plan_sha256,research:'research',coverage:'coverage',prior_findings:[]}};
 run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringify(r))).catch(e=>{console.error(e);process.exit(1)});
 `
@@ -308,16 +308,10 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.ErrorContains(t, err, "plan revision differs")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "docs/plan/plan.md"), plan, 0600))
 	// The comparable CLI path must also interoperate with the report writer.
-	var cliPacket map[string]any
-	require.NoError(t, json.Unmarshal(nativeResult.Decisions, &cliPacket))
-	var inspected []string
-	for _, name := range []string{"change.txt", "docs/plan/plan.md", "leaf.txt"} {
-		_, err := os.ReadFile(filepath.Join(snapshot, name))
-		require.NoError(t, err)
-		inspected = append(inspected, name)
-	}
-	cliPacket["reviewed_files"] = inspected
-	cliDecisionBytes, err := json.Marshal(cliPacket)
+	var cliDecisionSeed map[string]any
+	require.NoError(t, json.Unmarshal(nativeResult.Decisions, &cliDecisionSeed))
+	cliDecisionSeed["reviewed_files"] = captured.ChangedFiles
+	cliDecisionBytes, err := json.Marshal(cliDecisionSeed)
 	require.NoError(t, err)
 	cliDecisionPath := filepath.Join(root, ".shark", "cli-decisions.json")
 	require.NoError(t, os.WriteFile(cliDecisionPath, cliDecisionBytes, 0600))
@@ -335,20 +329,62 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	cliScopeRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/cli-report.md.scope.json","summary":"sha256:%x"}`, cliScopeHash)
 	cliDecisionBytes, err = os.ReadFile(cliReportPath + ".decisions.json")
 	require.NoError(t, err)
-	cliDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/cli-report.md.decisions.json","summary":"sha256:%x"}`, sha256.Sum256(cliDecisionBytes))
+	cliDecisionHash := sha256.Sum256(cliDecisionBytes)
+	cliDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/cli-report.md.decisions.json","summary":"sha256:%x"}`, cliDecisionHash)
 	require.NoError(t, verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "fallback"), EnvelopeJSON: envelope(cliScopeRef + "," + cliRef + "," + cliDecisionRef + "," + materialRefs)}, nil))
-	t.Run("cli_declaration_omits_predecessor_file", func(t *testing.T) {
-		cliPacket["reviewed_files"] = []string{"docs/plan/plan.md", "change.txt"}
-		partial, err := json.Marshal(cliPacket)
-		require.NoError(t, err)
-		badReport := strings.Replace(string(cliReport), fmt.Sprintf("%x", sha256.Sum256(cliDecisionBytes)), fmt.Sprintf("%x", sha256.Sum256(partial)), 1)
-		require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "partial-cli-decisions.json"), partial, 0600))
-		require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "partial-cli-report.md"), []byte(badReport), 0600))
-		partialRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/partial-cli-decisions.json","summary":"sha256:%x"}`, sha256.Sum256(partial))
-		reportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/partial-cli-report.md","summary":"sha256:%x"}`, sha256.Sum256([]byte(badReport)))
-		err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "partial-cli"), EnvelopeJSON: envelope(cliScopeRef + "," + reportRef + "," + partialRef)}, nil)
-		require.ErrorContains(t, err, "leaf.txt")
-	})
+	// A fully covered, hash-consistent receipt must not turn an empty review
+	// into successful triage. This verifier is also used when QA replays the
+	// prior code-review receipt.
+	var emptyTriageDecisions map[string]any
+	require.NoError(t, json.Unmarshal(cliDecisionBytes, &emptyTriageDecisions))
+	emptyTriageDecisions["findings"] = []any{}
+	emptyTriageDecisionBytes, err := json.Marshal(emptyTriageDecisions)
+	require.NoError(t, err)
+	emptyTriageDecisionHash := sha256.Sum256(emptyTriageDecisionBytes)
+	emptyTriageDecisionPath := ".shark/qa-empty-triage.decisions.json"
+	require.NoError(t, os.WriteFile(filepath.Join(root, emptyTriageDecisionPath), emptyTriageDecisionBytes, 0600))
+	emptyTriageDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":"%s","summary":"sha256:%x"}`, emptyTriageDecisionPath, emptyTriageDecisionHash)
+	oldCLIDecisionHash := sha256.Sum256(cliDecisionBytes)
+	emptyTriageReport := strings.ReplaceAll(string(cliReport), "PASS", "PASS-WITH-TRIAGE")
+	emptyTriageReport = strings.Replace(emptyTriageReport, fmt.Sprintf("`%x`", oldCLIDecisionHash), fmt.Sprintf("`%x`", emptyTriageDecisionHash), 1)
+	emptyTriageReportPath := ".shark/qa-empty-triage.md"
+	require.NoError(t, os.WriteFile(filepath.Join(root, emptyTriageReportPath), []byte(emptyTriageReport), 0600))
+	emptyTriageReportHash := sha256.Sum256([]byte(emptyTriageReport))
+	emptyTriageReportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, emptyTriageReportPath, emptyTriageReportHash)
+	err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "qa-empty-triage"), EnvelopeJSON: envelope(cliScopeRef + "," + emptyTriageReportRef + "," + emptyTriageDecisionRef)}, nil)
+	require.ErrorContains(t, err, "PASS-with-triage requires at least one retained finding")
+	// QA replays the prior CLI receipt. A complete identity and refreshed hashes
+	// must not make a receipt pass when its reviewer inspected only one of the
+	// frozen changed files. Keep the original accepted receipt byte-for-byte.
+	var cliDecisions map[string]any
+	require.NoError(t, json.Unmarshal(cliDecisionBytes, &cliDecisions))
+	require.GreaterOrEqual(t, len(captured.ChangedFiles), 2)
+	reviewed := cliDecisions["reviewed_files"].([]any)
+	for _, changed := range captured.ChangedFiles {
+		require.Contains(t, reviewed, changed)
+	}
+	cliDecisions["reviewed_files"] = []string{captured.ChangedFiles[0]}
+	partialDecisionBytes, err := json.Marshal(cliDecisions)
+	require.NoError(t, err)
+	partialDecisionPath := ".shark/qa-omission.decisions.json"
+	require.NoError(t, os.WriteFile(filepath.Join(root, partialDecisionPath), partialDecisionBytes, 0600))
+	partialDecisionHash := sha256.Sum256(partialDecisionBytes)
+	partialDecisionRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":"%s","summary":"sha256:%x"}`, partialDecisionPath, partialDecisionHash)
+	oldDecisionHash := sha256.Sum256(cliDecisionBytes)
+	partialReport := strings.Replace(string(cliReport), fmt.Sprintf("**Review decisions SHA-256:** `%x`", oldDecisionHash), fmt.Sprintf("**Review decisions SHA-256:** `%x`", partialDecisionHash), 1)
+	require.NotEqual(t, string(cliReport), partialReport)
+	partialReportPath := ".shark/qa-omission.md"
+	require.NoError(t, os.WriteFile(filepath.Join(root, partialReportPath), []byte(partialReport), 0600))
+	partialReportHash := sha256.Sum256([]byte(partialReport))
+	partialReportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":"%s","summary":"sha256:%x"}`, partialReportPath, partialReportHash)
+	err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "qa-omission"), EnvelopeJSON: envelope(cliScopeRef + "," + partialReportRef + "," + partialDecisionRef)}, nil)
+	require.ErrorContains(t, err, "coverage incomplete")
+	retainedCLIReport, err := os.ReadFile(cliReportPath)
+	require.NoError(t, err)
+	retainedCLIDecisions, err := os.ReadFile(cliReportPath + ".decisions.json")
+	require.NoError(t, err)
+	require.Equal(t, cliReport, retainedCLIReport)
+	require.Equal(t, cliDecisionBytes, retainedCLIDecisions)
 	for _, tc := range []struct{ old, replacement string }{
 		{"**Adversarial model:** `codex`", "**Adversarial model:** ``"},
 		{"**Adversarial model:** `codex`", "**Adversarial model:** `unknown`"},
@@ -375,33 +411,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "old-report"), EnvelopeJSON: envelope(refreshedRef + "," + reportRef + "," + anglesRef + "," + decisionRef)}, nil)
 	require.ErrorContains(t, err, "Retained scope digest does not match report")
 	prior := envelope(planRef)
-	dir, err := gaterun.RunDir(root, "approved-plan")
-	require.NoError(t, err)
-	lock, err := gaterun.AcquireRunLock(dir, 0)
-	require.NoError(t, err)
-	require.NoError(t, lock.Release())
-	planRoot, planCommit, planBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EnvelopeJSON: prior})
-	require.NoError(t, err)
-	digest, err := gaterun.ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", prior, planRoot, planCommit, planBlob)
-	require.NoError(t, err)
-	require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "approved-plan", PlanCommit: planCommit}))
-	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved-plan", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, PlanRoot: planRoot, PlanCommit: planCommit, PlanBlob: planBlob})
-	require.NoError(t, err)
-	_, err = gaterun.CreateResult(dir, prior)
-	require.NoError(t, err)
-	_, err = gaterun.CreateApprovedPlan(dir, plan)
-	require.NoError(t, err)
-	state := gaterun.NewOperationState("approved-plan", "B001", "bug", "plan_review", "plan_review", digest)
-	state.AdmissionVersion = gatepersist.BoundAdmissionVersion
-	require.NoError(t, state.MarkPersistenceComplete())
-	require.NoError(t, state.MarkTransitionApplied())
-	require.NoError(t, state.Save(dir))
-	metaBytes, err := json.Marshal(map[string]string{"gate": "plan_review", "role": "success", "outcome_key": "pass", "run_id": "approved-plan", "operation_digest": digest})
-	require.NoError(t, err)
-	meta := string(metaBytes)
-	notes := bugApprovalNotes{items: []*models.EntityNote{{ID: 1, Metadata: &meta}}}
-	from, reason := "plan_review", gatepersist.BoundTransitionReason("plan_review", "pass", "approved-plan", digest)
-	history := bugApprovalHistory{items: []*models.EntityHistory{{ID: 1, FromStatus: &from, ToStatus: "development", Notes: &reason}}}
+	notes, history := seedReviewTestPlan(t, root, prior, plan)
 	status := &fakeTransitioner{status: map[string]string{"B001": "code_review"}}
 	written := &fakeNoteWriter{}
 	coord := gatepersist.NewCoordinator(written, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true, "resolved": true}}, status, status, &fakeLeaseReleaser{}, status)
@@ -525,4 +535,36 @@ func TestBugCandidateScopesNestedProjectRuntimeWithoutHidingSource(t *testing.T)
 	require.NoError(t, os.WriteFile(filepath.Join(otherRuntime, "other"), []byte("unrelated"), 0600))
 	require.ErrorContains(t, verifyBugCandidate(context.Background(), project, scope), "candidate worktree changed")
 	require.Error(t, validate(project))
+}
+
+func seedReviewTestPlan(t *testing.T, root string, prior, plan []byte) (bugApprovalNotes, bugApprovalHistory) {
+	t.Helper()
+	dir, err := gaterun.RunDir(root, "approved-plan")
+	require.NoError(t, err)
+	lock, err := gaterun.AcquireRunLock(dir, 0)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+	planRoot, planCommit, planBlob, err := bugPlanProvenance(context.Background(), gatepersist.Request{RunDir: dir, EnvelopeJSON: prior})
+	require.NoError(t, err)
+	digest, err := gaterun.ComputeBoundOperationDigest("B001", "bug", "plan_review", "plan_review", prior, planRoot, planCommit, planBlob)
+	require.NoError(t, err)
+	require.NoError(t, retainBugPlanCommit(context.Background(), gatepersist.Request{RunDir: dir, RunID: "approved-plan", PlanCommit: planCommit}))
+	_, err = gaterun.CreateIdentity(dir, gaterun.RunIdentity{RunID: "approved-plan", EntityKey: "B001", EntityType: "bug", SourceStatus: "plan_review", Gate: "plan_review", OperationDigest: digest, PlanRoot: planRoot, PlanCommit: planCommit, PlanBlob: planBlob})
+	require.NoError(t, err)
+	_, err = gaterun.CreateResult(dir, prior)
+	require.NoError(t, err)
+	_, err = gaterun.CreateApprovedPlan(dir, plan)
+	require.NoError(t, err)
+	state := gaterun.NewOperationState("approved-plan", "B001", "bug", "plan_review", "plan_review", digest)
+	state.AdmissionVersion = gatepersist.BoundAdmissionVersion
+	require.NoError(t, state.MarkPersistenceComplete())
+	require.NoError(t, state.MarkTransitionApplied())
+	require.NoError(t, state.Save(dir))
+	metaBytes, err := json.Marshal(map[string]string{"gate": "plan_review", "role": "success", "outcome_key": "pass", "run_id": "approved-plan", "operation_digest": digest})
+	require.NoError(t, err)
+	meta := string(metaBytes)
+	notes := bugApprovalNotes{items: []*models.EntityNote{{ID: 1, Metadata: &meta}}}
+	from, reason := "plan_review", gatepersist.BoundTransitionReason("plan_review", "pass", "approved-plan", digest)
+	history := bugApprovalHistory{items: []*models.EntityHistory{{ID: 1, FromStatus: &from, ToStatus: "development", Notes: &reason}}}
+	return notes, history
 }

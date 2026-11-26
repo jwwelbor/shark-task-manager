@@ -214,6 +214,16 @@ worker cites the original reference in its envelope. Admission resolves the
 applied review from parent history and reads the observation in that review’s
 parent run directory, including when the source lives in a linked checkout.
 
+Before dispatching the review worker, the parent host runs
+`shark run <entity-key> --tracker-ledger-env --run-id <run-id>`, which creates
+the run's tracker attempt ledger and prints two `NAME=value` assignments. The
+host exports them to the worker so each shark invocation the worker makes is
+recorded, including ones rejected before they mutate. At apply-result the
+adapter reads that ledger, writes its digest and each finding's attempt count
+into the observation, and admission rejects a report-only withdrawal when the
+ledger is absent or records a write attempt for the finding. The ledger binds
+an honest host's attempts; a host that bypasses the shark CLI is outside it.
+
 The parent observation file has this bounded shape (candidate values and
 finding IDs come from the accepted review scope and decisions):
 

@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/gitutil"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -88,6 +91,13 @@ type BugTriageWindow struct {
 	// TrackerWrites is the number of entity notes created during the dispatch,
 	// counted by the parent from the tracker, not reported by the worker.
 	TrackerWrites int
+	// Started is when the parent began the dispatch. Zero means the window
+	// start is unknown and attempted edits are not measured.
+	Started time.Time
+	// RequireLedger makes the parent read this run's tracker attempt ledger,
+	// record each observed finding's attempts and carry the ledger digest in
+	// the observation. A missing ledger is an error.
+	RequireLedger bool
 }
 
 // ObserveBugReportOnlyTriage measures what the host did while a bug code review
@@ -101,7 +111,7 @@ func ObserveBugReportOnlyTriage(ctx context.Context, w BugTriageWindow, envelope
 		// Malformed worker output is reported by IngestGateResult itself.
 		return envelopeBytes, false, nil
 	}
-	ids, identity, err := measuredReportOnlyFindings(w.WorkingDir, envelope.Evidence)
+	ids, all, identity, err := measuredReportOnlyFindings(w.WorkingDir, envelope.Evidence)
 	if err != nil || len(ids) == 0 {
 		return envelopeBytes, false, err
 	}
@@ -109,11 +119,36 @@ func ObserveBugReportOnlyTriage(ctx context.Context, w BugTriageWindow, envelope
 	if err != nil {
 		return nil, false, err
 	}
+	attempts, err := measureEditAttempts(ctx, w.WorkingDir, envelope.Evidence, w.Started)
+	if err != nil {
+		return nil, false, err
+	}
+	var ledger *trackerattempts.Ledger
+	if w.RequireLedger {
+		if ledger, err = readTrackerLedger(w.ProjectRoot, w.RunID); err != nil {
+			return nil, false, err
+		}
+	}
 	actions := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		actions = append(actions, map[string]any{"finding_id": id.id, "action": id.action, "edits": edits, "tracker_writes": w.TrackerWrites})
+		action := map[string]any{"finding_id": id.id, "action": id.action, "edits": edits, "tracker_writes": w.TrackerWrites}
+		if attempts >= 0 {
+			// A restored edit leaves no net change but still moves the file's
+			// modification time, so the attempt is bound to this run's window.
+			action["edit_attempts"] = attempts
+		}
+		if ledger != nil {
+			// Attempts rejected before any mutation never reach the tracker, so
+			// they are counted from the ledger the shark CLI wrote at invocation.
+			action["tracker_attempts"] = findingWriteAttempts(*ledger, id.id, all)
+		}
+		actions = append(actions, action)
 	}
-	data, err := json.Marshal(map[string]any{"candidate_identity": identity, "observed_by": "parent", "actions": actions})
+	observation := map[string]any{"candidate_identity": identity, "observed_by": "parent", "run_id": w.RunID, "actions": actions}
+	if ledger != nil {
+		observation["tracker_attempt_ledger"] = map[string]any{"run_id": w.RunID, "sha256": ledger.SHA256, "entries": len(ledger.Entries)}
+	}
+	data, err := json.Marshal(observation)
 	if err != nil {
 		return nil, false, err
 	}
@@ -146,29 +181,33 @@ func readDigestBoundEvidence(root string, refs []workercontrol.EvidenceRef, kind
 
 type measuredHostAction struct{ id, action string }
 
-func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) ([]measuredHostAction, bugReviewIdentity, error) {
+func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) ([]measuredHostAction, []bugReviewDecision, bugReviewIdentity, error) {
 	if !hasBugEvidence(refs, "bug_review_decisions") {
-		return nil, bugReviewIdentity{}, nil
+		return nil, nil, bugReviewIdentity{}, nil
 	}
 	data, err := readDigestBoundEvidence(root, refs, "bug_review_decisions")
 	if err != nil {
-		return nil, bugReviewIdentity{}, err
+		return nil, nil, bugReviewIdentity{}, err
 	}
 	var packet bugReviewDecisions
 	if err := json.Unmarshal(data, &packet); err != nil {
-		return nil, bugReviewIdentity{}, fmt.Errorf("invalid review decisions: %w", err)
+		return nil, nil, bugReviewIdentity{}, fmt.Errorf("invalid review decisions: %w", err)
 	}
 	decisions := make(map[bugFindingKey]bugReviewDecision, len(packet.Findings))
 	for _, finding := range packet.Findings {
-		decisions[bugFindingKey{finding.File, finding.Line, finding.Rule, finding.Summary, finding.Diagnosis}] = finding
+		key, err := decisionSourceKey(finding, packet.ReviewContractVersion, make(map[string]bool))
+		if err != nil {
+			return nil, nil, bugReviewIdentity{}, err
+		}
+		decisions[key] = finding
 	}
 	raw, err := measuredRawSeverities(root, refs)
 	if err != nil {
-		return nil, bugReviewIdentity{}, err
+		return nil, nil, bugReviewIdentity{}, err
 	}
 	byID, err := expectedBugHostActions(decisions, raw)
 	if err != nil {
-		return nil, bugReviewIdentity{}, err
+		return nil, nil, bugReviewIdentity{}, err
 	}
 	ids := make([]measuredHostAction, 0, len(byID))
 	for _, finding := range packet.Findings {
@@ -176,7 +215,7 @@ func measuredReportOnlyFindings(root string, refs []workercontrol.EvidenceRef) (
 			ids = append(ids, measuredHostAction{finding.FindingID, action})
 		}
 	}
-	return ids, packet.CandidateIdentity, nil
+	return ids, packet.Findings, packet.CandidateIdentity, nil
 }
 
 // measuredRawSeverities reads the raw angle findings when the worker retained them.
@@ -215,6 +254,61 @@ func measureCheckoutEdits(ctx context.Context, workingDir string, refs []workerc
 	return len(bytes.FieldsFunc(status, func(r rune) bool { return r == 0 })), nil
 }
 
+// measureEditAttempts counts source entries in the checkout whose modification
+// time falls inside the dispatch window, including edits that were restored to
+// their original bytes. Shark runtime artifacts are ignored. A negative result
+// means the window start is unknown and nothing was measured.
+func measureEditAttempts(ctx context.Context, workingDir string, refs []workercontrol.EvidenceRef, started time.Time) (int, error) {
+	if started.IsZero() {
+		return -1, nil
+	}
+	data, err := readDigestBoundEvidence(workingDir, refs, "bug_review_scope")
+	if err != nil {
+		return 0, err
+	}
+	var scope bugCandidateScope
+	if err := json.Unmarshal(data, &scope); err != nil {
+		return 0, err
+	}
+	runtimeDir := normalizedRuntimeProject(scope.RuntimeProject)
+	skip := []string{".git/", filepath.ToSlash(filepath.Join(runtimeDir, ".shark")) + "/"}
+	count := 0
+	for _, flags := range [][]string{{"ls-files", "-z"}, {"ls-files", "-z", "--others", "--exclude-standard"}} {
+		out, err := gitutil.Command(ctx, append([]string{"-c", "core.fsmonitor=false", "-C", workingDir}, flags...)...).Output()
+		if err != nil {
+			return 0, err
+		}
+		for _, name := range bytes.Split(out, []byte{0}) {
+			path := string(name)
+			if path == "" || hasAnyPrefix(path, skip) {
+				continue
+			}
+			info, err := os.Lstat(filepath.Join(workingDir, path))
+			if os.IsNotExist(err) {
+				// A deleted tracked file is an attempted edit made inside the window.
+				count++
+				continue
+			}
+			if err != nil {
+				return 0, err
+			}
+			if info.ModTime().After(started) {
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
+func hasAnyPrefix(path string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateCleanBugHeadCommit(scope bugCandidateScope, run bugGitRunner) error {
 	head, err := run("rev-parse", "HEAD")
 	if err != nil || string(bytes.TrimSpace(head)) != scope.CandidateCommit {
@@ -247,4 +341,142 @@ func countBugEntityNotes(ctx context.Context, reader gatepersist.NoteReader, ent
 	}
 	notes, err := reader.ListNotes(ctx, entityType, key, nil)
 	return len(notes), err
+}
+
+// trackerAttemptEnv prepares the run's ledger and returns the environment that
+// points the host's shark invocations at it. The ledger is created empty so an
+// absent file later means tampering, not "no attempts".
+func trackerAttemptEnv(projectRoot, runID string) ([]string, error) {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(runDir, trackerattempts.LedgerName)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("tracker attempt ledger already exists or cannot be created: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	return []string{trackerattempts.EnvLog + "=" + path, trackerattempts.EnvRun + "=" + runID}, nil
+}
+
+// readTrackerLedger reads the run's ledger. A missing ledger is an error: the
+// parent created it before the dispatch.
+func readTrackerLedger(projectRoot, runID string) (*trackerattempts.Ledger, error) {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return nil, err
+	}
+	return readRunLedger(runDir, runID)
+}
+
+// readRunLedger is the one ledger reader: the parent's observation and the
+// admission re-check both go through it, so they cannot disagree on what a
+// readable, run-bound ledger is.
+//
+// Trust model: the ledger records invocations of the shark CLI the host ran
+// with the run's environment. It binds an honest host's attempts, including
+// ones rejected before they mutate, to the run and finding. A host that
+// bypasses the CLI, unsets the environment or edits the file is outside this
+// model; the digest only detects change after the parent observed it.
+func readRunLedger(runDir, runID string) (*trackerattempts.Ledger, error) {
+	data, err := gaterun.ReadBoundedRegularFile(filepath.Join(runDir, trackerattempts.LedgerName), 1<<20)
+	if err != nil {
+		return nil, fmt.Errorf("tracker attempt ledger unavailable: %w", err)
+	}
+	ledger, err := trackerattempts.Parse(data, runID)
+	if err != nil {
+		return nil, err
+	}
+	return &ledger, nil
+}
+
+// nonFilingDisposition reports whether a finding disposition files no tracker
+// work and edits nothing: a report-only withdrawal, a refutation or an
+// exclusion.
+func nonFilingDisposition(disposition string) bool {
+	switch disposition {
+	case "report-only", "report_only", "refuted", "excluded":
+		return true
+	}
+	return false
+}
+
+// findingWriteAttempts counts the ledger's write attempts for one finding. An
+// attempt naming another finding is that finding's. An unnamed attempt is
+// charged to this finding unless another finding of the review survives with a
+// disposition that files or edits, in which case it is presumed to be that
+// finding's own write. A non-filing co-finding never claims an unnamed write.
+func findingWriteAttempts(ledger trackerattempts.Ledger, id string, all []bugReviewDecision) int {
+	ids := make([]string, 0, len(all))
+	claimedElsewhere := false
+	for _, decision := range all {
+		ids = append(ids, decision.FindingID)
+		if decision.FindingID != id && !nonFilingDisposition(decision.Disposition) {
+			claimedElsewhere = true
+		}
+	}
+	return ledger.WriteAttempts(id, ids, claimedElsewhere)
+}
+
+// BindTrackerLedger completes a host-written parent observation on the Rider
+// apply-result route. It reads the run's ledger (missing is an error), records
+// its digest in the observation and sets each action's tracker_attempts from
+// the ledger, so the host never self-reports those counts. The rewritten file
+// is the one AttachParentTriageObservation digests.
+func BindTrackerLedger(projectRoot, workingDir, runID, path string, envelopeBytes []byte) error {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return err
+	}
+	expectedPath := filepath.Join(runDir, "parent-triage-observation.json")
+	actualPath, err := filepath.Abs(path)
+	if err != nil || actualPath != expectedPath {
+		return fmt.Errorf("parent observation must be at the run-scoped parent-triage-observation.json path")
+	}
+	ledger, err := readRunLedger(runDir, runID)
+	if err != nil {
+		return err
+	}
+	envelope, err := workercontrol.Decode(envelopeBytes)
+	if err != nil {
+		return err
+	}
+	_, all, _, err := measuredReportOnlyFindings(workingDir, envelope.Evidence)
+	if err != nil {
+		return err
+	}
+	data, err := gaterun.ReadBoundedRegularFile(actualPath, 64*1024)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("invalid parent triage observation: %w", err)
+	}
+	actions, _ := doc["actions"].([]any)
+	for _, raw := range actions {
+		action, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("invalid parent triage observation action")
+		}
+		id, _ := action["finding_id"].(string)
+		action["tracker_attempts"] = findingWriteAttempts(*ledger, id, all)
+	}
+	doc["run_id"] = runID
+	doc["tracker_attempt_ledger"] = map[string]any{"run_id": runID, "sha256": ledger.SHA256, "entries": len(ledger.Entries)}
+	bound, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(actualPath, bound, 0o600)
+}
+
+// PrepareTrackerAttemptEnv creates the run's empty ledger and returns the
+// environment a host must give the worker's shark invocations. It is the Rider
+// route's counterpart of the controller's own dispatch setup.
+func PrepareTrackerAttemptEnv(projectRoot, runID string) ([]string, error) {
+	return trackerAttemptEnv(projectRoot, runID)
 }

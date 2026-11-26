@@ -16,7 +16,7 @@ func TestReviewPathsDistinguishAByteFromTheReplacementCharacter(t *testing.T) {
 	const site = `{"file":"caf\udce9","line":1,"severity":"non-blocker","rule":"BUG","summary":"result","diagnosis":"caller","disposition":"triage","reason":"observed"}`
 	scope := bugCandidateScope{CandidateCommit: "c", CandidateTree: "t", DiffSHA256: "d", ChangedFiles: []string{"caf\xe9", "caf\uFFFD"}}
 	packet := []byte(`{"candidate_identity":` + identity + `,"findings":[` + site + `]}`)
-	decisions, err := validateBugReviewDecisions(packet, scope, "PASS-WITH-TRIAGE", false)
+	decisions, err := validateBugReviewDecisions(packet, scope, "PASS-WITH-TRIAGE")
 	require.NoError(t, err)
 	angles := map[string]json.RawMessage{}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
@@ -34,9 +34,40 @@ func TestReviewPathsDistinguishAByteFromTheReplacementCharacter(t *testing.T) {
 		angles[angle] = member
 	}
 	wrongDecision := bytes.Replace(packet, []byte(`"file":"caf\udce9"`), []byte(`"file":"caf\ufffd"`), 1)
-	decisions, err = validateBugReviewDecisions(wrongDecision, scope, "PASS-WITH-TRIAGE", false)
+	decisions, err = validateBugReviewDecisions(wrongDecision, scope, "PASS-WITH-TRIAGE")
 	require.NoError(t, err)
 	require.ErrorContains(t, validateBugReviewAngles(raw, scope, decisions, "PASS-WITH-TRIAGE"), "no explicit disposition")
+}
+
+func TestDecisionOriginBelongsToCurrentContract(t *testing.T) {
+	scope := bugCandidateScope{CandidateCommit: "c", CandidateTree: "t", DiffSHA256: "d"}
+	finding := map[string]any{"file": "rotation.go", "line": 1, "rule": "ARCHITECTURE", "severity": "non-blocker",
+		"summary": "duplicate registration", "diagnosis": "two registrations", "impact": "two edits",
+		"evidence": "rotation guide", "disposition": "triage", "reason": "two manual edits"}
+	packet := map[string]any{"candidate_identity": map[string]string{"commit": "c", "tree": "t", "diff_sha256": "d"}, "findings": []any{finding}}
+	for _, test := range []struct {
+		name    string
+		version int
+		origin  any
+		valid   bool
+	}{
+		{"legacy ignores extension", 0, map[string]string{"label": "angle"}, true},
+		{"current rejects null", 2, nil, false},
+		{"current accepts consolidator", 2, "consolidator", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			finding["origin"] = test.origin
+			packet["review_contract_version"] = test.version
+			raw, err := json.Marshal(packet)
+			require.NoError(t, err)
+			_, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "origin")
+			}
+		})
+	}
 }
 
 func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
@@ -53,26 +84,44 @@ func TestReviewDecisionsRequireExactBlockerRefutation(t *testing.T) {
 	packet := map[string]any{"candidate_identity": identity, "findings": []any{}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err := validateBugReviewDecisions(raw, scope, "PASS", false)
+	decisions, err := validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
 	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "open", "reason": "not refuted"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	_, err = validateBugReviewDecisions(raw, scope, "PASS", false)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.ErrorContains(t, err, "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "other.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "refuted", "reason": "not applicable"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err = validateBugReviewDecisions(raw, scope, "PASS", false)
+	decisions, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
 	require.ErrorContains(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"), "unresolved blocker")
 	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "blocker", "rule": "BUG", "summary": "broken", "diagnosis": "wrong", "disposition": "refuted", "reason": "call site proves it cannot occur"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err = validateBugReviewDecisions(raw, scope, "PASS", false)
+	decisions, err = validateBugReviewDecisions(raw, scope, "PASS")
 	require.NoError(t, err)
 	require.NoError(t, validateBugReviewAngles(rawAngles, scope, decisions, "PASS"))
+}
+
+func TestVersionTwoReviewContractRequiresImpact(t *testing.T) {
+	scope := bugCandidateScope{CandidateCommit: "commit", CandidateTree: "tree", DiffSHA256: "diff", RepairPlanSHA256: "plan"}
+	packet := map[string]any{
+		"review_contract_version": 2,
+		"candidate_identity":      map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff", "repair_plan_sha256": "plan"},
+		"findings":                []any{map[string]any{"file": "a.go", "line": 2, "severity": "non-blocker", "rule": "CONTRACT", "summary": "missing event", "diagnosis": "event is absent", "disposition": "triage", "reason": "route it"}},
+	}
+	raw, err := json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+	require.ErrorContains(t, err, "missing impact")
+	packet["findings"] = []any{map[string]any{"file": "a.go", "line": 2, "severity": "nit", "rule": "STYLE", "summary": "name preference", "diagnosis": "alternate name", "impact": "no impact", "disposition": "triage", "reason": "style"}}
+	raw, err = json.Marshal(packet)
+	require.NoError(t, err)
+	_, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
+	require.ErrorContains(t, err, "legacy nit severity")
 }
 
 func TestReviewDecisionConformanceFixtures(t *testing.T) {
@@ -102,7 +151,7 @@ func TestReviewDecisionConformanceFixtures(t *testing.T) {
 				if name == "a" {
 					findings = tc.RawFindings
 				}
-				angles[name] = map[string]any{"candidate_identity": fixture.Identity, "reviewed_files": append(append([]string{}, fixture.Files...), "context"), "findings": findings}
+				angles[name] = map[string]any{"review_contract_version": 2, "candidate_identity": fixture.Identity, "reviewed_files": append(append([]string{}, fixture.Files...), "context"), "findings": findings}
 			}
 			angleBytes, e := json.Marshal(angles)
 			require.NoError(t, e)
@@ -110,7 +159,7 @@ func TestReviewDecisionConformanceFixtures(t *testing.T) {
 			if verdict == "" {
 				verdict = "PASS"
 			}
-			decisions, e := validateBugReviewDecisions(tc.Decisions, scope, verdict, false)
+			decisions, e := validateBugReviewDecisions(tc.Decisions, scope, verdict)
 			if e == nil {
 				e = validateBugReviewAngles(angleBytes, scope, decisions, verdict)
 			}
@@ -177,13 +226,13 @@ func TestReportFindingDecisionBindingThroughJSON(t *testing.T) {
 	packet := map[string]any{"candidate_identity": map[string]string{"commit": "commit", "tree": "tree", "diff_sha256": "diff"}, "findings": []any{map[string]any{"finding_id": "F-2", "file": "other.go", "line": 1, "severity": "nit", "rule": "STYLE", "summary": "typo", "diagnosis": "spelling", "disposition": "triage", "reason": "tracked"}}}
 	raw, err := json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", false)
+	decisions, err := validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
 	require.NoError(t, err)
-	require.Error(t, requireBugFindingDecisions(body, decisions))
+	require.Error(t, requireBugFindingDecisions(body, decisions.byFinding))
 	packet["findings"] = []any{map[string]any{"finding_id": "F-1", "file": "app.go", "line": 2, "severity": "non-blocker", "rule": "INPUT", "summary": "validation", "diagnosis": "missing check", "disposition": "triage", "reason": "tracked"}}
 	raw, err = json.Marshal(packet)
 	require.NoError(t, err)
-	decisions, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE", false)
+	decisions, err = validateBugReviewDecisions(raw, scope, "PASS-WITH-TRIAGE")
 	require.NoError(t, err)
-	require.NoError(t, requireBugFindingDecisions(body, decisions))
+	require.NoError(t, requireBugFindingDecisions(body, decisions.byFinding))
 }

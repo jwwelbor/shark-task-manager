@@ -28,10 +28,12 @@ var (
 	runApplyResultPath             string
 	runApplyRunID                  string
 	runParentTriageObservationPath string
+	runTrackerLedgerEnv            bool
 )
 
 func init() {
 	runCmd.Flags().StringVar(&runApplyResultPath, "apply-result", "", "Path to a worker-control envelope file to ingest for this entity (T-E34-F05-004); requires --run-id and --session")
+	runCmd.Flags().BoolVar(&runTrackerLedgerEnv, "tracker-ledger-env", false, "Create the run's tracker attempt ledger and print the environment assignments the host must give the review worker; requires --run-id")
 	runCmd.Flags().StringVar(&runApplyRunID, "run-id", "", "Durable run_id for --apply-result")
 	runCmd.Flags().StringVar(&runParentTriageObservationPath, "parent-triage-observation", "", "Parent-created triage observation sidecar under this run's .shark/runs directory; never worker evidence")
 }
@@ -101,6 +103,27 @@ func readBoundedEnvelopeFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+// runTrackerLedgerSetup creates the run's ledger and prints the environment the
+// host exports before dispatching the review worker, so the worker's shark
+// invocations are recorded for BindTrackerLedger to read at apply-result.
+func runTrackerLedgerSetup() error {
+	if runApplyRunID == "" {
+		return fmt.Errorf("--tracker-ledger-env requires --run-id=<run_id>")
+	}
+	projectRoot, err := cli.FindProjectRoot()
+	if err != nil {
+		return fmt.Errorf("resolve project root for --tracker-ledger-env: %w", err)
+	}
+	env, err := runner.PrepareTrackerAttemptEnv(projectRoot, runApplyRunID)
+	if err != nil {
+		return err
+	}
+	for _, assignment := range env {
+		fmt.Println(assignment)
+	}
+	return nil
 }
 
 func runApplyResult(cmd *cobra.Command, entityType, entityKey string) error {
@@ -212,6 +235,12 @@ func applyResultIngest(ctx context.Context, deps applyResultDeps, envelopeBytes 
 		return nil, fmt.Errorf("apply-result ingestion: WorkflowSvc dependency is required to resolve terminal status")
 	}
 	if deps.ParentObservationPath != "" {
+		// The host-written observation is completed from the run's ledger, so a
+		// withdrawal on this route is admitted against the same record as the
+		// controller's. A run without a ledger fails here, closed.
+		if err := runner.BindTrackerLedger(deps.ProjectRoot, deps.WorkingDir, deps.RunID, deps.ParentObservationPath, envelopeBytes); err != nil {
+			return nil, fmt.Errorf("bind tracker attempt ledger: %w", err)
+		}
 		var err error
 		envelopeBytes, err = runner.AttachParentTriageObservation(deps.ProjectRoot, deps.RunID, deps.ParentObservationPath, envelopeBytes)
 		if err != nil {

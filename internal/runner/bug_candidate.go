@@ -214,10 +214,13 @@ func validateBugDiffManifest(scope bugCandidateScope, run bugGitRunner) error {
 	if hex.EncodeToString(hash[:]) != scope.DiffSHA256 || len(diff) == 0 {
 		return fmt.Errorf("candidate diff mismatch")
 	}
-	if scope.ChangedFileCount != len(scope.ChangedFiles) {
-		return fmt.Errorf("candidate manifest mismatch")
+	if err := matchBugChangedFiles(scope.BaseCommit, scope.CandidateCommit, scope.ChangedFiles, run); err != nil {
+		return err
 	}
-	return matchBugChangedFiles(scope.BaseCommit, scope.CandidateCommit, scope.ChangedFiles, run)
+	if len(scope.ChangedFiles) != scope.ChangedFileCount {
+		return fmt.Errorf("candidate manifest mismatch: Git has %d paths, scope declares %d", len(scope.ChangedFiles), scope.ChangedFileCount)
+	}
+	return nil
 }
 
 func matchBugChangedFiles(start, end string, expected []string, run bugGitRunner) error {
@@ -231,13 +234,16 @@ func matchBugChangedFiles(start, end string, expected []string, run bugGitRunner
 			paths = append(paths, string(name))
 		}
 	}
-	if len(paths) != len(expected) {
-		return fmt.Errorf("candidate manifest mismatch")
-	}
-	for i := range paths {
-		if paths[i] != expected[i] {
-			return fmt.Errorf("candidate manifest mismatch")
+	for i, want := range paths {
+		if i >= len(expected) {
+			return fmt.Errorf("candidate manifest mismatch: missing %s", quoteReviewGitPath(want))
 		}
+		if got := expected[i]; want != got {
+			return fmt.Errorf("candidate manifest mismatch at index %d: Git has %s, scope has %s", i, quoteReviewGitPath(want), quoteReviewGitPath(got))
+		}
+	}
+	if len(expected) > len(paths) {
+		return fmt.Errorf("candidate manifest mismatch: unexpected %s", quoteReviewGitPath(expected[len(paths)]))
 	}
 	return nil
 }

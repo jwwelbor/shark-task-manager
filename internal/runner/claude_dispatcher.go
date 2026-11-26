@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
@@ -87,6 +88,9 @@ func (d *ClaudeDispatcher) Dispatch(ctx context.Context, input DispatchInput) (*
 
 	if input.WorkingDir != "" {
 		cmd.Dir = input.WorkingDir
+	}
+	if len(input.Env) > 0 {
+		cmd.Env = append(os.Environ(), input.Env...)
 	}
 
 	return execAndCapture(cmd, cmdStr)

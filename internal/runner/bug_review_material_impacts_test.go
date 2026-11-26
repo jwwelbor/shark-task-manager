@@ -16,6 +16,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
 	"github.com/stretchr/testify/require"
 )
 
@@ -204,7 +205,13 @@ func TestValidateBugParentTriageObservationRequiresParentReportOnlyReceipt(t *te
 	}
 	require.ErrorContains(t, validateBugParentTriageObservation(gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(`{"kind":"final","evidence":[]}`)}, scope, decisions), "receipt is required")
 	zero, one := 0, 1
-	valid := bugParentTriageObservation{CandidateIdentity: bugReviewIdentity{Commit: "c", Tree: "t", Diff: "d", Plan: "p"}, ObservedBy: "parent", Actions: []bugParentTriageAction{{FindingID: "F-1", Action: "report_only", Edits: &zero, TrackerWrites: &zero}}}
+	require.NoError(t, os.WriteFile(filepath.Join(runDir, trackerattempts.LedgerName), nil, 0o600))
+	emptyLedger := sha256.Sum256(nil)
+	valid := bugParentTriageObservation{CandidateIdentity: bugReviewIdentity{Commit: "c", Tree: "t", Diff: "d", Plan: "p"}, ObservedBy: "parent", Actions: []bugParentTriageAction{{FindingID: "F-1", Action: "report_only", Edits: &zero, TrackerWrites: &zero, TrackerAttempts: &zero}}}
+	// B088 R5: a report-only withdrawal without the run's ledger is not
+	// admitted, so omitting the ledger cannot waive the attempt check.
+	require.ErrorContains(t, validateBugParentTriageObservation(writeObservation(valid), scope, decisions), "requires the run's tracker attempt ledger")
+	valid.TrackerAttemptLedger = &bugTrackerAttemptLedger{RunID: "review", SHA256: fmt.Sprintf("%x", emptyLedger), Entries: 0}
 	require.NoError(t, validateBugParentTriageObservation(writeObservation(valid), scope, decisions))
 	untrusted := writeObservation(valid)
 	untrusted.ParentObservationInjected = false

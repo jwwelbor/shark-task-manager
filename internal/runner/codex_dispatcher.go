@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"os"
 	"os/exec"
 )
 
@@ -88,6 +89,9 @@ func (d *CodexDispatcher) Dispatch(ctx context.Context, input DispatchInput) (*D
 
 	if input.WorkingDir != "" {
 		cmd.Dir = input.WorkingDir
+	}
+	if len(input.Env) > 0 {
+		cmd.Env = append(os.Environ(), input.Env...)
 	}
 
 	return execAndCapture(cmd, cmdStr)

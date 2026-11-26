@@ -87,6 +87,7 @@ const refsDir = `${skill_dir}/references`
 const FINDING_SCHEMA = {
   type: 'object',
   properties: {
+    review_contract_version: {type: 'integer', enum: [2]},
     candidate_identity: {
       type: 'object',
       properties: {commit: {type: 'string'}, tree: {type: 'string'}, diff_sha256: {type: 'string'}, repair_plan_sha256: {type: 'string'}},
@@ -99,14 +100,15 @@ const FINDING_SCHEMA = {
         properties: {
           file:      { type: 'string' },
           line:      { type: 'integer' },
-          severity:  { type: 'string', enum: ['blocker', 'non-blocker', 'nit'] },
+          severity:  { type: 'string', enum: ['blocker', 'non-blocker'] },
           rule:      { type: 'string' },
           summary:   { type: 'string' },
           diagnosis: { type: 'string' },
+          impact:    { type: 'string', minLength: 1 },
           evidence:  { type: 'string' },
           correction:{ type: 'string' },
         },
-        required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis'],
+        required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact', 'evidence'],
       },
     },
     reviewed_files: {
@@ -114,7 +116,7 @@ const FINDING_SCHEMA = {
       items: { type: 'string' },
     },
   },
-  required: ['candidate_identity', 'findings', 'reviewed_files'],
+  required: ['review_contract_version', 'candidate_identity', 'findings', 'reviewed_files'],
 }
 
 const CONSOLIDATION_SCHEMA = {
@@ -124,6 +126,7 @@ const CONSOLIDATION_SCHEMA = {
     decisions: {
       type: 'object',
       properties: {
+        review_contract_version: {type: 'integer', enum: [2]},
         candidate_identity: FINDING_SCHEMA.properties.candidate_identity,
         reviewed_files: FINDING_SCHEMA.properties.reviewed_files,
         discoveries: {type: 'array', items: {
@@ -135,12 +138,12 @@ const CONSOLIDATION_SCHEMA = {
           type: 'object',
           properties: {
             file: {type: 'string'}, line: {type: 'integer'}, severity: {type: 'string'},
-            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, disposition: {type: 'string'}, reason: {type: 'string'}, finding_id: {type: 'string'},
+            rule: {type: 'string'}, summary: {type: 'string'}, diagnosis: {type: 'string'}, impact: {type: 'string', minLength: 1}, evidence: {type: 'string', minLength: 1}, disposition: {type: 'string'}, reason: {type: 'string'}, finding_id: {type: 'string'}, origin: {type: 'string', enum: [...'abcdef', 'consolidator']},
           },
-          required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'disposition', 'reason'],
+          required: ['file', 'line', 'severity', 'rule', 'summary', 'diagnosis', 'impact', 'evidence', 'disposition', 'reason'],
         }},
       },
-      required: ['candidate_identity', 'findings'],
+      required: ['review_contract_version', 'candidate_identity', 'findings'],
     },
   },
   required: ['report', 'decisions'],
@@ -168,7 +171,7 @@ const ANGLE_FILES = {a: 'angle-a-bugs.md', b: 'angle-b-behavior.md', c: 'angle-c
 function preamble(angleFile, extraContext) {
   const standardsLine = coding_standards_path
     ? `- CODING_STANDARDS_PATH: ${coding_standards_path}  ← read this for any standards citation`
-    : `- CODING_STANDARDS_PATH: (not found — all standards violations downgrade to opinion-only nits)`
+    : `- CODING_STANDARDS_PATH: (not found — do not claim standards violations; retain only independently evidenced impact)`
   return `CONTEXT (substitute these wherever the instructions say the placeholder name):
 - DIFF_PATH:      ${diff_path}
 ${comparisonContext}
@@ -181,6 +184,7 @@ ${fileList}
 - PROJECT_ROOT:   ${project_root || '.'}
 ${diffScopeLine}
 ${standardsLine}
+REVIEW_CONTRACT_VERSION: 2. Each finding must include impact: an affected user/caller, behavior, invariant, documented standard or maintenance operation, plus its concrete consequence and evidence. Omit preference-only comments. Preserve original blocker and refuting evidence when withdrawn; an authorized stylistic downgrade is report-only with zero edits and zero tracker writes.
 ${extraContext || ''}
 
 Your detailed review instructions are in: ${refsDir}/${angleFile}
@@ -227,8 +231,8 @@ function validIdentity(identity) {
 
 function validFinding(f) {
   return f && typeof f.file === 'string' && f.file.length > 0 && Number.isInteger(f.line) && f.line > 0 &&
-    ['blocker', 'non-blocker', 'nit'].includes(f.severity) &&
-    ['rule', 'summary', 'diagnosis'].every(k => typeof f[k] === 'string' && f[k].length > 0)
+    ['blocker', 'non-blocker'].includes(f.severity) &&
+    ['rule', 'summary', 'diagnosis', 'impact', 'evidence'].every(k => typeof f[k] === 'string' && f[k].trim().length > 0)
 }
 
 function fileCoverageError(files) {
@@ -278,7 +282,8 @@ function angleCoverageError(result) {
 }
 
 function angleError(result) {
-  if (!result || !validIdentity(result.candidate_identity)) return 'missing or incorrect candidate identity'
+  if (!result || result.review_contract_version !== 2) return 'missing or unsupported review contract version'
+  if (!validIdentity(result.candidate_identity)) return 'missing or incorrect candidate identity'
   if (!Array.isArray(result.findings) || !result.findings.every(validFinding)) return 'malformed findings'
   return angleCoverageError(result)
 }
@@ -303,7 +308,8 @@ if (completed !== 6 || angleResults.length !== 6) {
     runner_mode: 'incomplete', specialists_completed: completed, consolidator_completed: false, angle_results: retainedAngles}
 }
 
-const allFindings = angleResults.flatMap(r => r.findings)
+const allFindings = Object.entries(retainedAngles).flatMap(([origin, packet]) =>
+  packet.findings.map(finding => ({...finding, origin})))
 
 log(`Collected ${allFindings.length} candidate findings across angles A–F`)
 
@@ -325,7 +331,7 @@ ${comparisonContext}
 - CHANGED_FILES:
 ${fileList}
 - ANGLE_RESULTS:
-${JSON.stringify(retainedAngles)}
+${JSON.stringify(retainedAngles, null, 2)}
 - PROJECT_ROOT:   ${project_root || '.'}
 ${diffScopeLine}
 ${specContext}
@@ -333,7 +339,7 @@ ${specContext}
 Your detailed consolidation instructions are in: ${refsDir}/consolidator.md
 
 Read that file completely, then execute the consolidation and produce the compact-or-detailed markdown report it specifies.
-Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity and findings). Each decision must include file, positive integer line, severity, rule, summary, diagnosis, disposition, and a nonempty reason. Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. If the report uses a FINDING_DETAIL footer, its F-number must match the retained decision's finding_id and its severity and disposition must match. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
+Return one JSON object with "report" (the Markdown report) and "decisions" (an object containing candidate_identity and findings). Each decision must include file, positive integer line, severity, rule, summary, diagnosis, impact, supporting evidence, disposition, and a nonempty reason. Give each specialist decision a unique finding_id, its lowercase originating angle in origin, and the original evidence. Mark new consolidator findings with origin "consolidator". Every raw finding must have its own matching decision; use disposition "refuted" only when evidence disproves it. If the report uses a FINDING_DETAIL footer, its F-number must match the retained decision's finding_id and its severity and disposition must match. A clean PASS cannot retain an unrefuted finding. Use an empty findings array only when no findings exist. The candidate_identity must include commit, tree, diff_sha256${entity_type === 'bug' ? ', and repair_plan_sha256' : ''}.`
 }
 const consolidatorPreamble = makeConsolidatorPreamble()
 
@@ -358,9 +364,9 @@ function findingKey(f) {
 }
 
 function validDecisionSet(value) {
-  if (!value || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
+  if (!value || value.review_contract_version !== 2 || !validIdentity(value.candidate_identity) || !Array.isArray(value.findings)) return false
   if (value.reviewed_files !== undefined && fileCoverageError(value.reviewed_files)) return false
-  return value.findings.every(validDecision) && new Set(value.findings.map(findingKey)).size === value.findings.length
+  return value.findings.every(validDecision)
 }
 
 function validReport(body) {
@@ -384,18 +390,72 @@ function reportVerdict(body) {
   return matches[0][1].toUpperCase()
 }
 
-function matchingDecision(finding, decision, verdict) {
-  if (findingKey(finding) !== findingKey(decision)) return false
-  if (!verdict.startsWith('PASS') || finding.severity !== 'blocker') return true
-  if (decision.severity === 'blocker') return decision.disposition === 'refuted'
-  return verdict === 'PASS-WITH-TRIAGE' && decision.disposition !== 'refuted'
+const specialistOrigins = [...'abcdef']
+
+function decisionKey(site, origin, evidence) {
+  return JSON.stringify([site, origin, specialistOrigins.includes(origin) ? evidence : ''])
 }
 
-function passingDecisions(verdict, values, raw) {
-  if (raw.some(f => !values.some(d => matchingDecision(f, d, verdict)))) return false
+function indexDecision(decision, remaining, ids) {
+  const {origin = '', finding_id: id} = decision
+  const location = JSON.stringify(decision.file) + ':' + decision.line
+  if (!['', 'consolidator', ...specialistOrigins].includes(origin)) return 'invalid decision origin at ' + location
+  if (specialistOrigins.includes(origin) && !(typeof id === 'string' && id.trim())) return 'angle ' + origin + ' requires a finding_id at ' + location
+  if (id !== undefined) {
+    if (typeof id !== 'string' || !id.trim() || ids.has(id)) return 'invalid or duplicate finding_id ' + id
+    ids.add(id)
+  }
+  const key = decisionKey(findingKey(decision), origin, decision.evidence)
+  if (remaining.has(key)) return 'duplicate decision for angle ' + origin + ' at ' + location
+  remaining.set(key, decision)
+  return ''
+}
+
+function matchObservation(finding, remaining, uniqueSite, verdict) {
+  const site = findingKey(finding)
+  let key = decisionKey(site, finding.origin, finding.evidence)
+  if (!remaining.has(key) && uniqueSite) key = decisionKey(site, '', '')
+  const decision = remaining.get(key)
+  if (!decision || decision.evidence !== finding.evidence) {
+    return 'angle ' + finding.origin + ' has no matching decision for its observation at ' + JSON.stringify(finding.file) + ':' + finding.line
+  }
+  remaining.delete(key)
+  if (verdict.startsWith('PASS') && finding.severity === 'blocker') {
+    const resolved = decision.severity === 'blocker' ? decision.disposition === 'refuted' :
+      verdict === 'PASS-WITH-TRIAGE' && decision.disposition !== 'refuted'
+    if (!resolved) return 'unresolved blocker for angle ' + finding.origin
+  }
+  return ''
+}
+
+function sourceDecisionError(values, raw, verdict) {
+  const counts = new Map()
+  for (const finding of raw) {
+    const site = findingKey(finding)
+    counts.set(site, (counts.get(site) || 0) + 1)
+  }
+  const remaining = new Map()
+  const ids = new Set()
+  for (const decision of values) {
+    const error = indexDecision(decision, remaining, ids)
+    if (error) return error
+  }
+  for (const finding of raw) {
+    const error = matchObservation(finding, remaining, counts.get(findingKey(finding)) === 1, verdict)
+    if (error) return error
+  }
+  for (const decision of remaining.values()) {
+    if (!decision.origin && counts.has(findingKey(decision))) return 'ambiguous extra decision at ' + JSON.stringify(decision.file) + ':' + decision.line
+    if (specialistOrigins.includes(decision.origin)) return 'angle ' + decision.origin + ' has no observation for ' + decision.finding_id
+  }
+  return ''
+}
+
+function passingDecisions(verdict, values) {
   if (!verdict.startsWith('PASS')) return true
   if (values.some(f => f.severity === 'blocker' && f.disposition !== 'refuted')) return false
-  return verdict !== 'PASS' || !values.some(f => f.disposition !== 'refuted')
+  if (verdict === 'PASS-WITH-TRIAGE') return values.some(f => !['excluded', 'refuted'].includes(f.disposition))
+  return !values.some(f => f.disposition !== 'refuted')
 }
 
 function contradictoryReport(body, verdict) {
@@ -404,7 +464,7 @@ function contradictoryReport(body, verdict) {
   return /\bnot\s+refuted\b|\bblockers?\s+remain\b|\bunresolved\s+blockers?\b/.test(normalized)
 }
 
-function validConsolidation(body, value, raw) {
+function validConsolidation(body, value) {
   if (!validReport(body) || !validDecisionSet(value)) return false
   const verdict = reportVerdict(body)
   const markers = [...body.matchAll(/^FINDING_DETAIL:[ \t]*INCOMPLETE (VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$/gim)]
@@ -413,7 +473,16 @@ function validConsolidation(body, value, raw) {
     const related = value.findings.filter(f => f.finding_id === marker[2])
     if (verdict === 'PASS' || related.length !== 1 || related[0].severity !== marker[3].toLowerCase() || related[0].disposition !== marker[4].toLowerCase() || related[0].disposition === 'refuted') return false
   }
-  return verdict && !contradictoryReport(body, verdict) && passingDecisions(verdict, value.findings, raw)
+  return verdict && !contradictoryReport(body, verdict) && passingDecisions(verdict, value.findings)
+}
+
+// Returns why a consolidation cannot be accepted, or an empty string.
+function consolidationProblem(body, value, raw) {
+  if (!validConsolidation(body, value)) {
+    const coverage = value && Object.hasOwn(value, 'reviewed_files') && fileCoverageError(value.reviewed_files)
+    return coverage || 'missing or malformed report.'
+  }
+  return sourceDecisionError(value.findings, raw, reportVerdict(body))
 }
 
 function incomplete(reason, extra) {
@@ -462,7 +531,8 @@ function discoveriesCarried(value, inspections) {
 const discovered = discoveryList(decisions)
 if (discovered === null) return incomplete('consolidator returned malformed discoveries.')
 if (discovered.length === 0) {
-  if (!validConsolidation(report, decisions, allFindings)) return incomplete('consolidator returned missing or malformed report.')
+  const problem = consolidationProblem(report, decisions, allFindings)
+  if (problem) return incomplete('consolidator returned ' + problem)
   return {report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions, angle_results: retainedAngles}
 }
 
@@ -490,7 +560,7 @@ Return the same JSON shape. Its decisions must list every discovery again with t
   return incomplete(`reconsolidation failed: ${String(error)}`, {discoveries: discovered})
 }
 const second = consolidationFields(reconsolidation)
-if (!validConsolidation(second.report, second.decisions, allFindings) || !discoveriesCarried(second.decisions, inspections)) {
+if (consolidationProblem(second.report, second.decisions, allFindings) || !discoveriesCarried(second.decisions, inspections)) {
   return incomplete('reconsolidation did not account for the responsible-angle follow-up.', {discoveries: discovered})
 }
 return {report: second.report, runner_mode: 'canonical-six-angle', specialists_completed: completed, consolidator_completed: true, decisions: second.decisions, angle_results: retainedAngles}

@@ -8,7 +8,7 @@ inputs:
   - diff_summary: stat summary (files, +lines, -lines) — used for scope sanity
   - language: dominant language(s) of the diff (e.g., "python", "typescript", "go")
   - toolchain: project toolchain commands (test runner, linter, type-checker)
-  - coding_standards_path: absolute path to the project's coding-standards.md (optional — if absent, all "standards violations" downgrade to opinion-only nits)
+  - coding_standards_path: absolute path to the project's coding-standards.md (optional — if absent, do not claim standards violations; assess independent user, behavior, invariant, security or maintenance impact)
   - architecture_doc_paths: list of absolute paths to system-design / architecture docs (optional)
   - complexity_thresholds: {cyclomatic, file_lines, function_lines} (optional — defaults: 10 / 500 / 50)
   - prior_rejection_count: int — how many times this task has been at code review before (for loop-guard awareness)
@@ -18,12 +18,11 @@ outputs:
   - code_review_report: structured markdown written to code_review_report_path
   - blockers: list of {finding_id, file_line, rule, diagnosis, evidence, correction}
   - non_blockers_to_triage: list of {finding_id, fingerprint, file_line, rule, summary, fix_suggestion} — host routes each through the triage skill's decision tree (see Step 12); tech-debt is only one possible outcome, never a default. `fingerprint` is a stable identifier (see Step 12) the triage skill searches on so a rerun finding the same defect links or updates the existing entity instead of creating a duplicate.
-  - nits: list of {file_line, rule, note} — no action needed
+  - withdrawn_findings: list of {finding_id, original_concern, evidence, disposition} for explicitly refuted or withdrawn findings; preserve rationale
   - counter_factual_per_ac: list of {ac_id, covering_test, rationale_or_blocker_flag}
   - production_caller_chains: list of {service_contract, entrypoint, chain, arg_shape}
   - review_evidence: runner metadata, complete scope and consolidated findings
   - downgrade_justifications: reasons for any downgraded blocker
-  - rubric_scores_per_file: list of {file, readability, maintainability, performance, testability, standards, notes}
 ---
 
 # Workflow: Code Review (Craft Review)
@@ -61,7 +60,7 @@ behavior.
 
 ## Required inputs (validation)
 
-If any critical input is missing, request it before proceeding. **Do not invent standards or fabricate citations.** If `coding_standards_path` is absent, every standards violation downgrades to opinion-level (nit).
+If any critical input is missing, request it before proceeding. **Do not invent standards or fabricate citations.** Every finding must identify an affected user, caller, behavior, invariant, documented standard, or maintenance operation; state its concrete consequence; and cite evidence. A preference without an identified impact is not a finding. If standards documentation is absent, do not claim a standards violation; assess independently evidenced risk.
 
 ## Review process
 
@@ -95,11 +94,11 @@ Findings: list each duplicated logic with the existing code's location, severity
 
 ### Step 3: Standards crosswalk (required citations)
 
-For each finding in this phase, cite the **specific section** of the project's standards docs that the code violates. **No citation = the finding is opinion, not a standards violation.**
+For each finding in this phase, cite the **specific section** of the project's standards docs that the code violates. When a clause is unavailable or unrelated, report the gap in the crosswalk. A demonstrated failure of a documented input or acceptance criterion still warrants a correctness finding with the expected and observed results.
 
 For each violation: `{file:line} — {rule} — {coding-standards.md §X.Y "quoted clause"}`.
 
-If the project has no standards section that covers a finding, note "no standards section covers this — opinion only" and downgrade to a nit.
+If the project has no standards section that covers a finding, do not call it a standards violation. Retain it only when independent evidence shows a concrete user, behavior, invariant, security, or maintenance consequence.
 
 ### Step 4: SOLID & architecture compliance
 
@@ -221,17 +220,9 @@ If scope or candidate changes, obtain fresh evidence. Preserve disagreements;
 justify any downgraded blocker with evidence that it does not mask a test bug,
 wiring gap or regressed obligation. Incomplete evidence cannot pass.
 
-### Step 11: Quality rubric (0-5 per dimension)
+### Step 11: Evidence-based finding admission
 
-For each modified file, score 0-5 with a one-sentence justification each. Return in `rubric_scores_per_file`:
-
-- **(a) Readability** — names, structure, flow.
-- **(b) Maintainability** — DRY, modularity, clear responsibilities.
-- **(c) Performance** — sensible algorithms, no obvious bottlenecks.
-- **(d) Testability** — pure functions, dependency injection, seams.
-- **(e) Standards Compliance** — adherence to cited standards docs.
-
-Average ≤ 3 for any dimension is a non-blocker triage; ≤ 2 is a blocker.
+Do not score files or create findings from rubric thresholds. For every retained finding, record the affected user/caller, behavior, invariant, documented standard, or maintenance operation, its concrete consequence, and evidence. Preserve standards citations and independent security/correctness risks. A preference without evidenced impact is omitted. Preserve a previously reported blocker and its refutation evidence when it is withdrawn; under an authorized report-only downgrade, record the disposition and make no source edit or tracker write for that finding.
 
 ### Step 12: Triage labeling
 
@@ -241,7 +232,6 @@ For every finding, label it:
 |---|---|---|
 | **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, severe complexity in new code | `blockers` — host fails the review |
 | **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
-| **Nit** | Stylistic preference, opinion-level, debatable | `nits` — host puts in report only |
 
 The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. The fix-now gate may resolve a finding in place with no entity created at all; that counts as triaged. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. Apply the triage skill's unattended review disposition procedure for host authority, verification and parent escalation. Keep delivery pending until every actionable fingerprint has a verified disposition.
 
@@ -249,22 +239,24 @@ The host is responsible for routing every entry in `non_blockers_to_triage` thro
 
 ## Required output structure (report content)
 
-Write the report to `code_review_report_path`. All sections required:
+Write the report to `code_review_report_path`. Select the form after checking the frozen scope and the disposition of every claim. Complete clean reviews use the compact form in the referenced skeleton. Use the following detailed sections for an unresolved blocker, an actionable non-blocker or an evidenced report-only withdrawal. Mark any inapplicable section. An incomplete review yields INCOMPLETE.
 
 ### A. Executive summary (≤ 10 lines)
 
 - What the diff accomplishes (1-2 lines).
 - Overall risk level.
 - Verdict: **PASS** / **PASS-with-triage** / **FAIL (blocker)**.
-- Counts: blockers / non-blockers triaged / nits.
+- Counts: blockers / actionable non-blockers triaged.
 
 ### B. Findings table
 
-| id | severity | file:line | rule | diagnosis | evidence | correction |
+| id | severity | file:line | rule | impact | diagnosis | evidence | correction |
 |---|---|---|---|---|---|---|
-| 1 | blocker | path/to/file.py:42 | DRY | duplicates `existing_helper()` | `existing_helper()` at lib/helpers.py:18 | replace with import + call |
+| 1 | blocker | path/to/file.py:42 | DRY | policy rotation requires two edits | duplicate registration | `existing_helper()` at lib/helpers.py:18 | replace with import + call |
 
-`rule` is one of: `DRY`, `SRP`, `OCP`, `YAGNI`, `ARCH`, `CODING-STANDARD`, `IDIOM`, `COMPLEXITY`, `RISK`, `TESTS`.
+`rule` is one of: `ALTITUDE`, `ARCH`, `ARCHITECTURE`, `CODING-STANDARD`, `COMPLEXITY`, `CONTRACT`, `CORRECTNESS`, `DIP`, `DRY`, `ERROR-HANDLING`, `IDIOM`, `ISP`, `LOGGING`, `LSP`, `NAMING`, `OCP`, `REMOVED-BEHAVIOR`, `RISK`, `ROUNDTRIP`, `SECURITY`, `SIBLING`, `SIMPLIFICATION`, `SRP`, `TESTS`, `TYPES`, `WIRING`, `YAGNI`.
+
+Carry the original literal rule into the decision, triage item and stable fingerprint. For a grouped finding use the representative rule for triage and preserve each contributing rule, origin and observation in its own decision.
 
 ### C. Reuse opportunities
 
@@ -275,7 +267,7 @@ For each duplicated logic: existing symbol + `file:line` + diff-ready refactor.
 | finding id | standards doc | section | quoted clause |
 |---|---|---|---|
 
-If no standards doc covers a finding, mark "opinion-only" and downgrade severity.
+If no standards doc covers a finding, do not claim a standards violation. Retain it only when independent evidence establishes a concrete user, behavior, invariant, security or maintenance impact.
 
 ### E. Tests review
 
@@ -284,11 +276,6 @@ If no standards doc covers a finding, mark "opinion-only" and downgrade severity
 - Flaky-risk tests.
 - Mock-discipline issues.
 - **Counter-factual table** (one row per AC, from `counter_factual_per_ac`).
-
-### F. Quality rubric
-
-| file | readability | maintainability | performance | testability | standards | notes |
-|---|---|---|---|---|---|---|
 
 ### G. Risk hotspots
 
@@ -306,12 +293,12 @@ From `production_caller_chains` (Step 5). One sub-section per service-contract c
 
 - Blockers: list — must fix before QA.
 - Non-blockers triaged: list (from `non_blockers_to_triage`) — host routes each through the triage skill's decision tree and includes, per finding, either the resulting entity key (bug, task, question, change, or tech-debt) or "fixed inline" if the decision tree's fix-now gate resolved it without filing one.
-- Nits: bullet list, no action.
+- Withdrawn findings: preserve original concern, refuting evidence and authorized report-only disposition; no edit or tracker filing for that item.
 
 ### J. Verdict
 
-- **PASS** — no findings of any severity.
-- **PASS-with-triage** — no blockers; non-blockers exist (host triages).
+- **PASS** — complete coverage with zero actionable findings and zero report-only withdrawals. Include a concise account for each fully disproved blocker with its original concern, exact location, `REFUTED` label and contrary evidence.
+- **PASS-with-triage** — no open blockers, and at least one actionable non-blocker or documented withdrawal of a prior blocker to a stylistic remainder. Record the host disposition for each.
 - **FAIL** — one or more blockers; task returns to development.
 
 For the full report skeleton, see `../context/code-review-reference.md`.
@@ -335,13 +322,13 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 
 ### Do **NOT** block for:
 
-- Stylistic preferences within acceptable bounds.
+- Preferences with no concrete user, behavior, invariant, documented-standard or maintenance impact; omit them rather than reporting them as findings.
 - Pre-existing issues the task didn't substantially worsen (triage instead).
 - Minor optimizations that don't affect correctness.
-- Naming nits when project standards are met.
+- Naming preferences when project standards are met and no concrete impact exists.
 - Missing nice-to-have test cases (triage instead).
 - **File-organization preferences** (e.g., "split this 700-line test file into smaller groups"). Route through the triage skill's decision tree only if there is concrete maintainability impact; otherwise drop entirely.
-- **Micro-style violations on tiny static-data paths** — e.g., a single sync `Path.read_text()` for a small static prompt file inside an `async def`. Async-purity / hot-path rules apply on hot paths; on a 200-byte one-shot read at module init they are nits, not findings.
+- **Micro-style preferences on tiny static-data paths** — e.g., a single sync `Path.read_text()` for a small static prompt file inside an `async def`. Async-purity / hot-path rules apply on hot paths; without concrete impact, omit the preference.
 
 ### Always prefer:
 
@@ -355,19 +342,19 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - [ ] Every non-blocker has a clear `file_line` + `fingerprint` + `summary` + `fix_suggestion` in `non_blockers_to_triage` so the host can file it without re-reading the report, and reruns link the same entity instead of duplicating it.
 - [ ] Reuse search was actually performed (cite at least one grep result, even if "no duplicates found").
 - [ ] Standards crosswalk cites real sections from real docs (no fabricated citations).
-- [ ] Quality rubric scores are justified with evidence, not vibes.
+- [ ] Every retained finding names an affected entity, consequence and evidence; no score threshold creates findings.
 - [ ] **Independent review completed and findings are incorporated**; incomplete evidence cannot pass.
 - [ ] **For each service-contract change in the diff, `production_caller_chains` names entrypoint → call chain → leaf** (Step 5).
 - [ ] **`counter_factual_per_ac` has one entry per AC** (Step 8.5) — flag missing coverage as blocker on critical ACs.
 - [ ] **Any downgraded blocker has an evidence-based justification** (Step 10).
-- [ ] Verdict matches findings: PASS only if zero findings of any severity; PASS-with-triage if no blockers; FAIL otherwise.
+- [ ] Verdict matches findings: PASS only if zero actionable findings; PASS-with-triage if actionable non-blockers exist without blockers; FAIL if blockers exist.
 - [ ] Report file exists at `code_review_report_path`.
 
 ## Edge cases
 
 - **PRD ambiguous or contradictory** — flag explicitly in report; downgrade related findings; do not invent intent.
 - **Standards docs conflict** — note the conflict; do not pick a winner without escalation.
-- **Diff is tiny (< 50 lines)** — skip rubric scoring; produce a 4-line report.
+- **Diff is tiny (< 50 lines)** — omit per-file scoring; retain only evidence-backed actionable findings.
 - **Diff is huge (> 2000 lines)** — recommend splitting in the verdict; review what fits in attention budget; explicitly mark unreviewed regions.
 - **No standards doc exists** — every "standards violation" downgrades to opinion-level; recommend running a standards-generation pass.
 

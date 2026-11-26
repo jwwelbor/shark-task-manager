@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -67,8 +66,8 @@ func decodeReviewGitPath(token json.RawMessage) (string, error) {
 		data = data[index+n:]
 	}
 	path := name.String()
-	if !filepath.IsLocal(path) || path == "." || strings.IndexByte(path, 0) >= 0 {
-		return "", fmt.Errorf("invalid repository-relative Git path %q", path)
+	if !validReviewGitPath(path) {
+		return "", fmt.Errorf("invalid repository-relative Git path %s", quoteReviewGitPath(path))
 	}
 	return path, nil
 }
@@ -107,4 +106,42 @@ func appendPathSurrogatePair(name *strings.Builder, high rune, rest []byte) (int
 		}
 	}
 	return 0, fmt.Errorf("unpaired Unicode surrogate in Git path")
+}
+
+// Git uses slash as its only separator, even when a name contains whitespace,
+// a literal backslash, or bytes that do not encode a Unicode scalar.
+func validReviewGitPath(path string) bool {
+	if strings.IndexByte(path, 0) >= 0 {
+		return false
+	}
+	for component := range strings.SplitSeq(path, "/") {
+		switch component {
+		case "", ".", "..":
+			return false
+		}
+	}
+	return true
+}
+
+// Encode invalid bytes with the same surrogate escapes used in review packets.
+func quoteReviewGitPath(path string) string {
+	var quoted strings.Builder
+	quoted.WriteByte('"')
+	start := 0
+	writeText := func(text string) {
+		raw, _ := json.Marshal(text) // A string always has a JSON encoding.
+		quoted.Write(raw[1 : len(raw)-1])
+	}
+	for i := 0; i < len(path); {
+		r, size := utf8.DecodeRuneInString(path[i:])
+		if r == utf8.RuneError && size == 1 {
+			writeText(path[start:i])
+			fmt.Fprintf(&quoted, `\udc%02x`, path[i])
+			start = i + 1
+		}
+		i += size
+	}
+	writeText(path[start:])
+	quoted.WriteByte('"')
+	return quoted.String()
 }

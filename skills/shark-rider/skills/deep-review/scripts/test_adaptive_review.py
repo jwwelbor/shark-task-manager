@@ -3,6 +3,7 @@ import argparse
 import contextlib
 import hashlib
 import io
+import hashlib
 import json
 import os
 import shlex
@@ -87,7 +88,7 @@ def scope_fixture(root):
 def review_packet(scope):
     identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
     return {'report': 'REVIEWED SCOPE: fixture files and coverage\nFINDINGS: none\nThe adversarial review is complete and evidence was checked.\nVERDICT: PASS',
-            'decisions': {'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']), 'findings': []}}
+            'decisions': {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': list(scope['changed_files']), 'findings': []}}
 
 
 def fake_reviewer(path, packet):
@@ -244,6 +245,106 @@ class AdaptiveReviewTests(unittest.TestCase):
                             reason = 'coverage' if case == 'different-byte' else 'utf-8'
                             self.assertIn(reason, metadata['fallback_reason'].lower())
                             self.assertIn(reason, saved.lower())
+
+    def test_review_contract_requires_impact_and_rejects_nit_severity(self):
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd'}
+        identity = {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}
+        raw = {'file': 'a.go', 'line': 3, 'severity': 'non-blocker', 'rule': 'CONTRACT',
+               'summary': 'missing audit event', 'diagnosis': 'event is not emitted',
+               'evidence': 'event stream is empty after the required write', 'impact': 'audit consumer loses the required event'}
+        decisions = {'review_contract_version': 2, 'candidate_identity': identity,
+                     'findings': [{**raw, 'disposition': 'triage', 'reason': 'route to owning task'}]}
+        validate_review_decisions(decisions, scope, [raw], 'PASS-WITH-TRIAGE')
+        decisions['findings'][0].pop('impact')
+        with self.assertRaisesRegex(ValueError, 'malformed'):
+            validate_review_decisions(decisions, scope, [raw], 'PASS-WITH-TRIAGE')
+        decisions['findings'][0] = {**raw, 'severity': 'nit', 'disposition': 'triage', 'reason': 'style'}
+        with self.assertRaisesRegex(ValueError, 'malformed'):
+            validate_review_decisions(decisions, scope, [raw], 'PASS-WITH-TRIAGE')
+
+    def test_published_angle_packets_at_dispatched_writer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_path = scope_fixture(root)
+            identity = review_packet(scope)['decisions']['candidate_identity']
+            files = scope['changed_files']
+            examples = sorted((HERE.parent / 'references').glob('angle-*.md'))
+            self.assertEqual(len(examples), 6)
+            for label, example in zip('abcdef', examples):
+                packet = json.loads(example.read_text().split('```json\n')[-1].split('```')[0])
+                packet.update(candidate_identity=identity, reviewed_files=files)
+                finding = packet['findings'][0]
+                finding.update(file=files[0], line=1, severity='blocker', rule=finding['rule'].split('|')[0])
+                for has_finding in (False, True):
+                    with self.subTest(angle=label, substantive=has_finding):
+                        packets = {key: dict(packet, findings=[]) for key in 'abcdef'}
+                        decisions = dict(review_packet(scope)['decisions'])
+                        body = review_packet(scope)['report']
+                        verdict = 'PASS'
+                        if has_finding:
+                            packets[label]['findings'] = [finding]
+                            decisions['findings'] = [dict(finding, disposition='open', reason='reproduced')]
+                            body = ('Scope: complete inspection of source. Findings: ' + finding['diagnosis']
+                                    + ' at source:1. Correction: ' + finding['correction'] + '. Verdict: FAIL')
+                            verdict = 'FAIL'
+                        (root / 'angles').write_text(json.dumps(packets))
+                        (root / 'decisions').write_text(json.dumps(decisions))
+                        (root / 'body').write_text(body)
+                        report = root / f'{label}-{verdict}.md'
+                        result = subprocess.run([sys.executable, str(HERE / 'adaptive_review.py'), 'write-report',
+                            '--project-root', str(repo), '--source-root', str(repo), '--body-file', str(root / 'body'),
+                            '--review-output-path', str(report), '--scope-file', str(scope_path),
+                            '--base-commit', scope['base_commit'], '--diff-path', scope['diff_path'],
+                            '--runner-mode', 'dispatched-six-angle', '--specialists-completed', '6',
+                            '--consolidator-completed', 'true', '--fallback-reason', 'native Workflow unavailable',
+                            '--angle-results', str(root / 'angles'), '--review-decisions', str(root / 'decisions'),
+                            '--verdict', verdict], capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        saved = json.loads(result.stdout)
+                        self.assertEqual(saved['verdict'], verdict)
+                        self.assertEqual(json.loads(Path(saved['retained_decisions']).read_text()), decisions)
+                        self.assertEqual(json.loads(Path(saved['retained_angles']).read_text()), packets)
+
+    def test_malformed_and_unsupported_members_at_validation(self):
+        identity = {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}
+        scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd', 'changed_files': ['source']}
+        finding = dict(file='source', line=1, severity='non-blocker', rule='DRY', summary='double entry',
+                       diagnosis='two manual registrations', impact='must edit two sites', evidence='rotation: lines 1 and 4',
+                       disposition='triage', reason='filed')
+        invalid = [None, 'not a finding', [], dict(finding, impact='  '), dict(finding, evidence='  '),
+                   {key: value for key, value in finding.items() if key != 'evidence'}]
+        for member in [finding, *invalid]:
+            packet = {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': ['source'],
+                      'findings': [member]}
+            for boundary in ('angle', 'decision'):
+                with self.subTest(boundary=boundary, member=member):
+                    def validate():
+                        if boundary == 'angle':
+                            return adaptive_review._angle_findings('b', packet, scope)
+                        return validate_review_decisions(packet, scope, [], 'PASS-WITH-TRIAGE')
+                    if member is finding:
+                        validate()
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'malformed'):
+                            validate()
+
+    def test_persisted_report_keeps_requested_and_effective_model_distinct(self):
+        metadata = {
+            'generated': 'timestamp', 'runner_mode': 'dispatched-six-angle',
+            'specialists_completed': 6, 'consolidator_completed': True,
+            'adversarial_model': None, 'fallback_reason': None,
+            'base_commit': 'base', 'diff_path': 'diff', 'candidate_commit': 'candidate',
+            'candidate_tree': 'tree', 'diff_sha256': 'digest', 'repair_plan_sha256': 'plan',
+            'changed_files': ['a.go'], 'retained_scope': 'scope', 'retained_angles': 'angles',
+            'scope_sha256': 'scope-digest', 'retained_decisions': 'decisions',
+            'decisions_sha256': 'decisions-digest', 'angles_sha256': 'angles-digest',
+            'review_contract_version': 2, 'requested_model': '', 'effective_model': 'observed-model',
+            'verdict': 'PASS',
+        }
+        header = adaptive_review._report_header(metadata)
+        self.assertIn('**Review contract:** `2`', header)
+        self.assertIn('**Requested model:** ``', header)
+        self.assertIn('**Verified effective model:** `observed-model`', header)
 
     @unittest.skipIf(os.name == 'nt', 'uses executable fixtures and process groups')
     def test_cli_selection_enforces_each_stream_limit_per_attempt(self):
@@ -516,7 +617,7 @@ class AdaptiveReviewTests(unittest.TestCase):
         body = ('CURRENT_REVIEW_STATUS: COMPLETE\r\n'
                 'Scope: all candidate files reviewed. Findings: input defect. VERDICT: PASS\r\n'
                 'FINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage\r\n')
-        packet = {'report': body, 'decisions': {'candidate_identity': identity, 'reviewed_files': ['app.go', 'other.go'], 'findings': []}}
+        packet = {'report': body, 'decisions': {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': ['app.go', 'other.go'], 'findings': []}}
         with self.assertRaises(ValueError):
             adaptive_review._parse_cli_packet(json.dumps(packet), scope)
         packet['report'] = body.replace('VERDICT: PASS', 'VERDICT: PASS-WITH-TRIAGE')
@@ -524,15 +625,16 @@ class AdaptiveReviewTests(unittest.TestCase):
             adaptive_review._parse_cli_packet(json.dumps(packet), scope)
         packet['decisions']['findings'] = [{'finding_id': 'F-1', 'file': 'app.go', 'line': 2,
             'severity': 'non-blocker', 'rule': 'INPUT', 'summary': 'validation',
-            'diagnosis': 'missing check', 'disposition': 'triage', 'reason': 'tracked'}]
+            'diagnosis': 'missing check', 'evidence': 'empty input returned success', 'impact': 'caller accepts malformed external input', 'disposition': 'triage', 'reason': 'tracked'}]
         self.assertEqual(adaptive_review._parse_cli_packet(json.dumps(packet), scope)[0], packet['report'])
         packet['report'] += 'FINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | triage\r\n'
         with self.assertRaises(ValueError):
             adaptive_review._parse_cli_packet(json.dumps(packet), scope)
         packet['decisions']['findings'].append({'finding_id': 'F-2', 'file': 'other.go', 'line': 3,
             'severity': 'nit', 'rule': 'STYLE', 'summary': 'other issue',
-            'diagnosis': 'incorrect label', 'disposition': 'triage', 'reason': 'tracked'})
-        self.assertEqual(adaptive_review._parse_cli_packet(json.dumps(packet), scope)[0], packet['report'])
+            'diagnosis': 'incorrect label', 'impact': 'no identified effect', 'disposition': 'triage', 'reason': 'tracked'})
+        with self.assertRaises(ValueError):
+            adaptive_review._parse_cli_packet(json.dumps(packet), scope)
 
     def test_capability_ladder(self):
         self.assertEqual(select_runner(Capabilities(True, True, True, True))['runner_mode'], 'canonical-six-angle')
@@ -556,8 +658,8 @@ class AdaptiveReviewTests(unittest.TestCase):
 
     def test_review_decisions_require_explicit_refutation(self):
         scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd'}
-        blocker = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong'}
-        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
+        blocker = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong', 'impact': 'caller receives invalid input', 'evidence': 'the returned message is missing the required field'}
+        decisions = {'review_contract_version': 2, 'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
         with self.assertRaises(ValueError):
             validate_review_decisions(decisions, scope, [blocker], 'PASS')
         decisions['findings'] = [{**blocker, 'disposition': 'open', 'reason': 'not refuted'}]
@@ -569,8 +671,8 @@ class AdaptiveReviewTests(unittest.TestCase):
 
     def test_failed_review_keeps_every_raw_finding(self):
         scope = {'candidate_commit': 'c', 'candidate_tree': 't', 'diff_sha256': 'd'}
-        finding = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong'}
-        decisions = {'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
+        finding = {'file': 'a.go', 'line': 3, 'summary': 'broken', 'severity': 'blocker', 'rule': 'BUG', 'diagnosis': 'wrong', 'impact': 'caller receives invalid input', 'evidence': 'the returned message is missing the required field'}
+        decisions = {'review_contract_version': 2, 'candidate_identity': {'commit': 'c', 'tree': 't', 'diff_sha256': 'd'}, 'findings': []}
         with self.assertRaisesRegex(ValueError, 'no explicit disposition'):
             validate_review_decisions(decisions, scope, [finding], 'FAIL')
         decisions['findings'] = [{**finding, 'disposition': 'open', 'reason': 'still reproducible'}]
@@ -582,9 +684,9 @@ class AdaptiveReviewTests(unittest.TestCase):
             repo, scope, scope_file = scope_fixture(root)
             identity = review_packet(scope)['decisions']['candidate_identity']
             angles = root / 'angles.json'
-            angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
+            angles.write_text(json.dumps({name: {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
             decisions = root / 'decisions.json'
-            decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+            decisions.write_text(json.dumps({'review_contract_version': 2, 'candidate_identity': identity, 'findings': []}))
             body = root / 'body'
             body.write_text(review_packet(scope)['report'])
             report = root / 'report'
@@ -687,7 +789,7 @@ class AdaptiveReviewTests(unittest.TestCase):
             prompt.write_text('review')
             packet = review_packet(scope)
             packet['report'] = 'REVIEWED SCOPE: all files. FINDINGS: blockers remain despite a thorough check of all callers. VERDICT: PASS'
-            packet['decisions']['findings'] = [{'file': 'source', 'line': 1, 'severity': 'blocker', 'rule': 'BUG', 'summary': 'broken', 'diagnosis': 'wrong', 'disposition': 'open', 'reason': 'not refuted'}]
+            packet['decisions']['findings'] = [{'file': 'source', 'line': 1, 'severity': 'blocker', 'rule': 'BUG', 'summary': 'broken', 'diagnosis': 'wrong', 'impact': 'user data is lost', 'evidence': 'after write, the original record is missing', 'disposition': 'open', 'reason': 'not refuted'}]
             fake = root / 'reviewer'
             fake_reviewer(fake, packet)
             result = subprocess.run([
@@ -882,7 +984,7 @@ class HostCarryPlanTest(unittest.TestCase):
         body.write_text('Reviewed scope: all files and callers. Findings: none. Detailed verification completed. VERDICT: PASS')
         report = root / f'report-{name}.md'
         decisions = root / 'decisions.json'
-        decisions.write_text(json.dumps({'candidate_identity': angles['a']['candidate_identity'], 'findings': []}))
+        decisions.write_text(json.dumps({'review_contract_version': 2, 'candidate_identity': angles['a']['candidate_identity'], 'findings': []}))
         argv = [sys.executable, str(HERE / 'adaptive_review.py'), 'write-report', '--runner-mode', 'canonical-six-angle',
                 '--specialists-completed', '6', '--consolidator-completed', 'true', '--verdict', 'PASS',
                 '--angle-results', str(angle_file), '--body-file', str(body), '--review-output-path', str(report),
@@ -902,7 +1004,7 @@ class HostCarryPlanTest(unittest.TestCase):
             self.assertEqual(scope['successor_delta']['changed_files'], ['leaf-b.md'])
             self.assertEqual(sorted(scope['changed_files']), ['leaf-a.md', 'leaf-b.md'])
             identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
-            packet = {'candidate_identity': identity, 'reviewed_files': ['leaf-b.md'], 'findings': []}
+            packet = {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': ['leaf-b.md'], 'findings': []}
             angles = {label: packet for label in 'abcdef'}
             unit = {'version': 1, 'path': 'leaf-a.md', 'obligation': 'file_local', 'inputs': [], 'dynamic_lookup': False,
                     'predecessor_commit': predecessor, 'predecessor_run_id': 'review-a', 'predecessor_operation_digest': 'b' * 64}
