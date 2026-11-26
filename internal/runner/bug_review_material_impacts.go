@@ -109,7 +109,7 @@ func validateBugReviewMaterialImpacts(ctx context.Context, req gatepersist.Reque
 	if err != nil {
 		return err
 	}
-	return verifyMaterialDecisionSet(ctx, scope, expected.Decisions, dispositions, markers)
+	return verifyMaterialDecisionSet(ctx, req, scope, expected.Decisions, dispositions, markers)
 }
 
 func materialPacketsPresent(req gatepersist.Request, header string, markers map[string]bool) (bool, error) {
@@ -160,7 +160,7 @@ func indexMaterialDispositions(submitted []bugReviewMaterialDisposition) (map[st
 	return dispositions, nil
 }
 
-func verifyMaterialDecisionSet(ctx context.Context, scope bugCandidateScope, expected []bugReviewMaterialDecision, dispositions map[string]bugReviewMaterialDisposition, markers map[string]bool) error {
+func verifyMaterialDecisionSet(ctx context.Context, req gatepersist.Request, scope bugCandidateScope, expected []bugReviewMaterialDecision, dispositions map[string]bugReviewMaterialDisposition, markers map[string]bool) error {
 	seenDecisions := make(map[string]bool, len(expected))
 	for _, decision := range expected {
 		if err := validateBugReviewMaterialDecision(decision); err != nil {
@@ -178,6 +178,9 @@ func verifyMaterialDecisionSet(ctx context.Context, scope bugCandidateScope, exp
 			return fmt.Errorf("material decision disposition is missing")
 		}
 		if err := compareBugReviewMaterialMembers(decision, submittedDecision); err != nil {
+			return err
+		}
+		if err := verifyMaterialSupport(ctx, req, scope, decision, submittedDecision); err != nil {
 			return err
 		}
 	}

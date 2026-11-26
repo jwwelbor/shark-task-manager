@@ -36,7 +36,8 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 	baseline := git("rev-parse", "HEAD")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "docs"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "docs", "decision.md"), []byte("decision"), 0o600))
-	git("add", "docs/decision.md")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "docs", "spec.md"), []byte("the replacement rule\n"), 0o600))
+	git("add", "docs/decision.md", "docs/spec.md")
 	git("commit", "-m", "decision")
 	candidate := git("rev-parse", "HEAD")
 	tree := git("rev-parse", "HEAD^{tree}")
@@ -75,6 +76,37 @@ func TestValidateBugReviewMaterialImpactsRequiresExactDispositionCoverage(t *tes
 		req := gatepersist.Request{RunDir: runDir, EnvelopeJSON: []byte(fmt.Sprintf(`{"kind":"final","recommended_outcome":"pass","evidence":[{"kind":"bug_review_material_impacts","pointer":"docs/expected.json","summary":"%s"},{"kind":"bug_review_material_dispositions","pointer":"docs/dispositions.json","summary":"%s"}],"gate_result":{"schema_version":1,"summary":"test"}}`, expHash, gotHash))}
 		return req, bugCandidateScope{ProjectRoot: root, CandidateCommit: candidate, CandidateTree: tree, DiffSHA256: fmt.Sprintf("%x", diffHash), RepairPlanSHA256: "plan"}, header, "MATERIAL_DECISION: DEC-1"
 	}
+	runRecord := func(name, criterion, at, outcome string) {
+		data := mustJSON(t, []materialRunObservation{{Owner: "E01-F01", Caller: "internal/handler.go", Criterion: criterion, Candidate: at, Outcome: outcome}})
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "artifacts"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "artifacts", name), data, 0o600))
+	}
+	runRecord("ac-1.json", "AC-1", candidate, "pass")
+	runRecord("ac-2.json", "AC-2", candidate, "pass")
+	t.Run("disposition support is resolved, not trusted", func(t *testing.T) {
+		defer runRecord("ac-2.json", "AC-2", candidate, "pass")
+		for _, trial := range []struct {
+			name, want string
+			arrange    func(*bugReviewMaterialImpacts)
+		}{
+			{"only AC-2 fails at the candidate", "AC-2: recorded run at the candidate did not pass", func(*bugReviewMaterialImpacts) { runRecord("ac-2.json", "AC-2", candidate, "fail") }},
+			{"run recorded at another candidate", "no recorded passing run at the candidate", func(*bugReviewMaterialImpacts) { runRecord("ac-2.json", "AC-2", strings.Repeat("0", 40), "pass") }},
+			{"run recorded for another criterion", "no recorded passing run at the candidate", func(*bugReviewMaterialImpacts) { runRecord("ac-2.json", "AC-1", candidate, "pass") }},
+			{"amendment keeps the invalidated text", "docs/spec.md still contains the invalidated text", func(e *bugReviewMaterialImpacts) {
+				e.Decisions[0].AffectedArtifacts[0].InvalidatedText = "replacement rule"
+			}},
+		} {
+			t.Run(trial.name, func(t *testing.T) {
+				exp := expected
+				exp.Decisions = append([]bugReviewMaterialDecision(nil), expected.Decisions...)
+				exp.Decisions[0].AffectedArtifacts = append([]bugReviewMaterialArtifact(nil), expected.Decisions[0].AffectedArtifacts...)
+				trial.arrange(&exp)
+				req, scope, header, body := makeReq(exp, dispositions)
+				require.ErrorContains(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body), trial.want)
+			})
+			runRecord("ac-2.json", "AC-2", candidate, "pass")
+		}
+	})
 	t.Run("complete member set passes", func(t *testing.T) {
 		req, scope, header, body := makeReq(expected, dispositions)
 		require.NoError(t, validateBugReviewMaterialImpacts(context.Background(), req, scope, header, body))
