@@ -332,6 +332,7 @@ func TestTrackerAttemptLedgerBindsWithdrawalToRunAndFinding(t *testing.T) {
 // invocations through the parent observation and the production admission
 // reader. It runs only when B088_LIVE_LEDGER names that ledger and
 // B088_LIVE_EXPECT is "accept" or "reject"; the run id is the ledger's own.
+// B088_LIVE_ROUTE=rider replays it through the Rider apply-result route.
 func TestLiveHostLedgerAdmission(t *testing.T) {
 	path, expect := os.Getenv("B088_LIVE_LEDGER"), os.Getenv("B088_LIVE_EXPECT")
 	if path == "" {
@@ -347,10 +348,24 @@ func TestLiveHostLedgerAdmission(t *testing.T) {
 	env, err := trackerAttemptEnv(f.root, runID)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(strings.TrimPrefix(env[0], trackerattempts.EnvLog+"="), data, 0o600))
-	attached, injected, err := ObserveBugReportOnlyTriage(context.Background(),
-		BugTriageWindow{ProjectRoot: f.root, WorkingDir: f.root, RunID: runID, RequireLedger: true}, f.envelope)
-	require.NoError(t, err)
-	require.True(t, injected)
+	var attached []byte
+	if os.Getenv("B088_LIVE_ROUTE") == "rider" {
+		// The Rider apply-result route: the host writes the observation, the
+		// adapter binds the run's ledger into it and attaches it.
+		path := filepath.Join(f.root, ".shark", "runs", runID, "parent-triage-observation.json")
+		hostFile := mustJSON(t, map[string]any{"candidate_identity": bugReviewIdentity{f.scope.CandidateCommit, f.scope.CandidateTree, f.scope.DiffSHA256, f.scope.RepairPlanSHA256},
+			"observed_by": "parent", "actions": []map[string]any{{"finding_id": "F-1", "action": "report_only", "edits": 0, "tracker_writes": 0}}})
+		require.NoError(t, os.WriteFile(path, hostFile, 0o600))
+		require.NoError(t, BindTrackerLedger(f.root, f.root, runID, path, f.envelope))
+		attached, err = AttachParentTriageObservation(f.root, runID, path, f.envelope)
+		require.NoError(t, err)
+	} else {
+		var injected bool
+		attached, injected, err = ObserveBugReportOnlyTriage(context.Background(),
+			BugTriageWindow{ProjectRoot: f.root, WorkingDir: f.root, RunID: runID, RequireLedger: true}, f.envelope)
+		require.NoError(t, err)
+		require.True(t, injected)
+	}
 	req := gatepersist.Request{RunDir: filepath.Join(f.root, ".shark", "runs", runID), EnvelopeJSON: attached, ParentObservationInjected: true}
 	admission := validateBugParentTriageObservation(req, f.scope, f.decisions)
 	observation, err := os.ReadFile(filepath.Join(req.RunDir, "parent-triage-observation.json"))
