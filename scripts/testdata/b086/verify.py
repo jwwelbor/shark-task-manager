@@ -580,10 +580,76 @@ def inspect_effort(case, manifest):
             'status': 'incomplete' if missing else 'observed', 'missing': missing}
 
 
+def inspect_dispatch(case, manifest):
+    """The dispatched runner counts its subagent calls and persists a complete or an incomplete review."""
+    from dispatch import ANGLES
+    binding = manifest['bindings'][case.name]
+    run_id = binding['run_id']
+    events = records(case / 'observations/tools.jsonl')
+    missing = []
+    if any(e.get('run_id') != run_id for e in events):
+        raise ValueError('observation belongs to another run')
+    if not host_receipt(case, manifest, events, run_id):
+        missing.append('run-bound native host and private-skill receipt')
+    entries = [e for e in events if e['event'] == 'entry']
+    results = {e['invocation']: e for e in events if e['event'] == 'result'}
+    if len(results) != len(entries) or any(e['invocation'] not in results for e in entries):
+        missing.append('complete tool results')
+    if any(e['tool'] not in ('read', 'dispatch', 'cli', 'report', 'ci') for e in entries):
+        missing.append('only reads, subagent dispatch, the rescue CLI, the report writer and CI are called')
+    skill = str(case / 'project/.agents/skills/shark-rider/skills/deep-review/SKILL.md')
+    if not any(e.get('tool') == 'read' and e.get('outcome') == 'loaded' and e.get('origin') == skill
+               for e in events if e['event'] == 'result'):
+        missing.append('deep-review runner instructions read from the pinned private copy')
+    served = [e for e in events if e['event'] == 'result' and e['tool'] == 'dispatch'
+              and e.get('outcome') == 'served']
+    angles = [e for e in served if e['agent'] in ANGLES]
+    consolidators = [e for e in served if e['agent'] == 'consolidator']
+    bad = binding.get('dispatch_bad')
+    if sorted(e['agent'] for e in angles) != sorted(ANGLES) or len(angles) != len(
+            [e for e in entries if e['tool'] == 'dispatch' and e['argv'][0] != 'consolidator']):
+        missing.append('six distinct specialist angle invocations, each served once')
+    if not all(e['names_candidate'] and e['names_diff'] for e in angles):
+        missing.append('every specialist prompt names the frozen candidate and diff identity')
+    if [e['agent'] for e in angles if not e['served_valid_json']] != ([n for n, letter in ANGLES.items() if letter == bad] if bad else []):
+        missing.append('exactly the staged malformed angle response' if bad else 'no malformed angle response')
+    if [e for e in entries if e['tool'] == 'cli']:
+        missing.append('zero rescue CLI invocations, discarded or answered')
+    if [e for e in entries if e['tool'] in ('merge', 'review')]:
+        missing.append('no merge or reviewer endpoint')
+    written = [e for e in events if e['event'] == 'result' and e['tool'] == 'report' and e.get('outcome') == 'written']
+    if len(written) != 1 or len([e for e in entries if e['tool'] == 'report']) != 1:
+        missing.append('exactly one persisted review')
+    else:
+        report = written[0]
+        path = case / 'observations/review/review.md'
+        if digest(path) != report['report_sha256']:
+            missing.append('persisted review bytes match the writer result')
+        if bad:
+            if len(consolidators) != 0:
+                missing.append('zero consolidator invocations after an invalid angle')
+            if (report['runner_mode'], report['specialists_completed'], report['consolidator_completed'],
+                    report['verdict']) != ('incomplete', '5', False, 'INCOMPLETE'):
+                missing.append('persisted INCOMPLETE with five completed specialists and no consolidator')
+            if [e for e in events if e['event'] == 'result' and e['tool'] == 'ci' and e.get('outcome') == 'recorded']:
+                missing.append('zero CI handoffs after an incomplete review')
+        else:
+            names = [e['agent'] for e in served]
+            if len(consolidators) != 1 or names[-1] != 'consolidator' or sorted(names[:-1]) != sorted(ANGLES):
+                missing.append('one consolidator invocation after all six angle results')
+            if (report['runner_mode'], report['specialists_completed'], report['consolidator_completed']) != (
+                    'dispatched-six-angle', '6', True) or report['verdict'] == 'INCOMPLETE':
+                missing.append('persisted complete dispatched-six-angle review')
+    return {'run_id': run_id, 'scope': 'dispatch counts and persisted report only', 'children': [],
+            'status': 'incomplete' if missing else 'observed', 'missing': missing}
+
+
 def inspect_case(case, manifest, fingerprint):
     binding = manifest['bindings'][case.name]
     run_id = binding['run_id']
     scenario = binding.get('scenario')
+    if binding.get('dispatch_case'):
+        return inspect_dispatch(case, manifest)
     if scenario in EFFORT_KINDS:
         return inspect_effort(case, manifest)
     project = case / 'project'

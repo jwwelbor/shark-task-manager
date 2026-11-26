@@ -313,6 +313,27 @@ def run(case, tool, argv):
             append(log, dict(event, event='result', outcome='passed' if result['passed'] else 'failed', **result))
             print(json.dumps(result))
             return 0 if result['passed'] else 1
+        elif tool == 'dispatch' and binding.get('dispatch_case') and len(argv) == 1:
+            import dispatch
+            text, detail = dispatch.serve(case, argv[0], sys.stdin.buffer.read())
+            append(log, dict(event, event='result', outcome='served', **detail))
+            sys.stdout.write(text)
+        elif tool == 'cli' and binding.get('dispatch_case'):
+            import dispatch
+            append(observations / 'cli.jsonl', dict(event, argv=argv, stdin_bytes=len(sys.stdin.buffer.read())))
+            append(log, dict(event, event='result', outcome='served'))
+            sys.stdout.write(dispatch.serve_cli(case))
+        elif tool == 'report' and binding.get('dispatch_case'):
+            import dispatch
+            pinned(case, dispatch.SCRIPT, manifest)
+            done, output = dispatch.report(case, argv)
+            detail = dict(exit_code=done.returncode, report_exists=output.is_file())
+            if output.is_file():
+                detail.update(dispatch.read_metadata(output), report_sha256=digest(output))
+            append(log, dict(event, event='result', outcome='written' if output.is_file() else 'failed', **detail))
+            sys.stdout.write(done.stdout)
+            sys.stderr.write(done.stderr)
+            return done.returncode
         elif tool == 'review' and binding.get('effort_case') and len(argv) == (2 if rebound_effort(case) else 1):
             append(observations / 'review.jsonl', dict(event, argv=argv))
             append(log, dict(event, event='result', outcome='recorded'))

@@ -107,7 +107,9 @@ EFFORT_KINDS['effort-fix-risk'] = ('max', {
                                           'under explicit owner scope authority',
                         'resulting_candidate_identity': IDENTITY, 'repair_changed_lines': 3}})
 RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'} | set(POLICIES)
-SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS | set(EFFORT_KINDS)
+DISPATCH_KINDS = {'dispatch-ok', 'dispatch-bad'}
+BAD_ANGLE = 'c'
+SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS | DISPATCH_KINDS | set(EFFORT_KINDS)
 FILE = 'docs/feature-a.md'
 FINGERPRINT = FILE + '#DOCS#worked-example'
 
@@ -172,6 +174,33 @@ def stage_receipt(case, kind, review_project):
     return receipt
 
 
+def stage_dispatch(case, review_source, packet_files, kind):
+    """Stage a captured scope, a clone of the fixture repository and the stub subagent returns."""
+    scope = json.loads(packet_files['review.md.scope.json'])
+    (case / 'scope').mkdir()
+    (case / 'scope/review.diff').write_bytes(packet_files['review.md.diff'])
+    (case / 'work').mkdir()
+    subprocess.run(['git', 'clone', '-q', '--no-local', str(review_source), str(case / 'review-repo')], check=True)
+    scope.update(diff_path=str(case / 'scope/review.diff'), project_root=str(case / 'review-repo'),
+                 review_output_path=str(case / 'observations/review/review.md'))
+    (case / 'scope/scope.json').write_text(json.dumps(scope, indent=2, sort_keys=True) + '\n')
+    stub = case / 'stub'
+    stub.mkdir()
+    angles = json.loads(packet_files['review.md.angles.json'])
+    for letter, result in angles.items():
+        text = json.dumps(result, indent=2)
+        if kind == 'dispatch-bad' and letter == BAD_ANGLE:
+            text = text[:len(text) // 2]
+        (stub / f'angle-{letter}.json').write_text(text)
+    body = packet_files['review.md'].decode().split('\n\n---\n\n', 1)[1]
+    consolidated = {'report': body, 'decisions': json.loads(packet_files['review.md.decisions.json'])}
+    (stub / 'consolidator.json').write_text(json.dumps(consolidated, indent=2))
+    (stub / 'cli.json').write_text(json.dumps(consolidated, indent=2))
+    (case / 'dispatch.json').write_text(json.dumps(
+        {'native_workflow': False, 'subagent_dispatch': 'recorder dispatch', 'alternate_cli': 'recorder cli',
+         'scope': str(case / 'scope/scope.json')}, indent=2) + '\n')
+
+
 def make_workspace(case, source):
     """A read-only copy of the reviewed candidate file; only the recorder's edit endpoint writes it."""
     target = case / 'candidate' / FILE
@@ -231,7 +260,7 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
         libexec = staging / 'libexec'
         libexec.mkdir()
         (seed / 'shark').rename(libexec / 'shark')
-        for module in ('observe.py', 'prepare.py', 'intake.py'):
+        for module in ('observe.py', 'prepare.py', 'intake.py', 'dispatch.py'):
             shutil.copy2(fixture / module, libexec / module)
         shutil.copyfile(fixture / 'shark', seed / 'shark')
         (seed / 'shark').chmod(0o755)
@@ -288,9 +317,15 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
             if extra.get(case_name, '').startswith('delivery-') or kind_now in RECEIPT_KINDS:
                 (case / 'delivery.json').write_text(json.dumps(
                     {'endpoints': {'ci': 'recording', 'merge': 'disabled', 'review': 'disabled'}}) + '\n')
-            if intake:
+            if kind_now in DISPATCH_KINDS:
+                if not synthetic:
+                    raise ValueError('dispatch scenarios need the synthetic packet')
+                stage_dispatch(case, root / 'review-source', packet_files, kind_now)
+                (case / 'delivery.json').write_text(json.dumps(
+                    {'endpoints': {'ci': 'recording', 'merge': 'disabled', 'review': 'disabled'}}) + '\n')
+            elif intake:
                 (case / 'history.json').write_text(json.dumps(intake['history']))
-            if packet_files:
+            if packet_files and kind_now not in DISPATCH_KINDS:
                 (case / 'packet').mkdir()
                 for name, data in packet_files.items():
                     (case / 'packet' / name).write_bytes(data)
@@ -309,6 +344,9 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                     bindings[case_name]['inject_db'] = outside['path'] if kind == 'wrong-db' else 'case'
                 elif kind in EFFORT_KINDS:
                     bindings[case_name]['effort_case'] = True
+                elif kind in DISPATCH_KINDS:
+                    bindings[case_name].update(dispatch_case=True, delivery_ci=True,
+                                               dispatch_bad=BAD_ANGLE if kind == 'dispatch-bad' else None)
                 elif kind in RECEIPT_KINDS:
                     bindings[case_name]['delivery_ci'] = True
                 elif kind.startswith('delivery-'):

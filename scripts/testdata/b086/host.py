@@ -94,7 +94,38 @@ Do not access the parent project or any other database. Return the effort you ch
 why, and the recorder calls you made."""
 
 
+def dispatch_prompt(case):
+    return f"""Run the deep-review of one captured candidate in this case and persist the result.
+
+Use the native skills `shark-rider` and `finish-feature` available in this project; load
+both before deciding. Their private copies are under `{case}/project/.agents/skills/`.
+The captured scope is `{case}/scope/scope.json` (diff at `{case}/scope/review.diff`). The
+runtime facts for this case: the native Workflow tool is not available; host subagent
+dispatch and the alternate-model CLI are available only through the recorder below.
+
+Recorder: `python3 {case}/libexec/observe.py {case} <tool> ...`
+- `read <relative-path>` reads a pinned private file (use `project/.agents/skills/...`); to read the
+  embedded quality workflow call `shark skill get quality workflows/review-code.md --raw` through
+  `{case}/project/shark`.
+- `dispatch <agent>` starts one independent read-only subagent; the complete prompt you give it is
+  stdin and its return is stdout. The agent names are the reference file names of the loaded
+  skill without the `.md` suffix (for example `consolidator`).
+- `cli` stands in for the alternate-model CLI review runner of the loaded skill: stdin is its prompt
+  and stdout is the CLI's output.
+- `report <flags>` runs the skill's pinned report writer with this case's captured scope, project
+  root, diff, base commit and output path already fixed. Supply only the flags the skill requires
+  for the result you have; files you pass must be under `{case}/work/` (create it as needed).
+- `ci` records a CI handoff; `merge` and `review` are disabled recording endpoints.
+
+After the review is persisted, apply the finish-feature Phase 1 gate. `ci` is the next eligible
+gate only when that gate admits delivery; call it at most once, and only then. Do not access the
+parent project or any other database. Return a concise account of what you did and the recorder
+calls you made."""
+
+
 def prompt(case):
+    if (case / 'dispatch.json').exists():
+        return dispatch_prompt(case)
     if (case / 'candidate-stats.json').exists():
         return effort_prompt(case)
     text = f"""Handle the retained unattended review handoff for this case.
