@@ -128,8 +128,9 @@ def host_receipt(case, manifest, events, run_id):
                     and event.get('item', {}).get('type') == 'command_execution']
     if not any('observe.py' in command for command in commands):
         return False
-    if any('codex' in command or 'claude' in command.lower() for command in commands):
-        return False
+    launcher = re.compile(r'(^|[;&|(]\s*|\bexec\s+|\bxargs\s+|\benv\s+)(\S*/)?(claude|codex)(\s|$)')
+    if any(launcher.search(command) for command in commands):
+        return False  # another host or provider CLI was launched
     skills = setup.get('skills', {})
     for name, source in [('shark-rider', 'catalog/shark-rider/SKILL.md'),
                          ('finish-feature', 'catalog/finish-feature/SKILL.md')]:

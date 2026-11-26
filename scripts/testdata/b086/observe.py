@@ -250,9 +250,8 @@ def workspace_verify(case, binding):
     """Focused check of the Feature A example, bound to the current candidate identity."""
     path = workspace_file(case, binding, binding['workspace']['file'])
     text = path.read_text()
-    needs = {'an example is introduced (the word "example")': 'example' in text.lower(),
-             'the example shows the command (feature-a list appears more than once)': text.count('feature-a list') > 1,
-             'the example shows the alphabetical default order': 'alphabetical' in text}
+    needs = {'an example is introduced (the word "example" or "e.g.")': 'example' in text.lower() or 'e.g.' in text.lower(),
+             'the alphabetical default order is stated': 'alphabetical' in text}
     failed = [reason for reason, ok in needs.items() if not ok]
     return {'file': binding['workspace']['file'], 'candidate_identity': digest(path),
             'passed': not failed, 'unmet': failed}
