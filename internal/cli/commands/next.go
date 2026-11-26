@@ -259,6 +259,11 @@ type nextAdapterCache struct {
 	// the top precedence tier for every entity resolveEntity visits during
 	// this invocation, including cascade recursion.
 	harnessOverride services.HarnessIdentity
+
+	// benchmarkCatalogEffort carries --benchmark-catalog-effort for this
+	// invocation only, preserving exact catalog effort casing on Codex/OpenAI
+	// worker dispatches while leaving native callers normalized.
+	benchmarkCatalogEffort bool
 }
 
 // newNextAdapterCache constructs an empty cache with the root action service
@@ -511,6 +516,11 @@ Errors:
 		"",
 		"Override the resolved harness model; wins over the active claim and SHARK_HARNESS_MODEL",
 	)
+	cmd.Flags().Bool(
+		"benchmark-catalog-effort",
+		false,
+		"Preserve exact catalog effort casing for opted-in Codex/OpenAI benchmark dispatches",
+	)
 	return cmd
 }
 
@@ -627,6 +637,13 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	adapters.surfaceForks = !resolveSequentialDispatch(cmd)
 	adapters.bugWorkingDir = workdir
+
+	benchmarkCatalogEffort, err := cmd.Flags().GetBool("benchmark-catalog-effort")
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	adapters.benchmarkCatalogEffort = benchmarkCatalogEffort
 
 	harnessOverride, err := harnessOverrideFromFlags(cmd)
 	if err != nil {
@@ -1454,8 +1471,18 @@ func applyWireAction(
 	resp.Provider = populated.Provider
 	resp.Model = populated.Model
 	resp.Effort = populated.Effort
+	if cache != nil && cache.benchmarkCatalogEffort && wireAction == action.ActionSpawnAgent && isCodexOrOpenAIProvider(populated.Provider) {
+		if raw := populated.RawEffort(); raw != "" {
+			resp.Effort = raw
+		}
+	}
 	resp.Prompt = populated.Instruction
 	return resp, false, nil
+}
+
+func isCodexOrOpenAIProvider(provider string) bool {
+	p := strings.TrimSpace(provider)
+	return strings.EqualFold(p, "codex") || strings.EqualFold(p, "openai")
 }
 
 // attachAgentBody inlines the agent persona / config above the rendered

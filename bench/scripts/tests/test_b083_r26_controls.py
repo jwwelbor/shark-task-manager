@@ -1,0 +1,166 @@
+"""Regression and counterfactual controls for B083 R26 obligations."""
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+import pytest
+import yaml
+
+SCRIPTS = Path(__file__).resolve().parents[1]
+REPO_ROOT = SCRIPTS.parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(SCRIPTS / "tests" / "lib") not in sys.path:
+    sys.path.insert(0, str(SCRIPTS / "tests" / "lib"))
+
+from bench.scripts.lib.e40_benchmark import _route_action_mapping, live_workflow_stages
+from lifecycle_adapter_test_helper import load_adapter_module
+
+_adapter = load_adapter_module()
+AdapterError = _adapter["AdapterError"]
+decode_envelope = _adapter["decode_envelope"]
+project_result = _adapter["project_result"]
+_codex_route = _adapter["_codex_route"]
+
+
+def test_route_action_mapping_matches_keyed_worker_semantics(tmp_path):
+    wf = tmp_path / "workflow.yaml"
+    wf.write_text(
+        yaml.safe_dump(
+            {
+                "steps": {
+                    "s_spawn": {"action": "spawn_agent", "agent": "dev", "provider": "codex", "model": "m"},
+                    "s_resume": {"action": "check_or_resume", "agent": "dev", "provider": "codex", "model": "m"},
+                    "s_adv_agent": {"action": "advance_status", "agent": "dev", "provider": "codex", "model": "m"},
+                    "s_adv_no_agent": {"action": "advance_status", "provider": "codex", "model": "m"},
+                    "s_empty_ok": {"action": "", "agent": "dev", "prompt": "do work", "provider": "codex", "model": "m"},
+                    "s_empty_no_prompt": {"action": "", "agent": "dev", "provider": "codex", "model": "m"},
+                    "s_empty_no_agent": {"action": "", "prompt": "do work", "provider": "codex", "model": "m"},
+                    "s_pause": {"action": "pause", "agent": "dev"},
+                    "s_archive": {"action": "archive"},
+                    "s_term": {"action": "spawn_agent", "agent": "dev", "terminal": True},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    stages = live_workflow_stages(wf)
+    assert stages == {"s_spawn", "s_resume", "s_adv_agent", "s_empty_ok"}
+    assert _route_action_mapping({"orchestrator_action": {"action": "check_or_resume", "agent_type": "qa"}}) is not None
+    assert _route_action_mapping({"orchestrator_action": {"action": "advance_status", "agent_type": ""}}) is None
+
+
+@pytest.mark.parametrize("effort", ["HiGh", "FixtureBoost"])
+def test_codex_effort_preserved_verbatim_in_adapter_and_materializer(tmp_path, effort):
+    model, got_effort = _codex_route({"model": "synthetic-m", "effort": effort})
+    assert model == "synthetic-m"
+    assert got_effort == effort
+
+
+def test_generated_worker_id_bounds_long_model_deterministically():
+    long_model = "m" * 251
+    req = {
+        "provider": "codex",
+        "model": long_model,
+        "prompt": "hi",
+        "allowed_outcomes": ["pass"],
+    }
+    env = {"kind": "final", "recommended_outcome": "pass", "evidence": []}
+    res = project_result(env, req, "sess-1", "a" * 64, 2)
+    expected_digest = hashlib.sha256(
+        json.dumps({"model": long_model, "provider": "codex"}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert res["worker_id"] == f"e40.worker.v1.{expected_digest}"
+    assert len(res["worker_id"]) <= 256
+
+    # Invalid nonempty envelope worker_id fails even when LIFECYCLE_WORKER_ID is valid.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("LIFECYCLE_WORKER_ID", "valid-host")
+        with pytest.raises(AdapterError):
+            project_result({**env, "worker_id": "bad whitespace"}, req, "sess-1", "a" * 64, 2)
+
+
+def test_copilot_assistant_precedence_and_fallback_decision_5055():
+    stream_both = "\n".join(
+        [
+            "RECOMMENDED OUTCOME: pass",
+            json.dumps({"type": "assistant.message", "data": {"content": json.dumps({"kind": "final", "recommended_outcome": "fail", "evidence": []})}}),
+            json.dumps({"type": "result", "data": {"exitCode": 0}}),
+        ]
+    )
+    assert decode_envelope(stream_both)["recommended_outcome"] == "fail"
+
+    stream_fallback = "\n".join(
+        [
+            "RECOMMENDED OUTCOME: pass",
+            "RECOMMENDED OUTCOME: fail",
+            json.dumps({"type": "assistant.message", "data": {"content": "Just prose without control."}}),
+            json.dumps({"type": "result", "data": {"exitCode": 0}}),
+        ]
+    )
+    assert decode_envelope(stream_fallback)["recommended_outcome"] == "pass"
+
+
+def test_structured_step_rejects_text_fallback_and_preserves_raw_final():
+    req = {
+        "provider": "codex",
+        "model": "m",
+        "prompt": "hi",
+        "result_contract": "gate_result_v1",
+        "allowed_outcomes": ["pass", "fail"],
+    }
+    env = {"kind": "final", "recommended_outcome": "pass", "evidence": []}
+    with pytest.raises(AdapterError, match="structured step requires a JSON control envelope"):
+        project_result(env, req, "sess-1", "a" * 64, 2, raw_final=None)
+
+    raw_bytes = '{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"ok","findings":[],"kickbacks":[]}}'
+    res = project_result(env, req, "sess-1", "a" * 64, 2, raw_final=raw_bytes)
+    assert res["raw_final"] == raw_bytes
+
+
+def _load_derive_metrics():
+    content = (SCRIPTS / "evaluate-lifecycle.sh").read_text(encoding="utf-8")
+    ns = {}
+    body = content.split("<<'PYEOF'\n", 1)[1].rsplit("\nPYEOF", 1)[0]
+    # Execute only up to content_digest to get derive_metrics without argparse.
+    snippet = body.split("def content_digest(", 1)[0]
+    snippet = "def metric(" + snippet.split("def metric(", 1)[1]
+    exec(snippet, ns)
+    return ns["derive_metrics"]
+
+
+def test_evaluate_lifecycle_cost_availability_for_unmapped_and_measured_zero():
+    derive_metrics = _load_derive_metrics()
+    lifecycle = {
+        "stages": [
+            {
+                "dispatch_ordinal": 1,
+                "stage": "dev",
+                "elapsed_seconds": 1.0,
+                "cost_usd": 0.0,
+                "errors": [{"kind": "unmapped_provider", "provider": "codex_cli"}],
+            }
+        ]
+    }
+    ev = derive_metrics(lifecycle, {}, {})
+    assert ev["provider_cost"] == {
+        "available": False,
+        "value": None,
+        "detail": "sum of retained stage and judge cost_usd",
+    }
+
+    # Missing total_cost slot on Copilot also yields unavailable.
+    lifecycle["stages"][0]["errors"] = [{"kind": "usage_slot_unavailable", "slot": "total_cost"}]
+    ev_copilot = derive_metrics(lifecycle, {}, {})
+    assert ev_copilot["provider_cost"]["available"] is False
+    assert ev_copilot["provider_cost"]["value"] is None
+
+    # Genuinely measured 0.0 (even with an unrelated missing token slot) yields available=True, value=0.0.
+    lifecycle["stages"][0]["errors"] = [{"kind": "usage_slot_unavailable", "slot": "cache_read_input_tokens"}]
+    ev_zero = derive_metrics(lifecycle, {}, {})
+    assert ev_zero["provider_cost"]["available"] is True
+    assert ev_zero["provider_cost"]["value"] == 0.0

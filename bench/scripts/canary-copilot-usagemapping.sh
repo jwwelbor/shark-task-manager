@@ -96,6 +96,9 @@ import yaml
 
 
 def _load_adapter_module(adapter_path):
+    lib_dir = str(Path(adapter_path).resolve().parent / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
     content = Path(adapter_path).read_text(encoding="utf-8")
     match = re.search(r"<<'PYEOF'\n(.*)\nPYEOF", content, re.DOTALL)
     if not match:

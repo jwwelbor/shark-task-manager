@@ -37,6 +37,7 @@ LIFECYCLE_BENCH_DIR="$BENCH_DIR" exec python3 - "$@" <<'PY'
 import hashlib
 import json
 import os
+import selectors
 import shutil
 import signal
 import subprocess
@@ -373,6 +374,112 @@ def bounded(value):
             return value[:512]
         return value
     return str(value)[:512]
+
+
+def _next_command_args(requested, prompt_path):
+    cmd = ["next", requested, "--json", "--prompt-out", str(prompt_path)]
+    if os.environ.get("E40_EXPECTED_CODEX_CATALOG_DIGEST"):
+        cmd.append("--benchmark-catalog-effort")
+    return cmd
+
+
+_EXACT_ROUTE_RESPONSE_FIELDS = (
+    "entity_key",
+    "entity_type",
+    "status",
+    "action",
+    "agent_type",
+    "provider",
+    "model",
+    "effort",
+    "prompt_sha256",
+    "prompt_bytes",
+    "result_contract",
+    "outcome_roles",
+)
+
+
+def _project_dispatch_response(response):
+    projected = bounded(response)
+    if isinstance(response, dict):
+        for field in _EXACT_ROUTE_RESPONSE_FIELDS:
+            if field in response:
+                val = response[field]
+                if isinstance(val, (str, int, float, bool)) or val is None:
+                    projected[field] = val
+                elif isinstance(val, dict):
+                    projected[field] = dict(val)
+    projected.pop("prompt", None)
+    return projected
+
+
+def _project_worker_usage(usage):
+    if not isinstance(usage, dict):
+        return {}
+    projected = bounded(usage)
+    if "model_ids" in usage and isinstance(usage["model_ids"], list):
+        projected["model_ids"] = [str(m) for m in usage["model_ids"] if isinstance(m, str)]
+    for field in (
+        "provider_session_id",
+        "cost_usd",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+        "api_active_duration_ms",
+        "turn_count",
+    ):
+        if field in usage:
+            projected[field] = usage[field]
+    return projected
+
+
+def _resolve_structured_final_bytes(worker_result, raw_stdout_bytes):
+    """Return exact UTF-8 bytes for --apply-result on a structured step."""
+    has_host_wrapper = any(
+        k in worker_result for k in ("worker_id", "session_id", "prompt_sha256", "prompt_bytes")
+    )
+    if "raw_final" in worker_result:
+        raw_final = worker_result["raw_final"]
+        if not isinstance(raw_final, str) or not raw_final.strip():
+            raise RuntimeError("structured step adapter result has empty or non-string raw_final")
+        try:
+            parsed = json.loads(raw_final)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"structured step raw_final is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError("structured step raw_final must be a JSON object")
+        if parsed.get("recommended_outcome") != worker_result.get("recommended_outcome"):
+            raise RuntimeError(
+                "structured step raw_final recommended_outcome disagrees with host outcome"
+            )
+        return raw_final.strip().encode("utf-8")
+    if has_host_wrapper:
+        raise RuntimeError("structured step enriched adapter result omitted raw_final")
+    return raw_stdout_bytes.strip()
+
+
+def _stage_run_id(run_id, entity, status, ordinal, session):
+    digest = hashlib.sha256(
+        f"{run_id}:{entity}:{status}:{ordinal}:{session}".encode("utf-8")
+    ).hexdigest()
+    return f"e40s-{digest[:48]}"
+
+
+def _write_private_apply_file(scratch, stage_id, raw_bytes):
+    pending_dir = scratch / ".shark" / "e40-apply"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    path = pending_dir / f"{stage_id}.json"
+    fd = os.open(
+        str(path),
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    try:
+        os.write(fd, raw_bytes)
+    finally:
+        os.close(fd)
+    return path
 
 
 def load_json(stdout, label):
@@ -1460,18 +1567,27 @@ def capture_review_gate(
                 metadata = json.loads(metadata)
             if not isinstance(metadata, dict):
                 raise RuntimeError("review-finding metadata is not an object")
-            missing = [
-                field for field in ("severity", "defect_class", "fingerprint")
-                if not isinstance(metadata.get(field), str) or not metadata[field].strip()
-            ]
+            missing = []
+            for field in ("severity", "fingerprint"):
+                if not isinstance(metadata.get(field), str) or not metadata[field].strip():
+                    missing.append(field)
+            has_defect_class = isinstance(metadata.get("defect_class"), str) and bool(metadata["defect_class"].strip())
+            has_class_key = isinstance(metadata.get("class_key"), str) and bool(metadata["class_key"].strip())
+            if not has_defect_class and not has_class_key:
+                missing.append("defect_class")
             if missing:
                 raise RuntimeError(f"review-finding metadata omitted {', '.join(missing)}")
+            if has_defect_class and has_class_key and metadata["defect_class"].strip() != metadata["class_key"].strip():
+                raise RuntimeError(
+                    f"review-finding note {note_id} has conflicting defect_class ({metadata['defect_class']!r}) and class_key ({metadata['class_key']!r})"
+                )
+            projected_class = metadata["defect_class"].strip() if has_defect_class else metadata["class_key"].strip()
             raw_bytes = json.dumps(note, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
             gate["findings"].append({
                 "gate": str(metadata.get("gate") or gate_id),
                 "round": int(metadata.get("round") or round_number),
                 "severity": metadata["severity"],
-                "defect_class": metadata["defect_class"],
+                "defect_class": projected_class,
                 "fingerprint": metadata["fingerprint"],
                 "criterion": str(metadata.get("criterion") or "not_reported"),
                 "test": str(metadata.get("test") or "not_reported"),
@@ -1726,7 +1842,11 @@ def stop_process_group(process):
         process.wait(timeout=2)
 
 
-def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, deadline, active_state):
+MAX_ADAPTER_STDOUT_BYTES = 2 * 1024 * 1024
+MAX_ADAPTER_STDERR_BYTES = 64 * 1024
+
+
+def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, deadline, active_state, raw_out=None):
     """`timing` is the caller's per-dispatch accumulator (see
     `reconcile_time_ledger()`): a mutable dict this function appends real
     `time.monotonic_ns()` observations into (T-E40-F12-003, REQ-F-005). It is
@@ -1741,16 +1861,19 @@ def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, dea
     `Popen` under "adapter_process" (or None) so a concurrent signal handler
     can stop the whole process group instead of only the parent process."""
     if mode in {"contract", "dry-run"}:
-        return ({"worker_id": "offline-worker", "session_id": request["session_id"], "kind": "final", "recommended_outcome": "pass", "evidence": {"mode": mode}}, [])
+        stub = {"worker_id": "offline-worker", "session_id": request["session_id"], "kind": "final", "recommended_outcome": "pass", "evidence": {"mode": mode}}
+        if raw_out is not None:
+            raw_out["stdout"] = json.dumps(stub, separators=(",", ":")).encode("utf-8")
+        return (stub, [])
     try:
         adapter_env = dict(os.environ)
         adapter_env["E40_AGENT_FIXTURE_CHECKOUT"] = str(fixture_root)
         process = subprocess.Popen(
             [adapter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=cwd, env=adapter_env, text=True, start_new_session=True,
+            cwd=cwd, env=adapter_env, text=False, start_new_session=True,
         )
         active_state["adapter_process"] = process
-        process.stdin.write(json.dumps(request, separators=(",", ":")))
+        process.stdin.write(json.dumps(request, separators=(",", ":")).encode("utf-8"))
         process.stdin.close()
     except OSError as exc:
         stop_process_group(locals().get("process"))
@@ -1776,23 +1899,27 @@ def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, dea
     last_heartbeat = time.monotonic()
     heartbeat_events = []
     heartbeat_args_base = ["heartbeat", request["entity_key"], "--session", request["session_id"], "--progress", "0.5", "--note", str(request.get("runner_id", "lifecycle"))]
+    stdout_chunks = []
+    stdout_len = 0
+    stderr_chunks = []
+    stderr_len = 0
+    selector = selectors.DefaultSelector()
     try:
-        while process.poll() is None:
+        assert process.stdout is not None and process.stderr is not None
+        os.set_blocking(process.stdout.fileno(), False)
+        os.set_blocking(process.stderr.fileno(), False)
+        selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, data="stderr")
+        while selector.get_map():
             now = time.monotonic()
             if now >= deadline:
                 stop_process_group(process)
                 active_state["adapter_process"] = None
                 raise ResourceLimit("resource ceiling exceeded during provider dispatch: max_wall_clock_seconds")
-            if now - last_heartbeat >= heartbeat_interval:
+            if process.poll() is None and now - last_heartbeat >= heartbeat_interval:
                 try:
                     heartbeat = run_command(shark, heartbeat_args_base, cwd)
                 except RuntimeError:
-                    # T-E40-F12-003 (REQ-F-005/§2.5): one bounded retry,
-                    # after a fixed backoff, before declaring LeaseLoss.
-                    # The backoff+retry window is `retry_or_backoff`,
-                    # recorded on BOTH the eventual-success and the
-                    # eventual-failure branch below, so a real observation
-                    # is never dropped on the exception path.
                     retry_start_ns = time.monotonic_ns()
                     time.sleep(HEARTBEAT_RETRY_BACKOFF_SECONDS)
                     try:
@@ -1805,19 +1932,49 @@ def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, dea
                     timing["claimed"].append(("retry_or_backoff", retry_start_ns, time.monotonic_ns()))
                 heartbeat_events.append({"session_id": request["session_id"], "at": timestamp(), "response": bounded(heartbeat)})
                 last_heartbeat = now
-            time.sleep(min(0.05, heartbeat_interval / 4.0))
-        stdout = process.stdout.read()
-        stderr = process.stderr.read()
+            next_hb_in = max(0.001, (last_heartbeat + heartbeat_interval) - time.monotonic())
+            remaining_dl = max(0.001, deadline - time.monotonic())
+            wait_for = min(0.05, next_hb_in, remaining_dl)
+            events = selector.select(timeout=wait_for)
+            for key, _mask in events:
+                stream_name = key.data
+                try:
+                    chunk = os.read(key.fd, 65536)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                if stream_name == "stdout":
+                    stdout_len += len(chunk)
+                    if stdout_len > MAX_ADAPTER_STDOUT_BYTES:
+                        stop_process_group(process)
+                        active_state["adapter_process"] = None
+                        raise RuntimeError("lifecycle adapter stdout exceeded maximum transport bound")
+                    stdout_chunks.append(chunk)
+                else:
+                    if stderr_len < MAX_ADAPTER_STDERR_BYTES:
+                        keep = chunk[:MAX_ADAPTER_STDERR_BYTES - stderr_len]
+                        stderr_chunks.append(keep)
+                        stderr_len += len(keep)
         process.wait()
     except (BrokenPipeError, OSError, subprocess.TimeoutExpired) as exc:
         if process.poll() is None:
             stop_process_group(process)
         active_state["adapter_process"] = None
         raise RuntimeError(f"lifecycle adapter process failed: {exc}") from exc
+    finally:
+        selector.close()
     adapter_end_ns = time.monotonic_ns()
     active_state["adapter_process"] = None
+    stdout_bytes = b"".join(stdout_chunks)
+    stderr_bytes = b"".join(stderr_chunks)
+    stderr = stderr_bytes.decode("utf-8", errors="replace")
     if process.returncode != 0:
-        raise RuntimeError(f"lifecycle adapter failed ({process.returncode}): {stderr.strip()}")
+        raise RuntimeError(f"lifecycle adapter failed ({process.returncode}): {stderr.strip()[:512]}")
+    stdout = stdout_bytes.decode("utf-8", errors="strict")
+    if raw_out is not None:
+        raw_out["stdout"] = stdout_bytes
     envelope = load_json(stdout, "lifecycle adapter")
     if isinstance(envelope, dict):
         claims = provider_active_claims(envelope, adapter_start_ns, adapter_end_ns, timing["claimed"])
@@ -2048,7 +2205,7 @@ def resolve_route(args, scenario_path, scenario, scratch, shark):
             # assumes.
             prompt_path = scratch / "route-prompts" / f"{next_ordinal:04d}"
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
-            response = run_command(shark, ["next", requested, "--json", "--prompt-out", str(prompt_path)], scratch)
+            response = run_command(shark, _next_command_args(requested, prompt_path), scratch)
             action = response.get("action")
             if action == "parallel_candidates":
                 candidates = fork_candidates(response)
@@ -2483,7 +2640,7 @@ def main(argv):
             # this dispatch's `shark next` call -- used only if this queue
             # item turns into a real spawn_agent dispatch below.
             stage_start_ns = time.monotonic_ns()
-            response = run_command(shark, ["next", requested, "--json", "--prompt-out", str(prompt_path)], scratch)
+            response = run_command(shark, _next_command_args(requested, prompt_path), scratch)
             if response.get("action") == "parallel_candidates":
                 candidates = fork_candidates(response)
                 record["entity_graph"]["fork_candidates"].append({"response": bounded(response), "candidates": candidates})
@@ -2526,8 +2683,7 @@ def main(argv):
             )
             timing = {"stage_start": stage_start_ns, "claimed": [("tool_and_test", ci_start_ns, time.monotonic_ns())]}
 
-            response_record = bounded(response)
-            response_record.pop("prompt", None)
+            response_record = _project_dispatch_response(response)
             dispatch = {
                 "ordinal": ordinal + 1,
                 "requested_key": requested,
@@ -2586,14 +2742,24 @@ def main(argv):
                 if routing_identity["routing_digest"]:
                     request["routing_identity"] = routing_identity
                 request["allowed_outcomes"] = allowed_outcomes(scratch, response)
+                raw_adapter_out = {}
                 worker_result, heartbeats = adapter_result(
                     adapter, request, scratch, args["mode"], shark, timing, fixture_root,
                     started + limits["max_wall_clock_seconds"], active_lease,
+                    raw_out=raw_adapter_out,
                 )
                 dispatch["heartbeats"] = heartbeats
                 if worker_result.get("session_id") not in {None, session}:
                     raise RuntimeError(f"worker session mismatch for {entity}")
-                dispatch["worker"] = {"worker_id": worker_result.get("worker_id", ""), "session_id": worker_result.get("session_id", session), "kind": worker_result.get("kind", ""), "recommended_outcome": worker_result.get("recommended_outcome"), "evidence": bounded(worker_result.get("evidence", {})), "usage": bounded(worker_result.get("usage", {})), "cost_usd": worker_result.get("cost_usd", 0.0)}
+                dispatch["worker"] = {
+                    "worker_id": worker_result.get("worker_id", ""),
+                    "session_id": worker_result.get("session_id", session),
+                    "kind": worker_result.get("kind", ""),
+                    "recommended_outcome": worker_result.get("recommended_outcome"),
+                    "evidence": bounded(worker_result.get("evidence", {})),
+                    "usage": _project_worker_usage(worker_result.get("usage", {})),
+                    "cost_usd": worker_result.get("cost_usd", 0.0),
+                }
                 kind = worker_result.get("kind")
                 if kind == "question":
                     question_start_ns = time.monotonic_ns()
@@ -2613,6 +2779,69 @@ def main(argv):
                         terminal = "missing_outcome"
                         reason = f"worker for {entity} did not return a final recommended_outcome"
                         dispatch["outcome"] = terminal
+                elif response.get("result_contract") == "gate_result_v1" and args["mode"] not in {"contract", "dry-run"}:
+                    dispatch["outcome"] = str(outcome)
+                    raw_bytes = _resolve_structured_final_bytes(
+                        worker_result, raw_adapter_out.get("stdout", b"")
+                    )
+                    # X-11 final heartbeat for bound child and session before --apply-result
+                    final_hb_args = [
+                        "heartbeat", entity, "--session", session,
+                        "--progress", "1.0", "--note", str(request.get("runner_id", "lifecycle")),
+                    ]
+                    try:
+                        final_hb = run_command(shark, final_hb_args, scratch)
+                    except RuntimeError as exc:
+                        raise LeaseLoss(f"final heartbeat failed before apply-result for {entity}: {exc}") from exc
+                    dispatch["heartbeats"].append({
+                        "session_id": session, "at": timestamp(), "response": bounded(final_hb),
+                    })
+                    stage_id = _stage_run_id(
+                        args["run_id"], entity, response.get("status", ""), dispatch["ordinal"], session
+                    )
+                    apply_file = _write_private_apply_file(scratch, stage_id, raw_bytes)
+                    try:
+                        apply_cmd = [
+                            "run", entity, "--apply-result", str(apply_file),
+                            "--run-id", stage_id, "--session", session, "--json",
+                        ]
+                        if response.get("entity_type") == "bug":
+                            apply_cmd.extend(["--workdir", str(fixture_root)])
+                        apply_resp = run_command(shark, apply_cmd, scratch)
+                    except RuntimeError as exc:
+                        rejection = bounded(str(exc))
+                        dispatch["transition"] = {
+                            "run_id": stage_id,
+                            "outcome": str(outcome),
+                            "session_id": session,
+                            "from_status": response.get("status", ""),
+                            "accepted": False,
+                            "rejection": rejection,
+                            "retry_scheduled": False,
+                        }
+                        raise
+                    finally:
+                        try:
+                            apply_file.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                    to_status = str(apply_resp.get("to_status") or apply_resp.get("new_status") or "")
+                    dispatch["transition"] = {
+                        "run_id": stage_id,
+                        "outcome": str(outcome),
+                        "session_id": session,
+                        "from_status": response.get("status", ""),
+                        "to_status": to_status,
+                        "persisted": True,
+                        "transitioned": bool(apply_resp.get("transitioned", True)),
+                        "retired": bool(apply_resp.get("retired", False)),
+                        "final_digest": sha256_bytes(raw_bytes),
+                    }
+                    advanced = True
+                    last_advanced_signature = (entity, str(response.get("status", "")))
+                    if dispatch["transition"]["retired"]:
+                        active_lease["entity"] = ""
+                        active_lease["session"] = ""
                 else:
                     dispatch["outcome"] = str(outcome)
                     try:
@@ -2679,7 +2908,7 @@ def main(argv):
                 reason = str(exc)
                 dispatch["outcome"] = terminal
             finally:
-                if session:
+                if session and not (dispatch.get("transition") or {}).get("retired"):
                     release_start_ns = time.monotonic_ns()
                     try:
                         dispatch["release"] = bounded(run_command(shark, ["release", entity, "--session", session, "--outcome", dispatch["outcome"], "--json"], scratch))

@@ -55,10 +55,32 @@ def metric(value, available, detail=None):
     return result
 
 
+def _stage_has_unmeasured_cost(stage):
+    errors = stage.get("errors")
+    if not isinstance(errors, list):
+        return False
+    for err in errors:
+        if not isinstance(err, dict):
+            continue
+        kind = err.get("kind")
+        if kind == "unmapped_provider":
+            return True
+        if kind == "usage_slot_unavailable" and err.get("slot") == "total_cost":
+            return True
+    return False
+
+
 def derive_metrics(lifecycle, findings, judge):
     stages = lifecycle.get("stages") if isinstance(lifecycle.get("stages"), list) else []
     elapsed = [stage.get("elapsed_seconds") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("elapsed_seconds"), (int, float)) and not isinstance(stage.get("elapsed_seconds"), bool)]
-    costs = [stage.get("cost_usd") for stage in stages if isinstance(stage, dict) and isinstance(stage.get("cost_usd"), (int, float)) and not isinstance(stage.get("cost_usd"), bool)]
+    costs = [
+        stage.get("cost_usd")
+        for stage in stages
+        if isinstance(stage, dict)
+        and isinstance(stage.get("cost_usd"), (int, float))
+        and not isinstance(stage.get("cost_usd"), bool)
+        and not _stage_has_unmeasured_cost(stage)
+    ]
     if isinstance(judge, dict) and isinstance(judge.get("cost_usd"), (int, float)) and not isinstance(judge.get("cost_usd"), bool):
         costs.append(judge["cost_usd"])
     rework = [stage for stage in stages if isinstance(stage, dict) and stage.get("rework") is True]

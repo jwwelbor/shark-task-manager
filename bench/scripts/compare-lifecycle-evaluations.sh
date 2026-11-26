@@ -138,6 +138,14 @@ def main():
             if not isinstance(eligibility, dict) or eligibility.get("aggregate_eligible") is not True:
                 divergences.append({"field": f"{side}/eligibility/aggregate_eligible", "left": eligibility.get("aggregate_eligible") if isinstance(eligibility, dict) else None, "right": True, "reason": "evaluation_ineligible"})
 
+    legacy_identity_pairs = {
+        "rendered_prompt_digest": "rendered_prompt_digests",
+        "provider": "provider_identity",
+        "model": "provider_identity",
+        "effort": "provider_identity",
+        "judge_digest": "judge_identity",
+        "reference_digest": "reference_digests",
+    }
     identity_fields = [
         "scenario_id", "scenario_version", "fixture_id", "fixture_digest", "adapter_id", "adapter_version",
         "toolchain_identity", "shark_binary_digest", "shark_content_digest", "rendered_prompt_digest",
@@ -147,6 +155,8 @@ def main():
     for field in identity_fields:
         left_value = digest(left, "identity/" + field)
         right_value = digest(right, "identity/" + field)
+        if left_value is None and right_value is None and field in legacy_identity_pairs:
+            continue
         if left_value is None or right_value is None:
             divergences.append({"field": "identity/" + field, "left": left_value, "right": right_value, "reason": "identity_missing"})
         elif left_value != right_value:
@@ -171,6 +181,8 @@ def main():
     for field in policy_fields:
         left_value = value(left, "workflow_policy/" + field)
         right_value = value(right, "workflow_policy/" + field)
+        if left_value is None and right_value is None and field == "fix_policy":
+            continue
         if left_value is None or right_value is None:
             divergences.append({"field": "workflow_policy/" + field, "left": left_value, "right": right_value, "reason": "identity_missing"})
         elif left_value != right_value:

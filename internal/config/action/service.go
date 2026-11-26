@@ -74,8 +74,19 @@ type PopulatedAction struct {
 	Provider    string   `json:"provider,omitempty"` // AI provider (e.g., "anthropic", "openai")
 	Model       string   `json:"model,omitempty"`    // Optional provider-specific model override.
 	Effort      string   `json:"effort,omitempty"`   // Reasoning-effort override (low, medium, high, xhigh)
+	rawEffort   string   // Unexported trimmed original effort for opted-in benchmark catalog projection
 	Skills      []string `json:"skills,omitempty"`
 	Instruction string   `json:"instruction"` // Template populated
+}
+
+// RawEffort returns the unnormalized, trimmed effort string from the
+// underlying OrchestratorAction. It is excluded from JSON serialization and
+// selected only by opted-in benchmark catalog projection.
+func (p *PopulatedAction) RawEffort() string {
+	if p == nil {
+		return ""
+	}
+	return p.rawEffort
 }
 
 // ValidationResult contains status action validation results

@@ -28,8 +28,10 @@ from bench.scripts.lib.e40_benchmark import (
 from bench.scripts.lib.codex_model_catalog import (
     CatalogError,
     discover_models,
+    prepare_catalog_lookup,
     resolve_cli_command,
     resolve_route,
+    resolve_route_from_lookup,
     validate_catalog_snapshot,
 )
 
@@ -54,36 +56,40 @@ def _codex_catalog():
         raise OperatorError("E40_CODEX_CATALOG_JSON must be valid JSON") from exc
 
 
-def _resolve_route(stage, route, catalog):
+def _resolve_route(stage, route, catalog_or_lookup):
     provider = str(route["provider"]).strip().lower()
     effort = route["effort"]
     if isinstance(effort, str):
-        effort = effort.strip().lower()
+        effort = effort.strip() if provider in {"codex", "openai"} else effort.strip().lower()
     normalized = {**route, "provider": provider, "effort": effort}
     if provider not in {"codex", "openai"}:
         return normalized
     try:
-        selected = resolve_route(
-            route["model"],
-            effort,
-            catalog,
-        )
+        if isinstance(catalog_or_lookup, dict) and "by_id" in catalog_or_lookup:
+            selected = resolve_route_from_lookup(route["model"], effort, catalog_or_lookup)
+        else:
+            selected = resolve_route(route["model"], effort, catalog_or_lookup)
     except CatalogError as exc:
         raise OperatorError(f"route_defect: stage {stage!r}: {exc}") from exc
     return {**normalized, **selected}
 
 
 def _resolve_routes(routes, catalog):
+    has_codex = any(
+        str(route["provider"]).strip().lower() in {"codex", "openai"}
+        for route in routes.values()
+    )
+    lookup = prepare_catalog_lookup(catalog) if has_codex else None
     return {
-        stage: _resolve_route(stage, route, catalog)
+        stage: _resolve_route(stage, route, lookup if lookup is not None else catalog)
         for stage, route in routes.items()
-    }
+    }, lookup
 
 
-def _selected_codex_metadata(routes, catalog):
+def _selected_codex_metadata(routes, catalog, lookup=None):
     if catalog is None:
         return None
-    entries = {entry["model"]: entry for entry in catalog["models"]}
+    entries = lookup["by_id"] if lookup is not None else {entry["model"]: entry for entry in catalog["models"]}
     selected = {}
     for stage, route in routes.items():
         if route["provider"] not in {"codex", "openai"}:
@@ -159,7 +165,7 @@ def _materialize_profile(
     provider = str(profile.get("provider", "")).strip().lower()
     catalog = _codex_catalog() if provider in {"codex", "openai"} else None
     requested = {item["stage"]: {key: item[key] for key in ("provider", "model", "effort")} for item in requested}
-    resolved = _resolve_routes(requested, catalog or {"models": []})
+    resolved, lookup = _resolve_routes(requested, catalog or {"models": []})
     effective_profile = dict(profile)
     effective_profile["provider"] = provider
     effective_profile["routes"] = _effective_profile_routes(profile, resolved)
@@ -172,11 +178,10 @@ def _materialize_profile(
     effective_routes = _effective_routes_by_source(workflow_root, families)
     result["effective_routes"] = effective_routes
     result["requested_routes"] = requested_routes
-    result["provider_routing"] = workflow_routing_identity(workflow_root)
     if catalog is not None:
         result["codex_catalog"] = catalog
         result["selected_codex_models"] = _selected_codex_metadata(
-            effective_routes, catalog
+            effective_routes, catalog, lookup
         )
     result["profile_path"] = str(profile_path.resolve())
     result["profile_source_digest"] = path_digest(profile_path, "routing profile")
@@ -215,7 +220,7 @@ def _materialize_explicit_routes(
         route["provider"].strip().lower() in {"codex", "openai"}
         for route in routes.values()
     ) else None
-    routes = _resolve_routes(routes, catalog or {"models": []})
+    routes, lookup = _resolve_routes(routes, catalog or {"models": []})
     _write_routes(workflow_root, routes, families)
     result = {
         "profile_id": None,
@@ -228,7 +233,7 @@ def _materialize_explicit_routes(
     }
     if catalog is not None:
         result["codex_catalog"] = catalog
-        result["selected_codex_models"] = _selected_codex_metadata(routes, catalog)
+        result["selected_codex_models"] = _selected_codex_metadata(routes, catalog, lookup)
     return result
 
 

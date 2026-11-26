@@ -360,20 +360,63 @@ def _iter_file_spawn_steps(path: Path, source: str):
                 yield source, name, action
 
 
-def _route_action_mapping(metadata: Any) -> dict[str, Any] | None:
-    """Return the mutable route/action mapping for a live spawn step.
+def _is_worker_action_mapping(
+    candidate: dict[str, Any], *, agent_key: str, require_prompt_for_empty: bool
+) -> bool:
+    if candidate.get("terminal") is True:
+        return False
+    raw_action = candidate.get("action")
+    if raw_action is None:
+        verb = ""
+    elif isinstance(raw_action, str):
+        verb = raw_action.strip()
+    else:
+        return False
 
-    Route-based ``steps`` entries keep the action and route together. Legacy
-    ``status_metadata`` entries nest them under ``orchestrator_action``. Keep
-    accepting a flat action mapping for compatibility with pre-release bundles.
+    raw_agent = candidate.get(agent_key)
+    has_agent = isinstance(raw_agent, str) and bool(raw_agent.strip())
+
+    if verb in {"spawn_agent", "check_or_resume"}:
+        return True
+    if verb == "advance_status":
+        return has_agent
+    if verb == "":
+        if not has_agent:
+            return False
+        if require_prompt_for_empty:
+            prompt = candidate.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                prompt = candidate.get("instruction_template")
+                if not isinstance(prompt, str) or not prompt.strip():
+                    return False
+        return True
+    return False
+
+
+def _route_action_mapping(metadata: Any) -> dict[str, Any] | None:
+    """Return the mutable route/action mapping for a potential worker dispatch.
+
+    Matches Shark's keyed-dispatch worker semantics across route-based ``steps``
+    (agent in ``agent``, empty verb requires a prompt), legacy nested
+    ``status_metadata.*.orchestrator_action`` (agent in ``agent_type``), and
+    pre-release flat mappings.
     """
     if not isinstance(metadata, dict):
         return None
-    if metadata.get("action") == "spawn_agent":
-        return metadata
+    if metadata.get("terminal") is True:
+        return None
     nested = metadata.get("orchestrator_action")
-    if isinstance(nested, dict) and nested.get("action") == "spawn_agent":
-        return nested
+    if isinstance(nested, dict):
+        if _is_worker_action_mapping(
+            nested, agent_key="agent_type", require_prompt_for_empty=False
+        ):
+            return nested
+        return None
+    agent_key = "agent" if "agent" in metadata or "prompt" in metadata else "agent_type"
+    if _is_worker_action_mapping(
+        metadata, agent_key=agent_key, require_prompt_for_empty=True
+    ):
+        return metadata
     return None
 
 
@@ -420,10 +463,13 @@ def _live_stage_effort(effort: Any, provider: str, stage: Any) -> str | None:
         return None
     if not isinstance(effort, str):
         raise OperatorError(f"live workflow stage {stage!r} effort must be a string")
-    if not effort.strip():
+    trimmed = effort.strip()
+    if not trimmed:
         raise OperatorError(f"live workflow stage {stage!r} effort must be a non-empty string")
-    normalized = effort.strip().lower()
-    if provider not in {"codex", "openai"} and normalized not in VALID_ROUTING_EFFORTS:
+    if provider in {"codex", "openai"}:
+        return trimmed
+    normalized = trimmed.lower()
+    if normalized not in VALID_ROUTING_EFFORTS:
         raise OperatorError(
             f"live workflow stage {stage!r} has unsupported effort {effort!r}"
         )
@@ -505,7 +551,10 @@ def _effective_profile_route(
         raise OperatorError("route_defect: Codex model must be resolved from model/list")
     model = raw_model.strip() if isinstance(raw_model, str) else UNAVAILABLE
     raw_effort = route.get("effort")
-    effort = raw_effort.strip().lower() if isinstance(raw_effort, str) else None
+    if isinstance(raw_effort, str):
+        effort = raw_effort.strip() if provider in {"codex", "openai"} else raw_effort.strip().lower()
+    else:
+        effort = None
     if validate_catalogs and provider in {"codex", "openai"}:
         validate_codex_catalogs(model, cli_catalog, account_catalog)
     return {"provider": provider, "model": model, "effort": effort}
@@ -573,7 +622,14 @@ def _validate_effective_routes(
             raise OperatorError(f"validated route for {stage!r} must be a mapping")
         expected = profile_routes[stage]
         raw_effort = expected.get("effort")
-        expected_effort = raw_effort.strip().lower() if isinstance(raw_effort, str) else None
+        if isinstance(raw_effort, str):
+            expected_effort = (
+                raw_effort.strip()
+                if provider in {"codex", "openai"}
+                else raw_effort.strip().lower()
+            )
+        else:
+            expected_effort = None
         if route != {
             "provider": provider,
             "model": expected["model"],
