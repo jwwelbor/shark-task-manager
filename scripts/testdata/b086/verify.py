@@ -256,7 +256,7 @@ def empty_owner_searches(events, create_id, fingerprint):
             try:
                 rows = json.loads(event.get('stdout', ''))
             except ValueError:
-                text = event.get('stdout', '').strip()
+                text = re.sub(r'\x1b\[[0-9;]*m', '', event.get('stdout', '')).strip()
                 if (words in (['notes', 'search', fingerprint], ['search', fingerprint])
                         and text == f'No results found for "{fingerprint}"'):
                     exact_miss = True
