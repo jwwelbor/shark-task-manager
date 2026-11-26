@@ -255,6 +255,9 @@ func newBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.Histo
 		if err := verifyBugSweepGuards(req); err != nil {
 			return err
 		}
+		if err := verifyBugRecurrence(ctx, req, history); err != nil {
+			return err
+		}
 		if req.Role != gateresult.RoleSuccess {
 			if req.Gate == "qa" {
 				return verifyOptionalQAObservation(ctx, req, notes, history, status, resolve)
