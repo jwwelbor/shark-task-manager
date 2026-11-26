@@ -1,0 +1,21 @@
+Scenario exit code: **0**
+
+```json
+{
+  "candidate_binary": "/tmp/b077-c18-c27-proof/shark",
+  "scenario": "B077 C18/C27 session-bound Question writes",
+  "evidence": "real Shark CLI commands; independent read-only SQLite snapshots",
+  "C18": {
+    "question": "Q001",
+    "stale_session_refused_without_write": true,
+    "current_session_response_committed": true
+  },
+  "C27": {
+    "current_final_session_resolved": true,
+    "wrong_session_refused_without_write": true,
+    "successor_and_stale_sessions_refused_after_takeover": true,
+    "question": "Q002"
+  },
+  "command_log": "/tmp/b077-c18-c27-proof/commands.jsonl"
+}
+```

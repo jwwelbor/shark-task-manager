@@ -1,0 +1,8 @@
+=== RUN   TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108
+=== RUN   TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108/resolve_under_the_final_Question_lease
+    question_test.go:591: question resolve under the final Question lease Execute() error = unknown flag: --session
+--- FAIL: TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108 (0.00s)
+    --- FAIL: TestQuestionWorkflowOperationsExecuteFiniteTransport_TC108/resolve_under_the_final_Question_lease (0.00s)
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/internal/cli/commands	0.008s
+FAIL

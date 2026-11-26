@@ -1,0 +1,25 @@
+{
+  "candidate": "1bc9f132325997f289985a739c5856dbaa8b09bf",
+  "tree": "911e05cc3d692b500806451a696ae71d2a4fa739",
+  "baseline": "bbf490c6ec2bd597d6f3e6e4cdd93e68ca54fa50",
+  "approval_doc": 678,
+  "approval_note": 5030,
+  "plan_path": "docs/plan/bugs/B077.repair-plan.md",
+  "plan_sha256": "9b5b3e613af734002182319e6c58bdf025f82ef07ca85a50e11d94ab503dfbb5",
+  "baseline_diff_sha256": "e908b1207858d8cd95a59e651075e6ce57964ecf6ec6ce9d7b67cfab6f04d7b5",
+  "paths": 296,
+  "manifest_sha256": "5671e06803c4d7f7a034c23207c1cc471a23c6e24472b0b4fda7b496843e5d41",
+  "changed_source": {
+    "internal/cli/commands/create.go": "fff16096cde843a8b1caf51f4a9eaea50f9d01163f48bfee1c93d84a30191a13",
+    "internal/repository/note/repository.go": "fe13d8a1a29d9fa33f689d0756b625051a01be8a6ff153ad74a6003afb723d2d",
+    "internal/services/note_service.go": "9a539a2fa9250b6f615b8f9f4311ece2d4c1b6235152c687eedc2ba8fde9b05d",
+    "internal/services/note_service_test.go": "e86097601b598edc9c9416f9d3d2f25617ea85a3244fa0fa2c88477db13fedca",
+    "skills/shark-rider/verbs/run.md": "1f38fb61cb06ecee226da4d7adcc15c55ada9d76dc63b9e676db5b5580cee024",
+    "tests/contracts/testdata/b077_codex_route.py": "e92a59a08ee63134b38d3235a4e912229842c72ed93e2e91a7cd9923f8b3a45f"
+  },
+  "cli_sha256": "4f271432a5e24d4e348b506e6cb6f3fc7aa62587a1e4a2ce2d6b4be55a824556",
+  "historical_live_commits": [
+    "ce260cb63647ea1337c37196a900deb754f911d7",
+    "f766855f296ddcbc6787fac46409d8ed92fff693"
+  ]
+}

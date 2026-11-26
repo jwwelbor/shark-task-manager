@@ -1,0 +1,9 @@
+test_completed_responder_cannot_receive_stale_prompt (__main__.QuestionRoute.test_completed_responder_cannot_receive_stale_prompt) ... ok
+test_owner_read_refusal_stops_before_delivery (__main__.QuestionRoute.test_owner_read_refusal_stops_before_delivery) ... ok
+test_refused_destination_stops_before_release_or_read (__main__.QuestionRoute.test_refused_destination_stops_before_release_or_read) ... ok
+test_resolve_and_read_final_answer (__main__.QuestionRoute.test_resolve_and_read_final_answer) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 2.122s
+
+OK

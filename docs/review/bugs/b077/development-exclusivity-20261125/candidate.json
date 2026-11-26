@@ -1,0 +1,23 @@
+{
+  "implementation_commit": "4c3f31d0abe5ea2b9b38b08c7cf63234a30b8fd1",
+  "implementation_tree": "13816e1973fb21471da0d3da2f9b9dd71f84fa3a",
+  "baseline": "bbf490c6ec2bd597d6f3e6e4cdd93e68ca54fa50",
+  "baseline_diff_sha256": "e83e2edd1a4f079d148c44f2172426bd8c072ab61052717858271127c41cc468",
+  "manifest_sha256": "6943e4a908ecd331db6641ff16bb0ba5e2e5935a68179574b02340bfece3b02c",
+  "paths_changed": 292,
+  "plan_sha256": "9b5b3e613af734002182319e6c58bdf025f82ef07ca85a50e11d94ab503dfbb5",
+  "schemas": {
+    "skills/shark-attack/context/worker-control-schema.yaml": "8b6d5dcab3374f0b3c2e945fadc97831923e7d1d2045aa024eecc8c3edd22338",
+    "internal/sharkdata/default_data/skills/shark-attack/context/worker-control-schema.yaml": "8b6d5dcab3374f0b3c2e945fadc97831923e7d1d2045aa024eecc8c3edd22338"
+  },
+  "provider_mirrors": {
+    "claude-code.md": "2e5136d7644cdaf4d4f3a959e46e7bbd84eca823404bf6d235e65387e2224944",
+    "codex.md": "3cfaeb2e66b83eee5e96f6aeb91cca49cf440c2acc0d57a47c3d01f5e50ee015"
+  },
+  "recording_probe_shark_sha256": "e11c5ed80a1d80249e2551e84683227408ef4a6f06cf7902f0d03881cc45e6d1",
+  "staged_source_paths": [
+    "skills/shark-rider/verbs/run.md",
+    "tests/contracts/b077_codex_route_attestation_test.go",
+    "tests/contracts/testdata/b077_worker_exclusivity.py"
+  ]
+}

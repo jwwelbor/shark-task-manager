@@ -1,0 +1,25 @@
+{
+  "baseline": "bbf490c6ec2bd597d6f3e6e4cdd93e68ca54fa50",
+  "parent": "790a8f6b30da4cb8ad8111f36391a79043315059",
+  "candidate_commit": "52c1cc340371f0be79b73a98dee7c7035d251401",
+  "candidate_tree": "bc41c2917f8f861744ec5297120c440ffcab36a9",
+  "bundle_ref": "refs/tags/b077-r54-question-authority",
+  "baseline_changed_paths": 291,
+  "full_diff_sha256": "cc98846fc87f85e15c728148d7a921e984e6e0dc8f1a3e8c568aaf87b55a36d2",
+  "bundle_sha256": "1d4b8b544bb493ca55172fd099370f3708799cc62d952bcc7f81ea8212e1ac39",
+  "tested_sources": {
+    "internal/cli/commands/question.go": "86b511bdccc3190a8d37e90a9be77bac8815ace624ec227f9f942df0ff859df0",
+    "internal/cli/commands/question_test.go": "1cba70fb87881f161298d7ebe15ebdd0485c726ecc1b634abd314d20a45b7072",
+    "internal/repository/question/repository.go": "a9603fea73ab16f50d56ca7c68958959d627ba3a2c711dcc7aae7d1e4e7ebf57",
+    "internal/repository/question/repository_test.go": "dc4972845d6ec9bdb19259eba0b55b57e1b079357f056a3d69deca695bf0f3a1",
+    "internal/repository/question/session_authority_test.go": "32c6ef48ae2cc6cb5e916e6008bac1a5bc734bddc12745b4d869c5fc8da11494",
+    "internal/services/question_service.go": "a71b62242b68494c142cd9037acf94d7a2093e5da048b9a33ba75d6153e12623",
+    "internal/services/question_service_test.go": "1925b9eb4d6a429233f2bc2861b98cafb09f65901c66b5beaef2b78a1ed010ad",
+    "internal/services/question_workflow_service.go": "2d60d8dee9d47699ebc2e886ad11116f0b5c30c27277370b60a222d3ab6246ed",
+    "internal/sharkdata/default_data/skills/shark-attack/workflows/route-question.md": "58fdd3343d2dd9279165c03b8e91c6fdb66ca9ea8aa5914fd407fdc8965085b5",
+    "skills/shark-attack/workflows/route-question.md": "58fdd3343d2dd9279165c03b8e91c6fdb66ca9ea8aa5914fd407fdc8965085b5",
+    "skills/shark-rider/verbs/run.md": "0f8811e9a95aaf33970d7def4bfa6c7b859da58904015cf335ae6aa551c836c2",
+    "tests/contracts/b077_codex_route_attestation_test.go": "894717e0f7b667aa45aa1add379786b26d05fea85f0ada0e4f8c15b60fae75a9",
+    "tests/contracts/testdata/b077_question_route.py": "ed0c57a7d2e42892a3201db7d57ce72b020337434ec90052daeaf755fcee8047"
+  }
+}

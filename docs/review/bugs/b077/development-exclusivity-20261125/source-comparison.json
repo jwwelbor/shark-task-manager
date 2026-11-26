@@ -1,0 +1,26 @@
+{
+  "installed_root": "/home/jwwel/projects/shark-task-manager/skills/shark-rider",
+  "candidate_root": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/skills/shark-rider",
+  "files": [
+    {
+      "path": "verbs/run.md",
+      "candidate_sha256": "d43137e5649e114b2119a4412ac80e737ee61e2142145c954eff83836f4fae76",
+      "installed_sha256": "a915b60c05578be9c54129acac7131bba487fab5d2815d9b0ad56ab216f85774"
+    },
+    {
+      "path": "context/host-adapter-contract.md",
+      "candidate_sha256": "2c649fa36bfe2ea9d96ca790e232e708637ce5a761d8a8b65bc8b45569f13d1c",
+      "installed_sha256": "552edb574389c6950277600251830d28cbf83d51cb6bf14645c5fd36b310d597"
+    },
+    {
+      "path": "skills/deep-review/SKILL.md",
+      "candidate_sha256": "7d809b846ba436d9b2966ec790757bfc3c2ac4f051b68ce8573e5cd61320d6ae",
+      "installed_sha256": "7730acf1ab55a52548f57d7bc00a288f2b53d919bb068b3147816b8c300cad0a"
+    },
+    {
+      "path": "skills/deep-review/scripts/adaptive_review.py",
+      "candidate_sha256": "d1fef998c20b1df544fd51ee57114fd48b762cacb1a1b51453ef561efa22176d",
+      "installed_sha256": "93aa46ed7b3b4571dffc8acc7cd960e96c42b08002aa5b726685e10a49c1d345"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+FF
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (conflict_first='Previous generation model for coding and everyday work', conflict_second='Legacy balanced model for agentic coding')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 379, in test_raw_catalog_descriptions
+    check([[row(a), catalog_row("AA", canonical)], [row(b)]], "unverified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unverified' != 'verified'
+- unverified
+? --
++ verified
+ : {
+  "run_id": "recording-5e75af5d-35f6-48b6-af83-a642dec71d24",
+  "entity_key": "B001",
+  "entity_type": "bug",
+  "outcome_key": "needs_research",
+  "role": "route_rework",
+  "to_status": "research",
+  "transitioned": true,
+  "status": {
+    "run_id": "recording-5e75af5d-35f6-48b6-af83-a642dec71d24",
+    "entity_key": "B001",
+    "persistence_state": "transition_applied",
+    "worker_phase": "retiring",
+    "nested_operation": "88ebc5c1d0e0a1235cbe1714eba3e53a79c5c31a7273b33a9dbba9a14e6823a9",
+    "retirement_state": "pending",
+    "elapsed_seconds": 0.027399964,
+    "result_location": "/tmp/tmp9ewfjqch/worker directory/.shark/runs/recording-5e75af5d-35f6-48b6-af83-a642dec71d24/result.json",
+    "completed_suboperation_count": 2
+  }
+}
+ SUCCESS  Released claim on bug B001
+
+
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (conflict_first='Legacy balanced model for agentic coding', conflict_second='Previous generation model for coding and everyday work')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 379, in test_raw_catalog_descriptions
+    check([[row(a), catalog_row("AA", canonical)], [row(b)]], "unverified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unverified' != 'verified'
+- unverified
+? --
++ verified
+ : {
+  "run_id": "recording-20f37e83-403b-42dc-881c-3209564f69f0",
+  "entity_key": "B001",
+  "entity_type": "bug",
+  "outcome_key": "needs_research",
+  "role": "route_rework",
+  "to_status": "research",
+  "transitioned": true,
+  "status": {
+    "run_id": "recording-20f37e83-403b-42dc-881c-3209564f69f0",
+    "entity_key": "B001",
+    "persistence_state": "transition_applied",
+    "worker_phase": "retiring",
+    "nested_operation": "88ebc5c1d0e0a1235cbe1714eba3e53a79c5c31a7273b33a9dbba9a14e6823a9",
+    "retirement_state": "pending",
+    "elapsed_seconds": 0.02652284,
+    "result_location": "/tmp/tmp9ewfjqch/worker directory/.shark/runs/recording-20f37e83-403b-42dc-881c-3209564f69f0/result.json",
+    "completed_suboperation_count": 2
+  }
+}
+ SUCCESS  Released claim on bug B001
+
+
+----------------------------------------------------------------------
+Ran 1 test in 13.299s
+
+FAILED (failures=2)
