@@ -1,0 +1,28 @@
+{
+  "source": "parent Codex session 01a21384-f7e8-7951-b3f6-7a226c85bef0",
+  "method": "Reconstruct deterministic prompts from the archived Git launcher and recorded case arguments. Actual host-result files omit the prompt. Inputs below are derived, not newly observed host dispatch events.",
+  "source_commit": "14a81681b022763ce7c2d066bd633d109311e8c0",
+  "launcher_sha256": "84c8d0984df6b9c4a2f5ab8984a93c43b0bb5cc60d5227dedd40751d2d39fe8c",
+  "normalized_prompt_sha256": "888e38252d809813613a1e86434eea9ca94d1468069019148bacc83fbe022057",
+  "archived_b_seed_sha256": "6c7df8c0cf9080ce51e282d37b156e301e578297a02a493467f2280d84f2aaa6",
+  "final_prompt_edit": "call_bebf33c79f044c039d2bd9331ff6a01c",
+  "pre_a_launcher_hash_event": "call_e9792e03c2594ea59a3c55884187ef6b",
+  "pair_summary_construction": "call_78b560a4559a47958a013d4c31e5559c",
+  "cases": {
+    "grant-a": {
+      "parent_launch_event": "call_38abef07541f44f6a9e297a1d40bb9e0",
+      "run_id": "420f77a2-8fdd-4fc2-b4c0-5e9659a271a7",
+      "derived_prompt_sha256": "52a6fca21f9abba2410663081c163e6544e3a049f2b228f58e2f47414cedd169",
+      "host_trace_sha256": "e24b70a0584179b8cbe9c9c5d21741e2a4a9e18ad487e3151178cce3b54cd960",
+      "grant_sha256": "ab531a2163f2c73905410e2b5cc79e928306104b1c6fc8cf1f3b4a469d66303f"
+    },
+    "grant-b": {
+      "parent_launch_event": "call_fc593dc3c1ec4948b02d673862a51d51",
+      "run_id": "98d0d497-9cae-487f-ae87-f24dd5cf8f54",
+      "derived_prompt_sha256": "3a6b462bd7dbfe1299da2f0cc105ba23191c3578f7636e983316f37c83abe5c5",
+      "host_trace_sha256": "7e71a6c9d36145f4c5cc0fc057925c2a2945f64b04d946214f573bc1b89eabf7",
+      "grant_sha256": "be28534e114c3daabf328d57f69f01b6a0e9cf71c3dae00da966d1c9637001b1"
+    }
+  },
+  "normalized_command_without_prompt_sha256": "49045ee2aafe45148ff99154ef8e97fd60bd6f71644baba88d1e217997f8f045"
+}

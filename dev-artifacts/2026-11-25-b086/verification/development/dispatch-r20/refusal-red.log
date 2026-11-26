@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_only_the_selected_create_is_refused_before_persistence (test_refusal.DefinitiveRefusal.test_only_the_selected_create_is_refused_before_persistence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_refusal.py", line 51, in test_only_the_selected_create_is_refused_before_persistence
+    self.assertNotEqual(result.returncode, 0)
+AssertionError: 0 == 0
+
+----------------------------------------------------------------------
+Ran 1 test in 10.096s
+
+FAILED (failures=1)
