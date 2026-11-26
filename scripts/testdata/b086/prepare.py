@@ -78,7 +78,57 @@ def seed_project(source, staging, binary_digest):
     return scratch
 
 
-SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'}
+EXPECT_FIX = {'fix', 'time-ok', 'repeat-other'}
+EXPECT_DEFER = {'budget-dispatch', 'budget-project', 'budget-consumed', 'time-short'}
+EDIT_KINDS = EXPECT_FIX | EXPECT_DEFER | {'repeat-same'}
+SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS
+FILE = 'docs/feature-a.md'
+FINGERPRINT = FILE + '#DOCS#worked-example'
+
+
+def scenario_budget(kind, budget):
+    """Vary only the named allowance; fixture values set no project policy."""
+    if kind in ('time-ok', 'time-short'):
+        budget.update(dispatch_remaining_attempts=1, project_total_attempts=3, project_consumed_attempts=1,
+                      available_minutes=12 if kind == 'time-ok' else 9,
+                      estimated_repair_and_verification_minutes=10)
+    elif kind == 'budget-dispatch':
+        budget['dispatch_remaining_attempts'] = 0
+    elif kind == 'budget-project':
+        budget['project_total_attempts'] = 1
+    elif kind == 'budget-consumed':
+        budget['project_consumed_attempts'] = 2
+
+
+def rejection_history(kind):
+    """Two earlier rejected rounds; only the content of the history differs between the pair."""
+    same = kind == 'repeat-same'
+    rounds = []
+    for number in (1, 2):
+        rounds.append({
+            'round': number, 'review_run': f'prior-review-{number}',
+            'finding_fingerprint': FINGERPRINT if same else f'docs/feature-b.md#DOCS#legend-{number}',
+            'defect_class': 'DOCS missing worked example under Feature A' if same
+            else f'DOCS unrelated defect {number} under Feature B',
+            'affected_behavior': 'Feature A readers cannot see the default order applied' if same
+            else 'Feature B legend wording',
+            'repair_attempt': ('Added an example paragraph to docs/feature-a.md; the reviewer rejected the same finding again'
+                               if same else f'Fixed legend wording {number}; the reviewer accepted the repair')})
+    return {'repeat_rejection_limit': 2, 'rejected_rounds': rounds}
+
+
+def make_workspace(case, source):
+    """A read-only copy of the reviewed candidate file; only the recorder's edit endpoint writes it."""
+    target = case / 'candidate' / FILE
+    target.parent.mkdir(parents=True)
+    shutil.copyfile(source / FILE, target)
+    state = {'file': FILE, 'sha256': digest(target), 'mtime_ns': target.stat().st_mtime_ns,
+             'lines': target.read_text().splitlines()}
+    target.chmod(0o444)
+    target.parent.chmod(0o555)
+    (case / 'workspace.json').write_text(json.dumps(
+        {'path': str(case / 'candidate'), 'file': FILE, 'candidate_identity': state['sha256']}, indent=2) + '\n')
+    return state
 
 
 def copy_store(source, destination):
@@ -159,6 +209,16 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                     'estimated_repair_and_verification_minutes': 10,
                 },
             }
+            kind_now = extra.get(case_name, '')
+            workspace = None
+            if kind_now in EDIT_KINDS:
+                if not synthetic:
+                    raise ValueError('edit scenarios need the synthetic packet')
+                dispatch['edit_authority'] = True
+                scenario_budget(kind_now, dispatch['budget'])
+                workspace = make_workspace(case, root / 'review-source')
+                if kind_now.startswith('repeat-'):
+                    (case / 'rejections.json').write_text(json.dumps(rejection_history(kind_now), indent=2) + '\n')
             (case / 'grant.json').write_text(json.dumps(dispatch, indent=2) + '\n')
             if extra.get(case_name, '').startswith('delivery-'):
                 (case / 'delivery.json').write_text(json.dumps(
@@ -188,6 +248,8 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                         bindings[case_name]['create_refusal'] = 'Tracker refused child creation under E01-F01'
                 elif kind == 'lost-response':
                     bindings[case_name]['fault'] = 'lost-response'
+                elif kind in EDIT_KINDS:
+                    bindings[case_name]['workspace'] = workspace
             if case_name == 'case-c':
                 bindings[case_name]['create_refusal'] = 'Tracker refused child creation under E01-F01'
             cases.append(case_name)

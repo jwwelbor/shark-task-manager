@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import uuid
@@ -224,6 +225,36 @@ def tracker(case, manifest, binding, argv, log, event):
     return result.returncode
 
 
+def workspace_file(case, binding, relative):
+    state = binding.get('workspace')
+    if not state or relative != state['file']:
+        raise ValueError('no editable candidate file for this case')
+    return case / 'candidate' / relative
+
+
+def workspace_edit(case, binding, relative, content):
+    """Apply a whole-file edit to the candidate copy; the host owns the decision to call it."""
+    if not json.loads((case / 'grant.json').read_bytes()).get('edit_authority'):
+        raise ValueError('grant carries no edit authority')
+    path = workspace_file(case, binding, relative)
+    before = digest(path)
+    path.parent.chmod(0o755)
+    path.chmod(0o644)
+    path.write_bytes(content)
+    path.chmod(0o444)
+    path.parent.chmod(0o555)
+    return {'file': relative, 'before_sha256': before, 'after_sha256': digest(path)}
+
+
+def workspace_verify(case, binding):
+    """Focused check of the Feature A example, bound to the current candidate identity."""
+    path = workspace_file(case, binding, binding['workspace']['file'])
+    text = path.read_text()
+    blocks = re.findall(r'```[^\n]*\n(.*?)```', text, re.S)
+    passed = any('feature-a list' in block for block in blocks) and 'alphabetical' in text
+    return {'file': binding['workspace']['file'], 'candidate_identity': digest(path), 'passed': passed}
+
+
 def run(case, tool, argv):
     case = case.resolve(strict=True)
     manifest = json.loads((case.parent / 'preparation.json').read_bytes())
@@ -262,6 +293,15 @@ def run(case, tool, argv):
             append(log, dict(event, event='result', outcome='received'))
         elif tool == 'shark':
             return tracker(case, manifest, binding, effective, log, event)
+        elif tool == 'edit' and len(argv) == 1:
+            result = workspace_edit(case, binding, argv[0], sys.stdin.buffer.read())
+            append(log, dict(event, event='result', outcome='applied', **result))
+            print(json.dumps(result))
+        elif tool == 'verify' and not argv:
+            result = workspace_verify(case, binding)
+            append(log, dict(event, event='result', outcome='passed' if result['passed'] else 'failed', **result))
+            print(json.dumps(result))
+            return 0 if result['passed'] else 1
         elif tool == 'ci' and binding.get('delivery_ci'):
             append(observations / 'delivery.jsonl', dict(event, argv=argv))
             append(log, dict(event, event='result', outcome='recorded'))

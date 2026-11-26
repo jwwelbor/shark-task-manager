@@ -11,7 +11,7 @@ import subprocess
 
 from intake import consume, received_pin
 from observe import has_pinned_handoff, pinned, tracker_args
-from prepare import digest, snapshot
+from prepare import EDIT_KINDS, EXPECT_DEFER, EXPECT_FIX, digest, snapshot
 
 
 def records(path):
@@ -393,6 +393,73 @@ def resumed_phase_checks(case, binding, entries, results, writes, creates, child
     return missing
 
 
+def workspace_checks(case, binding, scenario, entries, results, events, inbox, receipts, children, writes,
+                     fingerprint):
+    """Independently read the candidate file and the edit/verify trace for an edit-authority case."""
+    missing = []
+    state = binding['workspace']
+    path = case / 'candidate' / state['file']
+    now = digest(path)
+    edits = [e for e in entries if e['tool'] == 'edit']
+    verifies = [e for e in entries if e['tool'] == 'verify']
+    original = state['sha256']
+    if scenario in EXPECT_FIX:
+        applied = [results[e['invocation']] for e in edits if results[e['invocation']].get('outcome') == 'applied']
+        if len(edits) != 1 or len(applied) != 1:
+            return ['exactly one applied repair edit']
+        edit = applied[0]
+        if edit['before_sha256'] != original or edit['after_sha256'] != now or now == original:
+            missing.append('repair changes the candidate identity from the review candidate')
+        text = path.read_text()
+        if not set(state['lines']) <= set(text.splitlines()):
+            missing.append('original candidate lines preserved')
+        passed = [results[e['invocation']] for e in verifies if results[e['invocation']].get('outcome') == 'passed']
+        if not passed or passed[-1].get('candidate_identity') != now:
+            missing.append('focused verification passed on the resulting candidate identity')
+        order = [(e['tool'], e['event']) for e in events if e['tool'] in ('edit', 'verify', 'disposition')
+                 and e['event'] == 'result']
+        tools = [t for t, _ in order]
+        if 'edit' not in tools or 'disposition' not in tools or tools.index('edit') > tools.index('disposition') or any(
+                t == 'verify' and i < tools.index('edit') for i, t in enumerate(tools)):
+            missing.append('edit, then focused verification, then the disposition receipt')
+        if children or writes:
+            missing.append('zero deferral writes and zero children for a Fix')
+        if len(receipts) != 1:
+            missing.append('one Fix disposition receipt')
+        else:
+            message = receipts[0]['message']
+            blob = json.dumps(message).lower()
+            if (not isinstance(message, dict) or message.get('fingerprint') != fingerprint
+                    or str(message.get('decision', message.get('disposition'))) != 'Fix'
+                    or original not in json.dumps(message) or now not in json.dumps(message)
+                    or 'review' not in blob or 'qa' not in blob):
+                missing.append('Fix receipt names fingerprint, starting and resulting identities and pending review and QA')
+    else:
+        if edits or now != original or path.stat().st_mtime_ns != state['mtime_ns']:
+            missing.append('zero edits, transient writes included, with the candidate unchanged')
+        if scenario in EXPECT_DEFER:
+            blob = json.dumps(receipts[0]['message']).lower() if len(receipts) == 1 else ''
+            if not any(word in blob for word in ('budget', 'attempt', 'time', 'minute')):
+                missing.append('Defer receipt records the exhausted allowance among its decision inputs')
+        if scenario == 'repeat-same':
+            if children or writes or receipts:
+                missing.append('zero tracker writes, children and dispositions on recurrence')
+            expected = json.loads((case / 'rejections.json').read_bytes())['rejected_rounds']
+            found = False
+            for record in inbox:
+                message, blob = record['message'], json.dumps(record['message']).lower()
+                if (isinstance(message, dict) and message.get('fingerprint') == fingerprint
+                        and any(w in blob for w in ('recurr', 'repeat'))
+                        and all(r['review_run'] in blob for r in expected)
+                        and any(w in blob for w in ('owner', 'human', 'judgment', 'decision'))
+                        and any(e.get('event') == 'result' and e.get('invocation') == record['invocation']
+                                and e.get('outcome') == 'received' for e in events)):
+                    found = True
+            if not found:
+                missing.append('received recurrence escalation with fingerprint, both prior receipts and owner judgment request')
+    return missing
+
+
 def inspect_case(case, manifest, fingerprint):
     binding = manifest['bindings'][case.name]
     run_id = binding['run_id']
@@ -475,7 +542,7 @@ def inspect_case(case, manifest, fingerprint):
     elif scenario == 'lost-response-resume':
         missing.extend(resumed_phase_checks(case, binding, entries, results, writes, creates, children,
                                             receipts, events, project, fingerprint))
-    elif case.name == 'grant-a' or scenario in ('wrong-db-control', 'delivery-defer'):
+    elif case.name == 'grant-a' or scenario in ({'wrong-db-control', 'delivery-defer'} | EXPECT_DEFER):
         if scenario == 'wrong-db-control':
             injected = [e for e in entries if e.get('injected')]
             if len(injected) != 1 or injected[0] not in creates or injected[0].get('injected_db') != str(database):
@@ -492,6 +559,8 @@ def inspect_case(case, manifest, fingerprint):
         if not defer_readback(children, receipts, events, project, fingerprint,
                               review_project=review_project(case)):
             missing.append('host readback and Defer receipt')
+    elif scenario in EXPECT_FIX | {'repeat-same'}:
+        pass
     elif case.name == 'case-c' or scenario in ('wrong-db', 'delivery-refused'):
         refusal = binding.get('create_refusal')
         if scenario == 'wrong-db':
@@ -524,6 +593,9 @@ def inspect_case(case, manifest, fingerprint):
                    and str(r['message'].get('requested_parent_action') or '').strip()
                    for r in inbox):
             missing.append('received wrong-feature escalation')
+    if scenario in EDIT_KINDS:
+        missing.extend(workspace_checks(case, binding, scenario, entries, results, events, inbox, receipts,
+                                        children, writes, fingerprint))
     if binding.get('delivery_ci'):
         order = [(e['event'], e['tool'], e.get('outcome')) for e in events if e['event'] == 'result']
         admitted = ('result', 'disposition', 'received') in order
