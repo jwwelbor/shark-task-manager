@@ -1,0 +1,4 @@
+Ran 66 tests in 208.336s
+OK
+rc=0
+full fixture suite (python3 -m unittest discover in scripts/testdata/b086) at fixture commit bd3104ca with GOCACHE=/tmp/b086-gocache

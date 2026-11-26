@@ -1,0 +1,8 @@
+{
+  "status": "observed",
+  "missing": [],
+  "resulting_sha256": "93d926e63075960fa25f9ad5fc0ac93148031cef3fea2bdae24508e43cbfaba7",
+  "preserved": [
+    "docs/unrelated.md"
+  ]
+}

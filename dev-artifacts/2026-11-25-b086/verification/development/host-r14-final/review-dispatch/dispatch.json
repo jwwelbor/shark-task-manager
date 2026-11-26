@@ -1,0 +1,29 @@
+{
+  "applied_gate_result": {
+    "outcome": "fail",
+    "run_id": "B086-code-review-20261125",
+    "to_status": "development"
+  },
+  "cli_version": "0.172.0",
+  "dispatch_run_id": "B086-code-review-20261125",
+  "findings": [
+    "uncontrolled-paired-host-input",
+    "missing-host-boundary-coverage"
+  ],
+  "prompt_sha256": "f013b6ae4d8b3b3969473ce5194d08962465f7eb00cdb41ff6e9b5df329b0256",
+  "recommended_outcome": "fail",
+  "requested": {
+    "model": "opus",
+    "provider": "anthropic"
+  },
+  "review_report": "not written: worker ran with read-only sandbox; review result records missing report and skipped collaborators",
+  "selected": {
+    "host_worker_class": "codex-cli",
+    "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+    "model": "gpt-6.2-astra",
+    "provider": "openai"
+  },
+  "status_after": "development",
+  "status_before": "code_review",
+  "worker_id": "01a21518-cf83-7911-85a2-4ad716dfdad7"
+}

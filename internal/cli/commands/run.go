@@ -221,6 +221,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// calls the same runner.IngestGateResult boundary the core runner calls
 	// directly, and short-circuits before any claim/dispatch state is
 	// touched, matching --resume-run's contract above.
+	if runTrackerLedgerEnv {
+		return runTrackerLedgerSetup()
+	}
 	if runApplyResultSet() {
 		return runApplyResult(cmd, entityType, normalizedKey)
 	}

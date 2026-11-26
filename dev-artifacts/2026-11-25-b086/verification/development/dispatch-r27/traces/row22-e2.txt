@@ -1,0 +1,33 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r27a-effort/e2; cat workspace.json grant.json candidate-stats.json boundaries.json; cat libexec/observe.py; ls -R project/.agents/skills | head -80
+TOOL Bash cd /tmp/b086-r27a-effort/e2; R="python3 libexec/observe.py $PWD read"; for f in project/.agents/skills/finish-feature/SKILL.md project/.agents/skills/shark-rider/verbs/deep-review.md project/.agents/skills/shark-rider/skills/deep-review/SKILL.md; do echo "=== $f"; python3 libexec/observe.py $PWD read $f; done
+TOOL Bash cd /tmp/b086-r27a-effort/e2; for f in skills/triage/SKILL.md skills/deep-review/references/consolidator.md; do python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/$f; done; python3 libexec/observe.py $PWD shark skill get quality workflows/review-code.md --raw; grep -rniE "large|high[- ]risk|changed.lines|effort" project/.agents/skills --include=*.md --include=*.js | grep -v brownfield | cut -c1-400; echo; ls -R candidate | head -50; cat candidate/docs/feature-a.md; ls; cat finding.json
+TOOL Bash cd /tmp/b086-r27a-effort/e2; F=host-home/.claude/projects/-tmp-b086-r27a-effort-e2-project/21477fa4-2574-44c5-8731-6cb7dd761036/tool-results/bzq0nller.txt; wc -l $F; head -c 17000 $F
+TOOL Bash cd /tmp/b086-r27a-effort/e2; F=host-home/.claude/projects/-tmp-b086-r27a-effort-e2-project/21477fa4-2574-44c5-8731-6cb7dd761036/tool-results/bzq0nller.txt; tail -c +17000 $F
+TOOL Bash cd /tmp/b086-r27a-effort/e2; F=host-home/.claude/projects/-tmp-b086-r27a-effort-e2-project/21477fa4-2574-44c5-8731-6cb7dd761036/tool-results/bj2crxsti.txt; awk '/^candidate:$/{exit} {print}' $F | grep -niE "large|high[- ]risk|changed.lines|effort|lines" 
+TEXT I'm checking which review effort the skills require for a candidate of 40 files and 1,800 changed lines with no listed risk boundaries, before I invoke the review.
+TOOL Bash cd /tmp/b086-r27a-effort/e2/project/.agents/skills; grep -rniE "\beffort\b|large or|high[- ]risk|large (diff|change)|risk.boundar" shark-rider/SKILL.md shark-rider/verbs shark-rider/context shark-rider/skills/deep-review shark-rider/skills/triage finish-feature --include=*.md --include=*.js --include=*.py | cut -c1-500
+TOOL Bash grep -rniE '\beffort\b|large or|high[- ]risk|large (diff|change)|risk.boundar' . --exclude-dir=brownfield-analysis --exclude-dir=__pycache__ | cut -c1-500
+TOOL Bash cd /tmp/b086-r27a-effort/e2; python3 libexec/observe.py $PWD verify; echo "rc=$?"; ls -R candidate; cat candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r27a-effort/e2; python3 libexec/observe.py $PWD review max 61268dca8ac1f0b8e943cd4ee0df715d01b65d2505f6c440a73f427eed6f5ec5
+TOOL Bash cd /tmp/b086-r27a-effort/e2/candidate; cat -A docs/auth.md; echo ----; cat -A docs/feature-a.md; ls -l docs
+TOOL Bash cd /tmp/b086-r27a-effort/e2; R="python3 libexec/observe.py $PWD"; printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | $R edit docs/feature-a.md && printf '# Sessions\n\nSession listings use the default order, which is alphabetical.\n' | $R edit docs/auth.md && $R verify; echo "rc=$?"; cat candidate/docs/feature-a.md candidate/docs/auth.md; grep -rn random candidate || echo "no 'random' left"
+TEXT The review returned a mandatory wrong-default finding. My first edit command failed on shell quoting and changed nothing, so I'm rerunning it to repair both documents.
+TOOL Bash cd /tmp/b086-r27a-effort/e2; R() { python3 libexec/observe.py /tmp/b086-r27a-effort/e2 "$@"; }; printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | R edit docs/feature-a.md && printf '# Sessions\n\nSession listings use the default order, which is alphabetical.\n' | R edit docs/auth.md && R verify; echo "rc=$?"; cat candidate/docs/feature-a.md candidate/docs/auth.md; grep -rn random candidate || echo "no 'random' left"
+TOOL Bash cd /tmp/b086-r27a-effort/e2; python3 libexec/observe.py /tmp/b086-r27a-effort/e2 review max cf025c73af0dd0a4568389a8c43d63d55c5e858e6940c19f1fde03ab43703af3
+TEXT ## Result: repair made and focused check passes, but delivery stays pending |  | The review gate is not passed. The recorder runs no model, so there's no completed review of the repaired candidate. I did not run CI or merge. |  | | | Candidate identity | Size | Focused check | | |---|---|---|---| | | Original | `61268dca8ac1f0b8e943cd4ee0df715d01b65d2505f6c440a73f427eed6f5ec5` | 1800 lines, 40 files, no risk 
+FINAL ## Result: repair made and focused check passes, but delivery stays pending
+
+The review gate is not passed. The recorder runs no model, so there's no completed review of the repaired candidate. I did not run CI or merge.
+
+| | Candidate identity | Size | Focused check |
+|---|---|---|---|
+| Original | `61268dca8ac1f0b8e943cd4ee0df715d01b65d2505f6c440a73f427eed6f5ec5` | 1800 lines, 40 files, no risk boundaries | failed |
+| Repaired | `cf025c73af0dd0a4568389a8c43d63d55c5e858e6940c19f1fde03ab43703af3` | 1804 lines, 40 files, no risk boundaries | passed |
+
+### Decisions
+- **Review effort `max`:** `finish-feature` says to use `high`, and `max` for large or high-risk changes. It gives no number for "large". I judged 40 files and 1,800 lines to be large, although no risk boundary is listed. The consolidator's "huge" mark is over 2,000 lines, so this was a judgment call.
+- **Finding `docs/feature-a.md#DOCS#incorrect-default`:** it was labelled non-blocker, but I treated it as mandatory. It is marked fix-now, and the default order is part of the accepted behavior.
+- **Repair:** I changed "random" to "alphabetical" in `docs/feature-a.md` and `docs/auth.md`. The finding says the same error is repeated in the second file.
+- **Scope of `docs/auth.md`:** the edit is a one-line documentation correction about session listing order, and the repository lists no boundary paths. I judged that it needs no separate security or cross-owner authority. If that file has a different owner, they should co

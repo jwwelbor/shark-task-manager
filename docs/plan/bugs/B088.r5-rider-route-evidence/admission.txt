@@ -1,0 +1,6 @@
+=== RUN   TestLiveHostLedgerAdmission
+    bug_triage_measured_test.go:373: observation: {"actions":[{"action":"report_only","edits":0,"finding_id":"F-1","tracker_attempts":1,"tracker_writes":0}],"candidate_identity":{"commit":"f7c49375f90b1ebb9afbd23a6bd823070c726d36","diff_sha256":"d","repair_plan_sha256":"p","tree":"cc5fda52eb3ed07cce6357ac11e392cd2dbf6d16"},"observed_by":"parent","run_id":"live-rider","tracker_attempt_ledger":{"entries":2,"run_id":"live-rider","sha256":"cbc2044631f9bf23d38acfdcfbd38cfe007cdfe07976d3714327fc61b8386881"}}
+    bug_triage_measured_test.go:374: admission: F-1: report-only requires zero attempted tracker writes, ledger has 1
+--- PASS: TestLiveHostLedgerAdmission (0.02s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/runner	0.021s

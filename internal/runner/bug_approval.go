@@ -439,7 +439,7 @@ func readBugApprovalResult(ctx context.Context, req gatepersist.Request, meta bu
 }
 
 func matchesBugApprovalState(state *gaterun.OperationState, req gatepersist.Request, meta bugApprovalNote, gate string) bool {
-	return state.AdmissionVersion == gatepersist.BoundAdmissionVersion && state.PersistenceState == gaterun.PersistenceStateTransitioned && state.EntityType == string(req.EntityType) && strings.EqualFold(state.EntityKey, req.EntityKey) && state.Gate == gate && state.SourceStatus == gate && state.OperationDigest == meta.Digest
+	return gatepersist.IsBoundAdmission(state.AdmissionVersion) && state.PersistenceState == gaterun.PersistenceStateTransitioned && state.EntityType == string(req.EntityType) && strings.EqualFold(state.EntityKey, req.EntityKey) && state.Gate == gate && state.SourceStatus == gate && state.OperationDigest == meta.Digest
 }
 func verifyBugApprovalIdentity(ctx context.Context, dir string, req gatepersist.Request, meta bugApprovalNote, gate string) (string, error) {
 	identity, exists, err := gaterun.ReadIdentity(dir)

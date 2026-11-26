@@ -9,6 +9,7 @@ complete the review, run-cli retries an installed comparable CLI.
 
 from __future__ import annotations
 
+from collections import Counter
 import argparse
 import hashlib
 import json
@@ -379,11 +380,13 @@ def _matching_identity(identity, scope):
 
 
 def _valid_finding(finding, fields):
-    if not isinstance(finding, dict) or finding.get("severity") not in {"blocker", "non-blocker", "nit"}:
+    if not isinstance(finding, dict) or finding.get("severity") not in ("blocker", "non-blocker"):
         return False
     if type(finding.get("line")) is not int or finding["line"] < 1:
         return False
-    return all(isinstance(finding.get(key), str) and finding[key] for key in fields)
+    if not all(isinstance(finding.get(key), str) and finding[key] for key in fields):
+        return False
+    return all(isinstance(finding.get(key), str) and finding[key].strip() for key in ("impact", "evidence"))
 
 
 def _check_reviewed_files(files, changed_files):
@@ -452,6 +455,8 @@ def _check_angle_coverage(result, scope):
 
 
 def _angle_findings(name, result, scope):
+    if not isinstance(result, dict) or result.get("review_contract_version") != 2:
+        raise ValueError(f"angle {name} uses an unsupported review contract")
     identity = result.get("candidate_identity") if isinstance(result, dict) else None
     if not _matching_identity(identity, scope):
         raise ValueError(f"angle {name} has missing or mismatched candidate identity")
@@ -477,7 +482,7 @@ def inspect_angle_packets(data, scope):
     completed = 0
     for name in "abcdef":
         try:
-            findings.extend(_angle_findings(name, packets.get(name), scope))
+            findings.extend(dict(finding, origin=name) for finding in _angle_findings(name, packets.get(name), scope))
             completed += 1
         except ValueError as exc:
             errors.append(str(exc))
@@ -543,13 +548,50 @@ def _validate_decision(finding, verdict):
         raise ValueError("refutation reason contradicts its disposition")
 
 
+SPECIALIST_ORIGINS = tuple("abcdef")
+
+
+def _index_decisions(findings, verdict, cli):
+    indexed, ids = {}, set()
+    for decision in findings:
+        _validate_decision(decision, verdict)
+        origin = decision.get("origin", "")
+        allowed = ("", "single-reviewer") if cli else ("", "consolidator", *SPECIALIST_ORIGINS)
+        if origin not in allowed:
+            raise ValueError(f"invalid review decision origin {origin!r}")
+        member = decision.get("finding_id")
+        if origin in SPECIALIST_ORIGINS and (not isinstance(member, str) or not member.strip()):
+            raise ValueError(f"angle {origin} decision requires a finding_id")
+        if member is not None:
+            if not isinstance(member, str) or not member.strip() or member in ids:
+                raise ValueError(f"invalid or duplicate review finding_id {member!r}")
+            ids.add(member)
+        site = _finding_key(decision)
+        key = (site, origin, decision["evidence"] if origin in SPECIALIST_ORIGINS else "")
+        if key in indexed:
+            raise ValueError(f"duplicate review decision for {origin or 'finding'} at {site[0]!r}:{site[1]}")
+        indexed[key] = decision
+    return indexed
+
+
 def _check_raw_findings(raw_findings, by_key, verdict):
+    counts = Counter(_finding_key(finding) for finding in raw_findings)
+    remaining = by_key.copy()
     for finding in raw_findings:
-        decision = by_key.get(_finding_key(finding))
-        if not decision:
-            raise ValueError("raw finding has no explicit disposition")
+        site = _finding_key(finding)
+        origin = finding.get("origin", "")
+        decision = remaining.pop((site, origin, finding["evidence"]), None)
+        if decision is None and counts[site] == 1:
+            decision = remaining.pop((site, "", ""), None)
+        if decision is None or decision["evidence"] != finding["evidence"]:
+            raise ValueError(f"angle {origin} raw finding has no explicit disposition matching its observation at {site[0]!r}:{site[1]}")
         if verdict.upper().startswith("PASS") and finding["severity"] == "blocker" and not _resolved_raw_blocker(decision, verdict):
             raise ValueError("raw blocker has no refutation or justified downgrade")
+    for (site, origin, _), decision in remaining.items():
+        if not origin and counts[site]:
+            raise ValueError(f"ambiguous extra decision at {site[0]!r}:{site[1]}")
+        if origin in SPECIALIST_ORIGINS:
+            raise ValueError(f"angle {origin} has no raw observation for {decision['finding_id']} at {site[0]!r}:{site[1]}")
 
 
 def _resolved_raw_blocker(decision, verdict):
@@ -562,25 +604,21 @@ def validate_review_decisions(decisions: object, scope: dict[str, object], raw_f
     """Bind explicit dispositions to the candidate and every reported blocker."""
     if not isinstance(decisions, dict) or not isinstance(decisions.get("candidate_identity"), dict):
         raise ValueError("review decisions require candidate identity")
+    if decisions.get("review_contract_version") != 2:
+        raise ValueError("review decisions require impact-based contract version 2")
     if not _matching_identity(decisions["candidate_identity"], scope):
         raise ValueError("review decisions identify a different candidate or plan")
-    if require_reviewed_files:
-        _check_reviewed_files(decisions.get("reviewed_files"), scope.get("changed_files"))
+    if require_reviewed_files or "reviewed_files" in decisions:
+        _check_reviewed_files(decisions.get("reviewed_files"), scope["changed_files"])
     findings = decisions.get("findings")
     if not isinstance(findings, list):
         raise ValueError("review decisions require a findings array")
-    if verdict.upper() == "PASS-WITH-TRIAGE" and not any(
-        isinstance(finding, dict) and finding.get("disposition") != "refuted" for finding in findings
-    ):
-        raise ValueError("PASS-with-triage requires at least one retained finding")
-    by_key = {}
-    for finding in findings:
-        _validate_decision(finding, verdict)
-        key = _finding_key(finding)
-        if key in by_key:
-            raise ValueError("duplicate review decision")
-        by_key[key] = finding
+    by_key = _index_decisions(findings, verdict, require_reviewed_files)
     _check_raw_findings(raw_findings, by_key, verdict)
+    if verdict.upper() == "PASS-WITH-TRIAGE" and not any(
+        f["disposition"] not in {"excluded", "refuted"} for f in findings
+    ):
+        raise ValueError("PASS-with-triage requires an actionable finding or a report-only withdrawal")
 
 
 FINDING_DETAIL_RE = re.compile(r"^FINDING_DETAIL:[ \t]*INCOMPLETE (?:VALIDATION|PRODUCT BEHAVIOR)[ \t]*\|[ \t]*(F-[1-9][0-9]*)[ \t]*\|[ \t]*(blocker|non-blocker|nit)[ \t]*\|[ \t]*([a-z0-9_-]+)[ \t]*$", re.I | re.M | re.ASCII)
@@ -647,6 +685,7 @@ def _report_header(metadata: dict[str, object], branch: str = "unknown") -> str:
         f"**Retained scope SHA-256:** `{_display(metadata, 'scope_sha256', 'unavailable')}`",
         f"**Review decisions:** `{_display(metadata, 'retained_decisions', 'unavailable')}`",
         f"**Review decisions SHA-256:** `{_display(metadata, 'decisions_sha256', 'unavailable')}` · **Angle results SHA-256:** `{_display(metadata, 'angles_sha256', 'unavailable')}`",
+        f"**Review contract:** `{metadata.get('review_contract_version', 2)}`",
         f"**Requested model:** `{requested if requested is not None else 'unknown'}` · **Verified effective model:** `{_display(metadata, 'effective_model', 'unknown')}`",
         f"**Verdict:** {metadata['verdict']}",
     ]
@@ -672,10 +711,22 @@ def _write_new_bytes(path, data):
         output.write(data)
 
 
+def _incomplete_report_body(reason: str) -> str:
+    return (
+        "CURRENT_REVIEW_STATUS: INCOMPLETE\n"
+        "Scope: the submitted review was not accepted as a complete candidate-bound review.\n"
+        "Findings: no findings from this attempt are accepted as current review findings.\n"
+        f"Reason: {reason}\n"
+        "VERDICT: INCOMPLETE"
+    )
+
+
 def persist_report(path: Path, body: str, metadata: dict[str, object], branch: str = "unknown") -> None:
     if metadata["verdict"] == "INCOMPLETE":
         metadata["consolidator_completed"] = False
     path.parent.mkdir(parents=True, exist_ok=True)
+    if metadata["verdict"] == "INCOMPLETE":
+        metadata["consolidator_completed"] = False
     # Reserve the report first: exclusive creation also rejects a final symlink.
     # A partial write stays visible for diagnosis and cannot replace old evidence.
     with path.open("x", encoding="utf-8") as report:
@@ -728,7 +779,8 @@ def _cli_prompt(args, scope, capture_sha256):
     prompt += "If the reference cannot be verified, report an incomplete inspection. "
     prompt += "\nReturn ONLY one JSON object with report (the complete Markdown report) and decisions (an object with candidate_identity, reviewed_files and findings). "
     prompt += "decisions.reviewed_files must list every frozen changed file you actually opened or inspected; do not infer paths from the manifest. "
-    prompt += "Each finding must have file, positive integer line, severity, rule, summary, diagnosis, disposition and a nonempty reason. "
+    prompt += "Set review_contract_version to 2. Each finding must have file, positive integer line, severity (blocker or non-blocker), rule, summary, diagnosis, impact naming the affected user/caller, behavior, invariant, documented standard or maintenance operation and its consequence, evidence, disposition and a nonempty reason. Omit preference-only findings. "
+    prompt += "Preserve requested/effective model metadata and any existing cost/accounting metadata unchanged. "
     prompt += "Use disposition refuted only for a blocker conclusively disproved. Use an empty findings array only when none were found. "
     prompt += "When a report uses a FINDING_DETAIL footer, its F-number must be the matching retained decision's finding_id, and its severity and disposition must match. "
     return prompt + "The exact candidate_identity is: " + json.dumps(_review_identity(scope))
@@ -746,6 +798,8 @@ def _require_finding_decision(body, decisions):
 
 def _parse_cli_packet(output, scope):
     packet = json.loads(output.strip())
+    if not isinstance(packet, dict):
+        raise ValueError("review packet must be an object")
     report, decisions = packet["report"], packet["decisions"]
     if not isinstance(report, str) or not valid_adversarial_output(report):
         raise ValueError("malformed report")
@@ -788,6 +842,7 @@ def run_cli(args: argparse.Namespace) -> int:
     choice = select_runner(caps, args.host)
     now = datetime.now(timezone.utc).isoformat()
     base = {
+        "review_contract_version": 2,
         "generated": now,
         "runner_mode": choice["runner_mode"],
         "specialists_completed": 0,
@@ -827,6 +882,7 @@ def run_cli(args: argparse.Namespace) -> int:
 
     if not output:
         base["runner_mode"] = "incomplete"
+        base["verdict"] = "INCOMPLETE"
         base["adversarial_model"] = None
         base["fallback_reason"] = "; ".join(
             [str(choice["fallback_reason"]), *failures]
@@ -852,6 +908,8 @@ def run_cli(args: argparse.Namespace) -> int:
     )
     scope_error = bind_scope(base, args)
     if scope_error:
+        base["runner_mode"] = "incomplete"
+        base["verdict"] = "INCOMPLETE"
         base["consolidator_completed"] = False
         persist_report(Path(args.review_output_path), _incomplete_report_body(scope_error), base, args.branch)
         print(json.dumps({**base, "report_path": args.review_output_path}))
@@ -981,6 +1039,7 @@ def _writer_material(args, metadata):
 def _writer_metadata(args):
     return {
         "generated": datetime.now(timezone.utc).isoformat(),
+        "review_contract_version": 2,
         "runner_mode": args.runner_mode,
         "specialists_completed": args.specialists_completed,
         "consolidator_completed": args.consolidator_completed,

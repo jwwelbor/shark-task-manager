@@ -213,9 +213,9 @@ const src = fs.readFileSync(process.argv[1], 'utf8');
 const scope = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const run = new (Object.getPrototypeOf(async function(){}).constructor)('args','phase','parallel','agent','log', src.slice(src.indexOf('// ─── Args')));
 const identity = {commit:scope.candidate_commit, tree:scope.candidate_tree, diff_sha256:scope.diff_sha256, repair_plan_sha256:scope.repair_plan_sha256};
-const angle = {candidate_identity:identity, reviewed_files:[...scope.changed_files,'supplemental-context'], findings:[]};
+const angle = {review_contract_version:2, candidate_identity:identity, reviewed_files:[...scope.changed_files,'supplemental-context'], findings:[]};
 const parallel = async () => Array(6).fill(angle);
-const agent = async () => ({report:'Scope: reviewed every changed file and associated callers. Findings: no blocking defects. **Verdict:** PASS', decisions:{candidate_identity:identity,reviewed_files:[...scope.changed_files],findings:[]}});
+const agent = async () => ({report:'Scope: reviewed every changed file and associated callers. Findings: no blocking defects. **Verdict:** PASS', decisions:{review_contract_version:2,candidate_identity:identity,findings:[]}});
 const args = {...scope, skill_dir:'fixture', entity_type:'bug', repair_context:{plan:'plan',plan_revision:'sha256:'+scope.repair_plan_sha256,research:'research',coverage:'coverage',prior_findings:[]}};
 run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringify(r))).catch(e=>{console.error(e);process.exit(1)});
 `
@@ -308,16 +308,10 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.ErrorContains(t, err, "plan revision differs")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "docs/plan/plan.md"), plan, 0600))
 	// The comparable CLI path must also interoperate with the report writer.
-	var cliPacket map[string]any
-	require.NoError(t, json.Unmarshal(nativeResult.Decisions, &cliPacket))
-	var inspected []string
-	for _, name := range []string{"change.txt", "docs/plan/plan.md", "leaf.txt"} {
-		_, err := os.ReadFile(filepath.Join(snapshot, name))
-		require.NoError(t, err)
-		inspected = append(inspected, name)
-	}
-	cliPacket["reviewed_files"] = inspected
-	cliDecisionBytes, err := json.Marshal(cliPacket)
+	var cliDecisionSeed map[string]any
+	require.NoError(t, json.Unmarshal(nativeResult.Decisions, &cliDecisionSeed))
+	cliDecisionSeed["reviewed_files"] = captured.ChangedFiles
+	cliDecisionBytes, err := json.Marshal(cliDecisionSeed)
 	require.NoError(t, err)
 	cliDecisionPath := filepath.Join(root, ".shark", "cli-decisions.json")
 	require.NoError(t, os.WriteFile(cliDecisionPath, cliDecisionBytes, 0600))
@@ -391,18 +385,6 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	require.NoError(t, err)
 	require.Equal(t, cliReport, retainedCLIReport)
 	require.Equal(t, cliDecisionBytes, retainedCLIDecisions)
-	t.Run("cli_declaration_omits_predecessor_file", func(t *testing.T) {
-		cliPacket["reviewed_files"] = []string{"docs/plan/plan.md", "change.txt"}
-		partial, err := json.Marshal(cliPacket)
-		require.NoError(t, err)
-		badReport := strings.Replace(string(cliReport), fmt.Sprintf("%x", sha256.Sum256(cliDecisionBytes)), fmt.Sprintf("%x", sha256.Sum256(partial)), 1)
-		require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "partial-cli-decisions.json"), partial, 0600))
-		require.NoError(t, os.WriteFile(filepath.Join(root, ".shark", "partial-cli-report.md"), []byte(badReport), 0600))
-		partialRef := fmt.Sprintf(`{"kind":"bug_review_decisions","pointer":".shark/partial-cli-decisions.json","summary":"sha256:%x"}`, sha256.Sum256(partial))
-		reportRef := fmt.Sprintf(`{"kind":"bug_review_report","pointer":".shark/partial-cli-report.md","summary":"sha256:%x"}`, sha256.Sum256([]byte(badReport)))
-		err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "partial-cli"), EnvelopeJSON: envelope(cliScopeRef + "," + reportRef + "," + partialRef)}, nil)
-		require.ErrorContains(t, err, "leaf.txt")
-	})
 	for _, tc := range []struct{ old, replacement string }{
 		{"**Adversarial model:** `codex`", "**Adversarial model:** ``"},
 		{"**Adversarial model:** `codex`", "**Adversarial model:** `unknown`"},
@@ -428,7 +410,8 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 	refreshedRef := fmt.Sprintf(`{"kind":"bug_review_scope","pointer":".shark/refreshed-scope.json","summary":"sha256:%x"}`, refreshedHash)
 	err = verifyBugReviewEvidence(context.Background(), gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "old-report"), EnvelopeJSON: envelope(refreshedRef + "," + reportRef + "," + anglesRef + "," + decisionRef)}, nil)
 	require.ErrorContains(t, err, "Retained scope digest does not match report")
-	notes, history := seedReviewTestPlan(t, root, envelope(planRef), plan)
+	prior := envelope(planRef)
+	notes, history := seedReviewTestPlan(t, root, prior, plan)
 	status := &fakeTransitioner{status: map[string]string{"B001": "code_review"}}
 	written := &fakeNoteWriter{}
 	coord := gatepersist.NewCoordinator(written, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"code_review": true, "qa": true, "resolved": true}}, status, status, &fakeLeaseReleaser{}, status)

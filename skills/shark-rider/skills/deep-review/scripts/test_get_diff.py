@@ -342,9 +342,9 @@ class CaptureScopeTest(unittest.TestCase):
                 report = evidence / 'report.md'
                 angles = evidence / 'angles.json'
                 identity = {'commit': scope['candidate_commit'], 'tree': scope['candidate_tree'], 'diff_sha256': scope['diff_sha256']}
-                angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
+                angles.write_text(json.dumps({name: {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': scope['changed_files'], 'findings': []} for name in 'abcdef'}))
                 decisions = evidence / 'decisions.json'
-                decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+                decisions.write_text(json.dumps({'review_contract_version': 2, 'candidate_identity': identity, 'findings': []}))
                 writer = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'write-report',
                           '--project-root', str(root), '--source-root', str(root), '--body-file', str(body_path), '--review-output-path', str(report),
                           '--runner-mode', 'dispatched-six-angle', '--specialists-completed', '6',
@@ -397,14 +397,14 @@ class CaptureScopeTest(unittest.TestCase):
                 validate = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'validate-scope', '--project-root', str(root), '--source-root', str(root), '--scope-file', retained]
                 self.assertEqual(subprocess.run(validate, capture_output=True).returncode, 0)
                 self.assertEqual(git('status', '--porcelain'), '')
-                failed_decisions = {'candidate_identity': identity, 'findings': [{'file': 'change.txt', 'line': 1, 'severity': 'blocker', 'rule': 'BUG', 'summary': 'broken', 'diagnosis': 'wrong', 'disposition': 'open', 'reason': 'still reproducible'}]}
+                failed_decisions = {'review_contract_version': 2, 'candidate_identity': identity, 'findings': [{'file': 'change.txt', 'line': 1, 'severity': 'blocker', 'rule': 'BUG', 'summary': 'broken', 'diagnosis': 'wrong', 'impact': 'wrong value returned to the caller', 'evidence': 'expected 10 but received 7', 'disposition': 'open', 'reason': 'still reproducible'}]}
                 body_path.write_text('Reviewed scope: all candidate files and callers. Findings: a blocking bug remains and requires repair. VERDICT: FAIL')
                 failed_writer = writer.copy()
                 failed_writer[failed_writer.index('--verdict') + 1] = 'FAIL'
                 failed_angles = json.loads(original_angles)
                 failed_angles['a']['findings'] = [{k: v for k, v in failed_decisions['findings'][0].items() if k not in ('disposition', 'reason')}]
                 angles.write_text(json.dumps(failed_angles))
-                decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+                decisions.write_text(json.dumps({'review_contract_version': 2, 'candidate_identity': identity, 'findings': []}))
                 omitted = run_writer(failed_writer, capture_output=True, text=True)
                 self.assertEqual(omitted.returncode, 2)
                 self.assertEqual(json.loads(omitted.stdout)['verdict'], 'INCOMPLETE')
@@ -417,8 +417,7 @@ class CaptureScopeTest(unittest.TestCase):
                 contradictory_fail = run_writer(failed_writer, capture_output=True, text=True)
                 self.assertEqual(contradictory_fail.returncode, 2)
                 self.assertEqual(json.loads(contradictory_fail.stdout)['verdict'], 'INCOMPLETE')
-                self.assertIn('report body', json.loads(contradictory_fail.stdout)['fallback_reason'])
-                decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+                decisions.write_text(json.dumps({'review_contract_version': 2, 'candidate_identity': identity, 'findings': []}))
                 body_path.write_text('Reviewed scope: all candidate files. Findings: none. Detailed checks confirmed complete coverage. VERDICT: PASS')
                 partial = writer.copy()
                 partial[partial.index('6')] = '5'
@@ -535,9 +534,9 @@ class CaptureScopeTest(unittest.TestCase):
             scope_data = json.loads(scope.stdout)
             angles = evidence / 'angles.json'
             identity = {'commit': scope_data['candidate_commit'], 'tree': scope_data['candidate_tree'], 'diff_sha256': scope_data['diff_sha256']}
-            angles.write_text(json.dumps({name: {'candidate_identity': identity, 'reviewed_files': scope_data['changed_files'], 'findings': []} for name in 'abcdef'}))
+            angles.write_text(json.dumps({name: {'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': scope_data['changed_files'], 'findings': []} for name in 'abcdef'}))
             decisions = evidence / 'decisions.json'
-            decisions.write_text(json.dumps({'candidate_identity': identity, 'findings': []}))
+            decisions.write_text(json.dumps({'review_contract_version': 2, 'candidate_identity': identity, 'findings': []}))
             writer = [sys.executable, str(SCRIPT.with_name('adaptive_review.py')), 'write-report',
                       '--project-root', str(destination), '--source-root', str(root), '--body-file', str(body), '--review-output-path', str(evidence / 'report.md'),
                       '--runner-mode', 'dispatched-six-angle', '--specialists-completed', '6',

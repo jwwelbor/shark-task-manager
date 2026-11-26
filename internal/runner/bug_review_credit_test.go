@@ -122,7 +122,7 @@ func (f *creditFixture) packet(edit func(*bugAngle)) []byte {
 
 func (f *creditFixture) check(packet []byte, credit *bugCredit) error {
 	req := gatepersist.Request{EntityKey: "B001", EntityType: models.EntityTypeBug, RunDir: filepath.Join(f.root, ".shark", "runs", "current")}
-	return validateBugReviewAnglesWith(packet, f.scope, map[bugFindingKey]bugReviewDecision{}, "PASS", credit.verifier(context.Background(), req, f.scope))
+	return validateBugReviewAnglesWith(packet, f.scope, &bugReviewDecisionIndex{byFinding: map[bugFindingKey]bugReviewDecision{}}, "PASS", credit.verifier(context.Background(), req, f.scope))
 }
 
 func (f *creditFixture) credit(endID int64) *bugCredit {

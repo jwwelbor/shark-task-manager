@@ -17,10 +17,10 @@ class NativeWorkflowTest(unittest.TestCase):
         packets = {}
         for label, order in zip('abcdef', itertools.permutations(paths)):
             packets[label] = {
-                'candidate_identity': identity, 'reviewed_files': order,
+                'review_contract_version': 2, 'candidate_identity': identity, 'reviewed_files': order,
                 'findings': [{'file': 'source', 'line': 1, 'severity': 'blocker',
                               'rule': 'CORRECTNESS', 'summary': 'wrong total',
-                              'diagnosis': 'returned 1', 'evidence': f'operation {label}'}],
+                              'diagnosis': 'returned 1', 'impact': 'consumer gets the wrong total', 'evidence': f'operation {label}'}],
             }
         harness = r'''
 const fs = require('fs');
@@ -33,7 +33,7 @@ const agent = async (prompt, options) => {
     calls.push({prompt, options});
     if (options.label !== 'consolidator') return input.packets[options.label[0].toLowerCase()];
     return {report: 'Scope: all three changed files inspected. Findings: 0 defects found after checking all callers. VERDICT: PASS',
-            decisions: {candidate_identity: input.packets.a.candidate_identity, findings: []}};
+            decisions: {review_contract_version: 2, candidate_identity: input.packets.a.candidate_identity, findings: []}};
 };
 run(input.args, ()=>{}, tasks => Promise.all(tasks.map(task => task())), agent, ()=>{})
     .then(result => process.stdout.write(JSON.stringify({calls, result})));
@@ -62,6 +62,7 @@ run(input.args, ()=>{}, tasks => Promise.all(tasks.map(task => task())), agent, 
         with self.subTest(handoff='consolidation schema'):
             schema = observed['calls'][-1]['options']['schema']['properties']['decisions']
             self.assertNotIn('reviewed_files', schema['required'])
+            self.assertEqual(schema['properties']['reviewed_files'], {'type': 'array', 'items': {'type': 'string'}})
         with self.subTest(handoff='six angle declarations suffice'):
             self.assertEqual(observed['result']['runner_mode'], 'canonical-six-angle')
             self.assertTrue(observed['result']['consolidator_completed'])
@@ -85,12 +86,14 @@ run(input.args, ()=>{}, tasks => Promise.all(tasks.map(task => task())), agent, 
                     'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', *args], cwd=root)
             git('init', '-q')
             git('commit', '--allow-empty', '-qm', 'base')
-            for name in (' ', 'ordinary'):
-                (root / name).write_text('changed')
-            git('add', '--', ' ', 'ordinary')
+            (root / 'ordinary').write_text('supplement')
+            git('add', '--', 'ordinary')
+            git('commit', '-qm', 'tracked supplement')
+            (root / ' ').write_text('changed')
+            git('add', '--', ' ')
             git('commit', '-qm', 'candidate')
             names = git('diff', '--name-only', '-z', 'HEAD^', 'HEAD')
-            self.assertEqual(names, b' \0ordinary\0')
+            self.assertEqual(names, b' \0')
             paths = names.decode().split('\0')[:-1]
             args = {'changed_files': paths, 'candidate_commit': git('rev-parse', 'HEAD').decode().strip(),
                     'candidate_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
@@ -106,10 +109,10 @@ const calls = [];
 const agent = async (_, options) => {
     calls.push(options.label);
     if (options.label === 'consolidator') {
-        return {report: 'Scope: both changed files were inspected. Findings: 0 defects found after inspecting both files. Verdict: PASS',
-                decisions: {candidate_identity: identity, findings: [], ...optional}};
+        return {report: 'Scope: the frozen single-space path was inspected. Findings: 0 defects found in its changed content. Verdict: PASS',
+                decisions: {review_contract_version: 2, candidate_identity: identity, findings: [], ...optional}};
     }
-    return {candidate_identity: identity, findings: [],
+    return {review_contract_version: 2, candidate_identity: identity, findings: [],
             reviewed_files: options.label.startsWith('B:') ? bFiles : args.changed_files};
 };
 run(args, () => {}, tasks => Promise.all(tasks.map(task => task())), agent, () => {})
@@ -130,22 +133,20 @@ run(args, () => {}, tasks => Promise.all(tasks.map(task => task())), agent, () =
                     self.assertEqual({k: v for k, v in result['decisions'].items() if k == 'reviewed_files'}, optional)
                 else:
                     self.assertIn('INCOMPLETE', result['report'])
-                if missing_b:
-                    self.assertIn('angle b', result['report'].lower())
-                    self.assertIn('" "', result['report'])
+                if not complete:
+                    self.assertIn('angle b' if missing_b else 'consolidator', result['report'].lower())
+                    if missing_b or optional.get('reviewed_files') in ([], ['wrong']):
+                        self.assertIn('" "', result['report'])
 
-            full = {'reviewed_files': paths}
             check({})
-            with self.subTest(valid='space'):
-                check(full)
-            check({})
-            for bad in (['ordinary'], 'ordinary', ['', 'ordinary'], paths + ['../outside']):
-                with self.subTest(invalid=bad):
-                    check({'reviewed_files': bad}, complete=False)
-                    check(full)
-            with self.subTest(missing='B'):
-                check(full, complete=False, missing_b=True)
-                check(full)
+            check({'reviewed_files': [' ']})
+            check({'reviewed_files': [' ', 'ordinary']})
+            check({'reviewed_files': ['ordinary', ' ']})
+            for value in ([], ['wrong'], None, [' ', None], [' ', '../unsafe']):
+                with self.subTest(consolidator_paths=value):
+                    check({'reviewed_files': value}, complete=False)
+            check({'reviewed_files': [' ']}, complete=False, missing_b=True)
+            check({'reviewed_files': [' ']})
 
     def test_missing_result_vector_is_unknown_not_zero_specialists(self):
         """B085/5272: a dispatch with no result vector differs from six replies that were all null."""
@@ -181,29 +182,48 @@ const body = src.slice(src.indexOf('// ─── Args'));
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', body);
 let calls = 0;
+const trace = [];
 const mode = process.argv[2];
-const angle = {candidate_identity:{commit:'abc',tree:'tree',diff_sha256:'hash',repair_plan_sha256:'a'.repeat(64)}, findings: [], reviewed_files: ['file', 'second']};
-const parallel = async funcs => mode === 'context' ? Promise.all(funcs.map(f => f())) : mode === 'missing' ? [angle, angle, null, angle, angle, angle] :
+const angle = {review_contract_version:2, candidate_identity:{commit:'abc',tree:'tree',diff_sha256:'hash',repair_plan_sha256:'a'.repeat(64)}, findings: [], reviewed_files: ['file']};
+const parallel = async funcs => mode.startsWith('context') ? Promise.all(funcs.map(f => f())) : mode === 'missing' ? [angle, angle, null, angle, angle, angle] :
   mode === 'malformed' ? [angle, angle, {}, angle, angle, angle] :
   mode === 'empty' ? [angle, angle, {...angle, reviewed_files: []}, angle, angle, angle] :
   mode === 'partial_one_angle' ? [angle, angle, {...angle, reviewed_files: ['file'], findings:[{file:'second', line:1, severity:'blocker', rule:'RISK', summary:'omitted file finding', diagnosis:'named by finding but not inspected'}]}, angle, angle, angle] :
   mode === 'identity' ? [angle, angle, {...angle, candidate_identity: {...angle.candidate_identity, tree:'wrong'}}, angle, angle, angle] :
-  ['blocker','open','refuted','fail_missing','fail_open'].includes(mode) ? [{...angle, findings:[{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken'}]}, angle, angle, angle, angle, angle] : Array(6).fill(angle);
+  ['blocker','open','refuted','fail_missing','fail_open'].includes(mode) ? [{...angle, findings:[{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', impact:'wrong total delivered', evidence:'adding 7 and 3 returned 7'}]}, angle, angle, angle, angle, angle] : Array(6).fill(angle);
 const agent = async (prompt, options) => {
   calls++;
-  if (mode === 'context' && options.label !== 'consolidator') {
+  trace.push([options.label, options.effort ?? null]);
+  if (mode === 'context_invalid' && options.label.startsWith('B:')) return {};
+  if (mode.startsWith('context') && options.label !== 'consolidator') {
     if (!prompt.includes('plan-id') || !prompt.includes('research-id') || !prompt.includes('CANDIDATE_TREE: tree')) throw Error('missing context');
     return angle;
   }
   if (mode === 'context' && (!prompt.includes('plan-id') || !prompt.includes('CANDIDATE_TREE: tree'))) throw Error('missing consolidation context');
   if (mode === 'consolidator_error') throw Error('failed consolidation');
-  const report = mode.startsWith('detail_') ? ('CURRENT_REVIEW_STATUS: COMPLETE\nScope: all files. Findings: validation issue retained. VERDICT: PASS-WITH-TRIAGE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage' + (mode === 'detail_multi' ? '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | nit | report-only' : '')) : mode === 'fixture' ? process.argv[3] : mode === 'short' ? 'VERDICT: PASS' : mode === 'conflict' ? 'Scope and coverage: all files and callers inspected. Findings: conflicting report. VERDICT: PASS then VERDICT: FAIL' : mode.startsWith('fail_') ? 'Reviewed scope: all candidate files. Findings: a blocking defect requires repair. **Verdict:** FAIL' : 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS';
-  const findings = mode.startsWith('detail_') ? [{finding_id:mode === 'detail_unrelated' ? 'F-2' : 'F-1', file:'file', line:1, severity:'non-blocker', rule:'RISK', summary:'validation issue', diagnosis:'missing input check', disposition:mode === 'detail_case' ? 'Triage' : 'triage', reason:'tracked'}, ...(mode === 'detail_multi' ? [{finding_id:'F-2', file:'file', line:2, severity:'nit', rule:'STYLE', summary:'other issue', diagnosis:'other diagnosis', disposition:'report-only', reason:'owner decision requires no action'}] : [])] : ['open','refuted','fail_open'].includes(mode) ? [{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', disposition:mode === 'fail_open' ? 'open' : mode, reason:'evidence'}] : [];
-  return {report, decisions:{candidate_identity:angle.candidate_identity, reviewed_files:mode === 'consolidator_missing_file' ? ['file'] : ['file', 'second'], findings}};
+  const report = mode.startsWith('detail_') ? ('CURRENT_REVIEW_STATUS: COMPLETE\nScope: all files. Findings: validation issue retained. VERDICT: PASS-WITH-TRIAGE\nFINDING_DETAIL: INCOMPLETE VALIDATION | F-1 | non-blocker | triage' + (mode === 'detail_multi' ? '\nHISTORICAL_REVIEW_STATUS: DID_NOT_FINISH\nFINDING_DETAIL: INCOMPLETE PRODUCT BEHAVIOR | F-2 | non-blocker | triage' : '')) : mode === 'fixture' ? process.argv[3] : mode === 'short' ? 'VERDICT: PASS' : mode === 'conflict' ? 'Scope and coverage: all files and callers inspected. Findings: conflicting report. VERDICT: PASS then VERDICT: FAIL' : mode.startsWith('fail_') ? 'Reviewed scope: all candidate files. Findings: a blocking defect requires repair. **Verdict:** FAIL' : 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS';
+  const findings = mode.startsWith('detail_') ? [{finding_id:mode === 'detail_unrelated' ? 'F-2' : 'F-1', file:'file', line:1, severity:'non-blocker', rule:'RISK', summary:'validation issue', diagnosis:'missing input check', impact:'invalid input accepted', evidence:'empty input returned success', disposition:mode === 'detail_case' ? 'Triage' : 'triage', reason:'tracked'}, ...(mode === 'detail_multi' ? [{finding_id:'F-2', file:'file', line:2, severity:'non-blocker', rule:'LOGGING', summary:'no diagnostic', diagnosis:'no log on denial', impact:'operator cannot identify the denied input', evidence:'empty log after denial', disposition:'triage', reason:'tracked'}] : [])] : ['open','refuted','fail_open'].includes(mode) ? [{file:'file', line:1, severity:'blocker', rule:'RISK', summary:'bad', diagnosis:'broken', impact:'wrong total delivered', evidence:'adding 7 and 3 returned 7', disposition:mode === 'fail_open' ? 'open' : mode, reason:'evidence'}] : [];
+  return {report, decisions:{review_contract_version:2, candidate_identity:angle.candidate_identity, findings}};
 };
-run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'research-id', coverage:'coverage-id', prior_findings:[]}, changed_files:['file', 'second']}, () => {}, parallel, agent, () => {})
-  .then(report => process.stdout.write(JSON.stringify({report, calls}))).catch(e => { console.error(e); process.exit(1); });
+run({effort: mode === 'context_max' ? 'max' : undefined, diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'research-id', coverage:'coverage-id', prior_findings:[]}, changed_files:['file']}, () => {}, parallel, agent, () => {})
+  .then(report => process.stdout.write(JSON.stringify({report, calls, trace}))).catch(e => { console.error(e); process.exit(1); });
 '''
+        for mode, effort in [('context', None), ('context_max', 'max'), ('context_invalid', None)]:
+            with self.subTest(native_handoff=mode):
+                proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode],
+                                      capture_output=True, text=True, check=True)
+                result = json.loads(proc.stdout)
+                trace = result['trace']
+                self.assertEqual([label.split(':')[0] for label, _ in trace[:6]], list('ABCDEF'))
+                self.assertEqual([value for _, value in trace], [effort] * len(trace))
+                if mode == 'context_invalid':
+                    self.assertEqual(len(trace), 6)
+                    self.assertEqual(result['report']['runner_mode'], 'incomplete')
+                    self.assertEqual(result['report']['specialists_completed'], 5)
+                    self.assertFalse(result['report']['consolidator_completed'])
+                else:
+                    self.assertEqual(trace[6:], [['consolidator', effort]])
+                    self.assertEqual(result['report']['runner_mode'], 'canonical-six-angle')
         fixtures = json.loads((SCRIPT.parent / 'testdata' / 'report_bodies.json').read_text())
         for fixture in fixtures:
             with self.subTest(report_fixture=fixture['name']):
@@ -216,7 +236,7 @@ run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', cand
             with self.subTest(mode=mode):
                 proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
                 self.assertEqual(json.loads(proc.stdout)['report']['runner_mode'], expected)
-        for mode in ('missing', 'malformed', 'empty', 'partial_one_angle', 'identity', 'short', 'blocker', 'open', 'conflict', 'consolidator_error', 'consolidator_missing_file', 'refuted', 'complete', 'context', 'fail_missing', 'fail_open'):
+        for mode in ('missing', 'malformed', 'empty', 'partial_one_angle', 'identity', 'short', 'blocker', 'open', 'conflict', 'consolidator_error', 'refuted', 'complete', 'context', 'fail_missing', 'fail_open'):
             with self.subTest(mode=mode):
                 proc = subprocess.run(['node', '-e', harness, str(SCRIPT), mode], capture_output=True, text=True, check=True)
                 result = json.loads(proc.stdout)
@@ -226,7 +246,7 @@ run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', cand
                     self.assertEqual(result['calls'], 7 if mode == 'context' else 1)
                 else:
                     self.assertIn('INCOMPLETE', result['report']['report'])
-                    self.assertEqual(result['calls'], 1 if mode in ('short', 'blocker', 'open', 'conflict', 'consolidator_error', 'consolidator_missing_file', 'fail_missing') else 0)
+                    self.assertEqual(result['calls'], 1 if mode in ('short', 'blocker', 'open', 'conflict', 'consolidator_error', 'fail_missing') else 0)
                     if mode == 'consolidator_error':
                         self.assertEqual(len(result['report']['angle_results']), 6)
 
@@ -240,8 +260,8 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', body);
 const spec = JSON.parse(process.argv[2]);
 const identity = {commit:'abc', tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64)};
-const parallel = async funcs => Array(6).fill({candidate_identity: identity, findings: [], ...spec.angle});
-const agent = async () => ({report: 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS', decisions: {candidate_identity: identity, findings: []}});
+const parallel = async funcs => Array(6).fill({review_contract_version: 2, candidate_identity: identity, findings: [], ...spec.angle});
+const agent = async () => ({report: 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS', decisions: {review_contract_version: 2, candidate_identity: identity, findings: []}});
 const args = {diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug',
   repair_context:{plan:'p', plan_revision:'sha256:'+'a'.repeat(64), research:'r', coverage:'c', prior_findings:[]}, changed_files: spec.changed_files, ...spec.extra};
 run(args, () => {}, parallel, agent, () => {}).then(report => process.stdout.write(JSON.stringify(report))).catch(e => { console.error(e); process.exit(1); });
@@ -290,7 +310,7 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 const run = new AsyncFunction('args', 'phase', 'parallel', 'agent', 'log', body);
 const mode = process.argv[2];
 const identity = {commit:'abc', tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64)};
-const angle = {candidate_identity: identity, findings: [], reviewed_files: ['file']};
+const angle = {review_contract_version: 2, candidate_identity: identity, findings: [], reviewed_files: ['file']};
 const site = {file:'internal/foo.go', start_line:10, end_line:12};
 const found = 'callback skips registration in the error branch';
 const report = 'Reviewed scope: all candidate files. Findings: none. Detailed checks establish complete coverage. **Verdict:** PASS';
@@ -298,7 +318,7 @@ const calls = [];
 const parallel = async () => Array(6).fill(angle);
 const agent = async (prompt, options) => {
   calls.push({label: options.label, prompt});
-  if (options.label === 'consolidator') return {report, decisions: {candidate_identity: identity, findings: [], discoveries: [{angle:'a', ...site, observation: found}]}};
+  if (options.label === 'consolidator') return {report, decisions: {review_contract_version: 2, candidate_identity: identity, findings: [], discoveries: [{angle:'a', ...site, observation: found}]}};
   if (options.label.includes('site follow-up')) {
     if (mode === 'withheld') throw Error('no reply');
     const range = mode === 'neighbor' ? {start_line: 20, end_line: 22} : {};
@@ -306,7 +326,7 @@ const agent = async (prompt, options) => {
   }
   const observation = mode === 'substituted' ? 'a different plausible observation' : mode === 'removed' ? '' : 'concrete callback is never registered when parse fails';
   const discoveries = mode === 'dropped' ? [] : [{angle:'a', ...site, observation}];
-  return {report, decisions: {candidate_identity: identity, findings: [], discoveries}};
+  return {report, decisions: {review_contract_version: 2, candidate_identity: identity, findings: [], discoveries}};
 };
 run({diff_path:'/tmp/diff', skill_dir:'/tmp/skill', candidate_commit:'abc', candidate_tree:'tree', diff_sha256:'hash', repair_plan_sha256:'a'.repeat(64), entity_type:'bug', effort:'high',
   repair_context:{plan:'plan-id', plan_revision:'sha256:'+'a'.repeat(64), research:'r', coverage:'c', prior_findings:[]}, changed_files:['file']}, () => {}, parallel, agent, () => {})

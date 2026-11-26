@@ -1,0 +1,16 @@
+.........................................................[30;42m[30;42m SUCCESS [0m[0m [32m[32mShark CLI initialized successfully![0m[0m
+
+✓ Database created: /tmp/tmpufcu89y1/shark-scratch-b086-sFQQL5/shark-tasks.db
+✓ Folder created: /tmp/tmpufcu89y1/shark-scratch-b086-sFQQL5/docs/plan
+✓ Config file created: /tmp/tmpufcu89y1/shark-scratch-b086-sFQQL5/.sharkconfig.json
+
+Next steps:
+1. Create your first epic with: shark epic create "Epic Title"
+2. Create your first task with: shark task create E01 F01 "Task title"
+3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data
+.........
+----------------------------------------------------------------------
+Ran 66 tests in 208.336s
+
+OK
+rc=0
