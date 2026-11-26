@@ -442,7 +442,7 @@ run(args,()=>{},parallel,agent,()=>{}).then(r=>process.stdout.write(JSON.stringi
 		}
 		return defaultBugSuccessTarget(gate, outcome)
 	}
-	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)
+	coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve, nil)
 	require.NoError(t, os.WriteFile(reportPath, []byte("changed report"), 0600))
 	require.Error(t, ingest("tampered-report", "qa", "resolved", envelope(planRef+","+scopeRef)))
 	require.NoError(t, os.WriteFile(reportPath, reportBytes, 0600))

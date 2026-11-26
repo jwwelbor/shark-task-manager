@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +17,7 @@ import (
 // show the restored defect flagged at the swept site and the corrected
 // candidate passing. Each trial varies one fact of the otherwise valid pair.
 func TestBugSweepGuardPairIsResolvedBeforeWrite(t *testing.T) {
+	ctx := context.Background()
 	root := t.TempDir()
 	runDir := filepath.Join(root, ".shark", "runs", "review")
 	require.NoError(t, os.MkdirAll(runDir, 0o700))
@@ -34,7 +37,7 @@ func TestBugSweepGuardPairIsResolvedBeforeWrite(t *testing.T) {
 			Guard:     gateresult.SweepGuard{Kind: "test", ImplementationPointer: "guard_test.go", CounterfactualPointer: "run.json", Status: "verified"},
 		}}}}
 	}
-	require.NoError(t, verifyBugSweepGuards(request(valid(), "complete")))
+	require.NoError(t, verifyBugSweepGuards(ctx, request(valid(), "complete"), nil))
 	for name, mutate := range map[string]func(map[string]any){
 		"disabled guard":        func(m map[string]any) { m["enabled"] = false },
 		"passes on both":        func(m map[string]any) { m["restored"].(map[string]any)["exit_code"] = 0 },
@@ -52,20 +55,51 @@ func TestBugSweepGuardPairIsResolvedBeforeWrite(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			record := valid()
 			mutate(record)
-			require.ErrorContains(t, verifyBugSweepGuards(request(record, "complete")), "unsupported closure")
+			require.ErrorContains(t, verifyBugSweepGuards(ctx, request(record, "complete"), nil), "unsupported closure")
 		})
 	}
 	t.Run("absent execution record", func(t *testing.T) {
 		req := request(valid(), "complete")
 		req.Result.RemediationSweeps[0].Guard.CounterfactualPointer = "missing.json"
-		require.ErrorContains(t, verifyBugSweepGuards(req), "unreadable")
+		require.ErrorContains(t, verifyBugSweepGuards(ctx, req, nil), "unreadable")
 	})
-	t.Run("open sweep needs no executed guard", func(t *testing.T) {
-		require.NoError(t, verifyBugSweepGuards(request(map[string]any{}, "open")))
+	t.Run("open sweep link is resolved against the work item", func(t *testing.T) {
+		link := func(mutate func(map[string]any)) gatepersist.Request {
+			doc := map[string]any{"kind": "open_sweep_link", "class_key": "K", "work_item_key": "TD-001", "reason": "no feasible executable guard"}
+			mutate(doc)
+			return request(doc, "open")
+		}
+		items := func(known map[string]string) BugWorkItemResolver {
+			return func(_ context.Context, key string) (models.Entity, error) {
+				title, ok := known[key]
+				if !ok {
+					return nil, fmt.Errorf("not found")
+				}
+				return &models.TechDebt{BaseEntity: models.BaseEntity{Key: key, Title: title}}, nil
+			}
+		}
+		covering := items(map[string]string{"TD-001": "Guard for class K", "TD-002": "Unrelated work"})
+		require.NoError(t, verifyBugSweepGuards(ctx, link(func(map[string]any) {}), covering))
+		for name, c := range map[string]struct {
+			mutate   func(map[string]any)
+			resolver BugWorkItemResolver
+			want     string
+		}{
+			"link removed":      {func(m map[string]any) { delete(m, "work_item_key") }, covering, "must name its class"},
+			"unresolvable item": {func(m map[string]any) { m["work_item_key"] = "TD-404" }, covering, "does not resolve"},
+			"unrelated item":    {func(m map[string]any) { m["work_item_key"] = "TD-002" }, covering, "does not cover class"},
+			"reason removed":    {func(m map[string]any) { m["reason"] = " " }, covering, "must name its class"},
+			"other class":       {func(m map[string]any) { m["class_key"] = "OTHER" }, covering, "must name its class"},
+			"no resolver":       {func(map[string]any) {}, nil, "no resolver"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				require.ErrorContains(t, verifyBugSweepGuards(ctx, link(c.mutate), c.resolver), c.want)
+			})
+		}
 	})
 	t.Run("other entity types are untouched", func(t *testing.T) {
 		req := request(map[string]any{}, "complete")
 		req.EntityType = models.EntityTypeTask
-		require.NoError(t, verifyBugSweepGuards(req))
+		require.NoError(t, verifyBugSweepGuards(ctx, req, nil))
 	})
 }

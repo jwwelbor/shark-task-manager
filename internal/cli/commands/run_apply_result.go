@@ -333,7 +333,13 @@ func buildGateCoordinator(ctx context.Context) (*gatepersist.Coordinator, error)
 	// even built) and Persist's actual writes. See
 	// gatepersist.ClaimVerifier's doc comment.
 	coordinator.ClaimVerifier = claimSvc
-	admit := runner.NewBugGateAdmissionForWorkflow(noteSvc, history, workflowSvc.ForLevel("bug"))
+	admit := runner.NewBugGateAdmissionForWorkflow(noteSvc, history, workflowSvc.ForLevel("bug"), func(ctx context.Context, key string) (models.Entity, error) {
+		repo, err := registry.GetRepository(models.EntityType(DetectEntityType(key)))
+		if err != nil {
+			return nil, err
+		}
+		return repo.GetByKey(ctx, NormalizeKey(key))
+	})
 	coordinator.Admission = func(ctx context.Context, req gatepersist.Request) error {
 		if err := admit(ctx, req); err != nil {
 			return err

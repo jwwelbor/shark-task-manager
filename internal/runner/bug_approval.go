@@ -232,19 +232,19 @@ func NewBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.Histo
 	if len(normalize) > 0 && normalize[0] != nil {
 		status = normalize[0]
 	}
-	return newBugGateAdmission(notes, history, status, defaultBugSuccessTarget)
+	return newBugGateAdmission(notes, history, status, defaultBugSuccessTarget, nil)
 }
 
 // NewBugGateAdmissionForWorkflow uses the configured success routes rather
 // than assuming canonical status names for prior approvals.
-func NewBugGateAdmissionForWorkflow(notes gatepersist.NoteReader, history gatepersist.HistoryReader, wf *workflow.Service) func(context.Context, gatepersist.Request) error {
+func NewBugGateAdmissionForWorkflow(notes gatepersist.NoteReader, history gatepersist.HistoryReader, wf *workflow.Service, items BugWorkItemResolver) func(context.Context, gatepersist.Request) error {
 	if wf == nil {
-		return newBugGateAdmission(notes, history, func(value string) string { return value }, BugApprovalTargetResolver(nil))
+		return newBugGateAdmission(notes, history, func(value string) string { return value }, BugApprovalTargetResolver(nil), items)
 	}
-	return newBugGateAdmission(notes, history, wf.NormalizeStatus, BugApprovalTargetResolver(wf))
+	return newBugGateAdmission(notes, history, wf.NormalizeStatus, BugApprovalTargetResolver(wf), items)
 }
 
-func newBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, status func(string) string, resolve bugSuccessTarget) func(context.Context, gatepersist.Request) error {
+func newBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.HistoryReader, status func(string) string, resolve bugSuccessTarget, items BugWorkItemResolver) func(context.Context, gatepersist.Request) error {
 	return func(ctx context.Context, req gatepersist.Request) error {
 		if err := BugGateAdmission(ctx, req); err != nil {
 			return err
@@ -252,7 +252,7 @@ func newBugGateAdmission(notes gatepersist.NoteReader, history gatepersist.Histo
 		if req.EntityType != models.EntityTypeBug {
 			return nil
 		}
-		if err := verifyBugSweepGuards(req); err != nil {
+		if err := verifyBugSweepGuards(ctx, req, items); err != nil {
 			return err
 		}
 		if err := verifyBugRecurrence(ctx, req, history); err != nil {

@@ -49,6 +49,16 @@ func TestBugRecurrenceSelectsLatestAcceptedSweepFromHistory(t *testing.T) {
 		}
 	}
 	scope := []string{"internal/foo.go", "internal/sibling.go"}
+	guardRecord := func(restoredExit int) {
+		doc := map[string]any{
+			"guard_pointer": "g", "class_key": "K", "site": scope[0] + ":1", "candidate": "cand", "enabled": true,
+			"restored":  map[string]any{"exit_code": restoredExit, "flagged_site": scope[0] + ":1", "diagnostic": "guard flagged " + scope[0] + ":1"},
+			"corrected": map[string]any{"exit_code": 0},
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(root, "g"), []byte("package guard"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "c"), mustJSON(t, doc), 0o600))
+	}
+	guardRecord(1)
 	seed("sweep-old", sweepEnvelope("K", "complete", scope, "old-1"), true)
 	seed("sweep-new", sweepEnvelope("K", "complete", scope, "new-1"), true)
 
@@ -92,6 +102,16 @@ func TestBugRecurrenceSelectsLatestAcceptedSweepFromHistory(t *testing.T) {
 		seed("sweep-incomplete", sweepEnvelope("K", "open", scope, "late-1"), true)
 		seed("sweep-unapplied", sweepEnvelope("K", "complete", scope, "late-2"), false)
 		require.NoError(t, verify(current("K", "internal/sibling.go:9", "f-new", record("still-ok.json", func(map[string]any) {}))))
+	})
+	t.Run("completed sweep without surviving guard evidence earns no historical credit", func(t *testing.T) {
+		req := current("K", "internal/sibling.go:9", "f-new")
+		require.ErrorContains(t, verify(req), "explicit recurrence evidence", "valid evidence credits the predecessor")
+		guardRecord(0) // the guard no longer flags the restored defect
+		require.NoError(t, verify(req), "unsupported sweep must supply no recurrence authority")
+		require.NoError(t, os.Remove(filepath.Join(root, "c")))
+		require.NoError(t, verify(req), "missing evidence must supply no authority")
+		guardRecord(1)
+		require.ErrorContains(t, verify(req), "explicit recurrence evidence")
 	})
 	t.Run("unverifiable history blocks", func(t *testing.T) {
 		broken := history

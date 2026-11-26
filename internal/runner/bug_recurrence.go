@@ -146,7 +146,9 @@ func appliedRunSweeps(parent string, req gatepersist.Request, runID, digest stri
 	}
 	var complete []gateresult.DefectClassSweep
 	for _, sweep := range result.RemediationSweeps {
-		if sweep.Status == "complete" {
+		// A claimed completion earns historical credit only while its paired
+		// guard evidence still resolves; otherwise it supplies no authority.
+		if sweep.Status == "complete" && verifyBugSweepGuard(req, sweep, false) == nil {
 			complete = append(complete, sweep)
 		}
 	}
