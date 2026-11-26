@@ -245,6 +245,207 @@ class AdaptiveReviewTests(unittest.TestCase):
                             self.assertIn(reason, metadata['fallback_reason'].lower())
                             self.assertIn(reason, saved.lower())
 
+    @unittest.skipIf(os.name == 'nt', 'uses executable fixtures and process groups')
+    def test_cli_selection_enforces_each_stream_limit_per_attempt(self):
+        # B087 F3 (R48): 8 MiB raw bytes per stream per attempt, fixed here
+        # independently of the reader constant.
+        limit = 8 * 1024 * 1024
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, _, scope_file = scope_fixture(root)
+            base = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
+            (repo / 'changed.txt').write_text('review this change')
+            subprocess.run(['git', 'add', 'changed.txt'], cwd=repo, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'change file'], cwd=repo, check=True)
+            capture = subprocess.check_output(['bash', str(HERE / 'get_diff.sh')], cwd=repo,
+                                              env={**os.environ, 'REVIEW_BASE': base})
+            scope_file.write_bytes(capture)
+            scope = json.loads(capture)
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect the frozen changes.')
+            attempts = root / 'attempts'
+
+            def reviewer(cli, code=0, out_extra=0, err=0, malformed=False):
+                packet = review_packet(scope)
+                packet['report'] += '\nReview supplied by ' + cli
+                if cli == 'claude':
+                    packet['decisions']['reviewed_files'].append('source')
+                wire = json.dumps(packet).encode()
+                if malformed:
+                    wire = b'caf\xe9'
+                wire += b' ' * (limit - len(wire) + out_extra) if out_extra is not None else b''
+                path = root / cli
+                path.write_text(
+                    '#!/usr/bin/env python3\nimport sys\n'
+                    'assert open("changed.txt", "rb").read() == b"review this change"\n'
+                    + ('assert open("source").read() == "new"\n' if cli == 'claude' else '')
+                    + f'open({str(attempts)!r}, "a").write({cli!r} + "\\n")\n'
+                    + f'sys.stdout.buffer.write({wire!r}); sys.stdout.flush()\n'
+                    + f'sys.stderr.buffer.write(b"\\xe9" * {err}); sys.stderr.flush()\n'
+                    + f'sys.exit({code})\n')
+                path.chmod(0o700)
+                return path
+
+            def run(name, preferred, fallback):
+                attempts.write_text('')
+                report = root / f'{name}.md'
+                missing = root / 'missing-claude'
+                result = subprocess.run([sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                    '--project-root', str(repo), '--source-root', str(repo), '--base-commit', base,
+                    '--scope-file', str(scope_file), '--diff-path', scope['diff_path'],
+                    '--prompt-file', str(prompt), '--review-output-path', str(report),
+                    '--no-workflow-available', '--no-agent-dispatch-available', '--host', 'claude',
+                    '--requested-model', 'R', '--effective-model', 'verified-P',
+                    '--fallback-effective-model', 'verified-F',
+                    '--codex-command', str(preferred),
+                    '--claude-command', str(fallback if fallback else missing)],
+                    capture_output=True, text=True)
+                return result, report
+
+            def assert_success(name, result, report, selected, calls):
+                self.assertEqual(result.returncode, 0, name + result.stderr)
+                metadata = json.loads(result.stdout)
+                saved = report.read_text()
+                self.assertEqual(attempts.read_text().splitlines(), calls, name)
+                self.assertEqual(metadata['verdict'], 'PASS', name)
+                self.assertEqual(metadata['adversarial_model'], selected, name)
+                self.assertEqual(metadata['effective_model'], 'verified-P' if selected == 'codex' else 'verified-F', name)
+                self.assertEqual(metadata['requested_model'], 'R')
+                self.assertEqual(metadata['specialists_completed'], 0)
+                self.assertTrue(metadata['consolidator_completed'])
+                self.assertIn('Review supplied by ' + selected, saved)
+                self.assertNotIn('Review supplied by ' + ('claude' if selected == 'codex' else 'codex'), saved)
+                sidecar = Path(metadata['retained_decisions']).read_bytes()
+                self.assertEqual(hashlib.sha256(sidecar).hexdigest(), metadata['decisions_sha256'], name)
+                self.assertIn(metadata['decisions_sha256'], saved)
+                reviewed = json.loads(sidecar)['reviewed_files']
+                self.assertEqual(('source' in reviewed), selected == 'claude', name)
+
+            def assert_exhausted(name, result, report, calls, reasons):
+                self.assertEqual(result.returncode, 2, name + result.stderr)
+                metadata = json.loads(result.stdout)
+                saved = report.read_text()
+                self.assertEqual(attempts.read_text().splitlines(), calls, name)
+                self.assertEqual(metadata['verdict'], 'INCOMPLETE', name)
+                self.assertEqual(metadata['requested_model'], 'R')
+                self.assertIsNone(metadata['effective_model'])
+                self.assertEqual(metadata['specialists_completed'], 0)
+                self.assertFalse(metadata['consolidator_completed'])
+                self.assertNotIn('retained_decisions', metadata)
+                self.assertNotIn('decisions_sha256', metadata)
+                self.assertIn('INCOMPLETE', saved)
+                positions = [metadata['fallback_reason'].find(r) for r in reasons]
+                self.assertTrue(all(p >= 0 for p in positions), (name, reasons, metadata['fallback_reason']))
+                self.assertEqual(positions, sorted(positions), name)
+                self.assertNotIn('Review supplied by', saved)
+
+            # Stderr limit, independently for the preferred attempt.
+            result, report = run('p-at', reviewer('codex', err=limit), reviewer('claude'))
+            assert_success('p-at', result, report, 'codex', ['codex'])
+            result, report = run('p-over', reviewer('codex', err=limit + 1), reviewer('claude'))
+            assert_success('p-over', result, report, 'claude', ['codex', 'claude'])
+            # Stdout limit, independently of stderr; both streams exactly full is eligible.
+            result, report = run('both-at', reviewer('codex', err=limit), reviewer('claude'))
+            assert_success('both-at', result, report, 'codex', ['codex'])
+            result, report = run('out-over', reviewer('codex', out_extra=1, err=limit), reviewer('claude'))
+            assert_success('out-over', result, report, 'claude', ['codex', 'claude'])
+            result, report = run('err-over-only', reviewer('codex', err=limit + 1), reviewer('claude'))
+            assert_success('err-over-only', result, report, 'claude', ['codex', 'claude'])
+            # Fixed preferred failures, then a fallback at and over each limit.
+            for label, failing_kwargs in (('exit7', {'code': 7}), ('malformed', {'malformed': True})):
+                failing = reviewer('codex', **failing_kwargs)
+                reason = 'non-zero exit status 7' if label == 'exit7' else 'invalid structured review'
+                result, report = run(label + '-at', failing, reviewer('claude', err=limit))
+                assert_success(label + '-at', result, report, 'claude', ['codex', 'claude'])
+                self.assertIn(reason, json.loads(result.stdout)['fallback_reason'])
+                result, report = run(label + '-fb-err', failing, reviewer('claude', err=limit + 1))
+                assert_exhausted(label + '-fb-err', result, report, ['codex', 'claude'], [reason, 'claude: non-zero exit status 1'])
+                result, report = run(label + '-fb-out', failing, reviewer('claude', out_extra=1))
+                assert_exhausted(label + '-fb-out', result, report, ['codex', 'claude'], [reason, 'claude: non-zero exit status 1'])
+            # Both attempts over their limit are recorded in order.
+            result, report = run('both-fail', reviewer('codex', err=limit + 1), reviewer('claude', err=limit + 1))
+            assert_exhausted('both-fail', result, report, ['codex', 'claude'],
+                             ['codex: non-zero exit status 1', 'claude: non-zero exit status 1'])
+            # A fallback after preferred exit 7 starts with a full allowance of its own.
+            result, report = run('fresh-allowance', reviewer('codex', code=7, out_extra=0, err=limit),
+                                 reviewer('claude', out_extra=0, err=limit))
+            assert_success('fresh-allowance', result, report, 'claude', ['codex', 'claude'])
+            # Only one eligible executable.
+            result, report = run('solo-at', reviewer('codex', err=limit), None)
+            assert_success('solo-at', result, report, 'codex', ['codex'])
+            result, report = run('solo-over', reviewer('codex', err=limit + 1), None)
+            assert_exhausted('solo-over', result, report, ['codex'], ['codex: non-zero exit status 1'])
+
+    @unittest.skipIf(os.name == 'nt', 'uses executable fixtures')
+    def test_cli_attributes_each_post_selection_scope_failure(self):
+        # B087 F3 (R46): after a reviewer reads candidate A, the checkout may move to B
+        # while A's capture stays readable. Each cause needs its own diagnosis.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, scope, scope_file = scope_fixture(root)
+            base = scope['base_commit']
+            prompt = root / 'prompt'
+            prompt.write_text('Inspect the frozen changes.')
+            reviewer = root / 'reviewer'
+            mutation = root / 'mutation'
+
+            def run(name, action):
+                mutation.write_text(action)
+                packet = review_packet(scope)
+                reviewer.write_text(
+                    '#!/usr/bin/env python3\nimport subprocess, sys\n'
+                    'assert open("source").read() == "new"\n'
+                    f'sys.stdout.write({json.dumps(packet)!r})\n'
+                    f'exec(open({str(mutation)!r}).read())\n')
+                reviewer.chmod(0o700)
+                report = root / f'{name}.md'
+                result = subprocess.run([sys.executable, str(HERE / 'adaptive_review.py'), 'run-cli',
+                    '--project-root', str(repo), '--source-root', str(repo), '--base-commit', base,
+                    '--scope-file', str(scope_file), '--diff-path', scope['diff_path'],
+                    '--prompt-file', str(prompt), '--review-output-path', str(report),
+                    '--no-workflow-available', '--no-agent-dispatch-available', '--host', 'claude',
+                    '--requested-model', 'R', '--effective-model', 'verified',
+                    '--codex-command', str(reviewer), '--claude-command', str(root / 'absent')],
+                    capture_output=True, text=True)
+                return result, report
+
+            def git(*args):
+                subprocess.run(['git', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', *args],
+                               cwd=repo, check=True, capture_output=True)
+
+            def assert_incomplete(name, result, report, reason):
+                self.assertEqual(result.returncode, 2, name + result.stderr)
+                metadata = json.loads(result.stdout)
+                self.assertEqual(metadata['verdict'], 'INCOMPLETE', name)
+                self.assertEqual(metadata['specialists_completed'], 0)
+                self.assertFalse(metadata['consolidator_completed'])
+                self.assertNotIn('retained_decisions', metadata)
+                self.assertIn(reason, metadata['fallback_reason'], name)
+                self.assertIn(reason, report.read_text(), name)
+
+            result, report = run('a', 'pass\n')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['verdict'], 'PASS')
+
+            result, report = run('missing', f'import os; os.rename({str(scope_file)!r}, {str(scope_file) + ".gone"!r})\n')
+            assert_incomplete('missing', result, report, 'scope')
+            self.assertNotIn('candidate changed since scope capture', json.loads(result.stdout)['fallback_reason'])
+            os.rename(str(scope_file) + '.gone', scope_file)
+
+            # Checkout moves to B with A's scope and diff still readable and byte-identical.
+            drift = ('import subprocess\n'
+                     f'subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "B"], cwd={str(repo)!r}, check=True)\n')
+            head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
+            result, report = run('drift', drift)
+            assert_incomplete('drift', result, report, 'candidate changed since scope capture')
+            self.assertNotEqual(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip(), head)
+            git('reset', '-q', '--hard', head)
+
+            # Restored control on the original capture passes again.
+            result, report = run('restored', 'pass\n')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['verdict'], 'PASS')
+
     @unittest.skipIf(os.name == 'nt', 'uses shell executable fixture')
     def test_scope_timeout_produces_structured_failure_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
