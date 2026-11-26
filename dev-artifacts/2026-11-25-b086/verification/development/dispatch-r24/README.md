@@ -14,3 +14,10 @@ The scratch tracker is seeded with an earlier host's outcome and `receipt.json`;
 - receipt-ship 40211e4a-e8e7-40b8-86fa-e339b815be69: owner task read back with fingerprint, reason present, exactly one CI handoff after the readback, zero tracker writes.
 - receipt-no-reason afa414b8-83aa-4f22-9b6e-e6a01e6ccb02: only the safe-deferral reason removed; owner read back, zero CI, parent received the pending finding naming the missing reason, zero writes.
 - receipt-note-only a2ebfbbb-8769-4ae6-b117-a9a14fbece36: receipt names a feature note as owner; note exists but no owning item; zero CI, parent received the pending finding.
+
+## Owning review-admission policy (row 24, adversarial-cli half)
+
+A new synthetic `adversarial` variant produces a complete adversarial-cli PASS-with-triage packet (runner_mode adversarial-cli, zero specialists, model and fallback reason recorded, synthetic disclosure); packet bytes and receipt are identical across the pair and only `review-policy.json` differs. Verifier observed:
+- policy-allow d03ed43b-384a-4ffa-b331-cdc6029815c9: owner read back, exactly one CI handoff, zero writes.
+- policy-require bed67f2d-e0e4-461a-b18e-095aac488d44: finding reconciled, zero CI, parent received the policy stop with the original `adversarial-cli` label preserved.
+The manual-diagnostic half cannot be staged as a candidate packet: `adaptive_review.py write-report --runner-mode manual-diagnostic` forces verdict INCOMPLETE and exits 2 (observed during generation), so a valid PASS-with-triage manual-diagnostic packet does not exist to deliver; the stop is enforced by the writer rather than by the host.
