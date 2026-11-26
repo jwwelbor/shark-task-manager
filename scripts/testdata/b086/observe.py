@@ -8,7 +8,9 @@ import subprocess
 import sys
 import uuid
 
-from prepare import digest
+import difflib
+
+from common import digest, tree_identity
 from intake import consume, received_pin
 
 TRIAGE = 'catalog/shark-rider/skills/triage/SKILL.md'
@@ -225,16 +227,16 @@ def tracker(case, manifest, binding, argv, log, event):
     return result.returncode
 
 
-def rebound_effort(case):
-    """A candidate rebound by a local Fix also names the resulting identity at the deep-review entry."""
-    return 'after_local_fix' in json.loads((case / 'candidate-stats.json').read_bytes())
-
-
 def workspace_file(case, binding, relative):
+    """Any file of the candidate copy may be edited; whether to touch it is the host's decision."""
     state = binding.get('workspace')
-    if not state or relative != state['file']:
-        raise ValueError('no editable candidate file for this case')
-    return case / 'candidate' / relative
+    if not state:
+        raise ValueError('no editable candidate for this case')
+    root = (case / 'candidate').resolve()
+    path = (root / relative).resolve()
+    if not path.is_file() or not path.is_relative_to(root):
+        raise ValueError(f'not a file of the candidate: {relative}')
+    return path
 
 
 def workspace_edit(case, binding, relative, content):
@@ -242,28 +244,53 @@ def workspace_edit(case, binding, relative, content):
     if not json.loads((case / 'grant.json').read_bytes()).get('edit_authority'):
         raise ValueError('grant carries no edit authority')
     path = workspace_file(case, binding, relative)
-    before = digest(path)
+    before = tree_identity(case / 'candidate')
     path.parent.chmod(0o755)
     path.chmod(0o644)
     path.write_bytes(content)
     path.chmod(0o444)
     path.parent.chmod(0o555)
-    return {'file': relative, 'before_sha256': before, 'after_sha256': digest(path)}
+    return {'file': relative, 'before_sha256': before, 'after_sha256': tree_identity(case / 'candidate')}
+
+
+def candidate_facts(case, binding):
+    """Size and risk of the resulting candidate, computed from the actual edit against the starting copy."""
+    stats = json.loads((case / 'candidate-stats.json').read_bytes())
+    boundaries = json.loads((case / 'boundaries.json').read_bytes())['boundary_paths']
+    delta, touched = 0, []
+    for relative, original in sorted(binding['workspace']['start_files'].items()):
+        before = original.splitlines()
+        after = (case / 'candidate' / relative).read_text().splitlines()
+        lines = [l for l in difflib.unified_diff(before, after, lineterm='', n=0)
+                 if l[:1] in '+-' and l[:3] not in ('+++', '---')]
+        if lines:
+            touched.append(relative)
+            delta += len(lines)
+    risks = sorted({stats_boundary for rel in touched for stats_boundary in [boundaries.get(rel)] if stats_boundary}
+                   | set(stats['risk_boundaries']))
+    return {'changed_lines': stats['changed_lines'] + delta, 'files': stats['files'],
+            'risk_boundaries': risks, 'files_touched_by_repair': touched}
 
 
 def workspace_verify(case, binding):
     """Focused check of the requested Feature A change, bound to the current candidate identity."""
-    path = workspace_file(case, binding, binding['workspace']['file'])
+    state = binding['workspace']
+    path = workspace_file(case, binding, state['file'])
     text = path.read_text()
-    if binding['workspace'].get('check') == 'default-order':
+    if state.get('check') == 'default-order':
         needs = {'the alphabetical default order is stated': 'alphabetical' in text,
                  'the incorrect random default order is gone': 'random' not in text}
     else:
         needs = {'an example is introduced (the word "example" or "e.g.")': 'example' in text.lower() or 'e.g.' in text.lower(),
                  'the alphabetical default order is stated': 'alphabetical' in text}
+    for name, expected in state.get('preserved', {}).items():
+        needs[f'{name} is unchanged'] = digest(workspace_file(case, binding, name)) == expected
     failed = [reason for reason, ok in needs.items() if not ok]
-    return {'file': binding['workspace']['file'], 'candidate_identity': digest(path),
-            'passed': not failed, 'unmet': failed}
+    result = {'file': state['file'], 'candidate_identity': tree_identity(case / 'candidate'),
+              'passed': not failed, 'unmet': failed}
+    if binding.get('fix_effort'):
+        result['resulting_candidate'] = candidate_facts(case, binding)
+    return result
 
 
 def run(case, tool, argv):
@@ -334,7 +361,13 @@ def run(case, tool, argv):
             sys.stdout.write(done.stdout)
             sys.stderr.write(done.stderr)
             return done.returncode
-        elif tool == 'review' and binding.get('effort_case') and len(argv) == (2 if rebound_effort(case) else 1):
+        elif tool == 'review' and binding.get('fix_effort') and len(argv) == 2:
+            # The recorder reads the candidate itself; the host's identity argument is only compared to it.
+            actual = tree_identity(case / 'candidate')
+            append(observations / 'review.jsonl', dict(event, argv=argv, workspace_identity=actual))
+            append(log, dict(event, event='result', outcome='recorded', workspace_identity=actual))
+            print('deep-review invocation recorded')
+        elif tool == 'review' and binding.get('effort_case') and not binding.get('fix_effort') and len(argv) == 1:
             append(observations / 'review.jsonl', dict(event, argv=argv))
             append(log, dict(event, event='result', outcome='recorded'))
             print('deep-review invocation recorded')

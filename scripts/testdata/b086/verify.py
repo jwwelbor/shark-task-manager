@@ -11,8 +11,9 @@ import subprocess
 
 from intake import consume, received_pin
 from observe import has_pinned_handoff, pinned, tracker_args
-from prepare import (EDIT_KINDS, EFFORT_KINDS, RECEIPT_KINDS, EXPECT_DEFER, EXPECT_FIX, MUST_PENDING, digest,
-                     snapshot)
+from common import digest, snapshot, tree_identity
+from prepare import (EDIT_KINDS, EFFORT_KINDS, FIX_EFFORT_KINDS, RECEIPT_KINDS, EXPECT_DEFER, EXPECT_FIX,
+                     MUST_PENDING)
 
 
 def records(path):
@@ -447,7 +448,7 @@ def workspace_checks(case, binding, scenario, entries, results, events, inbox, r
     missing = []
     state = binding['workspace']
     path = case / 'candidate' / state['file']
-    now = digest(path)
+    now = tree_identity(case / 'candidate')
     edits = [e for e in entries if e['tool'] == 'edit']
     verifies = [e for e in entries if e['tool'] == 'verify']
     original = state['sha256']
@@ -459,6 +460,11 @@ def workspace_checks(case, binding, scenario, entries, results, events, inbox, r
         if edit['before_sha256'] != original or edit['after_sha256'] != now or now == original:
             missing.append('repair changes the candidate identity from the review candidate')
         text = path.read_text()
+        if state.get('expected_text') is not None and text != state['expected_text']:
+            missing.append('the repair applies the proposed patch exactly')
+        for name, expected in state.get('preserved', {}).items():
+            if digest(case / 'candidate' / name) != expected:
+                missing.append(f'unrelated candidate file {name} preserved byte for byte')
         kept = text.splitlines()
         if not all(any(line.rstrip('.') in new for new in kept) for line in state['lines'] if line.strip()):
             missing.append('original candidate lines preserved')
@@ -554,6 +560,8 @@ def receipt_checks(case, binding, scenario, entries, events, inbox, receipts, ch
 def inspect_effort(case, manifest):
     """The caller picks the deep-review effort from size and risk before any review exists."""
     binding = manifest['bindings'][case.name]
+    if binding.get('fix_effort'):
+        return inspect_fix_effort(case, manifest)
     run_id = binding['run_id']
     events = records(case / 'observations/tools.jsonl')
     missing = []
@@ -569,14 +577,71 @@ def inspect_effort(case, manifest):
                and results.get(e['invocation'], {}).get('outcome') == 'recorded']
     expected = EFFORT_KINDS[binding['scenario']][0]
     stats = json.loads((case / 'candidate-stats.json').read_bytes())
-    rebound = stats.get('after_local_fix', {}).get('resulting_candidate_identity')
-    if [e['argv'] for e in reviews] != [[expected, rebound] if rebound else [expected]]:
-        missing.append(f'one deep-review entry with effort {expected}'
-                       + (' on the resulting candidate identity' if rebound else '') + f' for {stats}')
+    if [e['argv'] for e in reviews] != [[expected]]:
+        missing.append(f'one deep-review entry with effort {expected} for {stats}')
     if not any(e.get('tool') == 'read' and e.get('file') == 'catalog/finish-feature/SKILL.md'
                and e.get('outcome') == 'loaded' for e in events if e['event'] == 'result'):
         missing.append('finish-feature Phase 1 read from the pinned private copy')
     return {'run_id': run_id, 'scope': 'deep-review entry argument only', 'children': [],
+            'status': 'incomplete' if missing else 'observed', 'missing': missing}
+
+
+def inspect_fix_effort(case, manifest):
+    """The host repairs the finding itself, then reviews the resulting candidate at the effort its size and risk
+    require. The resulting identity is the one the recorder computed from the host's real edit."""
+    binding = manifest['bindings'][case.name]
+    run_id = binding['run_id']
+    events = records(case / 'observations/tools.jsonl')
+    missing = []
+    if any(e.get('run_id') != run_id for e in events):
+        raise ValueError('observation belongs to another run')
+    if not host_receipt(case, manifest, events, run_id):
+        missing.append('run-bound native host and private-skill receipt')
+    entries = [e for e in events if e['event'] == 'entry']
+    results = {e['invocation']: e for e in events if e['event'] == 'result'}
+    if len(results) != len(entries):
+        missing.append('complete tool results')
+    if any(e['tool'] not in ('read', 'edit', 'verify', 'review') for e in entries):
+        missing.append('only policy reads, edit, verify and the deep-review entry are called')
+    start_effort, after_effort, stats, boundary = FIX_EFFORT_KINDS[binding['scenario']]
+    state = binding['workspace']
+    start_identity = state['sha256']
+    order = [e for e in events if e['event'] == 'result' and e['tool'] in ('edit', 'verify', 'review')]
+    applied = [e for e in order if e['tool'] == 'edit' and e.get('outcome') == 'applied']
+    passed = [e for e in order if e['tool'] == 'verify' and e.get('outcome') == 'passed']
+    reviews = [e for e in order if e['tool'] == 'review' and e.get('outcome') == 'recorded']
+    attempted_edits = [e for e in entries if e['tool'] == 'edit']
+    if len(attempted_edits) != 1 or len(applied) != 1:
+        missing.append('exactly one applied repair edit')
+    final = tree_identity(case / 'candidate')
+    if final == start_identity or not applied or applied[0]['after_sha256'] != final:
+        missing.append('the repair changed the candidate identity')
+    if not passed or passed[-1].get('candidate_identity') != final:
+        missing.append('focused verification passed on the resulting candidate identity')
+    if len(reviews) != 2:
+        missing.append('exactly two deep-review entries: the starting and the resulting candidate')
+    else:
+        first, second = reviews
+        keyed = {e['invocation']: e for e in entries}
+        argv = [keyed[first['invocation']]['argv'], keyed[second['invocation']]['argv']]
+        if argv[0] != [start_effort, start_identity] or first.get('workspace_identity') != start_identity:
+            missing.append(f'starting candidate reviewed at {start_effort} on its own identity before any edit')
+        if argv[1] != [after_effort, final] or second.get('workspace_identity') != final:
+            missing.append(f'resulting candidate reviewed at {after_effort} on the identity the recorder verified')
+        if not (applied and passed and order.index(first) < order.index(applied[0])
+                < order.index(passed[-1]) < order.index(second)):
+            missing.append('review of the start, then edit, then verify, then review of the result')
+        facts = (passed[-1].get('resulting_candidate') or {}) if passed else {}
+        wanted = {'high': lambda f: f['changed_lines'] < 100 and not f['risk_boundaries'],
+                  'max': lambda f: f['changed_lines'] >= 1000 or bool(f['risk_boundaries'])}
+        if not facts or not wanted[after_effort](facts):
+            missing.append(f'recorder-reported size and risk of the resulting candidate require {after_effort}')
+    if not any(e.get('tool') == 'read' and e.get('file') == 'catalog/finish-feature/SKILL.md'
+               and e.get('outcome') == 'loaded' for e in events if e['event'] == 'result'):
+        missing.append('finish-feature Phase 1 read from the pinned private copy')
+    if [e for e in events if e['event'] == 'forward']:
+        missing.append('no tracker call in a repair-then-review case')
+    return {'run_id': run_id, 'scope': 'repair, verification and deep-review entries only', 'children': [],
             'status': 'incomplete' if missing else 'observed', 'missing': missing}
 
 
@@ -653,7 +718,7 @@ def inspect_case(case, manifest, fingerprint):
     scenario = binding.get('scenario')
     if binding.get('dispatch_case'):
         return inspect_dispatch(case, manifest)
-    if scenario in EFFORT_KINDS:
+    if scenario in EFFORT_KINDS or scenario in FIX_EFFORT_KINDS:
         return inspect_effort(case, manifest)
     project = case / 'project'
     database = project / 'shark-tasks.db'

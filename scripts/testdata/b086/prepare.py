@@ -11,30 +11,13 @@ import subprocess
 import tempfile
 import uuid
 
+from common import digest, snapshot, tree_identity
+
 POLICY = '73910684da8db7e4a045ddc5a22577c160eef328'
 BASELINE = '1d78ad660f2c55dd188465785b61723a3b7e6a6c'
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW = Path('skills/quality/workflows/review-code.md')
 FINISH_DIGEST = '40bf2773d43fd2b90237d9fabb20ffcca138e3bd0b073b75b8fe2214066854fd'
-
-
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def snapshot(path):
-    """Independently read one tracker store by its pinned path, without changing it."""
-    path = Path(path).resolve(strict=True)
-    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as connection:
-        tasks = [list(r) for r in connection.execute(
-            'SELECT t.key, f.key, t.title, t.description FROM tasks t '
-            'JOIN features f ON f.id=t.feature_id ORDER BY t.key')]
-        notes = [list(r) for r in connection.execute(
-            'SELECT entity_type, entity_id, content FROM entity_notes ORDER BY id')]
-        features = [r[0] for r in connection.execute('SELECT key FROM features ORDER BY key')]
-    stat = path.stat()
-    return {'path': str(path), 'inode': [stat.st_dev, stat.st_ino], 'sha256': digest(path),
-            'features': features, 'tasks': tasks, 'notes': notes}
 
 
 def output(args, cwd, **kwargs):
@@ -95,21 +78,20 @@ EFFORT_KINDS = {'effort-small': ('high', {'changed_lines': 24, 'files': 2, 'risk
                 'effort-large': ('max', {'changed_lines': 1800, 'files': 40, 'risk_boundaries': []}),
                 'effort-risk': ('max', {'changed_lines': 24, 'files': 2,
                                         'risk_boundaries': ['authentication and session handling']})}
-IDENTITY = 'a3c1f0e5d2b84976a3c1f0e5d2b84976a3c1f0e5d2b84976a3c1f0e5d2b84976'
-# After an authorized local Fix the candidate is rebound: the stats describe the resulting candidate.
-EFFORT_KINDS['effort-fix-small'] = ('high', {
-    'changed_lines': 27, 'files': 2, 'risk_boundaries': [],
-    'after_local_fix': {'classification': 'mandatory documentation correction, local one-line repair',
-                        'resulting_candidate_identity': IDENTITY, 'repair_changed_lines': 3}})
-EFFORT_KINDS['effort-fix-risk'] = ('max', {
-    'changed_lines': 27, 'files': 3, 'risk_boundaries': ['authentication and session handling'],
-    'after_local_fix': {'classification': 'mandatory correction whose repair now touches the session boundary '
-                                          'under explicit owner scope authority',
-                        'resulting_candidate_identity': IDENTITY, 'repair_changed_lines': 3}})
+# Starting-candidate facts for a delivery host that repairs a mandatory finding itself. The resulting
+# candidate's identity and classification are produced by the recorder from the host's real edit, never staged.
+FIX_EFFORT_KINDS = {
+    'effort-fix-small': ('high', 'high', {'changed_lines': 24, 'files': 2, 'risk_boundaries': []}, None),
+    'effort-fix-large': ('max', 'max', {'changed_lines': 1800, 'files': 40, 'risk_boundaries': []}, None),
+    'effort-fix-risk': ('high', 'max', {'changed_lines': 24, 'files': 2, 'risk_boundaries': []},
+                        'authentication and session handling')}
 RECEIPT_KINDS = {'receipt-ship', 'receipt-no-reason', 'receipt-note-only'} | set(POLICIES)
 DISPATCH_KINDS = {'dispatch-ok', 'dispatch-bad'}
+PATCH_OLD = 'The default order is alphabetical.'
+PATCH_NEW = PATCH_OLD + ' For example, with entries pear and apple, the list shows apple first.'
+PATCH_VARIANTS = {'patch-small', 'patch-large'}
 BAD_ANGLE = 'c'
-SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS | DISPATCH_KINDS | set(EFFORT_KINDS)
+SCENARIOS = {'wrong-db-control', 'wrong-db', 'lost-response', 'delivery-defer', 'delivery-refused'} | EDIT_KINDS | RECEIPT_KINDS | DISPATCH_KINDS | set(EFFORT_KINDS) | set(FIX_EFFORT_KINDS)
 FILE = 'docs/feature-a.md'
 FINGERPRINT = FILE + '#DOCS#worked-example'
 
@@ -201,18 +183,34 @@ def stage_dispatch(case, review_source, packet_files, kind):
          'scope': str(case / 'scope/scope.json')}, indent=2) + '\n')
 
 
-def make_workspace(case, source):
-    """A read-only copy of the reviewed candidate file; only the recorder's edit endpoint writes it."""
+def make_workspace(case, source, preserve=(), patch=None):
+    """A read-only copy of the reviewed candidate; only the recorder's edit endpoint writes it.
+
+    `preserve` names other candidate files the repair must leave byte-identical; the host may edit any of them,
+    so preserving them is an observation and not a property of the fixture."""
     target = case / 'candidate' / FILE
     target.parent.mkdir(parents=True)
     shutil.copyfile(source / FILE, target)
+    others = {}
+    for name in preserve:
+        shutil.copyfile(source / name, case / 'candidate' / name)
+        others[name] = digest(case / 'candidate' / name)
     text = target.read_text()
     # The repair of the mandatory finding replaces the wrong line; every other line must survive.
     mandatory = 'random' in text
-    state = {'file': FILE, 'sha256': digest(target), 'mtime_ns': target.stat().st_mtime_ns,
-             'check': 'default-order' if mandatory else 'example',
+    state = {'file': FILE, 'sha256': tree_identity(case / 'candidate'), 'mtime_ns': target.stat().st_mtime_ns,
+             'check': 'default-order' if mandatory else 'example', 'preserved': others,
+             'start_files': {str(f.relative_to(case / 'candidate')): f.read_text()
+                             for f in sorted((case / 'candidate').rglob('*')) if f.is_file()},
              'lines': [line for line in text.splitlines() if not (mandatory and 'random' in line)]}
+    if patch:
+        old, new = patch
+        if text.count(old) != 1:
+            raise ValueError('the proposed patch must target exactly one changed line')
+        state['expected_text'] = text.replace(old, new)
     target.chmod(0o444)
+    for name in others:
+        (case / 'candidate' / name).chmod(0o444)
     target.parent.chmod(0o555)
     (case / 'workspace.json').write_text(json.dumps(
         {'path': str(case / 'candidate'), 'file': FILE, 'candidate_identity': state['sha256']}, indent=2) + '\n')
@@ -260,7 +258,7 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
         libexec = staging / 'libexec'
         libexec.mkdir()
         (seed / 'shark').rename(libexec / 'shark')
-        for module in ('observe.py', 'prepare.py', 'intake.py', 'dispatch.py'):
+        for module in ('observe.py', 'common.py', 'intake.py', 'dispatch.py'):
             shutil.copy2(fixture / module, libexec / module)
         shutil.copyfile(fixture / 'shark', seed / 'shark')
         (seed / 'shark').chmod(0o755)
@@ -306,9 +304,25 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                 if kind_now.startswith('must-') and synthetic_variant != 'mandatory':
                     raise ValueError('mandatory scenarios need the mandatory synthetic variant')
                 scenario_budget(kind_now, dispatch['budget'])
-                workspace = make_workspace(case, root / 'review-source')
+                patched = synthetic_variant in PATCH_VARIANTS
+                workspace = make_workspace(case, root / 'review-source',
+                                           ['docs/unrelated.md'] if synthetic_variant == 'patch-large' else (),
+                                           (PATCH_OLD, PATCH_NEW) if patched else None)
                 if kind_now.startswith('repeat-'):
                     (case / 'rejections.json').write_text(json.dumps(rejection_history(kind_now), indent=2) + '\n')
+            if kind_now in FIX_EFFORT_KINDS:
+                if synthetic_variant != 'mandatory':
+                    raise ValueError('repair-then-review effort cases need the mandatory synthetic variant')
+                start, after, stats, boundary = FIX_EFFORT_KINDS[kind_now]
+                dispatch['edit_authority'] = True
+                if boundary:
+                    dispatch['scope_authority'] = [boundary]
+                workspace = make_workspace(case, root / 'review-source')
+                (case / 'candidate-stats.json').write_text(json.dumps(stats, indent=2) + '\n')
+                (case / 'boundaries.json').write_text(json.dumps(
+                    {'boundary_paths': {FILE: boundary} if boundary else {}}, indent=2) + '\n')
+                (case / 'finding.json').write_text(json.dumps(
+                    json.loads(packet_files['review.md.decisions.json'])['findings'][0], indent=2) + '\n')
             (case / 'grant.json').write_text(json.dumps(dispatch, indent=2) + '\n')
             if kind_now in EFFORT_KINDS:
                 (case / 'candidate-stats.json').write_text(json.dumps(EFFORT_KINDS[kind_now][1], indent=2) + '\n')
@@ -344,6 +358,8 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
                     bindings[case_name]['inject_db'] = outside['path'] if kind == 'wrong-db' else 'case'
                 elif kind in EFFORT_KINDS:
                     bindings[case_name]['effort_case'] = True
+                elif kind in FIX_EFFORT_KINDS:
+                    bindings[case_name].update(effort_case=True, fix_effort=True, workspace=workspace)
                 elif kind in DISPATCH_KINDS:
                     bindings[case_name].update(dispatch_case=True, delivery_ci=True,
                                                dispatch_bad=BAD_ANGLE if kind == 'dispatch-bad' else None)
@@ -395,7 +411,7 @@ if __name__ == '__main__':
                         help='stage a third case from the matching grant for the subsequent refusal replay')
     parser.add_argument('--scenario', action='append', default=[], metavar='NAME:KIND',
                         help='stage an extra case from the matching grant: ' + ', '.join(sorted(SCENARIOS)))
-    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial', 'mandatory', 'large-diff'],
+    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial', 'mandatory', 'large-diff', 'patch-small', 'patch-large'],
                         default='worked-example', help='choose the synthetic reviewer finding')
     parser.add_argument('--policy-commit', default=POLICY,
                         help='pinned Shark policy source commit; default is the approved fixture policy')

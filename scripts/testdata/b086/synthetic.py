@@ -9,7 +9,8 @@ import sys
 import uuid
 
 from intake import DISCLOSURE, MEMBERS, consume
-from prepare import BASELINE, POLICY, digest
+from common import digest
+from prepare import BASELINE, PATCH_NEW, PATCH_OLD, POLICY
 
 PLAN = 'docs/plan/bugs/B001.repair-plan.md'
 APPROVAL = 'docs/plan/bugs/B001.plan-review.md'
@@ -61,7 +62,7 @@ def git_fixture(project, variant):
         if variant == 'maintenance':
             doc.write('By default the order is alphabetical.\n')
     git('add', FILE, PLAN)
-    if variant == 'large-diff':
+    if variant in ('large-diff', 'patch-large'):
         # Unrelated lines in a separate file grow the diff without touching the finding or its repair site.
         (project / 'docs/unrelated.md').write_text(''.join(f'Unrelated entry {n}\n' for n in range(1800)))
         git('add', 'docs/unrelated.md')
@@ -89,6 +90,10 @@ def writer(project, bundle, scripts, base, variant, policy=POLICY):
     elif variant in ('fix-now', 'mandatory'):
         finding.update(summary='Correct the documented default order', diagnosis='The plan requires alphabetical order.',
                        fingerprint=FILE + '#DOCS#incorrect-default')
+    if variant in ('patch-small', 'patch-large'):
+        # The proposed repair is part of the reviewer's finding, so paired candidates receive the same patch.
+        finding['diagnosis'] += (f' Proposed patch: in {FILE}, replace the line "{PATCH_OLD}" with the line '
+                                 f'"{PATCH_NEW}"')
     decision = dict(finding, disposition='triage', reason=WHY)
     if variant == 'maintenance':
         decision['reason'] = 'The documented behavior is correct despite the duplication.'
