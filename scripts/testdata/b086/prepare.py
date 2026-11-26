@@ -25,9 +25,9 @@ def output(args, cwd, **kwargs):
     return subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, check=True, **kwargs).stdout
 
 
-def build_policy(source):
+def build_policy(source, policy=POLICY):
     with tempfile.TemporaryFile() as archive:
-        subprocess.run(['git', 'archive', POLICY, 'cmd', 'internal', 'go.mod', 'go.sum',
+        subprocess.run(['git', 'archive', policy, 'cmd', 'internal', 'go.mod', 'go.sum',
                         'scripts/shark-scratch-env.sh', 'skills/shark-rider'],
                        cwd=ROOT, stdout=archive, check=True)
         archive.seek(0)
@@ -62,7 +62,8 @@ def seed_project(source, staging, binary_digest):
     return scratch
 
 
-def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=False):
+def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=False,
+            synthetic_variant=None, policy_commit=POLICY):
     from host import prompt
 
     root = root.resolve(strict=True)
@@ -81,11 +82,12 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
         staging = Path(staging_name)
         source = staging / 'policy'
         source.mkdir()
-        binary_digest = build_policy(source)
+        binary_digest = build_policy(source, policy_commit)
         seed = seed_project(source, staging, binary_digest)
         if synthetic:
             from synthetic import generate
-            packet_files, packet_receipt, intake = generate(root / 'review-source', seed, source)
+            packet_files, packet_receipt, intake = generate(root / 'review-source', seed, source,
+                                                            synthetic_variant, policy_commit)
         catalog = staging / 'catalog'
         fixture = Path(__file__).resolve().parent
         libexec = staging / 'libexec'
@@ -148,7 +150,7 @@ def prepare(root, finish, retained=None, synthetic=False, with_refusal_control=F
             case = root / case_name
             files.update({str(path.relative_to(case)): digest(path)
                           for path in (case / 'project/.agents/skills').rglob('*') if path.is_file()})
-        manifest = {'policy_commit': POLICY, 'review_baseline': BASELINE,
+        manifest = {'policy_commit': policy_commit, 'review_baseline': BASELINE,
                     'fixture_commit': output(['git', 'rev-parse', 'HEAD'], ROOT).decode().strip(),
                     'fixture_files': {p.name: digest(p) for p in Path(__file__).parent.glob('*.py')},
                     'prepare_sha256': digest(Path(__file__)), 'cases': cases,
@@ -171,5 +173,12 @@ if __name__ == '__main__':
                              help='stage the original report and sidecars in each case after verification')
     parser.add_argument('--with-refusal-control', action='store_true',
                         help='stage a third case from the matching grant for the subsequent refusal replay')
+    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade'],
+                        default='worked-example', help='choose the synthetic reviewer finding')
+    parser.add_argument('--policy-commit', default=POLICY,
+                        help='pinned Shark policy source commit; default is the approved fixture policy')
     args = parser.parse_args()
-    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic, args.with_refusal_control))
+    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic,
+                  args.with_refusal_control,
+                  args.synthetic_variant if args.synthetic else None,
+                  args.policy_commit))

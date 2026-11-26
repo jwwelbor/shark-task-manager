@@ -94,12 +94,15 @@ catalog copy. Do not access the parent project or any other database. Do not
 make reviewer/provider calls, run CI, or merge.
 
 Treat the grant and finding as input; independently choose the classification,
-action, and disposition according to the loaded instructions. A disposition
-receipt is appropriate only after a verified Fix or verified owner; escalation
-leaves the finding pending and must not be recorded as a disposition. When
-recording a disposition, identify the run's project, fingerprint, classification,
-decision, reason and decision inputs. If it identifies an owned tracker item,
-include the observed key, type, parent and scope. A parent escalation must
+action, and disposition according to the loaded instructions. A report-only Nit
+disposition goes to the parent with the original concern, supporting evidence,
+finding fingerprint, run, candidate, host decision and reason; it authorizes no
+edit or tracker write. For actionable findings, record a disposition only after
+a verified Fix or verified owner. Escalation leaves the finding pending and
+must not be recorded as a disposition. When recording a disposition, identify
+the run's project, fingerprint, classification, decision, reason and decision
+inputs. If it identifies an owned tracker item, include the observed key, type,
+parent and scope. A parent escalation must
 identify the fingerprint, requested feature, missing permission (if any) and requested
 parent action. For a failed tracker operation, include the attempted_operation and
 the tracker’s refusal_reason along with the requested_parent_action.

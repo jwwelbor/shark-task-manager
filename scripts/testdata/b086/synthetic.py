@@ -65,7 +65,7 @@ def git_fixture(project, variant):
     return base
 
 
-def writer(project, bundle, scripts, base, variant):
+def writer(project, bundle, scripts, base, variant, policy=POLICY):
     inputs = project / 'fixture-inputs'
     env = dict(os.environ, REVIEW_BASE=base, REVIEW_PLAN_SHA256=digest(project / PLAN))
     scope = json.loads(execute([scripts / 'get_diff.sh'], project, env))
@@ -78,8 +78,9 @@ def writer(project, bundle, scripts, base, variant):
     if variant == 'maintenance':
         finding.update(summary='Consolidate duplicate default descriptions', diagnosis='Duplicate instructions increase maintenance cost.',
                        fingerprint=FILE + '#DOCS#duplicate-default')
-    elif variant == 'style':
-        finding.update(summary='Prefer a longer section title', severity='nit', diagnosis='A stylistic preference only.',
+    elif variant == 'style-downgrade':
+        finding.update(summary='Prefer a longer section title', severity='blocker',
+                       diagnosis='The title could be more descriptive, but the current title already names Feature A.',
                        fingerprint=FILE + '#DOCS#section-title')
     elif variant == 'fix-now':
         finding.update(summary='Correct the documented default order', diagnosis='The plan requires alphabetical order.',
@@ -87,15 +88,16 @@ def writer(project, bundle, scripts, base, variant):
     decision = dict(finding, disposition='triage', reason=WHY)
     if variant == 'maintenance':
         decision['reason'] = 'The documented behavior is correct despite the duplication.'
-    elif variant == 'style':
-        decision.update(disposition='no-action', reason='The title already names the feature.')
+    elif variant == 'style-downgrade':
+        decision.update(severity='nit', disposition='no-action',
+                        reason='The current title names Feature A, and no project standard requires a longer title.')
     elif variant == 'fix-now':
         decision.update(disposition='fix-now', reason='The default is part of the accepted behavior.')
     write_json(inputs / 'angles.json', {angle: dict(candidate_identity=identity, reviewed_files=scope['changed_files'],
                                                      findings=[finding] if angle == 'a' else [])
                                         for angle in 'abcdef'})
     write_json(inputs / 'decisions.json', dict(candidate_identity=identity, findings=[decision]))
-    body = f'VERDICT: PASS-with-triage\nScope: Feature A, E01-F01. Findings: {finding["summary"]}. {decision["reason"]}\n{finding["fingerprint"]}\n'
+    body = f'VERDICT: PASS-with-triage\nScope: Feature A, E01-F01. Findings: {finding["summary"]}. {finding["diagnosis"]} {decision["reason"]}\n{finding["fingerprint"]}\n'
     if variant != 'report':
         body += DISCLOSURE + ' The runner count represents six supplied angle records.\n'
     (inputs / 'body.md').write_text(body)
@@ -109,7 +111,8 @@ def writer(project, bundle, scripts, base, variant):
         args.extend(['--effective-model', 'unobserved-fixture-model'])
     trace = inputs / 'writer.trace'
     execute(['strace', '-f', '-qq', '-s', '256', '-e', 'trace=execve,connect', '-o', trace, *args], project)
-    provenance = {'scenario': 'optional worked example under Feature A', 'policy_source': POLICY,
+    provenance = {'scenario': ('stylistic downgrade report-only' if variant == 'style-downgrade'
+                               else 'optional worked example under Feature A'), 'policy_source': policy,
                   'b086_baseline': BASELINE, 'b086_plan_sha256': digest(Path(__file__).resolve().parents[3] /
                                                                        'docs/plan/bugs/B086.repair-plan.md'),
                   'writer_trace_sha256': digest(trace), 'candidate': scope['candidate_commit']}
@@ -155,7 +158,7 @@ def applied_history(project, binary, bundle, base, variant, expected_entity="B00
     return history
 
 
-def generate(project, seed, source, variant=None):
+def generate(project, seed, source, variant=None, policy=POLICY):
     from packet import read_input
     shutil.copytree(seed, project)
     binary = source / 'bin/shark'
@@ -163,14 +166,16 @@ def generate(project, seed, source, variant=None):
     bundle.mkdir()
     (project / 'fixture-inputs').mkdir()
     base = git_fixture(project, variant)
-    scope = writer(project, bundle, source / 'skills/shark-rider/skills/deep-review/scripts', base, variant)
+    scope = writer(project, bundle, source / 'skills/shark-rider/skills/deep-review/scripts', base,
+                   variant, policy)
     history = applied_history(project, binary, bundle, base, variant)
     setup_trace = project / 'fixture-inputs/setup.trace'
     setup_trace.with_suffix('.trace.active').rename(setup_trace)
     provenance = json.loads((bundle / 'provenance.json').read_bytes())
     provenance['setup_trace_sha256'] = digest(setup_trace)
     write_json(bundle / 'provenance.json', provenance)
-    artifacts, packet = read_input(bundle / 'review.md', digest(bundle / 'review.md'), project, scope['candidate_commit'])
+    artifacts, packet = read_input(bundle / 'review.md', digest(bundle / 'review.md'), project,
+                                   scope['candidate_commit'], require_actionable=variant != 'style-downgrade')
     artifacts['provenance.json'] = (bundle / 'provenance.json').read_bytes()
     names = {name: digest(bundle / name) for name in artifacts}
     write_json(bundle / 'manifest.json', names)

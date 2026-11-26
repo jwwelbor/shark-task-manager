@@ -38,7 +38,6 @@ class SyntheticControls(unittest.TestCase):
                                 ('operation', 'applied evidence lacks synthetic input disclosure'),
                                 ('model', 'effective model has no observed invocation'),
                                 ('maintenance', 'optional Feature A worked example'),
-                                ('style', 'surviving actionable finding'),
                                 ('fix-now', 'surviving actionable finding')]:
             project = self.root / variant
             with self.subTest(variant=variant):
@@ -55,6 +54,22 @@ class SyntheticControls(unittest.TestCase):
                 envelope = applied_review(history, self.binary)
                 write_json(project / 'control-result.json', dict(reason=str(refusal.exception),
                            history=history, evidence=envelope['evidence'], report_sha256=digest(report)))
+
+    def test_stylistic_downgrade_is_a_valid_report_only_packet(self):
+        project = self.root / 'style-downgrade'
+        artifacts, _, pin = generate(project, self.seed, self.source, 'style-downgrade')
+        report = (project / 'fixture-review/review.md').read_text()
+        decisions = json.loads((project / 'fixture-review/review.md.decisions.json').read_bytes())
+        angles = json.loads((project / 'fixture-review/review.md.angles.json').read_bytes())
+        self.assertEqual(decisions['findings'][0]['severity'], 'nit')
+        self.assertEqual(decisions['findings'][0]['disposition'], 'no-action')
+        self.assertEqual(angles['a']['findings'][0]['severity'], 'blocker')
+        self.assertIn('current title already names Feature A', report)
+        self.assertIn('no project standard requires a longer title', report)
+        self.assertEqual(pin['history']['entity'], 'B001')
+        self.assertIn('review.md.decisions.json', artifacts)
+        provenance = json.loads(artifacts['provenance.json'])
+        self.assertEqual(provenance['scenario'], 'stylistic downgrade report-only')
 
     def test_each_intake_refuses_a_different_valid_packet_or_operation(self):
         root = self.root / 'intake-pair'

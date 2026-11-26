@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / 'skills/shark-rider/skills/deep-review/scripts'))
 import adaptive_review as review
 
 
-def read_input(report, report_hash, repository, commit):
+def read_input(report, report_hash, repository, commit, require_actionable=True):
     artifacts = {'review.md': review.read_review_file(report, review.MAX_ARTIFACT_BYTES)}
     if hashlib.sha256(artifacts['review.md']).hexdigest() != report_hash:
         raise ValueError('retained report digest differs')
@@ -61,8 +61,13 @@ def read_input(report, report_hash, repository, commit):
         raise ValueError('runner did not complete the review')
     review.validate_review_decisions(decisions, scope, raw, verdict)
     review._require_finding_decision(body, decisions)
-    if not any(f['disposition'] == 'triage' and f['severity'] == 'non-blocker'
-               for f in decisions['findings']):
+    actionable = any(f['disposition'] == 'triage' and f['severity'] == 'non-blocker'
+                     for f in decisions['findings'])
+    report_only = (len(decisions['findings']) == 1
+                   and decisions['findings'][0]['severity'] == 'nit'
+                   and decisions['findings'][0]['disposition'] == 'no-action'
+                   and raw and any(f['severity'] == 'blocker' for f in raw))
+    if (require_actionable and not actionable) or (not require_actionable and not report_only):
         raise ValueError('grant pair requires a surviving actionable finding')
     receipt = {'report_sha256': report_hash, 'replay_candidate': commit, 'replay_tree': tree,
                'replay_diff_sha256': scope['diff_sha256'], 'runner_mode': mode,
