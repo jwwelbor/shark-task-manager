@@ -369,6 +369,19 @@ func readTrackerLedger(projectRoot, runID string) (*trackerattempts.Ledger, erro
 	if err != nil {
 		return nil, err
 	}
+	return readRunLedger(runDir, runID)
+}
+
+// readRunLedger is the one ledger reader: the parent's observation and the
+// admission re-check both go through it, so they cannot disagree on what a
+// readable, run-bound ledger is.
+//
+// Trust model: the ledger records invocations of the shark CLI the host ran
+// with the run's environment. It binds an honest host's attempts, including
+// ones rejected before they mutate, to the run and finding. A host that
+// bypasses the CLI, unsets the environment or edits the file is outside this
+// model; the digest only detects change after the parent observed it.
+func readRunLedger(runDir, runID string) (*trackerattempts.Ledger, error) {
 	data, err := gaterun.ReadBoundedRegularFile(filepath.Join(runDir, trackerattempts.LedgerName), 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("tracker attempt ledger unavailable: %w", err)
@@ -380,23 +393,90 @@ func readTrackerLedger(projectRoot, runID string) (*trackerattempts.Ledger, erro
 	return &ledger, nil
 }
 
+// nonFilingDisposition reports whether a finding disposition files no tracker
+// work and edits nothing: a report-only withdrawal, a refutation or an
+// exclusion.
+func nonFilingDisposition(disposition string) bool {
+	switch disposition {
+	case "report-only", "report_only", "refuted", "excluded":
+		return true
+	}
+	return false
+}
+
 // findingWriteAttempts counts the ledger's write attempts for one finding. An
 // attempt naming another finding is that finding's. An unnamed attempt is
 // charged to this finding unless another finding of the review survives with a
 // disposition that files or edits, in which case it is presumed to be that
-// finding's own write.
+// finding's own write. A non-filing co-finding never claims an unnamed write.
 func findingWriteAttempts(ledger trackerattempts.Ledger, id string, all []bugReviewDecision) int {
 	ids := make([]string, 0, len(all))
 	claimedElsewhere := false
 	for _, decision := range all {
 		ids = append(ids, decision.FindingID)
-		if decision.FindingID != id {
-			switch decision.Disposition {
-			case "report-only", "report_only", "refuted":
-			default:
-				claimedElsewhere = true
-			}
+		if decision.FindingID != id && !nonFilingDisposition(decision.Disposition) {
+			claimedElsewhere = true
 		}
 	}
 	return ledger.WriteAttempts(id, ids, claimedElsewhere)
+}
+
+// BindTrackerLedger completes a host-written parent observation on the Rider
+// apply-result route. It reads the run's ledger (missing is an error), records
+// its digest in the observation and sets each action's tracker_attempts from
+// the ledger, so the host never self-reports those counts. The rewritten file
+// is the one AttachParentTriageObservation digests.
+func BindTrackerLedger(projectRoot, workingDir, runID, path string, envelopeBytes []byte) error {
+	runDir, err := gaterun.RunDir(projectRoot, runID)
+	if err != nil {
+		return err
+	}
+	expectedPath := filepath.Join(runDir, "parent-triage-observation.json")
+	actualPath, err := filepath.Abs(path)
+	if err != nil || actualPath != expectedPath {
+		return fmt.Errorf("parent observation must be at the run-scoped parent-triage-observation.json path")
+	}
+	ledger, err := readRunLedger(runDir, runID)
+	if err != nil {
+		return err
+	}
+	envelope, err := workercontrol.Decode(envelopeBytes)
+	if err != nil {
+		return err
+	}
+	_, all, _, err := measuredReportOnlyFindings(workingDir, envelope.Evidence)
+	if err != nil {
+		return err
+	}
+	data, err := gaterun.ReadBoundedRegularFile(actualPath, 64*1024)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("invalid parent triage observation: %w", err)
+	}
+	actions, _ := doc["actions"].([]any)
+	for _, raw := range actions {
+		action, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("invalid parent triage observation action")
+		}
+		id, _ := action["finding_id"].(string)
+		action["tracker_attempts"] = findingWriteAttempts(*ledger, id, all)
+	}
+	doc["run_id"] = runID
+	doc["tracker_attempt_ledger"] = map[string]any{"run_id": runID, "sha256": ledger.SHA256, "entries": len(ledger.Entries)}
+	bound, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(actualPath, bound, 0o600)
+}
+
+// PrepareTrackerAttemptEnv creates the run's empty ledger and returns the
+// environment a host must give the worker's shark invocations. It is the Rider
+// route's counterpart of the controller's own dispatch setup.
+func PrepareTrackerAttemptEnv(projectRoot, runID string) ([]string, error) {
+	return trackerAttemptEnv(projectRoot, runID)
 }

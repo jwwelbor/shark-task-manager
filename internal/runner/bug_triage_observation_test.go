@@ -15,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 	"github.com/stretchr/testify/require"
 )
@@ -92,7 +93,13 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 			bound := strings.Replace(header, fmt.Sprintf("%x", sha256.Sum256(oldDecisions)), fmt.Sprintf("%x", sha256.Sum256(decisionData)), 1)
 			report := bound + "\n---\nScope: all changed files. Findings: F-1 at change.txt:1 and F-2 at leaf.txt:1 alleged a mandatory spelling. The guide permits both at each site. Both withdrawals are report-only. Verdict: PASS-WITH-TRIAGE.\n"
 			reportRef := save(root, ".shark/"+trial.name+"/report.md", "bug_review_report", []byte(report))
-			observation := mustJSON(t, map[string]any{"candidate_identity": identity, "observed_by": "parent", "actions": actions})
+			// Every route admits a report-only withdrawal only against its run's
+			// ledger, so each saved observation carries its own empty ledger.
+			emptyLedger := sha256.Sum256(nil)
+			observationFor := func(runID string) []byte {
+				return mustJSON(t, map[string]any{"candidate_identity": identity, "observed_by": "parent", "actions": actions,
+					"tracker_attempt_ledger": map[string]any{"run_id": runID, "sha256": fmt.Sprintf("%x", emptyLedger), "entries": 0}})
+			}
 			reviewID := "observation-" + trial.name
 			saveObservation := func(runID string) string {
 				project := parent
@@ -102,7 +109,9 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 				case "other-parent-run":
 					runID += "-other"
 				}
-				return save(project, ".shark/runs/"+runID+"/parent-triage-observation.json", "bug_parent_triage_observation", observation)
+				require.NoError(t, os.MkdirAll(filepath.Join(project, ".shark", "runs", runID), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(project, ".shark", "runs", runID, trackerattempts.LedgerName), nil, 0o600))
+				return save(project, ".shark/runs/"+runID+"/parent-triage-observation.json", "bug_parent_triage_observation", observationFor(runID))
 			}
 			observationRef := saveObservation(reviewID)
 			sharedRefs := scopeRefs + "," + observationRef
@@ -136,7 +145,7 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 						case "qa-other-pointer":
 							qaRefs = scopeRefs + "," + observationRef
 						case "qa-other-digest":
-							qaRefs = strings.Replace(qaRefs, fmt.Sprintf("%x", sha256.Sum256(observation)), strings.Repeat("0", 64), 1)
+							qaRefs = strings.Replace(qaRefs, fmt.Sprintf("%x", sha256.Sum256(observationFor(seedID))), strings.Repeat("0", 64), 1)
 						case "qa-extra-observation":
 							qaRefs += "," + observationRef
 						}
@@ -158,7 +167,7 @@ func testReportOnlyObservations(t *testing.T, root string, scope bugCandidateSco
 							}
 							after, err := os.ReadFile(filepath.Join(source, ref.Pointer))
 							require.NoError(t, err)
-							require.Equal(t, observation, after)
+							require.Equal(t, observationFor(filepath.Base(filepath.Dir(ref.Pointer))), after)
 						})
 					}
 					passTarget := target
@@ -206,8 +215,8 @@ func (trial triageObservationTrial) packetAndActions(packet bugReviewDecisions) 
 	decisions := packet
 	decisions.Findings = append([]bugReviewDecision(nil), packet.Findings...)
 	actions := []map[string]any{
-		{"finding_id": "F-1", "action": "report_only", "edits": 0, "tracker_writes": 0},
-		{"finding_id": "F-2", "action": "report_only", "edits": 0, "tracker_writes": 0},
+		{"finding_id": "F-1", "action": "report_only", "edits": 0, "tracker_writes": 0, "tracker_attempts": 0},
+		{"finding_id": "F-2", "action": "report_only", "edits": 0, "tracker_writes": 0, "tracker_attempts": 0},
 	}
 	switch trial.name {
 	case "hyphenated-withdrawal", "omitted-hyphenated-observation":

@@ -3,6 +3,12 @@
 // invocation to the run's ledger before it parses or validates anything, so an
 // attempt that is rejected before any mutation is still on record. The parent
 // reads the ledger after the dispatch and binds it to the review run.
+//
+// Trust model: the ledger is evidence about an honest host. It records every
+// invocation of the shark CLI that inherited the run's environment, including
+// ones rejected before they mutate. A host that bypasses the CLI, clears the
+// environment or rewrites the file is outside what it can detect, and an
+// invocation's argv names a finding only by the text the host typed.
 package trackerattempts
 
 import (

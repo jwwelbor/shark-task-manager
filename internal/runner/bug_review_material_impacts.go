@@ -13,8 +13,6 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
-	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
-	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
 	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 )
 
@@ -524,6 +522,13 @@ func (action bugParentTriageAction) verifyEditAttempts(want string) error {
 // ledger changed after observation or one bound to another run is rejected.
 func (o bugParentTriageObservation) verifyTrackerAttempts(req gatepersist.Request, expected map[string]string, decisions map[bugFindingKey]bugReviewDecision) error {
 	if o.TrackerAttemptLedger == nil {
+		// A report-only withdrawal is admitted only against the run's ledger, on
+		// every route; an observation that omits it cannot prove zero attempts.
+		for _, action := range expected {
+			if action == bugHostActionReportOnly {
+				return fmt.Errorf("report-only withdrawal requires the run's tracker attempt ledger")
+			}
+		}
 		for _, action := range o.Actions {
 			if action.TrackerAttempts != nil {
 				return fmt.Errorf("%s: tracker_attempts requires the tracker attempt ledger", action.FindingID)
@@ -535,11 +540,7 @@ func (o bugParentTriageObservation) verifyTrackerAttempts(req gatepersist.Reques
 	if o.TrackerAttemptLedger.RunID != runID {
 		return fmt.Errorf("tracker attempt ledger belongs to review run %q, not %q", o.TrackerAttemptLedger.RunID, runID)
 	}
-	data, err := gaterun.ReadBoundedRegularFile(filepath.Join(req.RunDir, trackerattempts.LedgerName), 1<<20)
-	if err != nil {
-		return fmt.Errorf("tracker attempt ledger unavailable: %w", err)
-	}
-	ledger, err := trackerattempts.Parse(data, runID)
+	ledger, err := readRunLedger(req.RunDir, runID)
 	if err != nil {
 		return err
 	}
@@ -550,20 +551,29 @@ func (o bugParentTriageObservation) verifyTrackerAttempts(req gatepersist.Reques
 	for _, decision := range decisions {
 		all = append(all, decision)
 	}
+	totalWrites := 0
+	for _, entry := range ledger.Entries {
+		if entry.Write {
+			totalWrites++
+		}
+	}
 	for _, action := range o.Actions {
 		if action.TrackerAttempts == nil {
 			return fmt.Errorf("%s: tracker_attempts is required with a tracker attempt ledger", action.FindingID)
 		}
 		want := expected[action.FindingID]
-		got := findingWriteAttempts(ledger, action.FindingID, all)
+		got := findingWriteAttempts(*ledger, action.FindingID, all)
 		if *action.TrackerAttempts != got {
 			return fmt.Errorf("%s: tracker_attempts %d does not match %d attempts in the run ledger", action.FindingID, *action.TrackerAttempts, got)
 		}
 		if want == bugHostActionReportOnly && got != 0 {
 			return fmt.Errorf("%s: report-only requires zero attempted tracker writes, ledger has %d", action.FindingID, got)
 		}
-		if action.TrackerWrites != nil && got < *action.TrackerWrites {
-			return fmt.Errorf("%s: tracker_attempts cannot be fewer than committed tracker_writes", action.FindingID)
+		// tracker_writes counts the whole entity's new notes, the same value on
+		// every action, so it is compared with the whole run's write attempts,
+		// never with one finding's share of them.
+		if action.TrackerWrites != nil && totalWrites < *action.TrackerWrites {
+			return fmt.Errorf("%s: the run ledger records %d write attempts, fewer than the %d committed tracker_writes", action.FindingID, totalWrites, *action.TrackerWrites)
 		}
 	}
 	return nil

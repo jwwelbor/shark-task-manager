@@ -15,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/gatepersist"
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
+	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/trackerattempts"
@@ -78,7 +79,11 @@ func TestObserveBugReportOnlyTriageIsParentMeasured(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(root, "file.txt"), []byte("edited\n"), 0600))
 			t.Cleanup(func() { git("checkout", "--", "file.txt") })
 		}
-		attached, injected, err := ObserveBugReportOnlyTriage(context.Background(), BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: runID, TrackerWrites: writes}, envelope)
+		if !plant {
+			_, err := trackerAttemptEnv(root, runID)
+			require.NoError(t, err)
+		}
+		attached, injected, err := ObserveBugReportOnlyTriage(context.Background(), BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: runID, TrackerWrites: writes, RequireLedger: !plant}, envelope)
 		if err != nil {
 			return err
 		}
@@ -205,8 +210,10 @@ func TestObservedEditAttemptsBindHostActionToRunAndFinding(t *testing.T) {
 	root, scope, decisions, envelope := f.root, f.scope, f.decisions, f.envelope
 	observe := func(runID string, started time.Time, touch func()) (gatepersist.Request, error) {
 		touch()
+		_, err := trackerAttemptEnv(root, runID)
+		require.NoError(t, err)
 		attached, injected, err := ObserveBugReportOnlyTriage(context.Background(),
-			BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: runID, Started: started}, envelope)
+			BugTriageWindow{ProjectRoot: root, WorkingDir: root, RunID: runID, Started: started, RequireLedger: true}, envelope)
 		if err != nil {
 			return gatepersist.Request{}, err
 		}
@@ -355,4 +362,91 @@ func TestLiveHostLedgerAdmission(t *testing.T) {
 		return
 	}
 	require.NoError(t, admission)
+}
+
+// B088 R5 blocker 1: an excluded co-finding files nothing, so it cannot claim
+// an unnamed rejected write. The write is charged to the withdrawn finding.
+func TestNonFilingCoFindingNeverClaimsUnnamedWrite(t *testing.T) {
+	unnamed := trackerattempts.Ledger{Entries: []trackerattempts.Entry{{Argv: []string{"create", "note", "--bogus"}, Write: true}}}
+	withdrawn := bugReviewDecision{FindingID: "F-1", Disposition: "report-only"}
+	for _, disposition := range []string{"excluded", "refuted", "report-only", "report_only"} {
+		require.Equal(t, 1, findingWriteAttempts(unnamed, "F-1", []bugReviewDecision{withdrawn, {FindingID: "F-2", Disposition: disposition}}), disposition)
+	}
+	require.Equal(t, 0, findingWriteAttempts(unnamed, "F-1", []bugReviewDecision{withdrawn, {FindingID: "F-2", Disposition: "triaged"}}))
+
+	// Through production admission: the review's own co-finding is excluded.
+	f := newTriageFixture(t)
+	env, err := trackerAttemptEnv(f.root, "excl")
+	require.NoError(t, err)
+	require.NoError(t, trackerattempts.Append(strings.TrimPrefix(env[0], trackerattempts.EnvLog+"="), "excl", "create note", []string{"create", "note", "B001", "--bogus"}, true))
+	attached, _, err := ObserveBugReportOnlyTriage(context.Background(), BugTriageWindow{ProjectRoot: f.root, WorkingDir: f.root, RunID: "excl", RequireLedger: true}, f.envelope)
+	require.NoError(t, err)
+	req := gatepersist.Request{RunDir: filepath.Join(f.root, ".shark", "runs", "excl"), EnvelopeJSON: attached, ParentObservationInjected: true}
+	withExcluded := map[bugFindingKey]bugReviewDecision{{File: "file.txt", Line: 1}: {FindingID: "F-1", Severity: "nit", Disposition: "report-only"}, {File: "other.txt", Line: 2}: {FindingID: "F-2", Severity: "nit", Disposition: "excluded"}}
+	require.ErrorContains(t, validateBugParentTriageObservation(req, f.scope, withExcluded), "report-only requires zero attempted tracker writes, ledger has 1")
+}
+
+// B088 R5 blocker 3: tracker_writes is the whole entity's note delta, copied
+// onto every action. Separate surviving findings that each file a note must be
+// admitted; the delta is compared with the run's writes, not one finding's.
+func TestEntityNoteDeltaIsComparedWithRunLedgerNotOneFinding(t *testing.T) {
+	root := t.TempDir()
+	env, err := trackerAttemptEnv(root, "two-notes")
+	require.NoError(t, err)
+	path := strings.TrimPrefix(env[0], trackerattempts.EnvLog+"=")
+	require.NoError(t, trackerattempts.Append(path, "two-notes", "create note", []string{"create", "note", "B001", "F-2 filed"}, true))
+	require.NoError(t, trackerattempts.Append(path, "two-notes", "create note", []string{"create", "note", "B001", "F-3 filed"}, true))
+	ledger, err := readTrackerLedger(root, "two-notes")
+	require.NoError(t, err)
+	decisions := map[bugFindingKey]bugReviewDecision{{File: "a", Line: 1}: {FindingID: "F-2", Disposition: "triaged"}, {File: "b", Line: 1}: {FindingID: "F-3", Disposition: "triaged"}}
+	expected := map[string]string{"F-2": bugHostActionTriage, "F-3": bugHostActionTriage}
+	observation := func(writes int) bugParentTriageObservation {
+		one := 1
+		return bugParentTriageObservation{
+			TrackerAttemptLedger: &bugTrackerAttemptLedger{RunID: "two-notes", SHA256: ledger.SHA256, Entries: len(ledger.Entries)},
+			Actions: []bugParentTriageAction{
+				{FindingID: "F-2", TrackerWrites: &writes, TrackerAttempts: &one},
+				{FindingID: "F-3", TrackerWrites: &writes, TrackerAttempts: &one},
+			},
+		}
+	}
+	req := gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "two-notes")}
+	require.NoError(t, observation(2).verifyTrackerAttempts(req, expected, decisions))
+	require.ErrorContains(t, observation(3).verifyTrackerAttempts(req, expected, decisions), "fewer than the 3 committed tracker_writes")
+}
+
+// B088 R5 blocker 2: the Rider apply-result route completes the host-written
+// observation from the run's ledger, and a run without a ledger is rejected.
+func TestBindTrackerLedgerCompletesHostObservationAndFailsClosed(t *testing.T) {
+	f := newTriageFixture(t)
+	hostObservation := func(runID string) string {
+		runDir, err := gaterun.RunDir(f.root, runID)
+		require.NoError(t, err)
+		path := filepath.Join(runDir, "parent-triage-observation.json")
+		data := mustJSON(t, map[string]any{"candidate_identity": bugReviewIdentity{f.scope.CandidateCommit, f.scope.CandidateTree, f.scope.DiffSHA256, f.scope.RepairPlanSHA256},
+			"observed_by": "parent", "actions": []map[string]any{{"finding_id": "F-1", "action": "report_only", "edits": 0, "tracker_writes": 0}}})
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+		return path
+	}
+	admit := func(runID string, attempts ...[]string) error {
+		env, err := trackerAttemptEnv(f.root, runID)
+		require.NoError(t, err)
+		for _, argv := range attempts {
+			require.NoError(t, trackerattempts.Append(strings.TrimPrefix(env[0], trackerattempts.EnvLog+"="), runID, "create note", argv, true))
+		}
+		path := hostObservation(runID)
+		if err := BindTrackerLedger(f.root, f.root, runID, path, f.envelope); err != nil {
+			return err
+		}
+		attached, err := AttachParentTriageObservation(f.root, runID, path, f.envelope)
+		require.NoError(t, err)
+		req := gatepersist.Request{RunDir: filepath.Join(f.root, ".shark", "runs", runID), EnvelopeJSON: attached, ParentObservationInjected: true}
+		return validateBugParentTriageObservation(req, f.scope, f.decisions)
+	}
+	require.NoError(t, admit("rider-clean"))
+	require.ErrorContains(t, admit("rider-rejected", []string{"create", "note", "B001", "--bogus"}), "report-only requires zero attempted tracker writes, ledger has 1")
+
+	// No ledger was prepared for this run: the route cannot bind one.
+	path := hostObservation("rider-none")
+	require.ErrorContains(t, BindTrackerLedger(f.root, f.root, "rider-none", path, f.envelope), "ledger unavailable")
 }
