@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -108,6 +110,8 @@ func TestBugRecurrenceSelectsLatestAcceptedSweepFromHistory(t *testing.T) {
 		require.ErrorContains(t, verify(req), "explicit recurrence evidence", "valid evidence credits the predecessor")
 		guardRecord(0) // the guard no longer flags the restored defect
 		require.NoError(t, verify(req), "unsupported sweep must supply no recurrence authority")
+		cited := current("K", "internal/sibling.go:9", "f-new", record("cites-unsupported.json", func(map[string]any) {}))
+		require.ErrorContains(t, verify(cited), "fails guard re-verification", "a recurrence may not cite an unsupported run")
 		require.NoError(t, os.Remove(filepath.Join(root, "c")))
 		require.NoError(t, verify(req), "missing evidence must supply no authority")
 		guardRecord(1)
@@ -120,6 +124,46 @@ func TestBugRecurrenceSelectsLatestAcceptedSweepFromHistory(t *testing.T) {
 		require.ErrorContains(t, err, "recurrence history unavailable")
 		require.Error(t, verifyBugRecurrence(ctx, current("K", "internal/sibling.go:9", "f-new"), nil))
 	})
+}
+
+// A historical guard record is bound to its own run's retained candidate: a
+// record naming a different candidate earns no credit for that run's sweep.
+func TestBugHistoricalGuardRecordIsBoundToItsRunCandidate(t *testing.T) {
+	root := t.TempDir()
+	scope := []string{"internal/foo.go"}
+	site := scope[0] + ":1"
+	scopeDoc := mustJSON(t, map[string]any{"candidate_commit": "reviewed"})
+	require.NoError(t, os.WriteFile(filepath.Join(root, "scope.json"), scopeDoc, 0o600))
+	digest := sha256.Sum256(scopeDoc)
+	guard := func(candidate string) {
+		doc := map[string]any{"guard_pointer": "g", "class_key": "K", "site": site, "candidate": candidate, "enabled": true,
+			"restored":  map[string]any{"exit_code": 1, "flagged_site": site, "diagnostic": "flagged " + site},
+			"corrected": map[string]any{"exit_code": 0}}
+		require.NoError(t, os.WriteFile(filepath.Join(root, "g"), []byte("package guard"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "c"), mustJSON(t, doc), 0o600))
+	}
+	sweep := gateresult.DefectClassSweep{ClassKey: "K", ClassStatement: "s", SearchScope: scope, SearchedCount: 1, MatchingCount: 1, FixedCount: 1,
+		Instances: []gateresult.SweepInstance{{Fingerprint: "old-1", SitePointer: site, Disposition: "fixed"}},
+		Guard:     gateresult.SweepGuard{Kind: "test", ImplementationPointer: "g", CounterfactualPointer: "c", Status: "verified"}, Status: "complete"}
+	envelope := mustJSON(t, map[string]any{"kind": "final", "recommended_outcome": "pass",
+		"evidence":    []any{map[string]any{"kind": "bug_review_scope", "pointer": "scope.json", "summary": "sha256:" + hex.EncodeToString(digest[:])}},
+		"gate_result": map[string]any{"schema_version": 1, "summary": "x", "remediation_sweeps": []any{sweep}}})
+	var notes bugApprovalNotes
+	var history bugApprovalHistory
+	seedMaterialReviewAt(t, root, "", "sweep-old", envelope, &notes, &history)
+	history.items[len(history.items)-1].ToStatus = "development"
+	req := gatepersist.Request{RunDir: filepath.Join(root, ".shark", "runs", "current"), EntityKey: "B001", EntityType: models.EntityTypeBug, Gate: "code_review",
+		Result: &gateresult.GateResult{Findings: []gateresult.Finding{{Severity: "blocker", ClassKey: "K", Fingerprint: "f-new", AffectedIDs: []string{"internal/foo.go:9"}, Disposition: "open"}}}}
+	ctx := context.Background()
+	prior := func() int {
+		got, _, err := acceptedBugSweeps(ctx, req, history)
+		require.NoError(t, err)
+		return len(got)
+	}
+	guard("reviewed")
+	require.Equal(t, 1, prior(), "a record for the run's own candidate earns credit")
+	guard("some-other-candidate")
+	require.Equal(t, 0, prior(), "a record for a different candidate earns no credit")
 }
 
 func ptr(s string) *string { return &s }

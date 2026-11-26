@@ -53,11 +53,14 @@ func verifyBugRecurrence(ctx context.Context, req gatepersist.Request, history g
 	if history == nil {
 		return fmt.Errorf("recurrence history is required to classify successor findings")
 	}
-	prior, err := acceptedBugSweeps(ctx, req, history)
+	prior, unsupported, err := acceptedBugSweeps(ctx, req, history)
 	if err != nil {
 		return fmt.Errorf("recurrence history unavailable: %w", err)
 	}
 	for _, occurrence := range occurrences {
+		if err := rejectUnsupportedCitation(req, occurrence, unsupported); err != nil {
+			return err
+		}
 		match := latestRecurrenceMatch(prior, occurrence)
 		if match == nil {
 			continue
@@ -82,12 +85,38 @@ func currentBugOccurrences(result *gateresult.GateResult) []bugOccurrence {
 	return out
 }
 
-// acceptedBugSweeps lists completed sweeps retained by applied results, oldest first.
-func acceptedBugSweeps(ctx context.Context, req gatepersist.Request, history gatepersist.HistoryReader) ([]bugPriorSweep, error) {
+// rejectUnsupportedCitation rejects a recurrence that cites a prior run whose
+// completed sweep no longer resolves its guard evidence for that class.
+func rejectUnsupportedCitation(req gatepersist.Request, occurrence bugOccurrence, unsupported map[string]map[string]bool) error {
+	root := bugEvidenceProject(req)
+	for _, pointer := range occurrence.evidence {
+		if !filepath.IsLocal(pointer) {
+			continue
+		}
+		data, err := readBoundedBugEvidence(root, pointer, bugEvidenceLimit(""))
+		if err != nil {
+			continue
+		}
+		var record bugRecurrenceRecord
+		if decodeStrict(data, &record) != nil || record.Kind != "recurrence" {
+			continue
+		}
+		if unsupported[record.PriorRunID][record.ClassKey] {
+			return fmt.Errorf("class %s fingerprint %s recurrence cites run %s whose completed sweep fails guard re-verification", occurrence.class, occurrence.fingerprint, record.PriorRunID)
+		}
+	}
+	return nil
+}
+
+// acceptedBugSweeps lists completed sweeps retained by applied results, oldest
+// first, plus the run and class of every completed sweep whose guard evidence
+// no longer verifies.
+func acceptedBugSweeps(ctx context.Context, req gatepersist.Request, history gatepersist.HistoryReader) ([]bugPriorSweep, map[string]map[string]bool, error) {
 	entries, err := history.GetHistory(ctx, req.EntityType, req.EntityKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	unsupported := map[string]map[string]bool{}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 	parent := filepath.Dir(filepath.Dir(filepath.Dir(req.RunDir)))
 	var out []bugPriorSweep
@@ -101,58 +130,72 @@ func acceptedBugSweeps(ctx context.Context, req gatepersist.Request, history gat
 		}
 		fields := strings.Fields(*entry.Notes)
 		runID, digest := fields[5], fields[7]
-		sweeps, err := appliedRunSweeps(parent, req, runID, digest)
+		sweeps, bad, err := appliedRunSweeps(parent, req, runID, digest)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, sweep := range sweeps {
 			out = append(out, bugPriorSweep{runID, sweep})
 		}
+		for _, class := range bad {
+			if unsupported[runID] == nil {
+				unsupported[runID] = map[string]bool{}
+			}
+			unsupported[runID][class] = true
+		}
 	}
-	return out, nil
+	return out, unsupported, nil
 }
 
-func appliedRunSweeps(parent string, req gatepersist.Request, runID, digest string) ([]gateresult.DefectClassSweep, error) {
+func appliedRunSweeps(parent string, req gatepersist.Request, runID, digest string) ([]gateresult.DefectClassSweep, []string, error) {
 	dir, err := gaterun.RunDir(parent, runID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	state, exists, err := gaterun.LoadOperationState(dir)
 	if err != nil || !exists {
-		return nil, fmt.Errorf("accepted run %s operation state is unavailable", runID)
+		return nil, nil, fmt.Errorf("accepted run %s operation state is unavailable", runID)
 	}
 	if state.PersistenceState != gaterun.PersistenceStateTransitioned || state.OperationDigest != digest || !strings.EqualFold(state.EntityKey, req.EntityKey) {
-		return nil, nil // not an accepted, applied result: it supplies no authority
+		return nil, nil, nil // not an accepted, applied result: it supplies no authority
 	}
 	data, exists, err := gaterun.ReadResult(dir)
 	if err != nil || !exists {
-		return nil, fmt.Errorf("accepted run %s result is unavailable", runID)
+		return nil, nil, fmt.Errorf("accepted run %s result is unavailable", runID)
 	}
 	identity, exists, err := gaterun.ReadIdentity(dir)
 	if err != nil || !exists {
-		return nil, fmt.Errorf("accepted run %s identity is unavailable", runID)
+		return nil, nil, fmt.Errorf("accepted run %s identity is unavailable", runID)
 	}
 	computed, err := gaterun.ComputeBoundOperationDigest(req.EntityKey, string(req.EntityType), "code_review", "code_review", data, identity.PlanRoot, identity.PlanCommit, identity.PlanBlob)
 	if err != nil || computed != digest {
-		return nil, fmt.Errorf("accepted run %s result does not match its receipt", runID)
+		return nil, nil, fmt.Errorf("accepted run %s result does not match its receipt", runID)
 	}
 	envelope, err := workercontrol.Decode(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	result, err := gateresult.Decode(envelope.GateResult)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	// Historical guard records bind to this run's own retained candidate.
+	runReq := gatepersist.Request{RunDir: dir, EvidenceRoot: req.EvidenceRoot, EnvelopeJSON: data, EntityKey: req.EntityKey, EntityType: req.EntityType}
 	var complete []gateresult.DefectClassSweep
+	var bad []string
 	for _, sweep := range result.RemediationSweeps {
+		if sweep.Status != "complete" {
+			continue
+		}
 		// A claimed completion earns historical credit only while its paired
 		// guard evidence still resolves; otherwise it supplies no authority.
-		if sweep.Status == "complete" && verifyBugSweepGuard(req, sweep, false) == nil {
+		if verifyBugSweepGuard(req, sweep, runReq) == nil {
 			complete = append(complete, sweep)
+		} else {
+			bad = append(bad, sweep.ClassKey)
 		}
 	}
-	return complete, nil
+	return complete, bad, nil
 }
 
 func sitePath(site string) string {

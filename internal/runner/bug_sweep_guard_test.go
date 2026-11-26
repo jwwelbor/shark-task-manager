@@ -97,6 +97,18 @@ func TestBugSweepGuardPairIsResolvedBeforeWrite(t *testing.T) {
 			})
 		}
 	})
+	t.Run("rework with open instances needs no link", func(t *testing.T) {
+		req := request(map[string]any{}, "open")
+		req.Result.RemediationSweeps[0].OpenCount = 1
+		req.Result.RemediationSweeps[0].Guard.CounterfactualPointer = "absent.json"
+		require.NoError(t, verifyBugSweepGuards(ctx, req, nil))
+	})
+	t.Run("open sweep with no open instances and no link is rejected", func(t *testing.T) {
+		req := request(map[string]any{}, "open")
+		req.Result.RemediationSweeps[0].OpenCount = 0
+		req.Result.RemediationSweeps[0].Guard.CounterfactualPointer = "absent.json"
+		require.ErrorContains(t, verifyBugSweepGuards(ctx, req, nil), "unsupported closure")
+	})
 	t.Run("other entity types are untouched", func(t *testing.T) {
 		req := request(map[string]any{}, "complete")
 		req.EntityType = models.EntityTypeTask

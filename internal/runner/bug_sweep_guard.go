@@ -52,9 +52,14 @@ func verifyBugSweepGuards(ctx context.Context, req gatepersist.Request, items Bu
 	}
 	for _, sweep := range req.Result.RemediationSweeps {
 		var err error
-		if sweep.Status == "complete" {
-			err = verifyBugSweepGuard(req, sweep, true)
-		} else {
+		switch {
+		case sweep.Status == "complete":
+			err = verifyBugSweepGuard(req, sweep, req)
+		case sweep.Status == "open" && sweep.OpenCount == 0:
+			// No instance remains open, so nothing is being reworked: the sweep
+			// stays open only because no feasible guard exists, and it must link
+			// the work item that covers the gap. Ordinary rework with open
+			// instances needs no link.
 			err = verifyOpenSweepLink(ctx, req, sweep, items)
 		}
 		if err != nil {
@@ -95,10 +100,10 @@ func verifyOpenSweepLink(ctx context.Context, req gatepersist.Request, sweep gat
 	return nil
 }
 
-// verifyBugSweepGuard checks a completed sweep's guard pair. bindCandidate
-// binds the corrected run to the candidate under review; historical sweeps
-// were reviewed at an earlier candidate, so they only need a named one.
-func verifyBugSweepGuard(req gatepersist.Request, sweep gateresult.DefectClassSweep, bindCandidate bool) error {
+// verifyBugSweepGuard checks a completed sweep's guard pair. The corrected run
+// is bound to the candidate retained by scopeReq's bug_review_scope: the
+// current request for a current sweep, the sweep's own run for a historical one.
+func verifyBugSweepGuard(req gatepersist.Request, sweep gateresult.DefectClassSweep, scopeReq gatepersist.Request) error {
 	guard := sweep.Guard
 	if !filepath.IsLocal(guard.ImplementationPointer) || !filepath.IsLocal(guard.CounterfactualPointer) {
 		return fmt.Errorf("guard evidence pointers must be project-local")
@@ -115,10 +120,10 @@ func verifyBugSweepGuard(req gatepersist.Request, sweep gateresult.DefectClassSw
 	if err := decodeStrict(data, &run); err != nil {
 		return fmt.Errorf("invalid guard execution record: %w", err)
 	}
-	return checkBugGuardExecution(req, sweep, run, bindCandidate)
+	return checkBugGuardExecution(scopeReq, sweep, run)
 }
 
-func checkBugGuardExecution(req gatepersist.Request, sweep gateresult.DefectClassSweep, run bugGuardExecution, bindCandidate bool) error {
+func checkBugGuardExecution(scopeReq gatepersist.Request, sweep gateresult.DefectClassSweep, run bugGuardExecution) error {
 	if filepath.ToSlash(filepath.Clean(run.GuardPointer)) != filepath.ToSlash(filepath.Clean(sweep.Guard.ImplementationPointer)) || run.ClassKey != sweep.ClassKey {
 		return fmt.Errorf("execution record belongs to a different guard or class")
 	}
@@ -138,13 +143,7 @@ func checkBugGuardExecution(req gatepersist.Request, sweep gateresult.DefectClas
 	if run.Corrected.ExitCode == nil || *run.Corrected.ExitCode != 0 {
 		return fmt.Errorf("guard did not pass on the corrected candidate")
 	}
-	if !bindCandidate {
-		if strings.TrimSpace(run.Candidate) == "" {
-			return fmt.Errorf("execution record does not name its corrected candidate")
-		}
-		return nil
-	}
-	return checkBugGuardCandidate(req, run.Candidate)
+	return checkBugGuardCandidate(scopeReq, run.Candidate)
 }
 
 // checkBugGuardCandidate binds the corrected-code observation to the reviewed
@@ -153,14 +152,19 @@ func checkBugGuardCandidate(req gatepersist.Request, candidate string) error {
 	if strings.TrimSpace(candidate) == "" {
 		return fmt.Errorf("execution record does not name its corrected candidate")
 	}
-	if _, data, err := readBugEvidence(req, "bug_review_scope"); err == nil {
-		var scope bugCandidateScope
-		if err := decodeJSONLoose(data, &scope); err != nil {
-			return err
-		}
-		if scope.CandidateCommit != candidate {
-			return fmt.Errorf("execution record is for a different candidate")
-		}
+	if _, err := findBugEvidence(req, "bug_review_scope"); err != nil {
+		return nil // no retained scope to bind to
+	}
+	_, data, err := readBugEvidence(req, "bug_review_scope")
+	if err != nil {
+		return fmt.Errorf("retained review scope is unreadable: %w", err)
+	}
+	var scope bugCandidateScope
+	if err := decodeJSONLoose(data, &scope); err != nil {
+		return err
+	}
+	if scope.CandidateCommit != candidate {
+		return fmt.Errorf("execution record is for a different candidate")
 	}
 	return nil
 }
