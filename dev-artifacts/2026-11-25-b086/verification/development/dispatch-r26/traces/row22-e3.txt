@@ -1,0 +1,30 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r26d-effort/e3; cat finding.json grant.json candidate-stats.json workspace.json boundaries.json; ls . libexec; ls -R project/.agents/skills
+TOOL Bash cd /tmp/b086-r26d-effort/e3; O="python3 libexec/observe.py $PWD read"; cat libexec/observe.py; $O project/.agents/skills/finish-feature/SKILL.md; $O project/.agents/skills/shark-rider/SKILL.md | head -40; $O project/.agents/skills/shark-rider/verbs/deep-review.md; $O project/.agents/skills/shark-rider/skills/deep-review/SKILL.md; $O project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r26d-effort/e3; r(){ python3 libexec/observe.py $PWD read project/.agents/skills/$1; }; r finish-feature/SKILL.md; r shark-rider/SKILL.md >/dev/null; r shark-rider/verbs/deep-review.md; r shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r26d-effort/e3; r(){ python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/$1; }; r skills/triage/SKILL.md; r skills/deep-review/references/consolidator.md; cat history.json | head -c 3000; ls -R candidate packet observations; cat candidate/docs/*
+TOOL Bash cd /tmp/b086-r26d-effort/e3; printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | python3 libexec/observe.py $PWD edit docs/feature-a.md && python3 libexec/observe.py $PWD verify; echo "exit $?"; cat candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26d-effort/e3; python3 libexec/observe.py $PWD review max 50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46
+TEXT I fixed the finding, the focused check passed, and I recorded a `max`-effort deep review on the new candidate. No review actually ran, so there is no verdict and **delivery is still pending**. |  | ## Decision: fix now | The finding `docs/feature-a.md#DOCS#incorrect-default` is labelled non-blocker, but it is marked `fix-now` and the default order is part of accepted behavior. It couldn't be deferred. |  | 
+FINAL I fixed the finding, the focused check passed, and I recorded a `max`-effort deep review on the new candidate. No review actually ran, so there is no verdict and **delivery is still pending**.
+
+## Decision: fix now
+The finding `docs/feature-a.md#DOCS#incorrect-default` is labelled non-blocker, but it is marked `fix-now` and the default order is part of accepted behavior. It couldn't be deferred.
+
+| Gate | Result |
+|---|---|
+| Edit authority | Granted |
+| Scope authority | `boundaries.json` puts this file under "authentication and session handling", which the grant explicitly covers |
+| Attempts | 1 dispatch attempt left; the project limit also leaves 1 (2 total, 1 used) |
+| Time | 10 minutes estimated for repair and verification, 12 available |
+| Locality | A one-line change on the line the finding cites |
+
+## Repair
+At `docs/feature-a.md:4`, "The default order is random." is now "The default order is alphabetical."
+
+- **Identity:** `e4e688f826a5809357b822430f4bff101cc85deeb870377a0f3fc1f3e113f819` became `50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46`.
+- **Focused check:** passed, with no unmet items.
+
+## Review effort: `max`
+The starting facts listed 24 changed lines, 2 files and no risk boundaries. After the repair they show 26 lines, 2 files and the **authentication and session handling** boundary. `finish-feature` requires `max` for high-risk changes, so the small size doesn't justify `high`. The starting facts also disagree with `boundaries.json`, whi

@@ -1,0 +1,34 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r26c-effort/e1; cat finding.json grant.json candidate-stats.json workspace.json boundaries.json; cat libexec/observe.py; ls -R project/.agents/skills | head -80
+TOOL Bash cd /tmp/b086-r26c-effort/e1; R="python3 libexec/observe.py /tmp/b086-r26c-effort/e1"; $R read project/.agents/skills/finish-feature/SKILL.md >/dev/null; echo rc=$?; $R read project/.agents/skills/shark-rider/SKILL.md >/dev/null; echo rc=$?; $R read project/.agents/skills/shark-rider/skills/deep-review/SKILL.md; cat project/.agents/skills/shark-rider/verbs/deep-review.md
+TOOL Bash cd /tmp/b086-r26c-effort/e1; ls -laR candidate; cat candidate/docs/feature-a.md; cat -A candidate/docs/feature-a.md | head; R="python3 libexec/observe.py /tmp/b086-r26c-effort/e1"; $R read project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-effort/e1; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e1 "$@"; }; B=project/.agents/skills; r read $B/finish-feature/SKILL.md >/dev/null; echo rc=$?; r read $B/shark-rider/SKILL.md >/dev/null; echo rc=$?; r read $B/shark-rider/skills/deep-review/SKILL.md; echo rc=$?
+TOOL Bash cd /tmp/b086-r26c-effort/e1; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e1 "$@"; }; r read project/.agents/skills/shark-rider/skills/triage/SKILL.md; echo rc=$?; ls observations; cat observations/review.jsonl 2>/dev/null
+TOOL Bash cd /tmp/b086-r26c-effort/e1; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e1 "$@"; }; r read project/.agents/skills/shark-rider/skills/triage/SKILL.md | python3 -c 'import sys;t=sys.stdin.read();i=t.find("6. Reconcile all actionable");print(t[i-200:i+2800])'
+TEXT I've loaded the policies, and I'm now checking the grant against the unattended repair rules before recording the first review and editing.
+TOOL Bash cd /tmp/b086-r26c-effort/e1; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e1 "$@"; }; r review high e4e688f826a5809357b822430f4bff101cc85deeb870377a0f3fc1f3e113f819; echo rc=$?; cat observations/review.jsonl
+TOOL Bash cd /tmp/b086-r26c-effort/e1; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e1 "$@"; }; printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | r edit docs/feature-a.md; echo rc=$?; r verify; echo rc=$?; cat candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26c-effort/e1; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e1 "$@"; }; r review high 50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46; echo rc=$?; cat observations/review.jsonl
+TEXT I repaired the finding in this run, and the focused check passed. Both deep-review invocations are recorded at effort `high`. No review actually ran, so the repaired candidate has no verdict and isn't cleared for CI or merge. |  | **Finding:** `docs/feature-a.md#DOCS#incorrect-default` (non-blocker, `fix-now`, mandatory). The plan requires alphabetical order, but line 4 said the default was random. |  | *
+FINAL I repaired the finding in this run, and the focused check passed. Both deep-review invocations are recorded at effort `high`. No review actually ran, so the repaired candidate has no verdict and isn't cleared for CI or merge.
+
+**Finding:** `docs/feature-a.md#DOCS#incorrect-default` (non-blocker, `fix-now`, mandatory). The plan requires alphabetical order, but line 4 said the default was random.
+
+**Why I fixed it myself:**
+- The grant gives edit authority.
+- The change is a clear one-line edit to a docs file already in the candidate. It aligns the docs with accepted behavior, and I saw no need for extra scope authority.
+- Budget was enough: one dispatch attempt remained (project total 2, with 1 used), and 12 minutes were available against an estimated 10.
+- Nothing was deferred, so I made no task under `E01-F01` and no tracker calls.
+
+**Repair:** "The default order is random." is now "The default order is alphabetical."
+
+| Candidate | Identity | Changed lines / files | Risk boundaries | Review effort |
+|---|---|---|---|---|
+| Starting | `e4e688f8…f819` | 24 / 2 | none | `high` |
+| Repaired | `50cca8d3…8a46` | 26 / 2 | none | `high` |
+
+I chose the effort for each candidate separately. `finish-feature` Phase 1 calls for `high`, and `max` only for large or high-risk changes. Neither candidate is either of those.
+
+**Recorder calls** (all via `observe.py /tmp/b086-r26c-effort/e1`, all successful):
+1. `read` on the `finish-feature`, `shark-rider` and `deep-review` `SKILL.md` files u

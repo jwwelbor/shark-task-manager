@@ -1,0 +1,17 @@
+You are an adversarial, read-only code reviewer. Review the candidate described by the scope file for the bug "B086: Unattended review finding disposition falls back to notes".
+
+Inputs (read them; do not modify anything):
+- Scope metadata: /tmp/b086-r26-review3b/scope.json (candidate commit, tree, base commit, diff path, changed files)
+- The complete diff is at the `diff_path` in that scope file; the repository is the `project_root` in it.
+- Approved repair plan: docs/plan/bugs/B086.repair-plan.md (sha256 c7fd7e6102bf9010686ecca03c18b1c93f4176aafd0d3a468f7e5e74da8e33aa); coding standards: docs/architecture/coding-standards.md.
+
+Focus (the diff also holds retained dev-artifacts evidence; spend effort on code and fixture logic first):
+- scripts/testdata/b086 (the project-local host-replay fixture): recorder, preparer, verifier, pairs.py, tests. Check that the paired cases for plan rows 18 and 22 differ only in the decision under test, that the resulting identity for row 22 comes from the recorder and not the fixture, that no expected outcomes reach the host, and that verifier checks can fail.
+- skills/shark-rider and the embedded Go prompts/tests changed since the base commit: the unattended triage procedure, its distribution to all prompt paths.
+- Do not execute external CLIs or call any provider.
+
+Required output: return one JSON object with `report` (Markdown review with scope, findings and a verdict line starting `VERDICT:`) and `decisions` (object with candidate_identity from the scope file and findings: list of objects with file, line, rule, summary, severity (blocker or non-blocker or nit), diagnosis, fingerprint, disposition (fix-now, triage, no-action) and reason).
+
+Context from the two earlier reviews of previous candidates (8dba2d80, ac80a46b): they flagged host prompts that script the observation under test, refused tracker attempts escaping zero-write checks, a missing overlap-only control, weak pair checks, and a --only seed-digest check that rejected retained staged cases. The candidate under review includes fixes (the row 22 prompt no longer scripts the review sequence; hosts review only the resulting candidate, with the starting-candidate review optional). Do not assume the fixes are correct; verify them. Report only findings you can substantiate from the code or retained records.
+
+Output format reminder: reply with exactly one JSON object and nothing else (no code fence). The `report` string must contain a final line `VERDICT: PASS`, `VERDICT: PASS-with-triage` or `VERDICT: FAIL`.

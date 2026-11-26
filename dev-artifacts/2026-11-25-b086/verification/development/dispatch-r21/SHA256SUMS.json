@@ -1,0 +1,11 @@
+{
+  "README.md": "ccb51526a7ef780a73d1cd31e8c2752effa87b05e437fadac4ec20239e7e8f99",
+  "fixture-suite.log": "f14ebfe5ff680f71b2ab6923a6127e96d23f7f66b91acaba488b7b982e92a0c4",
+  "preparation.json": "deb8abd41bce03a9efefa4ce1ea13697ba49d6b8803fd5859d25fb97d4e10190",
+  "prior-pair-input.json": "4ac21992fb19bc870f945605abc7458bb0b150d1e9d371a2c5d9ea00c4ae3212",
+  "prior-pair-runs.json": "c5295cf9ff3494494045aee13ae81de81dd69c1e6c75e5978ac5dc6f34259c4b",
+  "prior-pair-verification.json": "2a19d4186cd47653ea00c08ceea0efaa040f45f2da306437fbd776a88ad899a5",
+  "refusal-replay-evidence.tar.gz": "1e5c24e4b0c14d506a76c8fedae6deed9440c4315d1e68149a604019d8e504bd",
+  "refusal-summary.json": "38b7d8e44c918f8627ce89590160e9c638f7ae87538f5f7ccd8fcc6939465647",
+  "verifier-output.json": "7cf8ed049a8486d8e35bb32acdb1b40f4c4be64c16949eb472ef1265709869be"
+}

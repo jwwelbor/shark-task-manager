@@ -1,0 +1,142 @@
+{
+  "candidate_identity": {
+    "commit": "ac80a46ba4ac219945d8cf7486b5168e5f766a9b",
+    "tree": "14f135c075d78385eb6de323660d572cfc860c11",
+    "diff_sha256": "2b58c2fae3abd3dc14cd3d94971cf964674ac87b05d47416a8dba15a22ca1c2d",
+    "repair_plan_sha256": "c7fd7e6102bf9010686ecca03c18b1c93f4176aafd0d3a468f7e5e74da8e33aa"
+  },
+  "findings": [
+    {
+      "file": "scripts/testdata/b086/host.py",
+      "line": 102,
+      "rule": "TEST-INTEGRITY",
+      "summary": "Host prompts disclose the expected action sequence and gate outcome",
+      "severity": "blocker",
+      "diagnosis": "fix_effort_prompt instructs the host to record the starting review, repair, check and record the resulting review, which is the order and two-review count inspect_fix_effort asserts. Plan row 22 requires verifying that renewed invocation, and the plan keeps expected calls outside host input. The receipt prompt (line 226 onward) also says to send pending state instead of ci, which receipt_checks asserts. host.py has no change since 8dba2d80, where this was a blocker.",
+      "fingerprint": "scripts/testdata/b086/host.py#TEST-INTEGRITY#expected-outcomes-in-host-prompt",
+      "disposition": "fix-now",
+      "reason": "A host following the prompt satisfies the required observation without applying the policy under test; rows relying on these prompts need neutral input and a rerun."
+    },
+    {
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 67,
+      "rule": "REGRESSION",
+      "summary": "--only verification now fails every staged-receipt case",
+      "severity": "blocker",
+      "diagnosis": "matching_dispatch requires the database digest recorded at dispatch to equal the manifest seed digest. prepare.stage_receipt creates a note or task in the case database before dispatch, so the digests differ. The retained r24 receipt-evidence and policy-evidence archives show the mismatch for all five cases. The --only path gained this call in 77958e3e, and no test runs --only on a receipt case.",
+      "fingerprint": "scripts/testdata/b086/verify.py#REGRESSION#only-binding-rejects-staged-receipts",
+      "disposition": "fix-now",
+      "reason": "The candidate verifier reports previously observed delivery-gate evidence as incomplete; bind each case to its own staged database digest and add a test."
+    },
+    {
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 507,
+      "rule": "VERIFIER-GAP",
+      "summary": "Overlap Defer reason check cannot fail",
+      "severity": "non-blocker",
+      "diagnosis": "The overlap word list includes scope and local and is matched against the whole serialized receipt, keys included. defer_readback requires a non-empty scope field and the host prompt requests it, so a Defer justified only by budget still passes. unchanged and overlap can also match keys or negated values. OverlapControl tests preparation only.",
+      "fingerprint": "scripts/testdata/b086/verify.py#VERIFIER-GAP#overlap-reason-vacuous",
+      "disposition": "fix-now",
+      "reason": "Match specific overlap wording in the reason or decision-input values and add a negative control with a budget-only reason."
+    },
+    {
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 424,
+      "rule": "VERIFIER-GAP",
+      "summary": "Refused mutating verbs outside the deny-list are not counted",
+      "severity": "non-blocker",
+      "diagnosis": "WRITE_VERBS lacks verbs such as next, run, start, close, clear, resolve, remove, reorder, withdraw and archive. A refused `shark next E01-F01` or `shark context clear` enters neither creates nor writes, so zero-write checks pass. The new negative test covers create only. These calls are refused and never forwarded.",
+      "fingerprint": "scripts/testdata/b086/verify.py#VERIFIER-GAP#write-verb-denylist-incomplete",
+      "disposition": "fix-now",
+      "reason": "Count every refused non-help invocation as a write attempt unless it matches the recognized read commands."
+    },
+    {
+      "file": "scripts/testdata/b086/pairs.py",
+      "line": 48,
+      "rule": "VERIFIER-GAP",
+      "summary": "Pair checks omit stakes fields and cross-root pins",
+      "severity": "non-blocker",
+      "diagnosis": "compare_inputs omits severity, rule and reason while reporting an identical finding, although row 18 holds stakes fixed. fix_pair compares two preparation roots without comparing policy_commit, fixture_commit, prepared skill digests or the observed host model, and neither pair function runs matching_dispatch. The retained r26 row 18 roots do agree on the pins and model I inspected.",
+      "fingerprint": "scripts/testdata/b086/pairs.py#VERIFIER-GAP#pair-held-fixed-incomplete",
+      "disposition": "fix-now",
+      "reason": "A pair differing in severity, policy source or model would be reported as a controlled comparison."
+    },
+    {
+      "file": "scripts/testdata/b086/test_fixrepair.py",
+      "line": 176,
+      "rule": "TEST-COVERAGE",
+      "summary": "effort_pair allow-list negative test is vacuous",
+      "severity": "non-blocker",
+      "diagnosis": "The prepared cases have no delivered prompt or observations, so effort_pair returns incomplete for any allow-list. The final assertion for ['grant.json'] would pass with the differing-input comparison deleted. There is also no test in which effort_pair or fix_pair returns observed.",
+      "fingerprint": "scripts/testdata/b086/test_fixrepair.py#TEST-COVERAGE#effort-allowlist-assertion-vacuous",
+      "disposition": "fix-now",
+      "reason": "Assert the specific inputs-differing message and add a positive control."
+    },
+    {
+      "file": "scripts/testdata/b086/prepare.py",
+      "line": 86,
+      "rule": "FIXTURE-LOGIC",
+      "summary": "Risk case starting facts contradict its boundary listing",
+      "severity": "non-blocker",
+      "diagnosis": "effort-fix-risk expects high for the starting candidate with empty risk_boundaries, but boundaries.json marks docs/feature-a.md as authentication and session handling, and the starting candidate diff already changes that file (synthetic.git_fixture). A host applying the listing to the starting candidate would choose max and be marked incomplete.",
+      "fingerprint": "scripts/testdata/b086/prepare.py#FIXTURE-LOGIC#risk-start-contradicts-boundaries",
+      "disposition": "triage",
+      "reason": "The retained e3 host chose high and passed, but the expected value depends on an ambiguous input; have the repair touch a boundary file the starting diff does not."
+    },
+    {
+      "file": "scripts/testdata/b086/__pycache__/verify.cpython-312.pyc",
+      "line": 1,
+      "rule": "ARTIFACT-HYGIENE",
+      "summary": "Compiled Python caches are committed",
+      "severity": "non-blocker",
+      "diagnosis": "ac80a46b adds 26 .pyc files under scripts/testdata/b086/__pycache__ although .gitignore excludes them. The inspected file embeds the local absolute worktree path.",
+      "fingerprint": "scripts/testdata/b086/__pycache__#ARTIFACT-HYGIENE#committed-pyc",
+      "disposition": "fix-now",
+      "reason": "Remove generated binaries containing local paths before merge."
+    },
+    {
+      "file": "dev-artifacts/2026-11-25-b086/verification/development/dispatch-r26/README.md",
+      "line": 26,
+      "rule": "EVIDENCE-INTEGRITY",
+      "summary": "Cited blocker dispositions are missing",
+      "severity": "non-blocker",
+      "diagnosis": "The README says see review/ and that each of three blockers is dispositioned in review/README.md. The retained directory is review-first-8dba2d80 and has no README. The first blocker is unaddressed in code.",
+      "fingerprint": "dev-artifacts/2026-11-25-b086/verification/development/dispatch-r26/README.md#EVIDENCE-INTEGRITY#missing-review-dispositions",
+      "disposition": "fix-now",
+      "reason": "The candidate claims a disposition record that does not exist; add it or withdraw the claim."
+    },
+    {
+      "file": "internal/cli/commands/review_output_policy_test.go",
+      "line": 255,
+      "rule": "TEST-COVERAGE",
+      "summary": "Distribution test does not protect the triage procedure or parent handoff",
+      "severity": "non-blocker",
+      "diagnosis": "skills/shark-rider/skills/triage/SKILL.md, which holds the procedure every other path references, is not in the path list. The word parent already existed at base in review-code.md, deep-review SKILL.md and consolidator.md, so that assertion cannot detect loss of the new handoff there.",
+      "fingerprint": "internal/cli/commands/review_output_policy_test.go#TEST-COVERAGE#triage-procedure-unasserted",
+      "disposition": "fix-now",
+      "reason": "Carried over unchanged from the 8dba2d80 review; assert the procedure's key obligations in the triage skill."
+    },
+    {
+      "file": "skills/shark-rider/skills/triage/SKILL.md",
+      "line": 34,
+      "rule": "CONFLICTING-INSTRUCTIONS",
+      "summary": "Attended-only directives are not scoped around the unattended branch",
+      "severity": "non-blocker",
+      "diagnosis": "Step 0 says to fix immediately anything small or in a file already edited on the branch, while unattended steps 2 and 3 require authority and budget checks and restrict discretionary repairs to already-changed lines. Step 5, the anti-pattern forbidding creation before confirmation and the frontmatter also conflict with authorized unattended creation.",
+      "fingerprint": "skills/shark-rider/skills/triage/SKILL.md#CONFLICTING-INSTRUCTIONS#unattended-override-unscoped",
+      "disposition": "fix-now",
+      "reason": "Carried over unchanged; an unattended host could follow Step 0 and edit an unchanged line in an already-edited file."
+    },
+    {
+      "file": "scripts/testdata/b086/host.py",
+      "line": 279,
+      "rule": "SECURITY",
+      "summary": "Real credentials are readable by the agent under test",
+      "severity": "non-blocker",
+      "diagnosis": "run_claude copies the user's Claude credentials into the case HOME while a Bash-enabled agent runs with no filesystem sandbox, and its trace is retained in the repository. The copy is deleted after the run.",
+      "fingerprint": "scripts/testdata/b086/host.py#SECURITY#credentials-readable-by-host",
+      "disposition": "triage",
+      "reason": "Local fixture exposure with no leaked credential file found in the r26 archive listings; track isolation hardening separately."
+    }
+  ]
+}
