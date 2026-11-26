@@ -37,24 +37,24 @@
       },
       "project": "/tmp/b086-r14-host-final-20261125/grant-a/project",
       "requested_model": "gpt-6.2-astra",
-      "review_ci_merge_entries": [],
-      "run_id": "628a7520-7b81-4a5f-b451-1e386858a929",
-      "runner_source_sha256": "06d4a37988a0ecd306ef4b39b81839991b9870523e7371fbab4c3f586c682152",
+      "review_ci_merge_entries": 0,
+      "run_id": "420f77a2-8fdd-4fc2-b4c0-5e9659a271a7",
+      "runner_source_sha256": "84c8d0984df6b9c4a2f5ab8984a93c43b0bb5cc60d5227dedd40751d2d39fe8c",
       "runtime": "codex-cli",
       "runtime_version": "codex-cli 0.172.0",
       "tracker_write_forwards": 1,
       "verification": {
         "children": [
           {
-            "description": "Show the alphabetical output of feature-a list in docs/feature-a.md. docs/feature-a.md#DOCS#worked-example",
+            "description": "Add a worked example to docs/feature-a.md showing feature-a list entries in default alphabetical order. Review fingerprint: docs/feature-a.md#DOCS#worked-example",
             "feature": "E01-F01",
             "key": "T-E01-F01-001",
             "notes": [],
-            "title": "Add a worked example of Feature A\u2019s alphabetical list order"
+            "title": "Add a worked example of alphabetical ordering to Feature A"
           }
         ],
         "missing": [],
-        "run_id": "628a7520-7b81-4a5f-b451-1e386858a929",
+        "run_id": "420f77a2-8fdd-4fc2-b4c0-5e9659a271a7",
         "scope": "tracker and parent observations only",
         "status": "observed"
       }
@@ -112,8 +112,32 @@
     }
   ],
   "fixture_commit": "5a9bbcb18789a6c22048f5b83bb568b935412d97",
+  "host_pair": {
+    "applied_review": {
+      "entity": "B001",
+      "operation_digest": "6b186167d4a5af03c06d56610d7e6db799ecdd6fa833ce9553b4ef562c3a80e0",
+      "project": "/tmp/b086-r14-host-final-20261125/review-source",
+      "run_id": "fixture-code_review-ef055490eae8441083aa4cc3c1719471"
+    },
+    "bundle_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
+    "normalized_prompt_sha256": "888e38252d809813613a1e86434eea9ca94d1468069019148bacc83fbe022057",
+    "runner_source_sha256": "84c8d0984df6b9c4a2f5ab8984a93c43b0bb5cc60d5227dedd40751d2d39fe8c",
+    "seed_database_sha256": "6c7df8c0cf9080ce51e282d37b156e301e578297a02a493467f2280d84f2aaa6",
+    "verification": {
+      "missing": [],
+      "status": "observed"
+    }
+  },
   "packet_manifest_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
   "policy_commit": "73910684da8db7e4a045ddc5a22577c160eef328",
+  "preserved_runs": [
+    {
+      "case": "grant-a",
+      "result": "superseded due to mismatched host instructions; preserved",
+      "run_id": "628a7520-7b81-4a5f-b451-1e386858a929",
+      "runner_source_sha256": "06d4a37988a0ecd306ef4b39b81839991b9870523e7371fbab4c3f586c682152"
+    }
+  ],
   "review_baseline": "1d78ad660f2c55dd188465785b61723a3b7e6a6c",
   "runner_source_note": "Grant A used the host.py digest captured in the original preparation manifest. Grant B used the host.py digest of the launcher active at its run; that source is the branch file archived in the deliverable commit.",
   "schema_version": 1

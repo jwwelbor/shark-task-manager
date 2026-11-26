@@ -2,15 +2,15 @@
   "grant-a": {
     "children": [
       {
-        "description": "Show the alphabetical output of feature-a list in docs/feature-a.md. docs/feature-a.md#DOCS#worked-example",
+        "description": "Add a worked example to docs/feature-a.md showing feature-a list entries in default alphabetical order. Review fingerprint: docs/feature-a.md#DOCS#worked-example",
         "feature": "E01-F01",
         "key": "T-E01-F01-001",
         "notes": [],
-        "title": "Add a worked example of Feature A\u2019s alphabetical list order"
+        "title": "Add a worked example of alphabetical ordering to Feature A"
       }
     ],
     "missing": [],
-    "run_id": "628a7520-7b81-4a5f-b451-1e386858a929",
+    "run_id": "420f77a2-8fdd-4fc2-b4c0-5e9659a271a7",
     "scope": "tracker and parent observations only",
     "status": "observed"
   },
@@ -19,6 +19,10 @@
     "missing": [],
     "run_id": "98d0d497-9cae-487f-ae87-f24dd5cf8f54",
     "scope": "tracker and parent observations only",
+    "status": "observed"
+  },
+  "pair_input": {
+    "missing": [],
     "status": "observed"
   }
 }

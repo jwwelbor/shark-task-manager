@@ -10,12 +10,47 @@ import unittest
 
 from observe import CONSOLIDATOR, REVIEW, TRIAGE, WORKFLOW
 from test_packet import write_test_packet
-from verify import host_receipt
+from verify import host_receipt, paired_host_input
 
 HERE = Path(__file__).resolve().parent
 
 
 class Verify(unittest.TestCase):
+    def test_grant_pair_requires_identical_host_input_and_only_grant_difference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, feature in [('grant-a', 'E01-F01'), ('grant-b', 'E01-F02')]:
+                case = root / name
+                case.mkdir()
+                (case / 'grant.json').write_text(json.dumps({
+                    'mode': 'unattended', 'requested_feature': 'E01-F01',
+                    'create_task_under': feature, 'edit_authority': False,
+                }))
+            common = {
+                'runner_source_sha256': 'a' * 64,
+                'normalized_prompt_sha256': 'b' * 64,
+                'bundle_sha256': 'c' * 64,
+                'candidate': 'candidate',
+                'applied_review_run_id': 'review-run',
+                'applied_review_operation_digest': 'd' * 64,
+                'seed_database_sha256': 'e' * 64,
+            }
+            pair = {'pinned_runner_source_sha256': common['runner_source_sha256'],
+                    'cases': {'grant-a': dict(common), 'grant-b': dict(common)}}
+            (root / 'host-pair.json').write_text(json.dumps(pair))
+            manifest = {
+                'review_intake': {'bundle_sha256': common['bundle_sha256'],
+                                  'history': {'run_id': common['applied_review_run_id'],
+                                              'operation_digest': common['applied_review_operation_digest']}},
+                'packet': {'replay_candidate': common['candidate']},
+                'seed_database_sha256': common['seed_database_sha256'],
+            }
+            self.assertEqual(paired_host_input(root, manifest), [])
+            pair['cases']['grant-b']['normalized_prompt_sha256'] = 'f' * 64
+            (root / 'host-pair.json').write_text(json.dumps(pair))
+            self.assertIn('matched host instructions and frozen input receipt',
+                          paired_host_input(root, manifest))
+
     def test_native_host_receipt_is_bound_to_private_skills_and_forbids_nested_provider(self):
         with tempfile.TemporaryDirectory() as temp:
             case = Path(temp) / 'grant-a'

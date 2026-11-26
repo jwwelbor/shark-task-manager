@@ -14,6 +14,46 @@ def records(path):
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
+def paired_host_input(root, manifest):
+    """Require both grant cases to use the same pinned host instructions and input."""
+    path = root / 'host-pair.json'
+    if not path.exists():
+        return ['matched host instructions and frozen input receipt']
+    try:
+        pair = json.loads(path.read_bytes())
+        cases = pair['cases']
+        a, b = cases['grant-a'], cases['grant-b']
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return ['valid matched host instructions and frozen input receipt']
+    missing = []
+    equal_fields = (
+        'runner_source_sha256', 'normalized_prompt_sha256',
+        'bundle_sha256', 'candidate', 'applied_review_run_id',
+        'applied_review_operation_digest', 'seed_database_sha256',
+    )
+    if any(not a.get(field) or a.get(field) != b.get(field) for field in equal_fields):
+        missing.append('matched host instructions and frozen input receipt')
+    if (a.get('runner_source_sha256') != pair.get('pinned_runner_source_sha256')
+            or a.get('bundle_sha256') != manifest.get('review_intake', {}).get('bundle_sha256')
+            or a.get('candidate') != manifest.get('packet', {}).get('replay_candidate')
+            or a.get('applied_review_run_id') != manifest.get('review_intake', {}).get('history', {}).get('run_id')
+            or a.get('applied_review_operation_digest') != manifest.get('review_intake', {}).get('history', {}).get('operation_digest')
+            or a.get('seed_database_sha256') != manifest.get('seed_database_sha256')):
+        missing.append('host pair matches pinned bundle, candidate, applied review and seed')
+    grants = {}
+    for name in ('grant-a', 'grant-b'):
+        try:
+            grants[name] = json.loads((root / name / 'grant.json').read_bytes())
+        except (OSError, json.JSONDecodeError):
+            return missing + ['both grant inputs are readable']
+    common_a, common_b = dict(grants['grant-a']), dict(grants['grant-b'])
+    feature_a = common_a.pop('create_task_under', None)
+    feature_b = common_b.pop('create_task_under', None)
+    if common_a != common_b or (feature_a, feature_b) != ('E01-F01', 'E01-F02'):
+        missing.append('grant is the only host-case input that differs')
+    return missing
+
+
 def host_receipt(case, manifest, events, run_id):
     observations = case / 'observations'
     setup_path = observations / 'host-setup.json'
@@ -201,5 +241,13 @@ if __name__ == '__main__':
     root = args.root.resolve(strict=True)
     manifest = json.loads((root / 'preparation.json').read_bytes())
     result = {case: inspect_case(root / case, manifest, args.fingerprint) for case in ('grant-a', 'grant-b')}
+    pair_missing = paired_host_input(root, manifest)
+    result['pair_input'] = {'status': 'incomplete' if pair_missing else 'observed',
+                            'missing': pair_missing}
+    if pair_missing:
+        for case in ('grant-a', 'grant-b'):
+            result[case]['status'] = 'incomplete'
+            result[case]['missing'].extend(pair_missing)
     print(json.dumps(result, indent=2))
-    raise SystemExit(0 if all(r['status'] == 'observed' for r in result.values()) else 1)
+    raise SystemExit(0 if all(result[key]['status'] == 'observed' for key in ('grant-a', 'grant-b'))
+                     and result['pair_input']['status'] == 'observed' else 1)
