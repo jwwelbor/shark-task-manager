@@ -61,6 +61,10 @@ def git_fixture(project, variant):
         if variant == 'maintenance':
             doc.write('By default the order is alphabetical.\n')
     git('add', FILE, PLAN)
+    if variant == 'large-diff':
+        # Unrelated lines in a separate file grow the diff without touching the finding or its repair site.
+        (project / 'docs/unrelated.md').write_text(''.join(f'Unrelated entry {n}\n' for n in range(1800)))
+        git('add', 'docs/unrelated.md')
     git('commit', '-m', 'Document the Feature A default')
     return base
 

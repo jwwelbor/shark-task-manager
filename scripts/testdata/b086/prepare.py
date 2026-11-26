@@ -395,7 +395,7 @@ if __name__ == '__main__':
                         help='stage a third case from the matching grant for the subsequent refusal replay')
     parser.add_argument('--scenario', action='append', default=[], metavar='NAME:KIND',
                         help='stage an extra case from the matching grant: ' + ', '.join(sorted(SCENARIOS)))
-    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial', 'mandatory'],
+    parser.add_argument('--synthetic-variant', choices=['worked-example', 'style-downgrade', 'adversarial', 'mandatory', 'large-diff'],
                         default='worked-example', help='choose the synthetic reviewer finding')
     parser.add_argument('--policy-commit', default=POLICY,
                         help='pinned Shark policy source commit; default is the approved fixture policy')

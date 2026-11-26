@@ -163,5 +163,21 @@ class Mandatory(unittest.TestCase):
         self.assertEqual(missing, ['exactly one applied repair edit'])
 
 
+class LargeDiff(unittest.TestCase):
+    def test_unrelated_lines_grow_the_diff_without_changing_the_finding_or_the_repair_site(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            done = subprocess.run([sys.executable, HERE / 'prepare.py', root, '--synthetic', '--synthetic-variant',
+                                   'large-diff', '--scenario', 'f0:fix'], capture_output=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            scope = json.loads((root / 'f0/packet/review.md.scope.json').read_bytes())
+            self.assertIn('docs/unrelated.md', scope['changed_files'])
+            self.assertGreater(int(scope['diff_shortstat'].split(' insertions')[0].split()[-1]), 1800)
+            decision = json.loads((root / 'f0/packet/review.md.decisions.json').read_bytes())['findings']
+            self.assertEqual([(d['disposition'], d['fingerprint']) for d in decision],
+                             [('triage', 'docs/feature-a.md#DOCS#worked-example')])
+            self.assertEqual(sorted(p.name for p in (root / 'f0/candidate/docs').iterdir()), ['feature-a.md'])
+
+
 if __name__ == '__main__':
     unittest.main()
