@@ -1,0 +1,60 @@
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): artifact_type = "log" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): artifact_type = "other" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): edge_kind = "modified" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): edge_kind = "referenced" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): edge_kind = "evaluator_access" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "resource_limit" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "lease_loss" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "missing_outcome" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "unresolved_gate" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "pause" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "archive" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "error" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "cancellation" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "worker_failure" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): stop_outcome = "timeout" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "missing_root" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "overlapping_root" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "unknown_stage_category" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "unknown_interval_category" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "ledger_overlap" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "ledger_non_reconciling" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "ledger_window_escape" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "candidate_field_missing" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "artifact_field_missing" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "unmapped_provider" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "test_suite_unavailable" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "unverified_required_slot" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "evaluator_access_out_of_order" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "isolation_violation" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "publication_eligible_conflict" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "duplicate_dispatch_ordinal" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "unsupported_schema_version" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "missing_stage" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "missing_provider" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "unmatched_dispatch" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "snapshot_mutated" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "tracked_file_changed" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "untracked_file_changed" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "test_suite_changed" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "artifact_consumption_record_missing" is in i05-schema.yaml but no valid/ fixture uses it
+    e40_i05_stage_evidence_contract_test.go:324: declared but unexercised (AC-020, non-fatal): error_kind = "envelope_source_unavailable" is in i05-schema.yaml but no valid/ fixture uses it
+--- PASS: TestTC042_I05StageEvidenceContract (0.01s)
+    e40_i06_product_design_replay_contract_test.go:984: declared but unexercised (AC-015, non-fatal): stage = "D02" is in i06-schema.yaml but no valid/ fixture uses it
+    e40_i06_product_design_replay_contract_test.go:984: declared but unexercised (AC-015, non-fatal): stage = "D04" is in i06-schema.yaml but no valid/ fixture uses it
+    e40_i06_product_design_replay_contract_test.go:984: declared but unexercised (AC-015, non-fatal): stage = "D05" is in i06-schema.yaml but no valid/ fixture uses it
+    e40_i06_product_design_replay_contract_test.go:984: declared but unexercised (AC-015, non-fatal): artifact_type = "other" is in i06-schema.yaml but no valid/ fixture uses it
+    e40_i06_product_design_replay_contract_test.go:984: declared but unexercised (AC-015, non-fatal): edge_kind = "read" is in i06-schema.yaml but no valid/ fixture uses it
+    e40_i06_product_design_replay_contract_test.go:984: declared but unexercised (AC-015, non-fatal): edge_kind = "modified" is in i06-schema.yaml but no valid/ fixture uses it
+    e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "bundle_bulk_disclosure" is in i06-schema.yaml but this test run never emitted it as a
+    e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "consumption_evidence_missing" is in i06-schema.yaml but this test run never emitted i
+    e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "orphan" is in i06-schema.yaml but this test run never emitted it as a message prefix
+    e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "replay_desync" is in i06-schema.yaml but this test run never emitted it as a message 
+    e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "unresolved_gate" is in i06-schema.yaml but this test run never emitted it as a messag
+    e40_i06_product_design_replay_contract_test.go:1103: declared but unexercised (AC-015, non-fatal): error_kind "unresolved_gate_count_inconsistent" is in i06-schema.yaml but this test run never emi
+--- PASS: TestTC052_I06ProductDesignReplayContract (0.00s)
+--- PASS: TestTC061_I07LifecycleRunContract (0.80s)
+--- PASS: TestTC067_I08LifecycleEvaluationContract (0.92s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/tests/contracts	108.527s
+rc=0

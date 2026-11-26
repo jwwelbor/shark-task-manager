@@ -1,0 +1,39 @@
+TOOL Skill {"skill": "shark-rider"}
+TOOL Skill {"skill": "finish-feature"}
+TOOL Bash cd /tmp/b086-r26c-large/f0; cat grant.json workspace.json; cat libexec/observe.py; ls project/.agents/skills project/.agents/skills/shark-rider project/.agents/skills/shark-rider/skills/*
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 /tmp/b086-r26c-large/f0/libexec/observe.py /tmp/b086-r26c-large/f0 intake /tmp/b086-r26c-large/f0/packet /tmp/b086-r26c-large/f0/history.json
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 -I -c ' | import json,sys | d=json.load(open(sys.argv[1])) | for k,v in d.items(): |     s=v if isinstance(v,str) else json.dumps(v,indent=1) |     print("=====",k,len(s));print(s[:9000]) | ' /tmp/b086-r26c-large/f0/host-home/.claude/projects/-tmp-b086-r26c-large-f0-project/8d2b7997-833d-43cf-b97f-241cd9e1d07d/tool-results/br7exyy22.txt
+TOOL Bash cd /tmp/b086-r26c-large/f0; R="python3 libexec/observe.py /tmp/b086-r26c-large/f0 read"; $R project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 libexec/observe.py /tmp/b086-r26c-large/f0 read project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 libexec/observe.py /tmp/b086-r26c-large/f0 read project/.agents/skills/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 libexec/observe.py /tmp/b086-r26c-large/f0 read project/.agents/skills/shark-rider/skills/deep-review/references/consolidator.md
+TOOL Bash cd /tmp/b086-r26c-large/f0/project; /tmp/b086-r26c-large/f0/project/shark skill get quality workflows/review-code.md --raw; echo "--- rc=$?"
+TOOL Bash cd /tmp/b086-r26c-large/f0; cat -A candidate/docs/feature-a.md; find candidate -type f | head -20; cat candidate-stats.json boundaries.json; cat history.json
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 libexec/observe.py /tmp/b086-r26c-large/f0 shark get E01-F01 --json
+TEXT Intake checks out and the policy reads are done. I'm now applying the one-line docs fix, then verifying it.
+TOOL Bash cd /tmp/b086-r26c-large/f0; printf '%s\n' '# Feature A' '' 'Run feature-a list to list entries.' 'The default order is alphabetical. For example, with entries pear and apple, the list shows apple first.' | python3 libexec/observe.py /tmp/b086-r26c-large/f0 edit docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 libexec/observe.py /tmp/b086-r26c-large/f0 verify; echo "rc=$?"; cat -A candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26c-large/f0; python3 libexec/observe.py /tmp/b086-r26c-large/f0 disposition <<'EOF' | { |  "project": "/tmp/b086-r26c-large/review-source", |  "tracker_project": "/tmp/b086-r26c-large/f0/project", |  "entity": "B001", |  "run_id": "fixture-code_review-b16cf6557a05449ba54d1605d7d25ff7", |  "operation_digest": "d893d4d36a6920109afe2dfa36e744f86099c7e20cbbe756684f55e22f5a4c3a", |  "fingerprint": "docs/feature-a.md#DOCS#worked-example", |  "original_concern": "Add a worked example under Feature A. A second example would help users apply the default order.", |  "classification": "non-blocker", |  "decision": "Fix", |  "reason": "Unambiguous one-line documentation repair on a line the reviewed diff added, inside edit authority and remaining budget; the triage fix-now gate resolves it in place. The review's note that it can wait does not require deferral. No tracker item created.", |  "decision_inputs": { |   "mode": "unattended", |   "requested_feature": "E01-F01", |   "edit_authority": true, |   "dispatch_remaining_attempts": 1, |   "project_attempts": "2 total, 1 consumed", |   "available_minutes": 12, |   "estimated_repair_and_verification_minutes": 10, |   "changed_line_overlap": "docs/feature-a.md line 4, added by the reviewed diff", |   "scope_boundaries": "no public contract, security, persistence or cross-owner change", |   "evidence_label": "report states canonical-six-angle, PASS-with-triage; provenance states the six angle inputs and consolidation decision are synthetic", |   "requested_model": "unknown", |   "verified_effective_model": "unknown" |  }, |  "reviewed_candidate_commit": "413b586cd01256b55dd052e983c6d401deb6cd3b", |  "reviewed_candidate_tree": "49c2e04e4f15f82d0d84344cb5dd6a328a0f9742", |  "reviewed_diff_sha256": "144cc28786f1ce37e913f2b3116fc5b466b68435a95061447363149fb5d80f09", |  "actual_diff": "--- a/docs/feature-a.md\n+++ b/docs/feature-a.md\n@@ -4 +4 @@\n-The default order is alphabetical.\n+The default order is alphabetical. For example, with entries pear and apple, the list shows apple first.", |  "workspace_identity_before": "d58a7c5be1259062519baf85b123703494b74b39264263fde2f19de8c5a29533", |  "resulting_candidate_identity": "af7bf9b39fd15b98e3827746260efb090726fc324e9895ee44c90f73e4a9fa96", |  "focused_check": {"command": "recorder verify", "passed": true, "unmet": []}, |  "pending": ["fresh candidate review on the resulting identity, reclassifying size and risk (reviewed diff is 3 files, 1806 insertions)", "QA on the resulting identity", "CI", "merge"] | } | EOF | echo "rc=$?"
+TEXT I classified the finding as a **non-blocker** and chose **Fix**. The repair passed its focused check and the disposition is recorded, but delivery is still pending. |  | **Finding:** `docs/feature-a.md#DOCS#worked-example`, from run `fixture-code_review-b16cf6557a05449ba54d1605d7d25ff7` (entity B001, project `/tmp/b086-r26c-large/review-source`). |  | **Why fix it now** | - It's a one-line docs change on a 
+FINAL I classified the finding as a **non-blocker** and chose **Fix**. The repair passed its focused check and the disposition is recorded, but delivery is still pending.
+
+**Finding:** `docs/feature-a.md#DOCS#worked-example`, from run `fixture-code_review-b16cf6557a05449ba54d1605d7d25ff7` (entity B001, project `/tmp/b086-r26c-large/review-source`).
+
+**Why fix it now**
+- It's a one-line docs change on a line the reviewed diff added, so it meets the triage fix-now gate.
+- The grant allows edits, one attempt remains, and the estimated 10 minutes fits the 12 available.
+- The review said the example "can wait", but that doesn't require deferring a cheap local repair.
+- I didn't treat it as a report-only Nit: it improves how users understand the default order, and the review labelled it a non-blocker.
+
+**Change** (`docs/feature-a.md:4`):
+```diff
+-The default order is alphabetical.
++The default order is alphabetical. For example, with entries pear and apple, the list shows apple first.
+```
+- **Candidate identity:** it went from `d58a7c5b…9533` to `af7bf9b39fd15b98e3827746260efb090726fc324e9895ee44c90f73e4a9fa96`.
+- **Check:** `verify` passed with no unmet conditions.
+
+**Still pending:** fresh review of the new candidate, QA, CI and merge. I ran none of them. The reviewed diff has 1,806 added lines, so size and risk need reclassifying at re-review. `finish-feature` calls for `max` effort on large changes.
+
+**Worth checking before merge**
+- **Evidence:** the report is labelled `canonical-si

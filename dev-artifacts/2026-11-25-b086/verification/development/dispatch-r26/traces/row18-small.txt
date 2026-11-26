@@ -1,0 +1,37 @@
+TOOL Skill {"skill": "shark-rider"}
+TOOL Skill {"skill": "finish-feature"}
+TOOL Bash cd /tmp/b086-r26c-small/f0; cat grant.json workspace.json; echo; cat libexec/observe.py; ls packet project/.agents/skills
+TOOL Bash cd /tmp/b086-r26c-small/f0; R="python3 libexec/observe.py /tmp/b086-r26c-small/f0"; $R intake /tmp/b086-r26c-small/f0/packet /tmp/b086-r26c-small/f0/history.json
+TOOL Bash python3 /tmp/b086-r26c-small/f0/libexec/observe.py /tmp/b086-r26c-small/f0 intake /tmp/b086-r26c-small/f0/packet /tmp/b086-r26c-small/f0/history.json
+TOOL Bash cd /tmp/b086-r26c-small/f0; for f in shark-rider/skills/triage/SKILL.md shark-rider/skills/deep-review/SKILL.md shark-rider/skills/deep-review/references/consolidator.md; do echo "=== $f"; python3 /tmp/b086-r26c-small/f0/libexec/observe.py /tmp/b086-r26c-small/f0 read project/.agents/skills/$f; done
+TOOL Bash cd /tmp/b086-r26c-small/f0/project; python3 /tmp/b086-r26c-small/f0/libexec/observe.py /tmp/b086-r26c-small/f0 shark skill get quality workflows/review-code.md --raw
+TOOL Bash cd /tmp/b086-r26c-small/f0; cat candidate/docs/feature-a.md; echo ---; find candidate -type f; cat candidate-stats.json boundaries.json history.json 2>&1
+TOOL Bash sed -n 1,200p /tmp/b086-r26c-small/f0/host-home/.claude/projects/-tmp-b086-r26c-small-f0-project/4748d1cf-c14a-442f-8a82-6e1210823186/tool-results/bcm6mtqay.txt
+TEXT I've validated the intake and I'm now reading the rest of the required review policy before making any tracker calls.
+TOOL Bash sed -n 200,420p /tmp/b086-r26c-small/f0/host-home/.claude/projects/-tmp-b086-r26c-small-f0-project/4748d1cf-c14a-442f-8a82-6e1210823186/tool-results/bcm6mtqay.txt
+TOOL Bash sed -n 420,700p /tmp/b086-r26c-small/f0/host-home/.claude/projects/-tmp-b086-r26c-small-f0-project/4748d1cf-c14a-442f-8a82-6e1210823186/tool-results/bcm6mtqay.txt
+TOOL Bash cd /tmp/b086-r26c-small/f0/project; python3 /tmp/b086-r26c-small/f0/libexec/observe.py /tmp/b086-r26c-small/f0 shark notes search "docs/feature-a.md#DOCS#worked-example"; echo "exit $?"; git hash-object /tmp/b086-r26c-small/f0/candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26c-small/f0; printf '%s\n' '# Feature A' '' 'Run feature-a list to list entries.' 'The default order is alphabetical. For example, with entries pear and apple, the list shows apple first.' | python3 /tmp/b086-r26c-small/f0/libexec/observe.py /tmp/b086-r26c-small/f0 edit docs/feature-a.md && python3 /tmp/b086-r26c-small/f0/libexec/observe.py /tmp/b086-r26c-small/f0 verify; echo "exit $?"; cat candidate/docs/feature-a.md; git hash-object candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26c-small/f0; python3 /tmp/b086-r26c-small/f0/libexec/observe.py /tmp/b086-r26c-small/f0 disposition <<'EOF' | { |  "project": "/tmp/b086-r26c-small/review-source", |  "tracker_project": "/tmp/b086-r26c-small/f0/project", |  "entity": "B001", |  "run_id": "fixture-code_review-478ed690379842888be321bb04d61500", |  "operation_digest": "ebec2040a83e9b3ec668491278c638b7a44b9bf196f8403470b3a11480c2506a", |  "fingerprint": "docs/feature-a.md#DOCS#worked-example", |  "classification": "non-blocker", |  "decision": "Fix", |  "reason": "Unambiguous one-line docs repair with an exact proposed patch, on a line the reviewed diff already added, within edit authority and remaining budget. The triage fix-now gate resolves it in place; the consolidator's 'can wait' note does not remove an affordable local fix. No tracker entity created.", |  "decision_inputs": { |   "original_concern": "Add a worked example under Feature A", |   "reviewer_disposition": "triage", |   "reviewer_reason": "Feature A already documents the required command and default. A second worked example can wait.", |   "evidence_label": "canonical-six-angle; angle inputs and consolidation are synthetic", |   "requested_model": "unknown", |   "effective_model": "unknown", |   "reviewed_candidate_commit": "c6bde86451f62fe9255d811bfd9096f78b541481", |   "reviewed_tree": "bb91fb7d6281bb8a9221f4a9dd9b787adad745b5", |   "reviewed_diff_sha256": "275205ea7e280c0ba6eb1585c54a4df8bdc4274d92ff8b41a27a3123bd7a5fb0", |   "grant": {"mode": "unattended", "edit_authority": true, "requested_feature": "E01-F01"}, |   "budget": {"dispatch_remaining_attempts": 1, "project_total_attempts": 2, "project_consumed_attempts": 1, "project_remaining_attempts": 1, "available_minutes": 12, "estimated_repair_and_verification_minutes": 10}, |   "locality": "replaces the already-changed line 4 of docs/feature-a.md; no public contract, security, persistence or cross-owner change", |   "fingerprint_note_search": "no results" |  }, |  "receipt": { |   "diff": "docs/feature-a.md line 4: -The default order is alphabetical. +The default order is alphabetical. For example, with entries pear and apple, the list shows apple first.", |   "starting_candidate_identity": "50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46", |   "resulting_candidate_identity": "93d926e63075960fa25f9ad5fc0ac93148031cef3fea2bdae24508e43cbfaba7", |   "focused_check": {"call": "verify", "passed": true, "unmet": []}, |   "fresh_candidate_review": "pending on resulting identity", |   "qa": "pending on resulting identity", |   "delivery": "pending; no CI or merge run" |  } | } | EOF | echo "exit $?"
+TEXT I classified the finding as a **non-blocker** and **fixed it in place**. Delivery is still pending fresh candidate review and QA. |  | **Finding:** `docs/feature-a.md#DOCS#worked-example`, "Add a worked example under Feature A" (run `fixture-code_review-478ed690379842888be321bb04d61500`, entity B001). |  | **Why Fix** | - The report proposed an exact one-line change on a line the reviewed diff had already a
+FINAL I classified the finding as a **non-blocker** and **fixed it in place**. Delivery is still pending fresh candidate review and QA.
+
+**Finding:** `docs/feature-a.md#DOCS#worked-example`, "Add a worked example under Feature A" (run `fixture-code_review-478ed690379842888be321bb04d61500`, entity B001).
+
+**Why Fix**
+- The report proposed an exact one-line change on a line the reviewed diff had already added.
+- The grant allows edits. One attempt remains, with 12 minutes available against an estimated 10.
+- The triage fix-now rule resolves this kind of local repair directly. The reviewer's "can wait" didn't justify deferring an affordable fix.
+- I didn't downgrade it to Nit, so no parent report was needed. No tracker item was created.
+
+**Change** (`docs/feature-a.md`, line 4)
+- Before: `The default order is alphabetical.`
+- After: `The default order is alphabetical. For example, with entries pear and apple, the list shows apple first.`
+
+**Evidence**
+- Intake validated the packet against the applied history. Before editing, the candidate file's blob hash (`f200f17…`) matched the post-change hash in the reviewed diff.
+- Candidate identity went from `50cca8d3…9578a46` to `93d926e63075960fa25f9ad5fc0ac93148031cef3fea2bdae24508e43cbfaba7`.
+- The focused `verify` check passed with nothing unmet.
+- The review is labelled `canonical-six-angle`, but its angle inputs and consolidation are synthetic. The requested and effective models are unknown.
+
+**Still pending:** fresh review and QA on the
