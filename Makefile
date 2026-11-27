@@ -108,7 +108,7 @@ lint:
 		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.9.0; \
 	fi
 	@export PATH=$$PATH:$$HOME/go/bin && golangci-lint run
-	@export PATH=$$PATH:$$HOME/go/bin && golangci-lint run --config=.golangci-limits.yml
+	@export PATH=$$PATH:$$HOME/go/bin && golangci-lint run --config=.golangci-limits.yml --whole-files
 
 # Format code
 fmt:

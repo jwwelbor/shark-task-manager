@@ -126,7 +126,7 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: latest
-          args: --config=.golangci-limits.yml
+          args: --config=.golangci-limits.yml --whole-files
           skip-cache: true # the step above already restored the cache
 
   # Summary job that requires all other jobs to pass

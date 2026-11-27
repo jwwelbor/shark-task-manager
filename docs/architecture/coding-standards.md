@@ -31,7 +31,8 @@ Each limit is an inclusive maximum: a value equal to the limit passes.
 The measuring command is `make lint`. It measures only the tool-enforced limits, using [`.golangci-limits.yml`](../../.golangci-limits.yml).
 
 - **Function length**: `funlen` counts the lines of the function body. Blank lines count; comment-only lines do not.
-- **Baseline**: the tool reports only functions whose declaration line changed after the commit pinned in `new-from-rev`. Growth inside an existing function is review-enforced.
+- **Baseline**: `make lint` measures every function in each Go file changed since the pinned revision (`new-from-rev`), including functions the change did not touch (`--whole-files`). Unchanged files are not measured.
+- **Edited files**: Self-review and code review check file length and nesting depth on every edited file.
 - **Nesting depth**: review-enforced because `nestif` scores complexity, not depth.
 - **File length**: review-enforced because no configured linter measures it.
 
