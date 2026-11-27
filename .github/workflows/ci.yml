@@ -20,7 +20,7 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -35,18 +35,12 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
-        run: go test -v ./...
-
-      - name: Generate coverage report
+      - name: Run tests with coverage
         run: |
-          # Only run coverage on packages that have test files.
-          # Using -coverprofile with ./... on packages without tests
-          # causes "go: no such tool covdata" on some Go toolchains.
-          go test -coverprofile=coverage.out $(go list ./... | while read pkg; do
-            dir=$(go list -f '{{.Dir}}' "$pkg")
-            ls "$dir"/*_test.go >/dev/null 2>&1 && echo "$pkg"
-          done)
+          # Collect coverage in a single test pass; limit to packages with test
+          # files to avoid "go: no such tool covdata" on some Go toolchains.
+          pkgs=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
+          go test -v -coverprofile=coverage.out $pkgs
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
