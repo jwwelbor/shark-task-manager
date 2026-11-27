@@ -245,6 +245,13 @@ Prefer the narrowest guard that actually exercises the defect shape over a
 broad rule that happens to also cover it. Record the guard object with
 `kind`, `implementation_pointer`, `counterfactual_pointer`, and `status`.
 
+For a craft defect class (one of the `rule` categories listed in
+`skills/quality/workflows/review-code.md`), also add or update an entry for the
+class in the project's local `coding-standards.md`, or in the standards sub-file
+it links. When the project's linter supports the rule, make that linter rule, in
+the project's own config, the executable guard. The standards entry never
+replaces the verified guard that Structural guard closure requires.
+
 ## Structural guard closure
 
 A class may only report `status: complete` when all of the following hold:

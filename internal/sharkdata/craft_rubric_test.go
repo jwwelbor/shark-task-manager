@@ -26,6 +26,7 @@ const (
 	standardsTemplatePath = "skills/quality/context/standards-template.md"
 	generateStandardsPath = "skills/quality/workflows/generate-standards.md"
 	bootstrapPath         = "skills/research/workflows/bootstrap.md"
+	defectClassSweepPath  = "skills/quality/workflows/defect-class-sweep.md"
 )
 
 // thresholdPatterns is the closed list from the feature test plan (TC-002).
@@ -306,4 +307,10 @@ func TestE31F01_TC004_BootstrapFillGapsAddsMissingLimitsSection(t *testing.T) {
 	assert.Contains(t, preflight, "## Quality Limits")
 	assert.Contains(t, preflight, "existing_standards_path")
 	assert.Contains(t, preflight, "skills/quality/workflows/generate-standards.md")
+}
+
+func TestE31F01_TC012_SweepRecordsCraftClassesInLocalStandards(t *testing.T) {
+	workflow := embeddedText(t, defectClassSweepPath)
+	guardSelection := section(t, workflow, "## Guard selection", "## Structural guard closure")
+	assert.Contains(t, guardSelection, "coding-standards.md")
 }
