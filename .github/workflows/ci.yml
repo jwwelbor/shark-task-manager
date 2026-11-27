@@ -108,6 +108,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # .golangci-limits.yml diffs against a pinned commit
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -119,6 +121,13 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: latest
+
+      - name: golangci-lint (quality limits)
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+          args: --config=.golangci-limits.yml
+          skip-cache: true # the step above already restored the cache
 
   # Summary job that requires all other jobs to pass
   ci-success:

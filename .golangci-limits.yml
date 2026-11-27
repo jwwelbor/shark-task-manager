@@ -1,0 +1,22 @@
+# Quality limits for new code only. Values and enforcement are declared in
+# docs/architecture/coding-standards.md (Quality Limits). `make lint` runs this
+# after .golangci.yml.
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - funlen
+    - gocyclo
+  settings:
+    funlen:
+      lines: 50
+      statements: -1
+      ignore-comments: true
+    gocyclo:
+      min-complexity: 10
+issues:
+  # A full SHA of a commit on main that predates this file. Squash merges drop
+  # branch commits, so never pin a branch SHA.
+  new-from-rev: d9427496250d889dc7584d71778364b8a79ab766
