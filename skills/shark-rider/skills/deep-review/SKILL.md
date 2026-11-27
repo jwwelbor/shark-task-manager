@@ -62,7 +62,7 @@ the valid review in `adversarial_model` and preserve the fallback reason.
 
 For a dispatched code-review gate, use the rendered prompt unchanged. For bug reviews, pass the accepted plan and revision, research, coverage evidence and prior findings as `repair_context`, together with `entity_type=bug`, to the native workflow; supply that same context to every host-dispatched angle and consolidator. Apply the
 portable craft criteria included from `skills/quality/workflows/review-code.md`,
-with the shared limits, severity rule and checklist in
+with the shared limits, edited-code rule, Severity table and checklist in
 `skills/quality/context/craft-rubric.md`, as the canonical craft rubric
 alongside the angle assignments. The existing
 parent retains its lease, heartbeats, transitions and result ingestion; angle
@@ -163,6 +163,18 @@ units as `carried_units` with `cross_file_fresh: true` in each angle packet and 
 paths in `reviewed_files`. A carried path must be unchanged since the predecessor, along with every
 declared input. Admission re-verifies the receipt, the predecessor angle's direct inspection, Git tree
 entries and an uninterrupted history; otherwise every angle must list the full manifest.
+
+## Craft rubric precondition
+
+Before any runner dispatches a reviewer, confirm that the craft rubric is
+readable by either route: `shark skill get quality context/craft-rubric.md`, or
+the extracted `skills/quality/context/craft-rubric.md`. When neither route works
+(for example, an installed Shark binary older than the rubric), stop and
+dispatch no reviewer. Persist the review with `runner_mode=incomplete`,
+`specialists_completed=0`, `consolidator_completed=false`, verdict INCOMPLETE
+and a `fallback_reason` that names the missing
+`skills/quality/context/craft-rubric.md`, and tell the user the review is
+incomplete. Never review without the rubric.
 
 ## Runner 1: native Workflow
 

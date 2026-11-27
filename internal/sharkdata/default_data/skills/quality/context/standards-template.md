@@ -40,6 +40,8 @@ Development and review read `## Quality Limits` and `## Testing Standards (Code-
 
 Keep one row per limit. The coverage row is optional; omit it when the project sets no target. The stacks shown side by side illustrate the form: keep only what the project uses.
 
+`### Limit exceptions` is optional: omit it until there is an exception to record. Only an architect or owner decision adds or changes a row; a development worker never adds one for its own change. A row covers only a unit that existed before the change, and only while the unit's measurement is at or below the recorded value. Where a tool enforces the limit, the unit also carries that tool's own suppression citing the row. `craft-rubric.md` governs these rules.
+
 The two Testing Standards entries are required. The project decides their content.
 
 ### Required Headings (use exact format):
@@ -62,6 +64,12 @@ The two Testing Standards entries are required. The project decides their conten
 | File length (lines) | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx eslint .` / Python: `pylint src` / Go: none (review) |
 | Nesting depth | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx eslint .` / Python: `pylint src` / Go: none (review) |
 | Coverage (optional) | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx vitest run --coverage` / Python: `pytest --cov` / Go: `go test -cover ./...` |
+
+### Limit exceptions
+
+| Unit | Limit | Recorded value | Reason | Decision |
+|---|---|---|---|---|
+| {file path, or file path and function name} | {which limit} | {measurement when the decision was taken} | {why a refactor is unsafe now} | {architect or owner, date, work item key or ADR path} |
 
 ## Testing Standards (Code-Level)
 

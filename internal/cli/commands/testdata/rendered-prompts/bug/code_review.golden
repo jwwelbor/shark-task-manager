@@ -56,7 +56,7 @@ If any critical input is missing, request it before proceeding. **Do not invent 
 
 ## Review process
 
-Read `../context/craft-rubric.md` before Step 2. It holds the craft checklist, the limit resolution order, the source labels and the severity rule that development self-reviews against. Steps 2-4 and 6-8 apply it and add the review-only procedure.
+Read `../context/craft-rubric.md` before Step 2. It holds the craft checklist, the limit resolution order, the source labels, the edited-code rule, the Severity table and the limit exceptions that development self-reviews against. Steps 2-4 and 6-8 apply it and add the review-only procedure.
 
 ### Step 1: Scope sanity (60 seconds — not an AC re-check)
 
@@ -126,7 +126,7 @@ Replace non-idiomatic constructs with community-standard alternatives. Show befo
 
 Use tooling where available, preferring the measuring command declared in local standards. See `../context/code-review-reference.md` for example commands.
 
-Apply the rubric's Complexity and size items (`../context/craft-rubric.md`): resolve each limit, check the diff against it, state the limit's source label in each finding, and take severity from the rubric's severity rule.
+Apply the rubric's Complexity and size items (`../context/craft-rubric.md`): resolve each limit, measure every edited code file in full against it, state the limit's source label in each finding, cite any covering limit exception, and take the verdict from the rubric's Severity table.
 
 ### Step 8: Tests review (design, not execution)
 
@@ -202,7 +202,7 @@ cannot pass.
 
 ### Step 11: Evidence-based finding admission
 
-Do not score files or create findings from rubric thresholds. A locally declared limit is a documented standard, not a rubric threshold; apply the severity rule in `../context/craft-rubric.md` to resolved limits. For every retained finding, record the affected user/caller, behavior, invariant, documented standard, or maintenance operation, its concrete consequence, and evidence. Preserve standards citations and independent security/correctness risks. A preference without evidenced impact is omitted. Preserve a previously reported blocker and its refutation evidence when it is withdrawn; under an authorized report-only downgrade, record the disposition and make no source edit or tracker write for that finding.
+Do not score files or create findings from rubric thresholds. A limit result is not a score: apply the Severity table in `../context/craft-rubric.md` to resolved limits; the rubric states how such a finding meets the admission criteria. For every retained finding, record the affected user/caller, behavior, invariant, documented standard, or maintenance operation, its concrete consequence, and evidence. Preserve standards citations and independent security/correctness risks. A preference without evidenced impact is omitted. Preserve a previously reported blocker and its refutation evidence when it is withdrawn; under an authorized report-only downgrade, record the disposition and make no source edit or tracker write for that finding.
 
 ### Step 12: Triage labeling
 
@@ -210,8 +210,8 @@ For every finding, label it:
 
 | Label | Definition | Goes to |
 |---|---|---|
-| **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, new or substantially expanded code over a locally declared limit (a generic default or unconfirmed proposal needs evidenced impact; see `../context/craft-rubric.md`) | `blockers` — host fails the review |
-| **Non-blocker** | Real craft issue but doesn't violate a hard contract — code already over a limit that the change does not substantially expand, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
+| **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, a limit finding that the Severity table in `../context/craft-rubric.md` rates a blocker | `blockers` — host fails the review |
+| **Non-blocker** | Real craft issue but doesn't violate a hard contract — a limit finding that the Severity table rates a non-blocker, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
 
 The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. The fix-now gate may resolve a finding in place with no entity created at all; that counts as triaged. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. Apply the triage skill's unattended review disposition procedure for host authority, verification and parent escalation. Keep delivery pending until every actionable fingerprint has a verified disposition.
 
@@ -294,7 +294,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - New non-idiomatic construct on a critical path.
 - Tests have **zero** coverage of a critical AC.
 - Performance regression on a documented hot path.
-- New or substantially expanded code over a locally declared limit. Over a generic default or unconfirmed proposal, block only when evidenced impact makes it a blocker under the severity rule in `../context/craft-rubric.md`.
+- A limit finding that the Severity table in `../context/craft-rubric.md` rates a blocker.
 - **Service-contract change without a complete production caller-chain trace** (Step 5).
 - **An AC whose only covering test passes against an empty/buggy implementation** (Step 8.5 counter-factual fails for a critical AC).
 - **New `except Exception` (or other catch-all: bare `except:`, `catch (Throwable)`, `} catch {}`) introduced by the diff without a stated diagnose-layer justification per the project's error-handling standard.
@@ -303,11 +303,11 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 ### Do **NOT** block for:
 
 - Preferences with no concrete user, behavior, invariant, documented-standard or maintenance impact; omit them rather than reporting them as findings.
-- Pre-existing issues the task didn't substantially worsen (triage instead).
+- Pre-existing issues the task didn't substantially worsen (triage instead). Limit overages are outside this item: the rubric's Severity table decides them.
 - Minor optimizations that don't affect correctness.
 - Naming preferences when project standards are met and no concrete impact exists.
 - Missing nice-to-have test cases (triage instead).
-- **File-organization preferences** (e.g., "split this 700-line test file into smaller groups"). Route through the triage skill's decision tree only if there is concrete maintainability impact; otherwise drop entirely.
+- **File-organization preferences** that no resolved limit requires (e.g., "group these tests by theme"). Route through the triage skill's decision tree only if there is concrete maintainability impact; otherwise drop entirely.
 - **Micro-style preferences on tiny static-data paths** — e.g., a single sync `Path.read_text()` for a small static prompt file inside an `async def`. Async-purity / hot-path rules apply on hot paths; without concrete impact, omit the preference.
 
 ### Always prefer:

@@ -42,7 +42,7 @@ npx eslint CHANGED_FILES --rule 'complexity: ["error", <limit>]' --no-eslintrc 2
 gocyclo -over <limit> CHANGED_FILES 2>/dev/null
 ```
 
-Apply the resolved limits, source labels and severity rule in `craft-rubric.md` to complexity, function length, file length and nesting depth. New or substantially expanded code over a locally declared limit is a blocker. Over a generic default or an unconfirmed proposal it is admitted only with evidenced impact. Code already over a limit that the change does not substantially expand is a non-blocker routed to triage.
+Measure every edited code file in full for complexity, function length, file length and nesting depth. Apply the resolved limits, source labels and Severity table in `craft-rubric.md`, and cite any covering limit exception.
 
 ## Part 3: Idiomatic language patterns
 

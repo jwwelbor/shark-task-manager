@@ -18,7 +18,7 @@ import (
 
 const (
 	craftRubricPath  = "skills/quality/context/craft-rubric.md"
-	craftRubricLimit = 150
+	craftRubricLimit = 170
 	reviewCodePath   = "skills/quality/workflows/review-code.md"
 	bundleDir        = "default_data"
 	deepReviewDir    = "../../skills/shark-rider/skills/deep-review"
@@ -47,6 +47,10 @@ var thresholdPatterns = compileThresholdPatterns(map[string]string{
 // thresholdAllowlist maps an exact file to exact phrases that are exempt. Only
 // document-length phrases may be added; none match the patterns today.
 var thresholdAllowlist = map[string][]string{}
+
+// retiredSeverityWording is the pre-edited-code-rule severity wording. Any of it
+// left behind lets review pass an overage that the development exit gate blocks.
+var retiredSeverityWording = regexp.MustCompile(`(?i)substantially\s+expand`)
 
 func compileThresholdPatterns(sources map[string]string) map[string]*regexp.Regexp {
 	compiled := make(map[string]*regexp.Regexp, len(sources))
@@ -107,21 +111,35 @@ func deepReviewText(t *testing.T, rel string) string {
 	return string(body)
 }
 
-func TestE31F01_TC002_ThresholdsLiveOnlyInCraftRubric(t *testing.T) {
+// scanThresholds reports threshold lines in every file under scanRoot. Paths are
+// made relative to base before read loads them.
+func scanThresholds(t *testing.T, base, scanRoot string, read func(*testing.T, string) string) []string {
+	t.Helper()
 	var hits []string
-	for _, root := range []string{"prompts", "skills"} {
-		for _, p := range filesUnder(t, bundleDir+"/"+root) {
-			rel := strings.TrimPrefix(p, bundleDir+"/")
-			if rel != craftRubricPath {
-				hits = append(hits, thresholdHits(rel, embeddedText(t, rel))...)
-			}
+	for _, p := range filesUnder(t, base+"/"+scanRoot) {
+		rel := strings.TrimPrefix(p, base+"/")
+		if rel != craftRubricPath {
+			hits = append(hits, thresholdHits(rel, read(t, rel))...)
 		}
 	}
-	for _, p := range filesUnder(t, deepReviewDir+"/references") {
-		rel := strings.TrimPrefix(p, deepReviewDir+"/")
-		hits = append(hits, thresholdHits(rel, deepReviewText(t, rel))...)
+	return hits
+}
+
+func TestE31F01_TC002_ThresholdsLiveOnlyInCraftRubric(t *testing.T) {
+	cases := []struct {
+		base, root string
+		read       func(*testing.T, string) string
+	}{
+		{bundleDir, "prompts", embeddedText},
+		{bundleDir, "skills", embeddedText},
+		{deepReviewDir, "references", deepReviewText},
 	}
-	assert.Empty(t, hits, "hardcoded thresholds belong only in %s:\n%s", craftRubricPath, strings.Join(hits, "\n"))
+	for _, tc := range cases {
+		t.Run(tc.root, func(t *testing.T) {
+			hits := scanThresholds(t, tc.base, tc.root, tc.read)
+			assert.Empty(t, hits, "hardcoded thresholds belong only in %s:\n%s", craftRubricPath, strings.Join(hits, "\n"))
+		})
+	}
 }
 
 func TestE31F01_TC002_CraftRubricStatesTheGenericDefaults(t *testing.T) {
@@ -132,7 +150,9 @@ func TestE31F01_TC002_CraftRubricStatesTheGenericDefaults(t *testing.T) {
 		"| File length (lines) | 500 |",
 		"| Nesting depth | 4 |",
 	} {
-		assert.Contains(t, rubric, row)
+		t.Run(row, func(t *testing.T) {
+			assert.Contains(t, rubric, row)
+		})
 	}
 }
 
@@ -154,7 +174,9 @@ func TestE31F01_TC002_ThresholdPatternCounterfactuals(t *testing.T) {
 	}
 	require.Len(t, banned, len(thresholdPatterns))
 	for id, literal := range banned {
-		assert.Contains(t, matchingThresholds(literal), id, "%s must match %q", id, literal)
+		t.Run(id, func(t *testing.T) {
+			assert.Contains(t, matchingThresholds(literal), id, "%s must match %q", id, literal)
+		})
 	}
 	for _, literal := range []string{
 		"- Coverage: 94%",
@@ -162,7 +184,9 @@ func TestE31F01_TC002_ThresholdPatternCounterfactuals(t *testing.T) {
 		"50 lines MAX per task file",
 		"≥80% of new hires",
 	} {
-		assert.Empty(t, matchingThresholds(literal), "%q is not a quality threshold", literal)
+		t.Run(literal, func(t *testing.T) {
+			assert.Empty(t, matchingThresholds(literal), "%q is not a quality threshold", literal)
+		})
 	}
 }
 
@@ -182,21 +206,54 @@ func TestE31F01_TC005_CraftRubricContractLiterals(t *testing.T) {
 		"generic default — not declared in local standards",
 		"declared in local standards (§Quality Limits)",
 		"proposed in local standards, unconfirmed",
-		"skills/quality/context/review-rubric.md",
+		// Relative, so inlining the rubric adds the bundled-skill read note.
+		"../context/review-rubric.md",
+		"\n## Edited-code rule\n",
+		"\n## Severity table\n",
+		"\n## Limit exceptions\n",
+		"\n## Self-review checklist\n",
+		"\n### Reuse\n",
+		"\n### Standards citation\n",
+		"\n### SOLID and architecture\n",
+		"\n### Idiom\n",
+		"\n### Complexity and size\n",
+		"\n### Test design\n",
 	} {
-		assert.Contains(t, rubric, literal)
+		t.Run(strings.TrimSpace(literal), func(t *testing.T) {
+			assert.Contains(t, rubric, literal)
+		})
 	}
-	// The rubric is inlined into dispatch prompts, so it must carry no
-	// directives and none of the commands those prompts are forbidden to name.
+}
+
+// The rubric is inlined into dispatch prompts, so it must carry no directives
+// and none of the commands those prompts are forbidden to name.
+func TestE31F01_TC005_CraftRubricForbiddenText(t *testing.T) {
+	rubric := embeddedText(t, craftRubricPath)
 	for _, forbidden := range []string{
 		"{{",
+		"skills/quality/context/review-rubric.md",
 		"shark status advance", "shark status set",
 		"shark task next-status", "shark task set-status",
 		"shark feature next-status", "shark epic next-status",
 		"shark claim", "shark heartbeat", "shark release",
 	} {
-		assert.NotContains(t, rubric, forbidden)
+		t.Run(forbidden, func(t *testing.T) {
+			assert.NotContains(t, rubric, forbidden)
+		})
 	}
+	t.Run("retired severity wording", func(t *testing.T) {
+		assert.NotRegexp(t, retiredSeverityWording, rubric)
+	})
+}
+
+func TestE31F01_TC021_CraftRubricStatesExceptionAndConsultationRules(t *testing.T) {
+	rubric := embeddedText(t, craftRubricPath)
+	exceptions := section(t, rubric, "\n## Limit exceptions\n", "\n## ")
+	assert.Contains(t, exceptions, "| Unit | Limit | Recorded value | Reason | Decision |")
+	consultation := section(t, rubric, "\n## Architect consultation\n", "\n## ")
+	assert.Contains(t, consultation, "consult the architect")
+	assert.Contains(t, consultation, "`blocked`")
+	assert.Contains(t, consultation, "`gate_result.no_kickback_reason`")
 }
 
 func TestE31F01_TC005_CraftRubricResolvesAsInclude(t *testing.T) {
@@ -213,6 +270,7 @@ func TestE31F01_TC006_ReviewCodeDefersToCraftRubric(t *testing.T) {
 	assert.Contains(t, body, "triage skill's decision tree")
 	assert.Contains(t, body, "unattended review disposition")
 	assert.Empty(t, thresholdHits(reviewCodePath, body))
+	assert.NotRegexp(t, retiredSeverityWording, body)
 }
 
 func TestE31F01_TC013_DeepReviewWorkersLoadCraftRubric(t *testing.T) {
@@ -231,9 +289,31 @@ func TestE31F01_TC013_DeepReviewWorkersLoadCraftRubric(t *testing.T) {
 
 func TestE31F01_TC013_DeepReviewDefersToCraftRubric(t *testing.T) {
 	for _, rel := range []string{"references/consolidator.md", "references/angle-d-cleanup.md"} {
-		assert.Contains(t, deepReviewText(t, rel), "craft-rubric.md", rel)
+		t.Run(rel, func(t *testing.T) {
+			body := deepReviewText(t, rel)
+			assert.Contains(t, body, "craft-rubric.md")
+			assert.Contains(t, body, "Severity table")
+		})
 	}
 	assert.Empty(t, thresholdHits("SKILL.md", deepReviewText(t, "SKILL.md")))
+}
+
+func TestE31F01_TC013_DeepReviewDropsRetiredSeverityWording(t *testing.T) {
+	for _, rel := range []string{"SKILL.md", "references/consolidator.md", "references/angle-d-cleanup.md"} {
+		t.Run(rel, func(t *testing.T) {
+			assert.NotRegexp(t, retiredSeverityWording, deepReviewText(t, rel))
+		})
+	}
+}
+
+// The rubric precondition must be stated before any runner, so no runner can
+// dispatch a reviewer ahead of it.
+func TestE31F01_TC013_DeepReviewChecksRubricBeforeAnyRunner(t *testing.T) {
+	skill := deepReviewText(t, "SKILL.md")
+	precondition := section(t, skill, "\n## Craft rubric precondition\n", "\n## Runner 1")
+	assert.Contains(t, precondition, "shark skill get quality context/craft-rubric.md")
+	assert.Contains(t, precondition, "extracted")
+	assert.Contains(t, precondition, "runner_mode=incomplete")
 }
 
 // section returns the text of body between the start and end markers.
@@ -260,15 +340,21 @@ func TestE31F01_TC001_StandardsTemplateDeclaresQualityLimits(t *testing.T) {
 		"| Nesting depth |",
 		"| Coverage (optional) |",
 	} {
-		assert.Contains(t, limits, row)
+		t.Run(row, func(t *testing.T) {
+			assert.Contains(t, limits, row)
+		})
 	}
 	assert.Contains(t, limits, "tool-enforced")
 	assert.Contains(t, limits, "review-enforced")
-	for _, line := range strings.Split(limits, "\n") {
-		if strings.HasPrefix(line, "|") {
-			assert.NotRegexp(t, `\d`, line, "example rows must state no numeric value")
-		}
-	}
+	assert.NotRegexp(t, `(?m)^\|.*\d`, limits, "example rows must state no numeric value")
+}
+
+func TestE31F01_TC001_StandardsTemplateDefinesLimitExceptions(t *testing.T) {
+	template := embeddedText(t, standardsTemplatePath)
+	outputA := section(t, template, "## Required Output A Structure", "## Required Output B Structure")
+	limits := section(t, outputA, "\n## Quality Limits\n", "\n## ")
+	assert.Contains(t, limits, "\n### Limit exceptions\n")
+	assert.Contains(t, limits, "| Unit | Limit | Recorded value | Reason | Decision |")
 }
 
 func TestE31F01_TC001_StandardsTemplateRequiresTestingConventions(t *testing.T) {
