@@ -489,7 +489,7 @@ Run unit tests scoped to the service and repository files.
 
 ### Gate 4: Coverage
 
-Generate a coverage report. Target: >= 90% for service-layer code (business logic should have very high coverage).
+Generate a coverage report. Meet the project's declared coverage target in local standards (§Quality Limits, resolved by `skills/quality/context/craft-rubric.md`), when one is declared. Business logic is where coverage matters most.
 
 **All gates must pass.** Record outcomes in `validation_gate_results`.
 
@@ -605,7 +605,7 @@ class UserService:
 - [ ] Repository pattern used (if applicable)
 - [ ] Service exceptions defined
 - [ ] Error handling comprehensive
-- [ ] Unit tests passing (90%+ coverage)
+- [ ] Unit tests passing (declared coverage target met, when one is declared)
 - [ ] All validation gates passed
 - [ ] Service layer documented in `summary`
 

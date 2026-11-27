@@ -256,7 +256,7 @@ frontend/src/
 
 ### Function Length
 
-**Target:** < 50 lines per function
+**Target:** within the resolved function-length limit (craft rubric, `skills/quality/context/craft-rubric.md`)
 
 **If longer:** Extract helper functions
 

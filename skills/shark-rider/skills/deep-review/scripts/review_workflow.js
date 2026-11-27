@@ -195,7 +195,7 @@ ${extraContext || ''}
 
 Your detailed review instructions are in: ${refsDir}/${angleFile}
 
-Read that file completely. Also read the canonical portable craft criteria via shark skill get quality workflows/review-code.md (or the corresponding extracted bundle file), and apply them within your angle. Then execute the review substituting the CONTEXT values above.
+Read that file completely. Also read the canonical portable craft criteria via shark skill get quality workflows/review-code.md and shark skill get quality context/craft-rubric.md (or the corresponding extracted bundle files), and apply them within your angle. Then execute the review substituting the CONTEXT values above.
 Return ONLY a JSON object with candidate_identity {commit, tree, diff_sha256${entity_type === 'bug' ? ', repair_plan_sha256 (the 64 hex characters in the accepted plan revision)' : ''}}, a findings array and a reviewed_files array of every changed file you actually opened or inspected. No other text.`
 }
 

@@ -10,7 +10,7 @@ inputs:
   - toolchain: project toolchain commands (test runner, linter, type-checker)
   - coding_standards_path: absolute path to the project's coding-standards.md (optional — if absent, do not claim standards violations; assess independent user, behavior, invariant, security or maintenance impact)
   - architecture_doc_paths: list of absolute paths to system-design / architecture docs (optional)
-  - complexity_thresholds: {cyclomatic, file_lines, function_lines} (optional — defaults: 10 / 500 / 50)
+  - complexity_thresholds: {cyclomatic, file_lines, function_lines} (optional — values the host read from local standards; resolve each limit and its source with `../context/craft-rubric.md`)
   - prior_rejection_count: int — how many times this task has been at code review before (for loop-guard awareness)
   - code_review_report_path: absolute path where the structured report should be written
 outputs:
@@ -64,6 +64,8 @@ If any critical input is missing, request it before proceeding. **Do not invent 
 
 ## Review process
 
+Read `../context/craft-rubric.md` before Step 2. It holds the craft checklist, the limit resolution order, the source labels and the severity rule that development self-reviews against. Steps 2-4 and 6-8 apply it and add the review-only procedure.
+
 ### Step 1: Scope sanity (60 seconds — not an AC re-check)
 
 A 5-line gut check, not an AC re-verification:
@@ -76,7 +78,7 @@ If the diff doesn't plausibly match the task, **FAIL immediately and return** �
 
 ### Step 2: Reuse pass (DRY — search before flagging duplication)
 
-**Before** flagging duplication, search the codebase for existing implementations:
+**Before** flagging duplication, search the codebase for existing implementations, as the rubric's Reuse items require:
 
 ```bash
 # Examples — adapt to the language and symbol style
@@ -85,7 +87,7 @@ grep -rn "<class-name>" --include="*.ts" src/
 rg "<concept>" --type-add 'src:*.{py,ts,tsx,go}' -tsrc
 ```
 
-For each new utility / helper / abstraction the diff introduces, check whether the codebase already has one. If it does:
+When an existing implementation covers new code:
 
 - Document the existing symbol with its `file:line`.
 - Propose a diff-ready refactor showing how the new code would call it.
@@ -94,20 +96,11 @@ Findings: list each duplicated logic with the existing code's location, severity
 
 ### Step 3: Standards crosswalk (required citations)
 
-For each finding in this phase, cite the **specific section** of the project's standards docs that the code violates. When a clause is unavailable or unrelated, report the gap in the crosswalk. A demonstrated failure of a documented input or acceptance criterion still warrants a correctness finding with the expected and observed results.
-
-For each violation: `{file:line} — {rule} — {coding-standards.md §X.Y "quoted clause"}`.
-
-If the project has no standards section that covers a finding, do not call it a standards violation. Retain it only when independent evidence shows a concrete user, behavior, invariant, security, or maintenance consequence.
+Apply the rubric's Standards citation items to each modified file. For each violation, cite the **specific section** of the project's standards docs in the rubric's citation format. When a clause is unavailable or unrelated, report the gap in the crosswalk.
 
 ### Step 4: SOLID & architecture compliance
 
-Validate each modified file against:
-
-- **Single Responsibility** — does each class/module have one clear job?
-- **Open/Closed** — extensible without modification of stable code paths?
-- **Liskov / Interface Segregation / Dependency Inversion** — apply where relevant.
-- **Architecture documents** — does the implementation respect the layering, dependency direction, and integration points specified in `architecture_doc_paths`?
+Validate each modified file against the rubric's SOLID and architecture items, using the documents in `architecture_doc_paths`.
 
 For each violation: `file:line`, rule, evidence (code excerpt), and a concrete refactor.
 
@@ -131,7 +124,7 @@ Return the chains in `production_caller_chains`.
 
 ### Step 6: Idiomatic language review
 
-Apply the language's community-standard patterns.
+Apply the rubric's Idiom items (`../context/craft-rubric.md`).
 
 Use `../context/code-review-reference.md` for the language-specific checklist.
 
@@ -139,27 +132,13 @@ Replace non-idiomatic constructs with community-standard alternatives. Show befo
 
 ### Step 7: Complexity & size hotspots
 
-Use tooling where available. See `../context/code-review-reference.md` for example commands.
+Use tooling where available, preferring the measuring command declared in local standards. See `../context/code-review-reference.md` for example commands.
 
-Flag using `complexity_thresholds` (defaults: cyclomatic 10, file 500 lines, function 50 lines, deep nesting ≥4):
-
-- Functions over the cyclomatic threshold.
-- Files over the file-line threshold (guide, not hard rule — justify or recommend splitting).
-- Functions over the function-line threshold (guide — same).
-- Deep nesting.
-
-Pre-existing complexity above threshold is a **non-blocker** (triage) unless the task substantially expanded it. New complexity above threshold is a **blocker**.
+Apply the rubric's Complexity and size items (`../context/craft-rubric.md`): resolve each limit, check the diff against it, state the limit's source label in each finding, and take severity from the rubric's severity rule.
 
 ### Step 8: Tests review (design, not execution)
 
-You don't run tests — QA does that. But you do review **test design**:
-
-- **Coverage touchpoints** — does each AC have at least one test case?
-- **Boundary conditions** — does the test set include min/max/empty/null/zero/negative-one for each input?
-- **Negative cases** — what should NOT happen, and is there a test asserting it?
-- **Flaky-risk** — tests with timing, random data, network, real time, or shared state.
-- **Mock discipline** — tests that only assert the mock was called are not testing real behavior.
-- **Missing cases** — given the AC, list any boundary or negative case the test set doesn't cover.
+You don't run tests — QA does that. But you do review **test design** against the rubric's Test design items. Report the coverage assessment per AC and list any boundary or negative case the test set doesn't cover.
 
 Findings here are typically non-blockers (triaged as test-debt), unless a critical AC has zero tests at all.
 
@@ -231,7 +210,7 @@ cannot pass.
 
 ### Step 11: Evidence-based finding admission
 
-Do not score files or create findings from rubric thresholds. For every retained finding, record the affected user/caller, behavior, invariant, documented standard, or maintenance operation, its concrete consequence, and evidence. Preserve standards citations and independent security/correctness risks. A preference without evidenced impact is omitted. Preserve a previously reported blocker and its refutation evidence when it is withdrawn; under an authorized report-only downgrade, record the disposition and make no source edit or tracker write for that finding.
+Do not score files or create findings from rubric thresholds. A locally declared limit is a documented standard, not a rubric threshold; apply the severity rule in `../context/craft-rubric.md` to resolved limits. For every retained finding, record the affected user/caller, behavior, invariant, documented standard, or maintenance operation, its concrete consequence, and evidence. Preserve standards citations and independent security/correctness risks. A preference without evidenced impact is omitted. Preserve a previously reported blocker and its refutation evidence when it is withdrawn; under an authorized report-only downgrade, record the disposition and make no source edit or tracker write for that finding.
 
 ### Step 12: Triage labeling
 
@@ -239,8 +218,8 @@ For every finding, label it:
 
 | Label | Definition | Goes to |
 |---|---|---|
-| **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, severe complexity in new code | `blockers` — host fails the review |
-| **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
+| **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, new or substantially expanded code over a locally declared limit (a generic default or unconfirmed proposal needs evidenced impact; see `../context/craft-rubric.md`) | `blockers` — host fails the review |
+| **Non-blocker** | Real craft issue but doesn't violate a hard contract — code already over a limit that the change does not substantially expand, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
 
 The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. The fix-now gate may resolve a finding in place with no entity created at all; that counts as triaged. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. Apply the triage skill's unattended review disposition procedure for host authority, verification and parent escalation. Keep delivery pending until every actionable fingerprint has a verified disposition.
 
@@ -323,7 +302,7 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - New non-idiomatic construct on a critical path.
 - Tests have **zero** coverage of a critical AC.
 - Performance regression on a documented hot path.
-- New code with cyclomatic complexity over the project threshold.
+- New or substantially expanded code over a locally declared limit. Over a generic default or unconfirmed proposal, block only when evidenced impact makes it a blocker under the severity rule in `../context/craft-rubric.md`.
 - **Service-contract change without a complete production caller-chain trace** (Step 5).
 - **An AC whose only covering test passes against an empty/buggy implementation** (Step 8.5 counter-factual fails for a critical AC).
 - **New `except Exception` (or other catch-all: bare `except:`, `catch (Throwable)`, `} catch {}`) introduced by the diff without a stated diagnose-layer justification per the project's error-handling standard.

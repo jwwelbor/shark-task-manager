@@ -503,7 +503,7 @@ Run integration tests that exercise the endpoints end-to-end through the test cl
 
 ### Gate 5: Coverage
 
-Generate a coverage report and ensure the configured threshold (typical: >= 80% for new code) is met.
+Generate a coverage report and meet the project's declared coverage target in local standards (§Quality Limits, resolved by `skills/quality/context/craft-rubric.md`), when one is declared.
 
 **All gates must pass.** Fix failures immediately. Record outcomes in `validation_gate_results`.
 
@@ -526,7 +526,7 @@ Produce a structured implementation summary covering:
 - [ ] Service layer implemented with business logic
 - [ ] Endpoints wired to service layer
 - [ ] Error handling comprehensive
-- [ ] Unit tests passing (80%+ coverage)
+- [ ] Unit tests passing (declared coverage target met, when one is declared)
 - [ ] Integration tests passing
 - [ ] All validation gates passed
 - [ ] Implementation summary returned

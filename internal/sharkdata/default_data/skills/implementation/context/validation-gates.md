@@ -238,17 +238,12 @@ npm run test:coverage
 ### Success Criteria
 
 - [ ] All tests passing
-- [ ] Coverage >= 80% for new code
+- [ ] New code meets the project's declared coverage target, when one is declared
 - [ ] Tests run fast (< 10 seconds for unit tests)
 - [ ] No skipped tests (unless documented reason)
 - [ ] No flaky tests (pass/fail randomly)
 
-**Coverage targets:**
-
-- Service layer: >= 90%
-- API endpoints: >= 85%
-- Utilities: >= 95%
-- Components: >= 80%
+**Coverage target:** the project's declared coverage target in local standards (§Quality Limits), resolved by the craft rubric (`skills/quality/context/craft-rubric.md`). When none is declared, no percentage gates the change.
 
 **If gate fails:** Fix failing tests immediately. Do not skip or disable tests.
 
@@ -513,7 +508,7 @@ Before marking work complete:
 
 - [ ] Gate 1: Linting passed (no violations)
 - [ ] Gate 2: Type checking passed (strict mode)
-- [ ] Gate 3: Unit tests passed (>= 80% coverage)
+- [ ] Gate 3: Unit tests passed (declared coverage target met, when one is declared)
 - [ ] Gate 4: Integration tests passed
 - [ ] Gate 5: E2E tests passed (critical paths)
 - [ ] Gate 6: Build succeeded (no errors)

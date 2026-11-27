@@ -61,8 +61,10 @@ the valid review in `adversarial_model` and preserve the fallback reason.
 ## Integrated workflow review
 
 For a dispatched code-review gate, use the rendered prompt unchanged. For bug reviews, pass the accepted plan and revision, research, coverage evidence and prior findings as `repair_context`, together with `entity_type=bug`, to the native workflow; supply that same context to every host-dispatched angle and consolidator. Apply the
-portable craft criteria included from `skills/quality/workflows/review-code.md`
-as the canonical craft rubric alongside the angle assignments. The existing
+portable craft criteria included from `skills/quality/workflows/review-code.md`,
+with the shared limits, severity rule and checklist in
+`skills/quality/context/craft-rubric.md`, as the canonical craft rubric
+alongside the angle assignments. The existing
 parent retains its lease, heartbeats, transitions and result ingestion; angle
 reviewers only supply evidence. Include requested and verified effective model
 identity separately, marking unknown identity explicitly. Bind the complete
@@ -199,7 +201,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    available parallel capacity. If the host cannot queue all six at once,
    dispatch the remaining angles as slots become available.
    Give every agent the complete captured scope, its one assigned angle
-   prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
+   prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` and `shark skill get quality context/craft-rubric.md`, or each extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
    Pass `changed_files` as the exact JSON array from capture or a reference that resolves to it in the recipient’s checkout. Preserve array order and literal Git names.
    Include deleted paths and supply the frozen diff or exact base object so each reviewer can read removed lines.

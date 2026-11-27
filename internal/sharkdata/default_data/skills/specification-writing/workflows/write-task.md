@@ -327,7 +327,7 @@ If you find yourself reaching for "byte-equivalent", you almost certainly want *
 
 **3. Numerics match the feature PRD verbatim.**
 
-When an AC has a count or threshold (*"5 fixture PDFs"*, *"200ms p95"*, *"≥80% coverage"*), grep the feature PRD's measurable-outcomes / acceptance-criteria sections for the same number. If the task spec weakens it (*"at least 1 fixture"*) while the PRD said 5, code review and QA will accept the weaker version per their phase contract — and UAT will reject. The number in the task must equal the number in the PRD, character-for-character.
+When an AC has a count or threshold (*"5 fixture PDFs"*, *"200ms p95"*, *"≥N% coverage"*), grep the feature PRD's measurable-outcomes / acceptance-criteria sections for the same number. If the task spec weakens it (*"at least 1 fixture"*) while the PRD said 5, code review and QA will accept the weaker version per their phase contract — and UAT will reject. The number in the task must equal the number in the PRD, character-for-character.
 
 **Required check before finalizing each task:** for each AC, run the three verifications above. They are 30 seconds of grep apiece and prevent a 30-minute review-and-rework loop.
 

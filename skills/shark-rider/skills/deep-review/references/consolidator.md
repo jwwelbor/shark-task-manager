@@ -58,10 +58,12 @@ Default to PLAUSIBLE for realistic runtime scenarios. Only REFUTE when the code 
 
 A retained finding must name an affected user/caller, behavior, invariant, documented standard or maintenance operation; state its concrete consequence; and cite evidence. Omit preference-only comments. Preserve the original blocker and refutation evidence when withdrawn. Under the authorized report-only downgrade disposition, record the explanation with zero source edits and zero tracker writes. Substantive surviving findings continue through normal triage.
 
+Read the craft rubric (`shark skill get quality context/craft-rubric.md` or the extracted `skills/quality/context/craft-rubric.md`) before labeling a limit finding. It resolves each limit and its source label; a locally declared limit is a documented standard.
+
 | Label | Criteria |
 |---|---|
-| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new complexity over threshold, broad catch-all without justification, or a sibling pattern that violates the impact-based craft criteria |
-| **Non-blocker** | Evidence-backed craft issue with an identifiable user, behavior, invariant, documented-standard or maintenance effect that does not violate a hard contract |
+| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new or substantially expanded code over a locally declared limit (over a generic default or unconfirmed proposal only with evidenced impact), broad catch-all without justification, or a sibling pattern that violates the impact-based craft criteria |
+| **Non-blocker** | Evidence-backed craft issue with an identifiable user, behavior, invariant, documented-standard or maintenance effect that does not violate a hard contract, including code already over a limit that the change does not substantially expand |
 
 The host routes each actionable non-blocker through the triage decision tree. A withdrawn/refuted blocker is not an actionable non-blocker and is not triaged.
 

@@ -29,20 +29,20 @@ Assess reuse severity using the canonical quality craft rubric.
 
 ## Part 2: Complexity & size hotspots
 
-Run tooling where available. In these examples, pass the applicable decoded filenames from CHANGED_FILES as separate arguments, preserving the bytes of each name. Prefix each relative filename with `./` when passing it to the tool.
+Run tooling where available. Read the craft rubric (`shark skill get quality context/craft-rubric.md` or the extracted `skills/quality/context/craft-rubric.md`) and replace `<limit>` with the cyclomatic limit it resolves. In these examples, pass the applicable decoded filenames from CHANGED_FILES as separate arguments, preserving the bytes of each name. Prefix each relative filename with `./` when passing it to the tool.
 
 ```bash
 # Python
 uv run radon cc CHANGED_FILES --min=B 2>/dev/null || python -m radon cc CHANGED_FILES --min=B
 
 # TypeScript / JS
-npx eslint CHANGED_FILES --rule 'complexity: ["error", 10]' --no-eslintrc 2>/dev/null
+npx eslint CHANGED_FILES --rule 'complexity: ["error", <limit>]' --no-eslintrc 2>/dev/null
 
 # Go
-gocyclo -over 10 CHANGED_FILES 2>/dev/null
+gocyclo -over <limit> CHANGED_FILES 2>/dev/null
 ```
 
-Apply the thresholds, guide status and severity rules in the canonical quality craft rubric. File and function size are guides requiring judgment, not automatic blockers.
+Apply the resolved limits, source labels and severity rule in `craft-rubric.md` to complexity, function length, file length and nesting depth. New or substantially expanded code over a locally declared limit is a blocker. Over a generic default or an unconfirmed proposal it is admitted only with evidenced impact. Code already over a limit that the change does not substantially expand is a non-blocker routed to triage.
 
 ## Part 3: Idiomatic language patterns
 
