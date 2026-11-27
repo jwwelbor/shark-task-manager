@@ -57,7 +57,7 @@ EXIT GATE:
 - Quality gate passes
 - Every applicable decision constraint has passing verification evidence or an authorized disposition
 - No unrelated changes
-- Evidence walk: `gate_result.summary` names the test or check for each AC ID
+- Evidence walk: name the test or check for each AC ID, compactly (AC-ID: test name) so `gate_result.summary` stays within its size limit
 - Every new or changed function and file is within the resolved limits, with each limit's source label stated
 - Self-review is recorded with no unresolved finding
 
