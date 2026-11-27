@@ -328,3 +328,27 @@ before task 3 (C), because C includes the file that B creates.
   update. That is the existing behavior.
 - Questions Q013 and Q014 may be answered differently from the spec defaults.
   Each answer has a bounded blast radius, listed above.
+
+## Amendment 1 (2026-11-27): owner decisions after code review round 1
+
+Source: `docs/review/E31-claude-workflow-optimization/E31-F01-shift-quality-left-into-development/code-review-20261127T1244-E31-F01.md`
+(candidate `966333ea`). This amendment overrides any conflicting text above.
+
+1. **Edited files are cleaned up (F-4; changes REQ-F-007 and REQ-F-017(b), supersedes F-12).**
+   Owner: "If you edited a file and it is over the limits, then you refactor to fix it (or
+   consult the architect to see if it is safe, but in general that is good maintenance
+   practice). If it is messy, you clean it up. Refactor mercilessly."
+   - The development exit gate stays strict: a file the change edits ends within the
+     resolved limits, including overages that existed before the change.
+   - When the safety of a refactor is in doubt, the worker consults the architect. A
+     recorded architect decision not to refactor is the only exception.
+   - Code review severity must not contradict this gate. The specification step defines
+     the reconciled severity rule (keeping the Q014 distinction between declared limits and
+     generic defaults where it does not conflict with the owner statement), how the
+     consultation and exception are recorded, and how the rule applies to this branch.
+2. **Tech-debt blocked loop is fixed here (F-1).** A tech-debt development step that
+   returns `blocked` must not be auto-redispatched to the developer.
+3. **Cheap review findings are fixed here:** F-2, F-3/F-6, F-5, F-7, F-8, F-9, F-10, F-11,
+   F-14, F-15, F-16/F-18, F-17, F-19 (descriptions and fix sketches are in the report).
+4. **Deferred:** F-13 (quality blocks copied into five prompts) becomes a follow-up item,
+   unless the reconciled design makes a shared partial the cheaper way to apply item 1.
