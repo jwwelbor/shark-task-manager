@@ -184,12 +184,14 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 // ToPopulatedAction constructs a PopulatedAction from this OrchestratorAction,
 // populating the instruction template with the given placeholder values.
 func (oa *OrchestratorAction) ToPopulatedAction(placeholders map[string]string) *PopulatedAction {
+	trimmedEffort := strings.TrimSpace(oa.Effort)
 	return &PopulatedAction{
 		Action:      oa.Action,
 		AgentType:   oa.AgentType,
 		Provider:    oa.Provider,
 		Model:       oa.Model,
-		Effort:      strings.ToLower(strings.TrimSpace(oa.Effort)),
+		Effort:      strings.ToLower(trimmedEffort),
+		rawEffort:   trimmedEffort,
 		Skills:      oa.Skills,
 		Instruction: oa.PopulateTemplate(placeholders),
 	}

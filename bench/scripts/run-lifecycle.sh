@@ -37,6 +37,7 @@ LIFECYCLE_BENCH_DIR="$BENCH_DIR" exec python3 - "$@" <<'PY'
 import hashlib
 import json
 import os
+import selectors
 import shutil
 import signal
 import subprocess
@@ -373,6 +374,373 @@ def bounded(value):
             return value[:512]
         return value
     return str(value)[:512]
+
+
+def _next_command_args(requested, prompt_path):
+    cmd = ["next", requested, "--json", "--prompt-out", str(prompt_path)]
+    if os.environ.get("E40_EXPECTED_CODEX_CATALOG_DIGEST"):
+        cmd.append("--benchmark-catalog-effort")
+    return cmd
+
+
+_EXACT_ROUTE_RESPONSE_FIELDS = (
+    "entity_key",
+    "entity_type",
+    "status",
+    "action",
+    "agent_type",
+    "provider",
+    "model",
+    "effort",
+    "prompt_sha256",
+    "prompt_bytes",
+    "result_contract",
+    "outcome_roles",
+)
+
+
+def _project_dispatch_response(response):
+    projected = bounded(response)
+    if isinstance(response, dict):
+        for field in _EXACT_ROUTE_RESPONSE_FIELDS:
+            if field in response:
+                val = response[field]
+                if isinstance(val, (str, int, float, bool)) or val is None:
+                    projected[field] = val
+                elif isinstance(val, dict):
+                    projected[field] = dict(val)
+    projected.pop("prompt", None)
+    return projected
+
+
+def _project_worker_usage(usage):
+    if not isinstance(usage, dict):
+        return {}
+    projected = bounded(usage)
+    if "model_ids" in usage and isinstance(usage["model_ids"], list):
+        projected["model_ids"] = [str(m) for m in usage["model_ids"] if isinstance(m, str)]
+    for field in (
+        "provider_session_id",
+        "cost_usd",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+        "api_active_duration_ms",
+        "turn_count",
+    ):
+        if field in usage:
+            projected[field] = usage[field]
+    return projected
+
+
+def _resolve_structured_final_bytes(worker_result, raw_stdout_bytes):
+    """Return exact UTF-8 bytes for --apply-result on a structured step."""
+    has_host_wrapper = any(
+        k in worker_result for k in ("worker_id", "session_id", "prompt_sha256", "prompt_bytes")
+    )
+    if "raw_final" in worker_result:
+        raw_final = worker_result["raw_final"]
+        if not isinstance(raw_final, str) or not raw_final.strip():
+            raise RuntimeError("structured step adapter result has empty or non-string raw_final")
+        try:
+            parsed = json.loads(raw_final)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"structured step raw_final is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError("structured step raw_final must be a JSON object")
+        if parsed.get("recommended_outcome") != worker_result.get("recommended_outcome"):
+            raise RuntimeError(
+                "structured step raw_final recommended_outcome disagrees with host outcome"
+            )
+        return raw_final.strip().encode("utf-8")
+    if has_host_wrapper:
+        raise RuntimeError("structured step enriched adapter result omitted raw_final")
+    return raw_stdout_bytes.strip()
+
+
+def _stage_run_id(run_id, entity, status, ordinal, session):
+    digest = hashlib.sha256(
+        f"{run_id}:{entity}:{status}:{ordinal}:{session}".encode("utf-8")
+    ).hexdigest()
+    return f"e40s-{digest[:48]}"
+
+
+def _write_private_apply_file(scratch, stage_id, raw_bytes):
+    pending_dir = scratch / ".shark" / "e40-apply"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    path = pending_dir / f"{stage_id}.json"
+    fd = os.open(
+        str(path),
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    try:
+        os.write(fd, raw_bytes)
+    finally:
+        os.close(fd)
+    return path
+
+
+def _pending_stage_path(scratch):
+    return scratch / ".shark" / "e40-apply" / "pending.json"
+
+
+def _write_pending_stage(scratch, payload):
+    pending_path = _pending_stage_path(scratch)
+    pending_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = pending_path.with_suffix(".json.tmp")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.replace(tmp_path, pending_path)
+    return pending_path
+
+
+def _clear_pending_stage(scratch, apply_file=None):
+    if apply_file is not None:
+        try:
+            Path(apply_file).unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        _pending_stage_path(scratch).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _reconcile_pending_stage(shark, scratch, run_id, fixture_root, record, stage_ctx=None):
+    """Inspect and reconcile any pending structured-final stage before new dispatches."""
+    pending_path = _pending_stage_path(scratch)
+    if not pending_path.is_file():
+        return 0
+    try:
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot read pending stage marker {pending_path}: {exc}") from exc
+    if not isinstance(pending, dict):
+        raise RuntimeError(f"pending stage marker {pending_path} must be a JSON object")
+    if pending.get("run_id") != run_id:
+        raise RuntimeError(
+            f"pending stage belongs to run_id {pending.get('run_id')!r}, cannot resume under {run_id!r}"
+        )
+
+    stage_id = str(pending.get("stage_id") or "")
+    entity = str(pending.get("entity_key") or "")
+    entity_type = str(pending.get("entity_type") or "")
+    source_status = str(pending.get("source_status") or "")
+    session = str(pending.get("session_id") or "")
+    outcome = str(pending.get("outcome") or "")
+    apply_file_str = str(pending.get("apply_file") or "")
+    final_digest = str(pending.get("final_digest") or "")
+    pending_ordinal = int(pending.get("ordinal") or 1)
+    if not stage_id or not entity or not session:
+        raise RuntimeError("pending stage marker is missing stage_id, entity_key, or session_id")
+
+    apply_file = Path(apply_file_str) if apply_file_str else None
+    resume_cmd = ["run", entity, "--resume-run", stage_id, "--session", session, "--json"]
+    if entity_type == "bug":
+        resume_cmd.extend(["--workdir", str(fixture_root)])
+
+    release_resp = None
+    try:
+        resume_resp = run_command(shark, resume_cmd, scratch)
+    except RuntimeError as exc:
+        if (
+            pending.get("submitted") is False
+            and apply_file is not None
+            and apply_file.is_file()
+            and final_digest
+            and sha256_bytes(apply_file.read_bytes()) == final_digest
+        ):
+            entity_state = run_command(shark, ["get", entity, "--json"], scratch)
+            if str(entity_state.get("status") or "") != source_status:
+                raise RuntimeError(
+                    f"pending unsubmitted stage {stage_id} status changed from {source_status!r} to {entity_state.get('status')!r}"
+                ) from exc
+            apply_cmd = [
+                "run", entity, "--apply-result", str(apply_file),
+                "--run-id", stage_id, "--session", session, "--json",
+            ]
+            if entity_type == "bug":
+                apply_cmd.extend(["--workdir", str(fixture_root)])
+            resume_resp = run_command(shark, apply_cmd, scratch)
+            resume_action = "initial_apply_after_unsubmitted"
+        else:
+            raise RuntimeError(
+                f"pending stage {stage_id} resume failed for {entity}: {exc}"
+            ) from exc
+    else:
+        resp_run_id = resume_resp.get("run_id")
+        resp_entity = resume_resp.get("entity_key")
+        if resp_run_id not in {None, "", stage_id} or resp_entity not in {None, "", entity}:
+            raise RuntimeError(
+                f"resume-run identity mismatch for {stage_id}: got run_id={resp_run_id!r}, entity_key={resp_entity!r}"
+            )
+        resume_action = str(resume_resp.get("resume_action") or resume_resp.get("action") or "")
+
+    to_status = str(resume_resp.get("to_status") or resume_resp.get("new_status") or "")
+    status_proj = resume_resp.get("status") if isinstance(resume_resp.get("status"), dict) else {}
+    retired = bool(resume_resp.get("retired")) or status_proj.get("retirement_state") == "retired"
+    lease_released = bool(resume_resp.get("lease_released"))
+    if not lease_released and not retired:
+        release_resp = bounded(
+            run_command(
+                shark,
+                ["release", entity, "--session", session, "--outcome", outcome or "complete", "--json"],
+                scratch,
+            )
+        )
+
+    response_record = (
+        dict(pending["response"])
+        if isinstance(pending.get("response"), dict)
+        else {"entity_key": entity, "entity_type": entity_type, "status": source_status}
+    )
+    response_record.setdefault("entity_key", entity)
+    response_record.setdefault("entity_type", entity_type)
+    response_record.setdefault("status", source_status)
+    evidence_refs = (
+        dict(pending["evidence_refs"])
+        if isinstance(pending.get("evidence_refs"), dict)
+        else {}
+    )
+    if "prompt_sha256" in response_record:
+        evidence_refs.setdefault("prompt_sha256", response_record["prompt_sha256"])
+    if "prompt_bytes" in response_record:
+        evidence_refs.setdefault("prompt_bytes", response_record["prompt_bytes"])
+    evidence_refs.setdefault("candidate_snapshot_digest", "0" * 64)
+    claim_record = (
+        dict(pending["claim"])
+        if isinstance(pending.get("claim"), dict)
+        else {"session_id": session}
+    )
+    worker_record = (
+        dict(pending["worker"])
+        if isinstance(pending.get("worker"), dict)
+        else {"worker_id": "resume", "session_id": session, "kind": "final", "recommended_outcome": outcome, "evidence": []}
+    )
+    if not str(worker_record.get("worker_id") or "").strip():
+        worker_record["worker_id"] = "resume"
+    if not str(worker_record.get("session_id") or "").strip():
+        worker_record["session_id"] = session
+    if not str(worker_record.get("kind") or "").strip():
+        worker_record["kind"] = "final"
+    heartbeats_record = (
+        list(pending["heartbeats"])
+        if isinstance(pending.get("heartbeats"), list)
+        else []
+    )
+    cost_usd = float(pending.get("cost_usd") or 0.0)
+
+    dispatch_record = {
+        "ordinal": pending_ordinal,
+        "requested_key": str(pending.get("requested_key") or entity),
+        "response": response_record,
+        "claim": claim_record,
+        "worker": worker_record,
+        "heartbeats": heartbeats_record,
+        "outcome": outcome or "complete",
+        "transition": {
+            "run_id": stage_id,
+            "outcome": outcome,
+            "session_id": session,
+            "from_status": source_status,
+            "to_status": to_status,
+            "persisted": True,
+            "transitioned": bool(resume_resp.get("transitioned", False)),
+            "retired": retired,
+            "resumed": True,
+            "resume_action": resume_action,
+            "final_digest": final_digest,
+        },
+        "release": release_resp or {"released": lease_released},
+        "started_at": str(pending.get("started_at") or timestamp()),
+        "ended_at": timestamp(),
+        "evidence_refs": evidence_refs,
+        "cost_usd": cost_usd,
+    }
+    record["dispatches"].append(dispatch_record)
+    record["limits"]["observed_cost_usd"] += cost_usd
+    if stage_ctx is not None:
+        stage_candidate_in = (
+            dict(pending["candidate"])
+            if isinstance(pending.get("candidate"), dict)
+            else candidate_identity(
+                fixture_root,
+                stage_ctx["execution_adapter"],
+                stage_ctx["adapter_name"],
+                stage_ctx["adapter_version"],
+                stage_ctx["toolchain_identity"],
+                stage_ctx["deadline"],
+                stage_ctx["active_lease"],
+            )
+        )
+        refresh_candidate(
+            stage_candidate_in,
+            fixture_root,
+            scratch,
+            stage_ctx["execution_adapter"],
+            stage_ctx["adapter_name"],
+            stage_ctx["adapter_version"],
+            stage_ctx["toolchain_identity"],
+            stage_ctx["deadline"],
+            stage_ctx["active_lease"],
+        )
+        fixture_input_digest = str(pending.get("fixture_input_digest") or tree_digest(fixture_root))
+        worker_result = (
+            dict(pending["worker_result"])
+            if isinstance(pending.get("worker_result"), dict)
+            else worker_record
+        )
+        timing = (
+            dict(pending["timing"])
+            if isinstance(pending.get("timing"), dict)
+            else {"stage_start": time.monotonic_ns(), "claimed": []}
+        )
+        stage_candidate, gate_category = finalize_stage_evidence(
+            record,
+            stage_ctx["evidence_errors"],
+            dispatch_record,
+            stage_candidate_in,
+            response_record,
+            entity,
+            fixture_root,
+            fixture_input_digest,
+            stage_ctx["execution_adapter"],
+            stage_ctx["adapter"],
+            stage_ctx["i05_writer"],
+            shark,
+            scratch,
+            worker_result,
+            timing,
+            time.monotonic_ns(),
+            stage_ctx["stage_visits"],
+            stage_ctx["started"],
+        )
+        capture_gate_if_configured(
+            record,
+            stage_ctx["configured_gate_ids"],
+            stage_ctx["has_configured_workflow"],
+            stage_ctx["i05_writer"],
+            shark,
+            scratch,
+            entity,
+            response_record,
+            stage_candidate,
+            stage_ctx["review_rounds"],
+            stage_ctx["seen_review_note_ids"],
+            stage_ctx["repo_root"],
+            pending.get("request") if isinstance(pending.get("request"), dict) else {},
+            configured_gates_by_family=stage_ctx["configured_gates_by_family"],
+            family_workflow_found=stage_ctx["family_workflow_found"],
+        )
+    if pending_ordinal not in record["entity_graph"]["ordinals"]:
+        record["entity_graph"]["ordinals"].append(pending_ordinal)
+    _clear_pending_stage(scratch, apply_file)
+    return pending_ordinal
 
 
 def load_json(stdout, label):
@@ -1460,18 +1828,27 @@ def capture_review_gate(
                 metadata = json.loads(metadata)
             if not isinstance(metadata, dict):
                 raise RuntimeError("review-finding metadata is not an object")
-            missing = [
-                field for field in ("severity", "defect_class", "fingerprint")
-                if not isinstance(metadata.get(field), str) or not metadata[field].strip()
-            ]
+            missing = []
+            for field in ("severity", "fingerprint"):
+                if not isinstance(metadata.get(field), str) or not metadata[field].strip():
+                    missing.append(field)
+            has_defect_class = isinstance(metadata.get("defect_class"), str) and bool(metadata["defect_class"].strip())
+            has_class_key = isinstance(metadata.get("class_key"), str) and bool(metadata["class_key"].strip())
+            if not has_defect_class and not has_class_key:
+                missing.append("defect_class")
             if missing:
                 raise RuntimeError(f"review-finding metadata omitted {', '.join(missing)}")
+            if has_defect_class and has_class_key and metadata["defect_class"].strip() != metadata["class_key"].strip():
+                raise RuntimeError(
+                    f"review-finding note {note_id} has conflicting defect_class ({metadata['defect_class']!r}) and class_key ({metadata['class_key']!r})"
+                )
+            projected_class = metadata["defect_class"].strip() if has_defect_class else metadata["class_key"].strip()
             raw_bytes = json.dumps(note, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
             gate["findings"].append({
                 "gate": str(metadata.get("gate") or gate_id),
                 "round": int(metadata.get("round") or round_number),
                 "severity": metadata["severity"],
-                "defect_class": metadata["defect_class"],
+                "defect_class": projected_class,
                 "fingerprint": metadata["fingerprint"],
                 "criterion": str(metadata.get("criterion") or "not_reported"),
                 "test": str(metadata.get("test") or "not_reported"),
@@ -1537,13 +1914,62 @@ def fork_candidates(response):
     return sorted(normalized, key=lambda item: item["entity_key"])
 
 
-def allowed_outcomes(scratch, response):
-    entity_type = str(response.get("entity_type", "")).replace("_", "-")
-    candidates = [entity_type, entity_type.replace("-card", "")]
+def _scenario_workflow_families(scenario, repo_root):
+    lib_dir = str((repo_root / "bench" / "scripts" / "lib").resolve())
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from e40_benchmark import package_workflow_families
+
+    families = sorted(package_workflow_families(scenario))
+    root_family = str(scenario.get("entity_family") or "unknown").strip() or "unknown"
+    if root_family != "unknown" and root_family in families:
+        families = [root_family] + [fam for fam in families if fam != root_family]
+    return families or [root_family]
+
+
+def _resolve_workflow_file(scratch, entity_family):
+    family_str = str(entity_family or "").strip()
+    family_name = family_str.replace("_", "-")
+    candidates = []
+    for cand in (family_name, family_name.replace("-card", ""), family_str):
+        if cand and cand not in candidates:
+            candidates.append(cand)
+    workflow_dir = scratch / "shark-data" / "workflow"
+    cfg_path = scratch / ".sharkconfig.json"
+    if cfg_path.is_file():
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cfg = {}
+        wf_cfg = cfg.get("workflow_config") if isinstance(cfg, dict) else None
+        if isinstance(wf_cfg, str) and wf_cfg.strip():
+            resolved_cfg = Path(wf_cfg.strip())
+            if not resolved_cfg.is_absolute():
+                resolved_cfg = scratch / resolved_cfg
+            if resolved_cfg.is_file():
+                index_doc = yaml.safe_load(resolved_cfg.read_text(encoding="utf-8")) or {}
+                if isinstance(index_doc, dict):
+                    workflows_map = index_doc.get("workflows") if isinstance(index_doc.get("workflows"), dict) else index_doc
+                    for cand in candidates:
+                        mapped = workflows_map.get(cand)
+                        if isinstance(mapped, str) and mapped.strip():
+                            target = Path(mapped.strip())
+                            if not target.is_absolute():
+                                target = resolved_cfg.parent / target
+                            if target.is_file():
+                                return target
+            elif resolved_cfg.is_dir():
+                workflow_dir = resolved_cfg
     for name in candidates:
-        path = scratch / "shark-data" / "workflow" / f"{name}.yaml"
-        if not path.is_file():
-            continue
+        path = workflow_dir / f"{name}.yaml"
+        if path.is_file():
+            return path
+    return None
+
+
+def allowed_outcomes(scratch, response):
+    path = _resolve_workflow_file(scratch, response.get("entity_type", ""))
+    if path is not None:
         workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         step = ((workflow.get("steps") or {}).get(str(response.get("status"))) or {})
         outcomes = step.get("outcomes") or {}
@@ -1552,7 +1978,113 @@ def allowed_outcomes(scratch, response):
     return ["blocked", "fail", "on_hold", "pass"]
 
 
-def configured_gate_policies(scratch, entity_family, repo_root):
+def _extract_family_gate_policies(scratch, family, workflow_path, repo_root):
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+    gate_phases = {"code_review", "review", "qa", "uat", "approval"}
+    policies = []
+    steps = workflow.get("steps")
+    if isinstance(steps, dict) and steps:
+        visited = set()
+        pending = [workflow.get("start")]
+        while pending:
+            current = pending.pop(0)
+            if not isinstance(current, str) or not current or current in visited:
+                continue
+            visited.add(current)
+            step = steps.get(current) or {}
+            phase = str(step.get("phase") or "")
+            if step.get("action") == "spawn_agent" and phase in gate_phases:
+                prompt_source = str(step.get("prompt") or "")
+                prompt_path = scratch / "shark-data" / "prompts" / prompt_source
+                prompt_source_digest = sha256_file(prompt_path) if prompt_path.is_file() else "0" * 64
+                policy = {
+                    "gate_id": current,
+                    "workflow_family": family,
+                    "phase": phase,
+                    "provider": str(step.get("provider") or "unknown"),
+                    "model": str(step.get("model") or "unknown"),
+                    "effort": str(step.get("effort") or "default"),
+                    "prompt_source": prompt_source,
+                    "prompt_source_digest": prompt_source_digest,
+                    "rendered_prompt_digest": None,
+                    "deep_review_bundle_digest": deep_review_digest(repo_root),
+                    "fixes_allowed": "fail" in (step.get("outcomes") or {}),
+                    "reached": False,
+                }
+                policy["policy_digest"] = canonical_digest(policy)
+                policies.append(policy)
+            outcomes = step.get("outcomes") or {}
+            if isinstance(outcomes, dict):
+                for target in outcomes.values():
+                    if (
+                        isinstance(target, str) and target in steps
+                        and target not in visited and target not in pending
+                    ):
+                        pending.append(target)
+        return policies
+
+    status_flow = workflow.get("status_flow") or {}
+    status_meta = workflow.get("status_metadata") or {}
+    if isinstance(status_meta, dict) and status_meta:
+        visited = set()
+        pending = list(workflow.get("start") or []) if isinstance(workflow.get("start"), list) else [workflow.get("start")]
+        if not pending or pending == [None]:
+            pending = list(status_meta.keys())
+        while pending:
+            current = pending.pop(0)
+            if not isinstance(current, str) or not current or current in visited:
+                continue
+            visited.add(current)
+            meta = status_meta.get(current) or {}
+            phase = str(meta.get("phase") or "")
+            action = meta.get("orchestrator_action") or {}
+            if phase in gate_phases and isinstance(action, dict) and action.get("action") == "spawn_agent":
+                prompt_source = str(action.get("instruction_template") or "")
+                prompt_path = scratch / "shark-data" / "prompts" / prompt_source
+                prompt_source_digest = sha256_file(prompt_path) if prompt_path.is_file() else "0" * 64
+                policy = {
+                    "gate_id": current,
+                    "workflow_family": family,
+                    "phase": phase,
+                    "provider": str(action.get("provider") or "unknown"),
+                    "model": str(action.get("model") or "unknown"),
+                    "effort": str(action.get("effort") or "default"),
+                    "prompt_source": prompt_source,
+                    "prompt_source_digest": prompt_source_digest,
+                    "rendered_prompt_digest": None,
+                    "deep_review_bundle_digest": deep_review_digest(repo_root),
+                    "fixes_allowed": False,
+                    "reached": False,
+                }
+                policy["policy_digest"] = canonical_digest(policy)
+                policies.append(policy)
+            targets = status_flow.get(current) or []
+            if isinstance(targets, list):
+                for target in targets:
+                    if isinstance(target, str) and target not in visited and target not in pending:
+                        pending.append(target)
+    return policies
+
+
+def configured_gate_policy_state(scratch, workflow_families, repo_root):
+    """Freeze each eligible family's configured gate policies and workflow-found state."""
+    policies = []
+    by_family = {}
+    family_found = {}
+    for family in workflow_families:
+        workflow_path = _resolve_workflow_file(scratch, family)
+        if workflow_path is None:
+            family_found[family] = False
+            by_family[family] = frozenset()
+            continue
+        family_found[family] = True
+        fam_policies = _extract_family_gate_policies(scratch, family, workflow_path, repo_root)
+        policies.extend(fam_policies)
+        by_family[family] = frozenset(p["gate_id"] for p in fam_policies)
+    return policies, any(family_found.values()), by_family, family_found
+
+
+def configured_gate_policies(scratch, entity_family, repo_root, workflow_families=None):
     """Retain every review-like gate reachable through any workflow outcome.
 
     Returns (policies, workflow_found): workflow_found distinguishes "no
@@ -1561,56 +2093,9 @@ def configured_gate_policies(scratch, entity_family, repo_root):
     an empty policies list, but is_configured_gate must treat them
     differently (fall back to keyword matching only in the former case).
     """
-    family_name = str(entity_family).replace("_", "-")
-    candidates = [family_name, family_name.replace("-card", "")]
-    workflow_path = next(
-        (scratch / "shark-data" / "workflow" / f"{name}.yaml" for name in candidates
-         if (scratch / "shark-data" / "workflow" / f"{name}.yaml").is_file()),
-        None,
-    )
-    if workflow_path is None:
-        return [], False
-    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
-    steps = workflow.get("steps") or {}
-    visited = set()
-    pending = [workflow.get("start")]
-    policies = []
-    gate_phases = {"code_review", "review", "qa", "uat", "approval"}
-    while pending:
-        current = pending.pop(0)
-        if not isinstance(current, str) or not current or current in visited:
-            continue
-        visited.add(current)
-        step = steps.get(current) or {}
-        phase = str(step.get("phase") or "")
-        if step.get("action") == "spawn_agent" and phase in gate_phases:
-            prompt_source = str(step.get("prompt") or "")
-            prompt_path = scratch / "shark-data" / "prompts" / prompt_source
-            prompt_source_digest = sha256_file(prompt_path) if prompt_path.is_file() else "0" * 64
-            policy = {
-                "gate_id": current,
-                "phase": phase,
-                "provider": str(step.get("provider") or "unknown"),
-                "model": str(step.get("model") or "unknown"),
-                "effort": str(step.get("effort") or "default"),
-                "prompt_source": prompt_source,
-                "prompt_source_digest": prompt_source_digest,
-                "rendered_prompt_digest": None,
-                "deep_review_bundle_digest": deep_review_digest(repo_root),
-                "fixes_allowed": "fail" in (step.get("outcomes") or {}),
-                "reached": False,
-            }
-            policy["policy_digest"] = canonical_digest(policy)
-            policies.append(policy)
-        outcomes = step.get("outcomes") or {}
-        if isinstance(outcomes, dict):
-            for target in outcomes.values():
-                if (
-                    isinstance(target, str) and target in steps
-                    and target not in visited and target not in pending
-                ):
-                    pending.append(target)
-    return policies, True
+    families = workflow_families if workflow_families is not None else [entity_family]
+    policies, any_found, _, _ = configured_gate_policy_state(scratch, families, repo_root)
+    return policies, any_found
 
 
 def refresh_workflow_policy(record):
@@ -1644,7 +2129,14 @@ def refresh_workflow_policy(record):
     )
 
 
-def is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
+def is_configured_gate(
+    configured_gate_ids,
+    has_configured_workflow,
+    gate_id,
+    entity_family=None,
+    configured_gates_by_family=None,
+    family_workflow_found=None,
+):
     """Whether gate_id (the entity's current status) is a configured review/
     qa/uat/approval/code_review gate.
 
@@ -1673,6 +2165,10 @@ def is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
     back to the keyword match, to preserve prior behavior for callers with
     no `steps:` schema to consult.
     """
+    if entity_family and isinstance(family_workflow_found, dict) and entity_family in family_workflow_found:
+        if family_workflow_found[entity_family]:
+            return gate_id in (configured_gates_by_family or {}).get(entity_family, frozenset())
+        return stage_category(gate_id) in {"review", "qa", "uat"}
     if has_configured_workflow:
         return gate_id in configured_gate_ids
     return stage_category(gate_id) in {"review", "qa", "uat"}
@@ -1680,7 +2176,13 @@ def is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
 
 def gate_policy_for(record, response, repo_root):
     gate_id = str(response.get("status", "review"))
-    for policy in record["workflow_policy"].get("gate_policies") or []:
+    entity_family = str(response.get("entity_type") or "").strip()
+    policies = record["workflow_policy"].get("gate_policies") or []
+    if entity_family:
+        for policy in policies:
+            if policy.get("gate_id") == gate_id and policy.get("workflow_family") == entity_family:
+                return policy
+    for policy in policies:
         if policy.get("gate_id") == gate_id:
             return policy
     fallback = {
@@ -1696,6 +2198,8 @@ def gate_policy_for(record, response, repo_root):
         "fixes_allowed": False,
         "reached": False,
     }
+    if entity_family:
+        fallback["workflow_family"] = entity_family
     fallback["policy_digest"] = canonical_digest(fallback)
     record["workflow_policy"].setdefault("gate_policies", []).append(fallback)
     return fallback
@@ -1726,7 +2230,11 @@ def stop_process_group(process):
         process.wait(timeout=2)
 
 
-def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, deadline, active_state):
+MAX_ADAPTER_STDOUT_BYTES = 2 * 1024 * 1024
+MAX_ADAPTER_STDERR_BYTES = 64 * 1024
+
+
+def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, deadline, active_state, raw_out=None):
     """`timing` is the caller's per-dispatch accumulator (see
     `reconcile_time_ledger()`): a mutable dict this function appends real
     `time.monotonic_ns()` observations into (T-E40-F12-003, REQ-F-005). It is
@@ -1741,16 +2249,19 @@ def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, dea
     `Popen` under "adapter_process" (or None) so a concurrent signal handler
     can stop the whole process group instead of only the parent process."""
     if mode in {"contract", "dry-run"}:
-        return ({"worker_id": "offline-worker", "session_id": request["session_id"], "kind": "final", "recommended_outcome": "pass", "evidence": {"mode": mode}}, [])
+        stub = {"worker_id": "offline-worker", "session_id": request["session_id"], "kind": "final", "recommended_outcome": "pass", "evidence": {"mode": mode}}
+        if raw_out is not None:
+            raw_out["stdout"] = json.dumps(stub, separators=(",", ":")).encode("utf-8")
+        return (stub, [])
     try:
         adapter_env = dict(os.environ)
         adapter_env["E40_AGENT_FIXTURE_CHECKOUT"] = str(fixture_root)
         process = subprocess.Popen(
             [adapter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=cwd, env=adapter_env, text=True, start_new_session=True,
+            cwd=cwd, env=adapter_env, text=False, start_new_session=True,
         )
         active_state["adapter_process"] = process
-        process.stdin.write(json.dumps(request, separators=(",", ":")))
+        process.stdin.write(json.dumps(request, separators=(",", ":")).encode("utf-8"))
         process.stdin.close()
     except OSError as exc:
         stop_process_group(locals().get("process"))
@@ -1776,23 +2287,27 @@ def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, dea
     last_heartbeat = time.monotonic()
     heartbeat_events = []
     heartbeat_args_base = ["heartbeat", request["entity_key"], "--session", request["session_id"], "--progress", "0.5", "--note", str(request.get("runner_id", "lifecycle"))]
+    stdout_chunks = []
+    stdout_len = 0
+    stderr_chunks = []
+    stderr_len = 0
+    selector = selectors.DefaultSelector()
     try:
-        while process.poll() is None:
+        assert process.stdout is not None and process.stderr is not None
+        os.set_blocking(process.stdout.fileno(), False)
+        os.set_blocking(process.stderr.fileno(), False)
+        selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, data="stderr")
+        while selector.get_map():
             now = time.monotonic()
             if now >= deadline:
                 stop_process_group(process)
                 active_state["adapter_process"] = None
                 raise ResourceLimit("resource ceiling exceeded during provider dispatch: max_wall_clock_seconds")
-            if now - last_heartbeat >= heartbeat_interval:
+            if process.poll() is None and now - last_heartbeat >= heartbeat_interval:
                 try:
                     heartbeat = run_command(shark, heartbeat_args_base, cwd)
                 except RuntimeError:
-                    # T-E40-F12-003 (REQ-F-005/§2.5): one bounded retry,
-                    # after a fixed backoff, before declaring LeaseLoss.
-                    # The backoff+retry window is `retry_or_backoff`,
-                    # recorded on BOTH the eventual-success and the
-                    # eventual-failure branch below, so a real observation
-                    # is never dropped on the exception path.
                     retry_start_ns = time.monotonic_ns()
                     time.sleep(HEARTBEAT_RETRY_BACKOFF_SECONDS)
                     try:
@@ -1805,19 +2320,49 @@ def adapter_result(adapter, request, cwd, mode, shark, timing, fixture_root, dea
                     timing["claimed"].append(("retry_or_backoff", retry_start_ns, time.monotonic_ns()))
                 heartbeat_events.append({"session_id": request["session_id"], "at": timestamp(), "response": bounded(heartbeat)})
                 last_heartbeat = now
-            time.sleep(min(0.05, heartbeat_interval / 4.0))
-        stdout = process.stdout.read()
-        stderr = process.stderr.read()
+            next_hb_in = max(0.001, (last_heartbeat + heartbeat_interval) - time.monotonic())
+            remaining_dl = max(0.001, deadline - time.monotonic())
+            wait_for = min(0.05, next_hb_in, remaining_dl)
+            events = selector.select(timeout=wait_for)
+            for key, _mask in events:
+                stream_name = key.data
+                try:
+                    chunk = os.read(key.fd, 65536)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                if stream_name == "stdout":
+                    stdout_len += len(chunk)
+                    if stdout_len > MAX_ADAPTER_STDOUT_BYTES:
+                        stop_process_group(process)
+                        active_state["adapter_process"] = None
+                        raise RuntimeError("lifecycle adapter stdout exceeded maximum transport bound")
+                    stdout_chunks.append(chunk)
+                else:
+                    if stderr_len < MAX_ADAPTER_STDERR_BYTES:
+                        keep = chunk[:MAX_ADAPTER_STDERR_BYTES - stderr_len]
+                        stderr_chunks.append(keep)
+                        stderr_len += len(keep)
         process.wait()
     except (BrokenPipeError, OSError, subprocess.TimeoutExpired) as exc:
         if process.poll() is None:
             stop_process_group(process)
         active_state["adapter_process"] = None
         raise RuntimeError(f"lifecycle adapter process failed: {exc}") from exc
+    finally:
+        selector.close()
     adapter_end_ns = time.monotonic_ns()
     active_state["adapter_process"] = None
+    stdout_bytes = b"".join(stdout_chunks)
+    stderr_bytes = b"".join(stderr_chunks)
+    stderr = stderr_bytes.decode("utf-8", errors="replace")
     if process.returncode != 0:
-        raise RuntimeError(f"lifecycle adapter failed ({process.returncode}): {stderr.strip()}")
+        raise RuntimeError(f"lifecycle adapter failed ({process.returncode}): {stderr.strip()[:512]}")
+    stdout = stdout_bytes.decode("utf-8", errors="strict")
+    if raw_out is not None:
+        raw_out["stdout"] = stdout_bytes
     envelope = load_json(stdout, "lifecycle adapter")
     if isinstance(envelope, dict):
         claims = provider_active_claims(envelope, adapter_start_ns, adapter_end_ns, timing["claimed"])
@@ -2048,7 +2593,7 @@ def resolve_route(args, scenario_path, scenario, scratch, shark):
             # assumes.
             prompt_path = scratch / "route-prompts" / f"{next_ordinal:04d}"
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
-            response = run_command(shark, ["next", requested, "--json", "--prompt-out", str(prompt_path)], scratch)
+            response = run_command(shark, _next_command_args(requested, prompt_path), scratch)
             action = response.get("action")
             if action == "parallel_candidates":
                 candidates = fork_candidates(response)
@@ -2244,6 +2789,7 @@ def capture_gate_if_configured(
     record, configured_gate_ids, has_configured_workflow, i05_writer,
     shark, scratch, entity, response, stage_candidate,
     review_rounds, seen_review_note_ids, repo_root, request,
+    configured_gates_by_family=None, family_workflow_found=None,
 ):
     """Captures this dispatch's review/qa/uat gate evidence, if
     is_configured_gate says this dispatch's status is a configured gate.
@@ -2272,12 +2818,21 @@ def capture_gate_if_configured(
     if i05_writer is None:
         return
     gate_id = str(response.get("status", "review"))
-    if not is_configured_gate(configured_gate_ids, has_configured_workflow, gate_id):
+    entity_family = str(response.get("entity_type") or "").strip() or None
+    if not is_configured_gate(
+        configured_gate_ids,
+        has_configured_workflow,
+        gate_id,
+        entity_family=entity_family,
+        configured_gates_by_family=configured_gates_by_family,
+        family_workflow_found=family_workflow_found,
+    ):
         return
-    review_rounds[gate_id] = review_rounds.get(gate_id, 0) + 1
+    round_key = (entity, gate_id)
+    review_rounds[round_key] = review_rounds.get(round_key, 0) + 1
     gate, captured_policy = capture_review_gate(
         shark, scratch, i05_writer.dir, entity, response, stage_candidate,
-        review_rounds[gate_id], seen_review_note_ids, repo_root,
+        review_rounds[round_key], seen_review_note_ids, repo_root,
         gate_policy_for(record, response, repo_root),
     )
     record["review_gates"].append(gate)
@@ -2367,8 +2922,8 @@ def main(argv):
     record = make_record(identity, args["root"], scratch, limits, repo_root)
     record["entity_graph"]["root_type"] = str(scenario.get("entity_family", "unknown"))
     record["workflow_policy"]["reviewer"] = {"provider": "fixture", "model": "fixture", "effort": ""}
-    configured_gate_policy_list, has_configured_workflow = configured_gate_policies(
-        scratch, scenario.get("entity_family", "unknown"), repo_root,
+    configured_gate_policy_list, has_configured_workflow, configured_gates_by_family, family_workflow_found = configured_gate_policy_state(
+        scratch, _scenario_workflow_families(scenario, repo_root), repo_root,
     )
     record["workflow_policy"]["gate_policies"] = configured_gate_policy_list
     # Frozen at setup time, before any dispatch: is_configured_gate must never
@@ -2474,6 +3029,32 @@ def main(argv):
     signal.signal(signal.SIGTERM, release_on_signal)
 
     try:
+        if args["mode"] not in {"contract", "dry-run"} and queue:
+            reconciled_ordinal = _reconcile_pending_stage(
+                shark, scratch, args["run_id"], fixture_root, record,
+                stage_ctx={
+                    "evidence_errors": evidence_errors,
+                    "execution_adapter": execution_adapter,
+                    "adapter": adapter,
+                    "adapter_name": adapter_name,
+                    "adapter_version": adapter_version,
+                    "toolchain_identity": toolchain_identity,
+                    "deadline": started + limits["max_wall_clock_seconds"],
+                    "active_lease": active_lease,
+                    "i05_writer": i05_writer,
+                    "stage_visits": stage_visits,
+                    "started": started,
+                    "configured_gate_ids": configured_gate_ids,
+                    "has_configured_workflow": has_configured_workflow,
+                    "review_rounds": review_rounds,
+                    "seen_review_note_ids": seen_review_note_ids,
+                    "repo_root": repo_root,
+                    "configured_gates_by_family": configured_gates_by_family,
+                    "family_workflow_found": family_workflow_found,
+                },
+            )
+            if reconciled_ordinal:
+                ordinal = max(ordinal, reconciled_ordinal)
         while queue:
             requested = queue.pop(0)
             pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch)
@@ -2483,7 +3064,7 @@ def main(argv):
             # this dispatch's `shark next` call -- used only if this queue
             # item turns into a real spawn_agent dispatch below.
             stage_start_ns = time.monotonic_ns()
-            response = run_command(shark, ["next", requested, "--json", "--prompt-out", str(prompt_path)], scratch)
+            response = run_command(shark, _next_command_args(requested, prompt_path), scratch)
             if response.get("action") == "parallel_candidates":
                 candidates = fork_candidates(response)
                 record["entity_graph"]["fork_candidates"].append({"response": bounded(response), "candidates": candidates})
@@ -2526,8 +3107,7 @@ def main(argv):
             )
             timing = {"stage_start": stage_start_ns, "claimed": [("tool_and_test", ci_start_ns, time.monotonic_ns())]}
 
-            response_record = bounded(response)
-            response_record.pop("prompt", None)
+            response_record = _project_dispatch_response(response)
             dispatch = {
                 "ordinal": ordinal + 1,
                 "requested_key": requested,
@@ -2586,14 +3166,24 @@ def main(argv):
                 if routing_identity["routing_digest"]:
                     request["routing_identity"] = routing_identity
                 request["allowed_outcomes"] = allowed_outcomes(scratch, response)
+                raw_adapter_out = {}
                 worker_result, heartbeats = adapter_result(
                     adapter, request, scratch, args["mode"], shark, timing, fixture_root,
                     started + limits["max_wall_clock_seconds"], active_lease,
+                    raw_out=raw_adapter_out,
                 )
                 dispatch["heartbeats"] = heartbeats
                 if worker_result.get("session_id") not in {None, session}:
                     raise RuntimeError(f"worker session mismatch for {entity}")
-                dispatch["worker"] = {"worker_id": worker_result.get("worker_id", ""), "session_id": worker_result.get("session_id", session), "kind": worker_result.get("kind", ""), "recommended_outcome": worker_result.get("recommended_outcome"), "evidence": bounded(worker_result.get("evidence", {})), "usage": bounded(worker_result.get("usage", {})), "cost_usd": worker_result.get("cost_usd", 0.0)}
+                dispatch["worker"] = {
+                    "worker_id": worker_result.get("worker_id", ""),
+                    "session_id": worker_result.get("session_id", session),
+                    "kind": worker_result.get("kind", ""),
+                    "recommended_outcome": worker_result.get("recommended_outcome"),
+                    "evidence": bounded(worker_result.get("evidence", {})),
+                    "usage": _project_worker_usage(worker_result.get("usage", {})),
+                    "cost_usd": worker_result.get("cost_usd", 0.0),
+                }
                 kind = worker_result.get("kind")
                 if kind == "question":
                     question_start_ns = time.monotonic_ns()
@@ -2613,6 +3203,94 @@ def main(argv):
                         terminal = "missing_outcome"
                         reason = f"worker for {entity} did not return a final recommended_outcome"
                         dispatch["outcome"] = terminal
+                elif response.get("result_contract") == "gate_result_v1" and args["mode"] not in {"contract", "dry-run"}:
+                    dispatch["outcome"] = str(outcome)
+                    raw_bytes = _resolve_structured_final_bytes(
+                        worker_result, raw_adapter_out.get("stdout", b"")
+                    )
+                    # X-11 final heartbeat for bound child and session before --apply-result
+                    final_hb_args = [
+                        "heartbeat", entity, "--session", session,
+                        "--progress", "1.0", "--note", str(request.get("runner_id", "lifecycle")),
+                    ]
+                    try:
+                        final_hb = run_command(shark, final_hb_args, scratch)
+                    except RuntimeError as exc:
+                        raise LeaseLoss(f"final heartbeat failed before apply-result for {entity}: {exc}") from exc
+                    dispatch["heartbeats"].append({
+                        "session_id": session, "at": timestamp(), "response": bounded(final_hb),
+                    })
+                    stage_id = _stage_run_id(
+                        args["run_id"], entity, response.get("status", ""), dispatch["ordinal"], session
+                    )
+                    apply_file = _write_private_apply_file(scratch, stage_id, raw_bytes)
+                    _write_pending_stage(scratch, {
+                        "run_id": args["run_id"],
+                        "stage_id": stage_id,
+                        "entity_key": entity,
+                        "entity_type": response.get("entity_type", ""),
+                        "source_status": response.get("status", ""),
+                        "session_id": session,
+                        "ordinal": dispatch["ordinal"],
+                        "requested_key": dispatch["requested_key"],
+                        "response": dispatch["response"],
+                        "claim": dispatch["claim"],
+                        "worker": dispatch["worker"],
+                        "heartbeats": dispatch["heartbeats"],
+                        "evidence_refs": dispatch["evidence_refs"],
+                        "started_at": dispatch["started_at"],
+                        "cost_usd": float(worker_result.get("cost_usd", (worker_result.get("usage") or {}).get("cost_usd", 0.0)) or 0.0),
+                        "candidate": candidate,
+                        "fixture_input_digest": fixture_input_digest,
+                        "worker_result": worker_result,
+                        "timing": timing,
+                        "request": {"runner_id": request.get("runner_id", "")},
+                        "outcome": str(outcome),
+                        "apply_file": str(apply_file),
+                        "final_digest": sha256_bytes(raw_bytes),
+                        "submitted": False,
+                    })
+                    try:
+                        apply_cmd = [
+                            "run", entity, "--apply-result", str(apply_file),
+                            "--run-id", stage_id, "--session", session, "--json",
+                        ]
+                        if response.get("entity_type") == "bug":
+                            apply_cmd.extend(["--workdir", str(fixture_root)])
+                        apply_resp = run_command(shark, apply_cmd, scratch)
+                    except RuntimeError as exc:
+                        _clear_pending_stage(scratch, apply_file)
+                        rejection = bounded(str(exc))
+                        dispatch["transition"] = {
+                            "run_id": stage_id,
+                            "outcome": str(outcome),
+                            "session_id": session,
+                            "from_status": response.get("status", ""),
+                            "accepted": False,
+                            "rejection": rejection,
+                            "retry_scheduled": False,
+                        }
+                        raise
+                    _clear_pending_stage(scratch, apply_file)
+                    to_status = str(apply_resp.get("to_status") or apply_resp.get("new_status") or "")
+                    status_proj = apply_resp.get("status") if isinstance(apply_resp.get("status"), dict) else {}
+                    retired = bool(apply_resp.get("retired")) or status_proj.get("retirement_state") == "retired"
+                    dispatch["transition"] = {
+                        "run_id": stage_id,
+                        "outcome": str(outcome),
+                        "session_id": session,
+                        "from_status": response.get("status", ""),
+                        "to_status": to_status,
+                        "persisted": True,
+                        "transitioned": bool(apply_resp.get("transitioned", True)),
+                        "retired": retired,
+                        "final_digest": sha256_bytes(raw_bytes),
+                    }
+                    advanced = True
+                    last_advanced_signature = (entity, str(response.get("status", "")))
+                    if dispatch["transition"]["retired"]:
+                        active_lease["entity"] = ""
+                        active_lease["session"] = ""
                 else:
                     dispatch["outcome"] = str(outcome)
                     try:
@@ -2679,7 +3357,7 @@ def main(argv):
                 reason = str(exc)
                 dispatch["outcome"] = terminal
             finally:
-                if session:
+                if session and not (dispatch.get("transition") or {}).get("retired"):
                     release_start_ns = time.monotonic_ns()
                     try:
                         dispatch["release"] = bounded(run_command(shark, ["release", entity, "--session", session, "--outcome", dispatch["outcome"], "--json"], scratch))
@@ -2722,6 +3400,8 @@ def main(argv):
                 record, configured_gate_ids, has_configured_workflow, i05_writer,
                 shark, scratch, entity, response, stage_candidate,
                 review_rounds, seen_review_note_ids, repo_root, request,
+                configured_gates_by_family=configured_gates_by_family,
+                family_workflow_found=family_workflow_found,
             )
             ordinal += 1
             write_partial(output, record)

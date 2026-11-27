@@ -360,20 +360,63 @@ def _iter_file_spawn_steps(path: Path, source: str):
                 yield source, name, action
 
 
-def _route_action_mapping(metadata: Any) -> dict[str, Any] | None:
-    """Return the mutable route/action mapping for a live spawn step.
+def _is_worker_action_mapping(
+    candidate: dict[str, Any], *, agent_key: str, require_prompt_for_empty: bool
+) -> bool:
+    if candidate.get("terminal") is True:
+        return False
+    raw_action = candidate.get("action")
+    if raw_action is None:
+        verb = ""
+    elif isinstance(raw_action, str):
+        verb = raw_action.strip()
+    else:
+        return False
 
-    Route-based ``steps`` entries keep the action and route together. Legacy
-    ``status_metadata`` entries nest them under ``orchestrator_action``. Keep
-    accepting a flat action mapping for compatibility with pre-release bundles.
+    raw_agent = candidate.get(agent_key)
+    has_agent = isinstance(raw_agent, str) and bool(raw_agent.strip())
+
+    if verb in {"spawn_agent", "check_or_resume"}:
+        return True
+    if verb == "advance_status":
+        return has_agent
+    if verb == "":
+        if not has_agent:
+            return False
+        if require_prompt_for_empty:
+            prompt = candidate.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                prompt = candidate.get("instruction_template")
+                if not isinstance(prompt, str) or not prompt.strip():
+                    return False
+        return True
+    return False
+
+
+def _route_action_mapping(metadata: Any) -> dict[str, Any] | None:
+    """Return the mutable route/action mapping for a potential worker dispatch.
+
+    Matches Shark's keyed-dispatch worker semantics across route-based ``steps``
+    (agent in ``agent``, empty verb requires a prompt), legacy nested
+    ``status_metadata.*.orchestrator_action`` (agent in ``agent_type``), and
+    pre-release flat mappings.
     """
     if not isinstance(metadata, dict):
         return None
-    if metadata.get("action") == "spawn_agent":
-        return metadata
+    if metadata.get("terminal") is True:
+        return None
     nested = metadata.get("orchestrator_action")
-    if isinstance(nested, dict) and nested.get("action") == "spawn_agent":
-        return nested
+    if isinstance(nested, dict):
+        if _is_worker_action_mapping(
+            nested, agent_key="agent_type", require_prompt_for_empty=False
+        ):
+            return nested
+        return None
+    agent_key = "agent" if "agent" in metadata or "prompt" in metadata else "agent_type"
+    if _is_worker_action_mapping(
+        metadata, agent_key=agent_key, require_prompt_for_empty=True
+    ):
+        return metadata
     return None
 
 
@@ -420,10 +463,13 @@ def _live_stage_effort(effort: Any, provider: str, stage: Any) -> str | None:
         return None
     if not isinstance(effort, str):
         raise OperatorError(f"live workflow stage {stage!r} effort must be a string")
-    if not effort.strip():
+    trimmed = effort.strip()
+    if not trimmed:
         raise OperatorError(f"live workflow stage {stage!r} effort must be a non-empty string")
-    normalized = effort.strip().lower()
-    if provider not in {"codex", "openai"} and normalized not in VALID_ROUTING_EFFORTS:
+    if provider in {"codex", "openai"}:
+        return trimmed
+    normalized = trimmed.lower()
+    if normalized not in VALID_ROUTING_EFFORTS:
         raise OperatorError(
             f"live workflow stage {stage!r} has unsupported effort {effort!r}"
         )
@@ -505,7 +551,10 @@ def _effective_profile_route(
         raise OperatorError("route_defect: Codex model must be resolved from model/list")
     model = raw_model.strip() if isinstance(raw_model, str) else UNAVAILABLE
     raw_effort = route.get("effort")
-    effort = raw_effort.strip().lower() if isinstance(raw_effort, str) else None
+    if isinstance(raw_effort, str):
+        effort = raw_effort.strip() if provider in {"codex", "openai"} else raw_effort.strip().lower()
+    else:
+        effort = None
     if validate_catalogs and provider in {"codex", "openai"}:
         validate_codex_catalogs(model, cli_catalog, account_catalog)
     return {"provider": provider, "model": model, "effort": effort}
@@ -573,7 +622,14 @@ def _validate_effective_routes(
             raise OperatorError(f"validated route for {stage!r} must be a mapping")
         expected = profile_routes[stage]
         raw_effort = expected.get("effort")
-        expected_effort = raw_effort.strip().lower() if isinstance(raw_effort, str) else None
+        if isinstance(raw_effort, str):
+            expected_effort = (
+                raw_effort.strip()
+                if provider in {"codex", "openai"}
+                else raw_effort.strip().lower()
+            )
+        else:
+            expected_effort = None
         if route != {
             "provider": provider,
             "model": expected["model"],
@@ -1730,6 +1786,82 @@ def scenario_packages(index_path: Path) -> list[tuple[Path, dict[str, Any]]]:
         package = load_yaml(package_path, "scenario package")
         packages.append((package_path, package))
     return packages
+
+
+def package_workflow_families(package: dict[str, Any]) -> set[str]:
+    """Derive required and eligible descendant workflow families for a scenario package."""
+    families: set[str] = set()
+    root_family = str(package.get("entity_family") or "").strip()
+    if root_family and root_family != "unknown":
+        families.add(root_family)
+    graph = package.get("expected_entity_graph")
+    if isinstance(graph, dict):
+        graph_root = str(graph.get("root_family") or "").strip()
+        if graph_root:
+            families.add(graph_root)
+        descendants = graph.get("descendants")
+        if isinstance(descendants, list):
+            for entry in descendants:
+                if not isinstance(entry, dict):
+                    continue
+                fam = str(entry.get("family") or "").strip()
+                if not fam:
+                    continue
+                raw_max = entry.get("max")
+                if raw_max is not None and int(raw_max) <= 0:
+                    continue
+                families.add(fam)
+    else:
+        if root_family == "epic":
+            families.update({"feature", "task"})
+        elif root_family == "feature":
+            families.add("task")
+    return families
+
+
+def matrix_workflow_families(matrix: list[dict[str, Any]]) -> list[str]:
+    """Compute the sorted union of workflow families required across selected matrix rows."""
+    families: set[str] = set()
+    for row in matrix:
+        raw_pkg_path = row.get("package_path")
+        if isinstance(raw_pkg_path, str) and raw_pkg_path and Path(raw_pkg_path).is_file():
+            package = load_yaml(Path(raw_pkg_path), f"scenario package {raw_pkg_path}")
+            if isinstance(package, dict):
+                families.update(package_workflow_families(package))
+                continue
+        families.update(package_workflow_families({"entity_family": row.get("family")}))
+    return sorted(families)
+
+
+def package_has_explicit_entity_graph(package: dict[str, Any]) -> bool:
+    """Return True when a scenario package declares an explicit entity graph."""
+    return isinstance(package.get("expected_entity_graph"), dict)
+
+
+def resolve_row_workflow_families(
+    workflow_dir: Path,
+    families: list[str],
+    *,
+    explicit_graph: bool = False,
+) -> list[str]:
+    """Filter per-scenario workflow families to those present in a scratch workflow root.
+
+    Explicit expected_entity_graph families are preserved so missing graph
+    workflows fail closed, while inferred descendant families and synthetic
+    custom family names without a mapping fall back to available workflows.
+    """
+    if workflow_dir.is_file():
+        return []
+    if explicit_graph:
+        return [
+            fam for fam in families if fam in FAMILY_WORKFLOW_FILENAMES
+        ]
+    return [
+        fam
+        for fam in families
+        if fam in FAMILY_WORKFLOW_FILENAMES
+        and (workflow_dir / FAMILY_WORKFLOW_FILENAMES[fam]).is_file()
+    ]
 
 
 def selected_matrix(
@@ -3020,7 +3152,7 @@ def materialize_batch_policy(
     policy: dict[str, Any] = {
         "schema_version": "1.0",
         "min_reps": matrix[0]["reps"],
-        "workflow_families": sorted({str(row["family"]) for row in matrix}),
+        "workflow_families": matrix_workflow_families(matrix),
         "scenario_index": str(
             resolve_path(
                 str(config.get("scenario_index") or DEFAULT_SCENARIO_INDEX), config_base
@@ -4401,13 +4533,27 @@ def _identity_routing_fields(
     codex_environment = isolated_environment()
     clear_codex_route_environment(codex_environment)
     route_error = None
-    try:
-        codex_command, codex_catalog = _discover_codex_catalog(
-            config, config_base, codex_environment, workflow_families
+    runtime = runtime_config(config)
+    adapter = runtime.get("lifecycle_adapter")
+    custom_adapter_without_profile = (
+        selected_profile_path is None
+        and not codex_environment.get("E40_CODEX_COMMAND")
+        and (
+            not isinstance(adapter, str)
+            or not adapter
+            or not is_route_aware_lifecycle_adapter(adapter)
         )
-    except OperatorError as exc:
+    )
+    if custom_adapter_without_profile:
         codex_command, codex_catalog = None, None
-        route_error = str(exc)
+    else:
+        try:
+            codex_command, codex_catalog = _discover_codex_catalog(
+                config, config_base, codex_environment, workflow_families
+            )
+        except OperatorError as exc:
+            codex_command, codex_catalog = None, None
+            route_error = str(exc)
     materialized_routing = _materialize_route_identity(
         workflow_root,
         selected_profile_path,
@@ -4458,7 +4604,7 @@ def identity_profile(
         }
         for row in matrix
     ]
-    workflow_families = sorted({str(row["family"]) for row in matrix})
+    workflow_families = matrix_workflow_families(matrix)
     routing_fields = _identity_routing_fields(config, config_base, workflow_families)
     identity = {
         "scenario_set_digest": canonical_digest(scenario_set),

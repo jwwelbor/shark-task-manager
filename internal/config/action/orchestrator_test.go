@@ -1,6 +1,7 @@
 package action
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -540,5 +541,30 @@ func TestValidateTemplate_MixedPlaceholders_NoWarning(t *testing.T) {
 	warnings := validateTemplateSyntax("Work on {id} with {unknown} data")
 	if len(warnings) > 0 {
 		t.Errorf("Expected no warnings for template with mixed placeholders, got: %v", warnings)
+	}
+}
+
+func TestToPopulatedAction_RetainsRawEffortExcludedFromJSON(t *testing.T) {
+	oa := &OrchestratorAction{
+		Action:              ActionSpawnAgent,
+		AgentType:           "developer",
+		Provider:            "codex",
+		Model:               "synthetic-model",
+		Effort:              " HiGh ",
+		InstructionTemplate: "Work on {task_id}",
+	}
+	pop := oa.ToPopulatedAction(map[string]string{"task_id": "T-E01-F01-001"})
+	if pop.Effort != "high" {
+		t.Fatalf("Effort = %q, want %q", pop.Effort, "high")
+	}
+	if pop.RawEffort() != "HiGh" {
+		t.Fatalf("RawEffort() = %q, want %q", pop.RawEffort(), "HiGh")
+	}
+	encoded, err := json.Marshal(pop)
+	if err != nil {
+		t.Fatalf("json.Marshal error = %v", err)
+	}
+	if strings.Contains(string(encoded), "rawEffort") || strings.Contains(string(encoded), "raw_effort") || strings.Contains(string(encoded), "HiGh") {
+		t.Fatalf("unexpected raw effort in JSON output: %s", string(encoded))
 	}
 }
