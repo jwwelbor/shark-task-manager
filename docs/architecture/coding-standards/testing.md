@@ -44,6 +44,10 @@ require.NoError(t, err, "setup must succeed")
 assert.Equal(t, expected, actual)
 ```
 
+**Rule**: Do not share package-level command or flag state between tests. Build a new command and its flags in each test.
+
+**Why**: A flag value or changed marker that survives one test alters the next, so results depend on test order.
+
 **Rule**: Test behavior, not implementation details.
 
 **Rule**: Every expected error path needs coverage.

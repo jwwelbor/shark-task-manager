@@ -17,6 +17,24 @@ Project workflow, agent instructions, service-layer migration rules, and command
 | Tests | Writing or changing Go tests | [Testing](coding-standards/testing.md) |
 | Security | Handling input, SQL, filesystem paths, or error exposure | [Security](coding-standards/security.md) |
 
+## Quality Limits
+
+Each limit is an inclusive maximum: a value equal to the limit passes.
+
+| Limit | Value | Applies to | Enforcement | Measuring command |
+|-------|-------|------------|-------------|-------------------|
+| Cyclomatic complexity | 10 | production and test | tool-enforced (`gocyclo`) | `make lint` |
+| Function length (lines) | 50 | production and test | tool-enforced (`funlen`, line limit only) | `make lint` |
+| File length (lines) | 500 | production and test | review-enforced | none (review) |
+| Nesting depth | 4 | production and test | review-enforced | none (review) |
+
+The measuring command is `make lint`. It measures only the tool-enforced limits, using [`.golangci-limits.yml`](../../.golangci-limits.yml).
+
+- **Function length**: `funlen` counts the lines of the function body. Blank lines count; comment-only lines do not.
+- **Baseline**: the tool reports only functions whose declaration line changed after the commit pinned in `new-from-rev`. Growth inside an existing function is review-enforced.
+- **Nesting depth**: review-enforced because `nestif` scores complexity, not depth.
+- **File length**: review-enforced because no configured linter measures it.
+
 ## Related Project Guidance
 
 These are intentionally outside coding standards:
