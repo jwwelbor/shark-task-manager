@@ -574,3 +574,28 @@ AC-15 and AC-21 close after the last rework task.
 | 2026-11-27 | Initial specification (tasks 001–006 built from it; candidate `966333ea`). |
 | 2026-11-27 | Amendment 1 recorded the owner decisions after code review round 1 (commit `0afee8b5`). |
 | 2026-11-27 | This revision folds Amendment 1 into the body. Owner decision 1 (F-4, supersedes F-12): REQ-F-007, REQ-F-013, REQ-F-016, REQ-F-017(b), D3 rewritten; REQ-F-025, REQ-F-026, REQ-F-032 and the branch application added; D6 adds `--whole-files`. Owner decision 2 (F-1): REQ-F-031, D10 and the tech-debt lifecycle table. Owner decision 3, fixes in scope: F-2 (REQ-F-018, D12), F-3/F-6 and F-14 (REQ-F-012), F-5 (REQ-F-009), F-7 (REQ-F-021), F-8 (REQ-F-030), F-9 (REQ-F-004, REQ-F-006), F-10 (REQ-F-027), F-11 (REQ-F-029, D13), F-15 (REQ-F-011), F-16/F-18, F-17 and F-19 (REQ-F-033). Owner decision 4: F-13 deferred (D11). Q013 and Q014 marked resolved. NF-005 limit raised to 170 lines. ACs 01, 04–06, 08, 09, 12–16 revised; AC-17–AC-22 added. Rework tasks 007–011 defined. |
+
+## Amendment 2 (2026-11-27): owner decisions after code review round 2
+
+Source: `docs/review/E31-claude-workflow-optimization/E31-F01-shift-quality-left-into-development/code-review-20261127T1627-E31-F01.md`
+(candidate `5d848cab`). Owner: fix the findings now and re-review. This amendment
+overrides any conflicting text above; fold it into the body.
+
+1. **Resume wording (F-101, G-11).** A plain advance from a parked item does not return to
+   the parked step. The change, bug and tech-debt blocked prompts instruct setting the
+   status to the parked step. Correct the spec's history-based resume statements. The
+   engine behavior is tracked as B091 and is not changed here.
+2. **Decision note on re-dispatch (F-102; REQ-F-015, REQ-F-026).** A re-dispatched author
+   reads the architect decision note. `craft-rubric.md` is at its 170-line cap (NF-005,
+   AC-05): the specification chooses where the instruction lives or raises the cap.
+3. **Bug prompt (F-103, G-2; REQ-F-018, REQ-F-019).** Evidence detail routes to outer
+   `evidence[]`, and the DECISION wording covers the missing-gate and consultation
+   `blocked` cases. This changes text that REQ-F-019 and TC-011 protect; amend both.
+4. **Limit scope (F-110).** Owner: this repository's size and complexity limits apply to
+   Go only. State it in `docs/architecture/coding-standards.md`. This settles the
+   withdrawn `review_workflow.js` finding.
+5. **Fixed as the report suggests:** F-111, F-114 (`t.Run` subtests), F-112 (limits guard
+   catches a disabled linter, excluded tests, a commented or error-swallowing Makefile
+   line and a non-failing CI step), F-115 (limits config header), G-1 (the CLI fallback
+   review prompt names the craft rubric).
+6. **Not fixed here:** F-108 is tracked as B092; F-13 is tracked as TD-242.
