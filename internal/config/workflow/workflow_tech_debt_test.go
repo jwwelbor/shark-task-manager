@@ -1,6 +1,13 @@
 package workflow
 
-import "testing"
+import (
+	"maps"
+	"slices"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestGetWorkflowForLevel_TechDebtWithNil(t *testing.T) {
 	m := &MultiLevelWorkflow{}
@@ -9,8 +16,8 @@ func TestGetWorkflowForLevel_TechDebtWithNil(t *testing.T) {
 		t.Fatal("expected non-nil workflow for tech_debt level with nil TechDebt")
 	}
 	// Should return default tech-debt workflow with the research gate.
-	if len(wf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default tech-debt workflow, got %d", len(wf.StatusFlow))
+	if len(wf.StatusFlow) != 8 {
+		t.Errorf("expected 8 statuses in default tech-debt workflow, got %d", len(wf.StatusFlow))
 	}
 	if _, ok := wf.StatusFlow["identified"]; !ok {
 		t.Error("expected 'identified' status in default tech-debt workflow")
@@ -133,37 +140,37 @@ func assertNoTransitions(t *testing.T, wf *WorkflowConfig, status string) {
 }
 
 // TestDefaultTechDebtWorkflow_StatusFlow checks the transitions derived from
-// tech-debt.yaml's outcomes maps. Every workable step routes "blocked" and
-// "fail" back to "identified" (a self-loop for "identified" itself) in
-// addition to "cancelled" and "wont_fix", so each has 4 unique targets, not
-// the single/handful the old hardcoded workflow had. The forward ("pass")
-// target is always first (uniqueSortedOutcomeTargets in steps.go orders by
-// outcome-key priority, pass=0 first).
+// tech-debt.yaml's outcomes maps. Every workable step routes "fail" back to
+// "identified" (a self-loop for "identified" itself) and "blocked" to the
+// "blocked" parking step, in addition to "cancelled" and "wont_fix", so each
+// has 5 unique targets. The forward ("pass") target is always first
+// (uniqueSortedOutcomeTargets in steps.go orders by outcome-key priority,
+// pass=0 first).
 func TestDefaultTechDebtWorkflow_StatusFlow(t *testing.T) {
 	wf := DefaultTechDebtWorkflow()
 
-	// identified -(pass)-> research, plus identified/cancelled/wont_fix.
+	// identified -(pass)-> research, plus identified/blocked/cancelled/wont_fix.
 	identifiedTransitions := wf.StatusFlow["identified"]
-	if len(identifiedTransitions) != 4 {
-		t.Errorf("expected 4 identified transitions, got %d: %v", len(identifiedTransitions), identifiedTransitions)
+	if len(identifiedTransitions) != 5 {
+		t.Errorf("expected 5 identified transitions, got %d: %v", len(identifiedTransitions), identifiedTransitions)
 	}
 	if len(identifiedTransitions) > 0 && identifiedTransitions[0] != "research" {
 		t.Errorf("expected identified's forward transition to be 'research', got %v", identifiedTransitions)
 	}
 
-	// triaged -(pass)-> in_progress, plus identified/cancelled/wont_fix
+	// triaged -(pass)-> in_progress, plus identified/blocked/cancelled/wont_fix
 	triagedTransitions := wf.StatusFlow["triaged"]
-	if len(triagedTransitions) != 4 {
-		t.Errorf("expected 4 triaged transitions, got %d: %v", len(triagedTransitions), triagedTransitions)
+	if len(triagedTransitions) != 5 {
+		t.Errorf("expected 5 triaged transitions, got %d: %v", len(triagedTransitions), triagedTransitions)
 	}
 	if len(triagedTransitions) > 0 && triagedTransitions[0] != "in_progress" {
 		t.Errorf("expected triaged's forward transition to be 'in_progress', got %v", triagedTransitions)
 	}
 
-	// in_progress -(pass)-> resolved, plus identified/cancelled/wont_fix
+	// in_progress -(pass)-> resolved, plus identified/blocked/cancelled/wont_fix
 	inProgressTransitions := wf.StatusFlow["in_progress"]
-	if len(inProgressTransitions) != 4 {
-		t.Errorf("expected 4 in_progress transitions, got %d: %v", len(inProgressTransitions), inProgressTransitions)
+	if len(inProgressTransitions) != 5 {
+		t.Errorf("expected 5 in_progress transitions, got %d: %v", len(inProgressTransitions), inProgressTransitions)
 	}
 	if len(inProgressTransitions) > 0 && inProgressTransitions[0] != "resolved" {
 		t.Errorf("expected in_progress's forward transition to be 'resolved', got %v", inProgressTransitions)
@@ -178,8 +185,8 @@ func TestGetWorkflowForLevel_TechDebtIsolation(t *testing.T) {
 	taskWf := m.GetWorkflowForLevel("task")
 
 	// Tech-debt workflow should include the research gate.
-	if len(tdWf.StatusFlow) != 7 {
-		t.Errorf("expected 7 statuses in default tech-debt workflow, got %d", len(tdWf.StatusFlow))
+	if len(tdWf.StatusFlow) != 8 {
+		t.Errorf("expected 8 statuses in default tech-debt workflow, got %d", len(tdWf.StatusFlow))
 	}
 
 	// Bug workflow should include the research gate.
@@ -198,5 +205,89 @@ func TestGetWorkflowForLevel_TechDebtIsolation(t *testing.T) {
 	}
 	if _, ok := bugWf.StatusFlow["identified"]; ok {
 		t.Error("bug workflow should not contain 'identified' from tech-debt workflow")
+	}
+}
+
+// techDebtWorkableSteps are the steps that route outcomes, in sorted order.
+var techDebtWorkableSteps = []string{"identified", "in_progress", "research", "triaged"}
+
+// techDebtOutcomes is every outcome name the tech-debt workflow defines.
+var techDebtOutcomes = []string{"pass", "fail", "blocked", "cancelled", "wont_fix"}
+
+func TestE31F01_TC020a_TechDebtStatusSet(t *testing.T) {
+	wf := DefaultTechDebtWorkflow()
+
+	require.NoError(t, ValidateWorkflow(wf))
+	assert.ElementsMatch(t, []string{
+		"blocked", "cancelled", "identified", "in_progress",
+		"research", "resolved", "triaged", "wont_fix",
+	}, slices.Collect(maps.Keys(wf.StatusFlow)))
+	assert.Equal(t, []string{"identified"}, wf.SpecialStatuses[StartStatusKey])
+	assert.ElementsMatch(t, []string{"cancelled", "resolved", "wont_fix"}, wf.SpecialStatuses[CompleteStatusKey])
+	for name, step := range wf.Steps {
+		assert.Emptyf(t, step.ReworkOutcomes, "step %s must define no rework_outcomes", name)
+	}
+}
+
+func TestE31F01_TC020a_TechDebtBlockedParkingStep(t *testing.T) {
+	step, ok := DefaultTechDebtWorkflow().GetStep("blocked")
+	require.True(t, ok, "tech-debt workflow must define a blocked step")
+
+	assert.Equal(t, "blocked", step.Phase)
+	assert.Equal(t, "red", step.Color)
+	assert.Equal(t, "BLK", step.DisplayToken)
+	assert.Equal(t, "human", step.Responsibility)
+	assert.Equal(t, "pause", step.Action)
+	assert.True(t, step.Parking)
+	assert.Equal(t, "tech_debt/blocked.md", step.Prompt)
+	assert.Empty(t, step.Outcomes)
+}
+
+func TestE31F01_TC020b_TechDebtOutcomeRoutes(t *testing.T) {
+	wf := DefaultTechDebtWorkflow()
+	forward := map[string]string{
+		"identified":  "research",
+		"research":    "triaged",
+		"triaged":     "in_progress",
+		"in_progress": "resolved",
+	}
+
+	for _, from := range techDebtWorkableSteps {
+		t.Run(from, func(t *testing.T) {
+			routes := map[string]string{
+				"pass": forward[from], "fail": "identified", "blocked": "blocked",
+				"cancelled": "cancelled", "wont_fix": "wont_fix",
+			}
+			for outcome, want := range routes {
+				got, ok := wf.ResolveOutcome(from, outcome)
+				assert.Truef(t, ok, "outcome %s must resolve", outcome)
+				assert.Equalf(t, want, got, "outcome %s", outcome)
+			}
+			assert.ElementsMatch(t, slices.Collect(maps.Values(routes)), wf.StatusFlow[from])
+			require.NotEmpty(t, wf.StatusFlow[from])
+			assert.Equal(t, forward[from], wf.StatusFlow[from][0], "forward target must be first")
+		})
+	}
+	assert.Equal(t, techDebtWorkableSteps, wf.StatusFlow["blocked"], "parking resume targets")
+}
+
+func TestE31F01_TC020c_TechDebtInvalidTransitions(t *testing.T) {
+	wf := DefaultTechDebtWorkflow()
+
+	for _, from := range techDebtWorkableSteps {
+		got, _ := wf.ResolveOutcome(from, "blocked")
+		assert.NotEqualf(t, "identified", got, "%s blocked must not loop back to identified", from)
+	}
+	for _, from := range []string{"blocked", "resolved", "wont_fix", "cancelled"} {
+		t.Run(from, func(t *testing.T) {
+			require.Contains(t, wf.StatusFlow, from)
+			for _, outcome := range techDebtOutcomes {
+				got, ok := wf.ResolveOutcome(from, outcome)
+				assert.Falsef(t, ok, "outcome %s must not resolve, got %q", outcome, got)
+			}
+			if from != "blocked" {
+				assert.Empty(t, wf.StatusFlow[from])
+			}
+		})
 	}
 }
