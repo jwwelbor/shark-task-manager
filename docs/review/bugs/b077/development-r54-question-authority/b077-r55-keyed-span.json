@@ -1,0 +1,1 @@
+{"span": {"entity_key": "B001", "entity_type": "bug", "status": "plan_review", "action": "spawn_agent", "agent_type": "tech-lead", "model": "opus", "harness": "codex", "prompt_bytes": 6278, "unresolved_placeholders": 0, "exit_status": "ok"}, "receiver_digest": "09c20c65eb3aa4c5be98f42cd81391b7f7e14c8a303712431f0e463d85581045", "producing_model": "discovered-reviewer"}

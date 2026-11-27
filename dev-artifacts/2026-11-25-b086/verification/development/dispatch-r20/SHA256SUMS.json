@@ -1,0 +1,14 @@
+{
+  "dispatch-red.log": "b74dc7c31b839bd2dffb954785eb8c04b827937330a8c2d93e1cbdc323b05659",
+  "distribution.log": "cb8682faf053838efc2484cbe44a6e8f80f07cc4b790867b15ea56dba379e56d",
+  "fixture-inputs.tar.gz": "8a7eccb1d26d2c4fa01f3444a4642db84123b837b83ce6b1592d31332f1a414b",
+  "fixture.log": "37a8619c6fcad38d5bae9acd5753086f455d793b6679a162c9d8251e39fd75b1",
+  "format.log": "1f6417c688ffb79b162e09502d5eb00d8728d307b04274ac0197a646965cc23c",
+  "historical-invocations.json": "d66c828ff14f501070610587c2d7ab97b40a99818f76e4648b6ae76e6f01d4e0",
+  "lint.log": "7c2956afecc21790e67604ab3d7d85d91b17d10255272cac845180519deb8e54",
+  "preparation.json": "deb8abd41bce03a9efefa4ce1ea13697ba49d6b8803fd5859d25fb97d4e10190",
+  "prepared-verification.json": "22b6af5968f7dcff46cdb8fd579db55da27a7fd931b9f44d0260815d717c514e",
+  "project-test.log.gz": "c876f09682568cceefccbceee8d20b6fa240037471faa8251c834e14326a9ff1",
+  "refusal-red.log": "2fa9c74690a045c05b5ae481286dc9c4c1cf9de1c4deba7b09baa0d30da0d6ee",
+  "retained-controls.json": "99a97e0e424bc7fe01b85d51bb2c250e4d56ceb231943c99193e188727b2ff42"
+}

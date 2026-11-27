@@ -1,0 +1,130 @@
+{
+  "candidate_identity": {
+    "commit": "568a5d00457ba717fa25e83cdbe2d3b4256f7ce9",
+    "tree": "29d43c71e39906f74ca5538407cb6d41e40970c5",
+    "diff_sha256": "4bd0eb93fe4901ea86ef6ed6787ad83518dbf5e0ac184573385173d9fb1c5059",
+    "repair_plan_sha256": "c7fd7e6102bf9010686ecca03c18b1c93f4176aafd0d3a468f7e5e74da8e33aa"
+  },
+  "findings": [
+    {
+      "finding_id": "F-1",
+      "file": "scripts/testdata/b086/prepare.py",
+      "line": 86,
+      "rule": "TEST",
+      "summary": "Row 22 never observes high before the repair, and the risk transition is fixture-built",
+      "severity": "blocker",
+      "diagnosis": "The risk case stages no starting risk although boundaries.json lists the file the starting diff already changes; the recorder applies that listing only after repair. verify.py:632 accepts one review, all counted hosts made only the post-repair review, and r24 eae04ee9 is a different case. Make the repair newly touch a boundary the starting candidate does not touch, require observed high on the starting identity and max on the result, and rerun.",
+      "fingerprint": "scripts/testdata/b086/prepare.py#TEST#row22-high-before-repair-unobserved",
+      "disposition": "fix-now",
+      "reason": "An explicit acceptance observation in the approved plan is absent from the counted evidence and the verifier reports observed without it."
+    },
+    {
+      "finding_id": "F-2",
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 508,
+      "rule": "TEST",
+      "summary": "Overlap and budget Defer checks pass on key names or unrelated words",
+      "severity": "non-blocker",
+      "diagnosis": "Serialized decision_inputs keys such as proposed_changed_line_overlap satisfy 'overlap' regardless of value; 'unchanged' is broad; the budget branch searches the whole receipt. Check structured values or the reason text and add negative controls.",
+      "fingerprint": "scripts/testdata/b086/verify.py#TEST#defer-word-checks-match-keys",
+      "disposition": "triage",
+      "reason": "The retained o0 receipt also states the correct reason in prose, but the check cannot reliably fail."
+    },
+    {
+      "finding_id": "F-3",
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 558,
+      "rule": "TEST",
+      "summary": "Missing-reason and pending-repair checks are met by JSON key names",
+      "severity": "non-blocker",
+      "diagnosis": "A 'reason' key satisfies receipt-no-reason; requested_parent_action and attempted_operation satisfy the parent and attempt words in received_pending_repair (line 441). Match message values and require the specific shortfall.",
+      "fingerprint": "scripts/testdata/b086/verify.py#TEST#parent-message-word-checks-match-keys",
+      "disposition": "triage",
+      "reason": "Weakens negative controls; no retained run was shown to be wrong."
+    },
+    {
+      "finding_id": "F-4",
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 599,
+      "rule": "TEST",
+      "summary": "Repair-then-review verifier does not check that original lines are preserved",
+      "severity": "non-blocker",
+      "diagnosis": "inspect_fix_effort omits the state['lines'] check used by workspace_checks, and the default-order check accepts any text containing alphabetical without random.",
+      "fingerprint": "scripts/testdata/b086/verify.py#TEST#fix-effort-destructive-edit-passes",
+      "disposition": "triage",
+      "reason": "The retained row 22 traces show a correct one-line edit, but a destructive edit would also pass."
+    },
+    {
+      "finding_id": "F-5",
+      "file": "scripts/testdata/b086/pairs.py",
+      "line": 92,
+      "rule": "TEST",
+      "summary": "Pair checks use unpinned post-run inputs and skip dispatch binding",
+      "severity": "non-blocker",
+      "diagnosis": "candidate-stats, boundaries and finding files are not digested in preparation.json; pair functions do not call matching_dispatch; effort_pair does not compare model or runtime. Pin the inputs and verify the dispatch record.",
+      "fingerprint": "scripts/testdata/b086/pairs.py#TEST#pair-inputs-not-bound",
+      "disposition": "triage",
+      "reason": "No tampering or model mismatch was observed, but the pair result would not detect it."
+    },
+    {
+      "finding_id": "F-6",
+      "file": "scripts/testdata/b086/verify.py",
+      "line": 914,
+      "rule": "TEST",
+      "summary": "--only disables the seed-digest binding for every case",
+      "severity": "non-blocker",
+      "diagnosis": "seed=False removes the check even for unstaged cases. Record each prepared case store digest in its binding and compare that.",
+      "fingerprint": "scripts/testdata/b086/verify.py#TEST#only-seed-digest-unchecked",
+      "disposition": "triage",
+      "reason": "The earlier false rejection was resolved by dropping the check."
+    },
+    {
+      "finding_id": "F-7",
+      "file": "skills/shark-rider/skills/triage/SKILL.md",
+      "line": 34,
+      "rule": "STANDARDS",
+      "summary": "Fix-now gate and confirmation rules conflict with the unattended procedure",
+      "severity": "non-blocker",
+      "diagnosis": "Step 0 permits fixing any already-edited file without authority or budget checks; the new step 3 limits discretionary repair to changed lines. Step 5 and the red flag require confirmation without an attended-mode qualifier. State precedence or scope those sections.",
+      "fingerprint": "skills/shark-rider/skills/triage/SKILL.md#STANDARDS#unattended-rules-conflict",
+      "disposition": "triage",
+      "reason": "A host can follow either instruction; the retained overlap host chose the stricter one."
+    },
+    {
+      "finding_id": "F-8",
+      "file": "scripts/testdata/b086/prepare.py",
+      "line": 80,
+      "rule": "TEST",
+      "summary": "Row 22 size variants share one candidate identity",
+      "severity": "non-blocker",
+      "diagnosis": "Small, large and risk cases have identical workspaces and identities; large size exists only in candidate-stats.json. Stage an actual large workspace so identity and classification agree.",
+      "fingerprint": "scripts/testdata/b086/prepare.py#TEST#row22-size-not-bound-to-identity",
+      "disposition": "triage",
+      "reason": "The plan allows fixture-supplied size, but the resulting identity does not distinguish the classified candidates."
+    },
+    {
+      "finding_id": "F-9",
+      "file": "dev-artifacts/2026-11-25-b086/verification/development/dispatch-r26/README.md",
+      "line": 3,
+      "rule": "DOCS",
+      "summary": "README claims one fixture commit for every counted case",
+      "severity": "nit",
+      "diagnosis": "Row 22 and overlap manifests record 5b5e6b54 and 77958e3e, not 6655b590.",
+      "fingerprint": "dev-artifacts/2026-11-25-b086/verification/development/dispatch-r26/README.md#DOCS#fixture-commit-misstated",
+      "disposition": "triage",
+      "reason": "Evidence provenance should be stated accurately per case."
+    },
+    {
+      "finding_id": "F-10",
+      "file": "internal/cli/commands/review_output_policy_test.go",
+      "line": 271,
+      "rule": "TEST",
+      "summary": "Parent handoff assertion matches any occurrence of parent",
+      "severity": "nit",
+      "diagnosis": "Contains 'parent' does not assert the pending-delivery or parent-escalation instruction.",
+      "fingerprint": "internal/cli/commands/review_output_policy_test.go#TEST#parent-assertion-too-weak",
+      "disposition": "triage",
+      "reason": "Low impact; the adjacent phrase assertion covers the procedure reference."
+    }
+  ]
+}

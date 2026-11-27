@@ -250,7 +250,13 @@ func runCreateNote(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get note service: %w", err)
 	}
 
-	note, err := noteSvc.AddNoteWithMetadata(cmd.Context(), entityType, entityKey, noteTypeStr, content, createdBy, metadata)
+	var note *models.EntityNote
+	if cmd.Flags().Changed("session") {
+		session, _ := cmd.Flags().GetString("session")
+		note, err = noteSvc.AddNoteForSession(cmd.Context(), entityType, entityKey, noteTypeStr, content, createdBy, metadata, session, cli.GetClaimService().TTL())
+	} else {
+		note, err = noteSvc.AddNoteWithMetadata(cmd.Context(), entityType, entityKey, noteTypeStr, content, createdBy, metadata)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to add note: %w", err)
 	}
@@ -301,6 +307,7 @@ func init() {
 	// Note Create Flags
 	// ======================================================================
 	createNoteCmd.Flags().String("type", "comment", "Note type: comment, decision, blocker, solution, reference, implementation, testing, future, question")
+	createNoteCmd.Flags().String("session", "", "Require this live claim session at note creation")
 	createNoteCmd.Flags().String("created-by", "", "Author name (optional)")
 	createNoteCmd.Flags().String("metadata", "", "Structured JSON object stored with the note (e.g. review-finding fields: gate, round, severity, defect_class, fingerprint)")
 

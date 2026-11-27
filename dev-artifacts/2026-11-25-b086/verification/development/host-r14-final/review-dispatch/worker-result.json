@@ -1,0 +1,50 @@
+{
+  "kind": "final",
+  "recommended_outcome": "fail",
+  "evidence": [
+    {
+      "kind": "bug_repair_plan",
+      "pointer": "docs/plan/bugs/B086.repair-plan.md",
+      "summary": "sha256:c7fd7e6102bf9010686ecca03c18b1c93f4176aafd0d3a468f7e5e74da8e33aa"
+    },
+    {
+      "kind": "bug_review_baseline",
+      "pointer": "1d78ad660f2c55dd188465785b61723a3b7e6a6c",
+      "summary": "Verified against revision 14, its independent approval, and the parent of the accepted research commit."
+    }
+  ],
+  "gate_result": {
+    "schema_version": 1,
+    "summary": "Return B086 to development. The approved plan is current. The archived traces establish that grant A produced one child and grant B produced a parent escalation. The two hosts received materially different instructions, so the pair does not establish row 28’s grant-only comparison. Later development cases also remain unexercised. The clean candidate was 14a81681b022763ce7c2d066bd633d109311e8c0, with 50 changed files and baseline diff SHA-256 b6cb8b7a58ce6933bb8605965d34b1650111b26b6b0dc60dbe1e637312b7308a. Deep-review scope capture stopped at mktemp on the read-only filesystem. No specialists or consolidator ran, and no new report or sidecars were written.",
+    "findings": [
+      {
+        "severity": "blocker",
+        "class_key": "uncontrolled-paired-host-input",
+        "class_statement": "The accepted pair combines grant A from the original launcher with grant B from a revised launcher. The revision changed the instruction governing whether escalation produces a disposition, the very behavior that failed in the first B run. The verifier evaluates each case separately and accepts two individually observed outcomes without checking that both hosts received the same instructions. Pin the common launcher and normalized host instructions, require the verifier to reject mixed revisions, and rerun grant A from the same seed with the final B instructions. Preserve all three existing runs.",
+        "fingerprint": "scripts/testdata/b086/verify.py#TESTS#mixed-host-instructions-in-grant-pair",
+        "affected_ids": ["B086", "4167", "coverage-row-26", "coverage-row-28"],
+        "evidence_pointers": [
+          "docs/plan/bugs/B086.repair-plan-evidence.md:104",
+          "dev-artifacts/2026-11-25-b086/verification/development/host-r14-final/host-runs.json",
+          "scripts/testdata/b086/host.py:98",
+          "scripts/testdata/b086/verify.py:203"
+        ],
+        "disposition": "open"
+      },
+      {
+        "severity": "blocker",
+        "class_key": "missing-host-boundary-coverage",
+        "class_statement": "The development record explicitly leaves refusal, interrupted-create recovery, budget, receiving-gate and delivery cases unexercised. The retained verifier limits its result to tracker and parent observations for the first pair. After establishing the controlled pair, complete the outstanding revision 14 cases, including the wrong-database control, and link each trace and independent readback to its coverage row. If a required external capability is unavailable, identify the affected case and capability for the parent.",
+        "fingerprint": "docs/plan/bugs/B086.repair-plan-evidence.md#TESTS#unexercised-host-boundaries",
+        "affected_ids": ["B086", "coverage-row-27", "coverage-row-29", "coverage-row-30", "coverage-row-31"],
+        "evidence_pointers": [
+          "docs/plan/bugs/B086.repair-plan-evidence.md:106",
+          "dev-artifacts/2026-11-25-b086/verification/development/host-r14-final/host-verification.json",
+          "scripts/testdata/b086/observe.py:200"
+        ],
+        "disposition": "open"
+      }
+    ],
+    "kickbacks": []
+  }
+}

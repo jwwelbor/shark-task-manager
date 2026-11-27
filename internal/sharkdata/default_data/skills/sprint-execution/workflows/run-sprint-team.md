@@ -46,7 +46,7 @@ Only the owner may start or close a sprint.
    /shark-rider run-agent-team --sprint {SPRINT_KEY}
    ```
 
-4. Let the canonical Shark Attack `parallel-team.md` procedure use the active
+4. Let the canonical Shark Attack procedure `skills/shark-attack/workflows/parallel-team.md` use the active
    backlog as the sole selection universe and assign each selected key to an ordinary
    keyed `/shark-rider run` parent. Do not group items by feature, make nested
    teams, construct prompts, or call `shark sprint next` to make a wave.

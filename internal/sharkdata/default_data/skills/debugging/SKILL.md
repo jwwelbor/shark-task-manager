@@ -56,16 +56,16 @@ You are a debugging workflow coordinator. Your role is to help users systematica
 The `context/` directory provides supporting knowledge:
 
 ### Patterns
-- **isolation-strategies.md** - Binary search, bisect, and isolation techniques
-- **common-errors.md** - Error message patterns and typical solutions
+- **context/patterns/isolation-strategies.md** - Binary search, bisect, and isolation techniques
+- **context/patterns/common-errors.md** - Error message patterns and typical solutions
 
 ### Checklists
-- **pre-debug.md** - Information to gather before debugging
-- **root-cause.md** - Root cause analysis checklist
+- **context/checklists/pre-debug.md** - Information to gather before debugging
+- **context/checklists/root-cause.md** - Root cause analysis checklist
 
 ### Tools
-- **browser-tools.md** - Browser DevTools reference
-- **cli-tools.md** - Command-line debugging tools
+- **context/tools/browser-tools.md** - Browser DevTools reference
+- **context/tools/cli-tools.md** - Command-line debugging tools
 
 ## Workflow Selection Logic
 

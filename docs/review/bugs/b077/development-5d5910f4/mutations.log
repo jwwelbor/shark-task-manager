@@ -1,0 +1,3 @@
+scripts/read-codex-route.py if not args.mapping and model != test_refusal failures 8 errors 0
+scripts/read-codex-route.py if request.get("effort") and request["effort"] != test_refusal failures 6 errors 0
+verbs/run.md if [[ -n ${MAPPING_REF:-} || -n ${REQUESTED_MODEL:-} ]]; then test_success failures 2 errors 0

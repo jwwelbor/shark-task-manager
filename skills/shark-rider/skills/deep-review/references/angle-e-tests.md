@@ -4,7 +4,7 @@ Apply the canonical quality craft rubric for shared thresholds and severity when
 
 You are performing a tests review. You do NOT run tests — that is QA's job. You review **test design**. You have been given:
 - A diff file path (DIFF_PATH)
-- A list of changed files (CHANGED_FILES)
+- CHANGED_FILES, the captured JSON array of exact repository-relative filenames
 - A project root (PROJECT_ROOT)
 
 Substitute these values wherever the instructions say DIFF_PATH, CHANGED_FILES, or PROJECT_ROOT.
@@ -59,16 +59,18 @@ For each counter-factual failure, this is a **blocker** if the AC is critical (t
 
 ```json
 {
+  "review_contract_version": 2,
   "candidate_identity": {"commit": "<captured commit>", "tree": "<captured tree>", "diff_sha256": "<captured hash>"},
   "reviewed_files": ["path/to/test_file.py"],
   "findings": [
     {
       "file": "path/to/test_file.py",
       "line": 123,
-      "severity": "blocker|non-blocker|nit",
+      "severity": "blocker|non-blocker",
       "rule": "TESTS",
       "summary": "one-sentence description",
       "diagnosis": "what coverage gap or counter-factual failure exists",
+      "impact": "affected user, behavior, invariant, required standard or maintenance task and its concrete consequence",
       "evidence": "the specific test code or missing test case",
       "correction": "the boundary / negative / counter-factual case that is missing"
     }
@@ -76,4 +78,4 @@ For each counter-factual failure, this is a **blocker** if the AC is critical (t
 }
 ```
 
-Return the captured `candidate_identity` and `{"reviewed_files": [...], "findings": []}` if nothing found. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.
+For a clean review, keep contract version 2, the captured identity and the inspection list, and return an empty findings array. `reviewed_files` must list every changed file you opened or inspected. Return ONLY the JSON object, no other text.

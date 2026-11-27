@@ -1,0 +1,91 @@
+{
+  "entity_key": "B077",
+  "stage": "development",
+  "run_id": "b077-development-r35-live-route",
+  "session_id": "sess-b077-development-r35-live-route",
+  "candidate_commit": "ce260cb63647ea1337c37196a900deb754f911d7",
+  "requested_route": {
+    "provider": "anthropic",
+    "model": "sonnet",
+    "effort": null
+  },
+  "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+  "selected_route": {
+    "host_worker_class": "codex-cli",
+    "provider": "openai",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "high"
+  },
+  "selection": {
+    "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+    "codex_version": "codex-cli 0.171.0",
+    "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery",
+    "profile": "",
+    "sandbox": "danger-full-access",
+    "config_readback": {
+      "model_provider": "openai",
+      "model": "gpt-6-luna",
+      "model_reasoning_effort": "high"
+    },
+    "preflight_precedes_claim": true
+  },
+  "claim": {
+    "entity_key": "B077",
+    "session_id": "sess-b077-development-r35-live-route",
+    "harness": "codex",
+    "harness_version": "codex-cli 0.171.0",
+    "harness_model": "gpt-6-luna",
+    "claimed_at": "2026-11-24T03:39:38Z"
+  },
+  "prompt": {
+    "bytes": 221020,
+    "sha256": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+    "claimed_render_matches": true
+  },
+  "launch": {
+    "argv": [
+      "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+      "exec",
+      "-C",
+      "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery",
+      "--config",
+      "model_provider=openai",
+      "--sandbox",
+      "danger-full-access",
+      "--model",
+      "gpt-6-luna",
+      "--json",
+      "--output-last-message",
+      "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/.shark/runs/b077-development-r35-live-route/result.txt",
+      "-"
+    ],
+    "argv_file_sha256": "864fe3181aa076d19c91fa0d4a7fd57e1517122796196c24de1ba31e82d349fd",
+    "explicit_model_selector_matches_preflight": true
+  },
+  "worker_observation": {
+    "thread_id": "01a20ba3-4850-76a0-86a0-467d71a4bde2",
+    "session_meta_id": "01a20ba3-4850-76a0-86a0-467d71a4bde2",
+    "provider": "openai",
+    "models": [
+      "gpt-6-luna"
+    ],
+    "rollout_path": "/home/jwwel/.codex/sessions/2026/11/23/rollout-2026-11-23T21-39-40-01a20ba3-4850-76a0-86a0-467d71a4bde2.jsonl"
+  },
+  "gate_result": {
+    "outcome": "fail",
+    "summary": "Development cannot pass: C12 reproduces false verified-model attribution in both deep-review report writers, and required candidate-bound installed-host evidence remains unavailable. The exact-candidate Go quality gate passed and was reused; no source code changed in this recheck."
+  },
+  "source_receipts": {
+    "dispatch.json": "946ba07b36472ce2af3748b7e05277816ee167cbffed862f86f21ba235dce4e5",
+    "prompt.txt": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+    "claimed-dispatch.json": "4abbfb00836a389de3e57f83f4c0128f40b6bf184673dca0da21b32bf3677a06",
+    "claimed-prompt.txt": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+    "preflight-route.json": "ef3369b3d611dcb28eb325a48d8dfc064e8b75f2010e914fa2bc229e399cc8e5",
+    "claim.json": "834ba28e9ad3dcdd1ca515e026328f034530f27f91fe0129352b847f13889578",
+    "argv.nul": "864fe3181aa076d19c91fa0d4a7fd57e1517122796196c24de1ba31e82d349fd",
+    "events.jsonl": "7a2ab0daba7c2c211686e57f2297da593a7edcc1749fd4d0813ec44de2971b50",
+    "result.txt": "0667b5eebdc6f5a50625118a184a71d833315faaf69b653fb8a5256668f33cda",
+    "codex-exec-help.txt": "34ddfe0641ace4caaad89106468d9121bfa81978990eba230dc810985d00310d",
+    "codex-login.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

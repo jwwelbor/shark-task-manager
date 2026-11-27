@@ -1,0 +1,12 @@
+{
+  "id": 2465,
+  "entity_type": "bug",
+  "entity_key": "B077",
+  "claimed_by": "codex-parent",
+  "session_id": "sess-b077-development-r37-live-route",
+  "claimed_at": "2026-11-24T04:11:43Z",
+  "last_heartbeat": "2026-11-24T04:11:43Z",
+  "harness": "codex",
+  "harness_version": "codex-cli 0.171.0",
+  "harness_model": "gpt-6-luna"
+}

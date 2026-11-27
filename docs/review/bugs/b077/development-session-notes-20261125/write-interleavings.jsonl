@@ -1,0 +1,24 @@
+{"build": "guarded", "change": "none", "key": "B001", "source": "failure evidence", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "guarded", "change": "none", "key": "E01-F01", "source": "COMPLEXITY NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "guarded", "change": "none", "key": "B001", "source": "PARENT NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "guarded", "change": "none", "key": "B001", "source": "note", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "guarded", "change": "reissue", "key": "B001", "source": "failure evidence", "command_exit": 1, "notes": 0, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "guarded", "change": "reissue", "key": "E01-F01", "source": "COMPLEXITY NOTE", "command_exit": 1, "notes": 0, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "guarded", "change": "reissue", "key": "B001", "source": "PARENT NOTE", "command_exit": 1, "notes": 0, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "guarded", "change": "reissue", "key": "B001", "source": "note", "command_exit": 1, "notes": 0, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "guarded", "change": "expire", "key": "B001", "source": "failure evidence", "command_exit": 1, "notes": 0, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "guarded", "change": "expire", "key": "E01-F01", "source": "COMPLEXITY NOTE", "command_exit": 1, "notes": 0, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "guarded", "change": "expire", "key": "B001", "source": "PARENT NOTE", "command_exit": 1, "notes": 0, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "guarded", "change": "expire", "key": "B001", "source": "note", "command_exit": 1, "notes": 0, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "none", "key": "B001", "source": "failure evidence", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "none", "key": "E01-F01", "source": "COMPLEXITY NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "none", "key": "B001", "source": "PARENT NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "none", "key": "B001", "source": "note", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "reissue", "key": "B001", "source": "failure evidence", "command_exit": 0, "notes": 1, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "mutant", "change": "reissue", "key": "E01-F01", "source": "COMPLEXITY NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "mutant", "change": "reissue", "key": "B001", "source": "PARENT NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "mutant", "change": "reissue", "key": "B001", "source": "note", "command_exit": 0, "notes": 1, "remaining_holder": "successor", "status_history_writes": 0}
+{"build": "mutant", "change": "expire", "key": "B001", "source": "failure evidence", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "expire", "key": "E01-F01", "source": "COMPLEXITY NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "expire", "key": "B001", "source": "PARENT NOTE", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}
+{"build": "mutant", "change": "expire", "key": "B001", "source": "note", "command_exit": 0, "notes": 1, "remaining_holder": "author", "status_history_writes": 0}

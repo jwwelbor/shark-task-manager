@@ -7,10 +7,14 @@ For a structured pass, choose a new report path inside the Shark project, such a
 
 Capture against the independently approved `bug_review_baseline` commit. Set `REVIEW_PLAN_SHA256` to the approved plan digest without its `sha256:` prefix; ensure the scope, every angle result, and the report carry that exact plan revision.
 
-Also retain the generated deep-review report and include a digest-bound `bug_review_report` evidence reference in the same format. Include the generated candidate-bound decisions JSON as a digest-bound `bug_review_decisions` reference. For a native or dispatched six-angle review, retain the actual six angle-results JSON and include a digest-bound `bug_review_angles` reference. A comparable alternate-model CLI review uses its report and decisions without angle results. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason; a downgrade permits only PASS-WITH-TRIAGE and must be routed through the host's triage procedure. An incomplete review cannot pass.
+Also retain the generated deep-review report and include a digest-bound `bug_review_report` evidence reference in the same format. Include the generated candidate-bound decisions JSON as a digest-bound `bug_review_decisions` reference. For a native or dispatched six-angle review, retain the actual six angle-results JSON and include a digest-bound `bug_review_angles` reference. A comparable alternate-model CLI review uses its report and decisions without angle results. Its decisions must declare every changed path actually inspected; the writer and QA verifier reject any omission from the frozen manifest. A raw blocker must be refuted with evidence or downgraded with an evidence-based reason. If evidence refutes the blocking concern and leaves only a stylistic preference, preserve the original concern, evidence and report-only no-action disposition; do not run triage or write to Shark for that finding. A surviving substantive finding, including a substantive downgrade, follows normal triage through the host's procedure and permits only PASS-WITH-TRIAGE. An incomplete review cannot pass.
+
+When a reviewed material decision affects specifications or acceptance criteria, add exactly one `MATERIAL_DECISION: <decision-id>` line to the report body and retain two additional candidate-bound JSON files: `bug_review_material_impacts` lists each marked decision's source pointer/digest and the complete expected artifact and caller/criterion sets; `bug_review_material_dispositions` records one evidence-backed disposition for every listed member. Bind both files with SHA-256 header fields in the report and outer evidence references. A decision source in the frozen tree declares its obligations with `MATERIAL_DECISION_SOURCE: <decision-id>`, `MATERIAL_AFFECTS_ARTIFACT: <path>` and `MATERIAL_AFFECTS_CRITERION: <entity> <caller> <criterion>` lines; the parent enumerates those lines independently and requires the expected sets and dispositions to match them, whether or not the report carries a marker. The parent compares expected sets and dispositions at code-review and QA admission; never put these records in GateResult `change_impacts`, which remains planning-gate-only. For a finding downgraded to report-only Nit, do not create this receipt yourself: the parent observes and supplies a separate run-scoped `bug_parent_triage_observation` after the host has confirmed the original concern, refuting evidence, zero edits and zero tracker writes.
 Use review_plan for a valid plan whose approval is missing or stale; use needs_research for a causal contradiction, replan for a design omission, fail for a coding defect, and blocked for unavailable external evidence. Retain every finding; route to the earliest invalidated stage. For route_rework outcomes leave kickbacks empty.
 
 Run the host-installed `shark-rider/skills/deep-review/SKILL.md` multi-agent procedure for this code-review gate, including its capability ladder and consolidation. The parent retains the entity lease and transitions; reviewers supply evidence only.
+
+> Bundled `quality` skill: the relative paths below are not project files. Read them with `shark skill get quality <path>`. A path starting `../` is relative to `workflows/` (for example, read `../context/foo.md` with `shark skill get quality context/foo.md`).
 
 
 # Workflow: Code Review (Craft Review)
@@ -29,7 +33,7 @@ This workflow does **craft review** only. It does NOT re-verify what other phase
 | SOLID and architectural compliance | Acceptance criteria verification |
 | Standards crosswalk (with citations) | Runtime wiring / call-site verification |
 | Idiomatic language patterns | Frontend visual verification |
-| Complexity, size, hotspots | Test execution (running pytest, lint, type-check) |
+| Complexity, size, hotspots | Test execution (running the project's test suite, linter, or type-checker) |
 | Reuse search across codebase | E2E reachability |
 | Tests **design** review (coverage, boundaries, missing cases) | Codex red-team for spec fidelity |
 
@@ -48,7 +52,7 @@ behavior.
 
 ## Required inputs (validation)
 
-If any critical input is missing, request it before proceeding. **Do not invent standards or fabricate citations.** If `coding_standards_path` is absent, every standards violation downgrades to opinion-level (nit).
+If any critical input is missing, request it before proceeding. **Do not invent standards or fabricate citations.** Every finding must identify an affected user, caller, behavior, invariant, documented standard, or maintenance operation; state its concrete consequence; and cite evidence. A preference without an identified impact is not a finding. If standards documentation is absent, do not claim a standards violation; assess independently evidenced risk.
 
 ## Review process
 
@@ -82,11 +86,11 @@ Findings: list each duplicated logic with the existing code's location, severity
 
 ### Step 3: Standards crosswalk (required citations)
 
-For each finding in this phase, cite the **specific section** of the project's standards docs that the code violates. **No citation = the finding is opinion, not a standards violation.**
+For each finding in this phase, cite the **specific section** of the project's standards docs that the code violates. When a clause is unavailable or unrelated, report the gap in the crosswalk. A demonstrated failure of a documented input or acceptance criterion still warrants a correctness finding with the expected and observed results.
 
 For each violation: `{file:line} — {rule} — {coding-standards.md §X.Y "quoted clause"}`.
 
-If the project has no standards section that covers a finding, note "no standards section covers this — opinion only" and downgrade to a nit.
+If the project has no standards section that covers a finding, do not call it a standards violation. Retain it only when independent evidence shows a concrete user, behavior, invariant, security, or maintenance consequence.
 
 ### Step 4: SOLID & architecture compliance
 
@@ -200,25 +204,26 @@ retains the lease, heartbeats, transitions and result ingestion.
 
 Freeze the complete scope, including unaccepted predecessor changes. Bind the
 review to the candidate tree, diff hash and manifest. Bind the accepted plan
-revision when applicable; bug repair reviews require it.
+revision when applicable; bug repair reviews require it. The comparable CLI
+decisions artifact must declare `reviewed_files` from files the reviewer
+actually inspected, and must cover every path in the frozen manifest. The
+writer and QA verifier reject a missing declaration or any omitted manifest
+path; never infer inspected files from the manifest or report.
 Record runner mode, completed specialists, consolidation, actual reviewer model,
 fallback reason, base commit and diff path. Record requested and verified
 effective execution identity separately; explicitly mark unknown identity.
 If scope or candidate changes, obtain fresh evidence. Preserve disagreements;
 justify any downgraded blocker with evidence that it does not mask a test bug,
-wiring gap or regressed obligation. Incomplete evidence cannot pass.
+wiring gap or regressed obligation. When that evidence refutes the blocking
+concern and leaves only a stylistic preference, preserve the original concern,
+the refutation evidence and the host's report-only no-action disposition. This
+ends triage for that finding: make no edits and no tracker writes. Continue
+normal triage for any surviving substantive finding. Incomplete evidence
+cannot pass.
 
-### Step 11: Quality rubric (0-5 per dimension)
+### Step 11: Evidence-based finding admission
 
-For each modified file, score 0-5 with a one-sentence justification each. Return in `rubric_scores_per_file`:
-
-- **(a) Readability** — names, structure, flow.
-- **(b) Maintainability** — DRY, modularity, clear responsibilities.
-- **(c) Performance** — sensible algorithms, no obvious bottlenecks.
-- **(d) Testability** — pure functions, dependency injection, seams.
-- **(e) Standards Compliance** — adherence to cited standards docs.
-
-Average ≤ 3 for any dimension is a non-blocker triage; ≤ 2 is a blocker.
+Do not score files or create findings from rubric thresholds. For every retained finding, record the affected user/caller, behavior, invariant, documented standard, or maintenance operation, its concrete consequence, and evidence. Preserve standards citations and independent security/correctness risks. A preference without evidenced impact is omitted. Preserve a previously reported blocker and its refutation evidence when it is withdrawn; under an authorized report-only downgrade, record the disposition and make no source edit or tracker write for that finding.
 
 ### Step 12: Triage labeling
 
@@ -228,30 +233,31 @@ For every finding, label it:
 |---|---|---|
 | **Blocker** | AC violation, security flaw, broken contract, missing standards-required behavior, severe complexity in new code | `blockers` — host fails the review |
 | **Non-blocker** | Real craft issue but doesn't violate a hard contract — pre-existing complexity, missing nice-to-have test, suggestable refactor, minor reuse opportunity | `non_blockers_to_triage` — host routes through the triage skill's decision tree |
-| **Nit** | Stylistic preference, opinion-level, debatable | `nits` — host puts in report only |
 
-The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. The fix-now gate may resolve a finding in place with no entity created at all; that counts as triaged. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. If the host's triage attempt fails for any reason (e.g., the target entity is in a state that doesn't accept new children, or the run is unattended and the decision tree's confirmation step has no one to answer it), it falls back to a feature-level note — that's a host concern, not a craft concern.
+The host is responsible for routing every entry in `non_blockers_to_triage` through the triage skill's decision tree (fix-now gate, duplicate search, type classification) before creating any entity — severity ("non-blocker") is not entity type. The fix-now gate may resolve a finding in place with no entity created at all; that counts as triaged. Only findings the decision tree resolves as a maintainability/performance/architectural cost that can safely wait become tech-debt; others may become a bug, task, question, or change instead. Apply the triage skill's unattended review disposition procedure for host authority, verification and parent escalation. Keep delivery pending until every actionable fingerprint has a verified disposition.
 
 **Stable fingerprint.** Compute `fingerprint` for every `non_blockers_to_triage` entry from inputs that survive a line-number shift across review rounds: the file path relative to the repo root, the `rule` category, and a short normalized slug of the finding's defect (lowercase, non-alphanumeric collapsed to `-`, e.g. `dry-duplicated-catch-block`) — never the raw line number, which drifts. Format: `<relative_file_path>#<rule>#<slug>`. The triage skill's duplicate search (Step 3 of its own decision tree) checks existing entities for this exact string before creating a new one; if found, it links/updates that entity instead of filing a second one for the same recurring finding.
 
 ## Required output structure (report content)
 
-Write the report to `code_review_report_path`. All sections required:
+Write the report to `code_review_report_path`. Select the form after checking the frozen scope and the disposition of every claim. Complete clean reviews use the compact form in the referenced skeleton. Use the following detailed sections for an unresolved blocker, an actionable non-blocker or an evidenced report-only withdrawal. Mark any inapplicable section. An incomplete review yields INCOMPLETE.
 
 ### A. Executive summary (≤ 10 lines)
 
 - What the diff accomplishes (1-2 lines).
 - Overall risk level.
 - Verdict: **PASS** / **PASS-with-triage** / **FAIL (blocker)**.
-- Counts: blockers / non-blockers triaged / nits.
+- Counts: blockers / actionable non-blockers triaged.
 
 ### B. Findings table
 
-| id | severity | file:line | rule | diagnosis | evidence | correction |
+| id | severity | file:line | rule | impact | diagnosis | evidence | correction |
 |---|---|---|---|---|---|---|
-| 1 | blocker | path/to/file.py:42 | DRY | duplicates `existing_helper()` | `existing_helper()` at lib/helpers.py:18 | replace with import + call |
+| 1 | blocker | path/to/file.py:42 | DRY | policy rotation requires two edits | duplicate registration | `existing_helper()` at lib/helpers.py:18 | replace with import + call |
 
-`rule` is one of: `DRY`, `SRP`, `OCP`, `YAGNI`, `ARCH`, `CODING-STANDARD`, `IDIOM`, `COMPLEXITY`, `RISK`, `TESTS`.
+`rule` is one of: `ALTITUDE`, `ARCH`, `ARCHITECTURE`, `CODING-STANDARD`, `COMPLEXITY`, `CONTRACT`, `CORRECTNESS`, `DIP`, `DRY`, `ERROR-HANDLING`, `IDIOM`, `ISP`, `LOGGING`, `LSP`, `NAMING`, `OCP`, `REMOVED-BEHAVIOR`, `RISK`, `ROUNDTRIP`, `SECURITY`, `SIBLING`, `SIMPLIFICATION`, `SRP`, `TESTS`, `TYPES`, `WIRING`, `YAGNI`.
+
+Carry the original literal rule into the decision, triage item and stable fingerprint. For a grouped finding use the representative rule for triage and preserve each contributing rule, origin and observation in its own decision.
 
 ### C. Reuse opportunities
 
@@ -262,7 +268,7 @@ For each duplicated logic: existing symbol + `file:line` + diff-ready refactor.
 | finding id | standards doc | section | quoted clause |
 |---|---|---|---|
 
-If no standards doc covers a finding, mark "opinion-only" and downgrade severity.
+If no standards doc covers a finding, do not claim a standards violation. Retain it only when independent evidence establishes a concrete user, behavior, invariant, security or maintenance impact.
 
 ### E. Tests review
 
@@ -271,11 +277,6 @@ If no standards doc covers a finding, mark "opinion-only" and downgrade severity
 - Flaky-risk tests.
 - Mock-discipline issues.
 - **Counter-factual table** (one row per AC, from `counter_factual_per_ac`).
-
-### F. Quality rubric
-
-| file | readability | maintainability | performance | testability | standards | notes |
-|---|---|---|---|---|---|---|
 
 ### G. Risk hotspots
 
@@ -293,12 +294,12 @@ From `production_caller_chains` (Step 5). One sub-section per service-contract c
 
 - Blockers: list — must fix before QA.
 - Non-blockers triaged: list (from `non_blockers_to_triage`) — host routes each through the triage skill's decision tree and includes, per finding, either the resulting entity key (bug, task, question, change, or tech-debt) or "fixed inline" if the decision tree's fix-now gate resolved it without filing one.
-- Nits: bullet list, no action.
+- Withdrawn findings: preserve original concern, refuting evidence and authorized report-only disposition; no edit or tracker filing for that item.
 
 ### J. Verdict
 
-- **PASS** — no findings of any severity.
-- **PASS-with-triage** — no blockers; non-blockers exist (host triages).
+- **PASS** — complete coverage with zero actionable findings and zero report-only withdrawals. Include a concise account for each fully disproved blocker with its original concern, exact location, `REFUTED` label and contrary evidence.
+- **PASS-with-triage** — no open blockers, and at least one actionable non-blocker or documented withdrawal of a prior blocker to a stylistic remainder. Record the host disposition for each.
 - **FAIL** — one or more blockers; task returns to development.
 
 For the full report skeleton, see `../context/code-review-reference.md`.
@@ -322,13 +323,13 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 
 ### Do **NOT** block for:
 
-- Stylistic preferences within acceptable bounds.
+- Preferences with no concrete user, behavior, invariant, documented-standard or maintenance impact; omit them rather than reporting them as findings.
 - Pre-existing issues the task didn't substantially worsen (triage instead).
 - Minor optimizations that don't affect correctness.
-- Naming nits when project standards are met.
+- Naming preferences when project standards are met and no concrete impact exists.
 - Missing nice-to-have test cases (triage instead).
 - **File-organization preferences** (e.g., "split this 700-line test file into smaller groups"). Route through the triage skill's decision tree only if there is concrete maintainability impact; otherwise drop entirely.
-- **Micro-style violations on tiny static-data paths** — e.g., a single sync `Path.read_text()` for a small static prompt file inside an `async def`. Async-purity / hot-path rules apply on hot paths; on a 200-byte one-shot read at module init they are nits, not findings.
+- **Micro-style preferences on tiny static-data paths** — e.g., a single sync `Path.read_text()` for a small static prompt file inside an `async def`. Async-purity / hot-path rules apply on hot paths; without concrete impact, omit the preference.
 
 ### Always prefer:
 
@@ -342,19 +343,19 @@ For the full report skeleton, see `../context/code-review-reference.md`.
 - [ ] Every non-blocker has a clear `file_line` + `fingerprint` + `summary` + `fix_suggestion` in `non_blockers_to_triage` so the host can file it without re-reading the report, and reruns link the same entity instead of duplicating it.
 - [ ] Reuse search was actually performed (cite at least one grep result, even if "no duplicates found").
 - [ ] Standards crosswalk cites real sections from real docs (no fabricated citations).
-- [ ] Quality rubric scores are justified with evidence, not vibes.
+- [ ] Every retained finding names an affected entity, consequence and evidence; no score threshold creates findings.
 - [ ] **Independent review completed and findings are incorporated**; incomplete evidence cannot pass.
 - [ ] **For each service-contract change in the diff, `production_caller_chains` names entrypoint → call chain → leaf** (Step 5).
 - [ ] **`counter_factual_per_ac` has one entry per AC** (Step 8.5) — flag missing coverage as blocker on critical ACs.
 - [ ] **Any downgraded blocker has an evidence-based justification** (Step 10).
-- [ ] Verdict matches findings: PASS only if zero findings of any severity; PASS-with-triage if no blockers; FAIL otherwise.
+- [ ] Verdict matches findings: PASS only if zero actionable findings; PASS-with-triage if actionable non-blockers exist without blockers; FAIL if blockers exist.
 - [ ] Report file exists at `code_review_report_path`.
 
 ## Edge cases
 
 - **PRD ambiguous or contradictory** — flag explicitly in report; downgrade related findings; do not invent intent.
 - **Standards docs conflict** — note the conflict; do not pick a winner without escalation.
-- **Diff is tiny (< 50 lines)** — skip rubric scoring; produce a 4-line report.
+- **Diff is tiny (< 50 lines)** — omit per-file scoring; retain only evidence-backed actionable findings.
 - **Diff is huge (> 2000 lines)** — recommend splitting in the verdict; review what fits in attention budget; explicitly mark unreviewed regions.
 - **No standards doc exists** — every "standards violation" downgrades to opinion-level; recommend running a standards-generation pass.
 
@@ -451,10 +452,39 @@ Do NOT end your response with a `RECOMMENDED OUTCOME: <key>` line, a `PARENT NOT
 }
 ```
 
-The nested `gate_result` shape is validated and typed in `internal/gateresult`
-(see its doc comment for the full field list — `findings[]`,
-`kickbacks[]`, `remediation_sweeps[]`, `change_impacts[]`); this note does
-not restate it. Two rules this step's outcomes commonly need:
+The empty arrays above are illustrative. If this prompt requires outer
+`evidence` entries, include them; each is an object with `kind`, `pointer` and
+`summary`.
+
+`gate_result` fields (unknown fields are rejected):
+
+| Object | Field | Rule |
+|---|---|---|
+| result | `schema_version` | `1` |
+| result | `summary` | required, 1000 B max |
+| result | `no_kickback_reason` | 1000 B max |
+| `findings[]` | `severity` | required, 256 B max |
+| `findings[]` | `class_key` | required, 256 B max |
+| `findings[]` | `class_statement` | required, 1000 B max |
+| `findings[]` | `fingerprint` | required, 256 B max |
+| `findings[]` | `disposition` | required: `open`, `fixed`, `already_dispositioned`, `severity_conflict` or `not_reproducible` |
+| `findings[]` | `disposition_pointer` | 2048 B max; required for `already_dispositioned` and `severity_conflict` |
+| `findings[]` | `affected_ids` | optional strings, 256 B max each |
+| `findings[]` | `evidence_pointers` | optional strings, 2048 B max each |
+| `kickbacks[]` | `entity_key` | required, 256 B max |
+| `kickbacks[]` | `target_status` | required, 256 B max |
+| `kickbacks[]` | `reason` | required, 1000 B max |
+
+Every array holds at most 100 items and the whole `gate_result` at most
+256 KiB. Omit `remediation_sweeps` and `change_impacts` unless this prompt or
+a skill it names defines their contents for this step. A `remediation_sweeps[]`
+entry that is `open` with `open_count: 0` (no feasible guard) must point
+`guard.counterfactual_pointer` at a project-local `{"kind": "open_sweep_link",
+"class_key", "work_item_key", "reason"}` record; `work_item_key` must resolve
+to an existing task, feature, epic, bug, change-card, or tech-debt entity
+naming the class (note keys do not resolve).
+
+Rules this step's outcomes commonly need:
 
 For each `kickbacks[]` entry, `target_status` is required by GateResult v1
 but is only a compatibility assertion. Read the target entity's current
@@ -483,6 +513,19 @@ submit that kickback; report the missing route and return a blocked result.
   every other GateResult field constraint is enforced the same way
   regardless of which role this outcome carries.
 
-Write your full narrative report to the file this step already directs
-(unchanged); the envelope's `summary` is a compact verdict statement, not a
-duplicate of that report.
+If this step names or requires a report file, write the full narrative there
+and keep `summary` a compact verdict statement. Otherwise the structured
+findings and `summary` are the record; do not invent a report location.
+
+REQUIRED OUTER EVIDENCE for a success outcome of this step (this replaces the empty array shown above; replace every `<...>` placeholder, and copy parent-supplied approved entries exactly):
+
+```
+  "evidence": [
+    {"kind": "bug_repair_plan", "pointer": "<project-relative plan file>", "summary": "sha256:<hex digest of the plan>"},
+    {"kind": "bug_review_baseline", "pointer": "<full commit hash of the plan's review baseline>"},
+    {"kind": "bug_review_scope", "pointer": "<project-relative scope sidecar>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_report", "pointer": "<project-relative deep-review report>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_decisions", "pointer": "<project-relative decisions JSON>", "summary": "sha256:<hex digest of its bytes>"},
+    {"kind": "bug_review_angles", "pointer": "<project-relative angle results; six-angle reviews only>", "summary": "sha256:<hex digest of its bytes>"}
+  ]
+```

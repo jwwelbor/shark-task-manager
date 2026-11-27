@@ -1,0 +1,37 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r26d-effort/e2; cat finding.json grant.json candidate-stats.json workspace.json boundaries.json; cat libexec/observe.py; find project/.agents/skills -type f
+TOOL Bash cd /tmp/b086-r26d-effort/e2; R="python3 libexec/observe.py $PWD read"; for f in finish-feature/SKILL.md shark-rider/SKILL.md shark-rider/verbs/deep-review.md shark-rider/skills/deep-review/SKILL.md; do echo "=== $f"; python3 libexec/observe.py /tmp/b086-r26d-effort/e2 read project/.agents/skills/$f; done
+TOOL Bash cd /tmp/b086-r26d-effort/e2; ls -laR candidate; cat candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26d-effort/e2; python3 libexec/observe.py $PWD read project/.agents/skills/finish-feature/SKILL.md
+TOOL Bash cd /tmp/b086-r26d-effort/e2; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r26d-effort/e2; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/skills/triage/SKILL.md; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/verbs/deep-review.md
+TOOL Bash cd /tmp/b086-r26d-effort/e2; S=project/.agents/skills; grep -rniE '\blarge\b|high[- ]risk|effort|[0-9]+ (changed )?(lines|files)|xhigh' $S/finish-feature $S/shark-rider --include=*.md --include=*.js --include=*.py --include=*.sh | grep -v '/test_' | cut -c1-400
+TOOL Bash cd /tmp/b086-r26d-effort/e2; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/skills/deep-review/references/consolidator.md; python3 libexec/observe.py $PWD read project/.agents/skills/shark-rider/SKILL.md >/dev/null && echo rider-read; python3 libexec/observe.py $PWD verify
+TOOL Bash cd /tmp/b086-r26d-effort/e2/project/.agents/skills; grep -rniE '\blarge\b|high[- ]risk|\bxhigh\b|effort|[0-9]{3,} *(changed )?(lines|files)' . --exclude='test_*' --exclude-dir=testdata --exclude-dir=__pycache__ | cut -c1-400
+TEXT I'm checking how the skills define a "large or high-risk" change, which sets the re-review effort, before I apply the one-line docs fix.
+TOOL Bash cd /tmp/b086-r26d-effort/e2; printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | python3 libexec/observe.py $PWD edit docs/feature-a.md && python3 libexec/observe.py $PWD verify; cat candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26d-effort/e2; python3 libexec/observe.py $PWD review max 50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46
+TEXT I fixed the finding and recorded a `max` deep re-review on the repaired candidate. The review was only recorded, not run, so the candidate isn't cleared for CI or merge. |  | ## Decision: fix now | Finding `docs/feature-a.md#DOCS#incorrect-default` (line 4, rule DOCS): |  | - **Mandatory:** it's marked non-blocker, but its disposition is `fix-now` and the default order is part of the accepted behavior. The 
+FINAL I fixed the finding and recorded a `max` deep re-review on the repaired candidate. The review was only recorded, not run, so the candidate isn't cleared for CI or merge.
+
+## Decision: fix now
+Finding `docs/feature-a.md#DOCS#incorrect-default` (line 4, rule DOCS):
+
+- **Mandatory:** it's marked non-blocker, but its disposition is `fix-now` and the default order is part of the accepted behavior. The plan requires alphabetical order, so it can't be deferred.
+- **Authority:** the grant gives edit authority. This is an unambiguous one-line docs correction that touches no listed risk boundary, so no extra scope authority was needed.
+- **Budget:** one dispatch attempt remains, which matches the project limit (2 total, 1 used). The estimate for repair and verification is 10 of 12 available minutes. That estimate doesn't separately say whether it covers the re-review.
+- **Tracker:** a fix needs no task, so I created none under E01-F01.
+
+## Repair
+In `docs/feature-a.md:4`, "The default order is random." became "The default order is alphabetical."
+
+| | Before | After |
+|---|---|---|
+| Candidate identity | `e4e688f8…f3e113f819` | `50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46` |
+| Focused check | failed (both conditions unmet) | passed |
+| Changed lines / files | 1800 / 40 | 1802 / 40 |
+| Risk boundaries | none | none |
+
+## Re-review effort: `max`
+The edit changed the candidate, so the earlier review no longer covers it. `finish-feature` calls for `high`, or `max` for l

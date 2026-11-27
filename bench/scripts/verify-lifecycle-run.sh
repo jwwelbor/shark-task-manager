@@ -288,6 +288,7 @@ def validate_record(record, schema):
         if evidence["prompt_sha256"] != response["prompt_sha256"] or evidence["prompt_bytes"] != response["prompt_bytes"]:
             fail("prompt_digest_mismatch", f"{path}/evidence_refs", "prompt_sha256 or prompt_bytes disagrees with the keyed response")
 
+    dispatches_by_ordinal = {dispatch["ordinal"]: dispatch for dispatch in dispatches}
     stages_by_ordinal = {stage["dispatch_ordinal"]: stage for stage in record["stages"]}
     for index, stage in enumerate(record["stages"]):
         path = f"/stages[{index}]"
@@ -295,6 +296,13 @@ def validate_record(record, schema):
         usage = stage["usage"]
         if not isinstance(usage.get("model"), str) or not usage["model"].strip() or not isinstance(usage.get("provider"), str) or not usage["provider"].strip():
             fail("missing_usage_or_model", f"{path}/usage", "stage usage must name provider and model")
+        matching_dispatch = dispatches_by_ordinal.get(stage["dispatch_ordinal"])
+        if matching_dispatch is not None:
+            resp = matching_dispatch["response"]
+            if usage.get("provider") != resp.get("provider"):
+                fail("identity_mismatch", f"{path}/usage/provider", f"stage provider at dispatch ordinal {stage['dispatch_ordinal']} disagrees with dispatch response")
+            if usage.get("model") != resp.get("model"):
+                fail("identity_mismatch", f"{path}/usage/model", f"stage model at dispatch ordinal {stage['dispatch_ordinal']} disagrees with dispatch response")
         lineage = stage.get("input_lineage")
         required_lineage_kinds = {
             "scenario_package", "rendered_prompt", "fixture_checkout",

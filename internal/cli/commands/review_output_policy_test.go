@@ -143,7 +143,7 @@ func TestDeepReviewUsesCompactPassAndDetailedFindingsPolicy(t *testing.T) {
 			name: "consolidator compact pass contract",
 			path: filepath.Join(repoRoot, "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md"),
 			want: []string{
-				"If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 non-blockers / 0 nits, write a compact saved report only.",
+				"If the verdict is **PASS** and the finding counts are exactly 0 blockers / 0 actionable non-blockers, write a compact saved report only.",
 				"`0 defects found`",
 				"For **PASS-with-triage** or **FAIL**, produce the full detailed report below.",
 			},
@@ -245,5 +245,68 @@ func TestConsolidatorNonBlockersCarryStableFingerprint(t *testing.T) {
 
 	if !strings.Contains(content, "fingerprint") {
 		t.Errorf("%s: the Triage Summary's non-blockers-to-triage line must declare a `fingerprint` field for stable cross-run deduplication", path)
+	}
+}
+
+func TestCraftFindingRuleSetAndReferencedReportSkeleton(t *testing.T) {
+	prompts := findRepoPromptsDir(t)
+	renderer, err := templates.NewOrchestratorRenderer(prompts)
+	require.NoError(t, err)
+	expected := strings.Fields("ALTITUDE ARCH ARCHITECTURE CODING-STANDARD COMPLEXITY CONTRACT CORRECTNESS DIP DRY ERROR-HANDLING IDIOM ISP LOGGING LSP NAMING OCP REMOVED-BEHAVIOR RISK ROUNDTRIP SECURITY SIBLING SIMPLIFICATION SRP TESTS TYPES WIRING YAGNI")
+	checkRules := func(t *testing.T, reportContract string) {
+		t.Helper()
+		_, list, ok := strings.Cut(reportContract, "`rule` is one of: ")
+		require.True(t, ok, "missing Section B rule contract")
+		line, _, _ := strings.Cut(list, "\n")
+		names := strings.Split(strings.TrimSuffix(line, "."), ", ")
+		for i := range names {
+			names[i] = strings.Trim(names[i], "`")
+		}
+		require.ElementsMatch(t, expected, names)
+	}
+	for _, entity := range []string{"_shared", "bug", "change", "feature"} {
+		t.Run(entity, func(t *testing.T) {
+			rendered, err := renderer.Render(entity+"/code_review.md", goldenVars())
+			require.NoError(t, err)
+			checkRules(t, rendered)
+			_, reference, ok := strings.Cut(rendered, "For the full report skeleton, see `")
+			require.True(t, ok)
+			relative, _, ok := strings.Cut(reference, "`")
+			require.True(t, ok)
+			workflowDir := filepath.Join(filepath.Dir(prompts), "skills", "quality", "workflows")
+			skeleton, err := os.ReadFile(filepath.Join(workflowDir, relative))
+			require.NoError(t, err)
+			require.Contains(t, string(skeleton), "0 defects found")
+			require.Contains(t, string(skeleton), "G2")
+			require.NotContains(t, string(skeleton), "Codex red-team")
+		})
+	}
+	caller, err := os.ReadFile(filepath.Join(prompts, "..", "..", "..", "..", "skills", "shark-rider", "skills", "deep-review", "references", "consolidator.md"))
+	require.NoError(t, err)
+	checkRules(t, string(caller))
+}
+
+// B086: both sources and every rendered review must direct a host with an
+// unresolved finding back to its parent, including when there is no feature.
+func TestUnattendedReviewDispositionHandoff(t *testing.T) {
+	root := findRepoRootForInteractionTest(t)
+	paths := []string{
+		"internal/sharkdata/default_data/skills/quality/workflows/review-code.md",
+		"internal/sharkdata/default_data/agents/tech-lead.md",
+		"skills/shark-rider/skills/deep-review/SKILL.md",
+		"skills/shark-rider/skills/deep-review/references/consolidator.md",
+	}
+	for _, entity := range []string{"_shared", "feature", "change", "bug"} {
+		paths = append(paths, filepath.Join("internal/cli/commands/testdata/rendered-prompts", entity, "code_review.golden"))
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join(root, path))
+			require.NoError(t, err)
+			content := string(body)
+			require.NotContains(t, content, "falls back to a feature-level note")
+			require.Contains(t, content, "unattended review disposition")
+			require.Contains(t, content, "parent")
+		})
 	}
 }

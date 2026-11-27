@@ -1,0 +1,95 @@
+FFFFFF
+======================================================================
+FAIL: test_legacy_worker_notes_require_the_live_session (__main__.RiderCLI.test_legacy_worker_notes_require_the_live_session) (state='expired', command=0)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 318, in test_legacy_worker_notes_require_the_live_session
+    self.assertEqual([(expected_type,)] if state == "live" else [], notes)
+AssertionError: Lists differ: [] != [('decision',)]
+
+Second list contains 1 additional elements.
+First extra element 0:
+('decision',)
+
+- []
++ [('decision',)]
+
+======================================================================
+FAIL: test_legacy_worker_notes_require_the_live_session (__main__.RiderCLI.test_legacy_worker_notes_require_the_live_session) (state='expired', command=1)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 318, in test_legacy_worker_notes_require_the_live_session
+    self.assertEqual([(expected_type,)] if state == "live" else [], notes)
+AssertionError: Lists differ: [] != [('comment',)]
+
+Second list contains 1 additional elements.
+First extra element 0:
+('comment',)
+
+- []
++ [('comment',)]
+
+======================================================================
+FAIL: test_legacy_worker_notes_require_the_live_session (__main__.RiderCLI.test_legacy_worker_notes_require_the_live_session) (state='expired', command=2)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 318, in test_legacy_worker_notes_require_the_live_session
+    self.assertEqual([(expected_type,)] if state == "live" else [], notes)
+AssertionError: Lists differ: [] != [('comment',)]
+
+Second list contains 1 additional elements.
+First extra element 0:
+('comment',)
+
+- []
++ [('comment',)]
+
+======================================================================
+FAIL: test_legacy_worker_notes_require_the_live_session (__main__.RiderCLI.test_legacy_worker_notes_require_the_live_session) (state='reissued', command=0)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 318, in test_legacy_worker_notes_require_the_live_session
+    self.assertEqual([(expected_type,)] if state == "live" else [], notes)
+AssertionError: Lists differ: [] != [('decision',)]
+
+Second list contains 1 additional elements.
+First extra element 0:
+('decision',)
+
+- []
++ [('decision',)]
+
+======================================================================
+FAIL: test_legacy_worker_notes_require_the_live_session (__main__.RiderCLI.test_legacy_worker_notes_require_the_live_session) (state='reissued', command=1)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 318, in test_legacy_worker_notes_require_the_live_session
+    self.assertEqual([(expected_type,)] if state == "live" else [], notes)
+AssertionError: Lists differ: [] != [('comment',)]
+
+Second list contains 1 additional elements.
+First extra element 0:
+('comment',)
+
+- []
++ [('comment',)]
+
+======================================================================
+FAIL: test_legacy_worker_notes_require_the_live_session (__main__.RiderCLI.test_legacy_worker_notes_require_the_live_session) (state='reissued', command=2)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 318, in test_legacy_worker_notes_require_the_live_session
+    self.assertEqual([(expected_type,)] if state == "live" else [], notes)
+AssertionError: Lists differ: [] != [('comment',)]
+
+Second list contains 1 additional elements.
+First extra element 0:
+('comment',)
+
+- []
++ [('comment',)]
+
+----------------------------------------------------------------------
+Ran 1 test in 1.282s
+
+FAILED (failures=6)

@@ -106,7 +106,7 @@ func TestIngestGateResultForDispatch_ValidEnvelopeTransitions(t *testing.T) {
 	disabled := false
 
 	toStatus, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1,
+		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected successful gate ingestion, got error: %v", err)
@@ -165,7 +165,7 @@ func TestIngestGateResultForDispatch_NonTerminalTargetDoesNotReleaseLease(t *tes
 	disabled := false
 
 	toStatus, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1,
+		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected successful gate ingestion, got error: %v", err)
@@ -237,7 +237,7 @@ func TestIngestGateResultForDispatch_NonTaskEntityTerminalStatusReleasesLease(t 
 	disabled := false
 
 	toStatus, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), "TD-001", "in_progress", nextInfo, action, opts, dispatchResult, &disabled, 1,
+		context.Background(), "TD-001", "in_progress", nextInfo, action, opts, dispatchResult, &disabled, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected successful gate ingestion, got error: %v", err)
@@ -295,7 +295,7 @@ func TestIngestGateResultForDispatch_TerminalTargetReleasesLease(t *testing.T) {
 	disabled := false
 
 	toStatus, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), "E01-F01-001", "in_review", nextInfo, action, opts, dispatchResult, &disabled, 1,
+		context.Background(), "E01-F01-001", "in_review", nextInfo, action, opts, dispatchResult, &disabled, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected successful gate ingestion, got error: %v", err)
@@ -362,7 +362,7 @@ func TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID(t *test
 		Duration: time.Millisecond,
 	}
 	toStatus1, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), key, "code_review", stage1NextInfo, action, opts, stage1Dispatch, &disabled, 1,
+		context.Background(), key, "code_review", stage1NextInfo, action, opts, stage1Dispatch, &disabled, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("stage 1 (code_review) gate ingestion failed: %v", err)
@@ -386,7 +386,7 @@ func TestIngestGateResultForDispatch_MultiStageDispatchDoesNotReuseRunID(t *test
 		Duration: time.Millisecond,
 	}
 	toStatus2, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), key, "qa", stage2NextInfo, action, opts, stage2Dispatch, &disabled, 2,
+		context.Background(), key, "qa", stage2NextInfo, action, opts, stage2Dispatch, &disabled, 2, -1,
 	)
 	if err != nil {
 		t.Fatalf("stage 2 (qa) gate ingestion failed (expected no collision with stage 1's persisted result under the same run_id): %v", err)
@@ -458,7 +458,7 @@ func TestIngestGateResultForDispatch_CascadeSiblingsDoNotCollide(t *testing.T) {
 	// Both siblings dispatch stageN==1 — each child's own Run() invocation
 	// independently starts its iteration counter at 1.
 	toStatusA, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), siblingA, "code_review", nextInfo, action, opts, dispatchA, &disabledA, 1,
+		context.Background(), siblingA, "code_review", nextInfo, action, opts, dispatchA, &disabledA, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected cascade sibling A's stage-1 gate ingestion to succeed: %v", err)
@@ -474,7 +474,7 @@ func TestIngestGateResultForDispatch_CascadeSiblingsDoNotCollide(t *testing.T) {
 		Duration: time.Millisecond,
 	}
 	toStatusB, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), siblingB, "code_review", nextInfo, action, opts, dispatchB, &disabledB, 1,
+		context.Background(), siblingB, "code_review", nextInfo, action, opts, dispatchB, &disabledB, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected cascade sibling B's stage-1 gate ingestion to succeed without colliding with sibling A's persisted result: %v", err)
@@ -529,7 +529,7 @@ func TestIngestGateResultForDispatch_SameStageConflictingReplayStillFailsClosed(
 		Duration: time.Millisecond,
 	}
 	if _, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), key, "code_review", nextInfo, action, opts, first, &disabled, 1,
+		context.Background(), key, "code_review", nextInfo, action, opts, first, &disabled, 1, -1,
 	); err != nil {
 		t.Fatalf("expected the first attempt at stage 1 to succeed: %v", err)
 	}
@@ -541,7 +541,7 @@ func TestIngestGateResultForDispatch_SameStageConflictingReplayStillFailsClosed(
 		Duration: time.Millisecond,
 	}
 	_, _, err = controller.ingestGateResultForDispatch(
-		context.Background(), key, "code_review", nextInfo, action, opts, conflicting, &disabled, 1,
+		context.Background(), key, "code_review", nextInfo, action, opts, conflicting, &disabled, 1, -1,
 	)
 	if err == nil {
 		t.Fatal("expected a conflicting replay at the SAME stage (same stageN, same opts.RunID) to fail closed")
@@ -596,7 +596,7 @@ func TestIngestGateResultForDispatch_SameStageIdenticalReplayIsIdempotent(t *tes
 	}
 
 	toStatus1, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), key, "code_review", nextInfo, action, opts, identical, &disabled, 1,
+		context.Background(), key, "code_review", nextInfo, action, opts, identical, &disabled, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected the first attempt at stage 1 to succeed: %v", err)
@@ -607,7 +607,7 @@ func TestIngestGateResultForDispatch_SameStageIdenticalReplayIsIdempotent(t *tes
 	}
 
 	toStatus2, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), key, "code_review", nextInfo, action, opts, identical, &disabled, 1,
+		context.Background(), key, "code_review", nextInfo, action, opts, identical, &disabled, 1, -1,
 	)
 	if err != nil {
 		t.Fatalf("expected a byte-identical replay at the SAME stage to succeed idempotently, got error: %v", err)
@@ -662,7 +662,7 @@ func TestIngestGateResultForDispatch_MalformedEnvelopeFailsClosed(t *testing.T) 
 	disabled := false
 
 	toStatus, _, err := controller.ingestGateResultForDispatch(
-		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1,
+		context.Background(), "E01-F01-001", "todo", nextInfo, action, opts, dispatchResult, &disabled, 1, -1,
 	)
 	if err == nil {
 		t.Fatalf("expected malformed envelope to fail closed, got toStatus=%q", toStatus)

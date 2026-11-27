@@ -1,0 +1,59 @@
+{
+  "frozen_predecessor": "9eeb868b18a8506b390d37a629641366754ad3f7",
+  "failure": "0 == 0 : a known unsuitable research model reached the result writer",
+  "methods": [
+    "read",
+    "exec"
+  ],
+  "effects": [
+    "claim",
+    "heartbeat",
+    "next",
+    "status",
+    "release"
+  ],
+  "final": {
+    "phase": "post-dispatch",
+    "route_status": "verified",
+    "evidence_ref": "/tmp/tmph8tf_f0q/events",
+    "exit_status": 0,
+    "host_worker_class": "codex-cli",
+    "requested_provider": "anthropic",
+    "requested_model": "haiku",
+    "selected_provider": "openai",
+    "selected_model": "opaque",
+    "usage": {
+      "input_tokens": 7
+    },
+    "worker_id": "20151942-e5da-4c04-9ffd-246cf40088de",
+    "turn_id": "c99d471f-a7ca-4fdb-ac8e-ddc1ac191d8a",
+    "effective_model": "opaque",
+    "effective_provider": "openai",
+    "effective_effort": "high"
+  },
+  "catalog": [
+    {
+      "data": [
+        {
+          "model": "opaque",
+          "id": "opaque",
+          "description": "Our most capable model for complex coding and professional work.",
+          "hidden": false,
+          "isDefault": false,
+          "supportedReasoningEfforts": [
+            {
+              "reasoningEffort": "low"
+            },
+            {
+              "reasoningEffort": "high"
+            },
+            {
+              "reasoningEffort": "xhigh"
+            }
+          ],
+          "defaultReasoningEffort": "high"
+        }
+      ]
+    }
+  ]
+}

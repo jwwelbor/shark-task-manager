@@ -303,3 +303,69 @@ func (t nextStatusOnlyTransitioner) TransitionStatus(context.Context, string, st
 func (t nextStatusOnlyTransitioner) GetNextStatus(context.Context, string) (*services.NextStatusInfo, error) {
 	return t.next, nil
 }
+
+func TestBenchmarkCatalogEffort_PreservesExactCasingOnlyForOptedInCodexDispatch(t *testing.T) {
+	cases := []struct {
+		name                   string
+		benchmarkCatalogEffort bool
+		provider               string
+		actionVerb             string
+		rawEffort              string
+		wantEffort             string
+	}{
+		{"default off codex normalizes", false, "codex", action.ActionSpawnAgent, "HiGh", "high"},
+		{"default off novel normalizes", false, "codex", action.ActionSpawnAgent, "FixtureBoost", "fixtureboost"},
+		{"opted in codex preserves HiGh", true, "codex", action.ActionSpawnAgent, "HiGh", "HiGh"},
+		{"opted in openai preserves FixtureBoost", true, "openai", action.ActionSpawnAgent, "FixtureBoost", "FixtureBoost"},
+		{"opted in anthropic stays normalized", true, "anthropic", action.ActionSpawnAgent, "HiGh", "high"},
+		{"opted in codex pause stays normalized", true, "codex", action.ActionPause, "HiGh", "high"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oa := &action.OrchestratorAction{
+				Action:              tc.actionVerb,
+				AgentType:           "developer",
+				Provider:            tc.provider,
+				Model:               "synthetic-model",
+				Effort:              tc.rawEffort,
+				InstructionTemplate: "Work on {task_id}",
+			}
+			pop := oa.ToPopulatedAction(map[string]string{"task_id": "T-E01-F01-001"})
+			cache := &nextAdapterCache{benchmarkCatalogEffort: tc.benchmarkCatalogEffort}
+			got, handled, err := applyWireAction(
+				context.Background(),
+				cache,
+				entityResolutionStrategy{},
+				"task",
+				"T-E01-F01-001",
+				0,
+				tc.actionVerb,
+				pop,
+				&services.NextStatusInfo{CurrentStatus: "in_development"},
+				nil,
+				NextResponse{EntityKey: "T-E01-F01-001", EntityType: "task", Status: "in_development"},
+			)
+			if err != nil {
+				t.Fatalf("applyWireAction error = %v", err)
+			}
+			if handled {
+				t.Fatalf("expected handled=false, got true")
+			}
+			if got.Effort != tc.wantEffort {
+				t.Errorf("got.Effort = %q, want %q", got.Effort, tc.wantEffort)
+			}
+		})
+	}
+}
+
+func TestNewNextCommand_BenchmarkCatalogEffortDefaultFalse(t *testing.T) {
+	cmd := newNextCommand()
+	flag := cmd.Flags().Lookup("benchmark-catalog-effort")
+	if flag == nil {
+		t.Fatal("expected --benchmark-catalog-effort flag on nextCmd")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("expected default false, got %q", flag.DefValue)
+	}
+}

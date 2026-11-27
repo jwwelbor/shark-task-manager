@@ -1,6 +1,8 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
+{{template "_durable_sources" .}}
+
 Write specification for feature {{.id}}: "{{.title}}".
 
 Check for existing spec.md in feature directory. If spec exists meeting exit gate criteria, advance immediately.
@@ -12,10 +14,6 @@ Check for existing spec.md in feature directory. If spec exists meeting exit gat
 COMBINED REQUIREMENTS + ARCHITECTURE SPECIFICATION
 
 This is a SINGLE document (spec.md) that covers both what to build and how to build it. In brownfield development, the architect who understands the codebase is best positioned to write both.
-
-{{include: skills/architecture/SKILL.md}}
-
-{{include: skills/specification-writing/SKILL.md}}
 
 READ:
 (1) Parent epic PRD for business context and scope (DO NOT restate — reference by section)
@@ -101,7 +99,7 @@ Notes:
 
 CRITICAL RULES:
 - DO NOT restate epic-level business context. Say "See epic PRD Section X" instead.
-- DO NOT restate existing architecture. Say "Follows pattern in internal/services/task_service.go" instead.
+- DO NOT restate existing architecture. Say "Follows pattern in <path to the existing source file>" instead.
 - Use the research report's Capability map to name reused or extended capabilities and what this feature will not re-implement.
 - Requirements MUST trace to epic PRD requirements.
 - Architecture MUST align with CLAUDE.md patterns.
@@ -132,6 +130,12 @@ EXIT GATE:
   "Cross-epic integrations" section with producer/consumer feature ownership,
   matching contract / shape source, UX / CX handoff notes, and test coverage
   pointer or explicit progress-log deferral
+
+## Reference Methodology
+
+{{include: skills/architecture/SKILL.md}}
+
+{{include: skills/specification-writing/SKILL.md}}
 
 DECISION:
 - Exit gate met -> recommended_outcome: pass

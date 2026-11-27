@@ -1,0 +1,72 @@
+[
+  {
+    "mutation": "control",
+    "test": "only unsupported effort",
+    "status": "unsupported",
+    "effects": [],
+    "execs": 0,
+    "exit": 1
+  },
+  {
+    "mutation": "control",
+    "test": "wrong producing effort",
+    "status": "mismatch",
+    "effects": [
+      "claim",
+      "heartbeat",
+      "next",
+      "release"
+    ],
+    "execs": 1,
+    "exit": 1
+  },
+  {
+    "mutation": "omit supported efforts",
+    "test": "only unsupported effort",
+    "status": "verified",
+    "effects": [
+      "claim",
+      "heartbeat",
+      "next",
+      "status",
+      "release"
+    ],
+    "execs": 1,
+    "exit": 0
+  },
+  {
+    "mutation": "omit supported efforts",
+    "test": "wrong producing effort",
+    "status": "mismatch",
+    "effects": [
+      "claim",
+      "heartbeat",
+      "next",
+      "release"
+    ],
+    "execs": 1,
+    "exit": 1
+  },
+  {
+    "mutation": "omit selected effort observation",
+    "test": "only unsupported effort",
+    "status": "unsupported",
+    "effects": [],
+    "execs": 0,
+    "exit": 1
+  },
+  {
+    "mutation": "omit selected effort observation",
+    "test": "wrong producing effort",
+    "status": "verified",
+    "effects": [
+      "claim",
+      "heartbeat",
+      "next",
+      "status",
+      "release"
+    ],
+    "execs": 1,
+    "exit": 0
+  }
+]

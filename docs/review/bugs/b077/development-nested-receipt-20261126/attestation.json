@@ -1,0 +1,102 @@
+{
+ "entity_key": "B077",
+ "stage": "development",
+ "candidate_commit": "88411bd631a08f99017026de5b0979f55bfc70b1",
+ "candidate_tree": "2dd2ba75423e265e5c10cf22dc7b9f48aa5714d3",
+ "review_base": "06ee72cb98729fb5107d6f07a7fa183d55517a90",
+ "code_candidate_under_review": "91753fc1aa9239c4b8e4d1aa783be3cfb9bcd16c plus ec388b82 (docs) plus 88411bd6 (claude modelUsage receipt fix)",
+ "runner": "candidate-local skills/shark-rider/skills/deep-review Runner 3 (cli_review_job.py produce + publish), --require-verified-identity",
+ "host": "codex (preferred nested CLI claude)",
+ "claude_cli": "2.1.332",
+ "isolation": "HOME isolated to a scratch dir; cwd candidate worktree; plan permission mode",
+ "accepted_attempt": {
+  "attempt": 1,
+  "attempt_ref": "deep-review-cli:1",
+  "cli": "claude",
+  "executable": "claude",
+  "exit_status": 0,
+  "outcome": "accepted",
+  "failure_reason": null,
+  "worker_id": "276b4de4-40e7-4920-8801-330089075dc0",
+  "observed_provider": "firstParty",
+  "observed_model": "claude-sonnet-5-5",
+  "usage": {
+   "input_tokens": 16,
+   "cache_creation_input_tokens": 100643,
+   "cache_read_input_tokens": 682969,
+   "output_tokens": 6649,
+   "output_tokens_details": {
+    "thinking_tokens": 3251
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 100643,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 2854,
+     "cache_read_input_tokens": 113091,
+     "cache_creation_input_tokens": 1540,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 1540
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard",
+   "fallback_credit": null
+  },
+  "cost": 0.5373909,
+  "disposition": "observed",
+  "evidence_ref": "claude-session:276b4de4-40e7-4920-8801-330089075dc0",
+  "packet_sha256": "57376f8954f1a828ed46d0e3677723a2b5a0f3c40360f522060dd5cd4f93a20e",
+  "requested_model": null,
+  "fallback_reason": "Workflow and agent dispatch unavailable"
+ },
+ "consumed_sources": [
+  {
+   "path": "skills/shark-rider/skills/deep-review/scripts/adaptive_review.py",
+   "sha256": "14b2a056b4b8b59cc95184b923180833bdaf868c696f026acf3e64da58a4a827",
+   "git_blob": "d057f524424ed346d6156ce7c740ec8bf1b38fdf"
+  },
+  {
+   "path": "skills/shark-rider/skills/deep-review/scripts/cli_review_job.py",
+   "sha256": "6a224b78096a6107d539792fe4863b9c4ca1a10b6f869c9044756d5c6ca149e9",
+   "git_blob": "c7e761595058f61bf6eccaccc433dcc90c8e3111"
+  },
+  {
+   "path": "skills/shark-rider/skills/deep-review/scripts/safe_review_io.py",
+   "sha256": "0b8e9e03073636c8adfe0d59ec81298368b28bad129791ad9ad9d6055716d554",
+   "git_blob": "7fdd5f7fcbcf91e55459bdd408f6b10d4a52b6d2"
+  },
+  {
+   "path": "skills/shark-rider/skills/deep-review/scripts/bounded_git.py",
+   "sha256": "c12f2dbc2e0898180812d0327ef8427d72a822d341cb0da906ae12e72a007fbd",
+   "git_blob": "d4550910c2134c5d12a511e1afc77a00072ad1f1"
+  },
+  {
+   "path": "skills/shark-rider/skills/deep-review/scripts/get_diff.sh",
+   "sha256": "581895f3c463b70f14aacfa6bd25ab8ff24cf1b97cd9aa1ced21fa9e695f110c",
+   "git_blob": "be8e6ff67c33d53f5e689d189691bd7ffaede06d"
+  },
+  {
+   "path": "skills/shark-rider/skills/deep-review/SKILL.md",
+   "sha256": "7d809b846ba436d9b2966ec790757bfc3c2ac4f051b68ce8573e5cd61320d6ae",
+   "git_blob": "b36dd352941c649d6adc4a072be195125faef6b8"
+  }
+ ],
+ "prompt_sha256": "8657d6af4f97f6ee4eb95b19890c4a1218111c8cee55fb5b57dbefc84ed3d9eb",
+ "scope_sha256": "eabd8b4c47a0e835e243485d2b160c34aa896db5b087ea5e427c3e7884bc00b5",
+ "diff_sha256": "5c9b25ca291ae082430748d20e3acf97d83562f6b759d470b52f23b27c6dc4f2",
+ "receipt_sha256": "f8231a2764b17abe812a2be29fe5406a9892328d700feae83298850d5cd346ed",
+ "producer_report_sha256": "a0bbd1b59b8b2d8f1137eced18e1f05b97f1fc9ddd6af787fe06252425f294b9",
+ "prior_attempts_note": "Two earlier runs on 06ee72cb..ec388b82 and 88411bd6 were rejected by the runner (decision schema, then report contract); the first showed real Claude 2.1.332 emits no top-level provider/model so identity stayed partial; fixed in 88411bd6."
+}

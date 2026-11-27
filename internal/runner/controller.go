@@ -288,6 +288,10 @@ type PromptAssemblyInput struct {
 	// AgentType is Shark metadata naming the specialist persona to inline.
 	AgentType string
 
+	// WorkingDir is the worker directory the parent selected; empty means the
+	// worker inherits the parent's directory.
+	WorkingDir string
+
 	// Vars are the entity placeholders used by both workflow prompt rendering
 	// and agent persona rendering.
 	Vars map[string]string
@@ -1186,7 +1190,7 @@ func gateStageRunID(runID, entityKey string, stageN int) string {
 func (c *RunController) ingestGateResultForDispatch(
 	ctx context.Context, key, currentStatus string,
 	nextInfo *services.NextStatusInfo, action *config.PopulatedAction, opts RunOptions,
-	dispatchResult *DispatchResult, transcriptDisabled *bool, stageN int,
+	dispatchResult *DispatchResult, transcriptDisabled *bool, stageN int, triageNotesBefore int,
 ) (string, *gaterun.StatusProjection, error) {
 	if c.gateIngest == nil || c.gateIngest.Coordinator == nil {
 		return "", nil, fmt.Errorf("gate_result_v1 step %s requires a configured GateResult persistence coordinator", key)
@@ -1217,6 +1221,12 @@ func (c *RunController) ingestGateResultForDispatch(
 		OutcomeRoles:  outcomeRoles,
 		Outcomes:      nextInfo.Outcomes,
 	}
+
+	observed, injected, err := c.observeBugTriage(ctx, opts, key, currentStatus, baseReq, triageNotesBefore, dispatchResult.Started)
+	if err != nil {
+		return "", nil, fmt.Errorf("parent triage observation: %w", err)
+	}
+	baseReq.EnvelopeBytes, baseReq.ParentObservationInjected = observed, injected
 
 	req := baseReq
 	req.RetirementConfirmed = false
@@ -1473,6 +1483,7 @@ func (c *RunController) handleSpawnAgent(
 		Instruction: action.Instruction,
 		AgentType:   action.AgentType,
 		Vars:        vars,
+		WorkingDir:  opts.WorkingDir,
 	})
 	if err != nil {
 		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
@@ -1552,6 +1563,16 @@ func (c *RunController) handleSpawnAgent(
 		RunID:     opts.RunID,
 	})
 
+	triageNotesBefore := c.countTriageNotes(ctx, opts, key, currentStatus)
+	if triageNotesBefore >= 0 {
+		env, envErr := trackerAttemptEnv(opts.ProjectRoot, gateStageRunID(opts.RunID, key, stageN))
+		if envErr != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{EntityKey: key, Status: currentStatus, Phase: "tracker_attempt_ledger", Error: envErr.Error(), RunID: opts.RunID})
+			return stageOutcome{done: true}
+		}
+		input.Env = append(input.Env, env...)
+	}
+	triageStarted := time.Now()
 	dispatchResult, err := dispatcher.Dispatch(ctx, input)
 	if err != nil {
 		// Prefer *AgentFailedError fields; fall back to the DispatchResult the
@@ -1632,6 +1653,8 @@ func (c *RunController) handleSpawnAgent(
 		result.StagesCompleted = len(result.Stages) - 1
 		return stageOutcome{done: true}
 	}
+
+	dispatchResult.Started = triageStarted
 
 	// A Question responder has one additional parent-owned success step, kept
 	// out of this already-large function: see handleQuestionResponseHandoff.
@@ -1725,7 +1748,7 @@ func (c *RunController) handleSpawnAgent(
 	var toStatus string
 	if contract == resultContractGateResultV1 {
 		var gateStatus *gaterun.StatusProjection
-		toStatus, gateStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN)
+		toStatus, gateStatus, err = c.ingestGateResultForDispatch(ctx, key, currentStatus, stepInfo, action, opts, dispatchResult, transcriptDisabled, stageN, triageNotesBefore)
 		if err != nil {
 			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
 				EntityKey: key,
@@ -2058,4 +2081,48 @@ func (c *RunController) selectDispatcher(provider string) (AgentDispatcher, erro
 		provider,
 		strings.Join(keys, ", "),
 	)
+}
+
+// bugReviewGate reports whether the dispatch is a bug code-review gate that
+// reads parent-measured triage observations.
+func (c *RunController) bugReviewGate(opts RunOptions, currentStatus string) bool {
+	if opts.EntityType != "bug" || c.gateIngest == nil || c.gateIngest.Coordinator == nil {
+		return false
+	}
+	return strings.EqualFold(c.workflowSvc.ForLevel("bug").NormalizeStatus(currentStatus), "code_review")
+}
+
+// countTriageNotes snapshots the entity's tracker notes before dispatch. A
+// negative result means no parent measurement is available.
+func (c *RunController) countTriageNotes(ctx context.Context, opts RunOptions, key, currentStatus string) int {
+	if !c.bugReviewGate(opts, currentStatus) {
+		return -1
+	}
+	count, err := countBugEntityNotes(ctx, c.gateIngest.Coordinator.NoteReader, models.EntityType(opts.EntityType), key)
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+// observeBugTriage lets the controller, as the parent, measure the host actions
+// of a bug code review and inject the resulting observation. It never accepts a
+// file the worker could have planted.
+func (c *RunController) observeBugTriage(ctx context.Context, opts RunOptions, key, currentStatus string, req GateIngestRequest, before int, started time.Time) ([]byte, bool, error) {
+	if before < 0 || !c.bugReviewGate(opts, currentStatus) {
+		return req.EnvelopeBytes, false, nil
+	}
+	after, err := countBugEntityNotes(ctx, c.gateIngest.Coordinator.NoteReader, models.EntityType(opts.EntityType), key)
+	if err != nil {
+		return req.EnvelopeBytes, false, nil
+	}
+	writes := after - before
+	if writes < 0 {
+		writes = -writes
+	}
+	workingDir := req.WorkingDir
+	if workingDir == "" {
+		workingDir = req.ProjectRoot
+	}
+	return ObserveBugReportOnlyTriage(ctx, BugTriageWindow{ProjectRoot: req.ProjectRoot, WorkingDir: workingDir, RunID: req.RunID, TrackerWrites: writes, Started: started, RequireLedger: true}, req.EnvelopeBytes)
 }

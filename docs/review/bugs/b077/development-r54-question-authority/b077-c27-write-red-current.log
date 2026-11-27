@@ -1,0 +1,37 @@
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/current
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/takeover
+    session_authority_test.go:160: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/internal/repository/question/session_authority_test.go:160
+        	Error:      	An error is expected but got nil.
+        	            	expected: *services.QuestionRuleError
+        	Test:       	TestQuestionResolutionRequiresLiveFinalSessionAtWrite/takeover
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired
+    session_authority_test.go:160: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/internal/repository/question/session_authority_test.go:160
+        	Error:      	An error is expected but got nil.
+        	            	expected: *services.QuestionRuleError
+        	Test:       	TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/released
+    session_authority_test.go:160: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/internal/repository/question/session_authority_test.go:160
+        	Error:      	An error is expected but got nil.
+        	            	expected: *services.QuestionRuleError
+        	Test:       	TestQuestionResolutionRequiresLiveFinalSessionAtWrite/released
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/successor_supplies_its_session
+    session_authority_test.go:160: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/internal/repository/question/session_authority_test.go:160
+        	Error:      	An error is expected but got nil.
+        	            	expected: *services.QuestionRuleError
+        	Test:       	TestQuestionResolutionRequiresLiveFinalSessionAtWrite/successor_supplies_its_session
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/direct_owner
+--- FAIL: TestQuestionResolutionRequiresLiveFinalSessionAtWrite (1.62s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/current (0.27s)
+    --- FAIL: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/takeover (0.28s)
+    --- FAIL: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired (0.27s)
+    --- FAIL: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/released (0.27s)
+    --- FAIL: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/successor_supplies_its_session (0.27s)
+    --- PASS: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/direct_owner (0.26s)
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/internal/repository/question	1.631s
+FAIL

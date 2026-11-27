@@ -259,6 +259,11 @@ type nextAdapterCache struct {
 	// the top precedence tier for every entity resolveEntity visits during
 	// this invocation, including cascade recursion.
 	harnessOverride services.HarnessIdentity
+
+	// benchmarkCatalogEffort carries --benchmark-catalog-effort for this
+	// invocation only, preserving exact catalog effort casing on Codex/OpenAI
+	// worker dispatches while leaving native callers normalized.
+	benchmarkCatalogEffort bool
 }
 
 // newNextAdapterCache constructs an empty cache with the root action service
@@ -511,6 +516,11 @@ Errors:
 		"",
 		"Override the resolved harness model; wins over the active claim and SHARK_HARNESS_MODEL",
 	)
+	cmd.Flags().Bool(
+		"benchmark-catalog-effort",
+		false,
+		"Preserve exact catalog effort casing for opted-in Codex/OpenAI benchmark dispatches",
+	)
 	return cmd
 }
 
@@ -627,6 +637,13 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	adapters.surfaceForks = !resolveSequentialDispatch(cmd)
 	adapters.bugWorkingDir = workdir
+
+	benchmarkCatalogEffort, err := cmd.Flags().GetBool("benchmark-catalog-effort")
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	adapters.benchmarkCatalogEffort = benchmarkCatalogEffort
 
 	harnessOverride, err := harnessOverrideFromFlags(cmd)
 	if err != nil {
@@ -1100,7 +1117,7 @@ func enrichBugNextPrompt(ctx context.Context, cache *nextAdapterCache, strategy 
 	if strategy.mode != nextResolutionMode || entityType != "bug" || cache.bugWorkflow == nil {
 		return prompt, nil
 	}
-	prompt, err := bugParentProjectInstructions(prompt)
+	prompt, err := bugParentProjectInstructions(ctx, prompt, cache.bugWorkingDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve parent project for %s: %w", key, err)
 	}
@@ -1454,8 +1471,18 @@ func applyWireAction(
 	resp.Provider = populated.Provider
 	resp.Model = populated.Model
 	resp.Effort = populated.Effort
+	if cache != nil && cache.benchmarkCatalogEffort && wireAction == action.ActionSpawnAgent && isCodexOrOpenAIProvider(populated.Provider) {
+		if raw := populated.RawEffort(); raw != "" {
+			resp.Effort = raw
+		}
+	}
 	resp.Prompt = populated.Instruction
 	return resp, false, nil
+}
+
+func isCodexOrOpenAIProvider(provider string) bool {
+	p := strings.TrimSpace(provider)
+	return strings.EqualFold(p, "codex") || strings.EqualFold(p, "openai")
 }
 
 // attachAgentBody inlines the agent persona / config above the rendered
@@ -1509,7 +1536,8 @@ const workerOwnershipPreamble = `PARENT LOOP OWNERSHIP CONTRACT:
 - Complete the requested work, write the requested artifacts, then stop and clearly report the recommended outcome and any follow-up guidance for the parent loop.
 - "Stop" means your involvement in this dispatch ends there, not just that you pause between tool calls: once you have reported your final result, take no further actions of any kind. Do not keep investigating, do not act on adjacent issues you noticed, and do not resume any work — on this entity or anything else you touched — unless the parent sends you a new, explicit instruction. Noticing something else worth doing is a reason to name it in your report, never a reason to keep going.
 - If this dispatch is likely to take more than roughly 15 minutes (a substantial implementation, a live-LLM capture/recapture, a long test or build run), send the parent a brief progress check-in at that cadence even though the work isn't done — what's finished, what's in progress, and whether you're blocked. The parent cannot tell "still working normally" from "stalled" without these; going silent until a single final report is not acceptable for a long-running dispatch.
-- The parent loop owns the dispatched entity's lease and workflow transitions.`
+- The parent loop owns the dispatched entity's lease and workflow transitions.
+- A ` + "`skills/<name>/<path>`" + ` reference (with or without a ` + "`shark-data/`" + ` prefix) names bundled Shark content, not a file in this project: read it with ` + "`shark skill get <name> <path>`" + `. ` + "`shark-rider`" + ` is the exception: it is installed in the host, not bundled.`
 
 // assembleDispatchPrompt is the final Shark-owned prompt assembly step shared
 // by `shark next` and `shark run`: take the already-rendered workflow prompt,

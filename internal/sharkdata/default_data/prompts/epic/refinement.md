@@ -1,6 +1,8 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
+{{template "_durable_sources" .}}
+
 Write epic PRD for {{.id}}: "{{.title}}".
 
 Check for existing PRD at {{.file_path}}. If PRD exists with all required sections populated, advance immediately.

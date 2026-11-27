@@ -1,0 +1,41 @@
+FF
+======================================================================
+FAIL: test_duplicate_selection_facts (b077_catalog_cases.CatalogCases.test_duplicate_selection_facts) (field='supportedReasoningEfforts', first={'model': 'B', 'id': 'B', 'description': 'Fast and affordable model for easier tasks.', 'hidden': False, 'isDefault': False, 'supportedReasoningEfforts': [{'reasoningEffort': 'low'}, {'reasoningEffort': 'high'}, {'reasoningEffort': 'xhigh'}], 'defaultReasoningEffort': 'low'})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 439, in test_duplicate_selection_facts
+    decision, _ = self.catalog_case(
+                  ^^^^^^^^^^^^^^^^^^
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unverified' != 'verified'
+- unverified
+? --
++ verified
+ :  SUCCESS  Transitioned: research -> repair_plan
+ INFO  Run `shark next B001 --json` to get your next instructions.
+ SUCCESS  Released claim on bug B001
+
+
+======================================================================
+FAIL: test_duplicate_selection_facts (b077_catalog_cases.CatalogCases.test_duplicate_selection_facts) (field='supportedReasoningEfforts', first={'model': 'B', 'id': 'B', 'description': 'Fast and affordable model for easier tasks.', 'hidden': False, 'isDefault': False, 'supportedReasoningEfforts': [{'reasoningEffort': 'low'}], 'defaultReasoningEffort': 'low'})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 439, in test_duplicate_selection_facts
+    decision, _ = self.catalog_case(
+                  ^^^^^^^^^^^^^^^^^^
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unverified' != 'verified'
+- unverified
+? --
++ verified
+ :  SUCCESS  Transitioned: research -> repair_plan
+ INFO  Run `shark next B001 --json` to get your next instructions.
+ SUCCESS  Released claim on bug B001
+
+
+----------------------------------------------------------------------
+Ran 1 test in 6.344s
+
+FAILED (failures=2)

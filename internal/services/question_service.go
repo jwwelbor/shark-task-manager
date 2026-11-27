@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	questionrepo "github.com/jwwelbor/shark-task-manager/internal/repository/question"
@@ -25,10 +26,10 @@ type QuestionRepository interface {
 	Update(ctx context.Context, question *models.Question) error
 	UpdateStatus(ctx context.Context, id int64, status models.QuestionStatus) error
 	ConfigureWorkflow(ctx context.Context, id int64, expectedStatus models.QuestionStatus, expectedContextData, contextData *string, resolutionOwner string) error
-	RecordResponse(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, responder string) error
+	RecordResponse(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, responder, sessionID string) error
 	FollowUpWorkExists(ctx context.Context, key string) (bool, error)
 	NoteExists(ctx context.Context, noteID string) (bool, error)
-	Resolve(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, kind string) error
+	Resolve(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, kind string, lease *questionrepo.ResponderLease) error
 	Withdraw(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, reason string) error
 	Delete(ctx context.Context, id int64) error
 }
@@ -136,6 +137,7 @@ type CreateQuestionInput struct {
 // wrongly keep blocking dispatch forever (stale-lease-as-live-input defect
 // class, T-E34-F01-003 UAT rejection).
 type QuestionClaimReader interface {
+	TTL() time.Duration
 	Get(ctx context.Context, entityType, entityKey string) (*models.EntityClaim, error)
 	IsClaimable(ctx context.Context, entityType, entityKey string) (bool, error)
 }

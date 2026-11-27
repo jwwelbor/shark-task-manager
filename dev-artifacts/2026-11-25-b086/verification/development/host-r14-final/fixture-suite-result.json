@@ -1,0 +1,7 @@
+{
+  "command": "python3 -m unittest discover -s scripts/testdata/b086 -p 'test_*.py'",
+  "tests": 15,
+  "duration_seconds": 107.5,
+  "result": "passed",
+  "log": "captured in session; complete output retained by execution transcript"
+}

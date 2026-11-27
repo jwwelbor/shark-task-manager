@@ -1,0 +1,6 @@
+pin/default read conflict 1 FAILED (failures=8)
+explicit effort conflict 1 FAILED (failures=17)
+forced exact default 1 FAILED (failures=2)
+timed-out reader loses receipt 1 FAILED (failures=1)
+rejected argv omits reported usage 1 FAILED (failures=1): expected input_tokens=7, got None
+empty discovery gets cached model 1 FAILED (failures=2)

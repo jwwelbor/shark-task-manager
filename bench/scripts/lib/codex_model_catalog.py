@@ -222,14 +222,40 @@ def _resolve_effort(selected: dict[str, Any], effort: str | None) -> str:
     return resolved_effort
 
 
-def resolve_route(model: str | None, effort: str | None, catalog: dict[str, Any]) -> dict[str, str]:
+def prepare_catalog_lookup(catalog: dict[str, Any]) -> dict[str, Any]:
+    """Validate a catalog once and return an indexed lookup for repeated stage resolution."""
     if not isinstance(catalog, dict):
         raise CatalogError("Codex model catalog must be an object")
     entries = catalog.get("models")
     if not isinstance(entries, list):
         raise CatalogError("Codex model catalog has no model list")
-    selected = _select_model_entry(model, _validate_model_entries(entries))
+    validated = _validate_model_entries(entries)
+    by_id = {entry["model"]: entry for entry in validated}
+    defaults = [entry for entry in validated if entry.get("is_default") is True]
+    return {"by_id": by_id, "defaults": defaults}
+
+
+def resolve_route_from_lookup(
+    model: str | None, effort: str | None, lookup: dict[str, Any]
+) -> dict[str, str]:
+    """Resolve one model/effort against a pre-validated catalog lookup."""
+    if model is None:
+        defaults = lookup["defaults"]
+        if len(defaults) != 1:
+            raise CatalogError("Codex model catalog must contain one unique default model")
+        selected = defaults[0]
+    else:
+        if not isinstance(model, str) or not model:
+            raise CatalogError("explicit Codex model pin must be a non-empty string")
+        selected = lookup["by_id"].get(model)
+        if selected is None:
+            raise CatalogError(f"Codex model catalog does not contain pinned model {model!r}")
     return {"model": selected["model"], "effort": _resolve_effort(selected, effort)}
+
+
+def resolve_route(model: str | None, effort: str | None, catalog: dict[str, Any]) -> dict[str, str]:
+    lookup = prepare_catalog_lookup(catalog)
+    return resolve_route_from_lookup(model, effort, lookup)
 
 
 def _cli_version(argv: list[str], env: dict[str, str] | None) -> str:

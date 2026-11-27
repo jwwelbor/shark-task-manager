@@ -1,0 +1,14 @@
+/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex
+exec
+-C
+/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery
+--config
+model_provider=openai
+--sandbox
+danger-full-access
+--model
+gpt-6-luna
+--json
+--output-last-message
+/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/.shark/runs/b077-development-r35-live-route/result.txt
+-

@@ -1,0 +1,26 @@
+{
+  "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+  "codex_version": "codex-cli 0.171.0",
+  "login_status": "Logged in using ChatGPT",
+  "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery",
+  "profile": "",
+  "sandbox": "danger-full-access",
+  "config_readback": {
+    "model_provider": "openai",
+    "model": "gpt-6-luna",
+    "model_reasoning_effort": "high"
+  },
+  "preflight_precedes_claim": true,
+  "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+  "requested_route": {
+    "provider": "anthropic",
+    "model": "sonnet",
+    "effort": null
+  },
+  "selected_route": {
+    "host_worker_class": "codex-cli",
+    "provider": "openai",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "high"
+  }
+}

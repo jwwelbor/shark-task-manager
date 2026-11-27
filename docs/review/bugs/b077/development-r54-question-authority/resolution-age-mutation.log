@@ -1,0 +1,12 @@
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite
+=== RUN   TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired
+    session_authority_test.go:160: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/internal/repository/question/session_authority_test.go:160
+        	Error:      	An error is expected but got nil.
+        	            	expected: *services.QuestionRuleError
+        	Test:       	TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired
+--- FAIL: TestQuestionResolutionRequiresLiveFinalSessionAtWrite (0.10s)
+    --- FAIL: TestQuestionResolutionRequiresLiveFinalSessionAtWrite/expired (0.10s)
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/internal/repository/question	0.100s
+FAIL
