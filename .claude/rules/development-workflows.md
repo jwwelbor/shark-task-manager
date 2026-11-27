@@ -1,5 +1,25 @@
 # Development Workflows
 
+## Choose a Codex fallback for Shark Rider dispatches
+
+When a requested Claude Code route is unavailable or not working, use an
+available Codex model with comparable capability and reasoning effort. Discover
+the model through the same Codex CLI used for dispatch, then select it
+explicitly.
+
+Use these owner-defined capability-tier analogies for fallback selection:
+Codex Astra ↔ Claude Fable, Codex Sol ↔ Claude Opus, Codex Terra ↔ Claude
+Sonnet, and Codex Luna ↔ Claude Haiku. This guides tier selection; it does not
+assert that different providers behave identically. Verify availability and
+record the effective model used.
+
+Record the requested provider, model, and effort separately from the selected
+and worker-observed provider, model, and effort. Include the reason for the
+fallback and worker-correlated identity evidence. Do not silently substitute a
+route, hard-code model IDs outside an explicit owner-approved mapping, or claim
+that different providers are semantically equivalent. Reject before claim if
+no mapped route is available or worker identity cannot be verified.
+
 ## Quality Gate — MANDATORY
 
 **Before considering any development work complete, you MUST run all three checks in order:**
