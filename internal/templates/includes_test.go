@@ -550,7 +550,8 @@ func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
 // baseline was updated by CC-044 after its development-prompt change and by
 // B081 after the active-sprint selection-prompt change, and for the
 // dispatch-prompt defect corrections (durable sources, quality-gate sources,
-// precedence and unclear-requirement text). Originally
+// precedence and unclear-requirement text, and the task baseline by E31-F01
+// after its quality-block change). Originally
 // the values recorded content exactly as it existed before T-E34-F10-002
 // added the guard invocation (captured from the pre-edit checked-in files).
 // TestTwelvePromptsAddGuardAsPureAddition reconstructs each file's
@@ -570,7 +571,7 @@ var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"feature/task_generation.md": "3100315ace5f1aaaa817d5ceaf945fc22a8543cfba261ff314cb2a28e0d6d577",
 	"feature/task_review.md":     "0360562975bb8a1dbb908e3be0a49dace76b4434b3deba973c8101d7ac009c16",
 	"feature/approval.md":        "b555814fcb69df48ce3d1b777c1ffafe37bf3eaaa770b9f8157f11b8e873f41a",
-	"task/development.md":        "6726bb355ba584f1651d540af29134263b4c6958421da1fc6df10d1a837902d8",
+	"task/development.md":        "d428ce207569f914cf3bdea819fa91faf7d7f6b5ac8b100fcf05df3ac98a4b82",
 }
 
 // stripProductCriticalPathGuardParagraph removes the guard invocation's
