@@ -22,6 +22,10 @@ const (
 	reviewCodePath   = "skills/quality/workflows/review-code.md"
 	bundleDir        = "default_data"
 	deepReviewDir    = "../../skills/shark-rider/skills/deep-review"
+
+	standardsTemplatePath = "skills/quality/context/standards-template.md"
+	generateStandardsPath = "skills/quality/workflows/generate-standards.md"
+	bootstrapPath         = "skills/research/workflows/bootstrap.md"
 )
 
 // thresholdPatterns is the closed list from the feature test plan (TC-002).
@@ -229,4 +233,77 @@ func TestE31F01_TC013_DeepReviewDefersToCraftRubric(t *testing.T) {
 		assert.Contains(t, deepReviewText(t, rel), "craft-rubric.md", rel)
 	}
 	assert.Empty(t, thresholdHits("SKILL.md", deepReviewText(t, "SKILL.md")))
+}
+
+// section returns the text of body between the start and end markers.
+func section(t *testing.T, body, start, end string) string {
+	t.Helper()
+	_, rest, found := strings.Cut(body, start)
+	require.True(t, found, "missing %q", start)
+	text, _, found := strings.Cut(rest, end)
+	require.True(t, found, "missing %q after %q", end, start)
+	return text
+}
+
+func TestE31F01_TC001_StandardsTemplateDeclaresQualityLimits(t *testing.T) {
+	template := embeddedText(t, standardsTemplatePath)
+	outputA := section(t, template, "## Required Output A Structure", "## Required Output B Structure")
+	assert.Contains(t, outputA, "\n## Quality Limits\n")
+
+	limits := section(t, outputA, "\n## Quality Limits\n", "\n## ")
+	assert.Contains(t, limits, "| Limit | Value | Applies to | Enforcement | Measuring command |")
+	for _, row := range []string{
+		"| Cyclomatic complexity |",
+		"| Function length (lines) |",
+		"| File length (lines) |",
+		"| Nesting depth |",
+		"| Coverage (optional) |",
+	} {
+		assert.Contains(t, limits, row)
+	}
+	assert.Contains(t, limits, "tool-enforced")
+	assert.Contains(t, limits, "review-enforced")
+	for _, line := range strings.Split(limits, "\n") {
+		if strings.HasPrefix(line, "|") {
+			assert.NotRegexp(t, `\d`, line, "example rows must state no numeric value")
+		}
+	}
+}
+
+func TestE31F01_TC001_StandardsTemplateRequiresTestingConventions(t *testing.T) {
+	template := embeddedText(t, standardsTemplatePath)
+	testingStandards := section(t, template, "\n## Testing Standards (Code-Level)\n", "\n## ")
+	assert.Contains(t, testingStandards, "### Test Isolation")
+	assert.Contains(t, testingStandards, "### Assertion Style")
+}
+
+func TestE31F01_TC003_GeneratorDerivesProposesAndValidatesLimits(t *testing.T) {
+	workflow := embeddedText(t, generateStandardsPath)
+	outputA := section(t, workflow, "### Output A: Coding Standards Document", "### Output B")
+	assert.Contains(t, outputA, "- Quality Limits")
+
+	derive := section(t, workflow, "### Step 1:", "### Step 2:")
+	assert.Contains(t, derive, "Quality Limits")
+
+	write := section(t, workflow, "### Step 2:", "### Step 3:")
+	assert.Contains(t, write, "## Quality Limits")
+	assert.Contains(t, write, "../context/craft-rubric.md")
+	assert.Contains(t, write, "proposed — confirm")
+
+	validate := section(t, workflow, "### Step 4:", "## Success Criteria")
+	assert.Contains(t, validate, "## Quality Limits")
+}
+
+func TestE31F01_TC004_BootstrapMarkerRecordsQualityLimits(t *testing.T) {
+	workflow := embeddedText(t, bootstrapPath)
+	marker := section(t, workflow, "## Phase 4:", "## Phase 5:")
+	assert.Contains(t, marker, "\n**Quality Limits**: declared, not declared, or n/a (readiness 2)\n")
+}
+
+func TestE31F01_TC004_BootstrapFillGapsAddsMissingLimitsSection(t *testing.T) {
+	workflow := embeddedText(t, bootstrapPath)
+	preflight := section(t, workflow, "### Step 0.2:", "### Step 0.3:")
+	assert.Contains(t, preflight, "## Quality Limits")
+	assert.Contains(t, preflight, "existing_standards_path")
+	assert.Contains(t, preflight, "skills/quality/workflows/generate-standards.md")
 }

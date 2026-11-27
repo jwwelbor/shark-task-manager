@@ -27,6 +27,21 @@ Constraints: {{legacy_areas|deadline|compliance_code_only}}
 
 **File**: `{project root}/docs/architecture/coding-standards.md`
 
+### Quality Limits and Testing Conventions
+
+Development and review read `## Quality Limits` and `## Testing Standards (Code-Level)` by name, so keep both headings. The standards file may hold either section itself or in a linked standards sub-file.
+
+| Quality Limits column | Content |
+|---|---|
+| Value | The project's own value, marked as derived from a named config file or as proposed. Limit resolution and generic defaults live only in `craft-rubric.md` |
+| Applies to | production, test or both |
+| Enforcement | `tool-enforced` only when the project's tooling fails on a violation; otherwise `review-enforced` |
+| Measuring command | The command that measures the limit, or none for review |
+
+Keep one row per limit. The coverage row is optional; omit it when the project sets no target. The stacks shown side by side illustrate the form: keep only what the project uses.
+
+The two Testing Standards entries are required. The project decides their content.
+
 ### Required Headings (use exact format):
 
 ```markdown
@@ -38,7 +53,23 @@ Constraints: {{legacy_areas|deadline|compliance_code_only}}
 
 ## Framework-Specific Standards
 
+## Quality Limits
+
+| Limit | Value | Applies to | Enforcement | Measuring command |
+|---|---|---|---|---|
+| Cyclomatic complexity | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx eslint .` / Python: `ruff check .` / Go: `golangci-lint run` |
+| Function length (lines) | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx eslint .` / Python: `pylint src` / Go: `golangci-lint run` |
+| File length (lines) | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx eslint .` / Python: `pylint src` / Go: none (review) |
+| Nesting depth | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx eslint .` / Python: `pylint src` / Go: none (review) |
+| Coverage (optional) | {value} | {production, test or both} | {tool-enforced or review-enforced} | TypeScript: `npx vitest run --coverage` / Python: `pytest --cov` / Go: `go test -cover ./...` |
+
 ## Testing Standards (Code-Level)
+
+### Test Isolation
+{how this project keeps tests independent: shared state, fixtures, test data, execution order}
+
+### Assertion Style
+{the assertion library or style this project uses, and when a failed assertion stops the test}
 
 ## Secure Coding Standards
 

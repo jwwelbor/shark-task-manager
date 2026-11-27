@@ -37,6 +37,7 @@ Contains:
 - Universal Coding Standards
 - Language-Specific Standards (one section per entry in `languages`)
 - Framework-Specific Standards (one section per entry in `frameworks`)
+- Quality Limits
 - Testing Standards (Code-Level)
 - Secure Coding Standards
 - Review Rubric (YAML format)
@@ -60,6 +61,7 @@ Gather information about:
 - Local tools — discover linters/formatters/test runners by inspecting config files in `codebase_path` (e.g., `.eslintrc`, `pyproject.toml`, `.prettierrc`, `Makefile`)
 - Priorities — from `priorities` input
 - Constraints — from `constraints` input
+- Quality Limits — derive each limit value from existing linter config: note the value, the config file and rule that set it, the code it applies to, and the command that measures it. Note which limits no config sets
 
 If `existing_standards_path` is provided, read it as a baseline. The output should evolve the existing standards rather than replacing them.
 
@@ -79,6 +81,14 @@ Write `standards_doc_path` covering **code-only concerns only**:
 - **Example** — ✅ correct / ❌ incorrect, ≤50 lines
 
 **Opinionated, not vague.** Avoid "should generally" / "consider" / "where possible" — pick a position.
+
+**Quality Limits** — write the `## Quality Limits` table in the form the standards template gives:
+
+- Mark each row as either derived from config (name the config file) or proposed.
+- When no config gives a value, propose the generic default from `../context/craft-rubric.md` and ask the user to confirm it. A confirmed row drops the confirm request and reads `proposed, confirmed`.
+- An unattended run writes each such row with the label "proposed — confirm" in its Value cell.
+- The coverage target is optional and has no generic default. Add its row only when config or the user supplies a target.
+- In Reference Configs, wire each declared limit into the project's linter when that linter supports it. A row labeled "proposed — confirm" is not yet declared.
 
 **Excluded concerns** (these belong elsewhere):
 - Infrastructure / CI/CD pipeline configuration
@@ -106,6 +116,7 @@ Write `gaps_doc_path` analyzing:
 ### Step 4: Validate Output
 
 Ensure:
+- The `## Quality Limits` section is present, with every row marked derived or proposed. Validation fails when the section is missing
 - Standards are clear and enforceable (every rule has a how-to-enforce entry)
 - Rubric is usable as source of truth for code review (YAML structured, machine-readable)
 - Copy-paste configs provided for every tool the codebase already uses

@@ -73,7 +73,7 @@ The caller supplies `project_root`. If it points to a tool/config directory (e.g
 
 If `existing_marker` is provided (a previous run wrote to `marker_path`), use `rerun_choice` to decide:
 
-- **fill-gaps** — Check which files exist on disk; only generate the missing ones.
+- **fill-gaps** — Check which files exist on disk; only generate the missing ones. Then apply the Quality Limits check below.
 - **regenerate-all** — Proceed as if fresh run, overwrite all.
 - **reconcile-stack** — *(greenfield only, and only when `docs/product/D04-feasibility-report.md` now exists)* re-run `greenfield-scaffold.md` in **reconcile mode** to revise `tech-stack.md` against the vision + feasibility product-design has produced since the last bootstrap. This is the reverse-feed step: the provisional stack (or placeholder) chosen at first bootstrap is now tested against D04. See Phase 2 → Greenfield estate.
 - **cancel** — Exit with "No changes made".
@@ -82,10 +82,16 @@ If `rerun_choice` is null but `existing_marker` is present, ask the user (offer 
 
 > This project was previously bootstrapped ({estate} estate, {date}).
 >
-> 1. **Fill gaps only** — Regenerate only missing files (Recommended)
+> 1. **Fill gaps only** — Generate only missing files and a missing Quality Limits section (Recommended)
 > 2. **Regenerate all** — Overwrite all foundation documents
 > 3. **Reconcile stack** — Revise tech-stack.md against the vision + feasibility produced since bootstrap *(greenfield, only if D04 exists)*
 > 4. **Cancel** — Keep everything as-is
+
+**Fill-gaps: Quality Limits check.** When the file at `coding_standards_path` exists, and neither it nor any standards sub-file it links has a `## Quality Limits` heading, invoke `skills/quality/workflows/generate-standards.md` with `existing_standards_path` and `standards_doc_path` both set to `coding_standards_path`, and add only that section.
+
+- The trigger is the missing heading, not the marker value. A marker from an earlier bootstrap may not record Quality Limits at all.
+- Leave every other section and linked sub-file unchanged. This restriction overrides the generator's whole-document steps: write no gaps document, edit no Reference Configs, and validate only the added section. Report suggested linter wiring in the run summary instead.
+- A missing standards file is an ordinary missing file: generate it whole.
 
 ### Step 0.3: Ensure Output Directory
 
@@ -246,6 +252,7 @@ Write the marker to `marker_path`:
 **Date**: {generation_date}
 **Stack**: {stack_summary — e.g., "TypeScript / Next.js 14 / PostgreSQL / Prisma", or "Provisional: Go (stated constraint)" for readiness 2}
 **Host State**: {host_state_status — supplied by the wrapper, e.g., "initialized" or "none"}
+**Quality Limits**: declared, not declared, or n/a (readiness 2)
 
 ## Generated Files
 
@@ -267,6 +274,8 @@ Write the marker to `marker_path`:
 
 {Any notable findings, warnings, or recommendations from the analysis}
 ```
+
+For **Quality Limits**, write one of the three values. Use `declared` when the coding standards, or a standards sub-file they link, have a `## Quality Limits` heading after this run.
 
 ---
 
@@ -333,7 +342,7 @@ stack against the D04 verdict.
 | Permission denied on output_dir | `mkdir -p` and retry |
 | Web search fails | Proceed without web research, note in marker |
 | Subagent times out | Report partial results, mark failed files in marker |
-| Already initialized (fill-gaps) | Only generate files that don't exist |
+| Already initialized (fill-gaps) | Only generate files that don't exist, plus a missing `## Quality Limits` section (Step 0.2) |
 | Reconcile requested but no D04 | Tell user feasibility hasn't run yet; offer fill-gaps / regenerate-all instead |
 | Reconcile requested on brownfield | Reconcile the target against observed evidence and the selected initiative posture; route only deferred gaps via D04's tech-debt / constraint-note path |
 
