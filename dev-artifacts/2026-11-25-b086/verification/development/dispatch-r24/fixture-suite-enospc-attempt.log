@@ -1,0 +1,166 @@
+EFE.EFE.EEF.FFFE.F....[30;42m[30;42m SUCCESS [0m[0m [32m[32mShark CLI initialized successfully![0m[0m
+
+✓ Database created: /tmp/tmpojb9x3ub/shark-scratch-b086-1SsalW/shark-tasks.db
+✓ Folder created: /tmp/tmpojb9x3ub/shark-scratch-b086-1SsalW/docs/plan
+✓ Config file created: /tmp/tmpojb9x3ub/shark-scratch-b086-1SsalW/.sharkconfig.json
+
+Next steps:
+1. Create your first epic with: shark epic create "Epic Title"
+2. Create your first task with: shark task create E01 F01 "Task title"
+3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data
+cp: error copying '/tmp/tmpojb9x3ub/policy/bin/shark' to '/tmp/tmpojb9x3ub/shark-scratch-b086-1SsalW/shark': No space left on device
+EEEEEE
+======================================================================
+ERROR: setUpClass (test_budget.Budget)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_budget.py", line 28, in setUpClass
+    assert done.returncode == 0, done.stderr
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'\x1b[30;42m\x1b[30;42m SUCCESS \x1b[0m\x1b[0m \x1b[32m\x1b[32mShark CLI initialized successfully!\x1b[0m\x1b[0m\n\n\xe2\x9c\x93 Database created: /tmp/tmpbv5yrolf/tmpbhs9obxj/shark-scratch-b086-wQkRy0/shark-tasks.db\n\xe2\x9c\x93 Folder created: /tmp/tmpbv5yrolf/tmpbhs9obxj/shark-scratch-b086-wQkRy0/docs/plan\n\xe2\x9c\x93 Config file created: /tmp/tmpbv5yrolf/tmpbhs9obxj/shark-scratch-b086-wQkRy0/.sharkconfig.json\n\nNext steps:\n1. Create your first epic with: shark epic create "Epic Title"\n2. Create your first task with: shark task create E01 F01 "Task title"\n3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data\nTraceback (most recent call last):\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 342, in <module>\n    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic,\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 235, in prepare\n    shutil.copytree(libexec, case / \'libexec\')\n  File "/usr/lib/python3.12/shutil.py", line 600, in copytree\n    return _copytree(entries=entries, src=src, dst=dst, symlinks=symlinks,\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/usr/lib/python3.12/shutil.py", line 554, in _copytree\n    raise Error(errors)\nshutil.Error: [(\'/tmp/tmpbv5yrolf/tmpbhs9obxj/libexec/shark\', \'/tmp/tmpbv5yrolf/budget-dispatch/libexec/shark\', "[Errno 28] No space left on device: \'/tmp/tmpbv5yrolf/tmpbhs9obxj/libexec/shark\' -> \'/tmp/tmpbv5yrolf/budget-dispatch/libexec/shark\'")]\n'
+
+======================================================================
+ERROR: setUpClass (test_destination.WrongDatabase)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_destination.py", line 45, in setUpClass
+    assert done.returncode == 0, done.stderr
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'\x1b[30;42m\x1b[30;42m SUCCESS \x1b[0m\x1b[0m \x1b[32m\x1b[32mShark CLI initialized successfully!\x1b[0m\x1b[0m\n\n\xe2\x9c\x93 Database created: /tmp/tmpo9vkcmsz/tmp5ejxti83/shark-scratch-b086-JGcp42/shark-tasks.db\n\xe2\x9c\x93 Folder created: /tmp/tmpo9vkcmsz/tmp5ejxti83/shark-scratch-b086-JGcp42/docs/plan\n\xe2\x9c\x93 Config file created: /tmp/tmpo9vkcmsz/tmp5ejxti83/shark-scratch-b086-JGcp42/.sharkconfig.json\n\nNext steps:\n1. Create your first epic with: shark epic create "Epic Title"\n2. Create your first task with: shark task create E01 F01 "Task title"\n3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data\ncp: error copying \'/tmp/tmpo9vkcmsz/tmp5ejxti83/policy/bin/shark\' to \'/tmp/tmpo9vkcmsz/tmp5ejxti83/shark-scratch-b086-JGcp42/shark\': No space left on device\nTraceback (most recent call last):\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 342, in <module>\n    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic,\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 203, in prepare\n    seed = seed_project(source, staging, binary_digest)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 59, in seed_project\n    scratch = Path(output([source / \'scripts/shark-scratch-env.sh\', \'b086\'],\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 41, in output\n    return subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, check=True, **kwargs).stdout\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/usr/lib/python3.12/subprocess.py", line 571, in run\n    raise CalledProcessError(retcode, process.args,\nsubprocess.CalledProcessError: Command \'[PosixPath(\'/tmp/tmpo9vkcmsz/tmp5ejxti83/policy/scripts/shark-scratch-env.sh\'), \'b086\']\' returned non-zero exit status 1.\n'
+
+======================================================================
+ERROR: test_offline_verifier_checks_review_again_after_intake (test_intake.Intake.test_offline_verifier_checks_review_again_after_intake)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_intake.py", line 79, in test_offline_verifier_checks_review_again_after_intake
+    subprocess.run([sys.executable, HERE / 'prepare.py', root, '--synthetic'],
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/usr/bin/python3', PosixPath('/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py'), PosixPath('/tmp/tmpni4oon63'), '--synthetic']' returned non-zero exit status 1.
+
+======================================================================
+ERROR: test_verified_policy_loads_and_staged_packet_alone_cannot_authorize_write (test_intake.Intake.test_verified_policy_loads_and_staged_packet_alone_cannot_authorize_write)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_intake.py", line 23, in test_verified_policy_loads_and_staged_packet_alone_cannot_authorize_write
+    subprocess.run([sys.executable, HERE / 'prepare.py', pair, '--retained',
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/usr/bin/python3', PosixPath('/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py'), PosixPath('/tmp/tmpw58od9h1/pair'), '--retained', PosixPath('/tmp/tmpw58od9h1/original.md'), '79e8d6dd85a15063d4bc7df3a675f50e164f2bd5ad96fb055efa2f6e8d2a0cf6', PosixPath('/tmp/tmpw58od9h1/repo'), 'cec395e4828eb41d25f186715660d0eee4c0d56d']' returned non-zero exit status 1.
+
+======================================================================
+ERROR: setUpClass (test_lost_response.LostResponse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_lost_response.py", line 28, in setUpClass
+    assert done.returncode == 0, done.stderr
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'\x1b[30;42m\x1b[30;42m SUCCESS \x1b[0m\x1b[0m \x1b[32m\x1b[32mShark CLI initialized successfully!\x1b[0m\x1b[0m\n\n\xe2\x9c\x93 Database created: /tmp/tmp_o6f_h2w/base/tmpz5r6mmsw/shark-scratch-b086-Mevg1Y/shark-tasks.db\n\xe2\x9c\x93 Folder created: /tmp/tmp_o6f_h2w/base/tmpz5r6mmsw/shark-scratch-b086-Mevg1Y/docs/plan\n\xe2\x9c\x93 Config file created: /tmp/tmp_o6f_h2w/base/tmpz5r6mmsw/shark-scratch-b086-Mevg1Y/.sharkconfig.json\n\nNext steps:\n1. Create your first epic with: shark epic create "Epic Title"\n2. Create your first task with: shark task create E01 F01 "Task title"\n3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data\ncp: error copying \'/tmp/tmp_o6f_h2w/base/tmpz5r6mmsw/policy/bin/shark\' to \'/tmp/tmp_o6f_h2w/base/tmpz5r6mmsw/shark-scratch-b086-Mevg1Y/shark\': No space left on device\nTraceback (most recent call last):\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 342, in <module>\n    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic,\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 203, in prepare\n    seed = seed_project(source, staging, binary_digest)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 59, in seed_project\n    scratch = Path(output([source / \'scripts/shark-scratch-env.sh\', \'b086\'],\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 41, in output\n    return subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, check=True, **kwargs).stdout\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/usr/lib/python3.12/subprocess.py", line 571, in run\n    raise CalledProcessError(retcode, process.args,\nsubprocess.CalledProcessError: Command \'[PosixPath(\'/tmp/tmp_o6f_h2w/base/tmpz5r6mmsw/policy/scripts/shark-scratch-env.sh\'), \'b086\']\' returned non-zero exit status 1.\n'
+
+======================================================================
+ERROR: test_project_shark_records_normal_host_commands (test_observe.RecorderTest.test_project_shark_records_normal_host_commands)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_observe.py", line 18, in test_project_shark_records_normal_host_commands
+    subprocess.run([sys.executable, str(HERE / 'prepare.py'), root],
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/usr/bin/python3', '/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py', '/tmp/tmpubtdofu9']' returned non-zero exit status 1.
+
+======================================================================
+ERROR: setUpClass (test_receipt.Receipts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_receipt.py", line 28, in setUpClass
+    assert done.returncode == 0, done.stderr
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'\x1b[30;42m\x1b[30;42m SUCCESS \x1b[0m\x1b[0m \x1b[32m\x1b[32mShark CLI initialized successfully!\x1b[0m\x1b[0m\n\n\xe2\x9c\x93 Database created: /tmp/tmp2dvfdn_b/tmps_7c8zqe/shark-scratch-b086-RjPk1G/shark-tasks.db\n\xe2\x9c\x93 Folder created: /tmp/tmp2dvfdn_b/tmps_7c8zqe/shark-scratch-b086-RjPk1G/docs/plan\n\xe2\x9c\x93 Config file created: /tmp/tmp2dvfdn_b/tmps_7c8zqe/shark-scratch-b086-RjPk1G/.sharkconfig.json\n\nNext steps:\n1. Create your first epic with: shark epic create "Epic Title"\n2. Create your first task with: shark task create E01 F01 "Task title"\n3. Optionally extract workflow/prompt/skill defaults: shark admin install-shark-data\ncp: error copying \'/tmp/tmp2dvfdn_b/tmps_7c8zqe/policy/bin/shark\' to \'/tmp/tmp2dvfdn_b/tmps_7c8zqe/shark-scratch-b086-RjPk1G/shark\': No space left on device\nTraceback (most recent call last):\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 342, in <module>\n    print(prepare(args.directory, args.finish_feature, args.retained, args.synthetic,\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 203, in prepare\n    seed = seed_project(source, staging, binary_digest)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 59, in seed_project\n    scratch = Path(output([source / \'scripts/shark-scratch-env.sh\', \'b086\'],\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 41, in output\n    return subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, check=True, **kwargs).stdout\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/usr/lib/python3.12/subprocess.py", line 571, in run\n    raise CalledProcessError(retcode, process.args,\nsubprocess.CalledProcessError: Command \'[PosixPath(\'/tmp/tmp2dvfdn_b/tmps_7c8zqe/policy/scripts/shark-scratch-env.sh\'), \'b086\']\' returned non-zero exit status 1.\n'
+
+======================================================================
+ERROR: setUpClass (test_synthetic_controls.SyntheticControls)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_synthetic_controls.py", line 29, in setUpClass
+    cls.seed = seed_project(cls.source, cls.root, build_policy(cls.source))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 59, in seed_project
+    scratch = Path(output([source / 'scripts/shark-scratch-env.sh', 'b086'],
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py", line 41, in output
+    return subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, check=True, **kwargs).stdout
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '[PosixPath('/tmp/tmpojb9x3ub/policy/scripts/shark-scratch-env.sh'), 'b086']' returned non-zero exit status 1.
+
+======================================================================
+ERROR: test_grant_pair_requires_identical_host_input_and_only_grant_difference (test_verify.Verify.test_grant_pair_requires_identical_host_input_and_only_grant_difference)
+----------------------------------------------------------------------
+OSError: [Errno 28] No space left on device
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_verify.py", line 28, in test_grant_pair_requires_identical_host_input_and_only_grant_difference
+    (case / 'grant.json').write_text(json.dumps({
+  File "/usr/lib/python3.12/pathlib.py", line 1049, in write_text
+    with self.open(mode='w', encoding=encoding, errors=errors, newline=newline) as f:
+OSError: [Errno 28] No space left on device
+
+======================================================================
+ERROR: test_launcher_records_the_exact_invocation_before_starting_the_host (test_verify.Verify.test_launcher_records_the_exact_invocation_before_starting_the_host)
+----------------------------------------------------------------------
+OSError: [Errno 28] No space left on device
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_verify.py", line 108, in test_launcher_records_the_exact_invocation_before_starting_the_host
+    (case / 'grant.json').write_text('{"create_task_under": "E01-F01"}')
+  File "/usr/lib/python3.12/pathlib.py", line 1049, in write_text
+    with self.open(mode='w', encoding=encoding, errors=errors, newline=newline) as f:
+OSError: [Errno 28] No space left on device
+
+======================================================================
+ERROR: test_native_host_receipt_is_bound_to_private_skills_and_forbids_nested_provider (test_verify.Verify.test_native_host_receipt_is_bound_to_private_skills_and_forbids_nested_provider)
+----------------------------------------------------------------------
+OSError: [Errno 28] No space left on device
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_verify.py", line 144, in test_native_host_receipt_is_bound_to_private_skills_and_forbids_nested_provider
+    (observations / 'host-result.json').write_text(json.dumps({'run_id': run_id, 'exit_code': 0}))
+  File "/usr/lib/python3.12/pathlib.py", line 1049, in write_text
+    with self.open(mode='w', encoding=encoding, errors=errors, newline=newline) as f:
+OSError: [Errno 28] No space left on device
+
+======================================================================
+ERROR: test_seed_without_host_observations_cannot_verify_the_pair (test_verify.Verify.test_seed_without_host_observations_cannot_verify_the_pair)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_verify.py", line 206, in test_seed_without_host_observations_cannot_verify_the_pair
+    subprocess.run([sys.executable, str(HERE / 'prepare.py'), tmp], check=True, capture_output=True)
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/usr/bin/python3', '/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/prepare.py', '/tmp/tmpokkk1s95']' returned non-zero exit status 1.
+
+======================================================================
+ERROR: test_tracker_and_verifier_require_pinned_handoff_reads (test_verify.Verify.test_tracker_and_verifier_require_pinned_handoff_reads)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_verify.py", line 166, in test_tracker_and_verifier_require_pinned_handoff_reads
+    repo, scope, report, report_hash = write_test_packet(Path(tmp))
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/scripts/testdata/b086/test_packet.py", line 19, in write_test_packet
+    repo, scope, _ = scope_fixture(root)
+                     ^^^^^^^^^^^^^^^^^^^
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/skills/shark-rider/skills/deep-review/scripts/test_adaptive_review.py", line 69, in scope_fixture
+    git('init', '-b', 'main')
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b086-unattended-triage/skills/shark-rider/skills/deep-review/scripts/test_adaptive_review.py", line 68, in git
+    return subprocess.run(['git', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['git', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'init', '-b', 'main']' returned non-zero exit status 1.
+Traceback (most recent call last):

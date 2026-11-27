@@ -12,7 +12,7 @@ kind: final|question|needs_council|blocked_external|failed
 # <recommended_outcome>` byte-for-byte, unmodified. `--outcome`'s own
 # validity check (does the CURRENT workflow step define this outcome key?)
 # belongs to the already-existing, unrelated `shark status advance` command
-# (internal/cli/commands/status_group.go) — it is never re-checked or
+# — it is never re-checked or
 # normalized against this envelope's five `kind` values above. A
 # recommended_outcome value absent from the `kind` vocabulary (e.g.
 # `deep_verify`, `simple`, `standard`) round-trips exactly like a value that
@@ -27,11 +27,10 @@ example_final:
 # result_contract is gate_result_v1 (T-E34-F05-005's workflow field; a step
 # omitting result_contract, or set to legacy, never expects this field). It
 # is the I-02 GateResult v1 nested payload — the single canonical shape,
-# validated and typed in internal/gateresult (schema_version, summary,
-# findings[], kickbacks[], remediation_sweeps[], change_impacts[],
-# no_kickback_reason). This file does not restate that field list — see
-# internal/gateresult's own doc comment and architecture.md#i-02-gateresult-v1
-# for the authoritative shape; duplicating it here would drift. A worker
+# validated by Shark (schema_version, summary, findings[], kickbacks[],
+# remediation_sweeps[], change_impacts[], no_kickback_reason). This file does
+# not restate the field list; the dispatched step prompt's final-response
+# section and the skills it names carry it. A worker
 # dispatched to a gate_result_v1 step emits this envelope on stdout (the
 # ENTIRE trimmed stdout must be the JSON object — prose merely mentioning it
 # is never accepted); the host adapter then calls the shared ingestion CLI

@@ -1,0 +1,29 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r26c-effort/e3; cat finding.json grant.json candidate-stats.json workspace.json boundaries.json; cat libexec/observe.py; ls -R project/.agents/skills | head -80
+TOOL Bash cd /tmp/b086-r26c-effort/e3; R="python3 libexec/observe.py /tmp/b086-r26c-effort/e3 read"; $R project/.agents/skills/shark-rider/skills/deep-review/SKILL.md; echo ------; $R project/.agents/skills/shark-rider/verbs/deep-review.md; echo -----; cat candidate/docs/feature-a.md; echo ----; find candidate -type f
+TOOL Bash cd /tmp/b086-r26c-effort/e3; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e3 read "$1"; }; r project/.agents/skills/finish-feature/SKILL.md >/dev/null && echo ff ok; r project/.agents/skills/shark-rider/SKILL.md >/dev/null && echo sr ok; r project/.agents/skills/shark-rider/skills/deep-review/SKILL.md; echo ------; r project/.agents/skills/shark-rider/verbs/deep-review.md; echo -----; r project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-effort/e3; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e3 read "$1"; }; r project/.agents/skills/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-effort/e3; r(){ python3 libexec/observe.py /tmp/b086-r26c-effort/e3 read "$1"; }; r project/.agents/skills/shark-rider/verbs/deep-review.md; echo -----; r project/.agents/skills/shark-rider/skills/triage/SKILL.md
+TOOL Bash cd /tmp/b086-r26c-effort/e3; python3 libexec/observe.py /tmp/b086-r26c-effort/e3 review high e4e688f826a5809357b822430f4bff101cc85deeb870377a0f3fc1f3e113f819
+TEXT I've recorded the starting candidate's review at `high`, and I'm now applying the one-line doc fix and running the focused check.
+TOOL Bash cd /tmp/b086-r26c-effort/e3; printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | python3 libexec/observe.py /tmp/b086-r26c-effort/e3 edit docs/feature-a.md && python3 libexec/observe.py /tmp/b086-r26c-effort/e3 verify; echo "exit $?"; cat candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26c-effort/e3; python3 libexec/observe.py /tmp/b086-r26c-effort/e3 review max 50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46
+TEXT I fixed the finding, the focused check passed, and I recorded both deep-review invocations: `high` for the starting candidate and `max` for the repaired one. The recorder runs no review, so the new candidate still needs fresh review and QA. |  | ## Decisions |  | | Decision | Choice | Why | | |---|---|---| | | Starting review effort | `high` | 24 changed lines, 2 files and no listed risk boundaries. finish-fe
+FINAL I fixed the finding, the focused check passed, and I recorded both deep-review invocations: `high` for the starting candidate and `max` for the repaired one. The recorder runs no review, so the new candidate still needs fresh review and QA.
+
+## Decisions
+
+| Decision | Choice | Why |
+|---|---|---|
+| Starting review effort | `high` | 24 changed lines, 2 files and no listed risk boundaries. finish-feature Phase 1 uses `high` unless a change is large or high-risk. |
+| Disposition | Fix now | The finding is part of accepted behaviour. It is marked `non-blocker`, but you described it as mandatory and its disposition is `fix-now`. |
+| Authority | Allowed | The grant gives edit authority. `docs/feature-a.md` falls under "authentication and session handling", which the grant's scope authority names explicitly. |
+| Budget | Sufficient | The tighter limit leaves 1 attempt (dispatch: 1; project: 2 minus 1 used). The estimated 10 minutes for repair and verification fits in the 12 available. |
+| Resulting review effort | `max` | The repaired candidate now touches the authentication and session boundary, so it is high-risk even though it is still small. |
+
+## Repair
+- **Change:** in `docs/feature-a.md` line 4, "The default order is random." became "The default order is alphabetical."
+- **Check:** `verify` passed with no unmet conditions.
+- **Identity:** `e4e688f8…f819` became `50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46`.
+- **Size and risk:** 26 changed lines, 2 files, 

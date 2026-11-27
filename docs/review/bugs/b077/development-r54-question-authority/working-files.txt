@@ -1,0 +1,13 @@
+ M internal/cli/commands/question.go
+ M internal/cli/commands/question_test.go
+ M internal/repository/question/repository.go
+ M internal/repository/question/repository_test.go
+ M internal/services/question_service.go
+ M internal/services/question_service_test.go
+ M internal/services/question_workflow_service.go
+ M internal/sharkdata/default_data/skills/shark-attack/workflows/route-question.md
+ M skills/shark-attack/workflows/route-question.md
+ M skills/shark-rider/verbs/run.md
+ M tests/contracts/b077_codex_route_attestation_test.go
+?? internal/repository/question/session_authority_test.go
+?? tests/contracts/testdata/b077_question_route.py

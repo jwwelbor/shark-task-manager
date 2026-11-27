@@ -1,0 +1,1374 @@
+{
+  "candidate": "cc65bbaa7a368120e623f6aec471863e7c0abbfc",
+  "input": "synthetic keyed tuples",
+  "cli": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+  "version": "codex-cli 0.172.0",
+  "claude_native_agent_available": false,
+  "observation_channel": "supplied fixture capability; no producer requested",
+  "claims": 0,
+  "inference_calls": 0,
+  "results": [
+    {
+      "stage": "research",
+      "exit": 0,
+      "decision": {
+        "catalog": {
+          "gpt-5.6-luna": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy fast model for simpler tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy balanced model for agentic coding",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-astra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "previous generation model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-luna": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "fast and affordable model for easier tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "previous generation model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "efficient model that excels at visual understanding and computer use",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-astra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "our most capable model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": true,
+              "default_effort": "low",
+              "description": "fast, go-to model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          }
+        },
+        "catalog_pages": 1,
+        "cli_version": "0.172.0",
+        "codex_auth": "authenticated",
+        "comparison": {
+          "branch": "configured",
+          "effort": "high",
+          "effort_source": "requested",
+          "model": "gpt-6-luna"
+        },
+        "confirmation": {
+          "model": "gpt-6-luna",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "effort": "high",
+        "environment_sha256": "ff2c57a5663f22cdb2baa34aff05a053c41246dd7284fd9ce4e94c2d6a58ce9f",
+        "exact_claude": {
+          "auth": "failed",
+          "eligibility": "unavailable",
+          "reason": "authentication_failed"
+        },
+        "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+        "host_worker_class": "codex-cli",
+        "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+        "phase": "preflight",
+        "policy": "codex-catalog-description-v1",
+        "profile": "",
+        "readback": {
+          "model": "gpt-6-luna",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "reason": "configured model qualified for capability and effort",
+        "request": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "effort": "high",
+          "entity_key": "B001",
+          "entity_type": "bug",
+          "model": "haiku",
+          "provider": "anthropic",
+          "status": "research"
+        },
+        "requested_model": "haiku",
+        "requested_provider": "anthropic",
+        "sandbox": "",
+        "selected_effort": "high",
+        "selected_model": "gpt-6-luna",
+        "selected_provider": "openai",
+        "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery"
+      },
+      "decision_sha256": "9718409a31d5b20382488764b5cd34928426afba280dc8dfd97f6659b6a99b26"
+    },
+    {
+      "stage": "repair_plan",
+      "exit": 0,
+      "decision": {
+        "catalog": {
+          "gpt-5.6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy fast model for simpler tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-terra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy balanced model for agentic coding",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "previous generation model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "fast and affordable model for easier tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "previous generation model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "efficient model that excels at visual understanding and computer use",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "our most capable model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": true,
+              "default_effort": "low",
+              "description": "fast, go-to model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          }
+        },
+        "catalog_pages": 1,
+        "cli_version": "0.172.0",
+        "codex_auth": "authenticated",
+        "comparison": {
+          "branch": "alternative",
+          "effort": "high",
+          "effort_source": "requested",
+          "model": "gpt-6.2-sol"
+        },
+        "confirmation": {
+          "model": "gpt-6.2-sol",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "effort": "high",
+        "environment_sha256": "ff2c57a5663f22cdb2baa34aff05a053c41246dd7284fd9ce4e94c2d6a58ce9f",
+        "exact_claude": {
+          "auth": "failed",
+          "eligibility": "unavailable",
+          "reason": "authentication_failed"
+        },
+        "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+        "host_worker_class": "codex-cli",
+        "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+        "phase": "preflight",
+        "policy": "codex-catalog-description-v1",
+        "profile": "",
+        "readback": {
+          "model": "gpt-6-luna",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "reason": "alternative model qualified for capability and effort",
+        "request": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "effort": "high",
+          "entity_key": "B001",
+          "entity_type": "bug",
+          "model": "sonnet",
+          "provider": "anthropic",
+          "status": "repair_plan"
+        },
+        "requested_model": "sonnet",
+        "requested_provider": "anthropic",
+        "sandbox": "",
+        "selected_effort": "high",
+        "selected_model": "gpt-6.2-sol",
+        "selected_provider": "openai",
+        "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery"
+      },
+      "decision_sha256": "cf217076b272ae9fb6f0ce4830e5185408d34a60078bea1c8bc9f939ff431464"
+    },
+    {
+      "stage": "development",
+      "exit": 0,
+      "decision": {
+        "catalog": {
+          "gpt-5.6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy fast model for simpler tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-terra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy balanced model for agentic coding",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "previous generation model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "fast and affordable model for easier tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "previous generation model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "efficient model that excels at visual understanding and computer use",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "our most capable model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": true,
+              "default_effort": "low",
+              "description": "fast, go-to model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          }
+        },
+        "catalog_pages": 1,
+        "cli_version": "0.172.0",
+        "codex_auth": "authenticated",
+        "comparison": {
+          "branch": "alternative",
+          "effort": "high",
+          "effort_source": "requested",
+          "model": "gpt-6.2-sol"
+        },
+        "confirmation": {
+          "model": "gpt-6.2-sol",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "effort": "high",
+        "environment_sha256": "ff2c57a5663f22cdb2baa34aff05a053c41246dd7284fd9ce4e94c2d6a58ce9f",
+        "exact_claude": {
+          "auth": "failed",
+          "eligibility": "unavailable",
+          "reason": "authentication_failed"
+        },
+        "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+        "host_worker_class": "codex-cli",
+        "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+        "phase": "preflight",
+        "policy": "codex-catalog-description-v1",
+        "profile": "",
+        "readback": {
+          "model": "gpt-6-luna",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "reason": "alternative model qualified for capability and effort",
+        "request": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "effort": "high",
+          "entity_key": "B001",
+          "entity_type": "bug",
+          "model": "sonnet",
+          "provider": "anthropic",
+          "status": "development"
+        },
+        "requested_model": "sonnet",
+        "requested_provider": "anthropic",
+        "sandbox": "",
+        "selected_effort": "high",
+        "selected_model": "gpt-6.2-sol",
+        "selected_provider": "openai",
+        "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery"
+      },
+      "decision_sha256": "f2dfb4a209d076b53afb5cd137d40c824bafe37688b26fac540f76c7c5dd2b41"
+    },
+    {
+      "stage": "qa",
+      "exit": 0,
+      "decision": {
+        "catalog": {
+          "gpt-5.6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy fast model for simpler tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-terra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy balanced model for agentic coding",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "previous generation model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "fast and affordable model for easier tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "previous generation model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "efficient model that excels at visual understanding and computer use",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "our most capable model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-sol": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": true,
+              "default_effort": "low",
+              "description": "fast, go-to model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          }
+        },
+        "catalog_pages": 1,
+        "cli_version": "0.172.0",
+        "codex_auth": "authenticated",
+        "comparison": {
+          "branch": "alternative",
+          "effort": "high",
+          "effort_source": "requested",
+          "model": "gpt-6.2-sol"
+        },
+        "confirmation": {
+          "model": "gpt-6.2-sol",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "effort": "high",
+        "environment_sha256": "ff2c57a5663f22cdb2baa34aff05a053c41246dd7284fd9ce4e94c2d6a58ce9f",
+        "exact_claude": {
+          "auth": "failed",
+          "eligibility": "unavailable",
+          "reason": "authentication_failed"
+        },
+        "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+        "host_worker_class": "codex-cli",
+        "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+        "phase": "preflight",
+        "policy": "codex-catalog-description-v1",
+        "profile": "",
+        "readback": {
+          "model": "gpt-6-luna",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "reason": "alternative model qualified for capability and effort",
+        "request": {
+          "action": "spawn_agent",
+          "agent_type": "qa",
+          "effort": "high",
+          "entity_key": "B001",
+          "entity_type": "bug",
+          "model": "sonnet",
+          "provider": "anthropic",
+          "status": "qa"
+        },
+        "requested_model": "sonnet",
+        "requested_provider": "anthropic",
+        "sandbox": "",
+        "selected_effort": "high",
+        "selected_model": "gpt-6.2-sol",
+        "selected_provider": "openai",
+        "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery"
+      },
+      "decision_sha256": "f81bde8ab32be0cb2871b80f7d354f3d4f6b395398115e62c9e37a07eb8bf7c1"
+    },
+    {
+      "stage": "plan_review",
+      "exit": 0,
+      "decision": {
+        "catalog": {
+          "gpt-5.6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy fast model for simpler tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy balanced model for agentic coding",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-astra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "previous generation model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "fast and affordable model for easier tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "previous generation model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "efficient model that excels at visual understanding and computer use",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "our most capable model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": true,
+              "default_effort": "low",
+              "description": "fast, go-to model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          }
+        },
+        "catalog_pages": 1,
+        "cli_version": "0.172.0",
+        "codex_auth": "authenticated",
+        "comparison": {
+          "branch": "alternative",
+          "effort": "high",
+          "effort_source": "requested",
+          "model": "gpt-6.2-astra"
+        },
+        "confirmation": {
+          "model": "gpt-6.2-astra",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "effort": "high",
+        "environment_sha256": "ff2c57a5663f22cdb2baa34aff05a053c41246dd7284fd9ce4e94c2d6a58ce9f",
+        "exact_claude": {
+          "auth": "failed",
+          "eligibility": "unavailable",
+          "reason": "authentication_failed"
+        },
+        "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+        "host_worker_class": "codex-cli",
+        "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+        "phase": "preflight",
+        "policy": "codex-catalog-description-v1",
+        "profile": "",
+        "readback": {
+          "model": "gpt-6-luna",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "reason": "alternative model qualified for capability and effort",
+        "request": {
+          "action": "spawn_agent",
+          "agent_type": "tech-lead",
+          "effort": "high",
+          "entity_key": "B001",
+          "entity_type": "bug",
+          "model": "opus",
+          "provider": "anthropic",
+          "status": "plan_review"
+        },
+        "requested_model": "opus",
+        "requested_provider": "anthropic",
+        "sandbox": "",
+        "selected_effort": "high",
+        "selected_model": "gpt-6.2-astra",
+        "selected_provider": "openai",
+        "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery"
+      },
+      "decision_sha256": "7004bfc2fcb07b45acf568472f07adb16abee2de20d40836817ca7f331380d9a"
+    },
+    {
+      "stage": "code_review",
+      "exit": 0,
+      "decision": {
+        "catalog": {
+          "gpt-5.6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy fast model for simpler tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-5.6-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy balanced model for agentic coding",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-astra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "previous generation model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-luna": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "fast and affordable model for easier tasks",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "medium",
+              "description": "legacy model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "previous generation model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.1-terra": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "efficient model that excels at visual understanding and computer use",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-astra": {
+            "comparison": "qualified",
+            "facts": {
+              "catalog_default": false,
+              "default_effort": "low",
+              "description": "our most capable model for complex coding and professional work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          },
+          "gpt-6.2-sol": {
+            "comparison": "insufficient capability",
+            "facts": {
+              "catalog_default": true,
+              "default_effort": "low",
+              "description": "fast, go-to model for coding and everyday work",
+              "supported_efforts": [
+                "high",
+                "low",
+                "max",
+                "medium",
+                "ultra",
+                "xhigh"
+              ]
+            },
+            "page": 1
+          }
+        },
+        "catalog_pages": 1,
+        "cli_version": "0.172.0",
+        "codex_auth": "authenticated",
+        "comparison": {
+          "branch": "alternative",
+          "effort": "high",
+          "effort_source": "requested",
+          "model": "gpt-6.2-astra"
+        },
+        "confirmation": {
+          "model": "gpt-6.2-astra",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "effort": "high",
+        "environment_sha256": "ff2c57a5663f22cdb2baa34aff05a053c41246dd7284fd9ce4e94c2d6a58ce9f",
+        "exact_claude": {
+          "auth": "failed",
+          "eligibility": "unavailable",
+          "reason": "authentication_failed"
+        },
+        "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+        "host_worker_class": "codex-cli",
+        "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+        "phase": "preflight",
+        "policy": "codex-catalog-description-v1",
+        "profile": "",
+        "readback": {
+          "model": "gpt-6-luna",
+          "model_provider": "openai",
+          "model_reasoning_effort": "high"
+        },
+        "reason": "alternative model qualified for capability and effort",
+        "request": {
+          "action": "spawn_agent",
+          "agent_type": "tech-lead",
+          "effort": "high",
+          "entity_key": "B001",
+          "entity_type": "bug",
+          "model": "opus",
+          "provider": "anthropic",
+          "status": "code_review"
+        },
+        "requested_model": "opus",
+        "requested_provider": "anthropic",
+        "sandbox": "",
+        "selected_effort": "high",
+        "selected_model": "gpt-6.2-astra",
+        "selected_provider": "openai",
+        "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery"
+      },
+      "decision_sha256": "b5d709525dd5d7f5b63d5305ece9e5cd0c13d74b84d20b8a598b20b86f702723"
+    }
+  ]
+}

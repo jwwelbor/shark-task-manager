@@ -6,10 +6,10 @@ inputs:
   - data_design_path: absolute path to 03-data-design.md (optional, if db design exists)
   - architecture_doc_path: absolute path where 02-architecture.md should be written
   - backend_design_path: absolute path where 04-backend-design.md should be written
-  - api_patterns_path: absolute path to api-patterns.md context
-  - integration_patterns_path: absolute path to integration-patterns.md context
-  - architecture_template_path: absolute path to architecture-doc.md template
-  - api_spec_template_path: absolute path to api-spec-doc.md template
+  - api_patterns_path: absolute path to skills/architecture/context/patterns/api-patterns.md context
+  - integration_patterns_path: absolute path to skills/architecture/context/patterns/integration-patterns.md context
+  - architecture_template_path: absolute path to skills/architecture/context/templates/architecture-doc.md template
+  - api_spec_template_path: absolute path to skills/architecture/context/templates/api-spec-doc.md template
 outputs:
   - architecture_doc: structured markdown written to architecture_doc_path (system architecture)
   - backend_design_doc: structured markdown written to backend_design_path (interface specification)

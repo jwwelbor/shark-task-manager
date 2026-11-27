@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -32,7 +33,19 @@ func NewEntityNoteRepository(db *dbconn.DB) *EntityNoteRepository {
 }
 
 // Create creates a new entity note
-func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNote) (retErr error) {
+func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNote) error {
+	return r.insert(ctx, note, "", "", 0)
+}
+
+// CreateForSession inserts a worker-derived note only while its entity lease is live.
+func (r *EntityNoteRepository) CreateForSession(ctx context.Context, note *models.EntityNote, entityKey, sessionID string, ttl time.Duration) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return models.ErrClaimMissingSession
+	}
+	return r.insert(ctx, note, entityKey, sessionID, ttl)
+}
+
+func (r *EntityNoteRepository) insert(ctx context.Context, note *models.EntityNote, entityKey, sessionID string, ttl time.Duration) (retErr error) {
 	ctx, span := noteTracer.Start(ctx, "EntityNoteRepository.Create",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
@@ -47,25 +60,29 @@ func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNo
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	query := `
-		INSERT INTO entity_notes (
-			entity_type, entity_id, note_type, content, created_by, metadata
-		)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`
-
-	result, err := r.db.ExecContext(ctx, query,
-		note.EntityType,
-		note.EntityID,
-		note.NoteType,
-		note.Content,
-		note.CreatedBy,
-		note.Metadata,
-	)
+	query := `INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_by, metadata)
+        SELECT ?, ?, ?, ?, ?, ?`
+	args := []any{note.EntityType, note.EntityID, note.NoteType, note.Content, note.CreatedBy, note.Metadata}
+	if sessionID != "" {
+		query += ` WHERE EXISTS (SELECT 1 FROM entity_claims
+            WHERE entity_type = ? AND entity_key = ? AND session_id = ?
+            AND (? <= 0 OR unixepoch(CURRENT_TIMESTAMP) - unixepoch(last_heartbeat) <= ?))`
+		args = append(args, note.EntityType, entityKey, sessionID, ttl.Seconds(), ttl.Seconds())
+	}
+	result, err := r.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to create entity note: %w", err)
 	}
 
+	if sessionID != "" {
+		n, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("check session-qualified note insert: %w", err)
+		}
+		if n != 1 {
+			return fmt.Errorf("no live claim for note on %s/%s under the supplied session", note.EntityType, entityKey)
+		}
+	}
 	id, err := result.LastInsertId()
 	if err != nil {
 		return fmt.Errorf("failed to get last insert id: %w", err)

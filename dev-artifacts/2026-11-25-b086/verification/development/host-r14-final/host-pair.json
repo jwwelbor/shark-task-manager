@@ -1,0 +1,25 @@
+{
+  "cases": {
+    "grant-a": {
+      "applied_review_operation_digest": "6b186167d4a5af03c06d56610d7e6db799ecdd6fa833ce9553b4ef562c3a80e0",
+      "applied_review_run_id": "fixture-code_review-ef055490eae8441083aa4cc3c1719471",
+      "bundle_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
+      "candidate": "c6bde86451f62fe9255d811bfd9096f78b541481",
+      "normalized_prompt_sha256": "888e38252d809813613a1e86434eea9ca94d1468069019148bacc83fbe022057",
+      "runner_source_sha256": "84c8d0984df6b9c4a2f5ab8984a93c43b0bb5cc60d5227dedd40751d2d39fe8c",
+      "seed_database_sha256": "6c7df8c0cf9080ce51e282d37b156e301e578297a02a493467f2280d84f2aaa6"
+    },
+    "grant-b": {
+      "applied_review_operation_digest": "6b186167d4a5af03c06d56610d7e6db799ecdd6fa833ce9553b4ef562c3a80e0",
+      "applied_review_run_id": "fixture-code_review-ef055490eae8441083aa4cc3c1719471",
+      "bundle_sha256": "73bf06a2c657c1464a7bc52b3fe0bf19149e2991d22d481a46a5d01ef42375f9",
+      "candidate": "c6bde86451f62fe9255d811bfd9096f78b541481",
+      "normalized_prompt_sha256": "888e38252d809813613a1e86434eea9ca94d1468069019148bacc83fbe022057",
+      "runner_source_sha256": "84c8d0984df6b9c4a2f5ab8984a93c43b0bb5cc60d5227dedd40751d2d39fe8c",
+      "seed_database_sha256": "6c7df8c0cf9080ce51e282d37b156e301e578297a02a493467f2280d84f2aaa6"
+    }
+  },
+  "grant_difference": "create_task_under: E01-F01 vs E01-F02",
+  "pinned_runner_source_sha256": "84c8d0984df6b9c4a2f5ab8984a93c43b0bb5cc60d5227dedd40751d2d39fe8c",
+  "schema_version": 1
+}

@@ -1,0 +1,20 @@
+{
+  "candidate_commit": "f766855f296ddcbc6787fac46409d8ed92fff693",
+  "candidate_tree": "0fea4ada11ecb869bce61462c5817ba16d0e9154",
+  "thread_id": "01a20bc1-1c30-7150-982d-44ba580a252a",
+  "rollout_path": "/home/jwwel/.codex/sessions/2026/11/23/rollout-2026-11-23T22-12-15-01a20bc1-1c30-7150-982d-44ba580a252a.jsonl",
+  "files": {
+    "dispatch-preflight.json": "946ba07b36472ce2af3748b7e05277816ee167cbffed862f86f21ba235dce4e5",
+    "dispatch.json": "4abbfb00836a389de3e57f83f4c0128f40b6bf184673dca0da21b32bf3677a06",
+    "prompt-preflight.txt": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+    "prompt.txt": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+    "claim.json": "437ae1d241a97a3b2cbd6eb2ebaa88280613c18ec35903877d4547bc90ba3011",
+    "preflight-route.json": "1438aa482b78094333a0919195de8546674ec7a9ba2646fe8c48e6649e6f22ab",
+    "argv.nul": "fe108510bf38edfa3eb50b3a7ab4f845255fc87ae60ed1313cbb976c300bdffa",
+    "events.jsonl": "951ef87bb25d367b0d8c72869f26dc4b5b4c5985867c0e05b21df8b7183c9de3",
+    "result.txt": "f63de2080bda1bb2e8ee0d11d3b32f41e05dfa6bd5637e3ee223562ae94dbc85",
+    "rollout.jsonl": "5a2f5182f7451aca7127b84a3aacc01d4bb1a74fe04b7cbebf1d37b83a302677",
+    "turn-observation.json": "4a2b95d812238c43c0e38f93bffe5390f2570af7a8245144774ceaebe443c5f6",
+    "attestation.json": "ace6987575a49b09aafa79a444f67271d48340788e6863d5e8617a914173e20a"
+  }
+}

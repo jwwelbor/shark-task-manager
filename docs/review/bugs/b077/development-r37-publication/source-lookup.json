@@ -1,0 +1,326 @@
+[
+  {
+    "id": 671,
+    "path": "docs/review/bugs/b077/plan-review-r37-20261124.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r37-20261124.md",
+    "sha256": "111972f929e002734ff774db7f173d1ad83c0c96ad4dc38bbcfbb12ff5af02de"
+  },
+  {
+    "id": 669,
+    "path": "docs/review/bugs/b077/plan-review-r36-20261124.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r36-20261124.md",
+    "sha256": "7eb474f7b4513292bf0e48271ab6d0385d80db16734c387247eec42aeb69d37e"
+  },
+  {
+    "id": 665,
+    "path": "docs/review/bugs/b077/plan-review-r35-20261124.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r35-20261124.md",
+    "sha256": "9fe09d8a531746e06a6b1ba3aca5356e216b47a1f9aacb45bfbbcf10a0d7fd31"
+  },
+  {
+    "id": 662,
+    "path": "docs/review/bugs/b077/plan-review-r34-20261124.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r34-20261124.md",
+    "sha256": "4cbf66b696370e241f1ae2d2bffc7652f7b260eba87fa8b05e6b928c5a3394f1"
+  },
+  {
+    "id": 659,
+    "path": "docs/review/bugs/b077/plan-review-r33-revalidation-20261124.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r33-revalidation-20261124.md",
+    "sha256": "56fa190c20f258d7ce641fbb32491730a42394e3840933b6be02211071f70df0"
+  },
+  {
+    "id": 554,
+    "path": "docs/review/bugs/b077/plan-review-r33-20261123.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r33-20261123.md",
+    "sha256": "f2babb5d3bbbfbc77a56884819c4289cf8dae51d85e73eb000ca88eff99c3117"
+  },
+  {
+    "id": 548,
+    "path": "docs/review/bugs/b077/plan-review-r32-20261123.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r32-20261123.md",
+    "sha256": "b7e25663037486cb3934d0fcc6728da43bf9078f8415aace8e082009f2eb02fb"
+  },
+  {
+    "id": 540,
+    "path": "docs/review/bugs/b077/plan-review-r31-20261123.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r31-20261123.md",
+    "sha256": "e5ca80d3db6a52cb981c47f24875746afe1a5a2f5de354d53c6b6c499d09e91f"
+  },
+  {
+    "id": 539,
+    "path": "docs/review/bugs/b077/plan-review-r30-20261123.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r30-20261123.md",
+    "sha256": "4dff7663d9d722458eb84c86d8c8ec134603e0a16c5bbd2426ddf67b701f0fd5"
+  },
+  {
+    "id": 534,
+    "path": "docs/review/bugs/b077/plan-review-r28-20261123.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r28-20261123.md",
+    "sha256": "410a553cb88cd2752d19933005ce828dacb18c04d710606bc74ab1939ff67c99"
+  },
+  {
+    "id": 442,
+    "path": "docs/review/bugs/b077/plan-review-r25-20261119.md",
+    "source": "/home/jwwel/projects/shark-task-manager/docs/review/bugs/b077/plan-review-r25-20261119.md",
+    "sha256": "4c5c3073b475c817cf65a8bcbfed9a0cc08a19d70147c1f25f327fe4388630d0"
+  },
+  {
+    "id": 441,
+    "path": "docs/review/bugs/b077/plan-review-r24-20261119.md",
+    "source": "/home/jwwel/projects/shark-task-manager/docs/review/bugs/b077/plan-review-r24-20261119.md",
+    "sha256": "f90a37bb72e9ae6e789ef1beb52893e3134c7c464fe10b01e1c4cea9f75060cc"
+  },
+  {
+    "id": 440,
+    "path": "docs/review/bugs/b077/plan-review-r23-20261119.md",
+    "source": "/home/jwwel/projects/shark-task-manager/docs/review/bugs/b077/plan-review-r23-20261119.md",
+    "sha256": "3b34fce5250f67db9ebc3fdef840aa8c0392e87ac29d428976c89403c700ed8d"
+  },
+  {
+    "id": 439,
+    "path": "docs/review/bugs/b077/plan-review-r21-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r21-20261119.md",
+    "sha256": "fd71792644dbbefe24b55cd1034850cc9624a0bdc89fff39a3593539665a9c8b"
+  },
+  {
+    "id": 438,
+    "path": "docs/review/bugs/b077/plan-review-r20-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r20-20261119.md",
+    "sha256": "2064f3d5ce49bf49240579402d6b2fb10fd8611fadcda987c1c1beb609ad7e6d"
+  },
+  {
+    "id": 437,
+    "path": "docs/review/bugs/b077/plan-review-r19-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r19-20261119.md",
+    "sha256": "798d9915c7fa3246f94263cc2a2567df6b781c08d83312ba4ef72f5fd9dd7400"
+  },
+  {
+    "id": 436,
+    "path": "docs/review/bugs/b077/plan-review-r18-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r18-20261119.md",
+    "sha256": "304418e0d03e04b79bfe4804f033c5fa07f279590d26ec25fef3764ba58d242d"
+  },
+  {
+    "id": 435,
+    "path": "docs/review/bugs/b077/plan-review-r17-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r17-20261119.md",
+    "sha256": "81540c394c3fd9090f70db0130debc0b1730217035f01f3bca045e2e76afd22d"
+  },
+  {
+    "id": 434,
+    "path": "docs/review/bugs/b077/plan-review-r16-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r16-20261119.md",
+    "sha256": "9550a7c7778ef97d270e2a6c1931b4923c2224f0dffab89c2d11e884d406237c"
+  },
+  {
+    "id": 433,
+    "path": "docs/review/bugs/b077/plan-review-r15-20261119.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r15-20261119.md",
+    "sha256": "d2ad1004f2e1b1e3cb951df9517f5465336fc1b9ec3ca8caab3695deb5443ca8"
+  },
+  {
+    "id": 432,
+    "path": "docs/review/bugs/b077/plan-review-r14-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r14-20261119.md",
+    "sha256": "c0a1718bca3ade0919c08f67901dd83eb89b3a6dc3ec029edaa722eed32d12b1"
+  },
+  {
+    "id": 431,
+    "path": "docs/review/bugs/b077/plan-review-r13-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r13-20261119.md",
+    "sha256": "e05fa00e38e237e7817ce6131720f0aec3950d6ac10bb89d008ef6790b9b6603"
+  },
+  {
+    "id": 430,
+    "path": "docs/review/bugs/b077/plan-review-r12-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r12-20261119.md",
+    "sha256": "a9cff7f461e488e4638899cd95b74e9359ee8ac216e9ddcdde795695b4ee500c"
+  },
+  {
+    "id": 429,
+    "path": "docs/review/bugs/b077/plan-review-r11-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r11-20261119.md",
+    "sha256": "dd6847e06fe22406ead5adf4bf2f6c882f90d4da10355e0578309ec6d2e86826"
+  },
+  {
+    "id": 428,
+    "path": "docs/review/bugs/b077/plan-review-r10-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r10-20261119.md",
+    "sha256": "09cf152d4728849df77f79ac31d032bca3ecedf22c812542d28ad0a6cf1d04a6"
+  },
+  {
+    "id": 427,
+    "path": "docs/review/bugs/b077/plan-review-r9-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r9-20261119.md",
+    "sha256": "384984330ec47e04291f22883117724c770aaa9edd1c5617643d59a68d5b6719"
+  },
+  {
+    "id": 426,
+    "path": "docs/review/bugs/b077/plan-review-r8-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r8-20261119.md",
+    "sha256": "dd41e0e495f5075f9236fce151699184b4306f0d7e1aee6cec013dfc916aeb0a"
+  },
+  {
+    "id": 425,
+    "path": "docs/review/bugs/b077/plan-review-r7-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r7-20261119.md",
+    "sha256": "f4c4866f79effde92ff2c673a14b2ea95b3a639d59273d475411bd7860777759"
+  },
+  {
+    "id": 424,
+    "path": "docs/review/bugs/b077/plan-review-r6-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r6-20261119.md",
+    "sha256": "34f9460dade3532fb20a6d97bdb880edf84ae883ce4191f5a52500e67b382292"
+  },
+  {
+    "id": 423,
+    "path": "docs/review/bugs/b077/plan-review-r5-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r5-20261119.md",
+    "sha256": "4356611f8d6d38b3e3ccaeb83271c789c70ddd48609b0b33eccf5976f9357a1a"
+  },
+  {
+    "id": 422,
+    "path": "docs/review/bugs/b077/plan-review-r3-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r3-20261119.md",
+    "sha256": "6622d3e4f033cdc486e49407fbde53fedefac83322d8986726bcc94efc4de74a"
+  },
+  {
+    "id": 421,
+    "path": "docs/review/bugs/b077/plan-review-r1-20261119.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/plan-review-r1-20261119.md",
+    "sha256": "8cc23cd4ac31a30b463e38de837315eaee50f95387693789041f51f02e56ce71"
+  },
+  {
+    "id": 420,
+    "path": "docs/plan/bugs/B077.repair-plan.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/plan/bugs/B077.repair-plan.md",
+    "sha256": "9b5b3e613af734002182319e6c58bdf025f82ef07ca85a50e11d94ab503dfbb5"
+  },
+  {
+    "id": 413,
+    "path": "docs/plan/bugs/B077.research-report.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/plan/bugs/B077.research-report.md",
+    "sha256": "6774bc81a9cb7eb1183166fd333d0e00317aae5757b77e04c3410d47aadaaa57"
+  },
+  {
+    "id": null,
+    "path": "docs/review/bugs/b077/plan-review-r29-20261123.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/review/bugs/b077/plan-review-r29-20261123.md",
+    "sha256": "e9879626af9a3bf848219ba7552d25f7aa07f2c7f690b2e67bab173356d13f25"
+  },
+  {
+    "id": null,
+    "path": "docs/review/bugs/b077/code_review-20261118T1445-B077.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/code_review-20261118T1445-B077.md",
+    "sha256": "bbf93e411337750d47fd1b8b4f03363be91b97cb5ade3f2ea4e3ab772df484f9"
+  },
+  {
+    "id": null,
+    "path": "docs/review/bugs/b077/code-review-20261118T155018Z-B077.md",
+    "source": "/home/jwwel/.codex/worktree-archives/B077-20261121/ignored-state.tar.gz#docs/review/bugs/b077/code-review-20261118T155018Z-B077.md",
+    "sha256": "69602ff8178f5d9ee73c2b30b61090b4c9b671edfa78c6b3e74a73bf4a282b13"
+  },
+  {
+    "id": null,
+    "path": "docs/review/fix-B077-rider-route-attestation-20261118/code_review/2026-11-18-fix-B077-rider-route-attestation-20261118-overall-review-r1.md",
+    "source": "/home/jwwel/projects/shark-task-manager/docs/review/fix-B077-rider-route-attestation-20261118/code_review/2026-11-18-fix-B077-rider-route-attestation-20261118-overall-review-r1.md",
+    "sha256": "1803882bf4292f053a3cb25133da758cfe32ab01b9b3dba02a9881ee304fb7b2"
+  },
+  {
+    "id": null,
+    "path": "docs/architecture/adr/ADR-002-outcome-routed-review-kickbacks.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/architecture/adr/ADR-002-outcome-routed-review-kickbacks.md",
+    "sha256": "ca69448958be0c1a42567f1abb4620a846452f9f3c6eae11101e1de9fc554c20"
+  },
+  {
+    "id": null,
+    "path": "docs/plan/E34-prompt-and-skill-improvements/E34-F01-harness-aware-prompt-rendering/decisions.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/plan/E34-prompt-and-skill-improvements/E34-F01-harness-aware-prompt-rendering/decisions.md",
+    "sha256": "eb2271d71563337391835857d983d0664f562e535b513a93e395a4f4d1a357e3"
+  },
+  {
+    "id": null,
+    "path": "docs/plan/E38-shark-attack-team-orchestration/architecture.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/plan/E38-shark-attack-team-orchestration/architecture.md",
+    "sha256": "0ce82bf7e58f1bf82121c3729a9ea7ef8377d0e3cc0dd3c44d847965b76b4e13"
+  },
+  {
+    "id": null,
+    "path": "docs/product/cross-epic-integration-map.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/product/cross-epic-integration-map.md",
+    "sha256": "6feecda008d502674fb9455c0bf0ab315d5ad5a1142a5191871c785dfe3bb565"
+  },
+  {
+    "id": null,
+    "path": "docs/plan/changes/CC-044-integration-decisions.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/plan/changes/CC-044-integration-decisions.md",
+    "sha256": "cd8ad1cc4e791858fe7622f3e2ec351e633e7205f2a2308ece12f0c6691387f5"
+  },
+  {
+    "id": null,
+    "path": "docs/plan/changes/CC-044-workflow-plan.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/docs/plan/changes/CC-044-workflow-plan.md",
+    "sha256": "6358a1654f24c5f6ed1ceb99c4d1371508080a43348946ee0abe11d83112f64b"
+  },
+  {
+    "id": null,
+    "path": ".shark/runs/b077-plan-review-r25-01a1f48b/approved-plan.md",
+    "source": "/home/jwwel/projects/shark-task-manager/.shark/runs/b077-plan-review-r25-01a1f48b/approved-plan.md",
+    "sha256": "ab115229fac5741e5b171df5d06c144bf9a89548ab624d42b85585ca49ff81c2"
+  },
+  {
+    "id": null,
+    "path": "dev-artifacts/2026-11-22-bug-owner-decisions.md",
+    "source": "/home/jwwel/projects/shark-task-manager/dev-artifacts/2026-11-22-bug-owner-decisions.md",
+    "sha256": "3951672ea79ac4d562674c096a824e5573ee732563cb2cc13e966fcf557a0623"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/dev-artifacts/_archive/2026-11/2026-11-03-b099-successor-review/overall-review.md",
+    "source": "/home/jwwel/projects/wwgm/dev-artifacts/_archive/2026-11/2026-11-03-b099-successor-review/overall-review.md",
+    "sha256": "48fd4e2ab8eb907289dcecdd1c2733ed5b356cbdc49e02d52fe1feec76672870"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/dev-artifacts/_archive/2026-11/2026-11-04-0220-b110-successor-review/overall-review.md",
+    "source": "/home/jwwel/projects/wwgm/dev-artifacts/_archive/2026-11/2026-11-04-0220-b110-successor-review/overall-review.md",
+    "sha256": "036c736fe386de24d80e141f73441051c4d9e83817425336941218bb906977de"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-09-26-agentmap-model-routing.md",
+    "source": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-09-26-agentmap-model-routing.md",
+    "sha256": "92eed2ae5a2ebad5d7bac0038f16313f5012682c28de6c25078dbf950e8d2352"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-10-03-b100-special-result-cross-pass.md",
+    "source": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-10-03-b100-special-result-cross-pass.md",
+    "sha256": "9c8b2c24d239d72693424818ae3170751f3369ccd891113c5652aa9ef65fdea1"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-10-14-s010-bounded-review-retries.md",
+    "source": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-10-14-s010-bounded-review-retries.md",
+    "sha256": "297163c3de928b3d03244db22a1a0dc5320755cf2ecca424e9bd7eb2e7ebe60a"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-10-14-s010-review-scope-fence.md",
+    "source": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-10-14-s010-review-scope-fence.md",
+    "sha256": "d8952a55a946350e9f709634fac430084218dfbcaa44d84348a1838f57dca193"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-11-02-b101-repair-scope.md",
+    "source": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-11-02-b101-repair-scope.md",
+    "sha256": "7f22678c12813600c13fde54e9349e7904a3b79910085b224561d5b24580e180"
+  },
+  {
+    "id": null,
+    "path": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-11-03-b099-residual-redraw-route.md",
+    "source": "/home/jwwel/projects/wwgm/docs/plan/decisions/DB-2026-11-03-b099-residual-redraw-route.md",
+    "sha256": "b38220b821c89d7d84a0519d42d7449070c108414565bfd4902eb610979b44b2"
+  }
+]

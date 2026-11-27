@@ -1,6 +1,8 @@
 {{template "_resume_preamble" .}}
 {{template "advance_preamble" .}}
 
+{{template "_durable_sources" .}}
+
 Create test plan for feature {{.id}}: "{{.title}}".
 
 Check for existing test-plan.md in feature directory. If test plan exists meeting exit gate criteria, advance immediately.
@@ -15,7 +17,7 @@ READ:
 (1) Feature spec.md for requirements and acceptance criteria
 (2) Parent epic uat-plan.md for UAT scenarios this feature must satisfy
 (3) Feature research report (if exists) for existing test infrastructure
-(4) CLAUDE.md testing architecture rules (repo tests use real DB, everything else uses mocks)
+(4) Project testing architecture and mocking rules from CLAUDE.md, AGENTS.md, or docs/architecture/coding-standards.md
 (5) Feature spec.md "Cross-feature interactions" section and parent
     interaction map if present
 (6) Feature spec.md "Cross-epic integrations" section, parent

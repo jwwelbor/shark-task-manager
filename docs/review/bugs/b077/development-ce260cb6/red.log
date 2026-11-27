@@ -1,0 +1,34 @@
+=== RUN   TestB077RecordingCodexReceivesSelectedRoute
+    b077_codex_route_attestation_test.go:101: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/b077_codex_route_attestation_test.go:101
+        	Error:      	Received unexpected error:
+        	            	exit status 1
+        	Test:       	TestB077RecordingCodexReceivesSelectedRoute
+        	Messages:   	F..F
+        	            	======================================================================
+        	            	FAIL: test_post_dispatch_rejection (__main__.RiderCLI.test_post_dispatch_rejection) (denied=False)
+        	            	----------------------------------------------------------------------
+        	            	Traceback (most recent call last):
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 258, in test_post_dispatch_rejection
+        	            	    self.assertEqual({"input_tokens": 7}, receipt.get("usage"))
+        	            	AssertionError: {'input_tokens': 7} != None
+        	            	
+        	            	======================================================================
+        	            	FAIL: test_unanswered_read (__main__.RiderCLI.test_unanswered_read)
+        	            	----------------------------------------------------------------------
+        	            	Traceback (most recent call last):
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 272, in test_unanswered_read
+        	            	    calls, receipt, rc = self.submit("haiku", {}, mapped=True, stall=True)
+        	            	                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        	            	  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_codex_route.py", line 197, in submit
+        	            	    self.assertTrue((path / "route").stat().st_size, "preflight ended without an attempt receipt")
+        	            	AssertionError: 0 is not true : preflight ended without an attempt receipt
+        	            	
+        	            	----------------------------------------------------------------------
+        	            	Ran 4 tests in 8.550s
+        	            	
+        	            	FAILED (failures=2)
+--- FAIL: TestB077RecordingCodexReceivesSelectedRoute (9.50s)
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/tests/contracts	9.509s
+FAIL

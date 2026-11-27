@@ -6,6 +6,8 @@ Check feature metadata: shark get E07-F01 --json. If complexity_tier already ass
 
 COMBINED SCOPE VALIDATION + COMPLEXITY TRIAGE
 
+> Bundled `assessment` skill: the relative paths below are not project files. Read them with `shark skill get assessment <path>`. A path starting `../` is relative to `workflows/` (for example, read `../context/foo.md` with `shark skill get assessment context/foo.md`).
+
 
 # Workflow: Complexity Triage
 

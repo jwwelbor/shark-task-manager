@@ -1,0 +1,27 @@
+{
+  "candidate": "ce260cb63647ea1337c37196a900deb754f911d7",
+  "installed_version": "codex-cli 0.171.0",
+  "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+  "resolved_path": "/home/jwwel/.nvm/versions/node/v20.20.0/lib/node_modules/@openai/codex/bin/codex.js",
+  "source": "fresh local config/read after actual dispatch",
+  "local_readback": {
+    "model_provider": "openai",
+    "model": "gpt-6-luna",
+    "model_reasoning_effort": "high"
+  },
+  "parent_launch_script": ".shark/runs/b077-development-r34-followup/run-worker.sh",
+  "parent_launch_script_sha256": "db6c9e8b039b971a63f063ca383edc946b145c4975ded50aa9fe37ae46088140",
+  "parent_model_argument": "gpt-6.2-astra",
+  "script_has_config_read": false,
+  "keyed": {
+    "entity_key": "B077",
+    "status": "development",
+    "agent_type": "developer",
+    "provider": "anthropic",
+    "model": "sonnet",
+    "effort": null
+  },
+  "keyed_prompt_sha256": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+  "parent_stdin_file_sha256": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+  "prompt_bytes": 221020
+}

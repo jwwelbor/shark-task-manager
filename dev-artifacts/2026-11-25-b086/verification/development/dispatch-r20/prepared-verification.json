@@ -1,0 +1,57 @@
+{
+  "grant-a": {
+    "run_id": "a99f01a4-a6be-4ede-a5ad-7b1eaa2b3f9c",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "incomplete",
+    "missing": [
+      "host tool trace",
+      "private handoff reads",
+      "run-bound native host and private-skill receipt",
+      "run-bound review intake before tracker calls",
+      "one matching child under A with the persisted fingerprint",
+      "one successful task create on the case database",
+      "host readback and Defer receipt",
+      "grant-a run-bound launcher, instructions, grant and seed at host dispatch",
+      "grant-b run-bound launcher, instructions, grant and seed at host dispatch"
+    ]
+  },
+  "grant-b": {
+    "run_id": "bae58352-92e4-4215-ae0b-5668ead9284e",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "incomplete",
+    "missing": [
+      "host tool trace",
+      "private handoff reads",
+      "run-bound native host and private-skill receipt",
+      "run-bound review intake before tracker calls",
+      "received wrong-feature escalation",
+      "grant-a run-bound launcher, instructions, grant and seed at host dispatch",
+      "grant-b run-bound launcher, instructions, grant and seed at host dispatch"
+    ]
+  },
+  "pair_input": {
+    "status": "incomplete",
+    "missing": [
+      "grant-a run-bound launcher, instructions, grant and seed at host dispatch",
+      "grant-b run-bound launcher, instructions, grant and seed at host dispatch"
+    ]
+  },
+  "case-c": {
+    "run_id": "b72122fc-3f72-4acc-bcb4-03e10b0ee042",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "incomplete",
+    "missing": [
+      "host tool trace",
+      "private handoff reads",
+      "run-bound native host and private-skill receipt",
+      "run-bound review intake before tracker calls",
+      "one attempted task create under the requested feature",
+      "grant-a run-bound launcher, instructions, grant and seed at host dispatch",
+      "case-c run-bound launcher, instructions, grant and seed at host dispatch",
+      "verified first grant pair"
+    ]
+  }
+}

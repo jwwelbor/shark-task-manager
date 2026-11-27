@@ -1,0 +1,34 @@
+{
+  "time-ok": {
+    "run_id": "94067e12-4a2e-43fb-81e3-7a4f56a97cc4",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  },
+  "time-short": {
+    "run_id": "79d91bcd-691f-4a24-952d-0d40b4b41455",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example to Feature A docs",
+        "description": "Outstanding: add a worked example to docs/feature-a.md showing how to apply the default order. Deferred from review run fixture-code_review-77602b1d99004ad889b2a9477b6b9219 (B001, candidate c6bde86451f62fe9255d811bfd9096f78b541481); discretionary, repair not within remaining time. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": [],
+    "host": {
+      "runtime": "claude-code",
+      "version": "2.1.332 (Claude Code)",
+      "effective_model": "claude-sonnet-5-5"
+    }
+  }
+}

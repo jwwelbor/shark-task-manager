@@ -1,0 +1,67 @@
+{
+  "candidate": "91753fc1aa9239c4b8e4d1aa783be3cfb9bcd16c",
+  "tree": "ab53a3a98b4b05097b5d4cbecaf2c49e84f38373",
+  "approved_plan": {
+    "path": "docs/plan/bugs/B077.repair-plan.md",
+    "sha256": "0fdc3e21bab3348175ee1121c0eb548f2ed1312a9748ecfdec9ade7aa26fbb60",
+    "review": 732,
+    "approval_note": 5260,
+    "snapshot": "/home/jwwel/projects/shark-task-manager/.shark/runs/B077-plan-review-r43-20261125/approved-plan.md"
+  },
+  "parent_prompt_plan_copies": 1,
+  "baseline": "bbf490c6ec2bd597d6f3e6e4cdd93e68ca54fa50",
+  "first_repair_parent": "bbf490c6ec2bd597d6f3e6e4cdd93e68ca54fa50",
+  "manifest_paths": 298,
+  "manifest_sha256": "dd8e173a5b6d76f228c534992709d6ffe86a2c39cd45d574f17149c00e4490aa",
+  "full_diff_sha256": "f7e57c009c26699aa952f6d153d806612c9952e47fa5b146b80152f98666e8f4",
+  "source_digests": {
+    "skills/shark-rider/verbs/run.md": {
+      "candidate": "3d0d87e4975cc472eb8c6a366cf1ca30f25d6ba2c681f3cf24bfbbb4e2dd3dba",
+      "working": "3d0d87e4975cc472eb8c6a366cf1ca30f25d6ba2c681f3cf24bfbbb4e2dd3dba",
+      "installed_path": "/home/jwwel/projects/shark-task-manager/skills/shark-rider/verbs/run.md",
+      "installed": "a915b60c05578be9c54129acac7131bba487fab5d2815d9b0ad56ab216f85774"
+    },
+    "skills/shark-rider/context/host-adapter-contract.md": {
+      "candidate": "e9089de7bc2aa6a4865a4194b3ebc1e1b4820f4864f8460b44e7605568a3d08b",
+      "working": "e9089de7bc2aa6a4865a4194b3ebc1e1b4820f4864f8460b44e7605568a3d08b",
+      "installed_path": "/home/jwwel/projects/shark-task-manager/skills/shark-rider/context/host-adapter-contract.md",
+      "installed": "552edb574389c6950277600251830d28cbf83d51cb6bf14645c5fd36b310d597"
+    },
+    "skills/shark-rider/scripts/read-codex-route.py": {
+      "candidate": "161b2d3caf27574c6436a7b9f1676969fccd2dbfd00507b409f2e9a11eff0b0a",
+      "working": "161b2d3caf27574c6436a7b9f1676969fccd2dbfd00507b409f2e9a11eff0b0a",
+      "installed_path": "/home/jwwel/projects/shark-task-manager/skills/shark-rider/scripts/read-codex-route.py",
+      "installed": null
+    },
+    "skills/shark-rider/scripts/observe-codex-turn.py": {
+      "candidate": "cbb5b17aff40ed91c60a553cd50219adba3fc3236e651e01d04bcd3268ad5a83",
+      "working": "cbb5b17aff40ed91c60a553cd50219adba3fc3236e651e01d04bcd3268ad5a83",
+      "installed_path": "/home/jwwel/projects/shark-task-manager/skills/shark-rider/scripts/observe-codex-turn.py",
+      "installed": null
+    },
+    "skills/shark-rider/skills/deep-review/SKILL.md": {
+      "candidate": "7d809b846ba436d9b2966ec790757bfc3c2ac4f051b68ce8573e5cd61320d6ae",
+      "working": "7d809b846ba436d9b2966ec790757bfc3c2ac4f051b68ce8573e5cd61320d6ae",
+      "installed_path": "/home/jwwel/projects/shark-task-manager/skills/shark-rider/skills/deep-review/SKILL.md",
+      "installed": "7730acf1ab55a52548f57d7bc00a288f2b53d919bb068b3147816b8c300cad0a"
+    },
+    "skills/shark-rider/skills/deep-review/scripts/adaptive_review.py": {
+      "candidate": "d1fef998c20b1df544fd51ee57114fd48b762cacb1a1b51453ef561efa22176d",
+      "working": "d1fef998c20b1df544fd51ee57114fd48b762cacb1a1b51453ef561efa22176d",
+      "installed_path": "/home/jwwel/projects/shark-task-manager/skills/shark-rider/skills/deep-review/scripts/adaptive_review.py",
+      "installed": "93aa46ed7b3b4571dffc8acc7cd960e96c42b08002aa5b726685e10a49c1d345"
+    },
+    "skills/shark-attack/providers/codex.md": {
+      "candidate": "9c272a65ae55dd7332a19224cc9b768fecc015f31f77285ccf02dbdbb031b984",
+      "working": "9c272a65ae55dd7332a19224cc9b768fecc015f31f77285ccf02dbdbb031b984",
+      "installed_path": "/home/jwwel/projects/shark-task-manager/skills/shark-attack/providers/codex.md",
+      "installed": "8b0ba6a97015a2d17f3c08c39fd56e9e68d1ce5def761d00a20fc14aca65c486"
+    }
+  },
+  "historical_outer_runs": [
+    "ce260cb63647ea1337c37196a900deb754f911d7",
+    "f766855f296ddcbc6787fac46409d8ed92fff693"
+  ],
+  "installed_catalog_capture_source": "cc65bbaa7a368120e623f6aec471863e7c0abbfc",
+  "catalog_reader_unchanged_since_capture": true
+}

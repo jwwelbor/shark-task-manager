@@ -6,8 +6,8 @@ inputs:
   - frontend_design_path: absolute path to 05-frontend-design.md (optional, if frontend exists)
   - data_design_path: absolute path to 03-data-design.md
   - security_design_path: absolute path where 06-security-design.md should be written
-  - security_template_path: absolute path to security-doc.md template
-  - security_patterns_path: absolute path to security-patterns.md context
+  - security_template_path: absolute path to skills/architecture/context/templates/security-doc.md template
+  - security_patterns_path: absolute path to skills/architecture/context/patterns/security-patterns.md context
   - compliance_requirements: list of applicable regulations (GDPR, HIPAA, SOC2, PCI-DSS, CCPA, etc.)
 outputs:
   - security_design_doc: structured markdown written to security_design_path

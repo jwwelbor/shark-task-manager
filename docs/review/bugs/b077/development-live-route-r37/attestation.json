@@ -1,0 +1,67 @@
+{
+  "entity_key": "B077",
+  "stage": "development",
+  "run_id": "b077-development-r37-live-route",
+  "session_id": "sess-b077-development-r37-live-route",
+  "candidate_commit": "f766855f296ddcbc6787fac46409d8ed92fff693",
+  "candidate_tree": "0fea4ada11ecb869bce61462c5817ba16d0e9154",
+  "requested_route": {
+    "provider": "anthropic",
+    "model": "sonnet",
+    "effort": null
+  },
+  "mapping_ref": "B077-default-bug-anthropic-codex-v1",
+  "selected_route": {
+    "host_worker_class": "codex-cli",
+    "provider": "openai",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "high"
+  },
+  "selection": {
+    "executable": "/home/jwwel/.nvm/versions/node/v20.20.0/bin/codex",
+    "codex_version": "codex-cli 0.171.0",
+    "workdir": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery",
+    "profile": "",
+    "sandbox": "danger-full-access",
+    "config_readback": {
+      "model_provider": "openai",
+      "model": "gpt-6-luna",
+      "model_reasoning_effort": "high"
+    },
+    "preflight_precedes_claim": true
+  },
+  "claim": {
+    "entity_key": "B077",
+    "session_id": "sess-b077-development-r37-live-route",
+    "harness": "codex",
+    "harness_model": "gpt-6-luna",
+    "claimed_at": "2026-11-24T04:11:43Z"
+  },
+  "prompt": {
+    "bytes": 221020,
+    "sha256": "faf63898d1d24c446c08b8978282bfd5a44f389c2cb671560a12a3750d9c24c1",
+    "claimed_render_matches": true
+  },
+  "launch": {
+    "argv_nul_sha256": "fe108510bf38edfa3eb50b3a7ab4f845255fc87ae60ed1313cbb976c300bdffa",
+    "explicit_model_selector_matches_preflight": true
+  },
+  "worker_observation": {
+    "thread_id": "01a20bc1-1c30-7150-982d-44ba580a252a",
+    "session_meta_id": "01a20bc1-1c30-7150-982d-44ba580a252a",
+    "model_provider": "openai",
+    "cwd": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery",
+    "cli_version": "0.171.0",
+    "turns": [
+      {
+        "model": "gpt-6-luna",
+        "effort": "high"
+      }
+    ]
+  },
+  "gate_result": {
+    "outcome": "blocked",
+    "summary": "C12 invocation-bound attempt receipts and complete C01-C30 evidence remain open; this r37 development run made no source-code changes."
+  },
+  "source_receipts": {}
+}

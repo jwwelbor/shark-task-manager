@@ -245,7 +245,7 @@ py-spy record -o profile.svg -- python app.py
 
 ## Step 10: Follow TDD to duplicate & resolve the failing test.
 - When bug is identified, follow TDD debugging workflow:
-- See: test-driven-development/references/debugging-workflow.md
+- See: skills/test-driven-development/references/debugging-workflow.md
 - Verify all tests pass.
 
 ## Quick Reference: HTTP Status Codes

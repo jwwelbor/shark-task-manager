@@ -1,0 +1,73 @@
+FF
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='plan_review', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'verified'
+- unsupported
++ verified
+ : {
+  "run_id": "recording-fee76409-4963-4967-976d-cd973c592f71",
+  "entity_key": "B001",
+  "entity_type": "bug",
+  "outcome_key": "needs_research",
+  "role": "route_rework",
+  "to_status": "research",
+  "transitioned": true,
+  "status": {
+    "run_id": "recording-fee76409-4963-4967-976d-cd973c592f71",
+    "entity_key": "B001",
+    "persistence_state": "transition_applied",
+    "worker_phase": "retiring",
+    "nested_operation": "6595d8d35e0fbfc9ac8b53c60de1a8712d1458b9b5c2ef76e8bf5aad87ec3dfa",
+    "retirement_state": "pending",
+    "elapsed_seconds": 0.026196508,
+    "result_location": "/tmp/tmppp2nwuto/worker directory/.shark/runs/recording-fee76409-4963-4967-976d-cd973c592f71/result.json",
+    "completed_suboperation_count": 2
+  }
+}
+ SUCCESS  Released claim on bug B001
+
+
+======================================================================
+FAIL: test_catalog_stage_matrix (b077_catalog_cases.CatalogCases.test_catalog_stage_matrix) (stage='code_review', description='Legacy balanced model for agentic coding.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 344, in test_catalog_stage_matrix
+    self.catalog_case(
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unsupported' != 'verified'
+- unsupported
++ verified
+ : {
+  "run_id": "recording-e633f67d-904e-4c3d-bff0-1c87b7ecd480",
+  "entity_key": "B001",
+  "entity_type": "bug",
+  "outcome_key": "needs_research",
+  "role": "route_rework",
+  "to_status": "research",
+  "transitioned": true,
+  "status": {
+    "run_id": "recording-e633f67d-904e-4c3d-bff0-1c87b7ecd480",
+    "entity_key": "B001",
+    "persistence_state": "transition_applied",
+    "worker_phase": "retiring",
+    "nested_operation": "4e6e8a1363f1e8a4f581dfd6782c3b85858146d848e14e1aa6cc780faf536fc1",
+    "retirement_state": "pending",
+    "elapsed_seconds": 0.025646005,
+    "result_location": "/tmp/tmppp2nwuto/worker directory/.shark/runs/recording-e633f67d-904e-4c3d-bff0-1c87b7ecd480/result.json",
+    "completed_suboperation_count": 2
+  }
+}
+ SUCCESS  Released claim on bug B001
+
+
+----------------------------------------------------------------------
+Ran 1 test in 23.314s
+
+FAILED (failures=2)

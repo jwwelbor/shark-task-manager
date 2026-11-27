@@ -109,6 +109,10 @@ type Request struct {
 	// no EvidenceRef type of its own to avoid duplicating the outer
 	// envelope's shape ahead of T-E34-F05-004's parity work.
 	Evidence json.RawMessage
+	// ParentObservationInjected is set only by a host adapter that observed
+	// the action and appended its run-scoped receipt after worker completion.
+	// It is never parsed from worker-controlled envelope content.
+	ParentObservationInjected bool
 
 	// TargetStatus is the resolved main-entity transition target for
 	// OutcomeKey, already resolved by the caller from workflow configuration

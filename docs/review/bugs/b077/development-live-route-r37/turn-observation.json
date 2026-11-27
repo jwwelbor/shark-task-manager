@@ -1,0 +1,13 @@
+{
+  "thread_id": "01a20bc1-1c30-7150-982d-44ba580a252a",
+  "session_meta_id": "01a20bc1-1c30-7150-982d-44ba580a252a",
+  "model_provider": "openai",
+  "cwd": "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery",
+  "cli_version": "0.171.0",
+  "turns": [
+    {
+      "model": "gpt-6-luna",
+      "effort": "high"
+    }
+  ]
+}

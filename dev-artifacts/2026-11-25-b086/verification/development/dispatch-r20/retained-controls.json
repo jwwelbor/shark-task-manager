@@ -1,0 +1,135 @@
+{
+  "grant-a": {
+    "original": {
+      "run_id": "420f77a2-8fdd-4fc2-b4c0-5e9659a271a7",
+      "scope": "tracker and parent observations only",
+      "children": [
+        {
+          "feature": "E01-F01",
+          "key": "T-E01-F01-001",
+          "title": "Add a worked example of alphabetical ordering to Feature A",
+          "description": "Add a worked example to docs/feature-a.md showing feature-a list entries in default alphabetical order. Review fingerprint: docs/feature-a.md#DOCS#worked-example",
+          "notes": []
+        }
+      ],
+      "status": "observed",
+      "missing": []
+    },
+    "missing-intake": [
+      "complete tool results",
+      "run-bound review intake before tracker calls"
+    ],
+    "other-intake": [
+      "observation belongs to another run"
+    ],
+    "other-readback": [
+      "observation belongs to another run"
+    ],
+    "independent-attribution-controls": {
+      "report": {
+        "reason": "report lacks synthetic runner disclosure",
+        "bundle_sha256": "8fd81118bef1cebbed42f1b9fea45889d1d9a28e043ecf97383bca9e8e504e39",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "5695d918b6663a7364a9e711af9f86b2818d70509df6ce093af723790232b583",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/report",
+          "run_id": "fixture-code_review-c6add001a9c44922ab68fc78f7ead22a"
+        }
+      },
+      "provenance": {
+        "reason": "provenance lacks synthetic input disclosure",
+        "bundle_sha256": "d38b5175c43d8f0852b8de1e85857e5e2608ef10c20d41c673bc07fa2f1d8959",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "683a538bd4f66aed304d485776cc3ec5d97c02345a8dec520fdb8585d0752683",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/provenance",
+          "run_id": "fixture-code_review-f59f34e716af47ba8add690163e8360a"
+        }
+      },
+      "operation": {
+        "reason": "applied evidence lacks synthetic input disclosure",
+        "bundle_sha256": "d6495c8ba1cb7832fdfb2a85eef366c65e435ceaf818198e6e97b19bad2b3077",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "655a262256f586f80d4e253b76501f0838f2caac4746908c5e4a9eb14f238c88",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/operation",
+          "run_id": "fixture-code_review-dca4d74dbb9a4521a0d206b2da4d82cd"
+        }
+      },
+      "model": {
+        "reason": "effective model has no observed invocation",
+        "bundle_sha256": "d9d94da70b4767c0848bb5c5a97d66a6602ef1f8da4334d33c2a411ba1be2273",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "d8c0ad19076e430fb8040f1023168abc23458577f11463d326646bc1983d5baa",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/model",
+          "run_id": "fixture-code_review-1ebb847d41fe46039dda9c480ab22eb1"
+        }
+      }
+    }
+  },
+  "grant-b": {
+    "original": {
+      "run_id": "98d0d497-9cae-487f-ae87-f24dd5cf8f54",
+      "scope": "tracker and parent observations only",
+      "children": [],
+      "status": "observed",
+      "missing": []
+    },
+    "missing-intake": [
+      "complete tool results",
+      "run-bound review intake before tracker calls"
+    ],
+    "other-intake": [
+      "observation belongs to another run"
+    ],
+    "other-readback": [
+      "observation belongs to another run"
+    ],
+    "missing-parent": [
+      "received wrong-feature escalation"
+    ],
+    "independent-attribution-controls": {
+      "report": {
+        "reason": "report lacks synthetic runner disclosure",
+        "bundle_sha256": "8fd81118bef1cebbed42f1b9fea45889d1d9a28e043ecf97383bca9e8e504e39",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "5695d918b6663a7364a9e711af9f86b2818d70509df6ce093af723790232b583",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/report",
+          "run_id": "fixture-code_review-c6add001a9c44922ab68fc78f7ead22a"
+        }
+      },
+      "provenance": {
+        "reason": "provenance lacks synthetic input disclosure",
+        "bundle_sha256": "d38b5175c43d8f0852b8de1e85857e5e2608ef10c20d41c673bc07fa2f1d8959",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "683a538bd4f66aed304d485776cc3ec5d97c02345a8dec520fdb8585d0752683",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/provenance",
+          "run_id": "fixture-code_review-f59f34e716af47ba8add690163e8360a"
+        }
+      },
+      "operation": {
+        "reason": "applied evidence lacks synthetic input disclosure",
+        "bundle_sha256": "d6495c8ba1cb7832fdfb2a85eef366c65e435ceaf818198e6e97b19bad2b3077",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "655a262256f586f80d4e253b76501f0838f2caac4746908c5e4a9eb14f238c88",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/operation",
+          "run_id": "fixture-code_review-dca4d74dbb9a4521a0d206b2da4d82cd"
+        }
+      },
+      "model": {
+        "reason": "effective model has no observed invocation",
+        "bundle_sha256": "d9d94da70b4767c0848bb5c5a97d66a6602ef1f8da4334d33c2a411ba1be2273",
+        "history": {
+          "entity": "B001",
+          "operation_digest": "d8c0ad19076e430fb8040f1023168abc23458577f11463d326646bc1983d5baa",
+          "project": "/tmp/b086-r14-final-controls-FS5Tkz/model",
+          "run_id": "fixture-code_review-1ebb847d41fe46039dda9c480ab22eb1"
+        }
+      }
+    }
+  }
+}

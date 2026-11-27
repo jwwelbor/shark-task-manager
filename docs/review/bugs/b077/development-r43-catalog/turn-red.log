@@ -1,0 +1,17 @@
+..F
+======================================================================
+FAIL: test_mismatched_completion_event_is_unverified (__main__.ObserveCodexTurnTests.test_mismatched_completion_event_is_unverified)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b077-r43-turn.Jifn8V/test_observe_codex_turn.py", line 21, in test_mismatched_completion_event_is_unverified
+    self.assertEqual(self.observe("turn-other"), "unverified")
+AssertionError: 'verified' != 'unverified'
+- verified
++ unverified
+? ++
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.002s
+
+FAILED (failures=1)

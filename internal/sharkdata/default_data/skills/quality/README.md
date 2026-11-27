@@ -24,7 +24,7 @@ The quality skill is the authoritative source for all validation, code review, a
    - PRD alignment verification
    - SOLID and DRY enforcement
    - Standards compliance checking
-   - Quality rubric scoring
+   - Impact-based finding admission
 
 ### Key Benefits
 

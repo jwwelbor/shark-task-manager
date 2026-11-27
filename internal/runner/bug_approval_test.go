@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/gateresult"
 	"github.com/jwwelbor/shark-task-manager/internal/gaterun"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/workercontrol"
 	"github.com/stretchr/testify/require"
 )
 
@@ -182,6 +183,20 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 			if mode == "baseline_changed" {
 				baseline = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			}
+			if mode == "valid" {
+				// Dispatch must hand downstream workers the approval's own
+				// entries: admission compares pointer and summary exactly.
+				approved, approvedErr := ApprovedBugPlan(context.Background(), root, "", "B001", notes, history, nil, defaultBugSuccessTarget)
+				require.NoError(t, approvedErr)
+				require.Equal(t, []workercontrol.EvidenceRef{
+					{Kind: "bug_repair_plan", Pointer: "docs/plan/plan.md", Summary: fmt.Sprintf("sha256:%x", hash)},
+					{Kind: "bug_review_baseline", Pointer: baseline},
+				}, approved.Evidence)
+			}
+			if mode == "missing_baseline" {
+				_, approvedErr := ApprovedBugPlan(context.Background(), root, "", "B001", notes, history, nil, defaultBugSuccessTarget)
+				require.Error(t, approvedErr)
+			}
 			status := &fakeTransitioner{status: map[string]string{"B001": "development"}}
 			written := &fakeNoteWriter{}
 			coord := gatepersist.NewCoordinator(written, fakeNoteReader{}, fakeHistoryReader{}, fakeStatusValidator{valid: map[string]bool{"development": true, "code_review": true}}, status, status, &fakeLeaseReleaser{}, status)
@@ -193,7 +208,7 @@ func TestBugApprovalRequiresCommittedCurrentUninvalidatedReview(t *testing.T) {
 					}
 					return defaultBugSuccessTarget(gate, outcome)
 				}
-				coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve)
+				coord.Admission = newBugGateAdmission(notes, history, func(value string) string { return value }, resolve, nil)
 			}
 			currentEnvelope := bugApprovalEnvelopeCase(mode, hash, envelope(hash, "pass", baseline))
 			result, err := IngestGateResult(context.Background(), GateIngestRequest{
@@ -219,7 +234,7 @@ func TestBugApprovalRoutingFailsClosedWithoutWorkflow(t *testing.T) {
 	target, ok := resolve("plan_review", "pass")
 	require.False(t, ok)
 	require.Empty(t, target)
-	admit := NewBugGateAdmissionForWorkflow(nil, nil, nil)
+	admit := NewBugGateAdmissionForWorkflow(nil, nil, nil, nil)
 	require.NotPanics(t, func() {
 		require.NoError(t, admit(context.Background(), gatepersist.Request{EntityType: models.EntityTypeTask}))
 	})

@@ -1,0 +1,24 @@
+test_completed_responder_cannot_receive_stale_prompt (__main__.QuestionRoute.test_completed_responder_cannot_receive_stale_prompt) ... FAIL
+test_resolve_and_read_final_answer (__main__.QuestionRoute.test_resolve_and_read_final_answer) ... FAIL
+
+======================================================================
+FAIL: test_completed_responder_cannot_receive_stale_prompt (__main__.QuestionRoute.test_completed_responder_cannot_receive_stale_prompt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_question_route.py", line 69, in test_completed_responder_cannot_receive_stale_prompt
+    self.assertNotEqual(self.submit("stale").returncode, 0)
+AssertionError: 0 == 0
+
+======================================================================
+FAIL: test_resolve_and_read_final_answer (__main__.QuestionRoute.test_resolve_and_read_final_answer)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_question_route.py", line 89, in test_resolve_and_read_final_answer
+    self.assertEqual(result.returncode, 0, result.stderr)
+AssertionError: 1 != 0 : cat: answer.json: No such file or directory
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.798s
+
+FAILED (failures=2)

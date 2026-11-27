@@ -1,0 +1,48 @@
+=== RUN   TestB077PreflightRunsBeforeClaimAndSpawn
+--- PASS: TestB077PreflightRunsBeforeClaimAndSpawn (0.00s)
+=== RUN   TestB077PreflightAllowsOnlyDocumentedCompatibleRoutes
+--- PASS: TestB077PreflightAllowsOnlyDocumentedCompatibleRoutes (0.00s)
+=== RUN   TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel
+--- PASS: TestB077DefaultAnthropicBugRouteSelectsCodexCLIModel (0.00s)
+=== RUN   TestB077RecordingCodexReceivesSelectedRoute
+--- PASS: TestB077RecordingCodexReceivesSelectedRoute (9.89s)
+=== RUN   TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage
+=== RUN   TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/development
+=== RUN   TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/repair_plan
+=== RUN   TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/research
+=== RUN   TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/code_review
+=== RUN   TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/qa
+=== RUN   TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/plan_review
+--- PASS: TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage (0.00s)
+    --- PASS: TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/development (0.00s)
+    --- PASS: TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/repair_plan (0.00s)
+    --- PASS: TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/research (0.00s)
+    --- PASS: TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/code_review (0.00s)
+    --- PASS: TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/qa (0.00s)
+    --- PASS: TestB077CodexFallbackCoversEveryAnthropicBugWorkflowStage/plan_review (0.00s)
+=== RUN   TestB077PersonaClassAndEffortDoNotSelectTheModel
+--- PASS: TestB077PersonaClassAndEffortDoNotSelectTheModel (0.00s)
+=== RUN   TestB077EmptyModelUsesADocumentedObservedDefault
+--- PASS: TestB077EmptyModelUsesADocumentedObservedDefault (0.00s)
+=== RUN   TestB077ResponseModelIsProviderNeutralAndClaudeSelectorIsScoped
+--- PASS: TestB077ResponseModelIsProviderNeutralAndClaudeSelectorIsScoped (0.00s)
+=== RUN   TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant
+=== RUN   TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/preflight/unsupported
+=== RUN   TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/preflight/unverified
+=== RUN   TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/post-dispatch/verified
+=== RUN   TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/post-dispatch/unverified
+=== RUN   TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/post-dispatch/mismatch
+--- PASS: TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant (0.00s)
+    --- PASS: TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/preflight/unsupported (0.00s)
+    --- PASS: TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/preflight/unverified (0.00s)
+    --- PASS: TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/post-dispatch/verified (0.00s)
+    --- PASS: TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/post-dispatch/unverified (0.00s)
+    --- PASS: TestB077RouteMatrixDefinesEveryPhaseAndFieldInvariant/post-dispatch/mismatch (0.00s)
+=== RUN   TestB077RouteIdentityGlossaryAndWorkerSchemaStaySeparated
+--- PASS: TestB077RouteIdentityGlossaryAndWorkerSchemaStaySeparated (0.00s)
+=== RUN   TestB077CodexModelSelectorEvidenceIsCLIOnlyAndCopiesMatch
+--- PASS: TestB077CodexModelSelectorEvidenceIsCLIOnlyAndCopiesMatch (0.00s)
+=== RUN   TestTC003_08CodexProviderReferenceDeclaresSupportedOpsWithEvidence
+--- PASS: TestTC003_08CodexProviderReferenceDeclaresSupportedOpsWithEvidence (0.00s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/tests/contracts	9.898s

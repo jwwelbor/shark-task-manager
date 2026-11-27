@@ -1,0 +1,12 @@
+# B086 dispatch r23: wrong-database, lost-response recovery and delivery admission host replays
+
+Fixture code at `scripts/testdata/b086` (HEAD f5d5d970 at packaging); cases prepared at fixture commit f5d5d970's parent chain, source policy `aeb3f7bfa1953ece07e1fb0748c17a5eb84af5ae` (no skills/internal change to the candidate since). Acting host: Codex CLI 0.172.0, effective model gpt-6.2-astra, isolated case HOME, no writes to the parent project or database. Host commands ran with stdin from /dev/null.
+
+Observed (independent verifier verify.py --only, status observed):
+- Wrong database: control ctl run 066d28cc-71bc-4506-b28d-789dd9dbe999 (binding injects the case store; one forwarded create, child and fingerprint in the case store only, second store identical before/after); refusal neg run 6c723683-d8d0-43e2-9e9f-1777dbb066ad (injected out-of-case --db refused at tool entry, zero forwards, both stores unchanged, parent received the refusal).
+- Lost response: phase 1 lost run fe76b51b-90f3-4fc9-8a6b-bfe1df0da2e4 (create committed, response dropped, lookups suspended; one create, failed lookups, escalation); phase 2 resumed run 2b60baf5-546d-4400-ae73-8f2570fc39f5 (read restored, zero creates, original key T-E01-F01-001 recovered by lookup and readback, Defer naming it, item unchanged).
+- Delivery admission: ship run 97e5b557-a69c-4b40-b703-9eeb3c61794a (verified Defer then exactly one CI handoff); hold run 7e173772-c350-422b-b8e4-3604e3d4e4f0 (definitive create refusal, zero CI handoffs, parent received pending finding).
+
+Discarded attempts (kept under /tmp, not counted): ctl attempts where tracker calls overlapped intake, two host runs that stalled with no output (stdin inherited from a background shell; fixed by redirecting stdin), and runs where host/verifier plumbing differed (disposition naming the review project, plain-text empty list, owner block). Each produced a prompt or verifier clarification committed before the counted runs.
+
+Not observed: attempt-budget, time-shortfall and repeat-rejection cases (plan rows 7, 8, 12); Fix path and candidate rebinding; delivery negative controls for a withheld safe-deferral reason and a feature-note substitute; owning-policy toggle with adversarial-cli and manual-diagnostic packets; runner, effort and CLI-fallback cases; a first-finding receipt preserved across the lost-response batch (the packet holds one finding). Fresh candidate-bound review and QA remain due.

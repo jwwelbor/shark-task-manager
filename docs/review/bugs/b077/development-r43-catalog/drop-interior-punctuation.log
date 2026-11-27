@@ -1,0 +1,42 @@
+F
+======================================================================
+FAIL: test_raw_catalog_descriptions (b077_catalog_cases.CatalogCases.test_raw_catalog_descriptions) (unknown='Fast  go-to model for coding and everyday work')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 385, in test_raw_catalog_descriptions
+    check([[row(unknown)]], "unverified")
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 366, in check
+    self.catalog_case("development", "sonnet", pages, expected)
+  File "/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/tests/contracts/testdata/b077_catalog_cases.py", line 202, in catalog_case
+    self.assertEqual(expected, final["route_status"], self.stderr)
+AssertionError: 'unverified' != 'verified'
+- unverified
+? --
++ verified
+ : {
+  "run_id": "recording-6a4d5582-17c3-4b50-9997-faefded506ea",
+  "entity_key": "B001",
+  "entity_type": "bug",
+  "outcome_key": "needs_research",
+  "role": "route_rework",
+  "to_status": "research",
+  "transitioned": true,
+  "status": {
+    "run_id": "recording-6a4d5582-17c3-4b50-9997-faefded506ea",
+    "entity_key": "B001",
+    "persistence_state": "transition_applied",
+    "worker_phase": "retiring",
+    "nested_operation": "88ebc5c1d0e0a1235cbe1714eba3e53a79c5c31a7273b33a9dbba9a14e6823a9",
+    "retirement_state": "pending",
+    "elapsed_seconds": 0.03683147,
+    "result_location": "/tmp/tmphvrsewxg/worker directory/.shark/runs/recording-6a4d5582-17c3-4b50-9997-faefded506ea/result.json",
+    "completed_suboperation_count": 2
+  }
+}
+ SUCCESS  Released claim on bug B001
+
+
+----------------------------------------------------------------------
+Ran 1 test in 13.031s
+
+FAILED (failures=1)

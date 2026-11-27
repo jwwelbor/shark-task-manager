@@ -1,0 +1,9 @@
+=== RUN   TestQuestionResponseRequiresSessionAtWrite
+    session_authority_test.go:71: 
+        	Error Trace:	/home/jwwel/projects/shark-task-manager/.worktrees/b077-model-discovery/internal/repository/question/session_authority_test.go:71
+        	Error:      	Expected error with "repository conditional write conflict" in chain but got nil.
+        	Test:       	TestQuestionResponseRequiresSessionAtWrite
+--- FAIL: TestQuestionResponseRequiresSessionAtWrite (0.09s)
+FAIL
+FAIL	github.com/jwwelbor/shark-task-manager/internal/repository/question	0.098s
+FAIL

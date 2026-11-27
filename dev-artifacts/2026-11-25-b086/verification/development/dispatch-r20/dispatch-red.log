@@ -1,0 +1,83 @@
+FFFFFFF
+======================================================================
+FAIL: test_grant_pair_requires_identical_host_input_and_only_grant_difference (test_verify.Verify.test_grant_pair_requires_identical_host_input_and_only_grant_difference) (case='grant-a', field='prompt')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 83, in test_grant_pair_requires_identical_host_input_and_only_grant_difference
+    self.assertTrue(paired_host_input(root, manifest),
+AssertionError: [] is not true : summary concealed different inputs at host dispatch
+
+======================================================================
+FAIL: test_grant_pair_requires_identical_host_input_and_only_grant_difference (test_verify.Verify.test_grant_pair_requires_identical_host_input_and_only_grant_difference) (case='grant-a', field='run_id')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 83, in test_grant_pair_requires_identical_host_input_and_only_grant_difference
+    self.assertTrue(paired_host_input(root, manifest),
+AssertionError: [] is not true : summary concealed different inputs at host dispatch
+
+======================================================================
+FAIL: test_grant_pair_requires_identical_host_input_and_only_grant_difference (test_verify.Verify.test_grant_pair_requires_identical_host_input_and_only_grant_difference) (case='grant-a', field='grant_sha256')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 83, in test_grant_pair_requires_identical_host_input_and_only_grant_difference
+    self.assertTrue(paired_host_input(root, manifest),
+AssertionError: [] is not true : summary concealed different inputs at host dispatch
+
+======================================================================
+FAIL: test_grant_pair_requires_identical_host_input_and_only_grant_difference (test_verify.Verify.test_grant_pair_requires_identical_host_input_and_only_grant_difference) (case='grant-a', field='runner_source_sha256')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 83, in test_grant_pair_requires_identical_host_input_and_only_grant_difference
+    self.assertTrue(paired_host_input(root, manifest),
+AssertionError: [] is not true : summary concealed different inputs at host dispatch
+
+======================================================================
+FAIL: test_grant_pair_requires_identical_host_input_and_only_grant_difference (test_verify.Verify.test_grant_pair_requires_identical_host_input_and_only_grant_difference) (case='grant-a', field='seed_database_sha256')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 83, in test_grant_pair_requires_identical_host_input_and_only_grant_difference
+    self.assertTrue(paired_host_input(root, manifest),
+AssertionError: [] is not true : summary concealed different inputs at host dispatch
+
+======================================================================
+FAIL: test_grant_pair_requires_identical_host_input_and_only_grant_difference (test_verify.Verify.test_grant_pair_requires_identical_host_input_and_only_grant_difference)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 86, in test_grant_pair_requires_identical_host_input_and_only_grant_difference
+    self.assertTrue(paired_host_input(root, manifest))
+AssertionError: [] is not true
+
+======================================================================
+FAIL: test_launcher_records_the_exact_invocation_before_starting_the_host (test_verify.Verify.test_launcher_records_the_exact_invocation_before_starting_the_host)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 127, in test_launcher_records_the_exact_invocation_before_starting_the_host
+    self.assertEqual(host.run(case, 'fixture-runtime'), 0)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/host.py", line 128, in run
+    result = subprocess.run(command, cwd=record['project'], env=environment,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/unittest/mock.py", line 1134, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/unittest/mock.py", line 1138, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/unittest/mock.py", line 1199, in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/b086-dispatch-check.rFoONI/before/scripts/testdata/b086/test_verify.py", line 115, in capture
+    self.assertEqual([event['type'] for event in events],
+AssertionError: Lists differ: ['b086_host_run'] != ['b086_host_run', 'b086_host_input']
+
+Second list contains 1 additional elements.
+First extra element 1:
+'b086_host_input'
+
+- ['b086_host_run']
++ ['b086_host_run', 'b086_host_input']
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.010s
+
+FAILED (failures=7)

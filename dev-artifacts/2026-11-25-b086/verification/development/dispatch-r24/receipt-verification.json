@@ -1,0 +1,39 @@
+{
+  "receipt-ship": {
+    "run_id": "40211e4a-e8e7-40b8-86fa-e339b815be69",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example under Feature A",
+        "description": "Add a worked example under Feature A in docs/feature-a.md showing the alphabetical default order. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": []
+  },
+  "receipt-no-reason": {
+    "run_id": "afa414b8-83aa-4f22-9b6e-e6a01e6ccb02",
+    "scope": "tracker and parent observations only",
+    "children": [
+      {
+        "feature": "E01-F01",
+        "key": "T-E01-F01-001",
+        "title": "Add a worked example under Feature A",
+        "description": "Add a worked example under Feature A in docs/feature-a.md showing the alphabetical default order. Fingerprint: docs/feature-a.md#DOCS#worked-example",
+        "notes": []
+      }
+    ],
+    "status": "observed",
+    "missing": []
+  },
+  "receipt-note-only": {
+    "run_id": "a2ebfbbb-8769-4ae6-b117-a9a14fbece36",
+    "scope": "tracker and parent observations only",
+    "children": [],
+    "status": "observed",
+    "missing": []
+  }
+}

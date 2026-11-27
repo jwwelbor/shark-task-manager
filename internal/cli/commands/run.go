@@ -32,13 +32,44 @@ var (
 )
 
 func dispatchPromptAssembler(entityType string) runner.PromptAssembler {
-	return runner.PromptAssemblerFunc(func(_ context.Context, input runner.PromptAssemblyInput) (string, error) {
+	return runner.PromptAssemblerFunc(func(ctx context.Context, input runner.PromptAssemblyInput) (string, error) {
 		prompt, err := assembleDispatchPrompt(input.Instruction, input.AgentType, input.Vars)
 		if err == nil && entityType == "bug" {
-			return bugParentProjectInstructions(prompt)
+			workingDir, err := inheritedWorkingDir(input.WorkingDir)
+			if err != nil {
+				return "", err
+			}
+			return bugParentProjectInstructions(ctx, prompt, workingDir)
 		}
 		return prompt, err
 	})
+}
+
+// inheritedWorkingDir returns the directory an in-process worker will run in.
+// Without an explicit one the agent process inherits this process's directory,
+// which counts as the parent tree only when it is the project root itself.
+func inheritedWorkingDir(workingDir string) (string, error) {
+	if workingDir != "" {
+		return workingDir, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve inherited worker working directory: %w", err)
+	}
+	root, err := cli.FindProjectRoot()
+	if err != nil {
+		return "", err
+	}
+	if sameDirectory(cwd, root) {
+		return "", nil
+	}
+	return cwd, nil
+}
+
+func sameDirectory(a, b string) bool {
+	left, errA := os.Stat(a)
+	right, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(left, right)
 }
 
 type runClaimServicer interface {
@@ -190,6 +221,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// calls the same runner.IngestGateResult boundary the core runner calls
 	// directly, and short-circuits before any claim/dispatch state is
 	// touched, matching --resume-run's contract above.
+	if runTrackerLedgerEnv {
+		return runTrackerLedgerSetup()
+	}
 	if runApplyResultSet() {
 		return runApplyResult(cmd, entityType, normalizedKey)
 	}

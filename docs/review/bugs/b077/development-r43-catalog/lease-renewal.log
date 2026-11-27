@@ -1,0 +1,14 @@
+=== RUN   TestHeartbeatOnUnsweptLease
+=== RUN   TestHeartbeatOnUnsweptLease/within_TTL
+=== RUN   TestHeartbeatOnUnsweptLease/at_TTL
+=== RUN   TestHeartbeatOnUnsweptLease/past_TTL
+=== RUN   TestHeartbeatOnUnsweptLease/expiry_disabled
+=== RUN   TestHeartbeatOnUnsweptLease/wrong_holder_with_expiry_disabled
+--- PASS: TestHeartbeatOnUnsweptLease (0.59s)
+    --- PASS: TestHeartbeatOnUnsweptLease/within_TTL (0.11s)
+    --- PASS: TestHeartbeatOnUnsweptLease/at_TTL (0.12s)
+    --- PASS: TestHeartbeatOnUnsweptLease/past_TTL (0.12s)
+    --- PASS: TestHeartbeatOnUnsweptLease/expiry_disabled (0.12s)
+    --- PASS: TestHeartbeatOnUnsweptLease/wrong_holder_with_expiry_disabled (0.12s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/repository/claim	0.596s

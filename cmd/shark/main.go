@@ -67,6 +67,7 @@ func main() {
 	}
 
 	cli.SetVersion(version)
+	cli.RecordTrackerAttempt(os.Args[1:])
 
 	if err := cli.RootCmd.Execute(); err != nil {
 		// Check for FieldNotFoundError (exit code 4)

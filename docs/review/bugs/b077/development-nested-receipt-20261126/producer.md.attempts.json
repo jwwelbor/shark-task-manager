@@ -1,0 +1,54 @@
+[
+  {
+    "attempt": 1,
+    "attempt_ref": "deep-review-cli:1",
+    "cli": "claude",
+    "executable": "claude",
+    "exit_status": 0,
+    "outcome": "accepted",
+    "failure_reason": null,
+    "worker_id": "276b4de4-40e7-4920-8801-330089075dc0",
+    "observed_provider": "firstParty",
+    "observed_model": "claude-sonnet-5-5",
+    "usage": {
+      "input_tokens": 16,
+      "cache_creation_input_tokens": 100643,
+      "cache_read_input_tokens": 682969,
+      "output_tokens": 6649,
+      "output_tokens_details": {
+        "thinking_tokens": 3251
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 100643,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "global",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 2854,
+          "cache_read_input_tokens": 113091,
+          "cache_creation_input_tokens": 1540,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1540
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "cost": 0.5373909,
+    "disposition": "observed",
+    "evidence_ref": "claude-session:276b4de4-40e7-4920-8801-330089075dc0",
+    "packet_sha256": "57376f8954f1a828ed46d0e3677723a2b5a0f3c40360f522060dd5cd4f93a20e",
+    "requested_model": null,
+    "fallback_reason": "Workflow and agent dispatch unavailable"
+  }
+]

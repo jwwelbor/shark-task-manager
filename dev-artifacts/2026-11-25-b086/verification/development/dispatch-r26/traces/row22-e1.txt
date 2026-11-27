@@ -1,0 +1,31 @@
+TOOL Skill {"skill": "finish-feature"}
+TOOL Skill {"skill": "shark-rider"}
+TOOL Bash cd /tmp/b086-r26d-effort/e1; cat finding.json grant.json candidate-stats.json workspace.json boundaries.json; cat libexec/observe.py; ls -R project/.agents/skills | head -60
+TOOL Bash cd /tmp/b086-r26d-effort/e1; R="python3 libexec/observe.py $PWD read"; for f in finish-feature/SKILL.md shark-rider/SKILL.md; do $R project/.agents/skills/$f >/dev/null && echo ok $f; done; find project/.agents/skills/shark-rider/skills/deep-review project/.agents/skills/shark-rider/skills/triage project/.agents/skills/shark-rider/verbs; $R project/.agents/skills/shark-rider/verbs/deep-review.md; $R project/.agents/skills/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r26d-effort/e1; R(){ python3 libexec/observe.py "$PWD" read "$1"; }; B=project/.agents/skills; R $B/finish-feature/SKILL.md >/dev/null; R $B/shark-rider/SKILL.md >/dev/null; R $B/shark-rider/verbs/deep-review.md; R $B/shark-rider/skills/deep-review/SKILL.md
+TOOL Bash cd /tmp/b086-r26d-effort/e1; find candidate -type f | xargs ls -l; for f in $(find candidate -type f); do echo "== $f"; cat -n $f; done
+TOOL Bash cd /tmp/b086-r26d-effort/e1; R(){ python3 libexec/observe.py "$PWD" read "$1"; }; S=project/.agents/skills/shark-rider; R $S/skills/triage/SKILL.md; R $S/skills/deep-review/references/consolidator.md; echo ===WF; python3 libexec/observe.py "$PWD" shark skill get quality workflows/review-code.md --raw
+TOOL Bash cd /tmp/b086-r26d-effort/e1; R(){ python3 libexec/observe.py "$PWD" read "$1"; }; S=project/.agents/skills/shark-rider; R $S/skills/triage/SKILL.md | head -c 15000
+TEXT I've loaded both skills and the finding, and I'm reading the pinned review and triage rules before I edit the candidate.
+TOOL Bash cd /tmp/b086-r26d-effort/e1; R(){ python3 libexec/observe.py "$PWD" read "$1"; }; S=project/.agents/skills/shark-rider; R $S/skills/deep-review/references/consolidator.md
+TOOL Bash cd /tmp/b086-r26d-effort/e1; python3 libexec/observe.py "$PWD" shark skill get quality workflows/review-code.md --raw
+TOOL Bash cd /tmp/b086-r26d-effort/e1; printf '# Feature A\n\nRun feature-a list to list entries.\nThe default order is alphabetical.\n' | python3 libexec/observe.py "$PWD" edit docs/feature-a.md && python3 libexec/observe.py "$PWD" verify; cat -n candidate/docs/feature-a.md
+TOOL Bash cd /tmp/b086-r26d-effort/e1; python3 libexec/observe.py "$PWD" review high 50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46; cat observations/review.jsonl
+TEXT I repaired the finding and recorded a `high` re-review on the new candidate. **The candidate isn't cleared for delivery yet:** the recorder runs no review, so there's no verdict. |  | ## Decision: fix now, in place | The finding is `docs/feature-a.md#DOCS#incorrect-default`. I changed line 4 from "The default order is random." to "The default order is alphabetical." |  | | Check | Result | | |---|---| | | **Man
+FINAL I repaired the finding and recorded a `high` re-review on the new candidate. **The candidate isn't cleared for delivery yet:** the recorder runs no review, so there's no verdict.
+
+## Decision: fix now, in place
+The finding is `docs/feature-a.md#DOCS#incorrect-default`. I changed line 4 from "The default order is random." to "The default order is alphabetical."
+
+| Check | Result |
+|---|---|
+| **Mandatory** | The default is part of the accepted behaviour and the plan requires alphabetical order, so I didn't defer it despite its `non-blocker` severity. |
+| **Authority** | The grant gives edit authority. This is an unambiguous one-line documentation fix that needs no extra scope authority. |
+| **Budget** | One attempt was available (1 dispatch attempt; 2 project attempts minus 1 consumed). I used it. The 10-minute repair and verification estimate fits within 12 available minutes. I didn't time the work, and the estimate doesn't say whether it includes re-review. |
+| **Tracker** | I created no task or note, because triage's fix-now gate resolves this without one. The permission to create a task under E01-F01 went unused. |
+
+## Verification
+- **Focused check:** passed, with nothing unmet.
+- **Candidate identity:** `e4e688f8…f819` before, `50cca8d3ea416fb7463bd3e820cd6e057e359fdb5199b1134b53445ef9578a46` after.
+- **Size and risk:** 26 changed lines (previously 24), 2 files, no risk boundaries. Only `docs/feature-a.md` was touched by the repair.
+- **Review effort:** the resulting can

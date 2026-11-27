@@ -150,7 +150,7 @@ If it's slow/janky:
 
 ## Step 8: Follow TDD to duplicate & resolve the failing test.
 - When bug is identified, follow TDD debugging workflow:
-- See: test-driven-development/references/debugging-workflow.md
+- See: skills/test-driven-development/references/debugging-workflow.md
 
 ## Quick Reference: DevTools Shortcuts
 

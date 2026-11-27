@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
@@ -221,19 +222,36 @@ func (r *QuestionRepository) UpdateStatusIfCurrent(ctx context.Context, id int64
 	return updated, nil
 }
 
+// ResponderLease identifies the Question claim required at the write. A zero
+// TTL checks ownership only, including E39's grace for an in-flight answer.
+type ResponderLease struct {
+	SessionID string
+	Responder string
+	TTL       time.Duration
+}
+
 // persistTransition is the shared atomic shape behind every Question
 // mutation that moves status and context_data together: a conditional
 // UPDATE guarded by (expectedStatus, expectedContextData), a bounded audit
 // note, and an entity_history row, all in one transaction. ConfigureWorkflow,
 // RecordResponse, and close (Resolve/Withdraw's shared terminal path) differ
-// only in their target status, actor, note text, and conflict message.
-func (r *QuestionRepository) persistTransition(ctx context.Context, id int64, expectedStatus, newStatus models.QuestionStatus, expectedContextData, contextData *string, actor, note, conflictMsg string) error {
+// in their audit data and the responder lease required by the caller.
+func (r *QuestionRepository) persistTransition(ctx context.Context, id int64, expectedStatus, newStatus models.QuestionStatus, expectedContextData, contextData *string, actor, note, conflictMsg string, lease *ResponderLease) error {
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
 		return fmt.Errorf("begin Question transition transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	result, err := tx.ExecContext(ctx, `UPDATE questions SET context_data = ?, status = ? WHERE id = ? AND status = ? AND context_data IS ?`, contextData, newStatus, id, expectedStatus, expectedContextData)
+	query := `UPDATE questions SET context_data = ?, status = ? WHERE id = ? AND status = ? AND context_data IS ?`
+	args := []any{contextData, newStatus, id, expectedStatus, expectedContextData}
+	if lease != nil {
+		query += ` AND EXISTS (SELECT 1 FROM entity_claims
+			WHERE entity_type = 'question' AND entity_key = questions.key
+			  AND session_id = ? AND claimed_by = ?
+			  AND (? = 0 OR unixepoch(CURRENT_TIMESTAMP) - unixepoch(last_heartbeat) <= ?))`
+		args = append(args, lease.SessionID, lease.Responder, lease.TTL.Seconds(), lease.TTL.Seconds())
+	}
+	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("persist Question transition state: %w", err)
 	}
@@ -264,18 +282,18 @@ func (r *QuestionRepository) ConfigureWorkflow(ctx context.Context, id int64, ex
 		return errors.New("configure Question workflow: context data is required")
 	}
 	note := "Question workflow configured; responder identities are retained in Question-owned state."
-	return r.persistTransition(ctx, id, expectedStatus, models.QuestionStatusOpen, expectedContextData, contextData, resolutionOwner, note, "configure Question workflow: Question changed or is already configured")
+	return r.persistTransition(ctx, id, expectedStatus, models.QuestionStatusOpen, expectedContextData, contextData, resolutionOwner, note, "configure Question workflow: Question changed or is already configured", nil)
 }
 
 // RecordResponse commits the serial state, bounded audit note, and history
-// together. The service has already validated the caller's active lease and
-// response data; this method owns the durable all-or-nothing boundary.
-func (r *QuestionRepository) RecordResponse(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, responder string) error {
+// together under the session and responder that supplied the answer.
+func (r *QuestionRepository) RecordResponse(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, responder, sessionID string) error {
 	if contextData == nil {
 		return errors.New("record Question response: context data is required")
 	}
 	note := "Question response recorded for configured responder."
-	return r.persistTransition(ctx, id, expectedStatus, status, expectedContextData, contextData, responder, note, "record Question response: Question changed or is not answerable")
+	lease := ResponderLease{SessionID: sessionID, Responder: responder}
+	return r.persistTransition(ctx, id, expectedStatus, status, expectedContextData, contextData, responder, note, "record Question response: Question or responder claim changed", &lease)
 }
 
 // FollowUpWorkExists reports whether key identifies a durable Shark work item.
@@ -303,21 +321,21 @@ func (r *QuestionRepository) NoteExists(ctx context.Context, noteID string) (boo
 
 // Resolve atomically persists classified resolution state, concise audit
 // evidence, history, and the conditional terminal status.
-func (r *QuestionRepository) Resolve(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, kind string) error {
-	return r.close(ctx, id, expectedStatus, status, expectedContextData, contextData, owner, "Question resolved with classified "+kind+" provenance.")
+func (r *QuestionRepository) Resolve(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, kind string, lease *ResponderLease) error {
+	return r.close(ctx, id, expectedStatus, status, expectedContextData, contextData, owner, "Question resolved with classified "+kind+" provenance.", lease)
 }
 
 // Withdraw atomically persists withdrawal or supersession provenance, concise
 // audit evidence, history, and a non-terminal conditional status update.
 func (r *QuestionRepository) Withdraw(ctx context.Context, id int64, expectedStatus, status models.QuestionStatus, expectedContextData, contextData *string, owner, reason string) error {
-	return r.close(ctx, id, expectedStatus, status, expectedContextData, contextData, owner, "Question terminal provenance recorded.")
+	return r.close(ctx, id, expectedStatus, status, expectedContextData, contextData, owner, "Question terminal provenance recorded.", nil)
 }
 
-func (r *QuestionRepository) close(ctx context.Context, id int64, expected, status models.QuestionStatus, expectedContextData, contextData *string, owner, note string) error {
+func (r *QuestionRepository) close(ctx context.Context, id int64, expected, status models.QuestionStatus, expectedContextData, contextData *string, owner, note string, lease *ResponderLease) error {
 	if contextData == nil {
 		return errors.New("close Question: context data is required")
 	}
-	return r.persistTransition(ctx, id, expected, status, expectedContextData, contextData, owner, note, "close Question: Question is not eligible for terminal operation")
+	return r.persistTransition(ctx, id, expected, status, expectedContextData, contextData, owner, note, "close Question: Question is not eligible for terminal operation", lease)
 }
 
 // List returns the finite Question page in canonical key order.

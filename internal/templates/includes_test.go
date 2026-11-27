@@ -548,7 +548,9 @@ func TestTwelvePromptsInvokeProductCriticalPathGuardExactlyOnce(t *testing.T) {
 // productCriticalPathGuardBaselineSHA256 records the SHA-256 of each of the
 // twelve wired prompts' content as of their latest intentional edits; the task
 // baseline was updated by CC-044 after its development-prompt change and by
-// B081 after the active-sprint selection-prompt change. Originally
+// B081 after the active-sprint selection-prompt change, and for the
+// dispatch-prompt defect corrections (durable sources, quality-gate sources,
+// precedence and unclear-requirement text). Originally
 // the values recorded content exactly as it existed before T-E34-F10-002
 // added the guard invocation (captured from the pre-edit checked-in files).
 // TestTwelvePromptsAddGuardAsPureAddition reconstructs each file's
@@ -560,15 +562,15 @@ var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"sprint/planning.md":         "f27d56ae7e922347d611389a6d5797fa39402b4887e41bb1dc815a10799d4248",
 	"sprint/active.md":           "a8150439c3ee91ffdf636b69587f88da96dbd7be415c919a42eee7f759c10853",
 	"sprint/closing.md":          "94f8057747fae8ffa85b95fab0cf86146c8f8298e285322737c5457f4f9e3a59",
-	"epic/assessment.md":         "6e9c5516db6e8c415000795fbbdbe2c48a5acebb4e8c493f77f00ae724ee27fb",
-	"epic/decomposition.md":      "76a7558c41c97ed3fd9eba3dc6671799da58c3e0a94ff340f7c308f166704131",
+	"epic/assessment.md":         "1b3affa6488e62d866923e6ec8a4e56e29c3ed0e31be349039e934596111f825",
+	"epic/decomposition.md":      "65156f2adb679d23dac78d90456627ab6de94c3533362182345c55c057d2869f",
 	"epic/active.md":             "d821d8ffef1ed1f3422133397e318c9bb92e7be702ec2e695ce0430f04c9f23a",
-	"feature/specification.md":   "82b13648206166648c9812badf50bac484cecb5b7d1e036a31fecc981aefa75a",
-	"feature/test_planning.md":   "91d86e2a390f722b7baa1e7f7b372660284ac42410c3e50d64b212b8232eb40b",
-	"feature/task_generation.md": "3bd98c3bab9d9233825d044d9889f810da99f2f41f692100718490b5e205a1cf",
-	"feature/task_review.md":     "a0e64b910dd76108bb6ca9380ed4660c4540384b8aa2c79cee4db7e19cfc9bac",
+	"feature/specification.md":   "94f0e0c9dff600be5f0a05a00ad061d02254db0e651d91fdbf41f64087bfedce",
+	"feature/test_planning.md":   "2cf2ba57af7d65bb392f3af6ceb2e887134486851cd430860182a863256615c7",
+	"feature/task_generation.md": "3100315ace5f1aaaa817d5ceaf945fc22a8543cfba261ff314cb2a28e0d6d577",
+	"feature/task_review.md":     "0360562975bb8a1dbb908e3be0a49dace76b4434b3deba973c8101d7ac009c16",
 	"feature/approval.md":        "b555814fcb69df48ce3d1b777c1ffafe37bf3eaaa770b9f8157f11b8e873f41a",
-	"task/development.md":        "ba49aa8d985615f5e07041a6eec728441a05035fab5ca628f4884f870c31a9bf",
+	"task/development.md":        "6726bb355ba584f1651d540af29134263b4c6958421da1fc6df10d1a837902d8",
 }
 
 // stripProductCriticalPathGuardParagraph removes the guard invocation's

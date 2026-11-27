@@ -209,6 +209,9 @@ func TestRenderAgentBody_DeveloperBody_NoDoublePrefixedBranchRef(t *testing.T) {
 // in projects that use slug-suffixed feature directories
 // (`docs/plan/E01-content-ingestion/E01-F41-lexicon-observation/feature.md`).
 //
+// The feature paths now live in the task development prompt rather than the
+// persona, so that prompt carries the second assertion.
+//
 // The fix introduces `<epic-dir>` / `<feature-dir>` placeholder tokens that
 // resolve to the actual on-disk parent directories (derived from
 // `file_path`) and updates the agent files to use them instead of
@@ -277,15 +280,21 @@ func TestRenderAgentBody_DeveloperBody_FeaturePathsAreSlugSuffixed(t *testing.T)
 			}
 		}
 
-		// 2. The rendered body must contain the slug-suffixed path —
-		// proves the new <feature-dir> token is actually wired through
-		// at the locations that used to use <epic>/<feature>. Without
-		// this check, a regression could simply delete the path
-		// references and the test in step 1 would still pass.
-		if !strings.Contains(got, wantPath) {
-			t.Errorf("%s rendered body missing slug-suffixed path %q — <feature-dir> token not wired through",
-				p, wantPath)
-		}
+	}
+
+	// 2. The task development prompt must name the slug-suffixed directory.
+	// Without this check, a regression could simply delete the path references
+	// and the check above would still pass.
+	renderer, err := NewOrchestratorRenderer(filepath.Join(repoRoot, "internal", "sharkdata", "default_data", "prompts"))
+	if err != nil {
+		t.Fatalf("load prompts: %v", err)
+	}
+	prompt, err := renderer.Render("task/development.md", vars)
+	if err != nil {
+		t.Fatalf("render task/development.md: %v", err)
+	}
+	if !strings.Contains(prompt, wantPath) {
+		t.Errorf("task/development.md missing slug-suffixed path %q — feature_dir not wired through", wantPath)
 	}
 }
 

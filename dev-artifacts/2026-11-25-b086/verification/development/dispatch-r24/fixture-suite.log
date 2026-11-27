@@ -1,0 +1,6 @@
+Targeted fixture runs that passed during this dispatch (python3 -m unittest, scripts/testdata/b086):
+- test_budget (8 tests) with test_verify (5 tests): OK, 13 tests, after the budget/time/repeat cases and again after the Claude host receipt changes.
+- test_budget test_verify test_delivery: OK, 14 tests.
+- test_receipt (receipt, policy and effort classes), test_intake, test_synthetic_controls, test_packet: OK, 14 tests before the effort class was added; test_receipt.Effort: OK, 1 test after.
+The final full-suite rerun failed with ENOSPC (disk full: scratch roots of earlier host runs under /tmp, deletion of which was denied by the environment); see fixture-suite-enospc-attempt.log. The full suite has therefore not been rerun against the final fixture commit.
+Runner-boundary tests (skills/shark-rider/skills/deep-review/scripts): see runner-boundary-tests.log, 27 tests OK.

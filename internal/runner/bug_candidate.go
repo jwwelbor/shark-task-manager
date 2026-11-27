@@ -26,21 +26,29 @@ type bugCandidateScope struct {
 	CandidateTree    string             `json:"candidate_tree"`
 	DiffSHA256       string             `json:"diff_sha256"`
 	RepairPlanSHA256 string             `json:"repair_plan_sha256"`
-	ChangedFiles     []string           `json:"changed_files"`
+	ChangedFiles     reviewGitPaths     `json:"changed_files"`
 	ChangedFileCount int                `json:"changed_file_count"`
+	SuccessorDelta   json.RawMessage    `json:"successor_delta,omitempty"`
 	Source           *bugSourceSnapshot `json:"source_snapshot"`
 }
 
+type bugSuccessorDelta struct {
+	PredecessorCommit string         `json:"predecessor_commit"`
+	PredecessorTree   string         `json:"predecessor_tree"`
+	ChangedFiles      reviewGitPaths `json:"changed_files"`
+	DiffSHA256        string         `json:"diff_sha256"`
+}
+
 type bugSourceSnapshot struct {
-	ProjectRoot           string   `json:"project_root"`
-	SourceRoot            string   `json:"source_root"`
-	RuntimeProject        string   `json:"runtime_project"`
-	SourceCommit          string   `json:"source_commit"`
-	CandidateCommit       string   `json:"candidate_commit"`
-	CandidateTree         string   `json:"candidate_tree"`
-	SelectedPaths         []string `json:"selected_paths"`
-	SelectedIndexSHA256   string   `json:"selected_index_sha256"`
-	SourceInventorySHA256 string   `json:"source_inventory_sha256"`
+	ProjectRoot           string         `json:"project_root"`
+	SourceRoot            string         `json:"source_root"`
+	RuntimeProject        string         `json:"runtime_project"`
+	SourceCommit          string         `json:"source_commit"`
+	CandidateCommit       string         `json:"candidate_commit"`
+	CandidateTree         string         `json:"candidate_tree"`
+	SelectedPaths         reviewGitPaths `json:"selected_paths"`
+	SelectedIndexSHA256   string         `json:"selected_index_sha256"`
+	SourceInventorySHA256 string         `json:"source_inventory_sha256"`
 }
 
 func (s *bugSourceSnapshot) UnmarshalJSON(data []byte) error {
@@ -86,10 +94,58 @@ func verifyBugCandidate(ctx context.Context, root string, data []byte) error {
 	if err := validateBugCandidateManifest(scope, run); err != nil {
 		return err
 	}
+	if scope.SuccessorDelta != nil {
+		if err := validateSuccessorDelta(ctx, root, scope, run); err != nil {
+			return fmt.Errorf("invalid successor delta: %w", err)
+		}
+	}
 	if scope.Source == nil {
 		return validateCleanBugCandidate(root, scope, run)
 	}
 	return validateBugSnapshot(ctx, root, scope, git, run)
+}
+
+// The comparison is evidence about Git objects only. It does not identify a
+// parent receipt or establish eligibility to credit any previous inspection.
+func validateSuccessorDelta(ctx context.Context, root string, scope bugCandidateScope, run bugGitRunner) error {
+	var delta bugSuccessorDelta
+	decoder := json.NewDecoder(bytes.NewReader(scope.SuccessorDelta))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&delta); err != nil {
+		return fmt.Errorf("decode predecessor comparison: %w", err)
+	}
+	prior := delta.PredecessorCommit
+	if !validGitHash(prior) {
+		return fmt.Errorf("invalid predecessor commit")
+	}
+	objectType, err := run("cat-file", "-t", prior)
+	if err != nil {
+		return err
+	}
+	if string(bytes.TrimSpace(objectType)) != "commit" {
+		return fmt.Errorf("predecessor object is not a commit")
+	}
+	if err := validateBugGitIdentity(bugCandidateScope{
+		BaseCommit: scope.BaseCommit, CandidateCommit: prior, CandidateTree: delta.PredecessorTree,
+	}, run); err != nil {
+		return err
+	}
+	if _, err := run("merge-base", "--is-ancestor", prior, scope.CandidateCommit); err != nil {
+		return fmt.Errorf("predecessor is not a candidate ancestor: %w", err)
+	}
+	hash := sha256.New()
+	cmd := gitutil.Command(ctx, "-c", "core.fsmonitor=false", "-C", root, "diff", "--no-ext-diff", "--binary", prior, scope.CandidateCommit)
+	cmd.Stdout = hash
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("read predecessor comparison: %w", err)
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != delta.DiffSHA256 {
+		return fmt.Errorf("predecessor diff digest mismatch")
+	}
+	if delta.ChangedFiles == nil {
+		return fmt.Errorf("missing predecessor comparison paths")
+	}
+	return matchBugChangedFiles(prior, scope.CandidateCommit, delta.ChangedFiles, run)
 }
 
 func candidateRepository(ctx context.Context, root string) (string, string, error) {
@@ -158,11 +214,17 @@ func validateBugDiffManifest(scope bugCandidateScope, run bugGitRunner) error {
 	if hex.EncodeToString(hash[:]) != scope.DiffSHA256 || len(diff) == 0 {
 		return fmt.Errorf("candidate diff mismatch")
 	}
-	return validateBugChangedFiles(scope, run)
+	if err := matchBugChangedFiles(scope.BaseCommit, scope.CandidateCommit, scope.ChangedFiles, run); err != nil {
+		return err
+	}
+	if len(scope.ChangedFiles) != scope.ChangedFileCount {
+		return fmt.Errorf("candidate manifest mismatch: Git has %d paths, scope declares %d", len(scope.ChangedFiles), scope.ChangedFileCount)
+	}
+	return nil
 }
 
-func validateBugChangedFiles(scope bugCandidateScope, run bugGitRunner) error {
-	names, err := run("diff", "--name-only", "-z", scope.BaseCommit, scope.CandidateCommit)
+func matchBugChangedFiles(start, end string, expected []string, run bugGitRunner) error {
+	names, err := run("diff", "--name-only", "-z", start, end)
 	if err != nil {
 		return err
 	}
@@ -172,13 +234,16 @@ func validateBugChangedFiles(scope bugCandidateScope, run bugGitRunner) error {
 			paths = append(paths, string(name))
 		}
 	}
-	if len(paths) != scope.ChangedFileCount || len(paths) != len(scope.ChangedFiles) {
-		return fmt.Errorf("candidate manifest mismatch")
-	}
-	for i := range paths {
-		if paths[i] != scope.ChangedFiles[i] {
-			return fmt.Errorf("candidate manifest mismatch")
+	for i, want := range paths {
+		if i >= len(expected) {
+			return fmt.Errorf("candidate manifest mismatch: missing %s", quoteReviewGitPath(want))
 		}
+		if got := expected[i]; want != got {
+			return fmt.Errorf("candidate manifest mismatch at index %d: Git has %s, scope has %s", i, quoteReviewGitPath(want), quoteReviewGitPath(got))
+		}
+	}
+	if len(expected) > len(paths) {
+		return fmt.Errorf("candidate manifest mismatch: unexpected %s", quoteReviewGitPath(expected[len(paths)]))
 	}
 	return nil
 }
