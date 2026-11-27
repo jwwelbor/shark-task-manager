@@ -553,7 +553,7 @@ if argv[0] == "next":
     else:
         emit_next({
             "entity_key": "B001", "entity_type": "bug", "status": "code_review", "phase": "code_review",
-            "action": "spawn_agent", "agent_type": "reviewer", "provider": "codex", "model": "synthetic-paid-model",
+            "action": "spawn_agent", "agent_type": "reviewer", "provider": "anthropic", "model": "synthetic-paid-model",
             "effort": "high", "prompt": "Review it", "result_contract": "gate_result_v1",
             "allowed_outcomes": ["pass", "fail"],
         })
@@ -589,7 +589,17 @@ else:
 """
     shark_bin = _write_fake_shark(tmp_path, ws["log_path"], ws["apply_capture"], shark_body)
     raw_final_str = '{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"ok","findings":[],"kickbacks":[]}}'
-    adapter_bin = _write_fake_adapter(tmp_path, f"import sys\nsys.stdin.read()\nprint({raw_final_str!r})\n")
+    adapter_body = (
+        "import json, sys\nreq = json.load(sys.stdin)\n"
+        "print(json.dumps({"
+        "'worker_id': 'w1', 'session_id': req['session_id'], 'kind': 'final', "
+        "'recommended_outcome': 'pass', 'cost_usd': 0.01, "
+        "'usage': {'provider': 'anthropic', 'model': 'synthetic-paid-model', 'cost_usd': 0.01, 'input_tokens': 10, 'output_tokens': 5}, "
+        "'provider_usage_envelope': {'usage': {'input_tokens': 10, 'output_tokens': 5, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0}, 'total_cost_usd': 0.01, 'modelUsage': {'synthetic-paid-model': {}}, 'duration_api_ms': 100, 'num_turns': 1, 'session_id': 'prov-sess-1'}, "
+        f"'raw_final': {raw_final_str!r}"
+        "}))\n"
+    )
+    adapter_bin = _write_fake_adapter(tmp_path, adapter_body)
 
     proc1 = _run_lifecycle(ws, shark_bin, adapter_bin, run_id="r26-resume-run")
     assert proc1.returncode != 0
@@ -616,6 +626,118 @@ else:
     assert record["dispatches"][0]["transition"]["run_id"] == expected_stage_id
     assert record["dispatches"][0]["transition"]["resumed"] is True
     assert record["dispatches"][0]["transition"]["to_status"] == "completed"
+    _verify_lifecycle_output(ws["output_path"])
+
+
+def _verify_lifecycle_output(output_path: Path):
+    proc = subprocess.run(
+        [
+            str(SCRIPTS / "verify-lifecycle-run.sh"),
+            str(output_path),
+            "--schema",
+            str(REPO_ROOT / "bench" / "runs" / "i07-schema.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"verify-lifecycle-run.sh failed:\nstdout: {proc.stdout}\nstderr: {proc.stderr}"
+    verdict = json.loads(proc.stdout)
+    assert verdict["result"] == "accepted"
+
+
+def test_r26_pending_stage_recovery_unsubmitted_via_apply_result(tmp_path):
+    """R26 step 4: interrupted before durable apply recovers via unsubmitted pending.json -> --apply-result."""
+    ws = _setup_workspace(tmp_path)
+    shark_body = """
+import signal
+STATE_FILE = LOG_PATH.parent / "state.txt"
+if argv[0] == "next":
+    if STATE_FILE.exists() and STATE_FILE.read_text(encoding="utf-8") == "applied":
+        print(json.dumps({"entity_key": "B001", "entity_type": "bug", "status": "completed", "action": "archive", "terminal": True}))
+    else:
+        emit_next({
+            "entity_key": "B001", "entity_type": "bug", "status": "code_review", "phase": "code_review",
+            "action": "spawn_agent", "agent_type": "reviewer", "provider": "anthropic", "model": "synthetic-paid-model",
+            "effort": "high", "prompt": "Review it", "result_contract": "gate_result_v1",
+            "allowed_outcomes": ["pass", "fail"],
+        })
+elif argv[0] == "claim":
+    print(json.dumps({"session_id": "sess-1"}))
+elif argv[0] == "heartbeat":
+    print(json.dumps({"ok": True}))
+elif argv[0] == "get":
+    print(json.dumps({"entity_key": "B001", "entity_type": "bug", "status": "code_review"}))
+elif argv[0] == "run" and "--apply-result" in argv:
+    if not STATE_FILE.exists():
+        # Simulate crash before durable storage on first attempt
+        STATE_FILE.write_text("crashed_unsubmitted", encoding="utf-8")
+        os.kill(os.getppid(), signal.SIGKILL)
+        sys.exit(0)
+    idx = argv.index("--apply-result") + 1
+    APPLY_CAPTURE.write_bytes(Path(argv[idx]).read_bytes())
+    STATE_FILE.write_text("applied", encoding="utf-8")
+    print(json.dumps({
+        "run_id": argv[argv.index("--run-id") + 1],
+        "entity_key": "B001",
+        "entity_type": "bug",
+        "to_status": "completed",
+        "transitioned": True,
+        "lease_released": True,
+        "status": {"retirement_state": "retired"},
+    }))
+elif argv[0] == "run" and "--resume-run" in argv:
+    if STATE_FILE.exists() and STATE_FILE.read_text(encoding="utf-8") == "crashed_unsubmitted":
+        sys.stderr.write("run not found\\n")
+        raise SystemExit(1)
+    print(json.dumps({}))
+elif argv[0] == "release":
+    print(json.dumps({"released": True}))
+else:
+    print(json.dumps({}))
+"""
+    shark_bin = _write_fake_shark(tmp_path, ws["log_path"], ws["apply_capture"], shark_body)
+    raw_final_str = '{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"ok","findings":[],"kickbacks":[]}}'
+    adapter_body = (
+        "import json, sys\nreq = json.load(sys.stdin)\n"
+        "print(json.dumps({"
+        "'worker_id': 'w1', 'session_id': req['session_id'], 'kind': 'final', "
+        "'recommended_outcome': 'pass', 'cost_usd': 0.01, "
+        "'usage': {'provider': 'anthropic', 'model': 'synthetic-paid-model', 'cost_usd': 0.01, 'input_tokens': 10, 'output_tokens': 5}, "
+        "'provider_usage_envelope': {'usage': {'input_tokens': 10, 'output_tokens': 5, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0}, 'total_cost_usd': 0.01, 'modelUsage': {'synthetic-paid-model': {}}, 'duration_api_ms': 100, 'num_turns': 1, 'session_id': 'prov-sess-1'}, "
+        f"'raw_final': {raw_final_str!r}"
+        "}))\n"
+    )
+    adapter_bin = _write_fake_adapter(tmp_path, adapter_body)
+
+    proc1 = _run_lifecycle(ws, shark_bin, adapter_bin, run_id="r26-unsubmitted")
+    assert proc1.returncode != 0
+    pending_path = ws["scratch"] / ".shark" / "e40-apply" / "pending.json"
+    log_txt = ws["log_path"].read_text(encoding="utf-8") if ws["log_path"].exists() else "<no log>"
+    assert pending_path.is_file(), f"rc={proc1.returncode} stdout={proc1.stdout}\nstderr={proc1.stderr}\nlog={log_txt}"
+    pending_data = json.loads(pending_path.read_text(encoding="utf-8"))
+    assert pending_data.get("submitted") is False
+    expected_stage_id = pending_data["stage_id"]
+
+    ws["log_path"].unlink()
+    proc2 = _run_lifecycle(ws, shark_bin, adapter_bin, run_id="r26-unsubmitted")
+    assert proc2.returncode == 0, proc2.stderr
+    assert not pending_path.exists()
+
+    logged = [json.loads(line) for line in ws["log_path"].read_text(encoding="utf-8").splitlines()]
+    assert logged[0][0] == "run" and "--resume-run" in logged[0]
+    assert any(cmd[0] == "get" and cmd[1] == "B001" for cmd in logged)
+    apply_cmds = [cmd for cmd in logged if cmd[0] == "run" and "--apply-result" in cmd]
+    assert len(apply_cmds) == 1, f"logged={logged}"
+    assert apply_cmds[0][apply_cmds[0].index("--run-id") + 1] == expected_stage_id
+    assert not any(cmd[0] == "claim" for cmd in logged)
+
+    record = json.loads(ws["output_path"].read_text(encoding="utf-8"))
+    assert record["outcome"]["terminal"] == "complete"
+    assert record["dispatches"][0]["transition"]["run_id"] == expected_stage_id
+    assert record["dispatches"][0]["transition"]["resumed"] is True
+    assert record["dispatches"][0]["transition"]["resume_action"] == "initial_apply_after_unsubmitted"
+    assert record["dispatches"][0]["transition"]["to_status"] == "completed"
+    _verify_lifecycle_output(ws["output_path"])
 
 
 def test_r26_pending_stage_recovery_rejects_mismatched_run_id(tmp_path):

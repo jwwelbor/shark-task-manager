@@ -511,7 +511,7 @@ def _clear_pending_stage(scratch, apply_file=None):
         pass
 
 
-def _reconcile_pending_stage(shark, scratch, run_id, fixture_root, record):
+def _reconcile_pending_stage(shark, scratch, run_id, fixture_root, record, stage_ctx=None):
     """Inspect and reconcile any pending structured-final stage before new dispatches."""
     pending_path = _pending_stage_path(scratch)
     if not pending_path.is_file():
@@ -594,13 +594,54 @@ def _reconcile_pending_stage(shark, scratch, run_id, fixture_root, record):
             )
         )
 
-    record["dispatches"].append({
+    response_record = (
+        dict(pending["response"])
+        if isinstance(pending.get("response"), dict)
+        else {"entity_key": entity, "entity_type": entity_type, "status": source_status}
+    )
+    response_record.setdefault("entity_key", entity)
+    response_record.setdefault("entity_type", entity_type)
+    response_record.setdefault("status", source_status)
+    evidence_refs = (
+        dict(pending["evidence_refs"])
+        if isinstance(pending.get("evidence_refs"), dict)
+        else {}
+    )
+    if "prompt_sha256" in response_record:
+        evidence_refs.setdefault("prompt_sha256", response_record["prompt_sha256"])
+    if "prompt_bytes" in response_record:
+        evidence_refs.setdefault("prompt_bytes", response_record["prompt_bytes"])
+    evidence_refs.setdefault("candidate_snapshot_digest", "0" * 64)
+    claim_record = (
+        dict(pending["claim"])
+        if isinstance(pending.get("claim"), dict)
+        else {"session_id": session}
+    )
+    worker_record = (
+        dict(pending["worker"])
+        if isinstance(pending.get("worker"), dict)
+        else {"worker_id": "resume", "session_id": session, "kind": "final", "recommended_outcome": outcome, "evidence": []}
+    )
+    if not str(worker_record.get("worker_id") or "").strip():
+        worker_record["worker_id"] = "resume"
+    if not str(worker_record.get("session_id") or "").strip():
+        worker_record["session_id"] = session
+    if not str(worker_record.get("kind") or "").strip():
+        worker_record["kind"] = "final"
+    heartbeats_record = (
+        list(pending["heartbeats"])
+        if isinstance(pending.get("heartbeats"), list)
+        else []
+    )
+    cost_usd = float(pending.get("cost_usd") or 0.0)
+
+    dispatch_record = {
         "ordinal": pending_ordinal,
-        "requested_key": entity,
-        "response": {"entity_key": entity, "entity_type": entity_type, "status": source_status},
-        "claim": {"session_id": session},
-        "worker": {"worker_id": "resume", "session_id": session, "kind": "final", "recommended_outcome": outcome},
-        "heartbeats": [],
+        "requested_key": str(pending.get("requested_key") or entity),
+        "response": response_record,
+        "claim": claim_record,
+        "worker": worker_record,
+        "heartbeats": heartbeats_record,
         "outcome": outcome or "complete",
         "transition": {
             "run_id": stage_id,
@@ -616,9 +657,86 @@ def _reconcile_pending_stage(shark, scratch, run_id, fixture_root, record):
             "final_digest": final_digest,
         },
         "release": release_resp or {"released": lease_released},
-        "started_at": timestamp(),
+        "started_at": str(pending.get("started_at") or timestamp()),
         "ended_at": timestamp(),
-    })
+        "evidence_refs": evidence_refs,
+        "cost_usd": cost_usd,
+    }
+    record["dispatches"].append(dispatch_record)
+    record["limits"]["observed_cost_usd"] += cost_usd
+    if stage_ctx is not None:
+        stage_candidate_in = (
+            dict(pending["candidate"])
+            if isinstance(pending.get("candidate"), dict)
+            else candidate_identity(
+                fixture_root,
+                stage_ctx["execution_adapter"],
+                stage_ctx["adapter_name"],
+                stage_ctx["adapter_version"],
+                stage_ctx["toolchain_identity"],
+                stage_ctx["deadline"],
+                stage_ctx["active_lease"],
+            )
+        )
+        refresh_candidate(
+            stage_candidate_in,
+            fixture_root,
+            scratch,
+            stage_ctx["execution_adapter"],
+            stage_ctx["adapter_name"],
+            stage_ctx["adapter_version"],
+            stage_ctx["toolchain_identity"],
+            stage_ctx["deadline"],
+            stage_ctx["active_lease"],
+        )
+        fixture_input_digest = str(pending.get("fixture_input_digest") or tree_digest(fixture_root))
+        worker_result = (
+            dict(pending["worker_result"])
+            if isinstance(pending.get("worker_result"), dict)
+            else worker_record
+        )
+        timing = (
+            dict(pending["timing"])
+            if isinstance(pending.get("timing"), dict)
+            else {"stage_start": time.monotonic_ns(), "claimed": []}
+        )
+        stage_candidate, gate_category = finalize_stage_evidence(
+            record,
+            stage_ctx["evidence_errors"],
+            dispatch_record,
+            stage_candidate_in,
+            response_record,
+            entity,
+            fixture_root,
+            fixture_input_digest,
+            stage_ctx["execution_adapter"],
+            stage_ctx["adapter"],
+            stage_ctx["i05_writer"],
+            shark,
+            scratch,
+            worker_result,
+            timing,
+            time.monotonic_ns(),
+            stage_ctx["stage_visits"],
+            stage_ctx["started"],
+        )
+        capture_gate_if_configured(
+            record,
+            stage_ctx["configured_gate_ids"],
+            stage_ctx["has_configured_workflow"],
+            stage_ctx["i05_writer"],
+            shark,
+            scratch,
+            entity,
+            response_record,
+            stage_candidate,
+            stage_ctx["review_rounds"],
+            stage_ctx["seen_review_note_ids"],
+            stage_ctx["repo_root"],
+            pending.get("request") if isinstance(pending.get("request"), dict) else {},
+            configured_gates_by_family=stage_ctx["configured_gates_by_family"],
+            family_workflow_found=stage_ctx["family_workflow_found"],
+        )
     if pending_ordinal not in record["entity_graph"]["ordinals"]:
         record["entity_graph"]["ordinals"].append(pending_ordinal)
     _clear_pending_stage(scratch, apply_file)
@@ -2913,7 +3031,27 @@ def main(argv):
     try:
         if args["mode"] not in {"contract", "dry-run"} and queue:
             reconciled_ordinal = _reconcile_pending_stage(
-                shark, scratch, args["run_id"], fixture_root, record
+                shark, scratch, args["run_id"], fixture_root, record,
+                stage_ctx={
+                    "evidence_errors": evidence_errors,
+                    "execution_adapter": execution_adapter,
+                    "adapter": adapter,
+                    "adapter_name": adapter_name,
+                    "adapter_version": adapter_version,
+                    "toolchain_identity": toolchain_identity,
+                    "deadline": started + limits["max_wall_clock_seconds"],
+                    "active_lease": active_lease,
+                    "i05_writer": i05_writer,
+                    "stage_visits": stage_visits,
+                    "started": started,
+                    "configured_gate_ids": configured_gate_ids,
+                    "has_configured_workflow": has_configured_workflow,
+                    "review_rounds": review_rounds,
+                    "seen_review_note_ids": seen_review_note_ids,
+                    "repo_root": repo_root,
+                    "configured_gates_by_family": configured_gates_by_family,
+                    "family_workflow_found": family_workflow_found,
+                },
             )
             if reconciled_ordinal:
                 ordinal = max(ordinal, reconciled_ordinal)
@@ -3094,10 +3232,23 @@ def main(argv):
                         "source_status": response.get("status", ""),
                         "session_id": session,
                         "ordinal": dispatch["ordinal"],
+                        "requested_key": dispatch["requested_key"],
+                        "response": dispatch["response"],
+                        "claim": dispatch["claim"],
+                        "worker": dispatch["worker"],
+                        "heartbeats": dispatch["heartbeats"],
+                        "evidence_refs": dispatch["evidence_refs"],
+                        "started_at": dispatch["started_at"],
+                        "cost_usd": float(worker_result.get("cost_usd", (worker_result.get("usage") or {}).get("cost_usd", 0.0)) or 0.0),
+                        "candidate": candidate,
+                        "fixture_input_digest": fixture_input_digest,
+                        "worker_result": worker_result,
+                        "timing": timing,
+                        "request": {"runner_id": request.get("runner_id", "")},
                         "outcome": str(outcome),
                         "apply_file": str(apply_file),
                         "final_digest": sha256_bytes(raw_bytes),
-                        "submitted": True,
+                        "submitted": False,
                     })
                     try:
                         apply_cmd = [
