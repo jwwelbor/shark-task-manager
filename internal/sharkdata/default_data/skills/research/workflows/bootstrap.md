@@ -235,6 +235,10 @@ Output:
 - Framework conventions from official docs
 - Web research results
 
+Follow the Output A structure in `skills/quality/context/standards-template.md`, including:
+- The `## Quality Limits` section. No project config sets a value yet, so propose each limit from the generic defaults in `skills/quality/context/craft-rubric.md` and label it "proposed — confirm". The optional coverage target has no generic default.
+- The Testing Standards entries **Test Isolation** and **Assertion Style**.
+
 Output:
 - `coding-standards.md` at `coding_standards_path` — Prescriptive standards with greenfield header
 

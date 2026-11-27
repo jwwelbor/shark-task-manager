@@ -52,6 +52,14 @@ var thresholdAllowlist = map[string][]string{}
 // left behind lets review pass an overage that the development exit gate blocks.
 var retiredSeverityWording = regexp.MustCompile(`(?i)substantially\s+expand`)
 
+// craftCategories are the review rule categories whose defect classes the sweep
+// records in the project's local standards.
+var craftCategories = []string{
+	"ALTITUDE", "CODING-STANDARD", "COMPLEXITY", "DIP", "DRY", "ERROR-HANDLING",
+	"IDIOM", "ISP", "LOGGING", "LSP", "NAMING", "OCP", "SIMPLIFICATION", "SRP",
+	"TESTS", "TYPES", "YAGNI",
+}
+
 func compileThresholdPatterns(sources map[string]string) map[string]*regexp.Regexp {
 	compiled := make(map[string]*regexp.Regexp, len(sources))
 	for id, source := range sources {
@@ -395,8 +403,39 @@ func TestE31F01_TC004_BootstrapFillGapsAddsMissingLimitsSection(t *testing.T) {
 	assert.Contains(t, preflight, "skills/quality/workflows/generate-standards.md")
 }
 
+func TestE31F01_TC004_BootstrapGreenfieldStandardsFollowTemplate(t *testing.T) {
+	workflow := embeddedText(t, bootstrapPath)
+	step := section(t, workflow, "### Step 3.3:", "## Phase 4:")
+	// The brownfield branch of the same step already names the generator, so
+	// only the text after the greenfield marker counts.
+	_, greenfield, found := strings.Cut(step, "**Greenfield**:")
+	require.True(t, found, "missing greenfield standards branch")
+	for _, literal := range []string{
+		standardsTemplatePath,
+		"## Quality Limits",
+		"Test Isolation",
+		"Assertion Style",
+		craftRubricPath,
+		"proposed — confirm",
+	} {
+		t.Run(literal, func(t *testing.T) {
+			assert.Contains(t, greenfield, literal)
+		})
+	}
+}
+
 func TestE31F01_TC012_SweepRecordsCraftClassesInLocalStandards(t *testing.T) {
 	workflow := embeddedText(t, defectClassSweepPath)
 	guardSelection := section(t, workflow, "## Guard selection", "## Structural guard closure")
 	assert.Contains(t, guardSelection, "coding-standards.md")
+	assert.Contains(t, guardSelection, "proposed — confirm")
+
+	// Scoped to the craft list itself, so a category named only among the ones
+	// that never edit standards does not count. Backticks match whole tokens.
+	craftList := section(t, guardSelection, "craft categories:", ".")
+	for _, category := range craftCategories {
+		t.Run(category, func(t *testing.T) {
+			assert.Contains(t, craftList, "`"+category+"`")
+		})
+	}
 }
