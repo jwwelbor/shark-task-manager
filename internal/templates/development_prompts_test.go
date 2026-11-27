@@ -11,13 +11,32 @@ import (
 // developmentPrompt is one row of the development prompt family (E31-F01).
 // Each row names the literals that are contracts for that prompt.
 type developmentPrompt struct {
-	name          string
+	name string
+	// summaryLead is the instruction that places the completion summary line:
+	// envelope prompts lead gate_result.summary with it.
+	summaryLead   string
 	exitGateItems []string
+}
+
+const (
+	taskSummaryLead     = "Begin the summary with the line " + completionSummaryLine
+	envelopeSummaryLead = "Begin `gate_result.summary` with the line " + completionSummaryLine
+)
+
+// envelopeExitGate returns a prompt's own exit gate items plus REQ-F-017
+// (a), (b) and (d). Item (c), the task Scope list, applies to tasks only.
+func envelopeExitGate(own ...string) []string {
+	return append(own,
+		"for each AC ID",
+		"source label",
+		"Self-review is recorded with no unresolved finding",
+	)
 }
 
 var developmentPrompts = []developmentPrompt{
 	{
-		name: "task/development.md",
+		name:        "task/development.md",
+		summaryLead: taskSummaryLead,
 		exitGateItems: []string{
 			// Pre-existing items that must remain.
 			"All test cases from feature test-plan.md",
@@ -29,6 +48,43 @@ var developmentPrompts = []developmentPrompt{
 			"`## Scope` \"Files to modify\"",
 			"Self-review is recorded with no unresolved finding",
 		},
+	},
+	{
+		name:        "bug/development.md",
+		summaryLead: envelopeSummaryLead,
+		exitGateItems: envelopeExitGate(
+			"Regression test proves the bug is fixed",
+			"Quality gate passes",
+			"Every applicable decision constraint has passing verification evidence",
+			"No unrelated changes",
+		),
+	},
+	{
+		name:        "change/development.md",
+		summaryLead: envelopeSummaryLead,
+		exitGateItems: envelopeExitGate(
+			"Change implemented per description",
+			"Tests pass",
+			"Quality gate passes",
+		),
+	},
+	{
+		name:        "tech_debt/triaged.md",
+		summaryLead: envelopeSummaryLead,
+		exitGateItems: envelopeExitGate(
+			"Tech debt is resolved",
+			"Quality gate passes",
+			"No unrelated changes",
+		),
+	},
+	{
+		name:        "tech_debt/in_progress.md",
+		summaryLead: envelopeSummaryLead,
+		exitGateItems: envelopeExitGate(
+			"Tech debt is resolved",
+			"Quality gate passes",
+			"No unrelated changes",
+		),
 	},
 }
 
@@ -45,6 +101,8 @@ func renderDevelopmentPrompt(t *testing.T, renderer *OrchestratorRenderer, name 
 		"id":        "E01-F01-001",
 		"title":     "Test Task",
 		"file_path": "docs/plan/task.md",
+		"category":  "code-quality",
+		"severity":  "medium",
 	})
 	require.NoError(t, err, "render %s", name)
 	return out
@@ -108,7 +166,12 @@ func TestE31F01_TC008_FamilyPromptRules(t *testing.T) {
 				"Testing Standards",
 			})
 			assertMarkersOnce(t, out)
-			assert.Contains(t, out, completionSummaryLine)
+			assertContainsAll(t, out, []string{
+				"RESOLVE THE QUALITY GATE",
+				"REOPENED OR REWORK DISPATCH:",
+				"SELF-REVIEW",
+				prompt.summaryLead,
+			})
 			assertNoUnresolvedDirectives(t, out)
 		})
 	}

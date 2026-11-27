@@ -3,20 +3,184 @@ After completing ALL work below, stop and hand control back to the parent loop. 
 
 Implement change E07-F01: "Sample feature for golden test".
 
-Check for existing implementation. If changes exist and quality gate passes, advance immediately.
+REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites.
+
+RESOLVE THE QUALITY GATE (before you implement):
+Determine the commands from the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (the **Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets. Check the sources in that order. If every source is absent or contains only a placeholder (for example "To be defined" or an unfilled template field), recommend `blocked`, put a recommendation to run project bootstrap in `gate_result.no_kickback_reason`, and do not implement. Missing quality limits never block.
+
+Check for existing implementation. If changes exist, read the sources in READ, then advance immediately only when the resolved quality gate passes, the self-review in the Craft Rubric below is recorded with no unresolved finding against that existing diff, and every EXIT GATE item is met. Otherwise, continue with the implementation below.
 
 ---
 
+PRECEDENCE: for existing or resumed code, preserve the code and history, and prove it with tests that fail without it instead of deleting it.
+
 READ:
 (1) Change card description at docs/plan/E07/E07-F01/E07-F01.md
-(2) CLAUDE.md for coding standards
+(2) Local standards, each one that exists:
+    - `CLAUDE.md` and `AGENTS.md`
+    - `docs/architecture/coding-standards.md` and the standards sub-files it links, including the Quality Limits and Testing Standards sections
+    - `docs/architecture/patterns-catalog.md`
+    - the Quality Gate section of `docs/architecture/tech-stack.md`
+(3) Existing code in the affected areas
 
-IMPLEMENT the change with appropriate testing. Run the project's quality gate before advancing. Determine the commands from the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (the **Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets. Fix ALL failures before advancing. No exceptions.
+IMPLEMENT the change:
+
+Step 1 — VERIFY AND IMPLEMENT:
+TDD PROCESS:
+Choose verification by artifact type. This table decides which verification applies and overrides any red-first wording in the included skills; those skills supply the red-green procedure for behavior-changing code. A change that mixes types applies each row to its own part.
+
+| Change type | Verification |
+|---|---|
+| Behavior-changing code | Red first: the failing test is observed before implementation |
+| Refactor with no behavior change | Existing tests are green before and after; no new red step is required |
+| Prompt, documentation or configuration | The test plan's planned check for the TC (render, include resolution, validator); a source-text search only when the literal is an explicit contract |
+
+When the work item has a test plan, read the feature test plan and then:
+- Write one test per TC, with variants as separate cases. Each test name contains the TC-ID.
+- Assert the TC's **Expected Output** exactly.
+- Keep the TC's Caller-Path Contract rules: drive the declared entrypoint with the production argument shape, mock no higher than the lowest mock seam, never touch a forbidden mock, and satisfy the counter-factual (the check fails against an empty or buggy implementation).
+- Never edit a TC's Preconditions, Input or Expected Output; return `blocked` with the specific conflict instead.
+
+Do not write a test that searches source text unless the searched literal is an explicit contract.
+
+Follow the project's documented test architecture and mocking boundaries, and run the focused test with the project's test command:
+1. For behavior-changing code, confirm the test fails for the right reason (the missing behavior, not an import error or fixture bug).
+2. Implement the minimum code to pass (green). Do NOT add features beyond what the work item requires.
+3. Refactor while keeping tests green.
+
+Tests that mock above the declared entrypoint, or use argument shapes production never passes, will be rejected at code review.
+Follow existing patterns in the codebase and the local standards.
+Resolve each limit as the Craft Rubric below directs, and write within the resolved limits on the first pass. When the project declares a measuring command, run it on the changed files before exit.
+
+Step 2 — QUALITY GATE (MANDATORY):
+Run the resolved quality gate commands before advancing. Fix ALL failures before advancing. No exceptions.
+A failure that predates your change and sits outside the files you changed: fix it when the fix is straightforward and within scope; otherwise route it as a bug through the triage skill. Either way, while the gate fails it is unmet: recommend `fail`.
+
+Step 3 — SELF-REVIEW (before exit):
+Run the self-review checklist in the Craft Rubric below against your own diff. Fix every finding, or record a cited reason why the item is not applicable. Re-run the quality gate after any fix.
 
 EXIT GATE:
 - Change implemented per description
 - Tests pass
 - Quality gate passes
+- Evidence walk: `gate_result.summary` names the test or check for each AC ID
+- Every new or changed function and file is within the resolved limits, with each limit's source label stated
+- Self-review is recorded with no unresolved finding
+
+## Reference Methodology
+
+# Craft Rubric
+
+Development and review grade code against this one rubric: authors run it on
+their own diff before exit, and reviewers apply the same limits and severity.
+
+## Resolving the limits
+
+Look for the `## Quality Limits` table in the project's local
+`coding-standards.md` or a standards sub-file it links. Resolve each limit
+independently. A declared limit covers the code its `applies to` column names.
+
+| Local Quality Limits row for this limit | Value used | Source label | When new or substantially expanded code exceeds it |
+|---|---|---|---|
+| Present with a value | Local value | "declared in local standards (§Quality Limits)" | Blocker |
+| Present but marked "proposed — confirm" | Local value | "proposed in local standards, unconfirmed" | Same as a generic default |
+| Absent, section missing, or value blank or a placeholder | Generic default below | "generic default — not declared in local standards" | Admitted only with evidenced impact |
+
+## Generic defaults
+
+Use a default only when the local row is absent, as described above.
+
+| Limit | Generic default |
+|---|---|
+| Cyclomatic complexity | 10 |
+| Function length (lines) | 50 |
+| File length (lines) | 500 |
+| Nesting depth | 4 |
+
+Each limit is an inclusive maximum: a measurement equal to the limit passes,
+and one more is over it. A coverage target is optional and has no generic
+default; with no local row, no percentage gates the change. For coverage,
+"over the limit" means falling short of the target.
+
+## Source label
+
+State the source label on every finding or self-review line that cites a limit.
+A line that relies on a generic default carries the label
+"generic default — not declared in local standards" and recommends declaring the
+limit through a standards refresh (bootstrap fill-gaps). A missing limit never
+blocks work by being missing.
+
+## Severity
+
+- **Locally declared limit.** New or substantially expanded code over it is a
+  blocker, because it breaks a documented standard. A declared limit is a
+  documented standard, not a scoring threshold.
+- **Generic default or unconfirmed proposal.** The number is a signal. Admit a
+  finding only with evidenced impact under the admission criteria in
+  `skills/quality/context/review-rubric.md`, which also set its severity.
+- **Already over a limit.** Code that was over a limit before the change, and
+  that the change does not substantially expand, is a non-blocker routed to
+  triage, whatever the limit's source.
+
+## Self-review checklist
+
+Apply every item to the diff. An author fixes each finding, or records a cited
+reason why the item is not applicable.
+
+### Reuse
+
+- Search the codebase for an existing implementation before adding a utility,
+  helper or abstraction, and call the existing one when it fits.
+- Record the search, including a search that found no duplicate.
+
+### Standards citation
+
+- Check the changed code against the project's local standards documents.
+- Cite each violation as
+  `{file:line} — {rule} — {standards document §section "quoted clause"}`.
+- When no clause covers a concern, report the gap and do not call it a standards
+  violation. Keep it only with evidence of a concrete user, behavior, invariant,
+  security or maintenance consequence.
+- A demonstrated failure of a documented input or acceptance criterion is a
+  correctness finding even without a clause.
+
+### SOLID and architecture
+
+- Single responsibility: each class or module has one clear job.
+- Open/closed: stable code paths extend without modification.
+- Apply Liskov substitution, interface segregation and dependency inversion
+  where relevant.
+- Respect the layering, dependency direction and integration points in the
+  project's architecture documents.
+
+### Idiom
+
+- Follow the community-standard patterns of the code's language and the
+  project's own conventions; replace non-idiomatic constructs.
+- Leave no commented-out code, debug output or premature abstraction.
+
+### Complexity and size
+
+- Check each new or changed function and file against the resolved limits for
+  cyclomatic complexity, function length, file length and nesting depth.
+- Use the project's declared measuring command or other tooling where available.
+- Apply the severity rules above and state each limit's source label.
+
+### Test design
+
+- Each acceptance criterion has at least one test case.
+- Boundaries cover minimum, maximum, empty, null, zero and negative one for each
+  input.
+- Negative cases assert what must not happen.
+- Flaky risk: no dependence on timing, random data, network, real time or
+  shared state.
+- Mock discipline: a test that only asserts a mock was called does not test
+  real behavior.
+- Name any boundary or negative case that the criterion implies and the tests
+  omit.
+
+
+SUMMARY LINE: Begin `gate_result.summary` with the line `ACs verified: <ids>; red-first: <n>/<m>; commit: <sha>`. Write `none` when there are no AC IDs, `0/0` when no TC changes behavior, and `none` when there is no commit.
 
 DECISION:
 - Unclear requirements -> recommended_outcome: blocked; put the specific
