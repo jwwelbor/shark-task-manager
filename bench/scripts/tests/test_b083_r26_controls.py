@@ -357,6 +357,7 @@ def _deep_review_bundle_digest() -> str:
     ("mutation", "expect_eligible", "expected_path_substr", "expected_detail_substr"),
     [
         ("none", True, None, None),
+        ("stage_name_mismatch", False, "/stages/0/stage", "ordinal 1"),
         ("stage_provider_mismatch", False, "/stages/0/usage/provider", "ordinal 1"),
         ("stage_model_mismatch", False, "/stages/0/usage/model", "ordinal 1"),
         ("stage_vs_identity_only_mismatch", False, "/stages/0/usage/provider", "ordinal 1"),
@@ -482,7 +483,7 @@ def test_evaluate_lifecycle_stage_provider_and_model_consistency(
         "stages": [
             {
                 "dispatch_ordinal": 1,
-                "stage": "code",
+                "stage": "review" if mutation == "stage_name_mismatch" else "code",
                 "category": "code",
                 "cost_usd": 0.125,
                 "elapsed_seconds": 1.0,
@@ -555,6 +556,8 @@ def test_evaluate_lifecycle_stage_provider_and_model_consistency(
         assert proc.returncode == 1
         assert record["eligibility"]["aggregate_eligible"] is False
         assert record["eligibility"]["publication_eligible"] is False
+        assert record["metrics"]["provider_cost"]["available"] is True
+        assert record["metrics"]["provider_cost"]["value"] == 0.125
         reasons = record["eligibility"]["invalidity_reasons"]
         assert any(
             item["code"] == "identity_mismatch"
@@ -562,3 +565,204 @@ def test_evaluate_lifecycle_stage_provider_and_model_consistency(
             and expected_detail_substr in item["detail"]
             for item in reasons
         ), reasons
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expect_ok", "expected_stderr_substr"),
+    [
+        ("none", True, None),
+        ("stage_provider_mismatch", False, "stage provider at dispatch ordinal 1"),
+        ("stage_model_mismatch", False, "stage model at dispatch ordinal 1"),
+    ],
+)
+def test_verify_lifecycle_run_stage_provider_and_model_consistency(
+    tmp_path, mutation, expect_ok, expected_stderr_substr
+):
+    """R26 Stage provider at ordinal 1: verify-lifecycle-run.sh checks stage usage vs dispatch response."""
+    model_513 = ("m" * 512) + "a"
+    prompt_digest = _sha_label("prompt")
+    snap_digest = _sha_label("snapshot")
+    candidate_fields = {
+        "base_commit": "0" * 40,
+        "tree_digest": _sha_label("tree"),
+        "binary_diff_digest": _sha_label("binary_diff"),
+        "changed_path_digest": _sha_label("changed_path"),
+        "dirty_untracked_manifest": _sha_label("dirty_untracked"),
+        "test_suite_digest": _sha_label("test_suite"),
+        "scratch_content_digest": _sha_label("scratch_content"),
+    }
+    candidate = {
+        **candidate_fields,
+        "snapshot_digest": snap_digest,
+        "identity_digest": _canonical_digest(candidate_fields),
+    }
+    gate_policy = {
+        "gate_id": "code",
+        "gate_name": "code",
+        "owner": "developer",
+        "stage": "code",
+        "workflow_family": "bug",
+        "workflow_source": "bug.yaml",
+        "policy_digest": _sha_label("policy_code"),
+    }
+    gate_policy["policy_digest"] = _canonical_digest(
+        {k: v for k, v in gate_policy.items() if k != "policy_digest"}
+    )
+    stage_usage = {"provider": "anthropic", "model": model_513}
+    if mutation == "stage_provider_mismatch":
+        stage_usage["provider"] = "copilot"
+    elif mutation == "stage_model_mismatch":
+        stage_usage["model"] = "m" * 512
+
+    record = {
+        "identity": {
+            "schema_version": "1.0",
+            "run_id": "r26-verify-ordinal-1",
+            "scenario_id": "py-bug-due-date-boundary",
+            "scenario_version": "1",
+            "fixture_id": "py",
+            "fixture_digest": _sha_label("fixture"),
+            "adapter_id": "python",
+            "adapter_version": "1.0.0",
+            "shark_binary_digest": _sha_label("shark_bin"),
+            "shark_content_digest": _sha_label("shark_content"),
+            "roots": {
+                "agent_fixture_checkout": str(tmp_path / "checkout"),
+                "scratch_shark_project": str(tmp_path / "scratch"),
+                "evaluator_only": str(tmp_path / "eval"),
+            },
+        },
+        "entity_graph": {
+            "root_key": "B083",
+            "root_type": "bug",
+            "resolved_via": "scenario_root",
+            "fork_candidates": [],
+            "selected_keys": ["B083"],
+            "selected_types": ["bug"],
+            "ordinals": [1],
+            "ineligible": [],
+        },
+        "dispatches": [
+            {
+                "ordinal": 1,
+                "requested_key": "B083",
+                "response": {
+                    "entity_key": "B083",
+                    "entity_type": "bug",
+                    "status": "code",
+                    "action": "spawn_agent",
+                    "agent_type": "developer",
+                    "provider": "anthropic",
+                    "model": model_513,
+                    "effort": "high",
+                    "prompt_sha256": prompt_digest,
+                    "prompt_bytes": 42,
+                },
+                "claim": {"session_id": "sess-1"},
+                "worker": {"worker_id": "w1", "session_id": "sess-1", "kind": "final", "evidence": {}},
+                "heartbeats": [],
+                "outcome": "pass",
+                "transition": {"outcome": "pass"},
+                "release": {"released": True},
+                "started_at": "2026-01-01T00:00:00Z",
+                "ended_at": "2026-01-01T00:00:01Z",
+                "evidence_refs": {
+                    "prompt_sha256": prompt_digest,
+                    "prompt_bytes": 42,
+                    "candidate_snapshot_digest": snap_digest,
+                },
+            }
+        ],
+        "stages": [
+            {
+                "dispatch_ordinal": 1,
+                "stage": "code",
+                "category": "code",
+                "snapshot_digest": snap_digest,
+                "prompt_digest": prompt_digest,
+                "input_lineage": [
+                    {"source_kind": kind, "path": f"/{kind}", "digest": _sha_label(kind)}
+                    for kind in (
+                        "scenario_package",
+                        "rendered_prompt",
+                        "fixture_checkout",
+                        "shark_content",
+                        "execution_adapter",
+                        "lifecycle_adapter",
+                        "agent_visible_input",
+                    )
+                ],
+                "replay_lineage": [],
+                "output_paths": [],
+                "output_digests": [],
+                "candidate": candidate,
+                "evidence_refs": {"candidate_snapshot_digest": snap_digest},
+                "artifacts": [],
+                "access_events": [],
+                "usage": stage_usage,
+                "cost_usd": 0.125,
+                "elapsed_seconds": 1.0,
+                "errors": [],
+                "rework": False,
+                "intervals": [],
+            }
+        ],
+        "workflow_policy": {
+            "enabled_gates": ["code"],
+            "gate_order": ["code"],
+            "reviewer": {"provider": "anthropic", "model": model_513, "effort": "high"},
+            "prompt_digest": prompt_digest,
+            "review_bundle_digest": _sha_label("review_bundle"),
+            "fixes_allowed_between_gates": True,
+            "gate_policies": [gate_policy],
+        },
+        "review_gates": [
+            {
+                "gate_id": "code",
+                "state": "not_reached",
+                "round": 0,
+                "candidate_ref": {"snapshot_digest": snap_digest},
+                "policy_ref": {"policy_digest": gate_policy["policy_digest"]},
+                "findings": [],
+            }
+        ],
+        "questions": [],
+        "prelude": {},
+        "limits": {
+            "max_cost_usd": 10.0,
+            "max_wall_clock_seconds": 60,
+            "max_generated_tasks": 5,
+            "observed_cost_usd": 0.125,
+            "observed_wall_clock_seconds": 1.0,
+            "observed_generated_tasks": 0,
+            "first_exceeded": None,
+        },
+        "outcome": {
+            "terminal": "complete",
+            "reason": "completed",
+            "partial_evidence": False,
+            "publication_eligible": True,
+        },
+    }
+
+    i07_path = tmp_path / "lifecycle.jsonl"
+    i07_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    proc = subprocess.run(
+        [
+            str(SCRIPTS / "verify-lifecycle-run.sh"),
+            str(i07_path),
+            "--schema",
+            str(REPO_ROOT / "bench" / "runs" / "i07-schema.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if expect_ok:
+        assert proc.returncode == 0, proc.stderr
+        verdict = json.loads(proc.stdout)
+        assert verdict["result"] == "accepted"
+        assert verdict["publication_eligible"] is True
+    else:
+        assert proc.returncode == 1
+        assert "identity_mismatch" in proc.stderr
+        assert expected_stderr_substr in proc.stderr

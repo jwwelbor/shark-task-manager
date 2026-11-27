@@ -147,7 +147,7 @@ def _write_fake_adapter(tmp_path: Path, body: str) -> Path:
     return adapter_bin
 
 
-def _run_lifecycle(ws: dict, shark_bin: Path, adapter_bin: Path, *, with_i05: bool = True) -> subprocess.CompletedProcess:
+def _run_lifecycle(ws: dict, shark_bin: Path, adapter_bin: Path, *, with_i05: bool = True, run_id: str = "test-run-r26") -> subprocess.CompletedProcess:
     cmd = [
         str(RUN_LIFECYCLE),
         "--scenario", str(ws["scenario_path"]),
@@ -155,7 +155,7 @@ def _run_lifecycle(ws: dict, shark_bin: Path, adapter_bin: Path, *, with_i05: bo
         "--scratch-root", str(ws["scratch"]),
         "--fixture-root", str(ws["fixture_root"]),
         "--output", str(ws["output_path"]),
-        "--run-id", "test-run-r26",
+        "--run-id", run_id,
         "--i05-bundle-dir", str(ws["i05_dir"]),
         "--mode", "live",
     ]
@@ -270,7 +270,17 @@ else:
     assert record["outcome"]["terminal"] == "lease_loss"
 
 
-@pytest.mark.parametrize("mode", ["bare", "enriched_raw_final", "enriched_missing_raw_final"])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "bare",
+        "enriched_raw_final",
+        "enriched_missing_raw_final",
+        "enriched_disagreeing_raw_final",
+        "enriched_empty_raw_final",
+        "enriched_invalid_json_raw_final",
+    ],
+)
 def test_r26_raw_final_boundary_bare_and_enriched(tmp_path, mode):
     ws = _setup_workspace(tmp_path)
     shark_body = """
@@ -301,12 +311,28 @@ else:
 """
     shark_bin = _write_fake_shark(tmp_path, ws["log_path"], ws["apply_capture"], shark_body)
     raw_final_str = '{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"exact-raw","findings":[],"kickbacks":[]}}'
+    disagreeing_raw_final_str = '{"kind":"final","recommended_outcome":"fail","evidence":[],"gate_result":{"schema_version":1,"summary":"disagree","findings":[],"kickbacks":[]}}'
     if mode == "bare":
         adapter_body = f"import sys\nsys.stdin.read()\nprint({raw_final_str!r})\n"
     elif mode == "enriched_raw_final":
         adapter_body = (
             "import json, sys\nreq = json.load(sys.stdin)\n"
             f"print(json.dumps({{'worker_id': 'w1', 'session_id': req['session_id'], 'kind': 'final', 'recommended_outcome': 'pass', 'raw_final': {raw_final_str!r}}}))\n"
+        )
+    elif mode == "enriched_disagreeing_raw_final":
+        adapter_body = (
+            "import json, sys\nreq = json.load(sys.stdin)\n"
+            f"print(json.dumps({{'worker_id': 'w1', 'session_id': req['session_id'], 'kind': 'final', 'recommended_outcome': 'pass', 'raw_final': {disagreeing_raw_final_str!r}}}))\n"
+        )
+    elif mode == "enriched_empty_raw_final":
+        adapter_body = (
+            "import json, sys\nreq = json.load(sys.stdin)\n"
+            "print(json.dumps({'worker_id': 'w1', 'session_id': req['session_id'], 'kind': 'final', 'recommended_outcome': 'pass', 'raw_final': '   '}))\n"
+        )
+    elif mode == "enriched_invalid_json_raw_final":
+        adapter_body = (
+            "import json, sys\nreq = json.load(sys.stdin)\n"
+            "print(json.dumps({'worker_id': 'w1', 'session_id': req['session_id'], 'kind': 'final', 'recommended_outcome': 'pass', 'raw_final': '{not-json'}))\n"
         )
     else:
         adapter_body = (
@@ -318,10 +344,18 @@ else:
     assert ws["output_path"].is_file(), proc.stderr
 
     record = json.loads(ws["output_path"].read_text(encoding="utf-8"))
-    if mode == "enriched_missing_raw_final":
+    expected_failure_reasons = {
+        "enriched_missing_raw_final": "omitted raw_final",
+        "enriched_disagreeing_raw_final": "disagrees with host outcome",
+        "enriched_empty_raw_final": "empty or non-string raw_final",
+        "enriched_invalid_json_raw_final": "raw_final is not valid JSON",
+    }
+    if mode in expected_failure_reasons:
         assert not ws["apply_capture"].exists()
         assert record["dispatches"][0]["outcome"] == "worker_failure"
-        assert "omitted raw_final" in record["outcome"]["reason"]
+        assert expected_failure_reasons[mode] in record["outcome"]["reason"]
+        logged = [json.loads(line) for line in ws["log_path"].read_text(encoding="utf-8").splitlines()]
+        assert not any(cmd[0] == "run" and "--apply-result" in cmd for cmd in logged)
     else:
         assert ws["apply_capture"].read_text(encoding="utf-8") == raw_final_str
         assert record["outcome"]["terminal"] == "complete"
@@ -505,3 +539,107 @@ else:
     assert len(reached_gates) == 1
     assert reached_gates[0]["round"] == 1
     assert reached_gates[0]["state"] == "zero_findings"
+
+
+def test_r26_pending_stage_recovery_via_resume_run(tmp_path):
+    """R26 step 4: interrupted apply recovers via --resume-run STAGE_ID --session SESSION before next/claim."""
+    ws = _setup_workspace(tmp_path)
+    shark_body = """
+import signal
+STATE_FILE = LOG_PATH.parent / "state.txt"
+if argv[0] == "next":
+    if STATE_FILE.exists() and STATE_FILE.read_text(encoding="utf-8") == "resumed":
+        print(json.dumps({"entity_key": "B001", "entity_type": "bug", "status": "completed", "action": "archive", "terminal": True}))
+    else:
+        emit_next({
+            "entity_key": "B001", "entity_type": "bug", "status": "code_review", "phase": "code_review",
+            "action": "spawn_agent", "agent_type": "reviewer", "provider": "codex", "model": "synthetic-paid-model",
+            "effort": "high", "prompt": "Review it", "result_contract": "gate_result_v1",
+            "allowed_outcomes": ["pass", "fail"],
+        })
+elif argv[0] == "claim":
+    print(json.dumps({"session_id": "sess-1"}))
+elif argv[0] == "heartbeat":
+    print(json.dumps({"ok": True}))
+elif argv[0] == "run" and "--apply-result" in argv:
+    idx = argv.index("--apply-result") + 1
+    APPLY_CAPTURE.write_bytes(Path(argv[idx]).read_bytes())
+    STATE_FILE.write_text("durably_stored", encoding="utf-8")
+    os.kill(os.getppid(), signal.SIGKILL)
+elif argv[0] == "run" and "--resume-run" in argv:
+    stage_id = argv[argv.index("--resume-run") + 1]
+    session = argv[argv.index("--session") + 1]
+    assert STATE_FILE.read_text(encoding="utf-8") == "durably_stored"
+    STATE_FILE.write_text("resumed", encoding="utf-8")
+    print(json.dumps({
+        "run_id": stage_id,
+        "entity_key": "B001",
+        "entity_type": "bug",
+        "resume_action": "already_transitioned",
+        "ingested": True,
+        "to_status": "completed",
+        "transitioned": False,
+        "lease_released": True,
+        "status": {"retirement_state": "retired"},
+    }))
+elif argv[0] == "release":
+    print(json.dumps({"released": True}))
+else:
+    print(json.dumps({}))
+"""
+    shark_bin = _write_fake_shark(tmp_path, ws["log_path"], ws["apply_capture"], shark_body)
+    raw_final_str = '{"kind":"final","recommended_outcome":"pass","evidence":[],"gate_result":{"schema_version":1,"summary":"ok","findings":[],"kickbacks":[]}}'
+    adapter_bin = _write_fake_adapter(tmp_path, f"import sys\nsys.stdin.read()\nprint({raw_final_str!r})\n")
+
+    proc1 = _run_lifecycle(ws, shark_bin, adapter_bin, run_id="r26-resume-run")
+    assert proc1.returncode != 0
+    pending_path = ws["scratch"] / ".shark" / "e40-apply" / "pending.json"
+    assert pending_path.is_file()
+    pending_data = json.loads(pending_path.read_text(encoding="utf-8"))
+    expected_stage_id = pending_data["stage_id"]
+
+    ws["log_path"].unlink()
+    proc2 = _run_lifecycle(ws, shark_bin, adapter_bin, run_id="r26-resume-run")
+    assert proc2.returncode == 0, proc2.stderr
+    assert not pending_path.exists()
+
+    logged = [json.loads(line) for line in ws["log_path"].read_text(encoding="utf-8").splitlines()]
+    assert logged[0][0] == "run"
+    assert "--resume-run" in logged[0]
+    assert logged[0][logged[0].index("--resume-run") + 1] == expected_stage_id
+    assert logged[0][logged[0].index("--session") + 1] == "sess-1"
+    assert not any(cmd[0] == "run" and "--apply-result" in cmd for cmd in logged)
+    assert not any(cmd[0] == "claim" for cmd in logged)
+
+    record = json.loads(ws["output_path"].read_text(encoding="utf-8"))
+    assert record["outcome"]["terminal"] == "complete"
+    assert record["dispatches"][0]["transition"]["run_id"] == expected_stage_id
+    assert record["dispatches"][0]["transition"]["resumed"] is True
+    assert record["dispatches"][0]["transition"]["to_status"] == "completed"
+
+
+def test_r26_pending_stage_recovery_rejects_mismatched_run_id(tmp_path):
+    """R26 step 4: a different run_id cannot resume or clear another run's pending stage."""
+    ws = _setup_workspace(tmp_path)
+    pending_path = ws["scratch"] / ".shark" / "e40-apply" / "pending.json"
+    pending_path.parent.mkdir(parents=True, exist_ok=True)
+    pending_path.write_text(
+        json.dumps({
+            "run_id": "other-run-id",
+            "stage_id": "e40s-1234",
+            "entity_key": "B001",
+            "entity_type": "bug",
+            "source_status": "code_review",
+            "session_id": "sess-1",
+            "ordinal": 1,
+            "outcome": "pass",
+        }),
+        encoding="utf-8",
+    )
+    shark_bin = _write_fake_shark(tmp_path, ws["log_path"], ws["apply_capture"], "print(json.dumps({}))\n")
+    adapter_bin = _write_fake_adapter(tmp_path, "import sys\nsys.stdin.read()\nprint('{}')\n")
+
+    proc = _run_lifecycle(ws, shark_bin, adapter_bin, run_id="new-run-id")
+    assert proc.returncode != 0
+    assert pending_path.is_file()
+    assert not ws["log_path"].exists()

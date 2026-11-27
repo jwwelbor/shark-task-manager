@@ -420,6 +420,23 @@ def validate_stage_provider_identity(lifecycle, identity, reasons):
                 ))
 
         ordinal_label = stage_ordinal if stage_ordinal is not None else stage_index + 1
+        s_stage = stage.get("stage")
+        if s_stage is not None and resp is not None:
+            r_status = resp.get("status")
+            if r_status is not None and s_stage != r_status:
+                reasons.append(reason(
+                    "identity_mismatch",
+                    f"/stages/{stage_index}/stage",
+                    f"stage name at dispatch ordinal {ordinal_label} disagrees with dispatch response",
+                ))
+        if s_stage is not None and ordered_entry is not None:
+            o_stage = ordered_entry.get("stage")
+            if o_stage is not None and s_stage != o_stage:
+                reasons.append(reason(
+                    "identity_mismatch",
+                    f"/stages/{stage_index}/stage",
+                    f"stage name at dispatch ordinal {ordinal_label} disagrees with provider_identity",
+                ))
         if usage is not None and resp is not None:
             for field in ("provider", "model"):
                 u_val = usage.get(field)

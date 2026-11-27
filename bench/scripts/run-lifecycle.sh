@@ -482,6 +482,149 @@ def _write_private_apply_file(scratch, stage_id, raw_bytes):
     return path
 
 
+def _pending_stage_path(scratch):
+    return scratch / ".shark" / "e40-apply" / "pending.json"
+
+
+def _write_pending_stage(scratch, payload):
+    pending_path = _pending_stage_path(scratch)
+    pending_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = pending_path.with_suffix(".json.tmp")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.replace(tmp_path, pending_path)
+    return pending_path
+
+
+def _clear_pending_stage(scratch, apply_file=None):
+    if apply_file is not None:
+        try:
+            Path(apply_file).unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        _pending_stage_path(scratch).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _reconcile_pending_stage(shark, scratch, run_id, fixture_root, record):
+    """Inspect and reconcile any pending structured-final stage before new dispatches."""
+    pending_path = _pending_stage_path(scratch)
+    if not pending_path.is_file():
+        return 0
+    try:
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot read pending stage marker {pending_path}: {exc}") from exc
+    if not isinstance(pending, dict):
+        raise RuntimeError(f"pending stage marker {pending_path} must be a JSON object")
+    if pending.get("run_id") != run_id:
+        raise RuntimeError(
+            f"pending stage belongs to run_id {pending.get('run_id')!r}, cannot resume under {run_id!r}"
+        )
+
+    stage_id = str(pending.get("stage_id") or "")
+    entity = str(pending.get("entity_key") or "")
+    entity_type = str(pending.get("entity_type") or "")
+    source_status = str(pending.get("source_status") or "")
+    session = str(pending.get("session_id") or "")
+    outcome = str(pending.get("outcome") or "")
+    apply_file_str = str(pending.get("apply_file") or "")
+    final_digest = str(pending.get("final_digest") or "")
+    pending_ordinal = int(pending.get("ordinal") or 1)
+    if not stage_id or not entity or not session:
+        raise RuntimeError("pending stage marker is missing stage_id, entity_key, or session_id")
+
+    apply_file = Path(apply_file_str) if apply_file_str else None
+    resume_cmd = ["run", entity, "--resume-run", stage_id, "--session", session, "--json"]
+    if entity_type == "bug":
+        resume_cmd.extend(["--workdir", str(fixture_root)])
+
+    release_resp = None
+    try:
+        resume_resp = run_command(shark, resume_cmd, scratch)
+    except RuntimeError as exc:
+        if (
+            pending.get("submitted") is False
+            and apply_file is not None
+            and apply_file.is_file()
+            and final_digest
+            and sha256_bytes(apply_file.read_bytes()) == final_digest
+        ):
+            entity_state = run_command(shark, ["get", entity, "--json"], scratch)
+            if str(entity_state.get("status") or "") != source_status:
+                raise RuntimeError(
+                    f"pending unsubmitted stage {stage_id} status changed from {source_status!r} to {entity_state.get('status')!r}"
+                ) from exc
+            apply_cmd = [
+                "run", entity, "--apply-result", str(apply_file),
+                "--run-id", stage_id, "--session", session, "--json",
+            ]
+            if entity_type == "bug":
+                apply_cmd.extend(["--workdir", str(fixture_root)])
+            resume_resp = run_command(shark, apply_cmd, scratch)
+            resume_action = "initial_apply_after_unsubmitted"
+        else:
+            raise RuntimeError(
+                f"pending stage {stage_id} resume failed for {entity}: {exc}"
+            ) from exc
+    else:
+        resp_run_id = resume_resp.get("run_id")
+        resp_entity = resume_resp.get("entity_key")
+        if resp_run_id not in {None, "", stage_id} or resp_entity not in {None, "", entity}:
+            raise RuntimeError(
+                f"resume-run identity mismatch for {stage_id}: got run_id={resp_run_id!r}, entity_key={resp_entity!r}"
+            )
+        resume_action = str(resume_resp.get("resume_action") or resume_resp.get("action") or "")
+
+    to_status = str(resume_resp.get("to_status") or resume_resp.get("new_status") or "")
+    status_proj = resume_resp.get("status") if isinstance(resume_resp.get("status"), dict) else {}
+    retired = bool(resume_resp.get("retired")) or status_proj.get("retirement_state") == "retired"
+    lease_released = bool(resume_resp.get("lease_released"))
+    if not lease_released and not retired:
+        release_resp = bounded(
+            run_command(
+                shark,
+                ["release", entity, "--session", session, "--outcome", outcome or "complete", "--json"],
+                scratch,
+            )
+        )
+
+    record["dispatches"].append({
+        "ordinal": pending_ordinal,
+        "requested_key": entity,
+        "response": {"entity_key": entity, "entity_type": entity_type, "status": source_status},
+        "claim": {"session_id": session},
+        "worker": {"worker_id": "resume", "session_id": session, "kind": "final", "recommended_outcome": outcome},
+        "heartbeats": [],
+        "outcome": outcome or "complete",
+        "transition": {
+            "run_id": stage_id,
+            "outcome": outcome,
+            "session_id": session,
+            "from_status": source_status,
+            "to_status": to_status,
+            "persisted": True,
+            "transitioned": bool(resume_resp.get("transitioned", False)),
+            "retired": retired,
+            "resumed": True,
+            "resume_action": resume_action,
+            "final_digest": final_digest,
+        },
+        "release": release_resp or {"released": lease_released},
+        "started_at": timestamp(),
+        "ended_at": timestamp(),
+    })
+    if pending_ordinal not in record["entity_graph"]["ordinals"]:
+        record["entity_graph"]["ordinals"].append(pending_ordinal)
+    _clear_pending_stage(scratch, apply_file)
+    return pending_ordinal
+
+
 def load_json(stdout, label):
     try:
         return json.loads(stdout.strip())
@@ -2768,6 +2911,12 @@ def main(argv):
     signal.signal(signal.SIGTERM, release_on_signal)
 
     try:
+        if args["mode"] not in {"contract", "dry-run"} and queue:
+            reconciled_ordinal = _reconcile_pending_stage(
+                shark, scratch, args["run_id"], fixture_root, record
+            )
+            if reconciled_ordinal:
+                ordinal = max(ordinal, reconciled_ordinal)
         while queue:
             requested = queue.pop(0)
             pre_dispatch_gates(scenario_path, scenario, fixture_root, scratch)
@@ -2937,6 +3086,19 @@ def main(argv):
                         args["run_id"], entity, response.get("status", ""), dispatch["ordinal"], session
                     )
                     apply_file = _write_private_apply_file(scratch, stage_id, raw_bytes)
+                    _write_pending_stage(scratch, {
+                        "run_id": args["run_id"],
+                        "stage_id": stage_id,
+                        "entity_key": entity,
+                        "entity_type": response.get("entity_type", ""),
+                        "source_status": response.get("status", ""),
+                        "session_id": session,
+                        "ordinal": dispatch["ordinal"],
+                        "outcome": str(outcome),
+                        "apply_file": str(apply_file),
+                        "final_digest": sha256_bytes(raw_bytes),
+                        "submitted": True,
+                    })
                     try:
                         apply_cmd = [
                             "run", entity, "--apply-result", str(apply_file),
@@ -2946,6 +3108,7 @@ def main(argv):
                             apply_cmd.extend(["--workdir", str(fixture_root)])
                         apply_resp = run_command(shark, apply_cmd, scratch)
                     except RuntimeError as exc:
+                        _clear_pending_stage(scratch, apply_file)
                         rejection = bounded(str(exc))
                         dispatch["transition"] = {
                             "run_id": stage_id,
@@ -2957,11 +3120,7 @@ def main(argv):
                             "retry_scheduled": False,
                         }
                         raise
-                    finally:
-                        try:
-                            apply_file.unlink(missing_ok=True)
-                        except OSError:
-                            pass
+                    _clear_pending_stage(scratch, apply_file)
                     to_status = str(apply_resp.get("to_status") or apply_resp.get("new_status") or "")
                     status_proj = apply_resp.get("status") if isinstance(apply_resp.get("status"), dict) else {}
                     retired = bool(apply_resp.get("retired")) or status_proj.get("retirement_state") == "retired"
