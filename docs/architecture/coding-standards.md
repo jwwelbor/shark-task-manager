@@ -28,6 +28,8 @@ Each limit is an inclusive maximum: a value equal to the limit passes.
 | File length (lines) | 500 | production and test | review-enforced | none (review) |
 | Nesting depth | 4 | production and test | review-enforced | none (review) |
 
+These limits apply to Go source only: code in other languages in this repository, for example `review_workflow.js`, is not measured.
+
 The measuring command is `make lint`. It measures only the tool-enforced limits, using [`.golangci-limits.yml`](../../.golangci-limits.yml).
 
 - **Function length**: `funlen` counts the lines of the function body. Blank lines count; comment-only lines do not.

@@ -10,7 +10,7 @@ UNCLEAR REQUIREMENTS: do not guess and do not wait for a reply. Return `blocked`
 REWORK? If the task spec contains a rejection section (e.g. "## UAT Rejection") or the kickback reason names a defect class: BEFORE fixing the cited instance, apply the defect-class sweep procedure (`skills/quality/workflows/defect-class-sweep.md`) — enumerate every site in the touched module(s) matching that defect class per its "Enumeration procedure" section, disposition each per that same section (do not force-fix an existing accepted-risk disposition absent new evidence), and list the swept sites in your completion note. A point fix that leaves sibling instances of the same class costs another full review round.
 If the bundle is not extracted, read the procedure with `shark skill get quality workflows/defect-class-sweep.md`.
 
-REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites.
+REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites, and the work item's decision notes.
 
 ---
 
@@ -100,6 +100,11 @@ configuration, generated files and golden test data are not measured.
   not edited. Code moved into a file counts as edited in its destination.
 - A **unit** is the file (file length) or a function in it (function length,
   cyclomatic complexity, nesting depth).
+
+When the local `## Quality Limits` section states, in a sentence, that the limits
+apply only to named languages, code files in other languages are not measured: no
+limit counts as undeclared for them, and no generic default applies. When the
+section names no languages, every code file is measured.
 
 ## Resolving the limits
 
@@ -191,8 +196,8 @@ without leaving the overage in place or recording an exception.
   `gate_result.no_kickback_reason`.
 - The architect or owner decides: a directed refactor, recorded as a decision
   note on the work item, or a limit exception.
-- The re-dispatched author reads the latest transition note and the gate report
-  it cites, then acts on the decision.
+- The re-dispatched author reads the latest transition note, the gate report it
+  cites, and the work item's decision notes, then acts on the decision.
 
 ## Self-review checklist
 

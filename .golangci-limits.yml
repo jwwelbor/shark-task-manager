@@ -1,6 +1,7 @@
-# Quality limits for new code only. Values and enforcement are declared in
-# docs/architecture/coding-standards.md (Quality Limits). `make lint` runs this
-# after .golangci.yml.
+# Quality limits. With --whole-files, this config measures every function in each
+# Go file changed since the pinned new-from-rev. Values and enforcement are
+# declared in docs/architecture/coding-standards.md (Quality Limits).
+# `make lint` runs this after .golangci.yml.
 version: "2"
 run:
   timeout: 5m

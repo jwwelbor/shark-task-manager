@@ -10,7 +10,7 @@ UNCLEAR REQUIREMENTS: do not guess and do not wait for a reply. Return `blocked`
 REWORK? If the task spec contains a rejection section (e.g. "## UAT Rejection") or the kickback reason names a defect class: BEFORE fixing the cited instance, apply the defect-class sweep procedure (`skills/quality/workflows/defect-class-sweep.md`) — enumerate every site in the touched module(s) matching that defect class per its "Enumeration procedure" section, disposition each per that same section (do not force-fix an existing accepted-risk disposition absent new evidence), and list the swept sites in your completion note. A point fix that leaves sibling instances of the same class costs another full review round.
 If the bundle is not extracted, read the procedure with `shark skill get quality workflows/defect-class-sweep.md`.
 
-REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites.
+REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites, and the work item's decision notes.
 
 ---
 

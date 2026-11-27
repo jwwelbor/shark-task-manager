@@ -5,7 +5,7 @@ RESUME tech debt resolution for E07-F01: "Sample feature for golden test".
 
 Category: feature | Severity: medium
 
-REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites.
+REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites, and the work item's decision notes.
 
 RESOLVE THE QUALITY GATE (before you implement):
 Determine the commands from the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (the **Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets. Check the sources in that order. If every source is absent or contains only a placeholder (for example "To be defined" or an unfilled template field), recommend `blocked`, put a recommendation to run project bootstrap in `gate_result.no_kickback_reason`, and do not implement. Missing quality limits never block.
@@ -92,6 +92,11 @@ configuration, generated files and golden test data are not measured.
   not edited. Code moved into a file counts as edited in its destination.
 - A **unit** is the file (file length) or a function in it (function length,
   cyclomatic complexity, nesting depth).
+
+When the local `## Quality Limits` section states, in a sentence, that the limits
+apply only to named languages, code files in other languages are not measured: no
+limit counts as undeclared for them, and no generic default applies. When the
+section names no languages, every code file is measured.
 
 ## Resolving the limits
 
@@ -183,8 +188,8 @@ without leaving the overage in place or recording an exception.
   `gate_result.no_kickback_reason`.
 - The architect or owner decides: a directed refactor, recorded as a decision
   note on the work item, or a limit exception.
-- The re-dispatched author reads the latest transition note and the gate report
-  it cites, then acts on the decision.
+- The re-dispatched author reads the latest transition note, the gate report it
+  cites, and the work item's decision notes, then acts on the decision.
 
 ## Self-review checklist
 

@@ -258,11 +258,7 @@ func TestE31F01_TC020b_TechDebtOutcomeRoutes(t *testing.T) {
 				"pass": forward[from], "fail": "identified", "blocked": "blocked",
 				"cancelled": "cancelled", "wont_fix": "wont_fix",
 			}
-			for outcome, want := range routes {
-				got, ok := wf.ResolveOutcome(from, outcome)
-				assert.Truef(t, ok, "outcome %s must resolve", outcome)
-				assert.Equalf(t, want, got, "outcome %s", outcome)
-			}
+			assertOutcomesResolve(t, wf, from, routes)
 			assert.ElementsMatch(t, slices.Collect(maps.Values(routes)), wf.StatusFlow[from])
 			require.NotEmpty(t, wf.StatusFlow[from])
 			assert.Equal(t, forward[from], wf.StatusFlow[from][0], "forward target must be first")
@@ -271,20 +267,42 @@ func TestE31F01_TC020b_TechDebtOutcomeRoutes(t *testing.T) {
 	assert.Equal(t, techDebtWorkableSteps, wf.StatusFlow["blocked"], "parking resume targets")
 }
 
+// assertOutcomesResolve checks each route of one step as its own subtest.
+func assertOutcomesResolve(t *testing.T, wf *WorkflowConfig, from string, routes map[string]string) {
+	t.Helper()
+	for outcome, want := range routes {
+		t.Run(outcome, func(t *testing.T) {
+			got, ok := wf.ResolveOutcome(from, outcome)
+			assert.True(t, ok, "outcome must resolve")
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// assertNoOutcomeResolves checks that a step routes no worker outcome.
+func assertNoOutcomeResolves(t *testing.T, wf *WorkflowConfig, from string) {
+	t.Helper()
+	for _, outcome := range techDebtOutcomes {
+		t.Run(outcome, func(t *testing.T) {
+			got, ok := wf.ResolveOutcome(from, outcome)
+			assert.False(t, ok, "outcome must not resolve, got %q", got)
+		})
+	}
+}
+
 func TestE31F01_TC020c_TechDebtInvalidTransitions(t *testing.T) {
 	wf := DefaultTechDebtWorkflow()
 
 	for _, from := range techDebtWorkableSteps {
-		got, _ := wf.ResolveOutcome(from, "blocked")
-		assert.NotEqualf(t, "identified", got, "%s blocked must not loop back to identified", from)
+		t.Run(from, func(t *testing.T) {
+			got, _ := wf.ResolveOutcome(from, "blocked")
+			assert.NotEqual(t, "identified", got, "blocked must not loop back to identified")
+		})
 	}
 	for _, from := range []string{"blocked", "resolved", "wont_fix", "cancelled"} {
 		t.Run(from, func(t *testing.T) {
 			require.Contains(t, wf.StatusFlow, from)
-			for _, outcome := range techDebtOutcomes {
-				got, ok := wf.ResolveOutcome(from, outcome)
-				assert.Falsef(t, ok, "outcome %s must not resolve, got %q", outcome, got)
-			}
+			assertNoOutcomeResolves(t, wf, from)
 			if from != "blocked" {
 				assert.Empty(t, wf.StatusFlow[from])
 			}

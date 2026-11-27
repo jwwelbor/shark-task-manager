@@ -14,6 +14,11 @@ configuration, generated files and golden test data are not measured.
 - A **unit** is the file (file length) or a function in it (function length,
   cyclomatic complexity, nesting depth).
 
+When the local `## Quality Limits` section states, in a sentence, that the limits
+apply only to named languages, code files in other languages are not measured: no
+limit counts as undeclared for them, and no generic default applies. When the
+section names no languages, every code file is measured.
+
 ## Resolving the limits
 
 Look for the `## Quality Limits` table in the project's local
@@ -104,8 +109,8 @@ without leaving the overage in place or recording an exception.
   `gate_result.no_kickback_reason`.
 - The architect or owner decides: a directed refactor, recorded as a decision
   note on the work item, or a limit exception.
-- The re-dispatched author reads the latest transition note and the gate report
-  it cites, then acts on the decision.
+- The re-dispatched author reads the latest transition note, the gate report it
+  cites, and the work item's decision notes, then acts on the decision.
 
 ## Self-review checklist
 

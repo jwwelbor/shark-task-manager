@@ -11,7 +11,7 @@ Check each applicable decision constraint against the approved coverage index be
 
 Apply `skills/quality/workflows/defect-class-sweep.md` (if the bundle is not extracted, read it with `shark skill get quality workflows/defect-class-sweep.md`) to rejection defect classes, preserving valid dispositions and existing retry policy.
 
-REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites.
+REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites, and the work item's decision notes.
 
 ---
 
@@ -57,9 +57,9 @@ EXIT GATE:
 - Quality gate passes
 - Every applicable decision constraint has passing verification evidence or an authorized disposition
 - No unrelated changes
-- Evidence walk: name the test or check for each AC ID, compactly (AC-ID: test name) so `gate_result.summary` stays within its size limit
-- Every code file you edited is within the resolved limits (file length and every function in it, including overages that predate the change), measured in full, with each limit's source label stated; any unit still over a limit names the limit exception that covers it
-- Self-review is recorded with no unresolved finding
+- Evidence walk: outer `evidence[]` names the test or check for each AC ID
+- Every code file you edited is within the resolved limits (file length and every function in it, including overages that predate the change), measured in full, with each limit's source label stated in `evidence[]`; any unit still over a limit names the limit exception that covers it
+- Self-review is recorded with no unresolved finding, as an `evidence[]` entry
 
 ## Reference Methodology
 
@@ -70,8 +70,9 @@ EXIT GATE:
 {{include: skills/test-driven-development/SKILL.md}}
 
 SUMMARY LINE: Begin `gate_result.summary` with the line `ACs verified: <ids>; red-first: <n>/<m>; commit: <sha>`. Write `none` when there are no AC IDs, `0/0` when no TC changes behavior, and `none` when there is no commit.
+Put the per-AC evidence walk, the limit source labels and the self-review record in outer `evidence[]` entries of kind `ac_evidence`, `limit_measurement` and `self_review` respectively: one entry per AC ID or record, each with `kind`, `pointer` (the test, check or file) and `summary`. These entries go alongside the required entries shown below, on a success outcome too, and never use `plan_review_report` or a kind beginning `bug_`. `gate_result.summary` holds only the summary line and the verdict, within its 1000-byte cap.
 
-DECISION: pass only when the accepted plan, coverage obligations, and exit gate are satisfied. Use review_plan for a valid plan whose approval is missing or stale; use needs_research for changed diagnosis, replan for a material plan update, fail for implementation rework, and blocked for unavailable external evidence. For route_rework outcomes leave kickbacks empty, keep the summary concise, and retain findings in the structured findings. The parent owns transitions.
+DECISION: pass only when the accepted plan, coverage obligations, and exit gate are satisfied. Use review_plan for a valid plan whose approval is missing or stale; use needs_research for changed diagnosis, replan for a material plan update, fail for implementation rework, and blocked for unavailable external evidence, a missing quality gate, an architect consultation or unclear requirements. For route_rework outcomes leave kickbacks empty, keep the summary concise, and retain findings in the structured findings. The parent owns transitions.
 
 The fail outcome's role is `route_rework`.
 

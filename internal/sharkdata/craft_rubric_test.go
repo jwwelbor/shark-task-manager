@@ -18,7 +18,7 @@ import (
 
 const (
 	craftRubricPath  = "skills/quality/context/craft-rubric.md"
-	craftRubricLimit = 170
+	craftRubricLimit = 175
 	reviewCodePath   = "skills/quality/workflows/review-code.md"
 	bundleDir        = "default_data"
 	deepReviewDir    = "../../skills/shark-rider/skills/deep-review"

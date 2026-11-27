@@ -5,7 +5,7 @@ RESUME tech debt resolution for {{.id}}: "{{.title}}".
 
 Category: {{.category}} | Severity: {{.severity}}
 
-REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites.
+REOPENED OR REWORK DISPATCH: before you change any code, read the latest transition note and the gate report that note cites, and the work item's decision notes.
 
 RESOLVE THE QUALITY GATE (before you implement):
 Determine the commands from the project's agent instructions (`CLAUDE.md`, `AGENTS.md`), `docs/architecture/tech-stack.md` (the **Quality Gate** section), `docs/architecture/coding-standards.md`, `docs/architecture/test-gate.md`, or the repository's documented build/task targets. Check the sources in that order. If every source is absent or contains only a placeholder (for example "To be defined" or an unfilled template field), recommend `blocked`, put a recommendation to run project bootstrap in `gate_result.no_kickback_reason`, and do not implement. Missing quality limits never block.

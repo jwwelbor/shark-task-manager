@@ -225,6 +225,30 @@ func TestE31F01_TC008_SourceContractLiterals(t *testing.T) {
 	}
 }
 
+// The consultation decision is recorded as a decision note, which no rendered
+// prompt carries. Asserted on the reopen line itself: the included rubric uses
+// the same words.
+func TestE31F01_TC008_ReopenLineReadsDecisionNotes(t *testing.T) {
+	for _, prompt := range developmentPrompts {
+		t.Run(prompt.name, func(t *testing.T) {
+			line := lineStartingWith(t, readEmbeddedPrompt(t, prompt.name), "REOPENED OR REWORK DISPATCH:")
+			assert.Contains(t, line, "before you change any code, read the latest transition note and the gate report that note cites")
+			assert.Contains(t, line, "and the work item's decision notes")
+		})
+	}
+}
+
+func lineStartingWith(t *testing.T, text, prefix string) string {
+	t.Helper()
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	require.FailNow(t, "missing line", "no line starts with %q", prefix)
+	return ""
+}
+
 func TestE31F01_TC008_FamilyPromptRules(t *testing.T) {
 	forEachDevelopmentRender(t, func(t *testing.T, prompt developmentPrompt, out string) {
 		read := promptSection(t, out, "READ")
@@ -263,10 +287,12 @@ func TestE31F01_TC021_LimitExceptionAndConsultation(t *testing.T) {
 	})
 }
 
-// Change and tech-debt results have a 1000-byte summary cap, so their evidence
-// detail belongs in outer evidence entries (D12). Task and bug are unchanged.
+// Envelope results have a 1000-byte summary cap, so their evidence detail
+// belongs in outer evidence entries (D12). Only the task prompt, which returns
+// no envelope, stays unrouted.
 func TestE31F01_TC022_EvidenceRouting(t *testing.T) {
 	routed := map[string]bool{
+		"bug/development.md":       true,
 		"change/development.md":    true,
 		"tech_debt/triaged.md":     true,
 		"tech_debt/in_progress.md": true,
@@ -277,7 +303,7 @@ func TestE31F01_TC022_EvidenceRouting(t *testing.T) {
 			assert.NotContains(t, gate, "`evidence[]`")
 			return
 		}
-		assert.Contains(t, gate, "`evidence[]`")
+		assert.Contains(t, lineStartingWith(t, gate, "- Evidence walk:"), "`evidence[]`")
 		assert.Contains(t, promptSection(t, out, "SUMMARY LINE:"), "`evidence[]`")
 		assert.NotContains(t, gate, "compactly")
 		assert.NotContains(t, gate, "stays within its size limit")
@@ -310,15 +336,27 @@ func assertPrecedenceLimitsFailingTests(t *testing.T, rendered string) {
 // directory, which falls back to the embedded bundle: no override and no
 // project documents in either case.
 func TestE31F01_TC019_ProjectWithoutStandardsRendersDefaults(t *testing.T) {
-	for _, dir := range []string{canonicalPromptsDir, t.TempDir()} {
-		renderer, err := NewOrchestratorRenderer(dir)
-		require.NoError(t, err)
-		for _, prompt := range developmentPrompts {
-			t.Run(prompt.name, func(t *testing.T) {
-				out := renderDevelopmentPrompt(t, renderer, prompt.name)
-				assert.Contains(t, out, genericDefaultLabel)
-				assertNoUnresolvedDirectives(t, out)
-			})
-		}
+	sources := []struct{ name, dir string }{
+		{name: "checked-in", dir: canonicalPromptsDir},
+		{name: "embedded-fallback", dir: t.TempDir()},
+	}
+	for _, source := range sources {
+		t.Run(source.name, func(t *testing.T) {
+			assertDefaultsRender(t, source.dir)
+		})
+	}
+}
+
+// assertDefaultsRender renders each family prompt from dir as its own subtest.
+func assertDefaultsRender(t *testing.T, dir string) {
+	t.Helper()
+	renderer, err := NewOrchestratorRenderer(dir)
+	require.NoError(t, err)
+	for _, prompt := range developmentPrompts {
+		t.Run(prompt.name, func(t *testing.T) {
+			out := renderDevelopmentPrompt(t, renderer, prompt.name)
+			assert.Contains(t, out, genericDefaultLabel)
+			assertNoUnresolvedDirectives(t, out)
+		})
 	}
 }
