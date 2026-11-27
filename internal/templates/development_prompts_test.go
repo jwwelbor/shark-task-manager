@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/sharkdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,12 +24,21 @@ const (
 	envelopeSummaryLead = "Begin `gate_result.summary` with the line " + completionSummaryLine
 )
 
+// limitExitGateItem names the literals of REQ-F-017(b), the edited-code gate.
+var limitExitGateItem = []string{
+	"Every code file you edited is within the resolved limits",
+	"measured in full",
+	"overages that predate the change",
+	"source label",
+	"limit exception",
+}
+
 // envelopeExitGate returns a prompt's own exit gate items plus REQ-F-017
 // (a), (b) and (d). Item (c), the task Scope list, applies to tasks only.
 func envelopeExitGate(own ...string) []string {
+	own = append(own, limitExitGateItem...)
 	return append(own,
 		"for each AC ID",
-		"source label",
 		"Self-review is recorded with no unresolved finding",
 	)
 }
@@ -37,17 +47,17 @@ var developmentPrompts = []developmentPrompt{
 	{
 		name:        "task/development.md",
 		summaryLead: taskSummaryLead,
-		exitGateItems: []string{
+		exitGateItems: append([]string{
 			// Pre-existing items that must remain.
 			"All test cases from feature test-plan.md",
 			"Each test names its TC-ID and calls its Caller-Path Contract entrypoint",
 			"Quality gate passes",
-			// REQ-F-017 (a) to (d).
+			// REQ-F-017 (a), (c) and (d); (b) is limitExitGateItem.
 			"for each AC ID",
-			"source label",
-			"`## Scope` \"Files to modify\"",
+			taskScopeExitGateItem,
+			"files a limit refactor creates",
 			"Self-review is recorded with no unresolved finding",
-		},
+		}, limitExitGateItem...),
 	},
 	{
 		name:        "bug/development.md",
@@ -93,7 +103,31 @@ const (
 	tddProcessMarker      = "TDD PROCESS:"
 	genericDefaultLabel   = "generic default — not declared in local standards"
 	completionSummaryLine = "`ACs verified: <ids>; red-first: <n>/<m>; commit: <sha>`"
+	taskScopeExitGateItem = "`## Scope` \"Files to modify\""
+	// retiredLimitWording is the round-1 gate that the edited-code rule replaced.
+	retiredLimitWording = "Every new or changed function and file"
 )
+
+// promptContractLiterals are the spec's prompt contract literals (REQ-F-033(b)).
+var promptContractLiterals = []string{
+	"If every source is absent or contains only a placeholder",
+	"project bootstrap",
+	"Missing quality limits never block.",
+	"Run the self-review checklist in the Craft Rubric below against your own diff",
+	"before you change any code, read the latest transition note and the gate report that note cites",
+	"Every code file you edited is within the resolved limits",
+	"measured in full",
+	"consult the architect",
+}
+
+// readListStandards are the REQ-F-011 files each READ list names exactly once.
+var readListStandards = []string{
+	"CLAUDE.md",
+	"AGENTS.md",
+	"docs/architecture/coding-standards.md",
+	"patterns-catalog.md",
+	"tech-stack.md",
+}
 
 func renderDevelopmentPrompt(t *testing.T, renderer *OrchestratorRenderer, name string) string {
 	t.Helper()
@@ -106,6 +140,25 @@ func renderDevelopmentPrompt(t *testing.T, renderer *OrchestratorRenderer, name 
 	})
 	require.NoError(t, err, "render %s", name)
 	return out
+}
+
+func readEmbeddedPrompt(t *testing.T, name string) string {
+	t.Helper()
+	body, err := sharkdata.ReadEmbedded("prompts/" + name)
+	require.NoError(t, err, "embedded prompt %s must exist", name)
+	return string(body)
+}
+
+// forEachDevelopmentRender runs check as one subtest per family prompt, on the
+// production render of that prompt.
+func forEachDevelopmentRender(t *testing.T, check func(t *testing.T, prompt developmentPrompt, out string)) {
+	t.Helper()
+	renderer := newCanonicalOrchestratorRenderer(t)
+	for _, prompt := range developmentPrompts {
+		t.Run(prompt.name, func(t *testing.T) {
+			check(t, prompt, renderDevelopmentPrompt(t, renderer, prompt.name))
+		})
+	}
 }
 
 // promptSection returns the paragraph that starts at heading, up to the next
@@ -139,52 +192,118 @@ func assertNoUnresolvedDirectives(t *testing.T, rendered string) {
 }
 
 func TestE31F01_TC007_RenderedDevelopmentPrompt(t *testing.T) {
-	renderer := newCanonicalOrchestratorRenderer(t)
+	forEachDevelopmentRender(t, func(t *testing.T, _ developmentPrompt, out string) {
+		assertMarkersOnce(t, out)
+		assert.Contains(t, out, genericDefaultLabel)
+		assertNoUnresolvedDirectives(t, out)
+		assert.NotContains(t, out, "09-test-plan.md")
+	})
+}
+
+// The rubric cites a skill-relative path, so a worker needs the note on how to
+// read it before the rubric text starts.
+func TestE31F01_TC007_QualitySkillNotePrecedesRubric(t *testing.T) {
+	forEachDevelopmentRender(t, func(t *testing.T, _ developmentPrompt, out string) {
+		note := strings.Index(out, "Bundled `quality` skill")
+		require.NotEqual(t, -1, note, "the bundled quality skill note must render")
+		assert.Less(t, note, strings.Index(out, craftRubricMarker))
+	})
+}
+
+// Asserted on the source template: the included craft rubric uses some of the
+// same words, so a render could satisfy them without the prompt's own rule.
+func TestE31F01_TC008_SourceContractLiterals(t *testing.T) {
 	for _, prompt := range developmentPrompts {
 		t.Run(prompt.name, func(t *testing.T) {
-			out := renderDevelopmentPrompt(t, renderer, prompt.name)
-			assertMarkersOnce(t, out)
-			assert.Contains(t, out, genericDefaultLabel)
-			assertNoUnresolvedDirectives(t, out)
-			assert.NotContains(t, out, "09-test-plan.md")
+			source := readEmbeddedPrompt(t, prompt.name)
+			for _, literal := range promptContractLiterals {
+				t.Run(literal, func(t *testing.T) {
+					assert.Contains(t, source, literal)
+				})
+			}
 		})
 	}
 }
 
 func TestE31F01_TC008_FamilyPromptRules(t *testing.T) {
-	renderer := newCanonicalOrchestratorRenderer(t)
-	for _, prompt := range developmentPrompts {
-		t.Run(prompt.name, func(t *testing.T) {
-			out := renderDevelopmentPrompt(t, renderer, prompt.name)
-			assertContainsAll(t, promptSection(t, out, "READ"), []string{
-				"CLAUDE.md",
-				"AGENTS.md",
-				"docs/architecture/coding-standards.md",
-				"patterns-catalog.md",
-				"tech-stack.md",
-				"Quality Limits",
-				"Testing Standards",
-			})
-			assertMarkersOnce(t, out)
-			assertContainsAll(t, out, []string{
-				"RESOLVE THE QUALITY GATE",
-				"REOPENED OR REWORK DISPATCH:",
-				"SELF-REVIEW",
-				prompt.summaryLead,
-			})
-			assertNoUnresolvedDirectives(t, out)
+	forEachDevelopmentRender(t, func(t *testing.T, prompt developmentPrompt, out string) {
+		read := promptSection(t, out, "READ")
+		for _, file := range readListStandards {
+			assert.Equal(t, 1, strings.Count(read, file), "READ must name %s exactly once", file)
+		}
+		assertContainsAll(t, read, []string{"Quality Limits", "Limit exceptions", "Testing Standards"})
+		assert.NotContains(t, out, "CLAUDE.md for coding standards")
+		assertMarkersOnce(t, out)
+		assertContainsAll(t, out, []string{
+			"RESOLVE THE QUALITY GATE",
+			"REOPENED OR REWORK DISPATCH:",
+			"SELF-REVIEW",
+			prompt.summaryLead,
 		})
-	}
+		assertNoUnresolvedDirectives(t, out)
+	})
 }
 
 func TestE31F01_TC009_ExitGate(t *testing.T) {
-	renderer := newCanonicalOrchestratorRenderer(t)
-	for _, prompt := range developmentPrompts {
-		t.Run(prompt.name, func(t *testing.T) {
-			out := renderDevelopmentPrompt(t, renderer, prompt.name)
-			assertContainsAll(t, promptSection(t, out, "EXIT GATE:"), prompt.exitGateItems)
-		})
+	forEachDevelopmentRender(t, func(t *testing.T, prompt developmentPrompt, out string) {
+		gate := promptSection(t, out, "EXIT GATE:")
+		assertContainsAll(t, gate, prompt.exitGateItems)
+		if prompt.name != "task/development.md" {
+			assert.NotContains(t, gate, taskScopeExitGateItem, "the Scope list item applies to tasks only")
+		}
+		assert.NotContains(t, out, retiredLimitWording)
+		assert.NotContains(t, readEmbeddedPrompt(t, prompt.name), retiredLimitWording)
+	})
+}
+
+func TestE31F01_TC021_LimitExceptionAndConsultation(t *testing.T) {
+	forEachDevelopmentRender(t, func(t *testing.T, prompt developmentPrompt, out string) {
+		assert.Contains(t, readEmbeddedPrompt(t, prompt.name), "consult the architect")
+		assert.Contains(t, out, "## Limit exceptions\n", "the exception rule must be inlined")
+	})
+}
+
+// Change and tech-debt results have a 1000-byte summary cap, so their evidence
+// detail belongs in outer evidence entries (D12). Task and bug are unchanged.
+func TestE31F01_TC022_EvidenceRouting(t *testing.T) {
+	routed := map[string]bool{
+		"change/development.md":    true,
+		"tech_debt/triaged.md":     true,
+		"tech_debt/in_progress.md": true,
 	}
+	forEachDevelopmentRender(t, func(t *testing.T, prompt developmentPrompt, out string) {
+		gate := promptSection(t, out, "EXIT GATE:")
+		if !routed[prompt.name] {
+			assert.NotContains(t, gate, "`evidence[]`")
+			return
+		}
+		assert.Contains(t, gate, "`evidence[]`")
+		assert.Contains(t, promptSection(t, out, "SUMMARY LINE:"), "`evidence[]`")
+		assert.NotContains(t, gate, "compactly")
+		assert.NotContains(t, gate, "stays within its size limit")
+	})
+}
+
+func TestE31F01_TC023_TDDPartialAndPrecedence(t *testing.T) {
+	assert.NotContains(t, readEmbeddedPrompt(t, "_partials/_tdd_process.md"), "the included skills")
+	forEachDevelopmentRender(t, func(t *testing.T, _ developmentPrompt, out string) {
+		assert.Contains(t, strings.ToLower(out), "one test per tc assigned to this work item")
+		assert.Contains(t, out, "any included skill")
+		assertPrecedenceLimitsFailingTests(t, out)
+	})
+}
+
+func assertPrecedenceLimitsFailingTests(t *testing.T, rendered string) {
+	t.Helper()
+	found := 0
+	for _, line := range strings.Split(rendered, "\n") {
+		if !strings.HasPrefix(line, "PRECEDENCE:") {
+			continue
+		}
+		found++
+		assertContainsAll(t, line, []string{"behavior-changing", "preserve the code and history"})
+	}
+	assert.NotZero(t, found, "rendered prompt must carry a PRECEDENCE line")
 }
 
 // TC-019 renders from the checked-in bundle and from an empty prompts

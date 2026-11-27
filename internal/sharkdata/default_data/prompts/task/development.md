@@ -16,7 +16,7 @@ REOPENED OR REWORK DISPATCH: before you change any code, read the latest transit
 
 TDD IMPLEMENTATION
 
-PRECEDENCE: for existing or resumed code, this step's instructions override the included skills: preserve the code and history, and prove it with tests that fail without it instead of deleting it.
+PRECEDENCE: for existing or resumed code, this step's instructions override the included skills: preserve the code and history, and prove behavior-changing code with tests that fail without it instead of deleting it. Refactors and prompt, documentation or configuration changes follow the verification table in the TDD process below.
 
 READ (in this order):
 (1) Task spec at {{.file_path}} for goal, scope, and file list
@@ -25,7 +25,7 @@ READ (in this order):
     (feature documents live in `{{.feature_dir}}/`: `feature.md` or `spec.md`, `tasks/`, `test-plan.md` or `test_plans/`){{end}}
 (4) Local standards, each one that exists:
     - `CLAUDE.md` and `AGENTS.md`
-    - `docs/architecture/coding-standards.md` and the standards sub-files it links, including the Quality Limits and Testing Standards sections
+    - `docs/architecture/coding-standards.md` and the standards sub-files it links, including the Quality Limits (with Limit exceptions) and Testing Standards sections
     - `docs/architecture/patterns-catalog.md`
     - the Quality Gate section of `docs/architecture/tech-stack.md`
 (5) Existing code in files listed in task scope
@@ -38,11 +38,12 @@ IMPLEMENT:
 Step 1 — VERIFY AND IMPLEMENT:
 {{template "_tdd_process" .}}
 Follow patterns from existing code (identified in feature spec.md architecture section) and the local standards.
-Resolve each limit as the Craft Rubric below directs, and write within the resolved limits on the first pass. When the project declares a measuring command, run it on the changed files before exit.
+Resolve each limit as the Craft Rubric below directs, and write within the resolved limits on the first pass. Its edited-code rule covers every code file you edit: each ends within every resolved limit, including overages that predate your change, and each is measured in full, not only the changed lines. When the project declares a measuring command, run it so it covers every edited code file in full; when that command measures only new code, measure the rest of each edited file by tool or by hand.
+If you doubt that a refactor this rule requires is safe, consult the architect: do not leave the overage in place, and do not record a limit exception yourself. Return `blocked` and name the file, the unit, the limit and its source label, the measured value, the refactor you considered and the safety concern in your final response.
 
 Step 2 — QUALITY GATE (MANDATORY):
 Run the resolved quality gate commands before advancing. Fix ALL failures before advancing. No exceptions.
-A failure that predates your change and sits outside the files you changed: fix it when the fix is straightforward and within scope; otherwise route it as a bug through the triage skill. Either way, while the gate fails it is unmet: report the task as "not ready".
+A failure that predates your change and sits outside the files you changed: fix it when the fix is straightforward and within scope; otherwise route it as a bug through the triage skill. Either way, while the gate fails it is unmet: report the task as "not ready". A limit overage inside a file you edited is not this case: the edited-code rule governs it.
 
 Step 3 — SELF-REVIEW (before exit):
 Run the self-review checklist in the Craft Rubric below against your own diff. Fix every finding, or record a cited reason why the item is not applicable. Re-run the quality gate after any fix.
@@ -54,8 +55,8 @@ EXIT GATE:
 - Implementation follows patterns from feature spec.md
 - No unrelated changes included
 - Evidence walk: the summary names the test or check for each AC ID
-- Every new or changed function and file is within the resolved limits, with each limit's source label stated
-- The diff stays within the task's `## Scope` "Files to modify" list, or the summary justifies each extra file
+- Every code file you edited is within the resolved limits (file length and every function in it, including overages that predate the change), measured in full, with each limit's source label stated; any unit still over a limit names the limit exception that covers it
+- The diff stays within the task's `## Scope` "Files to modify" list, or the summary justifies each extra file, including files a limit refactor creates
 - Self-review is recorded with no unresolved finding
 
 ## Reference Methodology

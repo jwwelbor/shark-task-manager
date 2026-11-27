@@ -165,7 +165,7 @@ var productCriticalPathGuardBaselineSHA256 = map[string]string{
 	"feature/task_generation.md": "3100315ace5f1aaaa817d5ceaf945fc22a8543cfba261ff314cb2a28e0d6d577",
 	"feature/task_review.md":     "0360562975bb8a1dbb908e3be0a49dace76b4434b3deba973c8101d7ac009c16",
 	"feature/approval.md":        "b555814fcb69df48ce3d1b777c1ffafe37bf3eaaa770b9f8157f11b8e873f41a",
-	"task/development.md":        "d428ce207569f914cf3bdea819fa91faf7d7f6b5ac8b100fcf05df3ac98a4b82",
+	"task/development.md":        "daea354db40fa5af73403ca9543a195ec6b68eb497702c692450677d01ac8df9",
 }
 
 // stripProductCriticalPathGuardParagraph removes the guard invocation's

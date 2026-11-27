@@ -81,6 +81,11 @@ func TestPartialTemplates_TDDProcess(t *testing.T) {
 	assert.Contains(t, output, "Refactor with no behavior change")
 	assert.Contains(t, output, "Prompt, documentation or configuration")
 	assert.Contains(t, output, "the feature test plan")
+	// E31-F01 TC-023: the partial scopes TCs to the work item and does not claim
+	// that the prompt includes a skill.
+	assert.Contains(t, output, "one test per TC assigned to this work item")
+	assert.Contains(t, output, "any included skill")
+	assert.NotContains(t, output, "the included skills")
 	assert.Contains(t, output, "Expected Output")
 	assert.NotContains(t, output, "09-test-plan.md")
 }

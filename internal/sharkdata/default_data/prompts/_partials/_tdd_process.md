@@ -1,5 +1,5 @@
 {{define "_tdd_process"}}TDD PROCESS:
-Choose verification by artifact type. This table decides which verification applies and overrides any red-first wording in the included skills; those skills supply the red-green procedure for behavior-changing code. A change that mixes types applies each row to its own part.
+Choose verification by artifact type. This table decides which verification applies and overrides red-first wording in any included skill; a skill's red-green procedure applies to behavior-changing code only. A change that mixes types applies each row to its own part.
 
 | Change type | Verification |
 |---|---|
@@ -8,7 +8,7 @@ Choose verification by artifact type. This table decides which verification appl
 | Prompt, documentation or configuration | The test plan's planned check for the TC (render, include resolution, validator); a source-text search only when the literal is an explicit contract |
 
 When the work item has a test plan, read the feature test plan and then:
-- Write one test per TC, with variants as separate cases. Each test name contains the TC-ID.
+- Write one test per TC assigned to this work item, with variants as separate cases. Each test name contains the TC-ID.
 - Assert the TC's **Expected Output** exactly.
 - Keep the TC's Caller-Path Contract rules: drive the declared entrypoint with the production argument shape, mock no higher than the lowest mock seam, never touch a forbidden mock, and satisfy the counter-factual (the check fails against an empty or buggy implementation).
 - Never edit a TC's Preconditions, Input or Expected Output; return `blocked` with the specific conflict instead.
