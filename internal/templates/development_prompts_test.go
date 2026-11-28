@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -266,6 +267,17 @@ func TestE31F01_TC008_FamilyPromptRules(t *testing.T) {
 		})
 		assertNoUnresolvedDirectives(t, out)
 	})
+}
+
+// A held task must name a routable outcome: `shark run` takes the pass-first
+// transition when the worker's reply carries no outcome line.
+func TestE31F01_TaskPromptNamesOutcomeForHeldWork(t *testing.T) {
+	source, err := os.ReadFile("../sharkdata/default_data/prompts/task/development.md")
+	require.NoError(t, err)
+
+	assert.Contains(t, string(source), "End your final response with one line")
+	assert.Contains(t, string(source), "`RECOMMENDED OUTCOME: pass` only when every EXIT GATE item holds")
+	assert.Contains(t, string(source), "`RECOMMENDED OUTCOME: blocked` in every other case")
 }
 
 func TestE31F01_TC009_ExitGate(t *testing.T) {
