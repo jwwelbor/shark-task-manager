@@ -662,7 +662,7 @@ Run E2E tests for the affected user flows headlessly.
 
 ### Gate 5: Coverage
 
-Generate a coverage report with the configured threshold (typical: >= 80% for new code). Record `coverage_pct` in outputs.
+Generate a coverage report and meet the project's declared coverage target in local standards (§Quality Limits, resolved by `skills/quality/context/craft-rubric.md`), when one is declared. Record `coverage_pct` in outputs.
 
 ## Testing Anti-Patterns
 
@@ -683,7 +683,7 @@ Generate a coverage report with the configured threshold (typical: >= 80% for ne
 - [ ] Contract tests verify DTO structure
 - [ ] E2E tests cover critical user paths
 - [ ] All tests passing
-- [ ] Coverage >= 80% for new code
+- [ ] Declared coverage target met for new code, when one is declared
 - [ ] No flaky tests
 - [ ] Tests run fast (< 10 seconds for unit)
 - [ ] Structured `summary` returned with coverage details

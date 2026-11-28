@@ -17,6 +17,28 @@ Project workflow, agent instructions, service-layer migration rules, and command
 | Tests | Writing or changing Go tests | [Testing](coding-standards/testing.md) |
 | Security | Handling input, SQL, filesystem paths, or error exposure | [Security](coding-standards/security.md) |
 
+## Quality Limits
+
+Each limit is an inclusive maximum: a value equal to the limit passes.
+
+| Limit | Value | Applies to | Enforcement | Measuring command |
+|-------|-------|------------|-------------|-------------------|
+| Cyclomatic complexity | 10 | production and test | tool-enforced (`gocyclo`) | `make lint` |
+| Function length (lines) | 50 | production and test | tool-enforced (`funlen`, line limit only) | `make lint` |
+| File length (lines) | 500 | production and test | review-enforced | none (review) |
+| Nesting depth | 4 | production and test | review-enforced | none (review) |
+
+These limits apply to Go source only: code in other languages in this repository, for example `review_workflow.js`, is not measured.
+
+The measuring command is `make lint`. It measures only the tool-enforced limits, using [`.golangci-limits.yml`](../../.golangci-limits.yml).
+
+- **Function length**: `funlen` counts the lines of the function body. Blank lines count; comment-only lines do not.
+- **Baseline**: `make lint` measures every function in each Go file changed since the pinned revision (`new-from-rev`), including functions the change did not touch (`--whole-files`). Unchanged files are not measured.
+- **Build-constrained files**: `make lint` measures only the files in the active build. Go files that a platform filename suffix or a `//go:build` constraint leaves out of that build are not measured; their tool-enforced limits are review-enforced.
+- **Edited files**: Self-review and code review check file length and nesting depth on every edited file.
+- **Nesting depth**: review-enforced because `nestif` scores complexity, not depth.
+- **File length**: review-enforced because no configured linter measures it.
+
 ## Related Project Guidance
 
 These are intentionally outside coding standards:

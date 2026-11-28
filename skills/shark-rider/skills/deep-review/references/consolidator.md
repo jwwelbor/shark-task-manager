@@ -58,10 +58,12 @@ Default to PLAUSIBLE for realistic runtime scenarios. Only REFUTE when the code 
 
 A retained finding must name an affected user/caller, behavior, invariant, documented standard or maintenance operation; state its concrete consequence; and cite evidence. Omit preference-only comments. Preserve the original blocker and refutation evidence when withdrawn. Under the authorized report-only downgrade disposition, record the explanation with zero source edits and zero tracker writes. Substantive surviving findings continue through normal triage.
 
+Read the craft rubric (`shark skill get quality context/craft-rubric.md` or the extracted `skills/quality/context/craft-rubric.md`) before labeling a limit finding. It resolves each limit and its source label, and its Severity table decides whether a limit result is a blocker, a non-blocker or no finding. Cite a covering limit exception.
+
 | Label | Criteria |
 |---|---|
-| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, new complexity over threshold, broad catch-all without justification, or a sibling pattern that violates the impact-based craft criteria |
-| **Non-blocker** | Evidence-backed craft issue with an identifiable user, behavior, invariant, documented-standard or maintenance effect that does not violate a hard contract |
+| **Blocker** | AC violation, security flaw, broken production contract, missing standards-required behavior, unjustified fundamental architecture/workflow change, a limit finding that the rubric's Severity table rates a blocker, broad catch-all without justification, or a sibling pattern that violates the impact-based craft criteria |
+| **Non-blocker** | Evidence-backed craft issue with an identifiable user, behavior, invariant, documented-standard or maintenance effect that does not violate a hard contract, including a limit finding that the rubric's Severity table rates a non-blocker |
 
 The host routes each actionable non-blocker through the triage decision tree. A withdrawn/refuted blocker is not an actionable non-blocker and is not triaged.
 
@@ -168,4 +170,4 @@ If you find a causal site, anchored path and line range, that none of the six an
 - [ ] No per-file score or preference-only item creates a finding
 - [ ] Every finding has an impact, consequence and evidence; verdict matches actionable findings
 - [ ] Clean PASS returns only the compact PASS report, not the full section set
-- [ ] Do NOT block for: pre-existing issues the task didn't substantially worsen, minor optimizations, missing nice-to-have tests, file-organization preferences without concrete maintainability impact
+- [ ] Do NOT block for: pre-existing issues the task didn't substantially worsen, minor optimizations, missing nice-to-have tests, file-organization preferences without concrete maintainability impact. Limit overages are outside this item: the rubric's Severity table decides them

@@ -76,10 +76,18 @@ func TestPartialTemplates_TDDProcess(t *testing.T) {
 	require.NoError(t, err)
 
 	output := buf.String()
-	assert.Contains(t, output, "Write failing test first (red)")
-	assert.Contains(t, output, "Implement minimum code to pass (green)")
-	assert.Contains(t, output, "Refactor while keeping tests green")
-	assert.Contains(t, output, "Commit when test suite passes")
+	// E31-F01 TC-007: the literals the rewritten partial contracts on.
+	assert.Contains(t, output, "Behavior-changing code")
+	assert.Contains(t, output, "Refactor with no behavior change")
+	assert.Contains(t, output, "Prompt, documentation or configuration")
+	assert.Contains(t, output, "the feature test plan")
+	// E31-F01 TC-023: the partial scopes TCs to the work item and does not claim
+	// that the prompt includes a skill.
+	assert.Contains(t, output, "one test per TC assigned to this work item")
+	assert.Contains(t, output, "any included skill")
+	assert.NotContains(t, output, "the included skills")
+	assert.Contains(t, output, "Expected Output")
+	assert.NotContains(t, output, "09-test-plan.md")
 }
 
 func TestPartialTemplates_LoadAll(t *testing.T) {
@@ -112,6 +120,6 @@ End of main content.`
 	output := buf.String()
 	assert.Contains(t, output, "Main content here.")
 	assert.Contains(t, output, "TDD PROCESS:")
-	assert.Contains(t, output, "Write failing test first")
+	assert.Contains(t, output, "Behavior-changing code")
 	assert.Contains(t, output, "End of main content.")
 }

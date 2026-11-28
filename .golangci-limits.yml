@@ -1,0 +1,23 @@
+# Quality limits. With --whole-files, this config measures every function in each
+# Go file changed since the pinned new-from-rev. Values and enforcement are
+# declared in docs/architecture/coding-standards.md (Quality Limits).
+# `make lint` runs this after .golangci.yml.
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - funlen
+    - gocyclo
+  settings:
+    funlen:
+      lines: 50
+      statements: -1
+      ignore-comments: true
+    gocyclo:
+      min-complexity: 10
+issues:
+  # A full SHA of a commit on main that predates this file. Squash merges drop
+  # branch commits, so never pin a branch SHA.
+  new-from-rev: 4745edab4597ed0ee9ff9f36fec22acc6dd203f6

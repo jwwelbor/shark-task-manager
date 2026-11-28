@@ -23,7 +23,7 @@ steps:
     action: advance_status
     prompt: tech_debt/identified.md
     outcomes:
-      blocked: identified
+      blocked: blocked
       cancelled: cancelled
       fail: identified
       pass: research
@@ -43,7 +43,7 @@ steps:
     prompt: tech_debt/in_progress.md
     result_contract: gate_result_v1
     outcomes:
-      blocked: identified
+      blocked: blocked
       cancelled: cancelled
       fail: identified
       pass: resolved
@@ -80,7 +80,7 @@ steps:
     prompt: tech_debt/triaged.md
     result_contract: gate_result_v1
     outcomes:
-      blocked: identified
+      blocked: blocked
       cancelled: cancelled
       fail: identified
       pass: in_progress
@@ -117,8 +117,18 @@ steps:
     skills: [research]
     prompt: tech_debt/research.md
     outcomes:
-      blocked: identified
+      blocked: blocked
       cancelled: cancelled
       fail: identified
       pass: triaged
       wont_fix: wont_fix
+  blocked:
+    phase: blocked
+    color: red
+    display_token: BLK
+    description: "Cannot proceed, awaiting external resolution"
+    progress_weight: 0
+    responsibility: human
+    action: pause
+    parking: true
+    prompt: tech_debt/blocked.md

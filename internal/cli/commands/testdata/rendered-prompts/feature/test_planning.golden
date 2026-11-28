@@ -365,7 +365,7 @@ ACs without a technique annotation = untestable spec; send back for refinement.
 | AC | Functional | Performance | Compat | Usability | Reliability | Security | Maintainability | Portability |
 |----|------------|-------------|--------|-----------|-------------|----------|-----------------|-------------|
 | AC-T1 | ✅ TC-001..3 | N/A | N/A | N/A | N/A | N/A | ✅ lint clean | N/A |
-| AC-T2 | ✅ TC-T2-01..12 | N/A | N/A | N/A | ✅ TC-T2-13 | ✅ TC-T2-14..16 | ✅ complexity ≤ 5 | N/A |
+| AC-T2 | ✅ TC-T2-01..12 | N/A | N/A | N/A | ✅ TC-T2-13 | ✅ TC-T2-14..16 | ✅ complexity within resolved limit | N/A |
 
 `✅ TC-XXX` — covered by listed test case(s). `N/A` — characteristic doesn't apply (justify in notes). No empty cells.
 

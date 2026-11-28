@@ -61,8 +61,10 @@ the valid review in `adversarial_model` and preserve the fallback reason.
 ## Integrated workflow review
 
 For a dispatched code-review gate, use the rendered prompt unchanged. For bug reviews, pass the accepted plan and revision, research, coverage evidence and prior findings as `repair_context`, together with `entity_type=bug`, to the native workflow; supply that same context to every host-dispatched angle and consolidator. Apply the
-portable craft criteria included from `skills/quality/workflows/review-code.md`
-as the canonical craft rubric alongside the angle assignments. The existing
+portable craft criteria included from `skills/quality/workflows/review-code.md`,
+with the shared limits, edited-code rule, Severity table and checklist in
+`skills/quality/context/craft-rubric.md`, as the canonical craft rubric
+alongside the angle assignments. The existing
 parent retains its lease, heartbeats, transitions and result ingestion; angle
 reviewers only supply evidence. Include requested and verified effective model
 identity separately, marking unknown identity explicitly. Bind the complete
@@ -162,6 +164,18 @@ paths in `reviewed_files`. A carried path must be unchanged since the predecesso
 declared input. Admission re-verifies the receipt, the predecessor angle's direct inspection, Git tree
 entries and an uninterrupted history; otherwise every angle must list the full manifest.
 
+## Craft rubric precondition
+
+Before any runner dispatches a reviewer, confirm that the craft rubric is
+readable by either route: `shark skill get quality context/craft-rubric.md`, or
+the extracted `skills/quality/context/craft-rubric.md`. When neither route works
+(for example, an installed Shark binary older than the rubric), stop and
+dispatch no reviewer. Persist the review with `runner_mode=incomplete`,
+`specialists_completed=0`, `consolidator_completed=false`, verdict INCOMPLETE
+and a `fallback_reason` that names the missing
+`skills/quality/context/craft-rubric.md`, and tell the user the review is
+incomplete. Never review without the rubric.
+
 ## Runner 1: native Workflow
 
 When `Workflow` is available, invoke `scripts/review_workflow.js` with the scope metadata and the
@@ -199,7 +213,7 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
    available parallel capacity. If the host cannot queue all six at once,
    dispatch the remaining angles as slots become available.
    Give every agent the complete captured scope, its one assigned angle
-   prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` or its extracted file), and these constraints: read-only work; no edits, commits, pushes,
+   prompt, the canonical craft criteria (`shark skill get quality workflows/review-code.md` and `shark skill get quality context/craft-rubric.md`, or each extracted file), and these constraints: read-only work; no edits, commits, pushes,
    or PR comments; return the required JSON schema with `candidate_identity` containing the exact captured commit, tree and diff hash; list every file inspected.
    Pass `changed_files` as the exact JSON array from capture or a reference that resolves to it in the recipient’s checkout. Preserve array order and literal Git names.
    Include deleted paths and supply the frozen diff or exact base object so each reviewer can read removed lines.
@@ -227,10 +241,12 @@ subagent dispatch. Do not use the alternate-model CLI in that case.
 ## Runner 3: alternate/comparable-model CLI
 
 Build one read-only adversarial prompt containing the diff path, standards path,
-task context, and the following output contract. The runner supplies each
-attempt with the absolute path and digest of the validated scope file. The
-reviewer reads its `changed_files` array for the exact frozen Git names and
-declares its own inspections in `decisions.reviewed_files`.
+task context, the craft rubric (`craft-rubric.md`, which the reviewer reads with
+`shark skill get quality context/craft-rubric.md` or from the extracted
+`skills/quality/context/craft-rubric.md`), and the following output contract.
+The runner supplies each attempt with the absolute path and digest of the
+validated scope file. The reviewer reads its `changed_files` array for the exact
+frozen Git names and declares its own inspections in `decisions.reviewed_files`.
 
 ```text
 Return a JSON object containing `report` (the Markdown review, including

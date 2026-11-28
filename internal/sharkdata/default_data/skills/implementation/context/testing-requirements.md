@@ -18,16 +18,17 @@ With tests:
 
 ## Coverage Requirements
 
-### Minimum Coverage Targets
+### Coverage Target
 
-| Code Type | Coverage Target | Rationale |
-|-----------|----------------|-----------|
-| Service Layer | 90% | Core business logic, must be proven |
-| API Endpoints | 85% | Integration points, critical paths |
-| Repositories | 85% | Data access, error cases important |
-| Utilities | 95% | Reused everywhere, must be bulletproof |
-| Components (Frontend) | 80% | UI logic, user interactions |
-| Overall Project | 80% | Acceptable baseline |
+Meet the project's declared coverage target in local standards (§Quality Limits), resolved by the craft rubric (`skills/quality/context/craft-rubric.md`). When none is declared, no percentage gates the change.
+
+| Code Type | Why coverage matters |
+|-----------|----------------------|
+| Service Layer | Core business logic, must be proven |
+| API Endpoints | Integration points, critical paths |
+| Repositories | Data access, error cases important |
+| Utilities | Reused everywhere, must be bulletproof |
+| Components (Frontend) | UI logic, user interactions |
 
 **Coverage is necessary, not sufficient.** 100% coverage with bad tests proves nothing.
 
@@ -419,9 +420,10 @@ npm run test:coverage
   run: npm run test:e2e:headless
 
 - name: Coverage Check
+  # Keep the threshold flags only when local standards declare a coverage target.
   run: |
-    uv run pytest --cov=app --cov-fail-under=80
-    npm run test:coverage -- --coverage.threshold.lines=80
+    uv run pytest --cov=app --cov-fail-under=<declared-target>
+    npm run test:coverage -- --coverage.threshold.lines=<declared-target>
 ```
 
 ## Test-Driven Development
@@ -470,7 +472,7 @@ Before marking work complete:
 - [ ] Contract tests validate DTOs
 - [ ] E2E tests cover critical paths
 - [ ] All tests passing
-- [ ] Coverage >= 80%
+- [ ] Declared coverage target met, when one is declared
 - [ ] Tests run fast (< 10s for unit)
 - [ ] No skipped/disabled tests
 - [ ] No flaky tests

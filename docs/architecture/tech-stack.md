@@ -77,11 +77,16 @@
 go build -tags "fts5" -ldflags "-X main.BuildDate=$(date) -X main.GitCommit=$(git rev-parse HEAD)"
 ```
 
-### Quality Gate (Mandatory)
+## Quality Gate
 
-```bash
-make fmt && make lint && make test
-```
+The commands an agent must run before advancing work. All are mandatory.
+
+| Step | Command | When |
+|------|---------|------|
+| Format | `make fmt` | before commit |
+| Lint | `make lint` | before commit |
+| Unit tests | `make test` | before advancing |
+| Full suite | `make fmt && make lint && make test` | before finishing a feature |
 
 ## CI/CD
 

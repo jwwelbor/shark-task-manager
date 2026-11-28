@@ -245,6 +245,21 @@ Prefer the narrowest guard that actually exercises the defect shape over a
 broad rule that happens to also cover it. Record the guard object with
 `kind`, `implementation_pointer`, `counterfactual_pointer`, and `status`.
 
+A craft defect class is one whose `rule` category, as listed in
+`skills/quality/workflows/review-code.md`, is one of these craft categories:
+`ALTITUDE`, `CODING-STANDARD`, `COMPLEXITY`, `DIP`, `DRY`, `ERROR-HANDLING`,
+`IDIOM`, `ISP`, `LOGGING`, `LSP`, `NAMING`, `OCP`, `SIMPLIFICATION`, `SRP`,
+`TESTS`, `TYPES`, `YAGNI`. The other categories (`ARCH`, `ARCHITECTURE`,
+`CONTRACT`, `CORRECTNESS`, `REMOVED-BEHAVIOR`, `RISK`, `ROUNDTRIP`, `SECURITY`,
+`SIBLING`, `WIRING`) are not craft categories and never edit standards.
+
+For a craft defect class, also add or update an entry for the class in the
+project's local `coding-standards.md`, or in the standards sub-file it links.
+Label a new entry "proposed — confirm" unless the owner confirms it in the same
+session. When the project's linter supports the rule, make that linter rule, in
+the project's own config, the executable guard. The standards entry never
+replaces the verified guard that Structural guard closure requires.
+
 ## Structural guard closure
 
 A class may only report `status: complete` when all of the following hold:

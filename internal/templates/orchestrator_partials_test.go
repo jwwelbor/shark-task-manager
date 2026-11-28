@@ -116,12 +116,10 @@ func TestTDDProcessPartialRenders(t *testing.T) {
 	// Verify output contains expected TDD steps
 	expectedPhrases := []string{
 		"TDD PROCESS:",
-		"Write failing test",
-		"red",
-		"Implement minimum",
+		"Red first",
+		"Implement the minimum code",
 		"green",
 		"Refactor",
-		"Commit",
 	}
 
 	for _, phrase := range expectedPhrases {
@@ -158,7 +156,7 @@ End of content.{{end}}`
 	if !strings.Contains(result, "TDD PROCESS:") {
 		t.Error("Partial content not included in template")
 	}
-	if !strings.Contains(result, "Write failing test") {
+	if !strings.Contains(result, "Red first") {
 		t.Error("Partial implementation not found in output")
 	}
 }

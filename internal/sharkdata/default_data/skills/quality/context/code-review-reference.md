@@ -13,15 +13,17 @@ Use this file when `workflows/review-code.md` needs the fuller examples for idio
 
 ## Complexity tooling examples
 
+Replace `<limit>` with the cyclomatic limit resolved by `skills/quality/context/craft-rubric.md`. Prefer the measuring command declared in local standards.
+
 ```bash
 # Python
 uv run radon cc <files> --min=B
 
 # TypeScript
-npx eslint <files> --rule 'complexity: ["error", 10]'
+npx eslint <files> --rule 'complexity: ["error", <limit>]'
 
 # Go
-gocyclo -over 10 <files>
+gocyclo -over <limit> <files>
 ```
 
 ## Report skeleton
