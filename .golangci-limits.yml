@@ -20,4 +20,4 @@ linters:
 issues:
   # A full SHA of a commit on main that predates this file. Squash merges drop
   # branch commits, so never pin a branch SHA.
-  new-from-rev: d9427496250d889dc7584d71778364b8a79ab766
+  new-from-rev: 4745edab4597ed0ee9ff9f36fec22acc6dd203f6
