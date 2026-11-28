@@ -34,6 +34,7 @@ The measuring command is `make lint`. It measures only the tool-enforced limits,
 
 - **Function length**: `funlen` counts the lines of the function body. Blank lines count; comment-only lines do not.
 - **Baseline**: `make lint` measures every function in each Go file changed since the pinned revision (`new-from-rev`), including functions the change did not touch (`--whole-files`). Unchanged files are not measured.
+- **Build-constrained files**: `make lint` measures only the files in the active build. Go files that a platform filename suffix or a `//go:build` constraint leaves out of that build are not measured; their tool-enforced limits are review-enforced.
 - **Edited files**: Self-review and code review check file length and nesting depth on every edited file.
 - **Nesting depth**: review-enforced because `nestif` scores complexity, not depth.
 - **File length**: review-enforced because no configured linter measures it.

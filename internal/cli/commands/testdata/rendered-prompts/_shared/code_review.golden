@@ -78,7 +78,7 @@ Findings: list each duplicated logic with the existing code's location, severity
 
 ### Step 3: Standards crosswalk (required citations)
 
-Apply the rubric's Standards citation items to each modified file. For each violation, cite the **specific section** of the project's standards docs in the rubric's citation format. When a clause is unavailable or unrelated, report the gap in the crosswalk.
+Apply the rubric's Standards citation items to each modified file. For each violation, cite the **specific section** of the project's standards docs in the rubric's citation format. When a clause is unavailable or unrelated, report the gap in the crosswalk. Report a demonstrated failure of a documented input or acceptance criterion as a correctness finding with the expected and observed results.
 
 ### Step 4: SOLID & architecture compliance
 

@@ -68,6 +68,7 @@ Drift from `plan.md`: edited-code rule, tech-debt parking and the round-1 fixes 
 | F-015 | 24 | 008 (literal 9) | **012** |
 | F-034 | 23 | 027 | **012** |
 | NF-003, NF-006 | 05, 07 | 019 | 008 |
+| F-010, F-026 (held work routes `blocked`) | 08 | 029 | review follow-up G1-G3 |
 
 A task writes tests only for the TCs (or the named part) in its row.
 
@@ -138,7 +139,7 @@ Content-only cases (justification for each: **content-only**, no deterministic G
 
 | TC | Renderer or direct-file entrypoint |
 |---|---|
-| 001, 002, 003, 004, 006, 012 | `sharkdata.ReadEmbedded(path)` or a walk of the embedded tree |
+| 001, 002, 003, 004, 006, 012, 029 | `sharkdata.ReadEmbedded(path)` or a walk of the embedded tree |
 | 027 (static, **R2**) | `templates.NewOrchestratorRenderer(canonicalPromptsDir).Render("<entity>/blocked.md", vars)` |
 | 028 (test-structure only, **R2**) | `go test -v -run 'TestE31F01_TC0(19\|20[bc])' ./internal/templates/ ./internal/config/workflow/` |
 | 026 (test-structure only) | `go test -v -run TestE31F01 ./internal/sharkdata/` |
@@ -467,6 +468,13 @@ Entrypoint: the final candidate; run after the last rework task.
   - `TestE31F01_TC020c_...`: `.../<workable step>` for the loop at about line 277; `.../<non-workable step>/<outcome>` for the loop at about line 284.
 - **Negative:** the same assertions run as before; no test name disappears from `go test -list`.
 - **R:** apply G-14 when judging other loops.
+
+### TC-029 Task prompt names a routable outcome for held work (AC-08; REQ-F-010, REQ-F-026)
+
+- **Entrypoint:** `sharkdata.ReadEmbedded("prompts/task/development.md")` (content-only).
+- **Expected:** the line starting `End your final response with one routing line` contains every **task only** literal in spec §Prompt contract literals.
+- **Negative:** the template shows no backtick-decorated `RECOMMENDED OUTCOME` example, because `shark run` reads only a bare line.
+- **R:** the wording tells the worker to report `blocked` whenever an exit gate item does not hold.
 
 ## Integration scenarios
 

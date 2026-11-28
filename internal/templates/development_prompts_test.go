@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -226,6 +225,19 @@ func TestE31F01_TC008_SourceContractLiterals(t *testing.T) {
 	}
 }
 
+// The write-time measuring rule. Asserted on its own line: the exit gate also
+// says "measured in full", so a whole-source check survives losing the rule.
+func TestE31F01_TC008_WriteTimeMeasuringRule(t *testing.T) {
+	for _, prompt := range developmentPrompts {
+		t.Run(prompt.name, func(t *testing.T) {
+			line := lineStartingWith(t, readEmbeddedPrompt(t, prompt.name),
+				"Resolve each limit as the Craft Rubric below directs")
+			assert.Contains(t, line, "is measured in full, not only the changed lines")
+			assert.Contains(t, line, "covers every edited code file in full")
+		})
+	}
+}
+
 // The consultation decision is recorded as a decision note, which no rendered
 // prompt carries. Asserted on the reopen line itself: the included rubric uses
 // the same words.
@@ -270,14 +282,25 @@ func TestE31F01_TC008_FamilyPromptRules(t *testing.T) {
 }
 
 // A held task must name a routable outcome: `shark run` takes the pass-first
-// transition when the worker's reply carries no outcome line.
-func TestE31F01_TaskPromptNamesOutcomeForHeldWork(t *testing.T) {
-	source, err := os.ReadFile("../sharkdata/default_data/prompts/task/development.md")
-	require.NoError(t, err)
+// transition when the worker's reply carries no outcome line, and it reads only
+// a bare line, so a decorated one is missed or rejected.
+func TestE31F01_TC029_TaskPromptNamesOutcomeForHeldWork(t *testing.T) {
+	source := readEmbeddedPrompt(t, "task/development.md")
+	line := lineStartingWith(t, source, "End your final response with one routing line")
 
-	assert.Contains(t, string(source), "End your final response with one line")
-	assert.Contains(t, string(source), "`RECOMMENDED OUTCOME: pass` only when every EXIT GATE item holds")
-	assert.Contains(t, string(source), "`RECOMMENDED OUTCOME: blocked` in every other case")
+	for _, literal := range []string{
+		"RECOMMENDED OUTCOME, then a colon, a space and one outcome word",
+		"pass only when every EXIT GATE item holds",
+		"blocked in every other case",
+		"on a line of its own as bare plain text, with no backticks, bold, quotes or trailing punctuation",
+		"Always include this line: a runner can route a reply without it as a pass.",
+	} {
+		t.Run(literal, func(t *testing.T) {
+			assert.Contains(t, line, literal)
+		})
+	}
+	// A decorated example is what a worker would copy.
+	assert.NotContains(t, source, "`RECOMMENDED OUTCOME")
 }
 
 func TestE31F01_TC009_ExitGate(t *testing.T) {

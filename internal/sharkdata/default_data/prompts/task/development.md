@@ -69,6 +69,6 @@ EXIT GATE:
 
 When done: stop and summarize what changed, what tests ran, and whether the task is ready for the parent loop to advance to completed. Do NOT run Shark status commands yourself — code review, QA, and UAT still run at feature level once all tasks are done.
 Begin the summary with the line `ACs verified: <ids>; red-first: <n>/<m>; commit: <sha>`. Write `none` when there are no AC IDs, `0/0` when no TC changes behavior, and `none` when there is no commit.
-End your final response with one line the parent loop routes on: `RECOMMENDED OUTCOME: pass` only when every EXIT GATE item holds; `RECOMMENDED OUTCOME: blocked` in every other case, including unclear requirements, no quality gate commands, an architect consultation, a test case conflict and an unmet quality gate. A reply without this line is routed as a pass.
+End your final response with one routing line for the parent loop. Build it from the words RECOMMENDED OUTCOME, then a colon, a space and one outcome word: pass only when every EXIT GATE item holds; blocked in every other case, including unclear requirements, no quality gate commands, an architect consultation, a test case conflict and an unmet quality gate. Write it once, on a line of its own as bare plain text, with no backticks, bold, quotes or trailing punctuation. Put no list marker or other text on that line, and start no other line with those words. Always include this line: a runner can route a reply without it as a pass.
 
 {{template "_product_critical_path_guard" .}}

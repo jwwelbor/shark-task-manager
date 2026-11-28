@@ -394,7 +394,9 @@ consultation would loop (F-1).
 <a id="prompt-contract-literals"></a>
 **Prompt contract literals.** These strings are explicit contracts, so the
 REQ-F-033(b) tests may assert them (REQ-F-012(c)). Each of the five family
-prompt source templates contains every one in its own body. The tests read the
+prompt source templates contains every one in its own body, except the rows
+marked **task only**, which bind `task/development.md` alone (TC-029): the
+envelope prompts route through `gate_result` instead. The tests read the
 templates before rendering, because `craft-rubric.md` (included in every
 prompt) may contain the same words:
 
@@ -409,6 +411,12 @@ prompt) may contain the same words:
 | Edited-code exit gate (REQ-F-017(b)) | `Every code file you edited is within the resolved limits` |
 | Measuring in full (REQ-F-013) | `measured in full` |
 | Consultation (REQ-F-026) | `consult the architect` |
+| Held-work routing line, **task only** | `End your final response with one routing line` |
+| Routing line form, **task only** | `RECOMMENDED OUTCOME, then a colon, a space and one outcome word` |
+| Pass condition, **task only** | `pass only when every EXIT GATE item holds` |
+| Held-work outcome, **task only** | `blocked in every other case` |
+| Bare line, **task only** | `on a line of its own as bare plain text, with no backticks, bold, quotes or trailing punctuation` |
+| Missing line, **task only** | `Always include this line: a runner can route a reply without it as a pass.` |
 
 ```mermaid
 flowchart LR
@@ -615,3 +623,4 @@ AC-15 and AC-21 close after task 012.
 | 2026-11-27 | Amendment 1 recorded the owner decisions after code review round 1 (commit `0afee8b5`). |
 | 2026-11-27 | This revision folds Amendment 1 into the body. Owner decision 1 (F-4, supersedes F-12): REQ-F-007, REQ-F-013, REQ-F-016, REQ-F-017(b), D3 rewritten; REQ-F-025, REQ-F-026, REQ-F-032 and the branch application added; D6 adds `--whole-files`. Owner decision 2 (F-1): REQ-F-031, D10 and the tech-debt lifecycle table. Owner decision 3, fixes in scope: F-2 (REQ-F-018, D12), F-3/F-6 and F-14 (REQ-F-012), F-5 (REQ-F-009), F-7 (REQ-F-021), F-8 (REQ-F-030), F-9 (REQ-F-004, REQ-F-006), F-10 (REQ-F-027), F-11 (REQ-F-029, D13), F-15 (REQ-F-011), F-16/F-18, F-17 and F-19 (REQ-F-033). Owner decision 4: F-13 deferred (D11). Q013 and Q014 marked resolved. NF-005 limit raised to 170 lines. ACs 01, 04–06, 08, 09, 12–16 revised; AC-17–AC-22 added. Rework tasks 007–011 defined. |
 | 2026-11-27 | Amendment 2 (owner decisions after code review round 2, candidate `5d848cab`; notes 5566–5568) folded into the body and removed. F-101/G-11: resume wording corrected in the capability map, lifecycle table, sequence diagram, integration item 4 and D10; REQ-F-034 and AC-23 added; engine half is B091 (D16). F-102: REQ-F-015 and the prompt literal table add decision notes (D14). F-103/G-2: REQ-F-018, REQ-F-019, AC-09, AC-11 and AC-18 cover the bug prompt. F-110: REQ-F-023, REQ-F-035 and D15 set the Go-only scope. F-111/F-114: REQ-F-033(c), AC-24. F-112: REQ-F-033(d), AC-22. F-115: REQ-F-024, AC-16. G-1: REQ-F-009, AC-13. NF-005 cap 170 → 175. Out of scope adds B091, B092 (F-108) and TD-242 (F-13). Rework task 012 defined. `test-plan.md` TC-011 (bug contracts preserved) still forbids the DECISION and evidence edits now permitted; test planning must amend it and add TCs for AC-23 and AC-24 and the AC-22 mutations. |
+| 2026-11-28 | Code review round 4 follow-up (G3): the task prompt's held-work routing line is recorded as task-only prompt contract literals, verified by TC-029. |

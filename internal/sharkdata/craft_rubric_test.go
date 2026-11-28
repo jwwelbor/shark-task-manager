@@ -288,11 +288,10 @@ func TestE31F01_TC013_DeepReviewWorkersLoadCraftRubric(t *testing.T) {
 	runner, _, found = strings.Cut(runner, "## Runner 3")
 	require.True(t, found)
 	// Both load forms: the skill read and the extracted file.
-	assert.Contains(t, runner, "shark skill get quality context/craft-rubric.md")
-	assert.Contains(t, runner, "extracted file")
+	assert.Contains(t, runner, "shark skill get quality context/craft-rubric.md`, or each extracted file")
 	// The native Workflow runner builds its own worker load instruction.
 	assert.Contains(t, deepReviewText(t, "scripts/review_workflow.js"),
-		"shark skill get quality context/craft-rubric.md")
+		"shark skill get quality context/craft-rubric.md (or the corresponding extracted bundle files)")
 }
 
 func TestE31F01_TC013_DeepReviewDefersToCraftRubric(t *testing.T) {
@@ -363,6 +362,20 @@ func TestE31F01_TC001_StandardsTemplateDefinesLimitExceptions(t *testing.T) {
 	limits := section(t, outputA, "\n## Quality Limits\n", "\n## ")
 	assert.Contains(t, limits, "\n### Limit exceptions\n")
 	assert.Contains(t, limits, "| Unit | Limit | Recorded value | Reason | Decision |")
+
+	// The authority rules are prose above the example headings.
+	rules := section(t, outputA, "\n### Quality Limits and Testing Conventions\n", "\n### Required Headings")
+	for _, rule := range []string{
+		"Only an architect or owner decision adds or changes a row",
+		"a development worker never adds one for its own change",
+		"A row covers only a unit that existed before the change",
+		"only while the unit's measurement is at or below the recorded value",
+		"the unit also carries that tool's own suppression citing the row",
+	} {
+		t.Run(rule, func(t *testing.T) {
+			assert.Contains(t, rules, rule)
+		})
+	}
 }
 
 func TestE31F01_TC001_StandardsTemplateRequiresTestingConventions(t *testing.T) {
